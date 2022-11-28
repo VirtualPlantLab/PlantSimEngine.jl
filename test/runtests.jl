@@ -1,6 +1,15 @@
 using PlantSimEngine
 using Test
+using Tables, DataFrames
 
-@testset "PlantSimEngine.jl" begin
-    # Write your tests here.
+@testset "initialisations" begin
+    include("test-initialisations.jl")
+end
+
+@testset "Status" begin
+    include("test-Status.jl")
+end
+
+@testset "TimeStepTable" begin
+    include("test-TimeStepTable.jl")
 end
