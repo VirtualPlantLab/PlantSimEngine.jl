@@ -9,3 +9,4 @@ WIP package for defining and running processes and models related to plants, at 
 # Road map
 
 - [ ] Remove dev version of PlantMeteo (use the published version)
+- [ ] Move documentation from PlantBiophysics here
