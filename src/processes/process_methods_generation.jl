@@ -11,12 +11,18 @@ in an Array
 - The method that applies the computation over several meteo time steps (called Weather) and
 possibly several objects
 - A method for calling the process without any meteo (*e.g.* for fitting)
-- A method to apply the above over MTG nodes
+- A method to apply the above over MTG nodes (see details)
 - A non-mutating version of the function (make a copy before the call, and return the copy)
 
 The macro returns two functions: the mutating one and the non-mutating one.
 For example `energy_balance()` and `energy_balance!()` for the energy balance. And of course
 the function that implements the computation is assumed to be `energy_balance!_()`.
+
+# Details
+
+Note that the `extra` argument can be anything, and its use only depends on the algorithm used. 
+This argument is not available for MTG computations, as it is used to pass the MTF Node that is
+being processed, to *e.g.* get the node's children values.
 
 # Examples
 
@@ -32,7 +38,7 @@ macro gen_process_methods(f)
 
     expr = quote
 
-        function $(esc(f_))(mod_type, models, status, meteo=nothing, constants=nothing)
+        function $(esc(f_))(mod_type, models, status, meteo=nothing, constants=nothing, extra=nothing)
             process_models = Dict(process => typeof(getfield(models, process)).name.wrapper for process in keys(models))
             error(
                 "No model was found for this combination of processes:",
@@ -42,33 +48,33 @@ macro gen_process_methods(f)
         end
 
         # Base method that calls the actual algorithms (NB: or calling it without meteo too):
-        function $(esc(mutating_f))(object::ModelList{T,S}, meteo::M=nothing, constants=PlantMeteo.Constants()) where {T,S<:Status,M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}}
-            $(esc(f_))(object.models.$(process_field), object.models, object.status, meteo, constants)
+        function $(esc(mutating_f))(object::ModelList{T,S}, meteo::M=nothing, constants=PlantMeteo.Constants(), extra=nothing) where {T,S<:Status,M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}}
+            $(esc(f_))(object.models.$(process_field), object.models, object.status, meteo, constants, extra)
             return nothing
         end
 
         # Method for a status with several TimeSteps but one meteo only (or no meteo):
-        function $(esc(mutating_f))(object::ModelList{T,S}, meteo::M=nothing, constants=PlantMeteo.Constants()) where {T,S,M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}}
+        function $(esc(mutating_f))(object::ModelList{T,S}, meteo::M=nothing, constants=PlantMeteo.Constants(), extra=nothing) where {T,S,M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}}
 
             for i in Tables.rows(status(object))
-                $(esc(f_))(object.models.$(process_field), object.models, i, meteo, constants)
+                $(esc(f_))(object.models.$(process_field), object.models, i, meteo, constants, extra)
             end
 
             return nothing
         end
 
         # Process method over several objects (e.g. all leaves of a plant) in an Array
-        function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants()) where {O<:AbstractArray}
+        function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants(), extra=nothing) where {O<:AbstractArray}
             for i in values(object)
-                $(mutating_f)(i, meteo, constants)
+                $(mutating_f)(i, meteo, constants, extra)
             end
             return nothing
         end
 
         # Process method over several objects (e.g. all leaves of a plant) in a kind of Dict.
-        function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants()) where {O<:AbstractDict}
+        function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants(), extra=nothing) where {O<:AbstractDict}
             for (k, v) in object
-                $(mutating_f)(v, meteo, constants)
+                $(mutating_f)(v, meteo, constants, extra)
             end
             return nothing
         end
@@ -77,7 +83,8 @@ macro gen_process_methods(f)
         function $(esc(mutating_f))(
             object::T,
             meteo::Weather,
-            constants=PlantMeteo.Constants()
+            constants=PlantMeteo.Constants(),
+            extra=nothing
         ) where {T<:Union{AbstractArray,AbstractDict}}
 
             # Check if the meteo data and the status have the same length (or length 1)
@@ -87,21 +94,21 @@ macro gen_process_methods(f)
             for obj in object
                 # Computing for each time-step:
                 for (i, meteo_i) in enumerate(meteo.data)
-                    $(esc(f_))(obj.models.$(process_field), obj.models, obj[i], meteo_i, constants)
+                    $(esc(f_))(obj.models.$(process_field), obj.models, obj[i], meteo_i, constants, extra)
                 end
             end
 
         end
 
         # If we call weather with one component only:
-        function $(esc(mutating_f))(object::T, meteo::Weather, constants=PlantMeteo.Constants()) where {T<:ModelList}
+        function $(esc(mutating_f))(object::T, meteo::Weather, constants=PlantMeteo.Constants(), extra=nothing) where {T<:ModelList}
 
             # Check if the meteo data and the status have the same length (or length 1)
             check_status_wheather(object, meteo)
 
             # Computing for each time-steps:
             for (i, meteo_i) in enumerate(meteo.data)
-                $(esc(f_))(object.models.$(process_field), object.models, object.status[i], meteo_i, constants)
+                $(esc(f_))(object.models.$(process_field), object.models, object.status[i], meteo_i, constants, extra)
             end
         end
 
@@ -118,7 +125,11 @@ macro gen_process_methods(f)
             # initialize the MTG nodes with the corresponding models:
             init_mtg_models!(mtg, models, attr_name=attr_name)
 
-            MultiScaleTreeGraph.transform!(mtg, attr_name => (x -> $(mutating_f)(x, meteo, constants)), ignore_nothing=true)
+            MultiScaleTreeGraph.transform!(
+                mtg,
+                (node) -> $(mutating_f)(node[attr_name], meteo, constants, node),
+                ignore_nothing=true
+            )
         end
 
         # Compatibility with MTG + Weather, compute all nodes for one time step, then move to the next time step.
@@ -157,7 +168,7 @@ macro gen_process_methods(f)
 
                 MultiScaleTreeGraph.transform!(
                     mtg,
-                    attr_name => (x -> Symbol($(esc(process_field))) in keys(x.models) && $(mutating_f)(x, meteo_i, constants)),
+                    (node) -> Symbol($(esc(process_field))) in keys(node[attr_name].models) && $(mutating_f)(node[attr_name], meteo_i, constants, node),
                     (node) -> pull_status_one_step!(node, i, attr_name=attr_name),
                     ignore_nothing=true
                 )
@@ -168,10 +179,11 @@ macro gen_process_methods(f)
         function $(esc(non_mutating_f))(
             object::O,
             meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,Weather}=nothing,
-            constants=PlantMeteo.Constants()
+            constants=PlantMeteo.Constants(),
+            extra=nothing
         ) where {O<:Union{ModelList,AbstractArray,AbstractDict}}
             object_tmp = copy(object)
-            $(esc(mutating_f))(object_tmp, meteo, constants)
+            $(esc(mutating_f))(object_tmp, meteo, constants, extra)
             return object_tmp
         end
     end

@@ -8,7 +8,7 @@ struct Process1Model <: AbstractTestModel
 end
 PlantSimEngine.inputs_(::Process1Model) = (var1=-Inf, var2=-Inf)
 PlantSimEngine.outputs_(::Process1Model) = (var3=-Inf,)
-function process1!_(::Process1Model, models, status, meteo, constants=nothing)
+function process1!_(::Process1Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var3 = models.process1.a + status.var1 * status.var2
 end
 
@@ -19,7 +19,7 @@ struct Process2Model <: AbstractTestModel end
 PlantSimEngine.inputs_(::Process2Model) = (var1=-Inf, var3=-Inf)
 PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (process1=Process1Model,)
-function process2!_(::Process2Model, models, status, meteo, constants=nothing)
+function process2!_(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
     process1!_(models.process1, models, status, meteo, constants)
     # computing var4 and var5:
@@ -35,7 +35,7 @@ struct Process3Model <: AbstractTestModel end
 PlantSimEngine.inputs_(::Process3Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf)
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
-function process3!_(::Process3Model, models, status, meteo, constants=nothing)
+function process3!_(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
     process2!_(models.process2, models, status, meteo, constants)
     # re-computing var4:
