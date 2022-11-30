@@ -6,6 +6,7 @@ import Tables
 # For tree dependency:
 import AbstractTrees
 import Term
+import Markdown
 
 # For MTG compatibility:
 import MultiScaleTreeGraph

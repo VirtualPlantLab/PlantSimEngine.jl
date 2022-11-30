@@ -1,28 +1,26 @@
 """
     @gen_process_methods(process::String)
 
-This macro generate all standard methods for processes:
+This macro generate the abstract type and standard functions for a process, along with 
+their documentation.
 
-- The base method that calls the actual algorithms implemented using the process name
-    suffixed by `_`, *e.g.* `photosynthesis_`.
+It generates the three following functions (replace process by your own process name):
+- `process`: a non mutating function that makes a copy of the object
+- `process!`: a mutating function that updates the object status
+- `process!_`: the actual workhorse function that does the computation, and is called by the 
+two previous functions under the hood. Modelers implement their own method for this function 
+for their own model types.
+
+The two first functions have several methods:
+
+- The base method that runs over one time-step and one object.
 - The method applying the computation over several objects (*e.g.* all leaves of a plant)
 in an Array
 - The same method over a Dict(-alike) of objects
-- The method that applies the computation over several meteo time steps (called Weather) and
+- The method that applies the computation over several meteo time steps and
 possibly several objects
 - A method for calling the process without any meteo (*e.g.* for fitting)
 - A method to apply the above over MTG nodes (see details)
-- A non-mutating version of the function (make a copy before the call, and return the copy)
-
-The macro returns two functions: the mutating one and the non-mutating one.
-For example `energy_balance()` and `energy_balance!()` for the energy balance. And of course
-the function that implements the computation is assumed to be `energy_balance!_()`.
-
-# Details
-
-Note that the `extra` argument can be anything, and its use only depends on the algorithm used. 
-This argument is not available for MTG computations, as it is used to pass the MTF Node that is
-being processed, to *e.g.* get the node's children values.
 
 # Examples
 
@@ -36,8 +34,50 @@ macro gen_process_methods(f)
     mutating_f = Symbol(string(f, "!"))
     f_ = Symbol(string(mutating_f, "_")) # The actual function implementing the process
 
+    # We need strings for the docs: 
+    f_str = string(f_)
+    mutating_f_str = string(mutating_f)
+    non_mutating_f_str = string(non_mutating_f)
+    process_name = string(process_field)
+    process_abstract_type_name = string("Abstract", titlecase(process_name), "Model")
+    process_abstract_type = Symbol(process_abstract_type_name)
+
     expr = quote
 
+        # Default method, when no model is implemented yet, or when the model is not associated to the process we try to simulate
+        @doc """
+        $($f_str)(
+            mod_type::DataType,
+            object::ModelList,
+            status,
+            meteo::M=nothing, 
+            constants=PlantMeteo.Constants(), 
+            extra=nothing
+        ) where {M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}). 
+
+        The base function for the simulation of the `$($process_name)` process. 
+        Modelers should implement a method for this function for their own model type, and 
+        `PlantSimEngine.jl` will automatically handle everything else.
+
+        # Arguments
+
+        - `mod_type::DataType`: The type of the model to use for the simulation, used for 
+        dispatching to the right model implementation.
+        - `object::ModelList`: The list of models to simulate.
+        - `status`: The status of the simulation, usually from the object, but not always (can be a 
+        subset of for e.g. one time-step).
+        - `meteo::M`: The meteo data to use for the simulation.
+        - `constants=PlantMeteo.Constants()`: The constants to use for the simulation.
+        - `extra=nothing`: Extra arguments to pass to the model. This is useful for *e.g.* passing
+         the node of an MTG to the model.
+
+        # Notes
+
+        This function is the simulation workhorse, and is called by the `$($non_mutating_f_str)` 
+        and `$($mutating_f_str)` functions under the hood. 
+
+        Users should never have to call this function directly.
+        """
         function $(esc(f_))(mod_type, models, status, meteo=nothing, constants=nothing, extra=nothing)
             process_models = Dict(process => typeof(getfield(models, process)).name.wrapper for process in keys(models))
             error(
@@ -120,7 +160,7 @@ macro gen_process_methods(f)
             constants=PlantMeteo.Constants()
         ) where {M<:ModelList}
             # Define the attribute name used for the models in the nodes
-            attr_name = MultiScaleTreeGraph.cache_name("PlantBiophysics models")
+            attr_name = MultiScaleTreeGraph.cache_name("PlantSimEngine models")
 
             # initialize the MTG nodes with the corresponding models:
             init_mtg_models!(mtg, models, attr_name=attr_name)
@@ -140,7 +180,7 @@ macro gen_process_methods(f)
             constants=PlantMeteo.Constants()
         ) where {M<:ModelList}
             # Define the attribute name used for the models in the nodes
-            attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantBiophysics models"))
+            attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
             # Init the status for the meteo step only (with an PlantMeteo.AbstractAtmosphere)
             to_init = init_mtg_models!(mtg, models, 1, attr_name=attr_name)
@@ -186,5 +226,161 @@ macro gen_process_methods(f)
             $(esc(mutating_f))(object_tmp, meteo, constants, extra)
             return object_tmp
         end
+
+        @doc """
+        $($mutating_f_str)(
+            object::ModelList,
+            meteo::M=nothing, 
+            constants=PlantMeteo.Constants(), 
+            extra=nothing
+        ) where {M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}). 
+
+
+        $($non_mutating_f_str)(
+            object::ModelList,
+            meteo::M=nothing, 
+            constants=PlantMeteo.Constants(), 
+            extra=nothing
+        ) where {M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}). 
+
+        $($mutating_f_str)(
+            object::MultiScaleTreeGraph.Node,
+            models::Dict{String,M},
+            meteo::Weather,
+            constants=PlantMeteo.Constants()
+        )
+
+
+        Computes the `$($process_name)` process for one or several components based on the type of 
+        the model the object was parameterized with in `object.`$($process_name)``, and on one or 
+        several meteorology time-steps.
+
+        # Arguments
+        - `object::ModelList`: the object to simulate. It can be a `ModelList`, a `Dict` or an `AbstractArray` of,
+        or a MultiScaleTreeGraph.Node.
+        - `models::Dict{String,M}`: the models to use for the simulation. It is a `Dict` with the node symbols as 
+        keys and the associated ModelList as value. It is used only for the MTG version.
+        - `meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,Weather}`: the meteo data to use for the simulation.
+        - `constants=PlantMeteo.Constants()`: the constants to use for the simulation.
+        - `extra=nothing`: extra data to use for the simulation.
+
+        # Returns 
+
+        The non mutating function returns a simulated copy of the object, and the
+        mutating version modifies the object passed as argument, and returns nothing. 
+        Users may retrieve the results from the object using the [`status`](@ref) function (see examples).
+
+        # Notes
+
+        This function calls `$($f_str)` under the hood, but manages the details about time-steps,
+        objects and MTG nodes.
+
+        # Examples
+
+        ```julia
+        using PlantSimEngine, PlantMeteo
+
+        # Create a model implementation
+        struct DummyModel <: Abstract$(titlecase($process_name))Model end
+
+        # Define the inputs and outputs of the model with default values:
+        PlantSimEngine.inputs_(::DummyModel) = (X = -Inf, )
+        PlantSimEngine.outputs_(::DummyModel) = (Y = -Inf, )
+
+        # Implement the model:
+        function $($f_str)(::DummyModel,object,status,meteo,constants,extra=nothing)
+            status.Y = status.X + meteo.T
+        end
+
+        # Create a model list with a dummy model, and initalize X to 0.0:
+        models = ModelList(
+            $($process_name) = DummyModel(),
+            status = (X=0.0,),
+        )
+
+        # Create a meteo
+        meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65)
+
+        # Simulate the process:
+        $($mutating_f_str)(models, meteo)
+
+        # Retrieve the results:
+        (models[:X],models[:Y])
+        ```
+        """
+        $(mutating_f), $(non_mutating_f)
+
+        # Generate the abstract struct for the process:
+        @doc """
+        `$($process_name)` process abstract model. 
+
+        All models implemented to simulate the `$($process_name)` process must be a subtype of this type, *e.g.* 
+        `struct My$($(titlecase(process_name)))Model <: $($process_abstract_type_name) end`.
+
+        """
+        abstract type $(esc(process_abstract_type)) <: AbstractModel end
+
+        # @info "Generated the $(esc(process_field)) process"
+
     end
+
+    # Print help when creating a process:
+    dummy_type_name = string("My", titlecase(process_name), "Model")
+    p = Term.RenderableText(
+        Markdown.parse("""\'{underline bold red}$(process_name){/underline bold red}\' process, generated:
+
+        * {#8abeff}$(mutating_f)(){/#8abeff} to compute the process in-place.      
+
+        * {#8abeff}$(non_mutating_f)(){/#8abeff} to compute the process and return a copy.    
+
+        * {#8abeff}$(f_)(){/#8abeff} that is used to call the actual model implementation.    
+
+        * {#8abeff}$process_abstract_type{/#8abeff}, an abstract struct used as a supertype for models implementations.
+
+        !!! tip "What's next?"
+            You can now define one or several models implementations for the {underline bold red}$(process_name){/underline bold red} process
+            by adding a method to {#8abeff}$(f_){/#8abeff} with your own model type
+
+        Here's an example implementation:
+
+        ```julia
+        # Define a new model type:
+        struct $(dummy_type_name) <: $process_abstract_type
+            # The model parameters here, *e.g.*:
+            a::Float64
+        end
+
+        # Define the model inputs and outputs by adding methods 
+        # to inputs_ and outputs_ from PlantSimEngine:
+        PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
+        PlantSimEngine.outputs_(::$dummy_type_name) = (Y=-Inf,)
+
+        # Define the model implementation by adding a method to $(f_):
+        function $(f_)(
+            ::$dummy_type_name,
+            models,
+            status,
+            meteo,
+            constants,
+            extra
+        )
+            # The model implementation is given here, *e.g.*:
+            status.Y = model.$(process_name).a * meteo.CO2 + status.X
+        end
+        ```
+
+        !!! tip "Variables and parameters usage"
+            Note that {#8abeff}$(f_){/#8abeff} takes six arguments: the model type (used
+            for dispatch), the ModelList, the status, the meteorology, the constants and
+            any extra values.
+            Then we can use variables from the status as inputs or outputs, model parameters
+            from the ModelList (indexing by process, here using "$(process_name)" as the
+            process name), and meteorology variables.
+        """
+        )
+    )
+
+    print(p)
+
+    return expr
 end

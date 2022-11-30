@@ -1,19 +1,19 @@
 # [Model implementation in 5 minutes](@id model_implementation_page)
 
 ```@setup usepkg
-using PlantBiophysics
+using PlantSimEngine
 import PlantBiophysics: inputs_, outputs_, photosynthesis!, stomatal_conductance!
 ```
 
 ## Introduction
 
-`PlantBiophysics.jl` was designed to make new model implementation very simple. So let's learn about how to implement your own model with a simple example: implementing a new stomatal conductance model.
+`PlantSimEngine.jl` was designed to make new model implementation very simple. So let's learn about how to implement your own model with a simple example: implementing a new stomatal conductance model.
 
 ## Inspiration
 
 If you want to implement a new model, the best way to do it is to start from another implementation.
 
-So for a photosynthesis model, I advise you to look at the implementation of the `FvCB` model in this Julia file: [src/photosynthesis/FvCB.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/photosynthesis/FvCB.jl).
+So for a photosynthesis model, I advise you to look at the implementation of the `FvCB` model from `PlantBiophysics.jl`, available from this Julia file: [src/photosynthesis/FvCB.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/photosynthesis/FvCB.jl).
 
 For an energy balance model you can look at the implementation of the `Monteith` model in [src/energy/Monteith.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), and for a stomatal conductance model in [src/conductances/stomatal/medlyn.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl).
 
@@ -41,14 +41,14 @@ The purpose of the structure is two-fold:
 Let's take the [stomatal conductance model from Medlyn et al. (2011)](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl#L37) as a starting point. The structure of the model (or type) is defined as follows:
 
 ```julia
-struct Medlyn{T} <: AbstractGsModel
+struct Medlyn{T} <: PlantBiophysics.AbstractGsModel
     g0::T
     g1::T
     gs_min::T
 end
 ```
 
-The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractGsModel`](@ref). This step is very important as it tells to the package what kind of model it is. In this case, it is a stomatal conductance model, that's why we use [`AbstractGsModel`](@ref). We would use [`AbstractAModel`](@ref) instead for a photosynthesis model, [`AbstractEnergyModel`](@ref) for an energy balance model, and [`AbstractInterceptionModel`](@ref) for a light interception model.
+The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractGsModel`](@ref). This step is very important as it tells to the package what kind of process the model simulates. In this case, it is a model for the stomatal conductance process, which is defined in `PlantBiophysics.jl`. We would use [`AbstractAModel`](@ref) instead for a photosynthesis model, [`AbstractEnergyModel`](@ref) for an energy balance model, and [`AbstractInterceptionModel`](@ref) for a light interception model.
 
 For another example, the [`Fvcb`](@ref) model is a subtype of [`AbstractAModel`](@ref). You can check this using:
 
