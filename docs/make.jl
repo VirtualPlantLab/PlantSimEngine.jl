@@ -4,10 +4,10 @@ using Documenter
 DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine); recursive=true)
 
 makedocs(;
-    modules=[XPalm],
+    modules=[PlantSimEngine],
     authors="Rémi Vezy <VEZY@users.noreply.github.com> and contributors",
     repo="https://github.com/VEZY/PlantSimEngine.jl/blob/{commit}{path}#{line}",
-    sitename="XPalm.jl",
+    sitename="PlantSimEngine.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://VEZY.github.io/PlantSimEngine.jl",
@@ -16,9 +16,14 @@ makedocs(;
     ),
     pages=[
         "Home" => "index.md",
-        "Getting started" => [
-            "TL;DR" => "./getting_started/get_started.md",
-            "Parameter fitting" => "./getting_started/first_fit.md",
+        "Design" => "design.md",
+        "Extending" => [
+            "Processes" => "./extending/implement_a_process.md",
+            "Models" => "./extending/implement_a_model.md",
+        ],
+        "Coupling" => [
+            "Users" => "./model_coupling/model_coupling_user.md",
+            "Modelers" => "./model_coupling/model_coupling_modeler.md",
         ],
         "API" => "API.md"
     ]

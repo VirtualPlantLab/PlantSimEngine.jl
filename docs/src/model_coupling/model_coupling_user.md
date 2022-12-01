@@ -1,5 +1,9 @@
 # Model coupling for users
 
+```@setup usepkg
+using PlantSimEngine
+```
+
 `PlantSimEngine.jl` is designed to make model coupling simple for both the modeler and the user. For example, `PlantBiophysics.jl` implements the [`Fvcb`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Fvcb) model to simulate the photosynthesis process. This model needs the stomatal conductance process to be simulated, so it calls the `stomatal_conductance_` function at some point. Note that it does not force any model for its computation, just the process. This ensures that users can choose whichever model they want to use for this simulation, independent of the photosynthesis model. 
 
 So in practice, using `Fvcb` requires a stomatal conductance model in the `ModelList` to compute `Gₛ`. We can use the one from Medlyn et al. (2011) as an example:

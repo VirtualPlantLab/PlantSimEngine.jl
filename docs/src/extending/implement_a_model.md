@@ -2,7 +2,7 @@
 
 ```@setup usepkg
 using PlantSimEngine
-import PlantBiophysics: inputs_, outputs_, photosynthesis!, stomatal_conductance!
+using PlantBiophysics
 ```
 
 ## Introduction
@@ -41,19 +41,19 @@ The purpose of the structure is two-fold:
 Let's take the [stomatal conductance model from Medlyn et al. (2011)](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl#L37) as a starting point. The structure of the model (or type) is defined as follows:
 
 ```julia
-struct Medlyn{T} <: PlantBiophysics.AbstractGsModel
+struct Medlyn{T} <: AbstractStomatal_ConductanceModel
     g0::T
     g1::T
     gs_min::T
 end
 ```
 
-The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractGsModel`](@ref). This step is very important as it tells to the package what kind of process the model simulates. In this case, it is a model for the stomatal conductance process, which is defined in `PlantBiophysics.jl`. We would use [`AbstractAModel`](@ref) instead for a photosynthesis model, [`AbstractEnergyModel`](@ref) for an energy balance model, and [`AbstractInterceptionModel`](@ref) for a light interception model.
+The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractStomatal_ConductanceModel`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/conductances/stomatal/medlyn.jl#L42). This step is very important as it tells to the package what kind of process the model simulates. In this case, it is a model for the stomatal conductance process, which is defined in `PlantBiophysics.jl`. We would use `AbstractPhotosynthesisModel` instead for a photosynthesis model, `AbstractEnergy_BalanceModel` for an energy balance model, and `AbstractLight_InterceptionModel` for a light interception model.
 
-For another example, the [`Fvcb`](@ref) model is a subtype of [`AbstractAModel`](@ref). You can check this using:
+For another example, the [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) model is a subtype of [`AbstractPhotosynthesisModel`](@ref). You can check this using:
 
 ```@example usepkg
-Fvcb <: AbstractAModel
+Fvcb <: AbstractPhotosynthesisModel
 ```
 
 Then comes the parameters names, and their types. The type of the parameters is always forced to be of the same type in our example. This is done using the `T` notation as follows:
@@ -64,7 +64,7 @@ Then comes the parameters names, and their types. The type of the parameters is 
 The `T` is completely free, you can use any other letter or word instead. If you have parameters that you know will be of different types, you can either force their type, or make them parameterizable too, using another letter, *e.g.*:
 
 ```julia
-struct YourStruct{T,S} <: AbstractGsModel
+struct YourStruct{T,S} <: PlantBiophysics.AbstractStomatal_ConductanceModel
     g0::T
     g1::T
     gs_min::T
@@ -77,7 +77,7 @@ Parameterized types are very useful because they let the user choose the type of
 But why not forcing the type such as the following:
 
 ```julia
-struct YourStruct <: AbstractGsModel
+struct YourStruct <: PlantBiophysics.AbstractStomatal_ConductanceModel
     g0::Float64
     g1::Float64
     gs_min::Float64
@@ -92,7 +92,7 @@ For example a user could use the `Particles` type from [MonteCarloMeasurements.j
 So let's implement a new structure for our stomatal conductance model:
 
 ```@example usepkg
-struct BandB{T} <: AbstractGsModel
+struct BandB{T} <: PlantBiophysics.AbstractStomatal_ConductanceModel
     g0::T
     g1::T
     gs_min::T
@@ -105,26 +105,26 @@ Well, the only thing we had to change relative to the one from Medlyn is the nam
 
 The models are implemented in a function named after the process and a "!\_" as a suffix. The exclamation point is used in Julia to tell users the function is mutating, *i.e.* it modifies its input.
 
-Your implementation should always modify the input status and return nothing. This ensures that models compute fast. The "_" suffix is used to tell users that this is the internal implementation.
+Your implementation should always modify the input status and return nothing. This ensures that models compute fast. The "_" suffix is used to tell users that this is the internal implementation, which is only used by modelers.
 
-Remember that PlantBiophysics only exports the generic functions of the processes to users because they are the one that handles every other details, such as checking that the object is correctly initialized, and applying the computations over objects and time-steps. This is nice because as a developer you don't have to deal with those details, and you can just concentrate on your implementation.
+Remember that PlantSimEngine only exports the generic functions of the processes to users because they are the one that handles every other details, such as checking that the object is correctly initialized, and applying the computations over objects and time-steps. This is nice because as a developer you don't have to deal with those details, and you can just concentrate on your implementation.
 
 However, you have to remember that if your model calls another one, you'll have to use the internal implementation directly to avoid the overheads of the generic functions (you don't want all these checks).
 
-So if you want to implement a new photosynthesis model, you have to make your own method for the `photosynthesis!_` function. But here we are trying to implement a new stomatal conductance model. Well, this one is the most complicated process to implement actually, because it is computed on two steps: `stomatal_conductance!_` and `gs_closure`.
+So if you want to implement a new photosynthesis model, you have to make your own method for the `photosynthesis!_` function. But here we are trying to implement a new stomatal conductance model. Well, this one is the most complicated process to implement actually, because it is computed in two steps: `stomatal_conductance!_` and `gs_closure`.
 
 `gs_closure` is the function that actually implements the conductance model, but only the stomatal closure part. This one does not modify its input, it computes the result and returns it. Then `stomatal_conductance!_` uses this output to compute the stomatal conductance. But why not implementing just `stomatal_conductance!_`? Because `gs_closure` is used elsewhere, usually in the photosynthesis model, before actually computing the stomatal conductance.
 
 So in practice, the `stomatal_conductance!_` implementation is rather generic and will not be modified by developers. They will rather implement their method for `gs_closure`, that will be used automatically by `stomatal_conductance!_`.
 
 !!! warning
-    We need to import all the functions we need to use or extend, so Julia knows we are extending the methods from PlantBiophysics, and not defining our own functions. To do so, you can do *e.g.*:
-    `import PlantBiophysics: inputs_, outputs_, photosynthesis!, stomatal_conductance!`
+    We need to import all the functions we need to use or extend, so Julia knows we are extending the methods from PlantSimEngine and/or PlantBiophysics, and not defining our own functions. To do so, you can prefix the said functions by the package name, or import them before *e.g.*:
+    `import PlantSimEngine: inputs_, outputs_
 
 So let's do it! Here is our own implementation of the stomatal closure for a `ModelList` component models:
 
 ```@example usepkg
-function gs_closure(::BandB, models, status, meteo)
+function PlantBiophysics.gs_closure(::BandB, models, status, meteo, constants, extras)
     models.stomatal_conductance.g1 * meteo.Rh / status.Cₛ
 end
 ```
@@ -136,11 +136,13 @@ An important thing to note is that our variables are stored in different structu
 - `models`: the models parameters
 - `meteo`: the micro-climatic conditions
 - `status`: the input and output variables of the models
+- `constants`: the constants
+- `extras`: any other value or object
 
 !!! note
     The micro-meteorological conditions are always given for one time-step inside the models methods, so they are always of `Atmosphere` type. The `Weather` type of conditions are handled earlier by the generic functions.
 
-OK ! So that's it ? Almost. One last thing to do is to define a method for inputs/outputs so that PlantBiophysics knows which variables are needed for our model, and which it computes. Remember that the actual model is implemented for `stomatal_conductance!_`, so we have to tell PlantBiophysics which ones are needed, and what are their default value:
+OK ! So that's it ? Almost. One last thing to do is to define a method for inputs/outputs so that PlantSimEngine knows which variables are needed for our model, and which it computes. Remember that the actual model is implemented for `stomatal_conductance!_`, so we have to tell PlantSimEngine which ones are needed, and what are their default value:
 
 - Inputs: `:Rh` and `:Cₛ` for our specific implementation, and `:A` for `stomatal_conductance!_`
 - Outputs: our model does not compute any new variable, and `stomatal_conductance!_` computes, well, `:Gₛ`
@@ -148,11 +150,11 @@ OK ! So that's it ? Almost. One last thing to do is to define a method for input
 Here is how we actually implement our methods:
 
 ```@example usepkg
-function inputs_(::BandB)
+function PlantSimEngine.inputs_(::BandB)
     (Rh=-999.99,Cₛ=-999.99,A=-999.99)
 end
 
-function outputs_(::BandB)
+function PlantSimEngine.outputs_(::BandB)
     (Gₛ=-999.99,)
 end
 ```
@@ -182,7 +184,7 @@ You don't see a problem? Well your users won't either.
 Here's the problem: we use parametric types, and when we declared our structure, we said that all fields in our type will share the same type. This is the `T` here:
 
 ```julia
-struct BandB{T} <: AbstractGsModel
+struct BandB{T} <: PlantBiophysics.AbstractStomatal_ConductanceModel
     g0::T
     g1::T
     gs_min::T
@@ -213,15 +215,15 @@ BandB(g0 = 0.0, g1 = 2.0)
 
 This is nice, but again, completely optional.
 
-One more thing to implement is a method for the `dep` function that tells PlantBiophysics which processes (and models) are needed for your model to run (*i.e.* if your model is coupled to another model).
+One more thing to implement is a method for the `dep` function that tells PlantSimEngine which processes (and models) are needed for your model to run (*i.e.* if your model is coupled to another model).
 
-Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](@ref) to see how it works:
+Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) to see how it works:
 
 ```julia
-dep(::Fvcb) = (stomatal_conductance=AbstractGsModel,)
+PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
 ```
 
-Here we say to PlantBiophysics that the `Fvcb` model needs a model of type `AbstractGsModel` in the stomatal conductance process.
+Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
 
 The last optional thing to implement is a method for the `eltype` function:
 
@@ -236,14 +238,14 @@ OK that's it! Now you have a full new implementation of the stomatal conductance
 ## More details on model implementations
 
 Here is another example with a different approach in case you need it. So let's change our example from the stomatal conductance to the photosynthesis.
-For example [`Fvcb`](@ref) implements the model or Farquhar et al. (1980) to simulate the [`photosynthesis`](@ref) of C3 plants.
+For example `Fvcb` implements the model or Farquhar et al. (1980) to simulate the `photosynthesis` process of C3 plants.
 
-When the user calls the `photosynthesis` function, or its mutating version `photosynthesis!`, PlantBiophysics looks into the component models type, and the type of the model implemented for the photosynthesis, in this case, [`Fvcb`](@ref).
+When the user calls the `photosynthesis` function, or its mutating version `photosynthesis!`, PlantSimEngine looks into the component models type, and the type of the model implemented for the photosynthesis, in this case, `Fvcb`.
 
-Then, it calls the internal function [`photosynthesis!_`](@ref) that will dispatch the computation to the method that implements the model. This method looks like this:
+Then, it calls the internal function `photosynthesis!_` that will dispatch the computation to the method that implements the model. This method looks like this:
 
 ```julia
-function photosynthesis!_(::Fvcb, models, status, meteo, constants=Constants())
+function photosynthesis!_(::Fvcb, models, status, meteo, constants=Constants(), extras=nothing)
 
     [...]
 
@@ -260,23 +262,20 @@ Now if we look again at what are the fields of a [`ModelList`](@ref):
 fieldnames(ModelList)
 ```
 
-we see that it has two fields: `models` and `status`. The first one is a list of models named after the process they simulate. So if we want to simulate the photosynthesis with the `Fvcb` model, our [`ModelList`](@ref) needs an instance of the [`Fvcb`](@ref) structure for the `photosynthesis` process, like so:
+we see that it has two fields: `models` and `status`. The first one is a list of models named after the process they simulate. So if we want to simulate the photosynthesis with the `Fvcb` model, our [`ModelList`](@ref) needs an instance of the `Fvcb` structure for the `photosynthesis` process, like so:
 
 ```@example usepkg
 leaf = ModelList(photosynthesis = Fvcb());
 leaf.models.photosynthesis
 ```
 
-The `photosynthesis` field is then used as the first argument to the call to the internal function `photosynthesis!_`, which will call the method that implements [`Fvcb`](@ref), because our `photosynthesis` field is of type [`Fvcb`](@ref).
+The `photosynthesis` field is then used as the first argument to the call to the internal function `photosynthesis!_`, which will call the method that implements `Fvcb`, because our `photosynthesis` field is of type `Fvcb`.
 
 So if we want to implement our own model for the photosynthesis, we could do:
 
 ```@example usepkg
-# Import the functions we need so we can add our own methods:
-import PlantBiophysics: inputs_, outputs_, photosynthesis!_, stomatal_conductance!_
-
 # Make the struct to hold the parameters:
-struct OurModel{T} <: AbstractAModel
+struct OurModel{T} <: PlantBiophysics.AbstractPhotosynthesisModel
     a::T
     b::T
     c::T
@@ -288,27 +287,27 @@ function OurModel(;a = 400.0, b = 1000.0, c = 1.5)
 end
 
 # Define inputs:
-function inputs_(::OurModel)
+function PlantSimEngine.inputs_(::OurModel)
     (PPFD=-999.99, Tₗ=-999.99, Cₛ=-999.99)
 end
 
 # Define outputs:
-function outputs_(::OurModel)
+function PlantSimEngine.outputs_(::OurModel)
     (A=-999.99, Gₛ=-999.99)
 end
 
 # Tells Julia what is the type of elements:
 Base.eltype(x::OurModel{T}) where {T} = T
 
-# Implement the photosynthesis model:
-function photosynthesis!_(::OurModel, models, status, meteo, constants=Constants())
+# Implement the photosynthesis model (note that we prefix with PlantBiophysics to tell julia we add a method, not create a function):
+function PlantBiophysics.photosynthesis!_(::OurModel, models, status, meteo, constants=Constants(), extras=nothing)
 
     status.A =
         status.Cₛ / models.photosynthesis.a +
         status.PPFD / models.photosynthesis.b +
         status.Tₗ / models.photosynthesis.c
 
-    stomatal_conductance!_(models.stomatal_conductance, models, status, meteo)
+    PlantBiophysics.stomatal_conductance!_(models.stomatal_conductance, models, status, meteo, extras)
 end
 ```
 
