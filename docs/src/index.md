@@ -35,10 +35,6 @@ To use the package, execute this command from the Julia REPL:
 using PlantSimEngine
 ```
 
-## Examples
-
-See the [First simulation](@ref) section for examples.
-
 ## Make it yours 
 
 The package is developed so anyone can easily implement plant/crop models, use it freely and as you want, we have an MIT license. 

@@ -9,5 +9,6 @@ WIP package for defining and running processes and models related to plants, at 
 # Road map
 
 - [ ] Remove dev version of PlantMeteo (use the published version)
-- [ ] Move documentation from PlantBiophysics here
+- [x] Move documentation from PlantBiophysics here
+- [ ] Write doc with less dependence on PlantBiophysics
 - [ ] Add PlantBiophysics to test `Project.toml`, and move the tests on dependencies, model check etc... in this package test instead of in PlantBiophysics, and keep only the tests related to the model it implements in there.

@@ -1,3 +1,3 @@
 # Model coupling for modelers
 
-<!-- Make an example model coupling here (present e.g. FVCB) -->
+To come. We will present an example model coupling here (e.g. FVCB, or a custom model)

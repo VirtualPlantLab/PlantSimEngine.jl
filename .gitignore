@@ -5,3 +5,4 @@
 .DS_Store
 docs/Manifest.toml
 test/Manifest.toml
+docs/build/

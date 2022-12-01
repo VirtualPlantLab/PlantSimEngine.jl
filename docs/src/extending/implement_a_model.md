@@ -50,7 +50,7 @@ end
 
 The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractStomatal_ConductanceModel`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/conductances/stomatal/medlyn.jl#L42). This step is very important as it tells to the package what kind of process the model simulates. In this case, it is a model for the stomatal conductance process, which is defined in `PlantBiophysics.jl`. We would use `AbstractPhotosynthesisModel` instead for a photosynthesis model, `AbstractEnergy_BalanceModel` for an energy balance model, and `AbstractLight_InterceptionModel` for a light interception model.
 
-For another example, the [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) model is a subtype of [`AbstractPhotosynthesisModel`](@ref). You can check this using:
+For another example, the [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) model is a subtype of `AbstractPhotosynthesisModel`. You can check this using:
 
 ```@example usepkg
 Fvcb <: AbstractPhotosynthesisModel
@@ -159,7 +159,7 @@ function PlantSimEngine.outputs_(::BandB)
 end
 ```
 
-Note that both function end with an "_". This is because these functions are internal, they will not be called by the users directly. Users will use [`inputs`](@ref) and [`outputs`](@ref) instead, which call `inputs_` and `outputs_`, but stripping out the default values.
+Note that both function end with an "\_". This is because these functions are internal, they will not be called by the users directly. Users will use [`inputs`](@ref) and [`outputs`](@ref) instead, which call `inputs_` and `outputs_`, but stripping out the default values.
 
 ### The utility functions
 

@@ -33,7 +33,9 @@ export ModelList
 export init_mtg_models!
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
+export init_status!
 export @gen_process_methods
 export to_initialize, is_initialized, init_variables, dep
+export inputs, outputs
 
 end

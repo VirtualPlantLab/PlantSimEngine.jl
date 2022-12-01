@@ -3,7 +3,7 @@
 `PlantSimEngine.jl` is designed to ease the process of modelling and simulation of plants, soil and atmosphere related processes, or really any system (*e.g.* agroforestry system, agrivoltaics...). `PlantSimEngine.jl` aims at being the backbone tool for developing Functional-Structural Plant Models (FSPM) and crop models without the hassle of performance and other computer-science considerations.  
 
 ```@setup usepkg
-using PlantSimEngine, PlantBiophysics
+using PlantSimEngine, PlantBiophysics, PlantMeteo
 ```
 
 ## Definitions
@@ -12,7 +12,7 @@ using PlantSimEngine, PlantBiophysics
 
 A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
 
-A process is "declared", meaning we just define a process using the [`@gen_process_methods`](@ref), and then we implement models for its simulation. Declaring a process automatically generates three functions, for example [`energy_balance`](@ref) from `PlantBiophysics.jl` has:
+A process is "declared", meaning we just define a process using the [`@gen_process_methods`](@ref), and then we implement models for its simulation. Declaring a process automatically generates three functions, for example `energy_balance` from `PlantBiophysics.jl` has:
 
 - `energy_balance`: the generic function that makes a copy of the `modelList` and returns directly the status (not very efficient but easy to use)
 - `energy_balance!`: the faster, mutating, generic function. Here the user need to extract the outputs from the status after the simulation (note the `!` at the end of the name)
@@ -135,11 +135,12 @@ Some variables are inputs of models, but outputs of other models. When we couple
 
 To make a simulation, we usually need the climatic/meteorological conditions measured close to the object or component.
 
-Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](@ref), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`Weather`](@ref).
+Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`Weather`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Weather).
 
-The mandatory variables to provide for an [`Atmosphere`](@ref) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed in m s-1). We can declare such conditions like so:
+The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed in m s-1). We can declare such conditions like so:
 
 ```@example usepkg
+using PlantMeteo
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65)
 ```
 
@@ -151,10 +152,10 @@ More details are available from the [package documentation](https://vezy.github.
 
 Making a simulation is rather simple, we simply use the function with the name of the process we want to simulate, for example `PlantBiophysics.jl` implements:
 
-- [`stomatal_conductance`](@ref) for the stomatal conductance
-- [`photosynthesis`](@ref) for the photosynthesis
-- [`energy_balance`](@ref) for the energy balance
-- [`light_interception`](@ref) for the energy balance
+- `stomatal_conductance` for the stomatal conductance
+- `photosynthesis` for the photosynthesis
+- `energy_balance` for the energy balance
+- `light_interception` for the energy balance
 
 !!! note
     All functions exist in a mutating and a non-mutating form. Just add `!` at the end of the name of the function (*e.g.* `energy_balance!`) to use the mutating form for speed! 🚀
@@ -174,7 +175,7 @@ The `ModelList` should be initialized for the given process before calling the f
 
 ### Example simulation
 
-For example we can simulate the [`stomatal_conductance`](@ref) of a leaf like so:
+For example we can simulate the `stomatal_conductance` of a leaf like so:
 
 ```@example usepkg
 using PlantSimEngine, PlantBiophysics, PlantMeteo
@@ -196,7 +197,7 @@ leaf[:Gₛ]
 The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract the simulation outputs of a model list using the [`status`](@ref) function.
 
 !!! note
-    Getting the status is only useful when using the mutating version of the function (*e.g.* [`energy_balance!`](@ref)), as the non-mutating version returns the output directly.
+    Getting the status is only useful when using the mutating version of the function (*e.g.* `energy_balance!`), as the non-mutating version returns the output directly.
 
 The status usually is stored in a [`TimeStepTable`](@ref) structure with each time step being a [`Status`](@ref), but it can be any `Tables.jl` structure, such as a `DataFrame`.
 
