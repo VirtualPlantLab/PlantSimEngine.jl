@@ -280,6 +280,13 @@ macro gen_process_methods(f, doc::String="")
 
         # Notes
 
+        The models available for this process can be listed using `subtypes` on the process 
+        abstract type:
+
+        ```julia
+        subtypes($($process_abstract_type_name))
+        ```
+
         This function calls `$($f_str)` under the hood, but manages the details about time-steps,
         objects and MTG nodes.
 
@@ -348,11 +355,16 @@ macro gen_process_methods(f, doc::String="")
         All models implemented to simulate the `$($process_name)` process must be a subtype of this type, *e.g.* 
         `struct My$($(titlecase(process_name)))Model <: $($process_abstract_type_name) end`.
 
+        You can list all models implementing this process using `subtypes`:
+
+        # Examples
+
+        ```julia
+        subtypes($($process_abstract_type_name))
+        ```
         """
         abstract type $(esc(process_abstract_type)) <: AbstractModel end
-
-        # @info "Generated the $(esc(process_field)) process"
-
+        # Docs.getdoc(t::$(esc(process_abstract_type))) = "Documentation for MyType with value $(t.value)"
     end
 
     # Print help when creating a process:
