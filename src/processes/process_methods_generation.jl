@@ -1,10 +1,14 @@
 """
-    @gen_process_methods(process::String)
+    @gen_process_methods(process::String, doc::String="")
 
 This macro generate the abstract type and standard functions for a process, along with 
-their documentation.
+their documentation and prints out a little tutorial about how to implement a model.
 
-It generates the three following functions (replace process by your own process name):
+The abstract process type is then used as a supertype of all models implementations for the 
+process, and is named "Abstract<ProcessName>Model", *e.g.* `AbstractGrowthModel` for
+a process called growth.
+
+The three following functions are also generated (replace "process" by your own process name):
 - `process`: a non mutating function that makes a copy of the object
 - `process!`: a mutating function that updates the object status
 - `process!_`: the actual workhorse function that does the computation, and is called by the 
@@ -22,13 +26,17 @@ possibly several objects
 - A method for calling the process without any meteo (*e.g.* for fitting)
 - A method to apply the above over MTG nodes (see details)
 
+The first argument to `@gen_process_methods` is the new process name, 
+and the second is any additional documentation that should be added 
+to the `process` and `process!` functions.
+
 # Examples
 
 ```julia
-@gen_process_methods "dummy_process"
+@gen_process_methods "dummy_process" "This is a dummy process that shall not be used"
 ```
 """
-macro gen_process_methods(f)
+macro gen_process_methods(f, doc::String="")
 
     non_mutating_f = process_field = Symbol(f)
     mutating_f = Symbol(string(f, "!"))
@@ -227,7 +235,7 @@ macro gen_process_methods(f)
             return object_tmp
         end
 
-        @doc """
+        @doc string("""
         $($mutating_f_str)(
             object::ModelList,
             meteo::M=nothing, 
@@ -252,7 +260,7 @@ macro gen_process_methods(f)
 
 
         Computes the `$($process_name)` process for one or several components based on the type of 
-        the model the object was parameterized with in `object.`$($process_name)``, and on one or 
+        the model the object was parameterized with in `object.$($process_name)`, and on one or 
         several meteorology time-steps.
 
         # Arguments
@@ -277,37 +285,60 @@ macro gen_process_methods(f)
 
         # Examples
 
+        Import the packages: 
+
         ```julia
         using PlantSimEngine, PlantMeteo
+        ```
 
-        # Create a model implementation
+        Create a model implementation:
+
+        ```julia
         struct DummyModel <: Abstract$(titlecase($process_name))Model end
+        ```
 
-        # Define the inputs and outputs of the model with default values:
+        Define the inputs and outputs of the model with default values:
+
+        ```julia
         PlantSimEngine.inputs_(::DummyModel) = (X = -Inf, )
         PlantSimEngine.outputs_(::DummyModel) = (Y = -Inf, )
+        ```
 
-        # Implement the model:
+        Implement the model:
+
+        ```julia
         function $($f_str)(::DummyModel,object,status,meteo,constants,extra=nothing)
             status.Y = status.X + meteo.T
         end
+        ```
 
-        # Create a model list with a dummy model, and initalize X to 0.0:
+        Create a model list with a dummy model, and initalize X to 0.0:
+
+        ```julia
         models = ModelList(
             $($process_name) = DummyModel(),
             status = (X=0.0,),
         )
+        ```
 
-        # Create a meteo
+        Create a meteo
+
+        ```julia
         meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65)
+        ```
 
-        # Simulate the process:
+        Simulate the process:
+
+        ```julia
         $($mutating_f_str)(models, meteo)
+        ```
 
-        # Retrieve the results:
+        Retrieve the results:
+
+        ```julia
         (models[:X],models[:Y])
         ```
-        """
+        """, $(doc))
         $(mutating_f), $(non_mutating_f)
 
         # Generate the abstract struct for the process:
@@ -380,7 +411,7 @@ macro gen_process_methods(f)
         )
     )
 
-    print(p)
+    isinteractive() && print(p)
 
     return expr
 end
