@@ -1,6 +1,6 @@
 # Package design
 
-`PlantSimEngine.jl` is designed to ease the process of modelling and simulation of plants, soil and atmosphere related processes, or really any system (*e.g.* agroforestry system, agrivoltaics...). `PlantSimEngine.jl` aims at being the backbone tool for developing Functional-Structural Plant Models (FSPM) and crop models without the hassle of performance and other computer-science considerations.  
+`PlantSimEngine.jl` is designed to ease the process of modelling and simulation of plants, soil and atmosphere, or really any system (*e.g.* agroforestry system, agrivoltaics...). `PlantSimEngine.jl` aims at being the backbone tool for developing Functional-Structural Plant Models (FSPM) and crop models without the hassle of performance and other computer-science considerations.  
 
 ```@setup usepkg
 using PlantSimEngine, PlantBiophysics, PlantMeteo
@@ -12,15 +12,15 @@ using PlantSimEngine, PlantBiophysics, PlantMeteo
 
 A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
 
-A process is "declared", meaning we just define a process using the [`@gen_process_methods`](@ref), and then we implement models for its simulation. Declaring a process automatically generates three functions, for example `energy_balance` from `PlantBiophysics.jl` has:
+A process is "declared", meaning we just define a process using [`@gen_process_methods`](@ref), and then we implement models for its simulation. Declaring a process automatically generates three functions, for example `energy_balance` from `PlantBiophysics.jl` has:
 
 - `energy_balance`: the generic function that makes a copy of the `modelList` and returns directly the status (not very efficient but easy to use)
 - `energy_balance!`: the faster, mutating, generic function. Here the user need to extract the outputs from the status after the simulation (note the `!` at the end of the name)
-- `energy_balance!_`: the internal implementation with a method for each model. PlantBiophysics then uses multiple dispatch to choose the right method based on the model type. This is the function we need to extend when implementing a new model for the process
+- `energy_balance!_`: the basic implementation with a method for each model. PlantSimEngine uses multiple dispatch to choose the right method based on the model type. This is the function we need to extend when implementing a new model for the process.
 
 ### Models
 
-A process is simulated using a particular implementation of a model. Each model is implemented using a structure that lists the parameters of the model. For example, PlantBiophysics provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction.
+A process is simulated using a particular implementation, or **a model**. Each model is implemented using a structure that lists the parameters of the model. For example, PlantBiophysics provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction.
 
 Models can use three types of entries:
 

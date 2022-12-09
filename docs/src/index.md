@@ -35,12 +35,6 @@ To use the package, execute this command from the Julia REPL:
 using PlantSimEngine
 ```
 
-## Make it yours 
-
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want, we have an MIT license. 
-
-If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃
-
 ## Projects that use PlantSimEngine
 
 Take a look at these projects that use PlantSimEngine:
@@ -48,3 +42,8 @@ Take a look at these projects that use PlantSimEngine:
 - [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
 - [XPalm](https://github.com/PalmStudio/XPalm.jl)
 
+## Make it yours 
+
+The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license. 
+
+If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃
