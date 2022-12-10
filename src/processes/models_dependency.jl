@@ -123,8 +123,8 @@ function draw_dependency_trees(
     io,
     trees::DependencyTree;
     title="Dependency tree",
-    title_style::String=Term.TERM_THEME[].tree_title_style,
-    guides_style::String=Term.TERM_THEME[].tree_guide_style,
+    title_style::String="#FFA726 italic",
+    guides_style::String="#42A5F5",
     dep_tree_guides=(space=" ", vline="│", branch="├", leaf="└", hline="─")
 )
 
@@ -134,13 +134,13 @@ function draw_dependency_trees(
     for (p, tree) in trees.roots
         node = []
         draw_dependency_tree(tree, node, dep_tree_guides=dep_tree_guides)
-        push!(tree_panel, Term.Panel(node; fit=true, title=string(p), style="green dim"))
+        push!(tree_panel, Term.Panel(node...; fit=true, title=string(p), style="green dim"))
     end
 
     print(
         io,
         Term.Panel(
-            tree_panel;
+            tree_panel...;
             fit=true,
             title="{$(title_style)}$(title){/$(title_style)}",
             style="$(title_style) dim"
