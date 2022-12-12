@@ -106,7 +106,7 @@ end
 # Tells Julia what is the type of elements:
 Base.eltype(x::DummyGrowth{T}) where {T} = T
 
-# Implement the photosynthesis model:
+# Implement the growth model:
 function growth!_(::DummyGrowth, models, status, meteo, constants=Constants())
 
     # Compute the energy balance of the plant, coupled to the photosynthesis model:

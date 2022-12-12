@@ -136,7 +136,7 @@ macro gen_process_methods(f, doc::String="")
         ) where {T<:Union{AbstractArray,AbstractDict}}
 
             # Check if the meteo data and the status have the same length (or length 1)
-            check_status_wheather(object, meteo)
+            check_dimensions(object, meteo)
 
             # Each object:
             for obj in object
@@ -152,7 +152,7 @@ macro gen_process_methods(f, doc::String="")
         function $(esc(mutating_f))(object::T, meteo::Weather, constants=PlantMeteo.Constants(), extra=nothing) where {T<:ModelList}
 
             # Check if the meteo data and the status have the same length (or length 1)
-            check_status_wheather(object, meteo)
+            check_dimensions(object, meteo)
 
             # Computing for each time-steps:
             for (i, meteo_i) in enumerate(meteo.data)

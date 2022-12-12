@@ -26,6 +26,7 @@ include("processes/models_dependency.jl")
 include("processes/model_initialisation.jl")
 include("processes/models_inputs_outputs.jl")
 include("processes/process_methods_generation.jl")
+include("checks/dimensions.jl")
 
 export AbstractModel
 export AbstractModelList
@@ -37,5 +38,8 @@ export init_status!
 export @gen_process_methods
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs
+
+# Re-exporting PlantMeteo main functions:
+export Atmosphere, Weather
 
 end
