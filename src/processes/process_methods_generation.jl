@@ -1,5 +1,5 @@
 """
-    @gen_process_methods(process::String, doc::String="")
+    @gen_process_methods(process::String, doc::String=""; verbose::Bool=true)
 
 This macro generate the abstract type and standard functions for a process, along with 
 their documentation and prints out a little tutorial about how to implement a model.
@@ -27,8 +27,9 @@ possibly several objects
 - A method to apply the above over MTG nodes (see details)
 
 The first argument to `@gen_process_methods` is the new process name, 
-and the second is any additional documentation that should be added 
-to the `process` and `process!` functions.
+the second is any additional documentation that should be added 
+to the `process` and `process!` functions, and the third determines whether 
+the short tutorial should be printed or not.
 
 # Examples
 
@@ -36,7 +37,7 @@ to the `process` and `process!` functions.
 @gen_process_methods "dummy_process" "This is a dummy process that shall not be used"
 ```
 """
-macro gen_process_methods(f, doc::String="")
+macro gen_process_methods(f, doc::String=""; verbose=true)
 
     non_mutating_f = process_field = Symbol(f)
     mutating_f = Symbol(string(f, "!"))
@@ -423,7 +424,7 @@ macro gen_process_methods(f, doc::String="")
         )
     )
 
-    isinteractive() && print(p)
+    isinteractive() && verbose && print(p)
 
     return expr
 end
