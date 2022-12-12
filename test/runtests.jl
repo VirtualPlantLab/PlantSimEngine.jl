@@ -16,3 +16,7 @@ end
 @testset "TimeStepTable" begin
     include("test-TimeStepTable.jl")
 end
+
+@testset "Dimensions" begin
+    include("test-dimensions.jl")
+end

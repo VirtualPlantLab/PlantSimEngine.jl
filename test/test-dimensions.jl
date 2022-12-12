@@ -31,6 +31,18 @@
     @test_throws DimensionMismatch PlantSimEngine.check_dimensions(tst3, w2)
 
     # ModelList and Weather must be checked for equal length
-    ml = ModelList([st])
-    @test PlantSimEngine.check_dimensions(ml, w1) === nothing
+    m1 = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        status=(var1=1.0, var2=2.0)
+    )
+    @test PlantSimEngine.check_dimensions(m1, w1) === nothing
+
+    m2 = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        status=(var1=[1.0, 2.0], var2=2.0)
+    )
+    @test PlantSimEngine.check_dimensions(m2, w2) === nothing
+    @test_throws DimensionMismatch PlantSimEngine.check_dimensions(m2, w1)
 end
