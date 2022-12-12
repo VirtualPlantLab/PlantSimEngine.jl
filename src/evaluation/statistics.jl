@@ -7,7 +7,7 @@
     The closer to 0 the better.
 """
 function RMSE(obs, sim)
-    return sqrt(sum((obs .- sim).^2) / length(obs))
+    return sqrt(sum((obs .- sim) .^ 2) / length(obs))
 end
 
 """
@@ -19,7 +19,7 @@ end
     Output: Float/Particles
 """
 function NRMSE(obs, sim)
-    return sqrt(sum((obs .- sim).^2) / length(obs)) / (findmax(obs)[1] - findmin(obs)[1])
+    return sqrt(sum((obs .- sim) .^ 2) / length(obs)) / (findmax(obs)[1] - findmin(obs)[1])
 end
 
 """
@@ -31,8 +31,8 @@ end
     The closer to 1 the better.
 """
 function EF(obs, sim)
-    SSres = sum((obs - sim).^2)
-    SStot = sum((obs .- mean(obs)).^2)
+    SSres = sum((obs - sim) .^ 2)
+    SStot = sum((obs .- Statistics.mean(obs)) .^ 2)
     return 1 - SSres / SStot
 end
 
@@ -47,6 +47,6 @@ end
 """
 function dr(obs, sim)
     a = sum(abs.(obs .- sim))
-    b = 2 * sum(abs.(obs .- mean(obs)))
+    b = 2 * sum(abs.(obs .- Statistics.mean(obs)))
     return 0 + (1 - a / b) * (a <= b) + (b / a - 1) * (a > b)
 end

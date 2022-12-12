@@ -11,6 +11,9 @@ import Markdown
 # For MTG compatibility:
 import MultiScaleTreeGraph
 
+# To compute mean:
+import Statistics
+
 using PlantMeteo
 
 include("Abstract_model_structs.jl")
