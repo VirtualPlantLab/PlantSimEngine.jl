@@ -37,7 +37,34 @@ the short tutorial should be printed or not.
 @gen_process_methods "dummy_process" "This is a dummy process that shall not be used"
 ```
 """
-macro gen_process_methods(f, doc::String=""; verbose=true)
+macro gen_process_methods(f, args...)
+
+    # Parsing the arguments. We do that because macros don't support keyword arguments
+    # out of the box (see https://stackoverflow.com/a/64116235):
+    aargs = []
+    aakws = Pair{Symbol,Any}[]
+    for el in args
+        if Meta.isexpr(el, :(=))
+            # We have a keyword argument:
+            push!(aakws, Pair(el.args...))
+        else
+            # We have a positional argument:
+            push!(aargs, el)
+        end
+    end
+
+    # The docstring for the process function is the first positional argument:
+    if length(aargs) > 1
+        error("Too many positional arguments to @gen_process_methods")
+    end
+    # and it is empty by default:
+    doc = length(aargs) == 1 ? aargs[1] : ""
+
+    # The only keyword argument is verbose, and it is true by default:
+    if length(aakws) > 1 || (length(aakws) == 1 && aakws[1].first != :verbose)
+        error("@gen_process_methods only accepts one keyword argument: verbose")
+    end
+    verbose = length(aakws) == 1 ? aakws[1].second : true
 
     non_mutating_f = process_field = Symbol(f)
     mutating_f = Symbol(string(f, "!"))
