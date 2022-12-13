@@ -16,7 +16,7 @@ function DataFrames.DataFrame(components::T) where {T<:Union{ModelList,AbstractA
 end
 
 function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelList} where {N}}
-    df = DataFrame[]
+    df = DataFrames.DataFrame[]
     for (k, v) in components
         df_c = DataFrames.DataFrame(v)
         df_c[!, :component] .= k
