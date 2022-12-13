@@ -142,7 +142,7 @@ macro gen_process_methods(f, args...)
         # Process method over several objects (e.g. all leaves of a plant) in an Array
         function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants(), extra=nothing) where {O<:AbstractArray}
             for i in values(object)
-                $(mutating_f)(i, meteo, constants, extra)
+                $(esc(mutating_f))(i, meteo, constants, extra)
             end
             return nothing
         end
@@ -150,7 +150,7 @@ macro gen_process_methods(f, args...)
         # Process method over several objects (e.g. all leaves of a plant) in a kind of Dict.
         function $(esc(mutating_f))(object::O, meteo::PlantMeteo.AbstractAtmosphere, constants=PlantMeteo.Constants(), extra=nothing) where {O<:AbstractDict}
             for (k, v) in object
-                $(mutating_f)(v, meteo, constants, extra)
+                $(esc(mutating_f))(v, meteo, constants, extra)
             end
             return nothing
         end
@@ -203,7 +203,7 @@ macro gen_process_methods(f, args...)
 
             MultiScaleTreeGraph.transform!(
                 mtg,
-                (node) -> $(mutating_f)(node[attr_name], meteo, constants, node),
+                (node) -> $(esc(mutating_f))(node[attr_name], meteo, constants, node),
                 ignore_nothing=true
             )
         end
