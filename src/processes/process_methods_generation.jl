@@ -244,9 +244,11 @@ macro gen_process_methods(f, args...)
 
                 MultiScaleTreeGraph.transform!(
                     mtg,
-                    (node) -> Symbol($(esc(process_field))) in keys(node[attr_name].models) && $(mutating_f)(node[attr_name], meteo_i, constants, node),
+                    (node) ->
+                        Symbol($(esc(process_field))) in keys(node[attr_name].models) &&
+                            $(esc(mutating_f))(node[attr_name], meteo_i, constants, node),
                     (node) -> pull_status_one_step!(node, i, attr_name=attr_name),
-                    ignore_nothing=true
+                    filter_fun=node -> node[attr_name] !== nothing
                 )
             end
         end
