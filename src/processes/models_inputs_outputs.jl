@@ -77,10 +77,24 @@ end
 """
     variables()
 
-Returns a dataframe of all variables in PlantBiophysics, their description and their units.
+Returns a dataframe of all variables, their description and their units in a package that uses PlantSimEngine (if 
+implemented by the authors).
+
+# Note to developers
+
+Developers of a package that depends on PlantSimEngine should 
+put a csv file in "data/variables.csv".
+
+# Examples 
+
+Here is an example with the PlantBiophysics package:
+```julia
+using PlantBiophysics
+variables(PlantBiophysics)
+```
 """
-function variables()
-    sort!(CSV.read(joinpath(dirname(dirname(pathof(PlantBiophysics))), "data", "variables.csv"), DataFrame))
+function variables(pkg)
+    sort!(CSV.read(joinpath(dirname(dirname(pathof(pkg))), "data", "variables.csv"), DataFrame))
 end
 
 """
