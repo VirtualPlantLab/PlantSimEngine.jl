@@ -75,25 +75,27 @@ function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
 end
 
 """
-    variables()
+    variables(pkg::Module)
 
-Returns a dataframe of all variables, their description and their units in a package that uses PlantSimEngine (if 
-implemented by the authors).
+Returns a dataframe of all variables, their description and units in a package
+that has PlantSimEngine as a dependency (if implemented by the authors).
 
 # Note to developers
 
 Developers of a package that depends on PlantSimEngine should 
-put a csv file in "data/variables.csv".
+put a csv file in "data/variables.csv", then this file will be 
+returned by the function.
 
-# Examples 
+# Examples
 
 Here is an example with the PlantBiophysics package:
+
 ```julia
 using PlantBiophysics
 variables(PlantBiophysics)
 ```
 """
-function variables(pkg)
+function variables(pkg::Module)
     sort!(CSV.read(joinpath(dirname(dirname(pathof(pkg))), "data", "variables.csv"), DataFrame))
 end
 
