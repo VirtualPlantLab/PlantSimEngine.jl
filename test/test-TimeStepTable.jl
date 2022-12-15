@@ -1,4 +1,4 @@
-@testset "Testing TimeStepTable" begin
+@testset "Testing TimeStepTable{Status}" begin
     vars = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, PPFD=1500)
     ts = TimeStepTable([vars, vars])
 

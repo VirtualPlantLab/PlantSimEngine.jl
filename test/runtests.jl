@@ -3,7 +3,7 @@ using Test
 using Tables, DataFrames
 
 # Include the example dummy processes:
-include("example_processes.jl")
+include("../examples/dummy.jl")
 
 @testset "initialisations" begin
     include("test-initialisations.jl")

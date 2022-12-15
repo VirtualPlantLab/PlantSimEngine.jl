@@ -1,4 +1,4 @@
-# include("example_processes.jl")
+# include("../examples/dummy.jl")
 
 # Tests:
 # Defining a list of models without status:

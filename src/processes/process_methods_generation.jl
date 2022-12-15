@@ -155,13 +155,13 @@ macro gen_process_methods(f, args...)
             return nothing
         end
 
-        # Process method over several meteo time steps (called Weather) and possibly several components:
+        # Process method over several meteo time steps (TimeStepTable{Atmosphere}) and possibly several components:
         function $(esc(mutating_f))(
             object::T,
-            meteo::Weather,
+            meteo::TimeStepTable{A},
             constants=PlantMeteo.Constants(),
             extra=nothing
-        ) where {T<:Union{AbstractArray,AbstractDict}}
+        ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
 
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(object, meteo)
@@ -177,7 +177,7 @@ macro gen_process_methods(f, args...)
         end
 
         # If we call weather with one component only:
-        function $(esc(mutating_f))(object::T, meteo::Weather, constants=PlantMeteo.Constants(), extra=nothing) where {T<:ModelList}
+        function $(esc(mutating_f))(object::T, meteo::TimeStepTable{A}, constants=PlantMeteo.Constants(), extra=nothing) where {T<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
 
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(object, meteo)
@@ -208,13 +208,13 @@ macro gen_process_methods(f, args...)
             )
         end
 
-        # Compatibility with MTG + Weather, compute all nodes for one time step, then move to the next time step.
+        # Compatibility with MTG + Weather (TimeStepTable{Atmosphere}), compute all nodes for one time step, then move to the next time step.
         function $(esc(mutating_f))(
             mtg::MultiScaleTreeGraph.Node,
             models::Dict{String,M},
-            meteo::Weather,
+            meteo::TimeStepTable{A},
             constants=PlantMeteo.Constants()
-        ) where {M<:ModelList}
+        ) where {M<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
             # Define the attribute name used for the models in the nodes
             attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
@@ -256,10 +256,10 @@ macro gen_process_methods(f, args...)
         # Non-mutating version (make a copy before the call, and return the copy):
         function $(esc(non_mutating_f))(
             object::O,
-            meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,Weather}=nothing,
+            meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,T}=nothing,
             constants=PlantMeteo.Constants(),
             extra=nothing
-        ) where {O<:Union{ModelList,AbstractArray,AbstractDict}}
+        ) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:TimeStepTable{A} where {A<:PlantMeteo.AbstractAtmosphere}}
             object_tmp = copy(object)
             $(esc(mutating_f))(object_tmp, meteo, constants, extra)
             return object_tmp
@@ -284,7 +284,7 @@ macro gen_process_methods(f, args...)
         $($mutating_f_str)(
             object::MultiScaleTreeGraph.Node,
             models::Dict{String,M},
-            meteo::Weather,
+            meteo::TimeStepTable{<:PlantMeteo.AbstractAtmosphere},
             constants=PlantMeteo.Constants()
         )
 
@@ -298,7 +298,8 @@ macro gen_process_methods(f, args...)
         or a MultiScaleTreeGraph.Node.
         - `models::Dict{String,M}`: the models to use for the simulation. It is a `Dict` with the node symbols as 
         keys and the associated ModelList as value. It is used only for the MTG version.
-        - `meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,Weather}`: the meteo data to use for the simulation.
+        - `meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{PlantMeteo.AbstractAtmosphere}}`: the 
+        meteo data to use for the simulation.
         - `constants=PlantMeteo.Constants()`: the constants to use for the simulation.
         - `extra=nothing`: extra data to use for the simulation.
 

@@ -43,6 +43,6 @@ export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables
 
 # Re-exporting PlantMeteo main functions:
-export Atmosphere, Weather, Constants
+export Atmosphere, TimeStepTable, Constants, Weather
 
 end

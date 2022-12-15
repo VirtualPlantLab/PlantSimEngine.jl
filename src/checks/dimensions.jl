@@ -7,8 +7,8 @@ recycled (length 1).
 """
 function check_dimensions(
     st::T,
-    weather::Weather
-) where {T<:TimeStepTable}
+    weather::TimeStepTable{A}
+) where {T<:TimeStepTable,A<:PlantMeteo.AbstractAtmosphere}
 
     length(st) > 1 && length(st) != length(weather) &&
         throw(DimensionMismatch("Component status should have the same number of time-steps ($(length(st))) than weather data ($(length(weather)))."))
@@ -20,8 +20,8 @@ end
 # The status is updated at each time-step, but no intermediate saving though!
 function check_dimensions(
     st::T,
-    weather::Weather
-) where {T<:Status}
+    weather::TimeStepTable{A}
+) where {T<:Status,A<:PlantMeteo.AbstractAtmosphere}
     return nothing
 end
 
@@ -37,14 +37,14 @@ function check_dimensions(component::T, w) where {T<:ModelList}
 end
 
 # for several components as an array
-function check_dimensions(component::T, weather::Weather) where {T<:AbstractArray{<:ModelList}}
+function check_dimensions(component::T, weather::TimeStepTable{A}) where {T<:AbstractArray{<:ModelList},A<:PlantMeteo.AbstractAtmosphere}
     for i in component
         check_dimensions(i, weather)
     end
 end
 
 # for several components as a Dict
-function check_dimensions(component::T, weather::Weather) where {T<:AbstractDict{N,<:ModelList}} where {N}
+function check_dimensions(component::T, weather::TimeStepTable{A}) where {T<:AbstractDict{N,<:ModelList},A<:PlantMeteo.AbstractAtmosphere} where {N}
     for (key, val) in component
         check_dimensions(val, weather)
     end
