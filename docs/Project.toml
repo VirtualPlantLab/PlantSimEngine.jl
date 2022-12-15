@@ -1,5 +1,5 @@
 [deps]
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
-PlantBiophysics = "7ae8fcfa-76ad-4ec6-9ea7-5f8f5e2d6ec9"
 PlantMeteo = "4630fe09-e0fb-4da5-a846-781cb73437b6"
 PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"

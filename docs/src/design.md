@@ -7,8 +7,8 @@ using PlantSimEngine, PlantMeteo
 include(joinpath(dirname(dirname(pathof(PlantSimEngine))),"examples","light.jl"))
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-leaf = ModelList(light_extinction = Beer(0.5), status = (LAI = 2.0,))
-light_extinction!(leaf, meteo)
+leaf = ModelList(light_interception = Beer(0.5), status = (LAI = 2.0,))
+light_interception!(leaf, meteo)
 ```
 
 ## Definitions
@@ -46,14 +46,14 @@ For example let's instantiate a [`ModelList`](@ref) with the Beer-Lambert model 
 using PlantSimEngine
 # Including the script defining light_interception and Beer:
 include(joinpath(dirname(dirname(pathof(PlantSimEngine))),"examples","light.jl"))
-ModelList(light_extinction = Beer(0.5))
+ModelList(light_interception = Beer(0.5))
 ```
 
-What happened here? We provided an instance of a model to the process it simulates. The model is provided as a keyword argument to the [`ModelList`](@ref), with the process name given as the keyword, and the instantiated model as the value. The keyword must match **exactly** the name of the process it simulates because it is used to match the models to the function than run its simulation, *e.g.* `light_extinction` for the `light_extinction` process.
+What happened here? We provided an instance of a model to the process it simulates. The model is provided as a keyword argument to the [`ModelList`](@ref), with the process name given as the keyword, and the instantiated model as the value. The keyword must match **exactly** the name of the process it simulates because it is used to match the models to the function than run its simulation, *e.g.* `light_interception` for the `light_interception` process.
 
 ## Parameters
 
-A parameter is a constant value that is used by a model to compute its outputs. For example, the Beer-Lambert model uses the extinction coefficient (`k`) to compute the light extinction. The Beer-Lambert model is implemented with the `Beer` structure, which has only one field: `k`. We can see that using [`fieldnames`](@ref):
+A parameter is a constant value that is used by a model to compute its outputs. For example, the Beer-Lambert model uses the extinction coefficient (`k`) to compute the light extinction. The Beer-Lambert model is implemented with the `Beer` structure, which has only one field: `k`. We can see that using `fieldnames`:
 
 ```@example usepkg
 fieldnames(Beer)
@@ -87,14 +87,14 @@ outputs(Beer(0.5))
 If we instantiate a [`ModelList`](@ref) with the Beer-Lambert model, we can see that the `:status` field has two variables: `LAI` and `PPDF`. The first is an input, the second an output (*i.e.* it is computed by the model).
 
 ```@example usepkg
-m = ModelList(light_extinction = Beer(0.5))
+m = ModelList(light_interception = Beer(0.5))
 keys(m.status)
 ```
 
 To know which variables should be initialized, we can use [`to_initialize`](@ref):
 
 ```@example usepkg
-m = ModelList(light_extinction = Beer(0.5))
+m = ModelList(light_interception = Beer(0.5))
 
 to_initialize(m)
 ```
@@ -117,13 +117,13 @@ typemin(Float64)
 We can initialize the variables by providing their values to the status at instantiation:
 
 ```@example usepkg
-m = ModelList(light_extinction = Beer(0.5), status = (LAI = 2.0,))
+m = ModelList(light_interception = Beer(0.5), status = (LAI = 2.0,))
 ```
 
 Or after instantiation using [`init_status!`](@ref):
 
 ```@example usepkg
-m = ModelList(light_extinction = Beer(0.5))
+m = ModelList(light_interception = Beer(0.5))
 
 init_status!(m, LAI = 2.0)
 ```
@@ -190,11 +190,11 @@ include(joinpath(dirname(dirname(pathof(PlantSimEngine))),"examples","light.jl")
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
 
 leaf = ModelList(
-    light_extinction = Beer(0.5), 
+    light_interception = Beer(0.5), 
     status = (LAI = 2.0,)
 )
 
-light_extinction!(leaf, meteo)
+light_interception!(leaf, meteo)
 
 leaf[:PPFD]
 ```

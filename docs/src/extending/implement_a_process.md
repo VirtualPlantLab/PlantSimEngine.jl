@@ -2,16 +2,15 @@
 
 ```@setup usepkg
 using PlantSimEngine
-using PlantBiophysics
 using PlantMeteo
 PlantSimEngine.@gen_process_methods growth
 ```
 
 ## Introduction
 
-`PlantSimEngine.jl` was designed to make the implementation of new processes and models easy and fast. Let's learn about how to implement your own process with a simple example: implementing a growth model.
+`PlantSimEngine.jl` was designed to make the implementation of new processes and models easy and fast. Let's learn about how to implement a new process with a simple example: implementing a growth model.
 
-## Implement a new process
+## Implement a process
 
 To implement a new process, we need to define the generic methods associated to it that helps run its simulation for:
 
@@ -31,10 +30,10 @@ So for example all the photosynthesis methods in the [PlantBiophysics.jl](https:
 @gen_process_methods photosynthesis
 ```
 
-So for example if we want to simulate the growth of a plant, we could add a new process called `growth`. To create the generic functions to simulate the `growth` we would do:
+If we want to simulate the growth of a plant, we could add a new process called `growth`. To create the generic functions to simulate the `growth` we would do:
 
 ```julia
-@gen_process_methods growth
+@gen_process_methods "growth"
 ```
 
 And that's it! Note that the function guides you in the steps you can make after creating a process. Let's break it up here.
@@ -56,7 +55,7 @@ Creating the process also defined a default abstract type for the process that i
 
 To better understand how models are implemented, you can read the detailed instructions from the [previous section](@ref model_implementation_page). But for the sake of completeness, we'll implement a growth model here.
 
-This growth model uses the assimilation computed using the coupled energy balance process from `PlantBiophysics.jl`. Then it removes the maintenance respiration and the growth respiration from that source of carbon, and increments the leaf biomass by the remaining carbon offer.
+This growth model needs the carbohydrate assimilation that we could compute using *e.g.* the coupled energy balance process from `PlantBiophysics.jl`. Then the model removes the maintenance respiration and the growth respiration from that source of carbon, and increments the leaf biomass by the remaining carbon offer.
 
 Let's implement this model below:
 
@@ -65,9 +64,6 @@ Let's implement this model below:
 using PlantSimEngine
 # PlantMeteo for using the meteorology-related functions:
 using PlantMeteo
-# And PlantBiophysics because we want our model to compute growth based on 
-# photosynthesis computed from `energy_balance!_()`:
-using PlantBiophysics
 
 # Make the struct to hold the parameters, with its documentation:
 """
@@ -107,11 +103,7 @@ end
 Base.eltype(x::DummyGrowth{T}) where {T} = T
 
 # Implement the growth model:
-function growth!_(::DummyGrowth, models, status, meteo, constants=Constants())
-
-    # Compute the energy balance of the plant, coupled to the photosynthesis model:
-    PlantBiophysics.energy_balance!_(models.energy_balance, models, status, meteo)
-    # Here we expect the assimilation of the plant, which is the source for Carbon
+function growth!_(::DummyGrowth, models, status, meteo, constants=Constants(), extra=nothing)
 
     # The maintenance respiration is simply a factor of the assimilation:
     status.Rm = status.A * models.growth.Rm_factor
@@ -132,13 +124,9 @@ Now we can make a simulation as usual:
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
 leaf = ModelList(
-        # Processes and models from PlantBiophysics:
-        energy_balance = Monteith(),
-        photosynthesis = Fvcb(),
-        stomatal_conductance = Medlyn(0.03, 12.0),
         # Our process and associated model:
         growth = DummyGrowth(),
-        status = (Rₛ = 13.747, sky_fraction = 1.0, PPFD = 1500.0, d = 0.03)
+        status = (A = 20.0,)
     )
 
 growth!(leaf,meteo)
@@ -152,11 +140,8 @@ We can also start the simulation later when the plant already has some biomass b
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
 leaf = ModelList(
-        energy_balance = Monteith(),
-        photosynthesis = Fvcb(),
-        stomatal_conductance = Medlyn(0.03, 12.0),
         growth = DummyGrowth(),
-        status = (Rₛ = 13.747, sky_fraction = 1.0, PPFD = 1500.0, d = 0.03, leaf_biomass = 2400.0)
+        status = (A = 20.0, leaf_biomass = 2400.0)
     )
 
 growth!(leaf,meteo)

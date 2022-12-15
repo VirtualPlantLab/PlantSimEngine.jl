@@ -1,8 +1,9 @@
 using PlantSimEngine
-using PlantMeteo, PlantBiophysics
+using PlantMeteo
+using DataFrames
 using Documenter
 
-DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, PlantBiophysics); recursive=true)
+DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames); recursive=true)
 
 makedocs(;
     modules=[PlantSimEngine],

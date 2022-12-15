@@ -2,20 +2,21 @@
 
 ```@setup usepkg
 using PlantSimEngine
-using PlantBiophysics
+@gen_process_methods "light_interception" verbose = false
+struct Beer{T} <: AbstractLight_InterceptionModel
+    k::T
+end
 ```
 
 ## Introduction
 
-`PlantSimEngine.jl` was designed to make new model implementation very simple. So let's learn about how to implement your own model with a simple example: implementing a new stomatal conductance model.
+`PlantSimEngine.jl` was designed to make new model implementation very simple. So let's learn about how to implement your own model with a simple example: implementing a new light interception model.
 
 ## Inspiration
 
 If you want to implement a new model, the best way to do it is to start from another implementation.
 
-So for a photosynthesis model, I advise you to look at the implementation of the `FvCB` model from `PlantBiophysics.jl`, available from this Julia file: [src/photosynthesis/FvCB.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/photosynthesis/FvCB.jl).
-
-For an energy balance model you can look at the implementation of the `Monteith` model in [src/energy/Monteith.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), and for a stomatal conductance model in [src/conductances/stomatal/medlyn.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl).
+For a complete example, you can look at the code in [`PlantBiophysics.jl`](https://github.com/VEZY/PlantBiophysics.jl), were you will find *e.g.* a photosynthesis model, with the implementation of the `FvCB` model in this Julia file: [src/photosynthesis/FvCB.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/photosynthesis/FvCB.jl); an energy balance model with the implementation of the `Monteith` model in [src/energy/Monteith.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl); or a stomatal conductance model in [src/conductances/stomatal/medlyn.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl).
 
 ## Requirements
 
@@ -25,50 +26,66 @@ In those files, you'll see that in order to implement a new model you'll need to
 - the actual model, developed as a method for the process it simulates
 - some helper functions used by the package and/or the users
 
-Let's take a simple example with a new model for the stomatal conductance: the Ball and Berry model.
+If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implement a new process](@ref)).
 
-## Example: the Ball and Berry model
+In this page, we'll just implement a model for a process that exists already: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in this package here: [`examples/light.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/light.jl).
+
+We can include this file like so:
+
+```julia
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "light.jl"))
+```
+
+But instead of just using it, we will review the script line by line.
+
+## Example: the Beer-Lambert model
+
+### The process
+
+We declare the light interception process at l.7 using [`@gen_process_methods`](@ref): 
+
+```julia
+@gen_process_methods "light_interception" verbose = false
+```
+
+See [Implement a new process](@ref) for more details on how that works and how to use the process.
 
 ### The structure
 
-The first thing to do is to implement a structure for your model.
+The first thing to do to implement a model is to define a structure.
 
 The purpose of the structure is two-fold:
 
 - hold the parameter values
 - dispatch to the right method when calling the process function
 
-Let's take the [stomatal conductance model from Medlyn et al. (2011)](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl#L37) as a starting point. The structure of the model (or type) is defined as follows:
+The structure of the model (or type) is defined as follows:
 
-```julia
-struct Medlyn{T} <: AbstractStomatal_ConductanceModel
-    g0::T
-    g1::T
-    gs_min::T
+```@example usepkg
+struct Beer{T} <: AbstractLight_InterceptionModel
+    k::T
 end
 ```
 
-The first line defines the name of the model (`Medlyn`), with the types that will be used for the parameters. Then it defines the structure as a subtype of [`AbstractStomatal_ConductanceModel`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/conductances/stomatal/medlyn.jl#L42). This step is very important as it tells to the package what kind of process the model simulates. In this case, it is a model for the stomatal conductance process, which is defined in `PlantBiophysics.jl`. We would use `AbstractPhotosynthesisModel` instead for a photosynthesis model, `AbstractEnergy_BalanceModel` for an energy balance model, and `AbstractLight_InterceptionModel` for a light interception model.
+The first line defines the name of the model (`Beer`), which is completely free, except it is good practice to use camel case for the name, *i.e.* using capital letters for the words and no separator `LikeThis`. 
 
-For another example, the [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) model is a subtype of `AbstractPhotosynthesisModel`. You can check this using:
+We also can see that we define the `Beer` structure as a subtype of `AbstractLight_InterceptionModel`. This step is very important as it tells to the package what kind of process the model simulates. `AbstractLight_InterceptionModel` is automatically created when defining the process "light_interception".
 
-```@example usepkg
-Fvcb <: AbstractPhotosynthesisModel
-```
+In our case, it tells us that `Beer` is a model to simulate the light interception process.
 
-Then comes the parameters names, and their types. The type of the parameters is always forced to be of the same type in our example. This is done using the `T` notation as follows:
+Then comes the parameters names, and their types. The type of the parameters is given by the user at instantiation in our example. This is done using the `T` notation as follows:
 
-- we say that our structure `Medlyn` is a parameterized `struct` by putting `T` in between brackets after the name of the `struct`
-- We put `::T` after our parameter names in the `struct`. This way Julia knows that all parameters must be of same type `T`.
+- we say that our structure `Beer` is a parameterized `struct` by putting `T` in between brackets after the name of the `struct`
+- We put `::T` after our parameter name in the `struct`. This way Julia knows that our parameter will be of type `T`.
 
 The `T` is completely free, you can use any other letter or word instead. If you have parameters that you know will be of different types, you can either force their type, or make them parameterizable too, using another letter, *e.g.*:
 
 ```julia
-struct YourStruct{T,S} <: PlantBiophysics.AbstractStomatal_ConductanceModel
-    g0::T
-    g1::T
-    gs_min::T
-    integer_param::S
+struct YourStruct{T,S} <: AbstractLight_InterceptionModel
+    k::T
+    x::T
+    y::T
+    z::S
 end
 ```
 
@@ -77,29 +94,17 @@ Parameterized types are very useful because they let the user choose the type of
 But why not forcing the type such as the following:
 
 ```julia
-struct YourStruct <: PlantBiophysics.AbstractStomatal_ConductanceModel
-    g0::Float64
-    g1::Float64
-    gs_min::Float64
-    integer_param::Int
+struct YourStruct <: AbstractLight_InterceptionModel
+    k::Float64
+    x::Float64
+    y::Float64
+    z::Int
 end
 ```
 
 Well, you can do that. But you'll lose a lot of the magic Julia has to offer this way.
 
 For example a user could use the `Particles` type from [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to make automatic uncertainty propagation, and this is only possible if the type is parameterizable.
-
-So let's implement a new structure for our stomatal conductance model:
-
-```@example usepkg
-struct BandB{T} <: PlantBiophysics.AbstractStomatal_ConductanceModel
-    g0::T
-    g1::T
-    gs_min::T
-end
-```
-
-Well, the only thing we had to change relative to the one from Medlyn is the name, easy! This is because both models share the same parameters.
 
 ### The method
 
@@ -111,51 +116,50 @@ Remember that PlantSimEngine only exports the generic functions of the processes
 
 However, you have to remember that if your model calls another one, you'll have to use the internal implementation directly to avoid the overheads of the generic functions (you don't want all these checks).
 
-So if you want to implement a new photosynthesis model, you have to make your own method for the `photosynthesis!_` function. But here we are trying to implement a new stomatal conductance model. Well, this one is the most complicated process to implement actually, because it is computed in two steps: `stomatal_conductance!_` and `gs_closure`.
-
-`gs_closure` is the function that actually implements the conductance model, but only the stomatal closure part. This one does not modify its input, it computes the result and returns it. Then `stomatal_conductance!_` uses this output to compute the stomatal conductance. But why not implementing just `stomatal_conductance!_`? Because `gs_closure` is used elsewhere, usually in the photosynthesis model, before actually computing the stomatal conductance.
-
-So in practice, the `stomatal_conductance!_` implementation is rather generic and will not be modified by developers. They will rather implement their method for `gs_closure`, that will be used automatically by `stomatal_conductance!_`.
+So if you want to implement a new light interception model, you have to make your own method for the `light_interception!_` function. 
 
 !!! warning
-    We need to import all the functions we need to use or extend, so Julia knows we are extending the methods from PlantSimEngine and/or PlantBiophysics, and not defining our own functions. To do so, you can prefix the said functions by the package name, or import them before *e.g.*:
-    `import PlantSimEngine: inputs_, outputs_
+    We need to import all the functions we need to use or extend, so Julia knows we are extending the methods from PlantSimEngine, and not defining our own functions. To do so, we prefix the said functions by the package name, or import them before *e.g.*:
+    `import PlantSimEngine: inputs_, outputs_`
 
-So let's do it! Here is our own implementation of the stomatal closure for a `ModelList` component models:
+So let's do it! Here is our own implementation of the light interception for a `ModelList` component models:
 
 ```@example usepkg
-function PlantBiophysics.gs_closure(::BandB, models, status, meteo, constants, extras)
-    models.stomatal_conductance.g1 * meteo.Rh / status.Cₛ
+function light_interception!_(::Beer, models, status, meteo, constants, extras)
+    status.PPFD =
+        meteo.Ri_PAR_f *
+        exp(-models.light_interception.k * status.LAI) *
+        constants.J_to_umol
 end
 ```
 
-The first argument (`::BandB`) means this method will only execute when the function is called with a first argument that is of type `BandB`. This is our way of telling Julia that this method is implementing the `BandB` algorithm.
+The first argument (`::Beer`) means this method will only execute when the function is called with a first argument that is of type `Beer`. This is our way of telling Julia that this method is implementing the `Beer` model for the light interception process.
 
 An important thing to note is that our variables are stored in different structures:
 
-- `models`: the models parameters
+- `models`: lists the processes and the models parameters (we use `k`from Beer here using `models.light_interception.k`)
 - `meteo`: the micro-climatic conditions
 - `status`: the input and output variables of the models
-- `constants`: the constants
-- `extras`: any other value or object
+- `constants`: any constants given as a struct or a `NamedTuple`
+- `extras`: any other value or object (*e.g.* it is used to pass the node when computing MTGs)
 
 !!! note
-    The micro-meteorological conditions are always given for one time-step inside the models methods, so they are always of `Atmosphere` type. The `Weather` type of conditions are handled earlier by the generic functions.
+    The micro-meteorological conditions are always given for one time-step inside the models methods, so they are always of `Atmosphere` type. The `Tables.jl` type (*e.g.* `TimeStepTable` or `DataFrame`) conditions are handled earlier by the generic functions, *i.e.* `light_interception()` and `light_interception!()`, not `light_interception!_()`.
 
-OK ! So that's it ? Almost. One last thing to do is to define a method for inputs/outputs so that PlantSimEngine knows which variables are needed for our model, and which it computes. Remember that the actual model is implemented for `stomatal_conductance!_`, so we have to tell PlantSimEngine which ones are needed, and what are their default value:
+OK ! So that's it ? Almost. One last thing to do is to define a method for inputs/outputs so that PlantSimEngine knows which variables are needed for our model, and which it computes. Remember that the actual model is implemented for `light_interception!_`, so we have to tell PlantSimEngine which ones are needed, and what are their default value:
 
-- Inputs: `:Rh` and `:Cₛ` for our specific implementation, and `:A` for `stomatal_conductance!_`
-- Outputs: our model does not compute any new variable, and `stomatal_conductance!_` computes, well, `:Gₛ`
+- Inputs: `:LAI`, the leaf area index (m² m⁻²)
+- Outputs: `:PPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
 
-Here is how we actually implement our methods:
+Here is how we communicate that to PlantSimEngine:
 
 ```@example usepkg
-function PlantSimEngine.inputs_(::BandB)
-    (Rh=-999.99,Cₛ=-999.99,A=-999.99)
+function PlantSimEngine.inputs_(::Beer)
+    (LAI=-Inf,)
 end
 
-function PlantSimEngine.outputs_(::BandB)
-    (Gₛ=-999.99,)
+function PlantSimEngine.outputs_(::Beer)
+    (PPFD=-Inf,)
 end
 ```
 
@@ -165,59 +169,58 @@ Note that both function end with an "\_". This is because these functions are in
 
 Before running a simulation, you can do a little bit more for your implementation (optional).
 
-First, you can add a method for type promotion:
+First, you can add a method for type promotion. It wouldn't make any sense for our example because we have only one parameter. But we can make another example with a new model that would be called `Beer2` that would take two parameters:
 
-```@example usepkg
-function BandB(g0,g1,gs_min)
-    BandB(promote(g0,g1,gs_min))
+```julia
+struct Beer2{T} <: AbstractLight_InterceptionModel
+    k::T
+    x::T
 end
 ```
 
-This allows your user to instantiate your model parameters using different types of inputs. For example they may use this:
+To add type promotion to `Beer2` we would do:
 
 ```julia
-BandB(0,2.0,0.001)
-```
-
-You don't see a problem? Well your users won't either.
-
-Here's the problem: we use parametric types, and when we declared our structure, we said that all fields in our type will share the same type. This is the `T` here:
-
-```julia
-struct BandB{T} <: PlantBiophysics.AbstractStomatal_ConductanceModel
-    g0::T
-    g1::T
-    gs_min::T
+function Beer2(k,x)
+    Beer2(promote(k,x))
 end
 ```
 
-And in our example above, the user provides `0` as the first argument. Well, this is an integer, not a floating point number like the two others. That's were the promotion is really helpful. It will convert all your inputs to the same type. In our example it will convert `0` to `0.0`.
+This would allow users to instantiate the model parameters using different types of inputs. For example they may use this:
 
-A second thing also is to help your user with default values for some parameters (if applicable). For example a user will almost never change the value of the minimum stomatal conductance. So we can provide a default value like so:
-
-```@example usepkg
-BandB(g0,g1) = BandB(g0, g1, oftype(0.001, g0))
+```julia
+Beer2(0.6,2)
 ```
 
-Now the user can call `BandB` with only two values, and the third one will be set to `0.001`.
+You don't see a problem? Well your users won't either. But there's one: `Beer2` is a parametric type, so all fields share the same type `T`. This is the `T` in `Beer2{T}` and then in `k::T` and `x::T`. And this force the user to give all parameters with the same type.
+
+And in our example above, the user provides `0.6` for `k`, which is a `Float64`, and `2` for `x`, which is an `Int`. ANd if you don't have type promotion, Julia will return an error because both should be either `Float64` or `Int`. That's were the promotion comes in handy, it will convert all your inputs to a common type (when possible). In our example it will convert `2` to `2.0`.
+
+A second thing also is to help your user with default values for some parameters (if applicable). For example a user will almost never change the value of `k`. So we can provide a default value like so:
+
+```@example usepkg
+Beer() = Beer(0.6)
+```
+
+Now the user can call `Beer` with zero value, and `k` will default to `0.6`.
 
 Another useful thing to provide to the user is the ability to instantiate your model type with keyword values. You can do it by adding the following method:
 
 ```@example usepkg
-BandB(;g0,g1) = BandB(g0,g1,oftype(g0,0.001))
+Beer(;k) = Beer(k)
 ```
 
-Did you notice the `;` before the argument? It tells Julia that we want those arguments provided as keywords, so now we can call `BandB` like this:
+Did you notice the `;` before the argument? It tells Julia that we want those arguments provided as keywords, so now we can call `Beer` like this:
 
 ```@example usepkg
-BandB(g0 = 0.0, g1 = 2.0)
+Beer(k = 0.7)
 ```
 
-This is nice, but again, completely optional.
+This is nice when we have a lot of parameters and some with default values, but again, this is completely optional.
 
-One more thing to implement is a method for the `dep` function that tells PlantSimEngine which processes (and models) are needed for your model to run (*i.e.* if your model is coupled to another model).
+One more thing to implement is a method for the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run (*i.e.* if your model is coupled to another model).
 
-Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) to see how it works:
+Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
 
 ```julia
 PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
@@ -228,112 +231,9 @@ Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `Abstr
 The last optional thing to implement is a method for the `eltype` function:
 
 ```@example usepkg
-Base.eltype(x::BandB{T}) where {T} = T
+Base.eltype(x::Beer{T}) where {T} = T
 ```
 
-This one helps Julia to know the type of the elements in your structure, and make it faster.
+This one helps Julia to know the type of the elements in the structure, and make it faster.
 
-OK that's it! Now you have a full new implementation of the stomatal conductance model! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue so I can improve it.
-
-## More details on model implementations
-
-Here is another example with a different approach in case you need it. So let's change our example from the stomatal conductance to the photosynthesis.
-For example `Fvcb` implements the model or Farquhar et al. (1980) to simulate the `photosynthesis` process of C3 plants.
-
-When the user calls the `photosynthesis` function, or its mutating version `photosynthesis!`, PlantSimEngine looks into the component models type, and the type of the model implemented for the photosynthesis, in this case, `Fvcb`.
-
-Then, it calls the internal function `photosynthesis!_` that will dispatch the computation to the method that implements the model. This method looks like this:
-
-```julia
-function photosynthesis!_(::Fvcb, models, status, meteo, constants=Constants(), extras=nothing)
-
-    [...]
-
-end
-```
-
-Where `[...]` represent the lines of code implementing the model (not shown here).
-
-The interesting bit is in the function declaration at the top. This is where all the magic happens. The first argument let Julia know that this is the method for computing the photosynthesis using the `Fvcb` model.
-
-Now if we look again at what are the fields of a [`ModelList`](@ref):
-
-```@example usepkg
-fieldnames(ModelList)
-```
-
-we see that it has two fields: `models` and `status`. The first one is a list of models named after the process they simulate. So if we want to simulate the photosynthesis with the `Fvcb` model, our [`ModelList`](@ref) needs an instance of the `Fvcb` structure for the `photosynthesis` process, like so:
-
-```@example usepkg
-leaf = ModelList(photosynthesis = Fvcb());
-leaf.models.photosynthesis
-```
-
-The `photosynthesis` field is then used as the first argument to the call to the internal function `photosynthesis!_`, which will call the method that implements `Fvcb`, because our `photosynthesis` field is of type `Fvcb`.
-
-So if we want to implement our own model for the photosynthesis, we could do:
-
-```@example usepkg
-# Make the struct to hold the parameters:
-struct OurModel{T} <: PlantBiophysics.AbstractPhotosynthesisModel
-    a::T
-    b::T
-    c::T
-end
-
-# Instantiate the struct with default values + kwargs:
-function OurModel(;a = 400.0, b = 1000.0, c = 1.5)
-    OurModel(promote(a,b)...)
-end
-
-# Define inputs:
-function PlantSimEngine.inputs_(::OurModel)
-    (PPFD=-999.99, Tₗ=-999.99, Cₛ=-999.99)
-end
-
-# Define outputs:
-function PlantSimEngine.outputs_(::OurModel)
-    (A=-999.99, Gₛ=-999.99)
-end
-
-# Tells Julia what is the type of elements:
-Base.eltype(x::OurModel{T}) where {T} = T
-
-# Implement the photosynthesis model (note that we prefix with PlantBiophysics to tell julia we add a method, not create a function):
-function PlantBiophysics.photosynthesis!_(::OurModel, models, status, meteo, constants=Constants(), extras=nothing)
-
-    status.A =
-        status.Cₛ / models.photosynthesis.a +
-        status.PPFD / models.photosynthesis.b +
-        status.Tₗ / models.photosynthesis.c
-
-    PlantBiophysics.stomatal_conductance!_(models.stomatal_conductance, models, status, meteo, extras)
-end
-```
-
-🥳 And that's it! 🥳
-
-We have a new model for photosynthesis that is coupled with the stomatal conductance.
-
-!!! warning
-    This is a dummy photosynthesis model. Don't use it, it is very wrong biologically speaking!
-
-!!! note
-    Notice that we compute the stomatal conductance directly using the internal function `stomatal_conductance!_`. We do this for speed, because the generic function `stomatal_conductance!` does some checks on its inputs every time it is called, while `stomatal_conductance!_` only does the computation. We don't need the extra checks because they are already made when calling `photosynthesis!`.
-
-Now if we want to make a simulation, we can simply do:
-
-```@example usepkg
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-
-leaf =
-    ModelList(
-        photosynthesis = OurModel(1.0, 2.0, 3.0),
-        stomatal_conductance = Medlyn(0.03, 12.0),
-        status = (Tₗ = 25.0, PPFD = 1000.0, Cₛ = 400.0, Dₗ = meteo.VPD)
-    )
-# NB: we need  to initalise Tₗ, PPFD and Cₛ
-
-photosynthesis!(leaf,meteo,Constants())
-leaf[:A]
-```
+OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue so I can improve it.

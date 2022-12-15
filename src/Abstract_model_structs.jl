@@ -1,4 +1,4 @@
 """
-Abstract model type. All models are subtypes of this one, see *e.g.* [`AbstractAModel`](@ref)
+Abstract model type. All models are subtypes of this one.
 """
 abstract type AbstractModel end

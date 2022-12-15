@@ -3,7 +3,7 @@
 
 Copy the status of a node's component models (*e.g.* the outputs of a [`ModelList`]@ref simulation) into the MTG
 attributes. This function is used when we need to compute further the simulation outputs with
-*e.g.* [`transform!`](@ref).
+*e.g.* `transform!` (see [`MultiScaleTreeGraph.jl` docs](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/)).
 
 # Notes
 

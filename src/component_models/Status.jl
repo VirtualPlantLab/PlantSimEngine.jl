@@ -2,7 +2,8 @@
     Status(vars)
 
 Status type used to store the values of the variables during simulation. It is mainly used
-as the structure to store the variables in the [`TimeStepRow`](@ref) of a [`TimeStepTable`](@ref) of a [`ModelList`](@ref).
+as the structure to store the variables in the `TimeStepRow` of a `TimeStepTable` (see 
+[`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)) of a [`ModelList`](@ref).
 
 Most of the code is taken from MasonProtter/MutableNamedTuples.jl, so `Status` is a MutableNamedTuples with a few modifications,
 so in essence, it is a stuct that stores a `NamedTuple` of the references to the values of the variables, which makes it mutable.
