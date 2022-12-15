@@ -4,7 +4,13 @@
 # that implements an algorithm (Process1Model): 
 abstract type AbstractTestModel <: AbstractModel end
 @gen_process_methods "process1" verbose = false
-struct Process1Model <: AbstractTestModel
+
+"""
+    Process1Model(a)
+
+A dummy model implementing a "process1" process for testing purposes.
+"""
+struct Process1Model <: AbstractProcess1Model
     a
 end
 PlantSimEngine.inputs_(::Process1Model) = (var1=-Inf, var2=-Inf)
@@ -16,7 +22,13 @@ end
 # Defining a 2nd process called "process2", and a model
 # that implements an algorithm, and that depends on the first one:
 @gen_process_methods "process2" verbose = false
-struct Process2Model <: AbstractTestModel end
+
+"""
+    Process2Model()
+
+A dummy model implementing a "process2" process for testing purposes.
+"""
+struct Process2Model <: AbstractProcess2Model end
 PlantSimEngine.inputs_(::Process2Model) = (var1=-Inf, var3=-Inf)
 PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (process1=Process1Model,)
@@ -32,7 +44,13 @@ end
 # that implements an algorithm, and that depends on the second one (and
 # by extension on the first one):
 @gen_process_methods "process3" verbose = false
-struct Process3Model <: AbstractTestModel end
+
+"""
+    Process3Model()
+
+A dummy model implementing a "process3" process for testing purposes.
+"""
+struct Process3Model <: AbstractProcess3Model end
 PlantSimEngine.inputs_(::Process3Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf)
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
