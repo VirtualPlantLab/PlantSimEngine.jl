@@ -1,6 +1,13 @@
 using PlantSimEngine
-using Test
+using Test, Aqua
 using Tables, DataFrames
+
+Aqua.test_all(
+    PlantSimEngine,
+    # Removing this test as dependencies return ambiguities...
+    #! But do it sometimes just to check that there are no ambiguities!
+    ambiguities=false
+)
 
 # Include the example dummy processes:
 include("../examples/dummy.jl")

@@ -256,10 +256,10 @@ macro gen_process_methods(f, args...)
         # Non-mutating version (make a copy before the call, and return the copy):
         function $(esc(non_mutating_f))(
             object::O,
-            meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,T}=nothing,
+            meteo::T=nothing,
             constants=PlantMeteo.Constants(),
             extra=nothing
-        ) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:TimeStepTable{A} where {A<:PlantMeteo.AbstractAtmosphere}}
+        ) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{<:PlantMeteo.AbstractAtmosphere}}}
             object_tmp = copy(object)
             $(esc(mutating_f))(object_tmp, meteo, constants, extra)
             return object_tmp

@@ -32,7 +32,6 @@ include("processes/process_methods_generation.jl")
 include("checks/dimensions.jl")
 
 export AbstractModel
-export AbstractModelList
 export ModelList
 export init_mtg_models!
 export RMSE, NRMSE, EF, dr

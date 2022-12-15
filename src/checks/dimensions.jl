@@ -32,6 +32,11 @@ function check_dimensions(
     return nothing
 end
 
+# We define this one just to avoid ambiguity between the two above
+function check_dimensions(component::T, w::Atmosphere) where {T<:ModelList}
+    return nothing
+end
+
 function check_dimensions(component::T, w) where {T<:ModelList}
     check_dimensions(status(component), w)
 end
