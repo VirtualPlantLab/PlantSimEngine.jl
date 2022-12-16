@@ -1,6 +1,7 @@
 using PlantSimEngine
 using Test, Aqua
 using Tables, DataFrames
+using PlantSimEngine.MultiScaleTreeGraph
 
 Aqua.test_all(
     PlantSimEngine,
