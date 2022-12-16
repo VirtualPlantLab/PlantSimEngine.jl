@@ -169,7 +169,7 @@ macro gen_process_methods(f, args...)
             # Each object:
             for obj in object
                 # Computing for each time-step:
-                for (i, meteo_i) in enumerate(meteo.data)
+                for (i, meteo_i) in enumerate(meteo)
                     $(esc(f_))(obj.models.$(process_field), obj.models, obj[i], meteo_i, constants, extra)
                 end
             end
@@ -183,7 +183,7 @@ macro gen_process_methods(f, args...)
             check_dimensions(object, meteo)
 
             # Computing for each time-steps:
-            for (i, meteo_i) in enumerate(meteo.data)
+            for (i, meteo_i) in enumerate(meteo)
                 $(esc(f_))(object.models.$(process_field), object.models, object.status[i], meteo_i, constants, extra)
             end
         end
@@ -238,7 +238,7 @@ macro gen_process_methods(f, args...)
             )
 
             # Computing for each time-steps:
-            for (i, meteo_i) in enumerate(meteo.data)
+            for (i, meteo_i) in enumerate(meteo)
                 # Then update the initialisation each time-step.
                 update_mtg_models!(mtg, i, to_init, attr_name)
 
