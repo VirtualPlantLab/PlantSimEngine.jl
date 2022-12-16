@@ -1,7 +1,7 @@
 # Model coupling for users
 
 ```@setup usepkg
-using PlantSimEngine
+using PlantSimEngine, PlantMeteo
 include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
 ```
 
@@ -87,5 +87,8 @@ Our component models structure is now fully parameterized and initialized for a 
 Let's simulate it:
 
 ```@example usepkg
-process3(m)
+using PlantMeteo
+meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
+
+process3(m, meteo)
 ```
