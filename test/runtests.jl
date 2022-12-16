@@ -27,3 +27,7 @@ end
 @testset "Dimensions" begin
     include("test-dimensions.jl")
 end
+
+@testset "Simulations" begin
+    include("test-simulation.jl")
+end
