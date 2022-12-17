@@ -46,65 +46,67 @@ adds the models variables to the type in case it is not fully initialized.
 
 ## Examples
 
-A leaf with a width of 0.03 m, that uses the Monteith and Unsworth (2013) model for energy
-balance, the Farquhar et al. (1980) model for photosynthesis, and a constant stomatal
-conductance for CO₂ of 0.0011 with no residual conductance.
+We'll use the dummy models from the `dummy.jl` in the examples folder of the package. It 
+implements three dummy processes: `Process1Model`, `Process2Model` and `Process3Model`, with
+one model implementation each: `Process1Model`, `Process2Model` and `Process3Model`.
 
 ```@setup usepkg
-using PlantBiophysics
+using PlantSimEngine
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
 ```
 
 ```@example usepkg
-leaf = ModelList(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = ConstantGs(0.0, 0.0011)
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model()
 )
 ```
 
-No variables were given as keyword arguments, that means that the status of the leaf is not
+No variables were given as keyword arguments, that means that the status of the ModelList is not
 set yet, and all variables are initialized to `typemin(Type)`, *i.e.* `-Inf` for floating
 point numbers. This component cannot be simulated yet.
 
 To know which variables we need to initialize for a simulation, we use [`to_initialize`](@ref):
 
 ```@example usepkg
-to_initialize(leaf)
+to_initialize(models)
 ```
-
-The meaning and units of the variables can be found on the documentation of each model,
-*e.g.* [here for photosynthesis](https://vezy.github.io/PlantBiophysics.jl/stable/models/photosynthesis/).
 
 We can now provide values for these variables:
 
 ```@example usepkg
-leaf = ModelList(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = ConstantGs(0.0, 0.0011),
-    status = (Rₛ = 13.747, sky_fraction = 1.0, d = 0.03, PPFD = 1500)
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3)
 )
 ```
 
-We can now simulate the leaf, *e.g.* for the energy_balance (coupled to photosynthesis and
-stomatal conductance):
+We can now simulate the `ModelList`, *e.g.* for `process3` (coupled with `process1` and `process2`):
 
 ```@example usepkg
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
-energy_balance!(leaf,meteo)
+process3!(models,meteo)
 
-DataFrame(leaf)
+models[:var6]
 ```
 
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
 ```@example usepkg
-leaf = ModelList(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = ConstantGs(0.0, 0.0011),
-    status = (Rₛ = 13.747, sky_fraction = 1.0, d = 0.03, PPFD = 1500),
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3),
     type_promotion = Dict(Float64 => Float32)
 )
 ```
@@ -113,11 +115,11 @@ We can also use DataFrame as the status type:
 
 ```@example usepkg
 using DataFrames
-df = DataFrame(:Rₛ => [13.747, 13.8], :sky_fraction => [1.0, 1.0], :d => [0.03, 0.03], :PPFD => [1300.0, 1500.0])
+df = DataFrame(:var1 => [13.747, 13.8], :var2 => [1.0, 1.0])
 m = ModelList(
-    energy_balance=Monteith(),
-    photosynthesis=Fvcb(),
-    stomatal_conductance=Medlyn(0.03, 12.0),
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
     status=df,
     init_fun=x -> DataFrame(x)
 )
@@ -215,9 +217,8 @@ It is used to be able to *e.g.* give constant values for all time-steps for one 
 
 # Examples
 
-```julia
-homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], PPFD=1000.0))
-# [(Tₗ=25.0, PPFD=1000.0), (Tₗ=26.0, PPFD=1000.0)]
+```@example
+PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], PPFD=1000.0))
 ```
 """
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
@@ -247,6 +248,29 @@ end
     Base.copy(l::ModelList, status)
 
 Copy a [`ModelList`](@ref), eventually with new values for the status.
+
+# Examples
+
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+# Create a model list:
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3)
+)
+
+# Copy the model list:
+ml2 = copy(models)
+
+# Copy the model list with new status:
+ml3 = copy(models, TimeStepTable(Status(var1=20.0, var2=0.5)))
+```
 """
 function Base.copy(m::T) where {T<:ModelList}
     ModelList(
@@ -292,10 +316,19 @@ Convert the status variables to the type specified in the type promotion diction
 If we want all the variables that are Reals to be Float32, we can use:
 
 ```julia
-ref_vars = init_variables(energy_balance=Monteith(), photosynthesis=Fvcb(), stomatal_conductance=Medlyn(0.03, 12.0))
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+ref_vars = init_variables(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+)
 type_promotion = Dict(Real => Float32)
 
-convert_vars(type_promotion, ref_vars)
+PlantSimEngine.convert_vars(type_promotion, ref_vars.process3)
 ```
 """
 function convert_vars(type_promotion::Dict{DataType,DataType}, ref_vars)

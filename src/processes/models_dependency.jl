@@ -34,6 +34,24 @@ dep(::T) where {T<:AbstractModel} = NamedTuple()
 Get the model dependency tree given a ModelList. If one tree is returned, then all models are
 coupled. If several trees are returned, then only the models inside each tree are coupled, and
 the models in different trees are not coupled.
+
+# Examples
+
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3)
+)
+
+dep(models)
+```
 """
 function dep(; verbose::Bool=true, vars...)
     models = (; vars...)

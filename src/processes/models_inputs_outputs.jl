@@ -5,6 +5,20 @@
 Get the inputs of one or several models.
 
 Returns an empty tuple by default for `AbstractModel`s (no inputs) or `Missing` models.
+
+# Examples
+
+```jldoctest
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+inputs(Process1Model(1.0))
+
+# output
+(:var1, :var2)
+```
 """
 function inputs(model::T) where {T<:AbstractModel}
     keys(inputs_(model))
@@ -29,6 +43,20 @@ end
 Get the outputs of one or several models.
 
 Returns an empty tuple by default for `AbstractModel`s (no outputs) or `Missing` models.
+
+# Examples
+
+```jldoctest
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+outputs(Process1Model(1.0))
+
+# output
+(:var3,)
+```
 """
 function outputs(model::T) where {T<:AbstractModel}
     keys(outputs_(model))
@@ -58,12 +86,17 @@ variables for several models.
 
 Each model can (and should) have a method for this function.
 
-# Examples
+```jldoctest
+julia> using PlantSimEngine
 
-```julia
-variables(Monteith())
+# Including an example script that implements dummy processes and models:
+julia> include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
-variables(Monteith(), Medlyn(0.03,12.0))
+julia> variables(Process1Model(1.0))
+[:var1, :var2, :var3]
+
+julia> variables(Process1Model(1.0), Process2Model())
+[:var1, :var2, :var3, :var4, :var5]
 ```
 
 # See also
@@ -108,10 +141,17 @@ union of those for several models.
 
 # Examples
 
-```julia
-variables_typed(Monteith())
+```jldoctest
+julia> using PlantSimEngine
 
-variables_typed(Monteith(), Medlyn(0.03,12.0))
+# Including an example script that implements dummy processes and models:
+julia> include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+
+julia> PlantSimEngine.variables_typed(Process1Model(1.0))
+(var1 = Float64, var2 = Float64, var3 = Float64)
+
+julia> PlantSimEngine.variables_typed(Process1Model(1.0), Process2Model())
+(var4 = Float64, var5 = Float64, var1 = Float64, var2 = Float64, var3 = Float64)
 ```
 
 # See also

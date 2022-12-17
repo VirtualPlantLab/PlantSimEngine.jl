@@ -13,36 +13,31 @@ take a lot of memory space if using several plants).
 # Examples
 
 ```julia
-using PlantBiophysics
+using PlantSimEngine, MultiScaleTreeGraph
 
-# Read the file
-mtg = read_mtg(joinpath(dirname(dirname(pathof(PlantBiophysics))),"test","inputs","scene","opf","coffee.opf"))
+# Make an MTG:
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+leaf[:var1] = [15.0, 16.0]
+leaf[:var2] = 0.3
 
 # Declare our models:
 models = Dict(
-    "Leaf" =>
-        ModelList(
-            energy_balance = Monteith(),
-            photosynthesis = Fvcb(),
-            stomatal_conductance = Medlyn(0.03, 12.0),
-            status = (d = 0.03,)
-        )
-)
-
-transform!(
-    mtg,
-    [:Ra_PAR_f, :Ra_NIR_f] => ((x, y) -> x + y) => :Rₛ,
-    :Ra_PAR_f => (x -> x * 4.57) => :PPFD,
-    ignore_nothing = true
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    )
 )
 
 # Initialising all components with their corresponding models and initialisations:
-init_mtg_models!(mtg, models)
+init_mtg_models!(mtg, models, 1)
 
 # Make a simulation
-transform!(mtg, :models => (x -> energy_balance!(x, meteo)), ignore_nothing = true)
+transform!(mtg, :models => (x -> process3!(x, meteo)), ignore_nothing = true)
 # Pull the simulation results into the MTG attributes:
-transform!(mtg, pull_status!)
+transform!(mtg, PlantSimEngine.pull_status!)
 # Now the simulated variables are available from the MTG attributes field:
 names(mtg)
 ```

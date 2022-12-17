@@ -4,6 +4,41 @@
 
 Fetch the data from a [`ModelList`](@ref) (or an Array/Dict of) status into
 a DataFrame.
+
+# Examples
+
+```@example
+using PlantSimEngine
+using DataFrames
+
+# Creating a ModelList
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3)
+)
+
+# Converting to a DataFrame
+df = DataFrame(models)
+
+# Converting to a Dict of ModelLists
+models = Dict(
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    ),
+    "InterNode" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    )
+)
+
+# Converting to a DataFrame
+df = DataFrame(models)
+```
 """
 function DataFrames.DataFrame(components::T) where {T<:Union{ModelList,AbstractArray{<:ModelList}}}
     df = DataFrame[]

@@ -23,41 +23,42 @@ and if not found, returns an error.
 
 # Examples
 
-```julia
-using PlantBiophysics, MultiScaleTreeGraph, PlantGeom
+```@example
+using PlantSimEngine, MultiScaleTreeGraph
 
-# Read the file
-file = joinpath(dirname(dirname(pathof(PlantBiophysics))),"test","inputs","scene","opf","coffee.opf")
-mtg = read_opf(file)
+# Make an MTG:
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+leaf[:var1] = [15.0, 16.0]
+leaf[:var2] = 0.3
 
 # Declare our models:
 models = Dict(
-    "Leaf" =>
-        ModelList(
-            energy_balance = Monteith(),
-            photosynthesis = Fvcb(),
-            stomatal_conductance = Medlyn(0.03, 12.0),
-            status = (d = 0.03,)
-        )
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    )
 )
 
 # Checking which variables are needed for our models:
 [component => to_initialize(model) for (component, model) in models]
 # OK we need to initialize Rₛ, sky_fraction and the PPFD
 
-# We can compute them directly inside the MTG from available variables:
+# We could compute them directly inside the MTG from available variables instead of 
+# giving them as initialisations:
 transform!(
     mtg,
-    [:Ra_PAR_f, :Ra_NIR_f] => ((x, y) -> x + y) => :Rₛ,
-    :Ra_PAR_f => (x -> x * 4.57) => :PPFD,
+    :var1 => (x -> x .+ 2.0) => :var2,
     ignore_nothing = true
 )
 
-# Initialising all components with their corresponding models and initialisations:
-init_mtg_models!(mtg, models)
+# Initialising all components with their corresponding models and initialisations at time-step 1:
+init_mtg_models!(mtg, models, 1)
 # Note that this is possible only because the initialisation values are found in the MTG.
 # If the initialisations are constant values between components, we can directly initialize
-# them in the models definition (we initialize `:d` like this in our example).
+# them in the models definition (as we do in the begining).
 ```
 """
 function init_mtg_models!(

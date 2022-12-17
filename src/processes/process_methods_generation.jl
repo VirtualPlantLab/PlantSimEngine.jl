@@ -327,7 +327,8 @@ macro gen_process_methods(f, args...)
 
         The non mutating function returns a simulated copy of the object, and the
         mutating version modifies the object passed as argument, and returns nothing. 
-        Users may retrieve the results from the object using the [`status`](@ref) function (see examples).
+        Users may retrieve the results from the object using the [`status`](https://vezy.github.io/PlantSimEngine.jl/stable/API/#PlantSimEngine.status-Tuple{Any}) 
+        function (see examples).
 
         # Notes
 

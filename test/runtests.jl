@@ -2,6 +2,7 @@ using PlantSimEngine
 using Test, Aqua
 using Tables, DataFrames
 using PlantSimEngine.MultiScaleTreeGraph
+using PlantSimEngine.PlantMeteo
 
 Aqua.test_all(
     PlantSimEngine,
@@ -13,8 +14,8 @@ Aqua.test_all(
 # Include the example dummy processes:
 include("../examples/dummy.jl")
 
-@testset "initialisations" begin
-    include("test-initialisations.jl")
+@testset "ModelList" begin
+    include("test-ModelList.jl")
 end
 
 @testset "Status" begin
@@ -31,4 +32,8 @@ end
 
 @testset "Simulations" begin
     include("test-simulation.jl")
+end
+
+@testset "Statistics" begin
+    include("test-statistics.jl")
 end

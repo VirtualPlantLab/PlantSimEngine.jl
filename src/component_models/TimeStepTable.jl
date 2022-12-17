@@ -2,8 +2,8 @@
 """
     TimeStepTable{Status}(df::DataFrame)
     
-Method to build a `TimeStepTable` from a `DataFrame`, but with each 
-row being a `Status`.
+Method to build a `TimeStepTable` (from [PlantMeteo.jl](https://palmstudio.github.io/PlantMeteo.jl/stable/)) 
+from a `DataFrame`, but with each row being a `Status`.
 
 # Note 
 
@@ -12,8 +12,9 @@ row being a `Status`.
 # Examples
 
 ```julia
+using PlantSimEngine, DataFrames
+
 # A TimeStepTable from a DataFrame:
-using DataFrames
 df = DataFrame(
     Tₗ=[25.0, 26.0],
     PPFD=[1000.0, 1200.0],
@@ -24,14 +25,15 @@ TimeStepTable{Status}(df)
 
 # A leaf with several values for at least one of its variable will automatically use 
 # TimeStepTable{Status} with the time steps:
-leaf = ModelList(
-    photosynthesis = Fvcb(),
-    stomatal_conductance = Medlyn(0.03, 12.0),
-    status=(Tₗ=[25.0, 26.0], PPFD=1000.0, Cₛ=400.0, Dₗ=1.0)
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0, var2=0.3)
 )
 
 # The status of the leaf is a TimeStepTable:
-status(leaf)
+status(models)
 
 # Of course we can also create a TimeStepTable with Status manually:
 TimeStepTable(

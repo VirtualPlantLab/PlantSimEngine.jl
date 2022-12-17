@@ -3,7 +3,39 @@
     check_dimensions(status,weather)
 
 Checks if a component status (or a status directly) and the weather have the same length, or if they can be
-recycled (length 1).
+recycled (length 1 for one of them).
+
+# Examples
+```@repl
+using PlantSimEngine, PlantMeteo
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+# Creating a dummy weather:
+w = Atmosphere(T = 20.0, Rh = 0.5, Wind = 1.0)
+
+# Creating a dummy component:
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=[15.0, 16.0], var2=0.3)
+)
+
+# Checking that the number of time-steps are compatible (here, they are, it returns nothing):
+PlantSimEngine.check_dimensions(models, w) 
+
+# Creating a dummy weather with 3 time-steps:
+w = Weather([
+    Atmosphere(T = 20.0, Rh = 0.5, Wind = 1.0),
+    Atmosphere(T = 25.0, Rh = 0.5, Wind = 1.0),
+    Atmosphere(T = 30.0, Rh = 0.5, Wind = 1.0)
+])
+
+# Checking that the number of time-steps are compatible (here, they are not, it throws an error):
+PlantSimEngine.check_dimensions(models, w) 
+```
 """
 function check_dimensions(
     st::T,

@@ -3,6 +3,8 @@ module PlantSimEngine
 import DataFrames
 import Tables
 
+import CSV # For reading csv files with variables()
+
 # For tree dependency:
 import AbstractTrees
 import Term

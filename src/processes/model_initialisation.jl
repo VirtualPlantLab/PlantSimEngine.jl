@@ -9,12 +9,17 @@ considering that some variables that are outputs of some models are used as inpu
 
 # Examples
 
-```julia
-to_initialize(photosynthesis = Fvcb(), stomatal_conductance = Medlyn(0.03,12.0))
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
 # Or using a component directly:
-leaf = ModelList(photosynthesis = Fvcb(), stomatal_conductance = Medlyn(0.03,12.0))
-to_initialize(leaf)
+models = ModelList(process1=Process1Model(1.0), process2=Process2Model())
+to_initialize(models)
 ```
 """
 function to_initialize(m::ModelList; verbose::Bool=true)
@@ -76,13 +81,29 @@ end
     init_status!(object::Dict{String,ModelList};vars...)
     init_status!(component::ModelList;vars...)
 
-Intialise model variables for components with user input.
+Initialise model variables for components with user input.
 
 # Examples
 
-```julia
-model = read_model("a-model-file.yml")
-init_status!(model, Tₗ = 25.0, PPFD = 1000.0, Cₛ = 400.0, Dₗ = 1.2)
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+models = Dict(
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    ),
+    "InterNode" => ModelList(
+        process1=Process1Model(1.0),
+    )
+)
+
+init_status!(models, var1=1.0 , var2=2.0)
+status(models["Leaf"])
 ```
 """
 function init_status!(object::Dict{String,ModelList}; vars...)
@@ -118,9 +139,14 @@ inputs and outputs of the models.
 
 # Examples
 
-```julia
-init_variables(Monteith())
-init_variables(energy_balance = Monteith(), stomatal_conductance = Medlyn(0.03,12.0))
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+init_variables(Process1Model(2.0))
+init_variables(process1=Process1Model(2.0), process2=Process2Model())
 ```
 """
 function init_variables(model::T; verbose::Bool=true) where {T<:AbstractModel}
@@ -186,9 +212,19 @@ for other models.
 
 # Examples
 
-```julia
-leaf = ModelList(photosynthesis = Fvcb(), stomatal_conductance = Medlyn(0.03,12.0))
-is_initialized(leaf)
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model()
+)
+
+is_initialized(models)
 ```
 """
 function is_initialized(m::T; verbose=true) where {T<:ModelList}
@@ -249,8 +285,19 @@ Return an initialisation of the model variables with given values.
 
 # Examples
 
-```julia
-init_variables_manual(status, (Tₗ = 20.0,))
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model()
+)
+
+PlantSimEngine.init_variables_manual(status(models), (var1=20.0,))
 ```
 """
 function init_variables_manual(status, vars)
