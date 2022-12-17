@@ -73,13 +73,17 @@ function Base.setproperty!(mnt::Status, s::Symbol, x)
     getfield(nt, s)[] = x
 end
 
+function Base.setproperty!(mnt::Status, i::Int, x)
+    nt = getfield(mnt, :vars)
+    getindex(nt, i)[] = x
+end
+
 function Base.setindex!(mnt::Status, x, i::Symbol)
     Base.setproperty!(mnt, i, x)
 end
 
 function Base.setindex!(mnt::Status, x, i::Int)
-    nt = getfield(mnt, :vars)
-    getindex(nt, i)[] = x
+    setproperty!(mnt, i, x)
 end
 
 Base.propertynames(::Status{T,R}) where {T,R} = T
