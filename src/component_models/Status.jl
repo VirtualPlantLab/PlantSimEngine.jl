@@ -8,17 +8,25 @@ as the structure to store the variables in the `TimeStepRow` of a `TimeStepTable
 Most of the code is taken from MasonProtter/MutableNamedTuples.jl, so `Status` is a MutableNamedTuples with a few modifications,
 so in essence, it is a stuct that stores a `NamedTuple` of the references to the values of the variables, which makes it mutable.
 
+See [`get_status`](@ref) for in-depth examples of how to get the status values.
+
 # Examples
 
-```julia
+```@example
 # A leaf with one value for all variables will make a status with one time step:
 st = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, PPFD=1500.0)
 
-# Indexing a Status with a symbol returns the value of the variable:
-st[:Tₗ]
-
-# Indexing the Status with an integer returns the value of the variable by position:
+# All these indexing methods are valid:
+st[:Rₛ]
+st.Rₛ
 st[1]
+
+# Setting a Status variable is very easy:
+st[:Rₛ] = 20.0
+st.Rₛ = 21.0
+st[1] = 22.0
+
+# See `get_status()` for more examples.
 ```
 """
 struct Status{N,T<:Tuple{Vararg{<:Ref}}}
@@ -56,39 +64,33 @@ function Base.show(io::IO, t::Status)
     print(io, "Status", NamedTuple(t))
 end
 
-Base.getproperty(mnt::Status, s::Symbol) = getproperty(NamedTuple(mnt), s)
-#! Shouldn't it be `getproperty(getfield(mnt, :vars), s)[]` instead ? 
+Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
+Base.getindex(mnt::Status, i::Int) = getfield(NamedTuple(mnt), i)
+Base.getindex(mnt::Status, i::Symbol) = getfield(NamedTuple(mnt), i)
 
 function Base.setproperty!(mnt::Status, s::Symbol, x)
     nt = getfield(mnt, :vars)
     getfield(nt, s)[] = x
 end
-#! And if so, this one should just work with `mnt[s] = x`. 
 
-function Base.setproperty!(mnt::Status, i::Int, x)
+function Base.setindex!(mnt::Status, x, i::Symbol)
+    Base.setproperty!(mnt, i, x)
+end
+
+function Base.setindex!(mnt::Status, x, i::Int)
     nt = getfield(mnt, :vars)
     getindex(nt, i)[] = x
 end
-#! And if so, this one should just work with `mnt[i] = x`. 
 
 Base.propertynames(::Status{T,R}) where {T,R} = T
 Base.length(mnt::Status) = length(getfield(mnt, :vars))
 Base.eltype(::Type{Status{T}}) where {T} = T
 
 Base.iterate(mnt::Status, iter=1) = iterate(NamedTuple(mnt), iter)
-#! Idem, shouldn't it be `iterate(getfield(mnt, :vars), iter)` instead ? 
 
 Base.firstindex(mnt::Status) = 1
 Base.lastindex(mnt::Status) = lastindex(NamedTuple(mnt))
-#! Idem, shouldn't it be `lastindex(getfield(mnt, :vars))` instead ? 
-
-Base.getindex(mnt::Status, i::Int) = getfield(NamedTuple(mnt), i)
-#! Idem, shouldn't it be `getfield(getfield(mnt, :vars), i)` instead ? 
-
-Base.getindex(mnt::Status, i::Symbol) = getfield(NamedTuple(mnt), i)
-#! Idem, shouldn't it be `getfield(getfield(mnt, :vars), i)` instead ? 
 
 function Base.indexed_iterate(mnt::Status, i::Int, state=1)
     Base.indexed_iterate(NamedTuple(mnt), i, state)
 end
-#! Idem, shouldn't it be `Base.indexed_iterate(getfield(mnt, :vars), i, state)` instead ? 

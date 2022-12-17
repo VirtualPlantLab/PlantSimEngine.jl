@@ -6,6 +6,35 @@
 Get a ModelList status, *i.e.* the state of the input (and output) variables.
 
 See also [`is_initialized`](@ref) and [`to_initialize`](@ref)
+
+# Examples
+
+```@repl
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+
+# Create a ModelList
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status = (var1=[15.0, 16.0], var2=0.3)
+);
+
+status(models)
+
+Or just one variable:
+status(models,:var1)
+
+
+Or the status at the ith time-step:
+status(models, 2)
+
+Or even more simply:
+models[:var1]
+```
 """
 function status(m)
     m.status
@@ -40,6 +69,8 @@ Indexing a component models structure:
 # Examples
 
 ```julia
+using PlantSimEngine, PlantBiophysics
+
 lm = ModelList(
     energy_balance = Monteith(),
     photosynthesis = Fvcb(),
