@@ -8,8 +8,6 @@ as the structure to store the variables in the `TimeStepRow` of a `TimeStepTable
 Most of the code is taken from MasonProtter/MutableNamedTuples.jl, so `Status` is a MutableNamedTuples with a few modifications,
 so in essence, it is a stuct that stores a `NamedTuple` of the references to the values of the variables, which makes it mutable.
 
-See [`get_status`](@ref) for in-depth examples of how to get the status values.
-
 # Examples
 
 ```@example
@@ -25,8 +23,6 @@ st[1]
 st[:Rₛ] = 20.0
 st.Rₛ = 21.0
 st[1] = 22.0
-
-# See `get_status()` for more examples.
 ```
 """
 struct Status{N,T<:Tuple{Vararg{<:Ref}}}

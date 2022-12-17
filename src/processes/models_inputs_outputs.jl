@@ -9,10 +9,10 @@ Returns an empty tuple by default for `AbstractModel`s (no inputs) or `Missing` 
 # Examples
 
 ```jldoctest
-using PlantSimEngine
+using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
 inputs(Process1Model(1.0))
 
@@ -47,10 +47,10 @@ Returns an empty tuple by default for `AbstractModel`s (no outputs) or `Missing`
 # Examples
 
 ```jldoctest
-using PlantSimEngine
+using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
 outputs(Process1Model(1.0))
 
@@ -87,16 +87,24 @@ variables for several models.
 Each model can (and should) have a method for this function.
 
 ```jldoctest
-julia> using PlantSimEngine
+
+using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-julia> include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
-julia> variables(Process1Model(1.0))
-[:var1, :var2, :var3]
+variables(Process1Model(1.0))
 
-julia> variables(Process1Model(1.0), Process2Model())
-[:var1, :var2, :var3, :var4, :var5]
+variables(Process1Model(1.0), Process2Model())
+
+# output
+
+5-element Vector{Symbol}:
+ :var1
+ :var2
+ :var3
+ :var4
+ :var5
 ```
 
 # See also
@@ -142,15 +150,17 @@ union of those for several models.
 # Examples
 
 ```jldoctest
-julia> using PlantSimEngine
+using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-julia> include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
-julia> PlantSimEngine.variables_typed(Process1Model(1.0))
+PlantSimEngine.variables_typed(Process1Model(1.0))
 (var1 = Float64, var2 = Float64, var3 = Float64)
 
-julia> PlantSimEngine.variables_typed(Process1Model(1.0), Process2Model())
+PlantSimEngine.variables_typed(Process1Model(1.0), Process2Model())
+
+# output
 (var4 = Float64, var5 = Float64, var1 = Float64, var2 = Float64, var3 = Float64)
 ```
 
