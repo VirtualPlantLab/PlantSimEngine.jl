@@ -137,7 +137,7 @@ variables(PlantBiophysics)
 ```
 """
 function variables(pkg::Module)
-    sort!(CSV.read(joinpath(dirname(dirname(pathof(pkg))), "data", "variables.csv"), DataFrame))
+    sort!(CSV.read(joinpath(dirname(dirname(pathof(pkg))), "data", "variables.csv"), DataFrames.DataFrame))
 end
 
 """
