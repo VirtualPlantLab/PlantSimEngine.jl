@@ -132,6 +132,7 @@ returned by the function.
 Here is an example with the PlantBiophysics package:
 
 ```julia
+#] add PlantBiophysics
 using PlantBiophysics
 variables(PlantBiophysics)
 ```

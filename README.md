@@ -60,10 +60,3 @@ Defining a new processes is done with `@gen_gen_process_methods`, which creates 
 Then, modelers are encouraged to implement their models to simulate the process following a set of basic simple rules enforced by the package.  
 
 You'll find more details on the documentation of the package.
-
-# Road map
-
-- [x] Remove dev version of PlantMeteo (use the published version)
-- [x] Move documentation from PlantBiophysics here
-- [ ] Write doc with less dependence on PlantBiophysics
-- [ ] Add PlantBiophysics to test `Project.toml`, and move the tests on dependencies, model check etc... in this package test instead of in PlantBiophysics, and keep only the tests related to the model it implements in there.

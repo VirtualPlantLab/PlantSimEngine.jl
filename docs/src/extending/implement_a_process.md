@@ -20,7 +20,7 @@ To implement a new process, we need to define the generic methods associated to 
 
 ...and all the above with a mutating function and a non-mutating one.
 
-This is a lot of work! But fortunately PlantBiophysics provides a macro to generate all of the above: [`@gen_process_methods`](@ref).
+This is a lot of work! But fortunately PlantSimEngine provides a macro to generate all of the above: [`@gen_process_methods`](@ref).
 
 This macro takes only one argument: the name of the non-mutating function.
 
