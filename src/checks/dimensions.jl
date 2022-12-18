@@ -6,7 +6,7 @@ Checks if a component status (or a status directly) and the weather have the sam
 recycled (length 1 for one of them).
 
 # Examples
-```@repl
+```jldoctest
 using PlantSimEngine, PlantMeteo
 
 # Including an example script that implements dummy processes and models:
@@ -34,7 +34,10 @@ w = Weather([
 ])
 
 # Checking that the number of time-steps are compatible (here, they are not, it throws an error):
-PlantSimEngine.check_dimensions(models, w) 
+PlantSimEngine.check_dimensions(models, w)
+
+# output
+ERROR: DimensionMismatch: Component status should have the same number of time-steps (2) than weather data (3).
 ```
 """
 function check_dimensions(
