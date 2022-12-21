@@ -62,8 +62,11 @@ models = ModelList(
     process3=Process3Model()
 );
 
-# output
+typeof(models)
 
+# output
+[ Info: Some variables must be initialized before simulation: (process3 = (:var1, :var2),) (see `to_initialize()`)
+ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var6, :var5, :var1, :var2, :var3), NTuple{6, Base.RefValue{Float64}}}}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -111,6 +114,45 @@ models = ModelList(
     status=(var1=15.0, var2=0.3),
     type_promotion = Dict(Float64 => Float32)
 )
+
+# We used `type_promotion` to force the status into Float32:
+[typeof(models[i][1]) for i in keys(status(models))]
+
+# output
+6-element Vector{DataType}:
+ Float32
+ Float32
+ Float32
+ Float64
+ Float64
+ Float32
+```
+
+But we see that only the default variables (the ones that are not given in the status arguments)
+were converted to Float32, the two other variables that we gave were not converted. This is
+because we want to give the ability to users to give any type for the variables they provide 
+in the status. If we want all variables to be converted to Float32, we can pass them as Float32:
+
+```jldoctest 1
+models = ModelList(
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status=(var1=15.0f0, var2=0.3f0),
+    type_promotion = Dict(Float64 => Float32)
+)
+
+# We used `type_promotion` to force the status into Float32:
+[typeof(models[i][1]) for i in keys(status(models))]
+
+# output
+6-element Vector{DataType}:
+ Float32
+ Float32
+ Float32
+ Float32
+ Float32
+ Float32
 ```
 
 We can also use DataFrame as the status type:
@@ -128,6 +170,16 @@ m = ModelList(
 
 # Note that we use `init_fun` to force the status into a `DataFrame`,
 # otherwise it would be automatically converted into a `TimeStepTable{Status}`.
+
+status(m)
+
+# output
+2×6 DataFrame
+ Row │ var4     var6     var5     var1     var2     var3    
+     │ Float64  Float64  Float64  Float64  Float64  Float64 
+─────┼──────────────────────────────────────────────────────
+   1 │    -Inf     -Inf     -Inf   13.747      1.0     -Inf
+   2 │    -Inf     -Inf     -Inf   13.8        1.0     -Inf
 ```
 
 Note that computations will be slower using DataFrame, so if performance is an issue, use
@@ -343,7 +395,7 @@ function convert_vars(type_promotion::Dict{DataType,DataType}, ref_vars)
                 push!(vars, var)
             end
         end
-        length(vars) > 1 && @info "$(join(vars, ", ")) are $suptype and were promoted to $newtype"
+        # length(vars) > 1 && @info "$(join(vars, ", ")) are $suptype and were promoted to $newtype"
     end
 
     return NamedTuple(dict_ref_vars)

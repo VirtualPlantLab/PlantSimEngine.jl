@@ -10,19 +10,36 @@ so in essence, it is a stuct that stores a `NamedTuple` of the references to the
 
 # Examples
 
-```@example
-# A leaf with one value for all variables will make a status with one time step:
-st = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, PPFD=1500.0)
+A leaf with one value for all variables will make a status with one time step:
 
-# All these indexing methods are valid:
-st[:Rₛ]
-st.Rₛ
-st[1]
+```jldoctest 1
+julia> st = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, PPFD=1500.0);
+```
 
-# Setting a Status variable is very easy:
-st[:Rₛ] = 20.0
-st.Rₛ = 21.0
-st[1] = 22.0
+All these indexing methods are valid:
+
+```jldoctest 1
+julia> st[:Rₛ]
+13.747
+
+julia> st.Rₛ
+13.747
+
+julia> st[1]
+13.747
+```
+
+Setting a Status variable is very easy:
+
+```jldoctest 1
+julia> st[:Rₛ] = 20.0
+20.0
+
+julia> st.Rₛ = 21.0
+21.0
+
+julia> st[1] = 22.0
+22.0
 ```
 """
 struct Status{N,T<:Tuple{Vararg{<:Ref}}}
