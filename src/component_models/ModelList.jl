@@ -19,17 +19,17 @@ type promotion, time steps handling.
 
 # Arguments
 
-    - `models`: a list of models. Usually given as a `NamedTuple`, but can be any other structure that 
-    implements `getproperty`.
-    - `status`: a structure containing the initializations for the variables of the models. Usually a NamedTuple
-    when given as a kwarg, or any structure that implements the Tables interface from `Tables.jl` (*e.g.* DataFrame).
-    - `init_fun`: a function that initializes the status based on a vector of NamedTuples (see details).
-    - `type_promotion`: optional type conversion for the variables with default values.
-    `nothing` by default, *i.e.* no conversion. Note that conversion is not applied to the
-    variables input by the user as `kwargs` (need to do it manually).
-    Should be provided as a Dict with current type as keys and new type as values.
-    - `variables_check=true`: check that all needed variables are initialized by the user.
-    - `kwargs`: the models, named after the process they simulate.
+- `models`: a list of models. Usually given as a `NamedTuple`, but can be any other structure that 
+implements `getproperty`.
+- `status`: a structure containing the initializations for the variables of the models. Usually a NamedTuple
+when given as a kwarg, or any structure that implements the Tables interface from `Tables.jl` (*e.g.* DataFrame).
+- `init_fun`: a function that initializes the status based on a vector of NamedTuples (see details).
+- `type_promotion`: optional type conversion for the variables with default values.
+`nothing` by default, *i.e.* no conversion. Note that conversion is not applied to the
+variables input by the user as `kwargs` (need to do it manually).
+Should be provided as a Dict with current type as keys and new type as values.
+- `variables_check=true`: check that all needed variables are initialized by the user.
+- `kwargs`: the models, named after the process they simulate.
 
 # Details
 
@@ -50,22 +50,20 @@ We'll use the dummy models from the `dummy.jl` in the examples folder of the pac
 implements three dummy processes: `Process1Model`, `Process2Model` and `Process3Model`, with
 one model implementation each: `Process1Model`, `Process2Model` and `Process3Model`.
 
-```@setup usepkg
-using PlantSimEngine
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
-```
-
-```@example usepkg
-using PlantSimEngine
+```jldoctest 1
+using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
 
 models = ModelList(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()
-)
+);
+
+# output
+
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -74,34 +72,38 @@ point numbers. This component cannot be simulated yet.
 
 To know which variables we need to initialize for a simulation, we use [`to_initialize`](@ref):
 
-```@example usepkg
+```jldoctest 1
 to_initialize(models)
+# output
+(process3 = (:var1, :var2),)
 ```
 
-We can now provide values for these variables:
+We can now provide values for these variables in the `status` field, and simulate the `ModelList`, 
+*e.g.* for `process3` (coupled with `process1` and `process2`):
 
-```@example usepkg
+
+```jldoctest 1
 models = ModelList(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
     status=(var1=15.0, var2=0.3)
 )
-```
 
-We can now simulate the `ModelList`, *e.g.* for `process3` (coupled with `process1` and `process2`):
-
-```@example usepkg
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
 process3!(models,meteo)
 
 models[:var6]
+
+# output
+1-element Vector{Float64}:
+ 58.0138985
 ```
 
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
-```@example usepkg
+```jldoctest 1
 models = ModelList(
     process1=Process1Model(1.0),
     process2=Process2Model(),
@@ -113,7 +115,7 @@ models = ModelList(
 
 We can also use DataFrame as the status type:
 
-```@example usepkg
+```jldoctest 1
 using DataFrames
 df = DataFrame(:var1 => [13.747, 13.8], :var2 => [1.0, 1.0])
 m = ModelList(

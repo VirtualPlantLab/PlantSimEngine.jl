@@ -9,7 +9,7 @@ See also [`is_initialized`](@ref) and [`to_initialize`](@ref)
 
 # Examples
 
-```@repl
+```jldoctest
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
@@ -25,15 +25,19 @@ models = ModelList(
 
 status(models)
 
-Or just one variable:
+# Or just one variable:
 status(models,:var1)
 
 
-Or the status at the ith time-step:
+# Or the status at the ith time-step:
 status(models, 2)
 
-Or even more simply:
+# Or even more simply:
 models[:var1]
+# output
+2-element Vector{Float64}:
+ 15.0
+ 16.0
 ```
 """
 function status(m)
@@ -69,19 +73,22 @@ Indexing a component models structure:
 # Examples
 
 ```julia
-using PlantSimEngine, PlantBiophysics
+using PlantSimEngine
 
 lm = ModelList(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = ConstantGs(0.0, 0.0011),
-    status = (Cᵢ = 380.0, Tₗ = [20.0, 25.0])
-)
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    status = (var1=[15.0, 16.0], var2=0.3)
+);
 
-lm[:Tₗ] # Returns the value of the Tₗ variable
+lm[:var1] # Returns the value of the Tₗ variable
 lm[2]  # Returns the status at the second time-step
-lm[2][:Tₗ] # Returns the value of Tₗ at the second time-step
-lm[:Tₗ][2] # Equivalent of the above
+lm[2][:var1] # Returns the value of Tₗ at the second time-step
+lm[:var1][2] # Equivalent of the above
+
+# output
+16.0
 ```
 """
 function Base.getindex(component::T, key) where {T<:ModelList}
