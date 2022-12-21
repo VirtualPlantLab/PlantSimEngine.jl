@@ -42,11 +42,15 @@ include("../examples/dummy.jl")
         include("test-statistics.jl")
     end
 
-    @testset "Doctests" begin
-        DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames); recursive=true)
+    if VERSION >= v"1.8"
+        # Error formating changed in Julia 1.8 (or was it 1.7?), so the doctest
+        # that returns an error in PlantSimEngine.check_dimensions(models, w)
+        # fails in Julia 1.6. So we test the doctests only in Julia 1.8 and later.
+        @testset "Doctests" begin
+            DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames); recursive=true)
 
-        # Testing the doctests, i.e. the examples in the docstrings marked with jldoctest:
-        doctest(PlantSimEngine; manual=false)
+            # Testing the doctests, i.e. the examples in the docstrings marked with jldoctest:
+            doctest(PlantSimEngine; manual=false)
+        end
     end
-
 end
