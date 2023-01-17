@@ -85,7 +85,7 @@ end;
     @test DataFrame(status(ml2)) == DataFrame(status(models))
 
     # Copy the model list with new status:
-    tst = TimeStepTable(Status(var1=20.0, var2=0.5))
+    tst = TimeStepTable([Status(var1=20.0, var2=0.5)])
     ml3 = copy(models, tst)
 
     @test status(ml3) == tst

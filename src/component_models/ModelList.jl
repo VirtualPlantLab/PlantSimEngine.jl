@@ -322,7 +322,7 @@ models = ModelList(
 ml2 = copy(models)
 
 # Copy the model list with new status:
-ml3 = copy(models, TimeStepTable(Status(var1=20.0, var2=0.5)))
+ml3 = copy(models, TimeStepTable([Status(var1=20.0, var2=0.5))])
 ```
 """
 function Base.copy(m::T) where {T<:ModelList}
