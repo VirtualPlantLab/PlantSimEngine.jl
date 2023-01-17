@@ -211,14 +211,13 @@ function ModelList(;
         mods,
         init_fun(ts_kwargs)
     )
-
     variables_check && !is_initialized(model_list)
 
     return model_list
 end
 
 init_fun_default(x::Vector{T}) where {T} = TimeStepTable([Status(i) for i in x])
-init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable(Status(x))
+init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
 init_fun_default(x) = x
 
 """
