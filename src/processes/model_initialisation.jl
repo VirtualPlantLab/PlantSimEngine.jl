@@ -41,15 +41,29 @@ function to_initialize(m::DependencyTree)
     return NamedTuple(dependencies)
 end
 
-function to_initialize(m::DependencyNode)
+function to_initialize(m::HardDependencyNode)
+    vars = variables(m)
+    return NamedTuple(setdiff(vars.inputs, vars.outputs))
+end
+
+function variables(m::DependencyTree)
+    dependencies = Dict{Symbol,NamedTuple}()
+    for (process, root) in m.roots
+        push!(dependencies, process => variables(root))
+    end
+
+    return NamedTuple(dependencies)
+end
+
+function variables(m::HardDependencyNode)
     inputs_vars = Dict{Symbol,Any}()
-    output_vars = Dict{Symbol,Any}()
+    outputs_vars = Dict{Symbol,Any}()
     for i in AbstractTrees.PreOrderDFS(m)
-        merge!(output_vars, pairs(i.outputs))
+        merge!(outputs_vars, pairs(i.outputs))
         merge!(inputs_vars, pairs(i.inputs))
     end
 
-    return NamedTuple(setdiff(inputs_vars, output_vars))
+    return (inputs=NamedTuple(inputs_vars), outputs=NamedTuple(outputs_vars))
 end
 
 function to_initialize(m::T) where {T<:Dict{String,ModelList}}
@@ -172,7 +186,7 @@ function init_variables(m::DependencyTree)
     return NamedTuple(dependencies)
 end
 
-function init_variables(m::DependencyNode)
+function init_variables(m::HardDependencyNode)
     inputs_all = Dict{Symbol,Any}()
     outputs_all = Dict{Symbol,Any}()
     for i in AbstractTrees.PreOrderDFS(m)

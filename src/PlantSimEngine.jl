@@ -18,16 +18,38 @@ import Statistics
 
 using PlantMeteo
 
+# Models:
 include("Abstract_model_structs.jl")
+
+# Simulation row (status):
 include("component_models/Status.jl")
+
+# Simulation table (time-step table, from PlantMeteo):
 include("component_models/TimeStepTable.jl")
+
+# List of models:
 include("component_models/ModelList.jl")
+
+# Getters / setters for status:
 include("component_models/get_status.jl")
+
+# Transform into a dataframe:
 include("dataframe.jl")
+
+# MTG compatibility:
 include("mtg/mtg_helpers.jl")
 include("mtg/init_mtg_models.jl")
+
+# Model evaluation (statistics):
 include("evaluation/statistics.jl")
-include("processes/models_dependency.jl")
+
+# Model dependencies:
+include("dependencies/dependency_tree.jl")
+include("dependencies/soft_dependencies.jl")
+include("dependencies/hard_dependencies.jl")
+include("dependencies/dependencies.jl")
+
+# Processes:
 include("processes/model_initialisation.jl")
 include("processes/models_inputs_outputs.jl")
 include("processes/process_methods_generation.jl")
