@@ -178,6 +178,9 @@ function init_variables(m::ModelList; verbose::Bool=true)
 end
 
 function init_variables(m::DependencyTree)
+
+    traverse_dependency_tree(m, init_variables)
+
     dependencies = Dict{Symbol,NamedTuple}()
     for (process, root) in m.roots
         push!(dependencies, process => init_variables(root))
@@ -186,13 +189,12 @@ function init_variables(m::DependencyTree)
     return NamedTuple(dependencies)
 end
 
-function init_variables(m::HardDependencyNode)
+function init_variables(node::AbstractDependencyNode)
     inputs_all = Dict{Symbol,Any}()
     outputs_all = Dict{Symbol,Any}()
-    for i in AbstractTrees.PreOrderDFS(m)
-        merge!(outputs_all, pairs(i.outputs))
-        merge!(inputs_all, pairs(i.inputs))
-    end
+
+    merge!(outputs_all, pairs(node.outputs))
+    merge!(inputs_all, pairs(node.inputs))
 
     all_vars = merge(inputs_all, outputs_all)
     return NamedTuple(all_vars)

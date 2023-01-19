@@ -71,6 +71,7 @@ vars = (
 )
 
 tree = dep(vars)
+
 traverse_dependency_tree(tree, f)
 ```
 """
@@ -151,7 +152,7 @@ function draw_dependency_trees(
     tree_panel = []
     for (p, tree) in trees.roots
         node = []
-        # p = :process4; tree = trees.roots[p]
+        # p = :process2; tree = trees.roots[p]
         # typeof(deps[:process4].children[1].hard_dependency.children[1])
 
         draw_dependency_tree(tree, node, dep_tree_guides=dep_tree_guides)
@@ -188,56 +189,63 @@ function draw_dependency_tree(
 
     push!(node, prefix * panel1)
 
-    draw_panel(node, tree, prefix, dep_tree_guides)
+    for child in AbstractTrees.children(tree)
+        draw_panel(node, child, prefix, dep_tree_guides, tree)
+    end
+
     return node
 end
 
 """
-    draw_panel(node, tree, prefix, dep_tree_guides)
+    draw_panel(node, tree, prefix, dep_tree_guides, parent; title="Soft-coupled model")
 
 Draw the panels for all dependencies
 """
-function draw_panel(node, tree, prefix, dep_tree_guides; last_leaf=true)
-    ch = AbstractTrees.children(tree)
-    length(ch) == 0 && return # If no children, return
+function draw_panel(node, tree, prefix, dep_tree_guides, parent; title="Soft-coupled model")
 
-    is_leaf = [repeat([false], length(ch) - 1)..., last_leaf]
+    # If the node has a sibling, draw a branching guide + a horizontal line:
+    if length(parent.children) == 1
+        is_leaf = true
+    else
+        is_leaf = false
+    end
 
-    for i in AbstractTrees.children(tree)
-        panel_hright = string(prefix, repeat(" ", 8))
+    panel_hright = string(prefix, repeat(" ", 8))
+    panel = draw_model_panel(tree; title=title)
 
-        panel = draw_model_panel(i)
+    push!(
+        node,
+        draw_guide(
+            panel.measure.h ÷ 2,
+            3,
+            panel_hright,
+            is_leaf,
+            dep_tree_guides
+        ) * panel
+    )
 
-        push!(
-            node,
-            draw_guide(
-                panel.measure.h ÷ 2,
-                3,
-                panel_hright,
-                popfirst!(is_leaf),
-                dep_tree_guides
-            ) * panel
-        )
-
-        # Draw the hard dependencies if any:
-        if i isa SoftDependencyNode
-            # draw a branching guide if there's more soft dependencies after this one:
-            if length(i.children) > 0
-                last_leaf = false
-            end
-            draw_panel(node, i.hard_dependency, panel_hright, dep_tree_guides, last_leaf=last_leaf)
+    # Draw the hard dependencies if any:
+    if tree isa SoftDependencyNode
+        # draw a branching guide if there's more soft dependencies after this one:
+        for child in tree.hard_dependency
+            draw_panel(node, child, panel_hright, dep_tree_guides, tree; title="Hard-coupled model")
         end
+    elseif isa(parent, SoftDependencyNode) && length(parent.children) > 0
+        # The current node is a hard dependency of a soft dependency.
+        # If the parent has more soft dependency children, draw a vline also:
+        panel_hright = string(prefix, repeat(" ", 8), dep_tree_guides.vline)
+    end
 
-        if !last_leaf && i isa HardDependencyNode
-            panel_hright = string(panel_hright, dep_tree_guides.vline)
-        end
-        # draw the other dependencies:
-        draw_panel(node, i, panel_hright, dep_tree_guides)
+    # Recursive call:
+    for child in AbstractTrees.children(tree)
+        draw_panel(node, child, panel_hright, dep_tree_guides, tree; title=title_panel(child))
     end
 end
 
+title_panel(i::SoftDependencyNode) = "Soft-coupled model"
+title_panel(i::HardDependencyNode) = "Hard-coupled model"
 
-function draw_model_panel(i::SoftDependencyNode{T}; title="Soft-coupled model") where {T}
+function draw_model_panel(i::SoftDependencyNode{T}; title=nothing) where {T}
     Term.Panel(
         title=title,
         string(
@@ -251,7 +259,7 @@ function draw_model_panel(i::SoftDependencyNode{T}; title="Soft-coupled model") 
 end
 
 
-function draw_model_panel(i::HardDependencyNode{T}; title="Hard-coupled model") where {T}
+function draw_model_panel(i::HardDependencyNode{T}; title=nothing) where {T}
     Term.Panel(
         title=title,
         string(
