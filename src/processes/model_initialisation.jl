@@ -33,18 +33,15 @@ function to_initialize(m::ModelList; verbose::Bool=true)
 end
 
 function to_initialize(m::DependencyTree)
-    dependencies = Dict{Symbol,NamedTuple}()
-    for (process, root) in m.roots
-        push!(dependencies, process => to_initialize(root))
-    end
-
+    dependencies = traverse_dependency_tree(m, to_initialize)
     return NamedTuple(dependencies)
 end
 
-function to_initialize(m::HardDependencyNode)
+function to_initialize(m::AbstractDependencyNode)
     vars = variables(m)
-    return NamedTuple(setdiff(vars.inputs, vars.outputs))
+    return NamedTuple([m.process => setdiff(vars.inputs, vars.outputs)])
 end
+
 
 function variables(m::DependencyTree)
     dependencies = Dict{Symbol,NamedTuple}()
@@ -55,16 +52,24 @@ function variables(m::DependencyTree)
     return NamedTuple(dependencies)
 end
 
-function variables(m::HardDependencyNode)
-    inputs_vars = Dict{Symbol,Any}()
-    outputs_vars = Dict{Symbol,Any}()
-    for i in AbstractTrees.PreOrderDFS(m)
-        merge!(outputs_vars, pairs(i.outputs))
-        merge!(inputs_vars, pairs(i.inputs))
-    end
+# function variables(m::HardDependencyNode)
+#     inputs_vars = Dict{Symbol,Any}()
+#     outputs_vars = Dict{Symbol,Any}()
+#     for i in AbstractTrees.PreOrderDFS(m)
+#         merge!(outputs_vars, pairs(i.outputs))
+#         merge!(inputs_vars, pairs(i.inputs))
+#     end
 
-    return (inputs=NamedTuple(inputs_vars), outputs=NamedTuple(outputs_vars))
+#     return (inputs=NamedTuple(inputs_vars), outputs=NamedTuple(outputs_vars))
+# end
+function variables(m::HardDependencyNode)
+    return (inputs=m.inputs, outputs=m.outputs)
 end
+
+function variables(m::SoftDependencyNode)
+    return (inputs=inputs(m.value), outputs=outputs(m.value))
+end
+
 
 function to_initialize(m::T) where {T<:Dict{String,ModelList}}
     toinit = Dict{String,NamedTuple}()
@@ -178,18 +183,11 @@ function init_variables(m::ModelList; verbose::Bool=true)
 end
 
 function init_variables(m::DependencyTree)
-
-    traverse_dependency_tree(m, init_variables)
-
-    dependencies = Dict{Symbol,NamedTuple}()
-    for (process, root) in m.roots
-        push!(dependencies, process => init_variables(root))
-    end
-
+    dependencies = traverse_dependency_tree(m, init_variables)
     return NamedTuple(dependencies)
 end
 
-function init_variables(node::AbstractDependencyNode)
+function init_variables(node::HardDependencyNode)
     inputs_all = Dict{Symbol,Any}()
     outputs_all = Dict{Symbol,Any}()
 
@@ -198,6 +196,10 @@ function init_variables(node::AbstractDependencyNode)
 
     all_vars = merge(inputs_all, outputs_all)
     return NamedTuple(all_vars)
+end
+
+function init_variables(node::SoftDependencyNode)
+    return init_variables(node.value)
 end
 
 # Models are provided as keyword arguments:
