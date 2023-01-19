@@ -39,7 +39,6 @@ function Base.show(io::IO, t::DependencyTree)
     draw_dependency_trees(io, t)
 end
 
-
 """
     traverse_dependency_tree(tree::DependencyTree, f::Function)
 
@@ -154,8 +153,7 @@ function draw_dependency_trees(
         node = []
         # p = :process2; tree = trees.roots[p]
         # typeof(deps[:process4].children[1].hard_dependency.children[1])
-
-        draw_dependency_tree(tree, node, dep_tree_guides=dep_tree_guides)
+        draw_panel(node, tree, "", dep_tree_guides, tree; title="Main model")
         push!(tree_panel, Term.Panel(node...; fit=true, title=string(p), style="green dim"))
     end
 
@@ -171,32 +169,6 @@ function draw_dependency_trees(
 end
 
 """
-    draw_dependency_tree(
-        tree, node;
-        guides_style::String=TERM_THEME[].tree_guide_style,
-        dep_tree_guides=(space=" ", vline="│", branch="├", leaf="└", hline="─")
-    )
-
-Draw the dependency tree.
-"""
-function draw_dependency_tree(
-    tree, node;
-    dep_tree_guides=(space=" ", vline="│", branch="├", leaf="└", hline="─")
-)
-
-    prefix = ""
-    panel1 = draw_model_panel(tree; title="Main model")
-
-    push!(node, prefix * panel1)
-
-    for child in AbstractTrees.children(tree)
-        draw_panel(node, child, prefix, dep_tree_guides, tree)
-    end
-
-    return node
-end
-
-"""
     draw_panel(node, tree, prefix, dep_tree_guides, parent; title="Soft-coupled model")
 
 Draw the panels for all dependencies
@@ -204,7 +176,7 @@ Draw the panels for all dependencies
 function draw_panel(node, tree, prefix, dep_tree_guides, parent; title="Soft-coupled model")
 
     # If the node has a sibling, draw a branching guide + a horizontal line:
-    if length(parent.children) == 1
+    if length(parent.children) <= 1
         is_leaf = true
     else
         is_leaf = false
@@ -213,17 +185,21 @@ function draw_panel(node, tree, prefix, dep_tree_guides, parent; title="Soft-cou
     panel_hright = string(prefix, repeat(" ", 8))
     panel = draw_model_panel(tree; title=title)
 
-    push!(
-        node,
-        draw_guide(
-            panel.measure.h ÷ 2,
-            3,
-            panel_hright,
-            is_leaf,
-            dep_tree_guides
-        ) * panel
-    )
-
+    if tree.parent === nothing && parent == tree
+        # The current node is the root of the tree:
+        push!(node, prefix * panel)
+    else
+        push!(
+            node,
+            draw_guide(
+                panel.measure.h ÷ 2,
+                3,
+                panel_hright,
+                is_leaf,
+                dep_tree_guides
+            ) * panel
+        )
+    end
     # Draw the hard dependencies if any:
     if tree isa SoftDependencyNode
         # draw a branching guide if there's more soft dependencies after this one:
