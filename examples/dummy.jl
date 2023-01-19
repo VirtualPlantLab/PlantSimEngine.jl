@@ -61,3 +61,85 @@ function process3!_(::Process3Model, models, status, meteo, constants=nothing, e
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4
 end
+
+
+# Defining a 4th process called "process4", and a model
+# that implements an algorithm, and that computes the 
+# inputs of the root of the previous ones (process3): 
+@gen_process_methods "process4" verbose = false
+
+"""
+    Process4Model()
+
+A dummy model implementing a "process4" process for testing purposes.
+It computes the inputs needed for the coupled processes 1-2-3.
+"""
+struct Process4Model <: AbstractProcess4Model end
+PlantSimEngine.inputs_(::Process4Model) = (var0=-Inf,)
+PlantSimEngine.outputs_(::Process4Model) = (var1=-Inf, var2=-Inf)
+function process4!_(::Process4Model, models, status, meteo, constants=nothing, extra=nothing)
+    # computing var3 using process1:
+    # re-computing var4:
+    status.var1 = status.var0 + 0.01
+    status.var2 = status.var1 + 0.02
+end
+
+
+# Defining a 5th process called "process5", and a model
+# that implements an algorithm, and that computes other 
+# variables from outputs of process 1-2-3 (soft coupling): 
+@gen_process_methods "process5" verbose = false
+
+"""
+    Process5Model()
+
+A dummy model implementing a "process5" process for testing purposes.
+It needs the outputs from the coupled processes 1-2-3.
+"""
+struct Process5Model <: AbstractProcess5Model end
+PlantSimEngine.inputs_(::Process5Model) = (var5=-Inf, var6=-Inf)
+PlantSimEngine.outputs_(::Process5Model) = (var7=-Inf,)
+function process5!_(::Process5Model, models, status, meteo, constants=nothing, extra=nothing)
+
+    status.var7 = status.var5 * status.var6
+end
+
+
+# Defining a 6th process called "process6", and a model
+# that implements an algorithm, and that computes other 
+# variables from outputs of process 5 (soft-coupling): 
+@gen_process_methods "process6" verbose = false
+
+"""
+    Process6Model()
+
+A dummy model implementing a "process6" process for testing purposes.
+It needs the outputs from the coupled processes 1-2-3, but also from
+process 7 that is itself independant.
+"""
+struct Process6Model <: AbstractProcess6Model end
+PlantSimEngine.inputs_(::Process6Model) = (var7=-Inf, var9=-Inf)
+PlantSimEngine.outputs_(::Process6Model) = (var8=-Inf,)
+function process6!_(::Process6Model, models, status, meteo, constants=nothing, extra=nothing)
+    status.var8 = status.var7 + 1.0
+end
+
+# Defining a 7th process called "process7", and a model
+# that depends on nothing but var0 so it is independant. 
+# But Process6Model depends on its output, so it is a soft-coupling:
+# variables from outputs of process 5 (soft-coupling):(var0=-Inf,)
+@gen_process_methods "process7" verbose = false
+
+"""
+    Process7Model()
+
+A dummy model implementing a "process7" process for testing purposes.
+It is independent (needs :var0 only as for Process4Model), but its outputs
+are used by Process6Model, so it is a soft-coupling.
+"""
+struct Process7Model <: AbstractProcess7Model end
+PlantSimEngine.inputs_(::Process7Model) = (var0=-Inf,)
+PlantSimEngine.outputs_(::Process7Model) = (var9=-Inf,)
+function process7!_(::Process7Model, models, status, meteo, constants=nothing, extra=nothing)
+    status.var9 = status.var0 + 1.0
+end
