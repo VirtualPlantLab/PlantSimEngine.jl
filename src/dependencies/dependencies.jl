@@ -40,7 +40,6 @@ dep(;vars...)
 ```
 """
 function dep(; verbose::Bool=true, vars...)
-
     hard_dep, dep_not_found = hard_dependencies((; vars...), verbose=verbose)
     deps = soft_dependencies(hard_dep)
 
@@ -52,3 +51,7 @@ function dep(m::ModelList; verbose::Bool=true)
     dep(; verbose=verbose, m.models...)
 end
 
+
+function dep(m::NamedTuple; verbose::Bool=true)
+    dep(; verbose=verbose, m...)
+end
