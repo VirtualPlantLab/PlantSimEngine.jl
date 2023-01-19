@@ -55,7 +55,7 @@ function soft_dependencies(d::Dict{Symbol,PlantSimEngine.HardDependencyNode})
         process_ => SoftDependencyNode(
             d[process_].value,
             process_, # process name
-            d[process_], # hard dependencies
+            AbstractTrees.children(d[process_]), # hard dependencies
             nothing,
             nothing,
             SoftDependencyNode[]

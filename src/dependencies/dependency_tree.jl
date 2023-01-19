@@ -12,10 +12,10 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
 end
 
 
-mutable struct SoftDependencyNode <: AbstractDependencyNode
-    value::DataType
+mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
+    value::T
     process::Symbol
-    hard_dependency::HardDependencyNode
+    hard_dependency::Union{Vector{HardDependencyNode}}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,Tuple{Vararg{Symbol}}}
     children::Vector{SoftDependencyNode}
@@ -30,12 +30,111 @@ AbstractTrees.children(t::AbstractDependencyNode) = t.children
 AbstractTrees.nodevalue(t::AbstractDependencyNode) = t.value # needs recent AbstractTrees
 AbstractTrees.ParentLinks(::Type{<:AbstractDependencyNode}) = AbstractTrees.StoredParents()
 AbstractTrees.parent(t::AbstractDependencyNode) = t.parent
-AbstractTrees.printnode(io::IO, node::AbstractDependencyNode) = print(io, node.value)
+AbstractTrees.printnode(io::IO, node::HardDependencyNode{T}) where {T} = print(io, T)
+AbstractTrees.printnode(io::IO, node::SoftDependencyNode{T}) where {T} = print(io, T)
 Base.show(io::IO, t::AbstractDependencyNode) = AbstractTrees.print_tree(io, t)
 Base.length(t::AbstractDependencyNode) = length(collect(AbstractTrees.PreOrderDFS(t)))
 
 function Base.show(io::IO, t::DependencyTree)
     draw_dependency_trees(io, t)
+end
+
+
+"""
+    traverse_dependency_tree(tree::DependencyTree, f::Function)
+
+Traverse the dependency `tree` and apply the function `f` to each node.
+The first-level soft-dependencies are traversed first, then their
+hard-dependencies, and then the children of the soft-dependencies.
+
+Return a vector of pairs of the node and the result of the function `f`.
+
+# Example
+
+```julia
+using PlantSimEngine
+
+function f(node)
+    node.value
+end
+
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+
+vars = (
+    process1=Process1Model(1.0),
+    process2=Process2Model(),
+    process3=Process3Model(),
+    process4=Process4Model(),
+    process5=Process5Model(),
+    process6=Process6Model(),
+    process7=Process7Model(),
+)
+
+tree = dep(vars)
+traverse_dependency_tree(tree, f)
+```
+"""
+function traverse_dependency_tree(
+    tree::DependencyTree,
+    f::Function
+)
+    var = []
+    for (p, root) in tree.roots
+        traverse_dependency_tree!(root, f, var)
+    end
+
+    return var
+end
+
+
+"""
+    traverse_dependency_tree(node::SoftDependencyNode, f::Function, var::Vector)
+
+Traverse the soft-dependency `node` and apply the `f` to itself, to its hard 
+dependencies if any, and then to its children.
+
+Mutate the vector `var` by pushing a pair of the node and the result of the
+function `f`.
+"""
+function traverse_dependency_tree!(
+    node::SoftDependencyNode,
+    f::Function,
+    var::Vector
+)
+    push!(var, node.process => f(node))
+
+    # Traverse the hard dependencies of the SoftDependencyNode if any:
+    if node isa SoftDependencyNode
+        # draw a branching guide if there's more soft dependencies after this one:
+        for child in node.hard_dependency
+            traverse_dependency_tree!(child, f, var)
+        end
+    end
+
+    for child in node.children
+        traverse_dependency_tree!(child, f, var)
+    end
+end
+
+"""
+    traverse_dependency_tree(node::HardDependencyNode, f::Function, var::Vector)
+
+Traverse the hard-dependency `node` and apply the `f` to itself and then to its
+children.
+
+Mutate the vector `var` by pushing a pair of the node and the result of the
+function `f`.
+"""
+function traverse_dependency_tree!(
+    node::HardDependencyNode,
+    f::Function,
+    var::Vector
+)
+    push!(var, node.process => f(node))
+
+    for child in node.children
+        traverse_dependency_tree!(child, f, var)
+    end
 end
 
 function draw_dependency_trees(
@@ -85,20 +184,7 @@ function draw_dependency_tree(
 )
 
     prefix = ""
-    panel1 = Term.Panel(
-        title="Main model",
-        string(
-            "Process: $(tree.process)\n",
-            "Model: $(tree.value)",
-            length(tree.hard_dependency.missing_dependency) == 0 ? "" : string(
-                "\n{red underline}Missing dependencies: ",
-                join([tree.hard_dependency.dependency[j] for j in tree.hard_dependency.missing_dependency], ", "),
-                "{/red underline}"
-            )
-        );
-        fit=true,
-        style="blue dim"
-    )
+    panel1 = draw_model_panel(tree; title="Main model")
 
     push!(node, prefix * panel1)
 
@@ -151,12 +237,12 @@ function draw_panel(node, tree, prefix, dep_tree_guides; last_leaf=true)
 end
 
 
-function draw_model_panel(i::SoftDependencyNode)
+function draw_model_panel(i::SoftDependencyNode{T}; title="Soft-coupled model") where {T}
     Term.Panel(
-        title="Soft-coupled model",
+        title=title,
         string(
             "Process: $(i.process)\n",
-            "Model: $(i.value)\n",
+            "Model: $(T)\n",
             "Dep: $(i.parent_vars)"
         );
         fit=true,
@@ -165,12 +251,12 @@ function draw_model_panel(i::SoftDependencyNode)
 end
 
 
-function draw_model_panel(i::HardDependencyNode)
+function draw_model_panel(i::HardDependencyNode{T}; title="Hard-coupled model") where {T}
     Term.Panel(
-        title="Hard-coupled model",
+        title=title,
         string(
             "Process: $(i.process)\n",
-            "Model: $(i.value)",
+            "Model: $(T)",
             length(i.missing_dependency) == 0 ? "" : string(
                 "\n{red underline}Missing dependencies: ",
                 join([i.dependency[j] for j in i.missing_dependency], ", "),

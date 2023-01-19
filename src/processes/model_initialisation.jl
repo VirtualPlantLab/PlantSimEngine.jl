@@ -148,7 +148,7 @@ end
 """
     init_variables(models...)
 
-Intialized model variables with their default values. The variables are taken from the
+Initialized model variables with their default values. The variables are taken from the
 inputs and outputs of the models.
 
 # Examples
@@ -191,7 +191,6 @@ function init_variables(m::HardDependencyNode)
     outputs_all = Dict{Symbol,Any}()
     for i in AbstractTrees.PreOrderDFS(m)
         merge!(outputs_all, pairs(i.outputs))
-
         merge!(inputs_all, pairs(i.inputs))
     end
 

@@ -1,7 +1,7 @@
 function hard_dependencies(models; verbose::Bool=true)
     dep_tree = Dict(
         p => HardDependencyNode(
-            typeof(i),
+            i,
             p,
             inputs_(i),
             outputs_(i),
