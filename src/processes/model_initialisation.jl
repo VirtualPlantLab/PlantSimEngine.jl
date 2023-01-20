@@ -20,12 +20,22 @@ to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 # Or using a component directly:
 models = ModelList(process1=Process1Model(1.0), process2=Process2Model())
 to_initialize(models)
+
+m = ModelList(
+    (
+        process1=Process1Model(1.0),
+        process2=Process2Model()
+    ),
+    Status(var1 = 5.0, var2 = -Inf, var3 = -Inf, var4 = -Inf, var5 = -Inf)
+)
 ```
 """
 function to_initialize(m::ModelList; verbose::Bool=true)
     needed_variables = to_initialize(dep(m; verbose=verbose))
     to_init = Dict{Symbol,Tuple}()
-    for (process, vars) in pairs(needed_variables)
+    for (process, vars) in needed_variables
+        # default_values = needed_variables[:process1]
+        # st = m.status
         not_init = vars_not_init_(m.status, vars)
         length(not_init) > 0 && push!(to_init, process => not_init)
     end
@@ -34,42 +44,42 @@ end
 
 function to_initialize(m::DependencyTree)
     dependencies = traverse_dependency_tree(m, to_initialize)
-    return NamedTuple(dependencies)
-end
 
-function to_initialize(m::AbstractDependencyNode)
-    vars = variables(m)
-    return NamedTuple([m.process => setdiff(vars.inputs, vars.outputs)])
-end
-
-
-function variables(m::DependencyTree)
-    dependencies = Dict{Symbol,NamedTuple}()
-    for (process, root) in m.roots
-        push!(dependencies, process => variables(root))
+    outputs_all = Set{Symbol}()
+    for (key, value) in dependencies
+        outputs_all = union(outputs_all, keys(value.outputs))
     end
 
-    return NamedTuple(dependencies)
+    needed_variables_process = Dict{Symbol,NamedTuple}()
+    for (key, value) in dependencies
+        for (key_in, val_in) in pairs(value.inputs)
+            if key_in ∉ outputs_all
+                if haskey(needed_variables_process, key)
+                    needed_variables_process[key] = merge(needed_variables_process[key], NamedTuple{(key_in,)}(val_in))
+                else
+                    push!(needed_variables_process, key => NamedTuple{(key_in,)}(val_in))
+                end
+            end
+        end
+    end
+    # note: needed_variables_process is e.g.:
+    # Dict{Symbol, NamedTuple} with 2 entries:
+    #     :process1 => (var1 = -Inf, var2 = -Inf)
+    #     :process2 => (var1 = -Inf,)
+    return needed_variables_process
 end
 
-# function variables(m::HardDependencyNode)
-#     inputs_vars = Dict{Symbol,Any}()
-#     outputs_vars = Dict{Symbol,Any}()
-#     for i in AbstractTrees.PreOrderDFS(m)
-#         merge!(outputs_vars, pairs(i.outputs))
-#         merge!(inputs_vars, pairs(i.inputs))
-#     end
+"""
+    to_initialize(m::AbstractDependencyNode)
 
-#     return (inputs=NamedTuple(inputs_vars), outputs=NamedTuple(outputs_vars))
-# end
-function variables(m::HardDependencyNode)
-    return (inputs=m.inputs, outputs=m.outputs)
+Return the variables that must be initialized providing a set of models and processes. The
+function just returns the inputs and outputs of each model, with their default values.
+To take into account model coupling, use the function at an upper-level instead, *i.e.* 
+`to_initialize(m::ModelList)` or `to_initialize(m::DependencyTree)`.
+"""
+function to_initialize(m::AbstractDependencyNode)
+    return (inputs=inputs_(m.value), outputs=outputs_(m.value))
 end
-
-function variables(m::SoftDependencyNode)
-    return (inputs=inputs(m.value), outputs=outputs(m.value))
-end
-
 
 function to_initialize(m::T) where {T<:Dict{String,ModelList}}
     toinit = Dict{String,NamedTuple}()
@@ -187,18 +197,7 @@ function init_variables(m::DependencyTree)
     return NamedTuple(dependencies)
 end
 
-function init_variables(node::HardDependencyNode)
-    inputs_all = Dict{Symbol,Any}()
-    outputs_all = Dict{Symbol,Any}()
-
-    merge!(outputs_all, pairs(node.outputs))
-    merge!(inputs_all, pairs(node.inputs))
-
-    all_vars = merge(inputs_all, outputs_all)
-    return NamedTuple(all_vars)
-end
-
-function init_variables(node::SoftDependencyNode)
+function init_variables(node::AbstractDependencyNode)
     return init_variables(node.value)
 end
 
@@ -270,11 +269,12 @@ end
 
 Get which variable is not properly initialized in the status struct.
 """
-function vars_not_init_(status::T, default_values) where {T<:Status}
+function vars_not_init_(st::T, default_values) where {T<:Status}
     length(default_values) == 0 && return () # no variables
+
     not_init = Symbol[]
     for i in keys(default_values)
-        if getproperty(status, i) == default_values[i]
+        if getproperty(st, i) == default_values[i]
             push!(not_init, i)
         end
     end

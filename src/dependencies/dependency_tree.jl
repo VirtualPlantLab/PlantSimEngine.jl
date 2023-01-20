@@ -3,8 +3,6 @@ abstract type AbstractDependencyNode end
 mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
-    inputs::NamedTuple
-    outputs::NamedTuple
     dependency::NamedTuple
     missing_dependency::Vector{Int}
     parent::Union{Nothing,HardDependencyNode}

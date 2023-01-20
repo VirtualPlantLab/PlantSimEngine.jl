@@ -3,8 +3,6 @@ function hard_dependencies(models; verbose::Bool=true)
         p => HardDependencyNode(
             i,
             p,
-            inputs_(i),
-            outputs_(i),
             NamedTuple(),
             Int[],
             nothing,

@@ -116,6 +116,16 @@ function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
 end
 
 """
+    variables(m::AbstractDependencyNode)
+
+Returns a tuple with the name of the inputs and outputs variables needed by a model in 
+a dependency tree.
+"""
+function variables(m::AbstractDependencyNode)
+    return (inputs=inputs(m.value), outputs=outputs(m.value))
+end
+
+"""
     variables(pkg::Module)
 
 Returns a dataframe of all variables, their description and units in a package
