@@ -52,21 +52,31 @@ one model implementation each: `Process1Model`, `Process2Model` and `Process3Mod
 
 ```jldoctest 1
 using PlantSimEngine;
+# output
+```
 
-# Including an example script that implements dummy processes and models:
+Including an example script that implements dummy processes and models:
+
+```jldoctest 1
 include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+# output
+process7!_ (generic function with 7 methods)
+```
 
+```jldoctest 1
 models = ModelList(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()
 );
+# output
+```
 
+```jldoctest 1
 typeof(models)
 
 # output
-[ Info: Some variables must be initialized before simulation: (process3 = (:var1, :var2),) (see `to_initialize()`)
-ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var6, :var5, :var1, :var2, :var3), NTuple{6, Base.RefValue{Float64}}}}}
+ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -78,12 +88,11 @@ To know which variables we need to initialize for a simulation, we use [`to_init
 ```jldoctest 1
 to_initialize(models)
 # output
-(process3 = (:var1, :var2),)
+(process1 = (:var1, :var2), process2 = (:var1,))
 ```
 
 We can now provide values for these variables in the `status` field, and simulate the `ModelList`, 
 *e.g.* for `process3` (coupled with `process1` and `process2`):
-
 
 ```jldoctest 1
 models = ModelList(
@@ -91,12 +100,21 @@ models = ModelList(
     process2=Process2Model(),
     process3=Process3Model(),
     status=(var1=15.0, var2=0.3)
-)
+);
+# output
+```
 
-meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
+```jldoctest 1
+meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
+# output
+```
 
+```jldoctest 1
 process3!(models,meteo)
+# output
+```
 
+```jldoctest 1
 models[:var6]
 
 # output
@@ -113,8 +131,11 @@ models = ModelList(
     process3=Process3Model(),
     status=(var1=15.0, var2=0.3),
     type_promotion = Dict(Float64 => Float32)
-)
+);
+# output
+```
 
+```jldoctest 1
 # We used `type_promotion` to force the status into Float32:
 [typeof(models[i][1]) for i in keys(status(models))]
 
@@ -140,8 +161,11 @@ models = ModelList(
     process3=Process3Model(),
     status=(var1=15.0f0, var2=0.3f0),
     type_promotion = Dict(Float64 => Float32)
-)
+);
+# output
+```
 
+```jldoctest 1
 # We used `type_promotion` to force the status into Float32:
 [typeof(models[i][1]) for i in keys(status(models))]
 
@@ -158,28 +182,31 @@ models = ModelList(
 We can also use DataFrame as the status type:
 
 ```jldoctest 1
-using DataFrames
-df = DataFrame(:var1 => [13.747, 13.8], :var2 => [1.0, 1.0])
+using DataFrames;
+df = DataFrame(:var1 => [13.747, 13.8], :var2 => [1.0, 1.0]);
 m = ModelList(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
     status=df,
     init_fun=x -> DataFrame(x)
-)
+);
+# output
+```
 
-# Note that we use `init_fun` to force the status into a `DataFrame`,
-# otherwise it would be automatically converted into a `TimeStepTable{Status}`.
+Note that we use `init_fun` to force the status into a `DataFrame`, otherwise it would
+be automatically converted into a `TimeStepTable{Status}`.
 
+```jldoctest 1
 status(m)
 
 # output
 2×6 DataFrame
- Row │ var4     var6     var5     var1     var2     var3    
+ Row │ var4     var5     var6     var1     var3     var2    
      │ Float64  Float64  Float64  Float64  Float64  Float64 
 ─────┼──────────────────────────────────────────────────────
-   1 │    -Inf     -Inf     -Inf   13.747      1.0     -Inf
-   2 │    -Inf     -Inf     -Inf   13.8        1.0     -Inf
+   1 │    -Inf     -Inf     -Inf   13.747     -Inf      1.0
+   2 │    -Inf     -Inf     -Inf   13.8       -Inf      1.0
 ```
 
 Note that computations will be slower using DataFrame, so if performance is an issue, use
@@ -224,7 +251,7 @@ init_fun_default(x) = x
     add_model_vars(x)
 
 Check which variables in `x` are not initialized considering a set of models and the variables
-needed for their simulation. If some variables are unitialized, initialize them to their default values.
+needed for their simulation. If some variables are uninitialized, initialize them to their default values.
 
 This function needs to be implemented for each type of `x` (please do it if you need it).
 

@@ -6,11 +6,9 @@ using PlantMeteo
 using Documenter # for doctests
 
 # Include the example dummy processes:
-include("../examples/dummy.jl")
-
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 @testset "Testing PlantSimEngine" begin
-
     Aqua.test_all(
         PlantSimEngine,
         # Removing this test as dependencies return ambiguities...

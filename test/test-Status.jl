@@ -41,14 +41,19 @@ end
 
     @test typeof(status(models)) == TimeStepTable{
         Status{
-            (:var4, :var6, :var5, :var1, :var2, :var3),
+            (:var4, :var5, :var6, :var1, :var3, :var2),
             NTuple{6,Base.RefValue{Float64}}
         }
     }
     @test status(models) == models.status
     @test status(models)[1] == status(models, 1)
 
-    @test typeof(status(models, 1)) == PlantMeteo.TimeStepRow{Status{(:var4, :var6, :var5, :var1, :var2, :var3),NTuple{6,Base.RefValue{Float64}}}}
+    @test typeof(status(models, 1)) == PlantMeteo.TimeStepRow{
+        Status{
+            (:var4, :var5, :var6, :var1, :var3, :var2),
+            NTuple{6,Base.RefValue{Float64}}
+        }
+    }
 
     @test status(models, 1).var1 == 15.0
     @test status(models, 1).var2 == 0.3

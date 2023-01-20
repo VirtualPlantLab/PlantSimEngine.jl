@@ -48,8 +48,8 @@ function soft_dependencies(d::Dict{Symbol,PlantSimEngine.HardDependencyNode})
     end
 
     # Compute the inputs and outputs of each process tree in the dependency tree
-    inputs_process = Dict(key => keys(val.inputs) for (key, val) in d_vars)
-    outputs_process = Dict(key => keys(val.outputs) for (key, val) in d_vars)
+    inputs_process = Dict(key => val.inputs for (key, val) in d_vars)
+    outputs_process = Dict(key => val.outputs for (key, val) in d_vars)
 
     soft_dep_tree = Dict(
         process_ => SoftDependencyNode(

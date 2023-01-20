@@ -38,7 +38,7 @@ end;
 
     process3!(models, meteo)
     vars = keys(status(models))
-    @test [models[i][1] for i in vars] == [22.0, 56.95, 34.95, 15.0, 0.3, 5.5]
+    @test [models[i][1] for i in vars] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
 end;
 
 
@@ -54,7 +54,14 @@ end;
 
     process3!(models, meteo)
     vars = keys(status(models))
-    @test [models[i] for i in vars] == [[22.0, 23.2], [56.95, 58.75], [34.95, 35.550000000000004], [15.0, 16.0], [0.3, 0.3], [5.5, 5.8]]
+    @test [models[i] for i in vars] == [
+        [22.0, 23.2],
+        [34.95, 35.550000000000004],
+        [56.95, 58.75],
+        [15.0, 16.0],
+        [5.5, 5.8],
+        [0.3, 0.3],
+    ]
 end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres" begin
@@ -74,7 +81,14 @@ end;
 
     process3!(models, meteo)
     vars = keys(status(models))
-    @test [models[i] for i in vars] == [[22.0, 23.2], [56.95, 63.2], [34.95, 40.0], [15.0, 16.0], [0.3, 0.3], [5.5, 5.8]]
+    @test [models[i] for i in vars] == [
+        [22.0, 23.2],
+        [34.95, 40.0],
+        [56.95, 63.2],
+        [15.0, 16.0],
+        [5.5, 5.8],
+        [0.3, 0.3],
+    ]
 end;
 
 
@@ -103,5 +117,12 @@ end;
     process3!(mtg, models, meteo)
     df_leaf = DataFrame(leaf)
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [df_leaf[1, i] for i in vars] == [[22.0, 23.2], [56.95, 63.2], [34.95, 40.0], [15.0, 16.0], [0.3, 0.3], [5.5, 5.8]]
+    @test [df_leaf[1, i] for i in vars] == [
+        [22.0, 23.2],
+        [56.95, 63.2],
+        [34.95, 40.0],
+        [15.0, 16.0],
+        [0.3, 0.3],
+        [5.5, 5.8],
+    ]
 end;

@@ -1,4 +1,4 @@
-# include("../examples/dummy.jl")
+# include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 # Tests:
 # Defining a list of models without status:
@@ -12,7 +12,7 @@
     st = Status{keys(inits)}(values(inits))
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
-    @test to_initialize(leaf) == (process2=(:var1, :var2,),)
+    @test to_initialize(leaf) == (process1=(:var1, :var2), process2=(:var1,))
 end;
 
 @testset "ModelList with a partially initialized status" begin
@@ -27,7 +27,7 @@ end;
     st.var1 = 15.0
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
-    @test to_initialize(leaf) == (process2=(:var2,),)
+    @test to_initialize(leaf) == (process1=(:var2,),)
 end;
 
 @testset "ModelList with fully initialized status" begin
@@ -113,4 +113,36 @@ end;
 
     process3_same = PlantSimEngine.convert_vars(nothing, ref_vars.process3)
     @test process3_same == ref_vars.process3
+end
+
+
+@testset "ModelList dependencies" begin
+
+    models = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        process4=Process4Model(),
+        process5=Process5Model(),
+        process6=Process6Model(),
+        status=(var1=15.0, var2=0.3)
+    )
+
+    deps = dep(models).roots
+    @test collect(keys(deps)) == [:process3, :process4]
+
+    @test deps[:process4].value == Process4Model()
+    @test isa(deps[:process4], PlantSimEngine.SoftDependencyNode)
+
+    @test deps[:process3].value == Process3Model()
+    @test isa(deps[:process3], PlantSimEngine.SoftDependencyNode)
+
+    @test deps[:process3].hard_dependency[1].value == Process2Model()
+    @test isa(deps[:process3].hard_dependency[1], PlantSimEngine.HardDependencyNode)
+
+    @test deps[:process3].hard_dependency[1].children[1].value == Process1Model(1.0)
+    @test isa(deps[:process3].hard_dependency[1].children[1], PlantSimEngine.HardDependencyNode)
+
+    @test deps[:process3].children[1].value == Process5Model()
+    @test isa(deps[:process3].children[1], PlantSimEngine.SoftDependencyNode)
 end
