@@ -173,21 +173,39 @@ julia> status(m)
 Note that computations will be slower using DataFrame, so if performance is an issue, use
 TimeStepTable instead (or a NamedTuple as shown in the example).
 """
-struct ModelList{M,S}
+struct ModelList{M<:NamedTuple,S}
     models::M
     status::S
 end
 
 # General interface:
-function ModelList(;
+function ModelList(
+    args...;
     status=nothing,
     init_fun::Function=init_fun_default,
     type_promotion::Union{Nothing,Dict}=nothing,
     variables_check::Bool=true,
     kwargs...
 )
+
     # Get all the variables needed by the models and their default values:
-    mods = (; kwargs...)
+    if length(args) > 0
+        args = parse_models(args)
+    else
+        args = NamedTuple()
+    end
+
+    if length(kwargs) > 0
+        kwargs = (; kwargs...)
+    else
+        kwargs = ()
+    end
+
+    if length(args) == 0 && length(kwargs) == 0
+        error("No models were given")
+    end
+
+    mods = merge(args, kwargs)
 
     # Make a vector of NamedTuples from the input (please implement yours if you need it)
     ts_kwargs = homogeneous_ts_kwargs(status)

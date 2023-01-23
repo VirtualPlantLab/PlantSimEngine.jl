@@ -416,7 +416,9 @@ macro process(f, args...)
         ```
         """
         abstract type $(esc(process_abstract_type)) <: AbstractModel end
-        # Docs.getdoc(t::$(esc(process_abstract_type))) = "Documentation for MyType with value $(t.value)"
+
+        # Generate the function to get the process name from its type:
+        PlantSimEngine.process_(::Type{$(esc(process_abstract_type))}) = Symbol($(esc(process_field)))
     end
 
     # Print help when creating a process:

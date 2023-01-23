@@ -15,6 +15,43 @@
     @test to_initialize(leaf) == (process1=(:var1, :var2), process2=(:var1,))
 end;
 
+
+@testset "process" begin
+    @test PlantSimEngine.process(Process1Model(1.0)) == :process1
+    @test PlantSimEngine.process(:process1 => Process1Model(1.0)) == :process1
+
+    models =
+        (
+            Process1Model(1.0),
+            Process2Model()
+        )
+
+    @test [(process(i), i) for i in models] == Tuple{Symbol,AbstractModel}[(:process1, Process1Model(1.0)), (:process2, Process2Model())]
+
+    models_named = (
+        process1=Process1Model(1.0),
+        process2=Process2Model()
+    )
+
+    @test [(process(i), i) for i in models_named] == [(process(i), i) for i in models]
+end
+
+@testset "ModelList with no process names" begin
+    with_names = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model()
+    )
+
+    without_names = ModelList(
+        Process1Model(1.0),
+        Process2Model()
+    )
+
+    @test with_names.models == without_names.models
+    @test with_names.status.var1 == without_names.status.var1
+    @test with_names.status.var2 == without_names.status.var2
+end;
+
 @testset "ModelList with a partially initialized status" begin
     leaf = ModelList(
         process1=Process1Model(1.0),

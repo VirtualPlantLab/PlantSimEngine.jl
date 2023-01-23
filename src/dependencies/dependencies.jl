@@ -39,12 +39,16 @@ dep(;vars...)
 ```
 """
 function dep(; verbose::Bool=true, vars...)
-    hard_dep, dep_not_found = hard_dependencies((; vars...), verbose=verbose)
+    mods_and_processes = parse_models(vars)
+    hard_dep, dep_not_found = hard_dependencies(mods_and_processes, verbose=verbose)
     deps = soft_dependencies(hard_dep)
 
     # Return the dependency tree
     return DependencyTree(deps, dep_not_found)
 end
+
+parse_models(m) = m
+parse_models(m::Tuple) = NamedTuple([process(i) => i for i in m])
 
 function dep(m::ModelList; verbose::Bool=true)
     dep(; verbose=verbose, m.models...)
