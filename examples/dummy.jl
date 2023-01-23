@@ -3,7 +3,7 @@
 # Defining a process called "process1" and a model
 # that implements an algorithm (Process1Model): 
 abstract type AbstractTestModel <: AbstractModel end
-@gen_process_methods "process1" verbose = false
+@process "process1" verbose = false
 
 """
     Process1Model(a)
@@ -21,7 +21,7 @@ end
 
 # Defining a 2nd process called "process2", and a model
 # that implements an algorithm, and that depends on the first one:
-@gen_process_methods "process2" verbose = false
+@process "process2" verbose = false
 
 """
     Process2Model()
@@ -43,7 +43,7 @@ end
 # Defining a 3d process called "process3", and a model
 # that implements an algorithm, and that depends on the second one (and
 # by extension on the first one):
-@gen_process_methods "process3" verbose = false
+@process "process3" verbose = false
 
 """
     Process3Model()
@@ -66,7 +66,7 @@ end
 # Defining a 4th process called "process4", and a model
 # that implements an algorithm, and that computes the 
 # inputs of the root of the previous ones (process3): 
-@gen_process_methods "process4" verbose = false
+@process "process4" verbose = false
 
 """
     Process4Model()
@@ -88,7 +88,7 @@ end
 # Defining a 5th process called "process5", and a model
 # that implements an algorithm, and that computes other 
 # variables from outputs of process 1-2-3 (soft coupling): 
-@gen_process_methods "process5" verbose = false
+@process "process5" verbose = false
 
 """
     Process5Model()
@@ -108,7 +108,7 @@ end
 # Defining a 6th process called "process6", and a model
 # that implements an algorithm, and that computes other 
 # variables from outputs of process 5 (soft-coupling): 
-@gen_process_methods "process6" verbose = false
+@process "process6" verbose = false
 
 """
     Process6Model()
@@ -128,7 +128,7 @@ end
 # that depends on nothing but var0 so it is independant. 
 # But Process6Model depends on its output, so it is a soft-coupling:
 # variables from outputs of process 5 (soft-coupling):(var0=-Inf,)
-@gen_process_methods "process7" verbose = false
+@process "process7" verbose = false
 
 """
     Process7Model()

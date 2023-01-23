@@ -4,7 +4,7 @@
 # allows us to not have a (cyclic) dependency on PlantBiophysics.jl in the docs.
 
 # Generate the light interception process methods:
-@gen_process_methods "light_interception" verbose = false
+@process "light_interception" verbose = false
 
 """
     Beer(k)

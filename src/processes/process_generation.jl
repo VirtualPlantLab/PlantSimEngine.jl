@@ -1,5 +1,5 @@
 """
-    @gen_process_methods(process::String, doc::String=""; verbose::Bool=true)
+    @process(process::String, doc::String=""; verbose::Bool=true)
 
 This macro generate the abstract type and standard functions for a process, along with 
 their documentation and prints out a little tutorial about how to implement a model.
@@ -26,7 +26,7 @@ possibly several objects
 - A method for calling the process without any meteo (*e.g.* for fitting)
 - A method to apply the above over MTG nodes (see details)
 
-The first argument to `@gen_process_methods` is the new process name, 
+The first argument to `@process` is the new process name, 
 the second is any additional documentation that should be added 
 to the `process` and `process!` functions, and the third determines whether 
 the short tutorial should be printed or not.
@@ -34,10 +34,10 @@ the short tutorial should be printed or not.
 # Examples
 
 ```julia
-@gen_process_methods "dummy_process" "This is a dummy process that shall not be used"
+@process "dummy_process" "This is a dummy process that shall not be used"
 ```
 """
-macro gen_process_methods(f, args...)
+macro process(f, args...)
 
     # Parsing the arguments. We do that because macros don't support keyword arguments
     # out of the box (see https://stackoverflow.com/a/64116235):
@@ -55,14 +55,14 @@ macro gen_process_methods(f, args...)
 
     # The docstring for the process function is the first positional argument:
     if length(aargs) > 1
-        error("Too many positional arguments to @gen_process_methods")
+        error("Too many positional arguments to @process")
     end
     # and it is empty by default:
     doc = length(aargs) == 1 ? aargs[1] : ""
 
     # The only keyword argument is verbose, and it is true by default:
     if length(aakws) > 1 || (length(aakws) == 1 && aakws[1].first != :verbose)
-        error("@gen_process_methods only accepts one keyword argument: verbose")
+        error("@process only accepts one keyword argument: verbose")
     end
     verbose = length(aakws) == 1 ? aakws[1].second : true
 

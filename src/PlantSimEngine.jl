@@ -52,7 +52,7 @@ include("dependencies/dependencies.jl")
 # Processes:
 include("processes/model_initialisation.jl")
 include("processes/models_inputs_outputs.jl")
-include("processes/process_methods_generation.jl")
+include("processes/process_generation.jl")
 include("checks/dimensions.jl")
 
 export AbstractModel
@@ -61,7 +61,7 @@ export init_mtg_models!
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
-export @gen_process_methods
+export @process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables
 
