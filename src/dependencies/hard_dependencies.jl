@@ -68,5 +68,5 @@ function hard_dependencies(models; verbose::Bool=true)
         end
     end
 
-    return unique_roots, dep_not_found
+    return DependencyTree(unique_roots, dep_not_found)
 end

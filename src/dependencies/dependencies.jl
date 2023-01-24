@@ -39,11 +39,11 @@ dep(;vars...)
 ```
 """
 function dep(; verbose::Bool=true, vars...)
-    hard_dep, dep_not_found = hard_dependencies((; vars...), verbose=verbose)
+    hard_dep = hard_dependencies((; vars...), verbose=verbose)
     deps = soft_dependencies(hard_dep)
 
     # Return the dependency tree
-    return DependencyTree(deps, dep_not_found)
+    return deps
 end
 
 function dep(m::ModelList; verbose::Bool=true)
