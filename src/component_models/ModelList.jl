@@ -222,6 +222,8 @@ function ModelList(
     return model_list
 end
 
+parse_models(m::Tuple) = NamedTuple([process(i) => i for i in m])
+
 init_fun_default(x::Vector{T}) where {T} = TimeStepTable([Status(i) for i in x])
 init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
 init_fun_default(x) = x

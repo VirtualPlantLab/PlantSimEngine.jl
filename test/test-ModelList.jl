@@ -162,10 +162,12 @@ end
         process4=Process4Model(),
         process5=Process5Model(),
         process6=Process6Model(),
+        # process7=Process7Model(),
         status=(var1=15.0, var2=0.3)
     )
 
     deps = dep(models).roots
+
     @test collect(keys(deps)) == [:process3, :process4]
 
     @test deps[:process4].value == Process4Model()
