@@ -17,6 +17,7 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
+    simulation_id::Int
 end
 
 struct DependencyTree{T}
@@ -38,11 +39,11 @@ function Base.show(io::IO, t::DependencyTree)
 end
 
 """
-    traverse_dependency_tree(tree::DependencyTree, f::Function)
+    traverse_dependency_tree(tree::DependencyTree, f::Function, visit_hard_dep=true)
 
 Traverse the dependency `tree` and apply the function `f` to each node.
 The first-level soft-dependencies are traversed first, then their
-hard-dependencies, and then the children of the soft-dependencies.
+hard-dependencies (if `visit_hard_dep=true`), and then the children of the soft-dependencies.
 
 Return a vector of pairs of the node and the result of the function `f`.
 
@@ -74,11 +75,12 @@ traverse_dependency_tree(tree, f)
 """
 function traverse_dependency_tree(
     tree::DependencyTree,
-    f::Function
+    f::Function;
+    visit_hard_dep=true
 )
     var = []
     for (p, root) in tree.roots
-        traverse_dependency_tree!(root, f, var)
+        traverse_dependency_tree!(root, f, var; visit_hard_dep=visit_hard_dep)
     end
 
     return var
@@ -86,23 +88,23 @@ end
 
 
 """
-    traverse_dependency_tree(node::SoftDependencyNode, f::Function, var::Vector)
+    traverse_dependency_tree(node::SoftDependencyNode, f::Function, var::Vector; visit_hard_dep=true)
 
-Traverse the soft-dependency `node` and apply the `f` to itself, to its hard 
-dependencies if any, and then to its children.
+Apply function `f` to `node`, visit its hard dependency nodes (if `visit_hard_dep=true`), and 
+then its soft dependency children.
 
-Mutate the vector `var` by pushing a pair of the node and the result of the
-function `f`.
+Mutate the vector `var` by pushing a pair of the node process name and the result of the function `f`.
 """
 function traverse_dependency_tree!(
     node::SoftDependencyNode,
     f::Function,
-    var::Vector
+    var::Vector;
+    visit_hard_dep=true
 )
     push!(var, node.process => f(node))
 
     # Traverse the hard dependencies of the SoftDependencyNode if any:
-    if node isa SoftDependencyNode
+    if visit_hard_dep && node isa SoftDependencyNode
         # draw a branching guide if there's more soft dependencies after this one:
         for child in node.hard_dependency
             traverse_dependency_tree!(child, f, var)
@@ -117,16 +119,15 @@ end
 """
     traverse_dependency_tree(node::HardDependencyNode, f::Function, var::Vector)
 
-Traverse the hard-dependency `node` and apply the `f` to itself and then to its
-children.
+Apply function `f` to `node`, and then its children (hard-dependency nodes).
 
-Mutate the vector `var` by pushing a pair of the node and the result of the
-function `f`.
+Mutate the vector `var` by pushing a pair of the node process name and the result of the function `f`.
 """
 function traverse_dependency_tree!(
     node::HardDependencyNode,
     f::Function,
-    var::Vector
+    var::Vector;
+    visit_hard_dep=true  # Just to be compatible with a call shared with SoftDependencyNode method
 )
     push!(var, node.process => f(node))
 
