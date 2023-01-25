@@ -168,20 +168,21 @@ end
 
     deps = dep(models).roots
 
-    @test collect(keys(deps)) == [:process3, :process4]
+    @test collect(keys(deps)) == [:process4]
 
     @test deps[:process4].value == Process4Model()
     @test isa(deps[:process4], PlantSimEngine.SoftDependencyNode)
 
-    @test deps[:process3].value == Process3Model()
-    @test isa(deps[:process3], PlantSimEngine.SoftDependencyNode)
+    process3 = deps[:process4].children[1]
+    @test process3.value == Process3Model()
+    @test isa(process3, PlantSimEngine.SoftDependencyNode)
 
-    @test deps[:process3].hard_dependency[1].value == Process2Model()
-    @test isa(deps[:process3].hard_dependency[1], PlantSimEngine.HardDependencyNode)
+    @test process3.hard_dependency[1].value == Process2Model()
+    @test isa(process3.hard_dependency[1], PlantSimEngine.HardDependencyNode)
 
-    @test deps[:process3].hard_dependency[1].children[1].value == Process1Model(1.0)
-    @test isa(deps[:process3].hard_dependency[1].children[1], PlantSimEngine.HardDependencyNode)
+    @test process3.hard_dependency[1].children[1].value == Process1Model(1.0)
+    @test isa(process3.hard_dependency[1].children[1], PlantSimEngine.HardDependencyNode)
 
-    @test deps[:process3].children[1].value == Process5Model()
-    @test isa(deps[:process3].children[1], PlantSimEngine.SoftDependencyNode)
+    @test process3.children[1].value == Process5Model()
+    @test isa(process3.children[1], PlantSimEngine.SoftDependencyNode)
 end

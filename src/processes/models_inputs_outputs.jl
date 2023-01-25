@@ -121,7 +121,13 @@ end
 Returns a tuple with the name of the inputs and outputs variables needed by a model in 
 a dependency tree.
 """
-function variables(m::AbstractDependencyNode)
+function variables(m::SoftDependencyNode)
+    self_variables = (inputs=inputs(m.value), outputs=outputs(m.value))
+    # hard_dep_vars = map(variables, m.hard_dependencies)
+    return self_variables
+end
+
+function variables(m::HardDependencyNode)
     return (inputs=inputs(m.value), outputs=outputs(m.value))
 end
 

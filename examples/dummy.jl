@@ -138,7 +138,7 @@ It is independent (needs :var0 only as for Process4Model), but its outputs
 are used by Process6Model, so it is a soft-coupling.
 """
 struct Process7Model <: AbstractProcess7Model end
-PlantSimEngine.inputs_(::Process7Model) = (var0=-Inf,)
+PlantSimEngine.inputs_(::Process7Model) = (var0=-Inf, var3=-Inf)
 PlantSimEngine.outputs_(::Process7Model) = (var9=-Inf,)
 function process7!_(::Process7Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var9 = status.var0 + 1.0

@@ -36,26 +36,34 @@ soft_dep = soft_dependencies(hard_dep)
 """
 function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}})
 
-    # Compute the variables of each process (i.e. node) in the dependency tree:
-    d_vars = Dict(traverse_dependency_tree(d, variables))
+    # Compute the variables of each node in the hard-dependency tree:
+    d_vars = Dict()
+    for (procname, node) in d.roots
+        var = Pair{Symbol,NamedTuple}[]
+        traverse_dependency_tree!(node, variables, var)
+        push!(d_vars, procname => var)
+    end
+
+    # Note: all variables are collected at once for each hard-coupled nodes
+    # because they are treated as one process afterwards (see below)
 
     # Get all nodes of the dependency tree (hard and soft):
-    all_nodes = Dict(traverse_dependency_tree(d, x -> x))
+    # all_nodes = Dict(traverse_dependency_tree(d, x -> x))
 
     # Compute the inputs and outputs of each process tree in the dependency tree
-    inputs_process = Dict(key => val.inputs for (key, val) in d_vars)
-    outputs_process = Dict(key => val.outputs for (key, val) in d_vars)
+    inputs_process = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars)
+    outputs_process = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars)
 
     soft_dep_tree = Dict(
         process_ => SoftDependencyNode(
-            all_nodes[process_].value,
+            soft_dep_vars.value,
             process_, # process name
-            AbstractTrees.children(all_nodes[process_]), # hard dependencies
+            AbstractTrees.children(soft_dep_vars), # hard dependencies
             nothing,
             nothing,
             SoftDependencyNode[]
         )
-        for (process_, soft_dep_vars) in all_nodes
+        for (process_, soft_dep_vars) in d.roots
     )
 
     independant_process_root = Dict{Symbol,SoftDependencyNode}()
@@ -158,8 +166,13 @@ can be inferred from the inputs and outputs of the processes.
 # Arguments
 
 - `process::Symbol`: the process for which we want to find the soft dependencies.
-- `inputs::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => symbols of inputs.
-- `outputs::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => symbols of outputs.
+- `inputs::Dict{Symbol, Vector{Pair{Symbol}, Tuple{Symbol, Vararg{Symbol}}}}`: a dict of process => symbols of inputs per process.
+- `outputs::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => symbols of outputs per process.
+
+# Details
+
+The inputs (and similarly, outputs) give the inputs of each process, classified by the process it comes from. It can 
+come from itself (its own inputs), or from another process that is a hard-dependency.
 
 # Returns
 
@@ -169,33 +182,37 @@ A dictionary with the soft dependencies for the processes.
 
 ```julia
 in_ = Dict(
-    :process3 => (:var4, :var5, :var1, :var2, :var3), 
-    :process4 => (:var0,), 
-    :process6 => (:var7,), 
-    :process5 => (:var6, :var5)
+    :process3 => [:process3=>(:var4, :var5), :process2=>(:var1, :var3), :process1=>(:var1, :var2)],
+    :process4 => [:process4=>(:var0,)],
+    :process6 => [:process6=>(:var7, :var9)],
+    :process5 => [:process5=>(:var5, :var6)],
 )
 
 out_ = Dict(
-    :process3 => (:var4, :var6, :var5, :var3), 
-    :process4 => (:var1, :var2), 
-    :process6 => (:var8,), 
-    :process5 => (:var7,)
+    :process3 => Pair{Symbol}[:process3=>(:var4, :var6), :process2=>(:var4, :var5), :process1=>(:var3,)],
+    :process4 => [:process4=>(:var1, :var2)],
+    :process6 => [:process6=>(:var8,)],
+    :process5 => [:process5=>(:var7,)],
 )
 
 search_inputs_in_output(:process3, in_, out_)
+(process4 = (:var1, :var2),)
 ```
 """
 function search_inputs_in_output(process, inputs, outputs)
-    vars_input = inputs[process]
+
+    # get the inputs of the node:
+    vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_process = Dict()
-    for (proc_output, vars_output) in outputs
+    for (proc_output, pairs_vars_output) in outputs
         if process != proc_output
+            vars_output = flatten_vars(pairs_vars_output)
             inputs_in_outputs = [i in vars_output for i in vars_input]
 
             if any(inputs_in_outputs)
                 # variables in the inputs of proc_input that are in the outputs of proc_output
-                push!(inputs_as_output_of_process, proc_output => vars_input[inputs_in_outputs])
+                push!(inputs_as_output_of_process, proc_output => Tuple(vars_input)[inputs_in_outputs])
                 # Note: proc_output is the process that computes the inputs of proc_input
                 # These inputs are given by `vars_input[inputs_in_outputs]`
             end
@@ -203,4 +220,39 @@ function search_inputs_in_output(process, inputs, outputs)
     end
 
     return NamedTuple(inputs_as_output_of_process)
+end
+
+
+"""
+    flatten_vars(vars)
+
+Return a set of the variables in the `vars` dictionary.
+
+# Arguments
+
+- `vars::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => symbols of inputs.
+
+# Returns
+
+A set of the variables in the `vars` dictionary.
+
+# Example
+
+```julia
+julia> flatten_vars(Dict(:process1 => (:var1, :var2), :process2 => (:var3, :var4)))
+Set{Symbol} with 4 elements:
+  :var4
+  :var3
+  :var2
+  :var1
+```
+"""
+function flatten_vars(vars)
+    vars_input = Set{Symbol}()
+    for (key, val) in vars
+        for j in val
+            push!(vars_input, j)
+        end
+    end
+    vars_input
 end
