@@ -93,7 +93,7 @@ julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
 ```jldoctest 1
-julia> process3!(models,meteo)
+julia> run!(models,meteo)
 ```
 
 ```jldoctest 1

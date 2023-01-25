@@ -55,6 +55,8 @@ include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
 include("checks/dimensions.jl")
 
+include("run.jl")
+
 export AbstractModel
 export ModelList
 export init_mtg_models!
@@ -64,6 +66,7 @@ export init_status!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables
+export run, run!
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

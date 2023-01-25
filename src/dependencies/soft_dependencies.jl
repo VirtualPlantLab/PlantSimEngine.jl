@@ -61,7 +61,8 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}})
             AbstractTrees.children(soft_dep_vars), # hard dependencies
             nothing,
             nothing,
-            SoftDependencyNode[]
+            SoftDependencyNode[],
+            0
         )
         for (process_, soft_dep_vars) in d.roots
     )

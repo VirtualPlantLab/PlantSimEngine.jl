@@ -45,7 +45,7 @@ models = Dict(
 init_mtg_models!(mtg, models, 1)
 
 # Make a simulation
-transform!(mtg, :models => (x -> process3!(x, meteo)), ignore_nothing = true)
+transform!(mtg, :models => (x -> run!(x, meteo)), ignore_nothing = true)
 # Pull the simulation results into the MTG attributes:
 transform!(mtg, PlantSimEngine.pull_status!)
 # Now the simulated variables are available from the MTG attributes field:

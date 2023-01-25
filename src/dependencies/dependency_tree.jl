@@ -17,7 +17,7 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
-    simulation_id::Int
+    simulation_id::Int # id of the simulation
 end
 
 struct DependencyTree{T}

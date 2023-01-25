@@ -53,353 +53,20 @@ macro process(f, args...)
         end
     end
 
-    # The docstring for the process function is the first positional argument:
-    if length(aargs) > 1
-        error("Too many positional arguments to @process")
-    end
-    # and it is empty by default:
-    doc = length(aargs) == 1 ? aargs[1] : ""
-
     # The only keyword argument is verbose, and it is true by default:
     if length(aakws) > 1 || (length(aakws) == 1 && aakws[1].first != :verbose)
         error("@process only accepts one keyword argument: verbose")
     end
     verbose = length(aakws) == 1 ? aakws[1].second : true
 
-    non_mutating_f = process_field = Symbol(f)
-    mutating_f = Symbol(string(f, "!"))
-    f_ = Symbol(string(mutating_f, "_")) # The actual function implementing the process
+    process_field = Symbol(f)
 
     # We need strings for the docs: 
-    f_str = string(f_)
-    mutating_f_str = string(mutating_f)
-    non_mutating_f_str = string(non_mutating_f)
     process_name = string(process_field)
     process_abstract_type_name = string("Abstract", titlecase(process_name), "Model")
     process_abstract_type = Symbol(process_abstract_type_name)
 
     expr = quote
-
-        # Default method, when no model is implemented yet, or when the model is not associated to the process we try to simulate
-        @doc """
-        $($f_str)(
-            mod_type::DataType,
-            object::ModelList,
-            status,
-            meteo=nothing, 
-            constants=PlantMeteo.Constants(), 
-            extra=nothing
-        ) 
-
-        The base function for the simulation of the `$($process_name)` process. 
-        Modelers should implement a method for this function for their own model type, and 
-        `PlantSimEngine.jl` will automatically handle everything else.
-
-        # Arguments
-
-        - `mod_type::DataType`: The type of the model to use for the simulation, used for 
-        dispatching to the right model implementation.
-        - `object::ModelList`: The list of models to simulate.
-        - `status`: The status of the simulation, usually from the object, but not always (can be a 
-        subset of for e.g. one time-step).
-        - `meteo=nothing`: The meteo data to use for the simulation.
-        - `constants=PlantMeteo.Constants()`: The constants to use for the simulation.
-        - `extra=nothing`: Extra arguments to pass to the model. This is useful for *e.g.* passing
-         the node of an MTG to the model.
-
-        # Notes
-
-        This function is the simulation workhorse, and is called by the `$($non_mutating_f_str)` 
-        and `$($mutating_f_str)` functions under the hood. 
-
-        Users should never have to call this function directly.
-        """
-        function $(esc(f_))(mod_type, models, status, meteo=nothing, constants=nothing, extra=nothing)
-            process_models = Dict(process => typeof(getfield(models, process)).name.wrapper for process in keys(models))
-            error(
-                "No model was found for this combination of processes:",
-                "\nProcess simulation: ", $(String(non_mutating_f)),
-                "\nModels: ", join(["$(i.first) => $(i.second)" for i in process_models], ", ", " and ")
-            )
-        end
-
-        # Base method that calls the actual algorithms (NB: or calling it without meteo too):
-        function $(esc(mutating_f))(
-            object::ModelList{T,S},
-            meteo::M=nothing,
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {T,S<:Status,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
-            $(esc(f_))(object.models.$(process_field), object.models, object.status, meteo, constants, extra)
-            return nothing
-        end
-
-        # Method for a status with several TimeSteps but one meteo only (or no meteo):
-        function $(esc(mutating_f))(
-            object::ModelList{T,S},
-            meteo::M=nothing,
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {T,S,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
-
-            for i in Tables.rows(status(object))
-                $(esc(f_))(object.models.$(process_field), object.models, i, meteo, constants, extra)
-            end
-
-            return nothing
-        end
-
-        # Process method over several objects (e.g. all leaves of a plant) in an Array
-        function $(esc(mutating_f))(
-            object::O,
-            meteo::M,
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {O<:AbstractArray,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere}}
-            for i in values(object)
-                $(esc(mutating_f))(i, meteo, constants, extra)
-            end
-            return nothing
-        end
-
-        # Process method over several objects (e.g. all leaves of a plant) in a kind of Dict.
-        function $(esc(mutating_f))(
-            object::O,
-            meteo::M,
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {O<:AbstractDict,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere}}
-            for (k, v) in object
-                $(esc(mutating_f))(v, meteo, constants, extra)
-            end
-            return nothing
-        end
-
-        # Process method over several meteo time steps (TimeStepTable{Atmosphere}) and possibly several components:
-        function $(esc(mutating_f))(
-            object::T,
-            meteo::TimeStepTable{A},
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
-
-            # Check if the meteo data and the status have the same length (or length 1)
-            check_dimensions(object, meteo)
-
-            # Each object:
-            for obj in object
-                # Computing for each time-step:
-                for (i, meteo_i) in enumerate(meteo)
-                    $(esc(f_))(obj.models.$(process_field), obj.models, obj[i], meteo_i, constants, extra)
-                end
-            end
-
-        end
-
-        # If we call weather with one component only:
-        function $(esc(mutating_f))(object::T, meteo::TimeStepTable{A}, constants=PlantMeteo.Constants(), extra=nothing) where {T<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
-
-            # Check if the meteo data and the status have the same length (or length 1)
-            check_dimensions(object, meteo)
-
-            # Computing for each time-steps:
-            for (i, meteo_i) in enumerate(meteo)
-                $(esc(f_))(object.models.$(process_field), object.models, object.status[i], meteo_i, constants, extra)
-            end
-        end
-
-        # Compatibility with MTG:
-        function $(esc(mutating_f))(
-            mtg::MultiScaleTreeGraph.Node,
-            models::Dict{String,O},
-            meteo::M,
-            constants=PlantMeteo.Constants()
-        ) where {O<:ModelList,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere}}
-            # Define the attribute name used for the models in the nodes
-            attr_name = MultiScaleTreeGraph.cache_name("PlantSimEngine models")
-
-            # initialize the MTG nodes with the corresponding models:
-            init_mtg_models!(mtg, models, attr_name=attr_name)
-
-            MultiScaleTreeGraph.transform!(
-                mtg,
-                (node) -> $(esc(mutating_f))(node[attr_name], meteo, constants, node),
-                ignore_nothing=true
-            )
-        end
-
-        # Compatibility with MTG + Weather (TimeStepTable{Atmosphere}), compute all nodes for one time step, then move to the next time step.
-        function $(esc(mutating_f))(
-            mtg::MultiScaleTreeGraph.Node,
-            models::Dict{String,M},
-            meteo::TimeStepTable{A},
-            constants=PlantMeteo.Constants()
-        ) where {M<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
-            # Define the attribute name used for the models in the nodes
-            attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
-
-            # Init the status for the meteo step only (with an PlantMeteo.AbstractAtmosphere)
-            to_init = init_mtg_models!(mtg, models, 1, attr_name=attr_name)
-            #! Here we use only one time-step for the status whatever the number of timesteps
-            #! to simulate. Then we use this status for all the meteo steps (we re-initialize
-            #! its values at each step). We do this to not replicate much data, but it is not
-            #! the best way to do it because we don't use the nice methods from above that
-            #! control the simulations for meteo / status timesteps. What we could do instead
-            #! is to have a TimeSteps status for several timesteps, and then use pointers to
-            #! the values in the node attributes. This we would avoid to replicate the data
-            #! and we could use the fancy methods from above.
-
-            # Pre-allocate the node attributes based on the simulated variables and number of steps:
-            nsteps = length(meteo)
-
-            MultiScaleTreeGraph.traverse!(
-                mtg,
-                (x -> pre_allocate_attr!(x, nsteps; attr_name=attr_name)),
-            )
-
-            # Computing for each time-steps:
-            for (i, meteo_i) in enumerate(meteo)
-                # Then update the initialisation each time-step.
-                update_mtg_models!(mtg, i, to_init, attr_name)
-
-                MultiScaleTreeGraph.transform!(
-                    mtg,
-                    (node) ->
-                        Symbol($(esc(process_field))) in keys(node[attr_name].models) &&
-                            $(esc(mutating_f))(node[attr_name], meteo_i, constants, node),
-                    (node) -> pull_status_one_step!(node, i, attr_name=attr_name),
-                    filter_fun=node -> node[attr_name] !== nothing
-                )
-            end
-        end
-
-        # Non-mutating version (make a copy before the call, and return the copy):
-        function $(esc(non_mutating_f))(
-            object::O,
-            meteo::T=nothing,
-            constants=PlantMeteo.Constants(),
-            extra=nothing
-        ) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{<:PlantMeteo.AbstractAtmosphere}}}
-            object_tmp = copy(object)
-            $(esc(mutating_f))(object_tmp, meteo, constants, extra)
-            return object_tmp
-        end
-
-        @doc string("""
-        $($mutating_f_str)(
-            object::ModelList,
-            meteo::M=nothing, 
-            constants=PlantMeteo.Constants(), 
-            extra=nothing
-        ) where {M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}). 
-
-
-        $($non_mutating_f_str)(
-            object::ModelList,
-            meteo::M=nothing, 
-            constants=PlantMeteo.Constants(), 
-            extra=nothing
-        ) where {M<:Union{PlantMeteo.AbstractAtmosphere,Nothing}). 
-
-        $($mutating_f_str)(
-            object::MultiScaleTreeGraph.Node,
-            models::Dict{String,M},
-            meteo::TimeStepTable{<:PlantMeteo.AbstractAtmosphere},
-            constants=PlantMeteo.Constants()
-        )
-
-
-        Computes the `$($process_name)` process for one or several components based on the type of 
-        the model the object was parameterized with in `object.$($process_name)`, and on one or 
-        several meteorology time-steps.
-
-        # Arguments
-        - `object::ModelList`: the object to simulate. It can be a `ModelList`, a `Dict` or an `AbstractArray` of,
-        or a MultiScaleTreeGraph.Node.
-        - `models::Dict{String,M}`: the models to use for the simulation. It is a `Dict` with the node symbols as 
-        keys and the associated ModelList as value. It is used only for the MTG version.
-        - `meteo::Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{PlantMeteo.AbstractAtmosphere}}`: the 
-        meteo data to use for the simulation.
-        - `constants=PlantMeteo.Constants()`: the constants to use for the simulation.
-        - `extra=nothing`: extra data to use for the simulation.
-
-        # Returns 
-
-        The non mutating function returns a simulated copy of the object, and the
-        mutating version modifies the object passed as argument, and returns nothing. 
-        Users may retrieve the results from the object using the [`status`](https://vezy.github.io/PlantSimEngine.jl/stable/API/#PlantSimEngine.status-Tuple{Any}) 
-        function (see examples).
-
-        # Notes
-
-        The models available for this process can be listed using `subtypes` on the process 
-        abstract type:
-
-        ```julia
-        subtypes($($process_abstract_type_name))
-        ```
-
-        This function calls `$($f_str)` under the hood, but manages the details about time-steps,
-        objects and MTG nodes.
-
-        # Examples
-
-        Import the packages: 
-
-        ```julia
-        using PlantSimEngine, PlantMeteo
-        ```
-
-        Create a model implementation:
-
-        ```julia
-        struct DummyModel <: Abstract$(titlecase($process_name))Model end
-        ```
-
-        Define the inputs and outputs of the model with default values:
-
-        ```julia
-        PlantSimEngine.inputs_(::DummyModel) = (X = -Inf, )
-        PlantSimEngine.outputs_(::DummyModel) = (Y = -Inf, )
-        ```
-
-        Implement the model:
-
-        ```julia
-        function $($f_str)(::DummyModel,object,status,meteo,constants,extra=nothing)
-            status.Y = status.X + meteo.T
-        end
-        ```
-
-        Create a model list with a dummy model, and initalize X to 0.0:
-
-        ```julia
-        models = ModelList(
-            $($process_name) = DummyModel(),
-            status = (X=0.0,),
-        )
-        ```
-
-        Create a meteo
-
-        ```julia
-        meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65)
-        ```
-
-        Simulate the process:
-
-        ```julia
-        $($mutating_f_str)(models, meteo)
-        ```
-
-        Retrieve the results:
-
-        ```julia
-        (models[:X],models[:Y])
-        ```
-        """, $(doc))
-        $(mutating_f), $(non_mutating_f)
-
         # Generate the abstract struct for the process:
         @doc """
         `$($process_name)` process abstract model. 
@@ -418,7 +85,7 @@ macro process(f, args...)
         abstract type $(esc(process_abstract_type)) <: AbstractModel end
 
         # Generate the function to get the process name from its type:
-        PlantSimEngine.process_(::Type{$(esc(process_abstract_type))}) = Symbol($(esc(process_field)))
+        PlantSimEngine.process_(::Type{$(esc(process_abstract_type))}) = Symbol($process_name)
     end
 
     # Print help when creating a process:
@@ -426,17 +93,13 @@ macro process(f, args...)
     p = Term.RenderableText(
         Markdown.parse("""\'{underline bold red}$(process_name){/underline bold red}\' process, generated:
 
-        * {#8abeff}$(mutating_f)(){/#8abeff} to compute the process in-place.      
-
-        * {#8abeff}$(non_mutating_f)(){/#8abeff} to compute the process and return a copy.    
-
-        * {#8abeff}$(f_)(){/#8abeff} that is used to call the actual model implementation.    
+        * {#8abeff}run!(){/#8abeff} to compute the process in-place.      
 
         * {#8abeff}$process_abstract_type{/#8abeff}, an abstract struct used as a supertype for models implementations.
 
         !!! tip "What's next?"
             You can now define one or several models implementations for the {underline bold red}$(process_name){/underline bold red} process
-            by adding a method to {#8abeff}$(f_){/#8abeff} with your own model type
+            by adding a method to {#8abeff}run!(){/#8abeff} with your own model type
 
         Here's an example implementation:
 
@@ -452,8 +115,12 @@ macro process(f, args...)
         PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
         PlantSimEngine.outputs_(::$dummy_type_name) = (Y=-Inf,)
 
-        # Define the model implementation by adding a method to $(f_):
-        function $(f_)(
+        # Optionnaly, you can declare a hard-dependency on another process that is called
+        # inside your process implementation:
+        PlantSimEngine.dep(::$dummy_type_name) = (other_process_name=AbstractOtherProcessModel,)
+
+        # Define the model implementation by adding a method to `run!`:
+        function PlantSimEngine.run!(
             ::$dummy_type_name,
             models,
             status,
@@ -463,11 +130,14 @@ macro process(f, args...)
         )
             # The model implementation is given here, *e.g.*:
             status.Y = model.$(process_name).a * meteo.CO2 + status.X
+
+            # Calling a hard-coupled process is done as the following:
+            run!(model.other_process_name, models, status, meteo, constants, extra)
         end
         ```
 
         !!! tip "Variables and parameters usage"
-            Note that {#8abeff}$(f_){/#8abeff} takes six arguments: the model type (used
+            Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
             for dispatch), the ModelList, the status, the meteorology, the constants and
             any extra values.
             Then we can use variables from the status as inputs or outputs, model parameters

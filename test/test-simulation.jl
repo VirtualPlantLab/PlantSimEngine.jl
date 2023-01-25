@@ -36,7 +36,7 @@ end;
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    process3!(models, meteo)
+    run!(models, meteo)
     vars = keys(status(models))
     @test [models[i][1] for i in vars] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
 end;
@@ -52,7 +52,7 @@ end;
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    process3!(models, meteo)
+    run!(models, meteo)
     vars = keys(status(models))
     @test [models[i] for i in vars] == [
         [22.0, 23.2],
@@ -79,7 +79,7 @@ end;
     ]
     )
 
-    process3!(models, meteo)
+    run!(models, meteo)
     vars = keys(status(models))
     @test [models[i] for i in vars] == [
         [22.0, 23.2],
@@ -114,7 +114,7 @@ end;
     ]
     )
 
-    process3!(mtg, models, meteo)
+    run!(mtg, models, meteo)
     df_leaf = DataFrame(leaf)
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
     @test [df_leaf[1, i] for i in vars] == [
