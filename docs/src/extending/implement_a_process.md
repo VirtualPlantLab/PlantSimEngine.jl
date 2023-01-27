@@ -3,7 +3,7 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantMeteo
-PlantSimEngine.@gen_process_methods growth
+PlantSimEngine.@process growth
 ```
 
 ## Introduction
@@ -12,44 +12,26 @@ PlantSimEngine.@gen_process_methods growth
 
 ## Implement a process
 
-To implement a new process, we need to define the generic methods associated to it that helps run its simulation for:
+To implement a new process, we need to define an abstract structure that will help us associate the models to this process. We also need to generate some boilerplate code, such as a method for the `process` function. Fortunately, PlantSimEngine provides a macro to generate all that at once: [`@process`](@ref). This macro takes only one argument: the name of the process.
 
-- one or several time-steps
-- one or several objects
-- an MTG from MultiScaleTreeGraph
-
-...and all the above with a mutating function and a non-mutating one.
-
-This is a lot of work! But fortunately PlantSimEngine provides a macro to generate all of the above: [`@gen_process_methods`](@ref).
-
-This macro takes only one argument: the name of the non-mutating function.
-
-So for example all the photosynthesis methods in the [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) package are created using just this tiny line of code:
+For example, the photosynthesis process in [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) is declared using just this tiny line of code:
 
 ```julia
-@gen_process_methods photosynthesis
+@process photosynthesis
 ```
 
-If we want to simulate the growth of a plant, we could add a new process called `growth`. To create the generic functions to simulate the `growth` we would do:
+If we want to simulate the growth of a plant, we could add a new process called `growth`:
 
 ```julia
-@gen_process_methods "growth"
+@process "growth"
 ```
 
 And that's it! Note that the function guides you in the steps you can make after creating a process. Let's break it up here.
 
-So what you just did is to create a new process called `growth`. By doing so, you created three new functions:
-
-- `growth!`: the mutating function
-- `growth`: the non-mutating function
-- `growth!_`: the function that actually make the computation. You'll have to implement methods for each model you need, else it will not work.
-
-Now users can call `growth!` and `growth` on any number of time steps or objects, even on MTGs, and PlantSimEngine will handle everything.
-
-Creating the process also defined a default abstract type for the process that is used as a supertype for the models types. This abstract type is always named using the process name in title case (using `titlecase()`), prefixed with `Abstract` and suffixed with `Model`. So in our case our process abstract type is named `AbstractGrowthModel`.
+So what you just did is to create a new process called `growth`. By doing so, you created a new abstract structure called `AbstractGrowthModel`. It is used as a supertype for the types used for model implementation. This abstract type is always named using the process name in title case (using `titlecase()`), prefixed with `Abstract` and suffixed with `Model`.
 
 !!! note
-    If you don't understand what a supertype is, no worries, you'll understand in the examples below
+    If you don't understand what a supertype is, no worries, you'll understand by seeing the examples below
 
 ## Implement a new model for the process
 
@@ -60,10 +42,7 @@ This growth model needs the carbohydrate assimilation that we could compute usin
 Let's implement this model below:
 
 ```@example usepkg
-# Let's import our package:
-using PlantSimEngine
-# PlantMeteo for using the meteorology-related functions:
-using PlantMeteo
+using PlantSimEngine, PlantMeteo # PlantMeteo is used for the meteorology
 
 # Make the struct to hold the parameters, with its documentation:
 """
@@ -91,22 +70,23 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::DummyGrowth)
-    (A=-999.99,)
+    (A=-Inf,)
 end
 
 # Define outputs:
 function PlantSimEngine.outputs_(::DummyGrowth)
-    (Rm=-999.99, Rg=-999.99, leaf_allocation=-999.99, leaf_biomass=0.0)
+    (Rm=-Inf, Rg=-Inf, leaf_allocation=-Inf, leaf_biomass=0.0)
 end
 
 # Tells Julia what is the type of elements:
 Base.eltype(x::DummyGrowth{T}) where {T} = T
 
 # Implement the growth model:
-function growth!_(::DummyGrowth, models, status, meteo, constants=Constants(), extra=nothing)
+function PlantSimEngine.run!(::DummyGrowth, models, status, meteo, constants, extra)
 
     # The maintenance respiration is simply a factor of the assimilation:
     status.Rm = status.A * models.growth.Rm_factor
+    # Note that we use models.growth.Rm_factor to access the parameter of the model
 
     # Let's say that all carbon is allocated to the leaves:
     status.leaf_allocation = status.A - status.Rm
@@ -123,13 +103,9 @@ Now we can make a simulation as usual:
 ```@example usepkg
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
-leaf = ModelList(
-        # Our process and associated model:
-        growth = DummyGrowth(),
-        status = (A = 20.0,)
-    )
+leaf = ModelList(DummyGrowth(), status = (A = 20.0,))
 
-growth!(leaf,meteo)
+run!(leaf,meteo)
 
 leaf[:leaf_biomass] # biomass in gC
 ```
@@ -139,12 +115,9 @@ We can also start the simulation later when the plant already has some biomass b
 ```@example usepkg
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
-leaf = ModelList(
-        growth = DummyGrowth(),
-        status = (A = 20.0, leaf_biomass = 2400.0)
-    )
+leaf = ModelList(DummyGrowth(), status = (A = 20.0, leaf_biomass = 2400.0))
 
-growth!(leaf,meteo)
+run!(leaf,meteo)
 
 leaf[:leaf_biomass] # biomass in gC
 ```

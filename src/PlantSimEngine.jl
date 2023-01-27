@@ -66,7 +66,7 @@ export init_status!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables
-export run, run!
+export run!
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

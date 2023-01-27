@@ -24,7 +24,7 @@ It focuses on key aspects of simulation and modeling such as:
 - no hassle, the package manages automatically input and output variables, time-steps, objects, soft and hard coupling of models with a dependency graph
 - switch between models without changing any code, with a simple syntax to define the model to use for a given process
 - Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
-- (very) fast computation, think of 100th of nanoseconds for the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) that uses PlantSimEngine
+- 🚀(very) fast computation 🚀, think of 100th of nanoseconds for the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) that uses PlantSimEngine
 - easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl)
 - composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to propagate measurement error
 

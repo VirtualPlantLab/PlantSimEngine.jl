@@ -13,7 +13,7 @@ See also [`is_initialized`](@ref) and [`to_initialize`](@ref)
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 
 # Create a ModelList
 models = ModelList(

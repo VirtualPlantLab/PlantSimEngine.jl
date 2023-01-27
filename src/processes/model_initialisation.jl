@@ -13,7 +13,7 @@ considering that some variables that are outputs of some models are used as inpu
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
@@ -118,7 +118,7 @@ Initialise model variables for components with user input.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 models = Dict(
     "Leaf" => ModelList(
@@ -172,7 +172,7 @@ inputs and outputs of the models.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 init_variables(Process1Model(2.0))
 init_variables(process1=Process1Model(2.0), process2=Process2Model())
@@ -232,7 +232,7 @@ for other models.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 models = ModelList(
     process1=Process1Model(1.0),
@@ -306,7 +306,7 @@ Return an initialisation of the model variables with given values.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 models = ModelList(
     process1=Process1Model(1.0),

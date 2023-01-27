@@ -57,7 +57,7 @@ julia> using PlantSimEngine;
 Including an example script that implements dummy processes and models:
 
 ```jldoctest 1
-julia> include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 ```
 
 ```jldoctest 1
@@ -71,8 +71,8 @@ ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Pro
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
-set yet, and all variables are initialized to `typemin(Type)`, *i.e.* `-Inf` for floating
-point numbers. This component cannot be simulated yet.
+set yet, and all variables are initialized to their default values given in the inputs and outputs (usually `typemin(Type)`, *i.e.* `-Inf` for floating
+point numbers). This component cannot be simulated yet.
 
 To know which variables we need to initialize for a simulation, we use [`to_initialize`](@ref):
 
@@ -316,7 +316,7 @@ Copy a [`ModelList`](@ref), eventually with new values for the status.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 # Create a model list:
 models = ModelList(
@@ -380,7 +380,7 @@ If we want all the variables that are Reals to be Float32, we can use:
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 ref_vars = init_variables(
     process1=Process1Model(1.0),

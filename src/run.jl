@@ -1,6 +1,5 @@
 """
     run!(object, meteo, constants, extra=nothing; check=true)
-    run(object, meteo, constants, extra=nothing; check=true)
 
 Run the simulation for each model in the model list in the correct order, *i.e.* respecting
 the dependency tree.
@@ -226,17 +225,18 @@ function run!(
 end
 
 # 7- Non-mutating version (make a copy before the call, and return the copy):
-function run(
-    object::O,
-    meteo::T=nothing,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    check=true
-) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{<:PlantMeteo.AbstractAtmosphere}}}
-    object_tmp = copy(object)
-    run!(object_tmp, meteo, constants, extra; check=check)
-    return object_tmp
-end
+#! removed this method because it clashes with Base.run and it's not that usefull
+# function run(
+#     object::O,
+#     meteo::T=nothing,
+#     constants=PlantMeteo.Constants(),
+#     extra=nothing;
+#     check=true
+# ) where {O<:Union{ModelList,AbstractArray,AbstractDict},T<:Union{Nothing,PlantMeteo.AbstractAtmosphere,TimeStepTable{<:PlantMeteo.AbstractAtmosphere}}}
+#     object_tmp = copy(object)
+#     run!(object_tmp, meteo, constants, extra; check=check)
+#     return object_tmp
+# end
 
 
 #! Actual call to the model:

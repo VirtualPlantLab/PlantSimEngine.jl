@@ -1,40 +1,17 @@
 """
-    @process(process::String, doc::String=""; verbose::Bool=true)
+    @process(process::String; verbose::Bool=true)
 
-This macro generate the abstract type and standard functions for a process, along with 
-their documentation and prints out a little tutorial about how to implement a model.
+This macro generate the abstract type and some boilerplate code for the simulation of a process, along 
+with its documentation. It also prints out a short tutorial for implementing a model if `verbose=true`.
 
 The abstract process type is then used as a supertype of all models implementations for the 
 process, and is named "Abstract<ProcessName>Model", *e.g.* `AbstractGrowthModel` for
 a process called growth.
 
-The three following functions are also generated (replace "process" by your own process name):
-- `process`: a non mutating function that makes a copy of the object
-- `process!`: a mutating function that updates the object status
-- `process!_`: the actual workhorse function that does the computation, and is called by the 
-two previous functions under the hood. Modelers implement their own method for this function 
-for their own model types.
-
-The two first functions have several methods:
-
-- The base method that runs over one time-step and one object.
-- The method applying the computation over several objects (*e.g.* all leaves of a plant)
-in an Array
-- The same method over a Dict(-alike) of objects
-- The method that applies the computation over several meteo time steps and
-possibly several objects
-- A method for calling the process without any meteo (*e.g.* for fitting)
-- A method to apply the above over MTG nodes (see details)
-
-The first argument to `@process` is the new process name, 
-the second is any additional documentation that should be added 
-to the `process` and `process!` functions, and the third determines whether 
-the short tutorial should be printed or not.
-
 # Examples
 
 ```julia
-@process "dummy_process" "This is a dummy process that shall not be used"
+@process "dummy_process"
 ```
 """
 macro process(f, args...)

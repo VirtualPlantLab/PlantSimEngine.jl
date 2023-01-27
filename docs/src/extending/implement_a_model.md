@@ -2,7 +2,7 @@
 
 ```@setup usepkg
 using PlantSimEngine
-@gen_process_methods "light_interception" verbose = false
+@process "light_interception" verbose = false
 struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
 end
@@ -28,12 +28,12 @@ In those files, you'll see that in order to implement a new model you'll need to
 
 If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implement a new process](@ref)).
 
-In this page, we'll just implement a model for a process that exists already: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in this package here: [`examples/light.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/light.jl).
+In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in `PlantSimEngine.jl` here: [`examples/light.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/light.jl).
 
 We can include this file like so:
 
 ```julia
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 ```
 
 But instead of just using it, we will review the script line by line.
@@ -42,22 +42,20 @@ But instead of just using it, we will review the script line by line.
 
 ### The process
 
-We declare the light interception process at l.7 using [`@gen_process_methods`](@ref): 
+We declare the light interception process at l.7 using [`@process`](@ref): 
 
 ```julia
-@gen_process_methods "light_interception" verbose = false
+@process "light_interception" verbose = false
 ```
 
 See [Implement a new process](@ref) for more details on how that works and how to use the process.
 
 ### The structure
 
-The first thing to do to implement a model is to define a structure.
-
-The purpose of the structure is two-fold:
+To implement a model, the first thing to do is to define a structure. The purpose of this structure is two-fold:
 
 - hold the parameter values
-- dispatch to the right method when calling the process function
+- dispatch to the right `run!` method when calling it
 
 The structure of the model (or type) is defined as follows:
 
@@ -73,7 +71,7 @@ We also can see that we define the `Beer` structure as a subtype of `AbstractLig
 
 In our case, it tells us that `Beer` is a model to simulate the light interception process.
 
-Then comes the parameters names, and their types. The type of the parameters is given by the user at instantiation in our example. This is done using the `T` notation as follows:
+Then comes the parameters names, and their types. The type of parameters is given by the user at instantiation in our example. This is done using the `T` notation as follows:
 
 - we say that our structure `Beer` is a parameterized `struct` by putting `T` in between brackets after the name of the `struct`
 - We put `::T` after our parameter name in the `struct`. This way Julia knows that our parameter will be of type `T`.
@@ -108,24 +106,33 @@ For example a user could use the `Particles` type from [MonteCarloMeasurements.j
 
 ### The method
 
-The models are implemented in a function named after the process and a "!\_" as a suffix. The exclamation point is used in Julia to tell users the function is mutating, *i.e.* it modifies its input.
+The models are implemented by adding a method for its type to the [`run!`](@ref) function. The exclamation point at the end of the function name is used in Julia to tell users that the function is mutating, *i.e.* it modifies its input.
 
-Your implementation should always modify the input status and return nothing. This ensures that models compute fast. The "_" suffix is used to tell users that this is the internal implementation, which is only used by modelers.
+The function takes six arguments:
 
-Remember that PlantSimEngine only exports the generic functions of the processes to users because they are the one that handles every other details, such as checking that the object is correctly initialized, and applying the computations over objects and time-steps. This is nice because as a developer you don't have to deal with those details, and you can just concentrate on your implementation.
+- the type of your model
+- models: a `ModelList` object, which contains all the models of the simulation
+- status: a `Status` object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
+- meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
+- constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant)
+- extras: any other object you want to pass to your model. This is for advanced users, and is not used in this example. Note that it is used to pass the `Node` when simulating a MultiScaleTreeGraph.
 
-However, you have to remember that if your model calls another one, you'll have to use the internal implementation directly to avoid the overheads of the generic functions (you don't want all these checks).
+Your implementation can use any variables or parameters in these objects. The only thing you have to do is to make sure that the variables you use are defined in the `Status` object, the meteorology, and the `Constants` object.
 
-So if you want to implement a new light interception model, you have to make your own method for the `light_interception!_` function. 
+The variables you use from the `Status` must be declared as inputs of your model. And the ones you modify must be declared as outputs. We'll that below.
 
 !!! warning
-    We need to import all the functions we need to use or extend, so Julia knows we are extending the methods from PlantSimEngine, and not defining our own functions. To do so, we prefix the said functions by the package name, or import them before *e.g.*:
-    `import PlantSimEngine: inputs_, outputs_`
+    Models implementations are done for **one** time-step by design. If you want to implement a model that uses the previous time-step, you'll have to do it yourself. This is because the `Status` object only contains the current values of the variables, and not the previous ones. This is by design, because it enforces a clear definition of the models, and avoids the user to make mistakes. If you really need to use the previous time-step, you can add a variable to the `Status` object that contains the previous value(s) of the variable you want to use (*e.g.* LAI_prev). Note that it is not recommended though. If you're not convinced by this approach, ask yourself how the plant knows the value of *e.g.* LAI from 15 days ago. It doesn't. It only knows its current state. Most of the time-sensitive variables really are just an accumulation of values until a threshold anyway.
+
+`PlantSimEngine` then automatically deals with every other detail, such as checking that the object is correctly initialized, applying the computations over objects and time-steps. This is nice because as a developer you don't have to deal with those details, and you can just concentrate on your model implementation.
+
+!!! warning
+    You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`
 
 So let's do it! Here is our own implementation of the light interception for a `ModelList` component models:
 
 ```@example usepkg
-function light_interception!_(::Beer, models, status, meteo, constants, extras)
+function run!(::Beer, models, status, meteo, constants, extras)
     status.PPFD =
         meteo.Ri_PAR_f *
         exp(-models.light_interception.k * status.LAI) *
@@ -133,20 +140,13 @@ function light_interception!_(::Beer, models, status, meteo, constants, extras)
 end
 ```
 
-The first argument (`::Beer`) means this method will only execute when the function is called with a first argument that is of type `Beer`. This is our way of telling Julia that this method is implementing the `Beer` model for the light interception process.
+The first argument (`::Beer`) means this method will only execute when the function is called with a first argument that is of type `Beer`. This is our way of telling Julia that this method implements the `Beer` model for the light interception process.
 
-An important thing to note is that our variables are stored in different structures:
+An important thing to note is that the model parameters are available from the `ModelList` that is passed via the `models` argument. Then parameters are found in field called by the process name, and the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
 
-- `models`: lists the processes and the models parameters (we use `k`from Beer here using `models.light_interception.k`)
-- `meteo`: the micro-climatic conditions
-- `status`: the input and output variables of the models
-- `constants`: any constants given as a struct or a `NamedTuple`
-- `extras`: any other value or object (*e.g.* it is used to pass the node when computing MTGs)
+One last thing to do is to define the inputs and outputs of our model. This is done by adding a method for the [`inputs`](@ref) and [`outputs`](@ref) functions. These functions take the type of the model as argument, and return a `NamedTuple` with the names of the variables as keys, and their default values as values.
 
-!!! note
-    The micro-meteorological conditions are always given for one time-step inside the models methods, so they are always of `Atmosphere` type. The `Tables.jl` type (*e.g.* `TimeStepTable` or `DataFrame`) conditions are handled earlier by the generic functions, *i.e.* `light_interception()` and `light_interception!()`, not `light_interception!_()`.
-
-OK ! So that's it ? Almost. One last thing to do is to define a method for inputs/outputs so that PlantSimEngine knows which variables are needed for our model, and which it computes. Remember that the actual model is implemented for `light_interception!_`, so we have to tell PlantSimEngine which ones are needed, and what are their default value:
+In our case, the `Beer` model has one input and one output:
 
 - Inputs: `:LAI`, the leaf area index (m² m⁻²)
 - Outputs: `:PPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
@@ -163,7 +163,23 @@ function PlantSimEngine.outputs_(::Beer)
 end
 ```
 
-Note that both function end with an "\_". This is because these functions are internal, they will not be called by the users directly. Users will use [`inputs`](@ref) and [`outputs`](@ref) instead, which call `inputs_` and `outputs_`, but stripping out the default values.
+Note that both functions end with an "\_". This is because these functions are internal, they will not be called by the users directly. Users will use [`inputs`](@ref) and [`outputs`](@ref) instead, which call `inputs_` and `outputs_`, but stripping out the default values.
+
+### Dependencies
+
+If your model explicitly calls another model, you need to tell PlantSimEngine about it. This is called a hard dependency, in opposition to a soft dependency, which is when your model uses a variable from another model, but does not call it explicitly.
+
+To do so, we can add a method to the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run.
+
+Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
+
+```julia
+PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
+```
+
+Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
+
+You can read more about dependencies in [Model coupling for modelers](@ref) and [Model coupling for users](@ref).
 
 ### The utility functions
 
@@ -204,7 +220,7 @@ Beer() = Beer(0.6)
 
 Now the user can call `Beer` with zero value, and `k` will default to `0.6`.
 
-Another useful thing to provide to the user is the ability to instantiate your model type with keyword values. You can do it by adding the following method:
+Another useful thing is the ability to instantiate your model type with keyword arguments, *i.e.* naming the arguments. You can do it by adding the following method:
 
 ```@example usepkg
 Beer(;k) = Beer(k)
@@ -218,22 +234,12 @@ Beer(k = 0.7)
 
 This is nice when we have a lot of parameters and some with default values, but again, this is completely optional.
 
-One more thing to implement is a method for the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run (*i.e.* if your model is coupled to another model).
-
-Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
-
-```julia
-PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
-```
-
-Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
-
 The last optional thing to implement is a method for the `eltype` function:
 
 ```@example usepkg
 Base.eltype(x::Beer{T}) where {T} = T
 ```
 
-This one helps Julia to know the type of the elements in the structure, and make it faster.
+This one helps Julia know the type of the elements in the structure, and make it faster.
 
-OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue so I can improve it.
+OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue.

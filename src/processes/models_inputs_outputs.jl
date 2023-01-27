@@ -12,7 +12,7 @@ Returns an empty tuple by default for `AbstractModel`s (no inputs) or `Missing` 
 using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 
 inputs(Process1Model(1.0))
 
@@ -50,7 +50,7 @@ Returns an empty tuple by default for `AbstractModel`s (no outputs) or `Missing`
 using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 
 outputs(Process1Model(1.0))
 
@@ -91,7 +91,7 @@ Each model can (and should) have a method for this function.
 using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 
 variables(Process1Model(1.0))
 
@@ -170,7 +170,7 @@ union of those for several models.
 using PlantSimEngine;
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
 
 PlantSimEngine.variables_typed(Process1Model(1.0))
 (var1 = Float64, var2 = Float64, var3 = Float64)

@@ -13,7 +13,7 @@ the models in different trees are not coupled.
 using PlantSimEngine
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(dirname(dirname(pathof(PlantSimEngine))), "examples", "dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 models = ModelList(
     process1=Process1Model(1.0),

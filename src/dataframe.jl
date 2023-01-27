@@ -40,7 +40,7 @@ models = Dict(
 df = DataFrame(models)
 ```
 """
-function DataFrames.DataFrame(components::T) where {T<:Union{ModelList,AbstractArray{<:ModelList}}}
+function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelList}}
     df = DataFrame[]
     for (k, v) in enumerate(components)
         df_c = DataFrames.DataFrame(v)
@@ -62,20 +62,6 @@ end
 
 # NB: could use dispatch on concrete types but would enforce specific implementation for each
 
-
-"""
-    DataFrame(components::T) where {T<:ModelList}
-
-Generic implementation of `DataFrame` for a single `ModelList` model.
-"""
-function DataFrames.DataFrame(components::T) where {T<:ModelList}
-    st = status(components)
-    if isa(st, TimeStepTable)
-        DataFrames.DataFrame([(NamedTuple(j)..., timestep=i) for (i, j) in enumerate(st)])
-    else
-        DataFrames.DataFrame([NamedTuple(st)])
-    end
-end
 
 """
     DataFrame(components::ModelList{T,<:TimeStepTable})

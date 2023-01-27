@@ -19,6 +19,8 @@ makedocs(;
     pages=[
         "Home" => "index.md",
         "Design" => "design.md",
+        "Model Switching" => "model_switching.md",
+        "Reducing DoF" => "reducing_dof.md",
         "Extending" => [
             "Processes" => "./extending/implement_a_process.md",
             "Models" => "./extending/implement_a_model.md",
