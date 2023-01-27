@@ -13,7 +13,7 @@ CurrentModule = PlantSimEngine
 
 ## Overview
 
-`PlantSimEngine` is a package for plant/crop - soil - atmosphere simulation and modelling. It is designed to help researchers and practitioners prototype, implement, test plant/crop models at any scale, without the hassle of computer science technicality behind model coupling, running on several time-steps or objects.
+`PlantSimEngine` is a package for the simulation and modelling of plants, soil and atmosphere. It is designed to help researchers and practitioners prototype, implement, test plant/crop models at any scale, without the hassle of computer science technicality behind model coupling, running on several time-steps or objects.
 
 The package defines a framework for declaring processes and implementing associated models for their simulation. 
 

@@ -31,7 +31,7 @@ Back to our example, using `Process3Model` requires a "process2" model, and in o
 
 Let's include this script so we can play around:
 
-```@example usepkg
+```julia
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 ```
 
