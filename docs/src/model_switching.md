@@ -12,6 +12,7 @@ m = ModelList(
     Process5Model(),
     Process6Model(),
     Process7Model(),
+    status = (var0=1.0,)
 )
 run!(m, meteo)
 struct AnotherProcess1Model <: AbstractProcess1Model
@@ -31,6 +32,7 @@ m2 = ModelList(
     Process5Model(),
     Process6Model(),
     Process7Model(),
+    status = (var0=1.0, var10=2.0)
 )
 run!(m2, meteo)
 ```
@@ -57,7 +59,7 @@ m = ModelList(
     Process6Model(),
     Process7Model(),
     status = (var0=1.0,)
-)
+);
 ```
 
 PlantSimEngine uses the `ModelList` to compute the dependency graph of the models. Here we have seven models, one for each process. The dependency graph is computed automatically by PlantSimEngine, and is used to run the simulation in the correct order.
@@ -103,7 +105,8 @@ m2 = ModelList(
     Process5Model(),
     Process6Model(),
     Process7Model(),
-)
+    status = (var0=1.0, var10=2.0)
+);
 ```
 
 And run the simulation with the new model:

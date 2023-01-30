@@ -5,8 +5,7 @@
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
 include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
-
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
+meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 run!(leaf, meteo)
 ```
@@ -24,18 +23,13 @@ A process is "declared", meaning we just define a process using [`@process`](@re
 
 For example, the `light_interception` process is declared using:
 
-```@example usepkg
+```julia
 @process light_interception
 ```
 
-Which would generate the following code:
+Which would generate a tutorial to help the user implement a model for the process.
 
-```@example usepkg
-@doc AbstractLight_InterceptionModel
-```
-
-The abstract process type is then used as a supertype of all models implementations for the 
-process, and is named `Abstract<process_name>Process`, *e.g.* `AbstractLight_InterceptionModel`.
+The abstract process type is then used as a supertype of all models implementations for the process, and is named `Abstract<process_name>Process`, *e.g.* `AbstractLight_InterceptionModel`.
 
 ### Models (ModelList)
 
@@ -64,7 +58,7 @@ using PlantSimEngine
 
 Including the script that defines `light_interception` and `Beer`:
 
-```@example usepkg
+```julia
 include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 ```
 
@@ -161,11 +155,11 @@ To make a simulation, we usually need the climatic/meteorological conditions mea
 
 Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.TimeStepTable).
 
-The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed, m s⁻¹). We can declare such conditions like so:
+The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed, m s⁻¹). In our example, we also need the incoming photosynthetically active radiation flux (`Ri_PAR_f`, W m⁻²). We can declare such conditions like so:
 
 ```@example usepkg
 using PlantMeteo
-meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65)
+meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 ```
 
 More details are available from the [package documentation](https://vezy.github.io/PlantMeteo.jl/stable).
@@ -196,7 +190,7 @@ using PlantSimEngine, PlantMeteo
 # Including the script defining light_interception and Beer:
 include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
+meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 
 leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 

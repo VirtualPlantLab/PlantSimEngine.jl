@@ -20,6 +20,16 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     simulation_id::Int # id of the simulation
 end
 
+"""
+    DependencyTree{T}(roots::T, not_found::Dict{Symbol,DataType})
+
+A tree of dependencies between models.
+
+# Arguments
+
+- `roots::T`: the root nodes of the tree.
+- `not_found::Dict{Symbol,DataType}`: the models that were not found in the tree.
+"""
 struct DependencyTree{T}
     roots::T
     not_found::Dict{Symbol,DataType}

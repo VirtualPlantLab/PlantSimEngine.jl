@@ -9,8 +9,9 @@ If several time-steps are given, the models are run sequentially for each time-s
 # Arguments
 
 - `object`: a [`ModelList`](@ref), an array or dict of `ModelList`, or an MTG.
-- `meteo`: a [`TimeStepTable`](@ref) of [`Atmosphere`](@ref) or a single [`Atmosphere`](@ref).
-- `constants`: a [`PlantMeteo.Constants`](@ref) object, or a `NamedTuple` of constant keys and values.
+- `meteo`: a [`PlantMeteo.TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.TimeStepTable) of 
+[`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
+- `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
 - `extra`: extra parameters.
 
 # Returns 
