@@ -41,6 +41,28 @@ end;
     @test [models[i][1] for i in vars] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
 end;
 
+@testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
+    models = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=15.0, var2=0.3)
+    )
+
+    models2 = ModelList(
+        process1=Process1Model(2.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=15.0, var2=0.3)
+    )
+
+    meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
+
+    run!([models, models2], meteo)
+
+    @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
+    @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+end;
 
 @testset "Simulation: 2 time-steps, 1 Atmosphere" begin
     models = ModelList(
@@ -91,6 +113,40 @@ end;
     ]
 end;
 
+
+@testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
+    models = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=[15.0, 16.0], var2=0.3)
+    )
+
+    models2 = ModelList(
+        process1=Process1Model(2.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=[15.0, 16.0], var2=0.3)
+    )
+
+    meteo = Weather(
+        [
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65),
+        Atmosphere(T=25.0, Wind=0.5, Rh=0.8)
+    ]
+    )
+
+    run!([models, models2], meteo)
+
+
+    @test [models[i] for i in keys(status(models))] == [
+        [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
+    ]
+
+    @test [models2[i] for i in keys(status(models2))] == [
+        [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
+    ]
+end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres, MTG" begin
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))

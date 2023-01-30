@@ -77,25 +77,26 @@ function run!(
     extra=nothing;
     check=true
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
-    dep_tree = dep(object)
-
-    if check
-        # Check if the meteo data and the status have the same length (or length 1)
-        check_dimensions(object, meteo)
-
-        if length(dep_tree.not_found) > 0
-            @error string(
-                "The following processes are missing to run the ModelList: ",
-                dep_tree.not_found
-            )
-        end
-    end
 
     # Each object:
     for obj in object
+        dep_tree = dep(obj)
+
+        if check
+            # Check if the meteo data and the status have the same length (or length 1)
+            check_dimensions(obj, meteo)
+
+            if length(dep_tree.not_found) > 0
+                @error string(
+                    "The following processes are missing to run the ModelList: ",
+                    dep_tree.not_found
+                )
+            end
+        end
+
         # Computing for each time-step:
         for (i, meteo_i) in enumerate(meteo)
-            run!(object, dep_tree, obj[i], meteo_i, constants, extra)
+            run!(obj, dep_tree, obj[i], meteo_i, constants, extra)
         end
     end
 end
@@ -108,7 +109,7 @@ function run!(
     extra=nothing;
     check=true
 ) where {T<:ModelList{Mo,S} where {Mo,S<:Status},M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
-    run!(object, dep(object), object.status, meteo, constants, extra)
+    run!(object, dep(object), object.status[1], meteo, constants, extra)
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
@@ -161,7 +162,35 @@ function run!(
     end
 end
 
-# 5- Compatibility with MTG:
+# 5- several objects and on time-step
+function run!(
+    object::T,
+    meteo::A,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    check=true
+) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
+    # Each object:
+    for obj in object
+        dep_tree = dep(obj)
+
+        if check
+            # Check if the meteo data and the status have the same length (or length 1)
+            check_dimensions(obj, meteo)
+
+            if length(dep_tree.not_found) > 0
+                @error string(
+                    "The following processes are missing to run the ModelList: ",
+                    dep_tree.not_found
+                )
+            end
+        end
+
+        run!(obj, dep_tree, status(obj)[1], meteo, constants, extra)
+    end
+end
+
+# 6- Compatibility with MTG:
 function run!(
     mtg::MultiScaleTreeGraph.Node,
     models::Dict{String,O},
@@ -182,7 +211,7 @@ function run!(
 end
 
 
-# 6- Compatibility with MTG + Weather (TimeStepTable{Atmosphere}), compute all nodes for one time step, then move to the next time step.
+# 7- Compatibility with MTG + Weather (TimeStepTable{Atmosphere}), compute all nodes for one time step, then move to the next time step.
 function run!(
     mtg::MultiScaleTreeGraph.Node,
     models::Dict{String,M},
@@ -225,7 +254,7 @@ function run!(
     end
 end
 
-# 7- Non-mutating version (make a copy before the call, and return the copy):
+# 8- Non-mutating version (make a copy before the call, and return the copy):
 #! removed this method because it clashes with Base.run and it's not that usefull
 # function run(
 #     object::O,
