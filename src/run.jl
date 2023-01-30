@@ -161,7 +161,7 @@ function run!(
     end
 end
 
-# 5- several objects and one time-step
+# 5- several objects and one meteo time-step
 function run!(
     object::T,
     meteo::A,
