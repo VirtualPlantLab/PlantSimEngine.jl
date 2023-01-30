@@ -1,7 +1,6 @@
 # includet("../examples/dummy.jl")
 
 @testset "Check missing model" begin
-
     # No problem here:
     @test_nowarn ModelList(
         process1=Process1Model(1.0),
@@ -58,10 +57,17 @@ end;
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    run!([models, models2], meteo)
+    @testset "simulation with an array of objects" begin
+        run!([models, models2], meteo)
+        @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
+        @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+    end
 
-    @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
-    @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+    @testset "simulation with a dict of objects" begin
+        run!(Dict("mod1" => models, "mod2" => models2), meteo)
+        @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
+        @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+    end
 end;
 
 @testset "Simulation: 2 time-steps, 1 Atmosphere" begin
@@ -136,16 +142,25 @@ end;
     ]
     )
 
-    run!([models, models2], meteo)
+    @testset "simulation with a dict of objects" begin
+        run!([models, models2], meteo)
+        @test [models[i] for i in keys(status(models))] == [
+            [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
+        ]
+        @test [models2[i] for i in keys(status(models2))] == [
+            [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
+        ]
+    end
 
-
-    @test [models[i] for i in keys(status(models))] == [
-        [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
-    ]
-
-    @test [models2[i] for i in keys(status(models2))] == [
-        [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
-    ]
+    @testset "simulation with a dict of objects" begin
+        run!(Dict("mod1" => models, "mod2" => models2), meteo)
+        @test [models[i] for i in keys(status(models))] == [
+            [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
+        ]
+        @test [models2[i] for i in keys(status(models2))] == [
+            [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
+        ]
+    end
 end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres, MTG" begin

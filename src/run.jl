@@ -78,24 +78,23 @@ function run!(
     check=true
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
 
-    # Each object:
-    for obj in object
-        dep_tree = dep(obj)
+    # Computing for each time-step:
+    for (i, meteo_i) in enumerate(meteo)
+        # Each object:
+        for obj in values(object)
+            dep_tree = dep(obj)
 
-        if check
-            # Check if the meteo data and the status have the same length (or length 1)
-            check_dimensions(obj, meteo)
+            if check
+                # Check if the meteo data and the status have the same length (or length 1)
+                check_dimensions(obj, meteo)
 
-            if length(dep_tree.not_found) > 0
-                @error string(
-                    "The following processes are missing to run the ModelList: ",
-                    dep_tree.not_found
-                )
+                if length(dep_tree.not_found) > 0
+                    @error string(
+                        "The following processes are missing to run the ModelList: ",
+                        dep_tree.not_found
+                    )
+                end
             end
-        end
-
-        # Computing for each time-step:
-        for (i, meteo_i) in enumerate(meteo)
             run!(obj, dep_tree, obj[i], meteo_i, constants, extra)
         end
     end
@@ -162,7 +161,7 @@ function run!(
     end
 end
 
-# 5- several objects and on time-step
+# 5- several objects and one time-step
 function run!(
     object::T,
     meteo::A,
@@ -171,7 +170,7 @@ function run!(
     check=true
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
     # Each object:
-    for obj in object
+    for obj in values(object)
         dep_tree = dep(obj)
 
         if check
