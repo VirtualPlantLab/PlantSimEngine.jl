@@ -1,5 +1,5 @@
 """
-    run!(object, meteo, constants, extra=nothing; check=true)
+    run!(object, meteo, constants, extra=nothing; check=true, executor=Floops.ThreadedEx())
 
 Run the simulation for each model in the model list in the correct order, *i.e.* respecting
 the dependency tree.
@@ -13,6 +13,9 @@ If several time-steps are given, the models are run sequentially for each time-s
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
 - `extra`: extra parameters.
+- `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time).
+- `executor`: the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) executor used to run the simulation either in sequential (`executor=SequentialEx()`), in a 
+multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed way (`executor=DistributedEx()`).
 
 # Returns 
 
@@ -75,28 +78,26 @@ function run!(
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    check=true
+    check=true,
+    executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
 
     # Computing for each time-step:
-    Threads.@threads for (i, meteo_i) in collect(enumerate(meteo))
-        # Each object:
-        Threads.@threads for obj in collect(values(object))
-            dep_tree = dep(obj)
+    @floop executor for (i, meteo_i) in collect(enumerate(meteo)), obj in collect(values(object))
+        dep_tree = dep(obj)
 
-            if check
-                # Check if the meteo data and the status have the same length (or length 1)
-                check_dimensions(obj, meteo)
+        if check
+            # Check if the meteo data and the status have the same length (or length 1)
+            check_dimensions(obj, meteo)
 
-                if length(dep_tree.not_found) > 0
-                    @error string(
-                        "The following processes are missing to run the ModelList: ",
-                        dep_tree.not_found
-                    )
-                end
+            if length(dep_tree.not_found) > 0
+                error(
+                    "The following processes are missing in the ModelList: ",
+                    dep_tree.not_found
+                )
             end
-            run!(obj, dep_tree, obj[i], meteo_i, constants, extra)
         end
+        run!(obj, dep_tree, obj[i], meteo_i, constants, extra)
     end
 end
 
@@ -117,18 +118,19 @@ function run!(
     meteo::M=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    check=true
+    check=true,
+    executor=ThreadedEx()
 ) where {T<:ModelList,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
     dep_tree = dep(object)
 
     if check && length(dep_tree.not_found) > 0
-        @error string(
+        error(
             "The following processes are missing to run the ModelList: ",
             dep_tree.not_found
         )
     end
 
-    Threads.@threads for i in Tables.rows(status(object))
+    @floop executor for i in Tables.rows(status(object))
         run!(object, dep_tree, i, meteo, constants, extra)
     end
 end
@@ -139,7 +141,8 @@ function run!(
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    check=true
+    check=true,
+    executor=ThreadedEx()
 ) where {T<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
     dep_tree = dep(object)
 
@@ -148,7 +151,7 @@ function run!(
         check_dimensions(object, meteo)
 
         if length(dep_tree.not_found) > 0
-            @error string(
+            error(
                 "The following processes are missing to run the ModelList: ",
                 dep_tree.not_found
             )
@@ -156,7 +159,7 @@ function run!(
     end
 
     # Computing for each time-step:
-    Threads.@threads for (i, meteo_i) in collect(enumerate(meteo))
+    @floop executor for (i, meteo_i) in collect(enumerate(meteo))
         run!(object, dep_tree, object[i], meteo_i, constants, extra)
     end
 end
@@ -167,10 +170,12 @@ function run!(
     meteo::A,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    check=true
+    check=true,
+    executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
+
     # Each object:
-    Threads.@threads for obj in collect(values(object))
+    @floop executor for obj in collect(values(object))
         dep_tree = dep(obj)
 
         if check
@@ -178,7 +183,7 @@ function run!(
             check_dimensions(obj, meteo)
 
             if length(dep_tree.not_found) > 0
-                @error string(
+                error(
                     "The following processes are missing to run the ModelList: ",
                     dep_tree.not_found
                 )
@@ -215,8 +220,14 @@ function run!(
     mtg::MultiScaleTreeGraph.Node,
     models::Dict{String,M},
     meteo::TimeStepTable{A},
-    constants=PlantMeteo.Constants()
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    check=true,
+    executor=ThreadedEx()
 ) where {M<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
+
+    @assert extra === nothing "The extra argument cannot be used with an MTG. It already contains the node."
+
     # Define the attribute name used for the models in the nodes
     attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
@@ -246,7 +257,7 @@ function run!(
 
         MultiScaleTreeGraph.transform!(
             mtg,
-            (node) -> run!(node[attr_name], meteo_i, constants, node),
+            (node) -> run!(node[attr_name], meteo_i, constants, node, check=check, executor=executor),
             (node) -> pull_status_one_step!(node, i, attr_name=attr_name),
             filter_fun=node -> node[attr_name] !== nothing
         )
@@ -271,13 +282,13 @@ end
 #! Actual call to the model:
 
 # Running the simulation on the dependency tree (always one time-step, one object):
-function run!(object::T, dep_tree::DependencyTree{Dict{Symbol,N}}, st, meteo, constants, extra) where {
+function run!(object::T, dep_tree::DependencyTree{Dict{Symbol,N}}, st, meteo, constants, extra; executor=ThreadedEx()) where {
     T<:ModelList,
     N<:Union{HardDependencyNode,SoftDependencyNode}
 }
     # Run the simulation of each soft-coupled model in the dependency tree:
     # Note: hard-coupled processes handle themselves already
-    Threads.@threads for (process, node) in collect(dep_tree.roots)
+    @floop executor for (process, node) in collect(dep_tree.roots)
         run!(object, node, st, meteo, constants, extra)
     end
 end
@@ -304,7 +315,7 @@ function run!(
 
     # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
     for child in node.children
-        #! check if we can run this safely in a Threads.@threads loop. I would say no, 
+        #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe.
         run!(object, child, st, meteo, constants, extra)

@@ -1,5 +1,6 @@
 module PlantSimEngine
 
+# FOr data formatting:
 import DataFrames
 import Tables
 
@@ -9,6 +10,9 @@ import CSV # For reading csv files with variables()
 import AbstractTrees
 import Term
 import Markdown
+
+# For multi-threading:
+import FLoops: @floop, ThreadedEx, SequentialEx
 
 # For MTG compatibility:
 import MultiScaleTreeGraph

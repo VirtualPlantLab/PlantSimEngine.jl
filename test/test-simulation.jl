@@ -142,7 +142,7 @@ end;
     ]
     )
 
-    @testset "simulation with a dict of objects" begin
+    @testset "simulation with an array of objects" begin
         run!([models, models2], meteo)
         @test [models[i] for i in keys(status(models))] == [
             [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
