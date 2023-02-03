@@ -79,9 +79,9 @@ function run!(
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
 
     # Computing for each time-step:
-    for (i, meteo_i) in enumerate(meteo)
+    Threads.@threads for (i, meteo_i) in collect(enumerate(meteo))
         # Each object:
-        for obj in values(object)
+        Threads.@threads for obj in collect(values(object))
             dep_tree = dep(obj)
 
             if check
@@ -128,7 +128,7 @@ function run!(
         )
     end
 
-    for i in Tables.rows(status(object))
+    Threads.@threads for i in Tables.rows(status(object))
         run!(object, dep_tree, i, meteo, constants, extra)
     end
 end
@@ -156,7 +156,7 @@ function run!(
     end
 
     # Computing for each time-step:
-    for (i, meteo_i) in enumerate(meteo)
+    Threads.@threads for (i, meteo_i) in collect(enumerate(meteo))
         run!(object, dep_tree, object[i], meteo_i, constants, extra)
     end
 end
@@ -170,7 +170,7 @@ function run!(
     check=true
 ) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
     # Each object:
-    for obj in values(object)
+    Threads.@threads for obj in collect(values(object))
         dep_tree = dep(obj)
 
         if check
@@ -277,7 +277,7 @@ function run!(object::T, dep_tree::DependencyTree{Dict{Symbol,N}}, st, meteo, co
 }
     # Run the simulation of each soft-coupled model in the dependency tree:
     # Note: hard-coupled processes handle themselves already
-    for (process, node) in dep_tree.roots
+    Threads.@threads for (process, node) in collect(dep_tree.roots)
         run!(object, node, st, meteo, constants, extra)
     end
 end
@@ -304,6 +304,9 @@ function run!(
 
     # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
     for child in node.children
+        #! check if we can run this safely in a Threads.@threads loop. I would say no, 
+        #! because we are running a parallel computation above already, modifying the node.simulation_id,
+        #! which is not thread-safe.
         run!(object, child, st, meteo, constants, extra)
     end
 end
