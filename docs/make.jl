@@ -21,6 +21,7 @@ makedocs(;
         "Design" => "design.md",
         "Model Switching" => "model_switching.md",
         "Reducing DoF" => "reducing_dof.md",
+        "Execution" => "model_execution.md",
         "Extending" => [
             "Processes" => "./extending/implement_a_process.md",
             "Models" => "./extending/implement_a_model.md",
