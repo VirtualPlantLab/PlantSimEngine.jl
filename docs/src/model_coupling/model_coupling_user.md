@@ -42,6 +42,7 @@ Here is how we can make the models coupling:
 
 ```@example usepkg
 m = ModelList(Process1Model(2.0), Process2Model(), Process3Model())
+nothing # hide
 ```
 
 We can see that only the first model has a parameter. You can usually know that by looking at the help of the structure (*e.g.* `?Process1Model`), else, you can still look at the field names of the structure like so `fieldnames(Process1Model)`.
@@ -90,6 +91,7 @@ m = ModelList(
     Process3Model(),
     status = (var1=15.0, var2=0.3)
 )
+nothing # hide
 ```
 
 Our component models structure is now fully parameterized and initialized for a simulation!
@@ -122,6 +124,7 @@ m = ModelList(
     Process6Model(),
     Process7Model(),
 )
+nothing # hide
 ```
 
 With this list of models, we only need to initialize `var0`, that is an input of `Process4Model` and `Process7Model`:
@@ -143,6 +146,7 @@ m = ModelList(
     Process7Model(),
     status = (var0=15.0,)
 )
+nothing # hide
 ```
 
 Let's simulate it:

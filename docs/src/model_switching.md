@@ -59,7 +59,9 @@ m = ModelList(
     Process6Model(),
     Process7Model(),
     status = (var0=1.0,)
-);
+)
+
+nothing # hide
 ```
 
 PlantSimEngine uses the `ModelList` to compute the dependency graph of the models. Here we have seven models, one for each process. The dependency graph is computed automatically by PlantSimEngine, and is used to run the simulation in the correct order.
@@ -106,7 +108,9 @@ m2 = ModelList(
     Process6Model(),
     Process7Model(),
     status = (var0=1.0, var10=2.0)
-);
+)
+
+nothing # hide
 ```
 
 And run the simulation with the new model:
