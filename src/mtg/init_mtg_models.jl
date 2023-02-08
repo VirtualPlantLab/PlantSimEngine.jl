@@ -109,13 +109,11 @@ function init_mtg_models!(
                         # If not, initialize the ModelList using attributes
                         @info "Initialising $(to_init[node.MTG.symbol]) using node attributes" maxlog = 1
 
-                        node_model = deepcopy(models[node.MTG.symbol])
-
                         node[attr_name_sym] =
                             ModelList(
-                                node_model.models,
+                                deepcopy(models[node.MTG.symbol].models),
                                 init_variables_manual(
-                                    node_model.status,
+                                    deepcopy(models[node.MTG.symbol].status),
                                     NamedTuple(j => get_attr_i(node, j, i) for j in to_init[node.MTG.symbol])
                                 )
                             )
