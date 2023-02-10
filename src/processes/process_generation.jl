@@ -37,7 +37,7 @@ macro process(f, args...)
 
     # The docstring for the process function is the first positional argument:
     if length(aargs) > 1
-        error("Too many positional arguments to @gen_process_methods")
+        error("Too many positional arguments to @process")
     end
     # and it is empty by default:
     doc = length(aargs) == 1 ? aargs[1] : ""

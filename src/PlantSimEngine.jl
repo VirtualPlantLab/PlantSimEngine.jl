@@ -59,7 +59,11 @@ include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
 include("checks/dimensions.jl")
 
+# Simulation:
 include("run.jl")
+
+# Fitting
+include("evaluation/fit.jl")
 
 export AbstractModel
 export ModelList
@@ -71,6 +75,7 @@ export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables
 export run!
+export fit
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

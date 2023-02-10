@@ -52,3 +52,8 @@ Take a look at these projects that use PlantSimEngine:
 The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license. 
 
 If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃
+
+
+## TO DO
+
+- [ ] Look into locks for parallel computations over "independent" processes that can maybe call a model when both parents are being computed, so both are set to 0 and the model is never called

@@ -17,7 +17,7 @@ That means that you can provide any compatible executor to the `executor` argume
 
 You can also take a look at [FoldsThreads.jl](https://github.com/JuliaFolds/FoldsThreads.jl) for extra thread-based executors, [FoldsDagger.jl](https://github.com/JuliaFolds/FoldsDagger.jl) for 
 Transducers.jl-compatible parallel fold implemented using the Dagger.jl framework, and soon [FoldsCUDA.jl](https://github.com/JuliaFolds/FoldsCUDA.jl) for GPU computations 
-(see [this issue]()) and [FoldsKernelAbstractions.jl](https://github.com/JuliaFolds/FoldsKernelAbstractions.jl). You can also take a look at 
+(see [this issue](https://github.com/VEZY/PlantSimEngine.jl/issues/22)) and [FoldsKernelAbstractions.jl](https://github.com/JuliaFolds/FoldsKernelAbstractions.jl). You can also take a look at 
 [ParallelMagics.jl](https://github.com/JuliaFolds/ParallelMagics.jl) to check if automatic parallelization is possible.
 
 Finally, you can take a look into [Transducers.jl's documentation](https://github.com/JuliaFolds/Transducers.jl) for more information, for example if you don't know what is an executor, you can look into [this explanation](https://juliafolds.github.io/Transducers.jl/stable/explanation/glossary/#glossary-executor).

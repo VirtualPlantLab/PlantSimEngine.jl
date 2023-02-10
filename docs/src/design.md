@@ -168,9 +168,9 @@ More details are available from the [package documentation](https://vezy.github.
 
 ### Simulation of processes
 
-Making a simulation is rather simple, we simply use [`run!`](@gen) on the `ModelList`:
+Making a simulation is rather simple, we simply use [`run!`](@ref) on the `ModelList`:
 
-The call to [`run!`](@gen) is the same whatever the models you choose for simulating the processes. This is some magic allowed by `PlantSimEngine.jl`! Here is an example:
+The call to [`run!`](@ref) is the same whatever the models you choose for simulating the processes. This is some magic allowed by `PlantSimEngine.jl`! Here is an example:
 
 ```julia
 run!(model_list, meteo)

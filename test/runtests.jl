@@ -2,7 +2,7 @@ using PlantSimEngine
 using Test, Aqua
 using Tables, DataFrames
 using MultiScaleTreeGraph
-using PlantMeteo
+using PlantMeteo, Statistics
 using Documenter # for doctests
 
 # Include the example dummy processes:
@@ -38,6 +38,10 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
     @testset "Statistics" begin
         include("test-statistics.jl")
+    end
+
+    @testset "Fitting" begin
+        include("test-fitting.jl")
     end
 
     if VERSION >= v"1.8"
