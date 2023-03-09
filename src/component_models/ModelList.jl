@@ -22,7 +22,7 @@ type promotion, time steps handling.
 - `models`: a list of models. Usually given as a `NamedTuple`, but can be any other structure that 
 implements `getproperty`.
 - `status`: a structure containing the initializations for the variables of the models. Usually a NamedTuple
-when given as a kwarg, or any structure that implements the Tables interface from `Tables.jl` (*e.g.* DataFrame).
+when given as a kwarg, or any structure that implements the Tables interface from `Tables.jl` (*e.g.* DataFrame, see details).
 - `init_fun`: a function that initializes the status based on a vector of NamedTuples (see details).
 - `type_promotion`: optional type conversion for the variables with default values.
 `nothing` by default, *i.e.* no conversion. Note that conversion is not applied to the
@@ -42,7 +42,10 @@ implements the `Tables.jl` interface (*e.g.* DataFrame does). And if you still u
 
 If you need to input a custom Type for the status and make your users able to only partially initialize 
 the `status` field in the input, you'll have to implement a method for `add_model_vars!`, a function that 
-adds the models variables to the type in case it is not fully initialized.
+adds the models variables to the type in case it is not fully initialized. The default method is compatible 
+with any type that implements the `Tables.jl` interface (*e.g.* DataFrame), and `NamedTuples`.
+
+Note that `ModelList`makes a copy of the input `status` if it does not list all needed variables.
 
 ## Examples
 
@@ -211,11 +214,11 @@ function ModelList(
     ts_kwargs = homogeneous_ts_kwargs(status)
 
     # Add the missing variables required by the models (set to default value):
-    ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
+    ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion; init_fun=init_fun)
 
     model_list = ModelList(
         mods,
-        init_fun(ts_kwargs)
+        ts_kwargs
     )
     variables_check && !is_initialized(model_list)
 
@@ -234,14 +237,22 @@ init_fun_default(x) = x
 Check which variables in `x` are not initialized considering a set of models and the variables
 needed for their simulation. If some variables are uninitialized, initialize them to their default values.
 
-This function needs to be implemented for each type of `x` (please do it if you need it).
+This function needs to be implemented for each type of `x`. The default method works for 
+any Tables.jl-compatible `x` and for NamedTuples.
 
-Careful, the function mutates `x` in place for performance. We don't put the `!` in the name
-just because it also returns it (impossible to mutate when `x` is nothing)
+Careful, the function makes a copy of the input `x` if it does not list all needed variables.
 """
-function add_model_vars(x, models, type_promotion)
+function add_model_vars(x, models, type_promotion; init_fun=init_fun_default)
     ref_vars = merge(init_variables(models; verbose=false)...)
+    # If no variable is required, we return the input:
     length(ref_vars) == 0 && return x
+
+    # If the user gave a status, we check if all the variables are already initialized:
+    vars_in_x = status_keys(x)
+    all([k in vars_in_x for k in keys(ref_vars)]) && return x # If so, we return the input
+
+    # Else, we add the variables by making a new object:
+
     # Convert model variables types to the one required by the user:
     ref_vars = convert_vars(type_promotion, ref_vars)
 
@@ -251,7 +262,12 @@ function add_model_vars(x, models, type_promotion)
         push!(x_full, merge(ref_vars, NamedTuple(r)))
     end
 
-    return x_full
+    return init_fun(x_full)
+end
+
+function status_keys(st)
+    Tables.istable(st) && return Tables.columnnames(st)
+    return keys(st)
 end
 
 # If the user doesn't give any initializations, we initialize all variables to their default values:
