@@ -232,9 +232,9 @@ init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
 init_fun_default(x) = x
 
 """
-    add_model_vars(x)
+    add_model_vars(x, models, type_promotion; init_fun=init_fun_default)
 
-Check which variables in `x` are not initialized considering a set of models and the variables
+Check which variables in `x` are not initialized considering a set of `models` and the variables
 needed for their simulation. If some variables are uninitialized, initialize them to their default values.
 
 This function needs to be implemented for each type of `x`. The default method works for 
@@ -256,6 +256,9 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default)
     # Convert model variables types to the one required by the user:
     ref_vars = convert_vars(type_promotion, ref_vars)
 
+    # If the user gave an empty status, we initialize all variables to their default values:
+    (x === nothing || (!Tables.istable(x) && length(x) == 0)) && return init_fun([ref_vars])
+
     # Making a vars for each ith value in the user vars:
     x_full = []
     for r in Tables.rows(x)
@@ -269,6 +272,8 @@ function status_keys(st)
     Tables.istable(st) && return Tables.columnnames(st)
     return keys(st)
 end
+
+status_keys(::Nothing) = NamedTuple()
 
 # If the user doesn't give any initializations, we initialize all variables to their default values:
 function add_model_vars(x::Nothing, models, type_promotion)
@@ -299,6 +304,7 @@ PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], PPFD=1000.0))
 ```
 """
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
+    length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
     length_vars = [length(i) for i in vars_vals]
 
