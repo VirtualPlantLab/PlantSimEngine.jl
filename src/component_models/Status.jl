@@ -86,8 +86,8 @@ function Base.show(io::IO, t::Status)
 end
 
 Base.getproperty(mnt::Status, s::Symbol) = getproperty(getfield(mnt, :vars), s)[]
-Base.getindex(mnt::Status, i::Int) = getfield(NamedTuple(mnt), i)
-Base.getindex(mnt::Status, i::Symbol) = getfield(NamedTuple(mnt), i)
+Base.getindex(mnt::Status, i::Int) = getfield(getfield(mnt, :vars), i)[]
+Base.getindex(mnt::Status, i::Symbol) = getproperty(mnt, i)
 
 function Base.setproperty!(mnt::Status, s::Symbol, x)
     nt = getfield(mnt, :vars)

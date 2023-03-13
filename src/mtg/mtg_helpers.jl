@@ -98,7 +98,7 @@ of simulation steps.
 """
 function pre_allocate_attr!(node, nsteps; attr_name=:models)
     if node[attr_name] !== nothing
-        st = node[attr_name].status
+        st = status(node[attr_name])
         vars = collect(keys(st))
         for i in vars
             if node[i] === nothing

@@ -197,3 +197,40 @@ end;
         [5.5, 5.8],
     ]
 end;
+
+
+@testset "Simulation: 2 time-step, 2 Atmospheres, MTG" begin
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    leaf[:var1] = [15.0, 16.0]
+    leaf[:var2] = 0.3
+
+    models = Dict(
+        "Leaf" => ModelList(
+            process1=Process1Model(1.0),
+            process2=Process2Model(),
+            process3=Process3Model()
+        )
+    )
+
+    meteo = Weather(
+        [
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65),
+        Atmosphere(T=25.0, Wind=0.5, Rh=0.8)
+    ]
+    )
+
+    run!(mtg, models, meteo)
+
+    df_leaf = DataFrame(leaf)
+    vars = (:var4, :var6, :var5, :var1, :var2, :var3)
+    @test [df_leaf[1, i] for i in vars] == [
+        [22.0, 23.2],
+        [56.95, 63.2],
+        [34.95, 40.0],
+        [15.0, 16.0],
+        [0.3, 0.3],
+        [5.5, 5.8],
+    ]
+end;

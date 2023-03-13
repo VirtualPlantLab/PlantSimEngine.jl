@@ -251,7 +251,7 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default)
     vars_in_x = status_keys(x)
     all([k in vars_in_x for k in keys(ref_vars)]) && return x # If so, we return the input
 
-    # Else, we add the variables by making a new object:
+    # Else, we add the variables by making a new object (carefull, this is a copy so it takes more time):
 
     # Convert model variables types to the one required by the user:
     ref_vars = convert_vars(type_promotion, ref_vars)
@@ -362,7 +362,7 @@ function Base.copy(m::T) where {T<:ModelList}
     )
 end
 
-function Base.copy(m::T, status::S) where {T<:ModelList,S<:TimeStepTable}
+function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
         status

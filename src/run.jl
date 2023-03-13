@@ -241,37 +241,26 @@ function run!(
     # Define the attribute name used for the models in the nodes
     attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
-    # Init the status for the meteo step only (with an PlantMeteo.AbstractAtmosphere)
-    to_init = init_mtg_models!(mtg, models, 1, attr_name=attr_name)
-    #! Here we use only one time-step for the status whatever the number of timesteps
-    #! to simulate. Then we use this status for all the meteo steps (we re-initialize
-    #! its values at each step). We do this to not replicate much data, but it is not
-    #! the best way to do it because we don't use the nice methods from above that
-    #! control the simulations for meteo / status timesteps. What we could do instead
-    #! is to have a TimeSteps status for several timesteps, and then use pointers to
-    #! the values in the node attributes. This we would avoid to replicate the data
-    #! and we could use the fancy methods from above.
+    # Initialize the models and pre-allocate nodes attributes:
+    init_mtg_models!(mtg, models, length(meteo), attr_name=attr_name)
 
-    # Pre-allocate the node attributes based on the simulated variables and number of steps:
-    nsteps = length(meteo)
+    # #! Here we make a simulation for one time-step and going to the next node.
+    # #! This is good for models that need the result of others nodes on one time-step.
+    # #! but not efficient for models that are completely independent.
+    # # Computing for each time-steps:
+    # for (i, meteo_i) in enumerate(meteo)
+    #     MultiScaleTreeGraph.transform!(
+    #         mtg,
+    #         (node) -> run!(node[attr_name], meteo_i, constants, node, check=check, executor=executor),
+    #         filter_fun=node -> node[attr_name] !== nothing
+    #     )
+    # end
 
-    MultiScaleTreeGraph.traverse!(
+    MultiScaleTreeGraph.transform!(
         mtg,
-        (x -> pre_allocate_attr!(x, nsteps; attr_name=attr_name)),
+        (node) -> run!(node[attr_name], meteo, constants, node, check=check, executor=executor),
+        filter_fun=node -> node[attr_name] !== nothing
     )
-
-    # Computing for each time-steps:
-    for (i, meteo_i) in enumerate(meteo)
-        # Then update the initialisation each time-step.
-        update_mtg_models!(mtg, i, to_init, attr_name)
-
-        MultiScaleTreeGraph.transform!(
-            mtg,
-            (node) -> run!(node[attr_name], meteo_i, constants, node, check=check, executor=executor),
-            (node) -> pull_status_one_step!(node, i, attr_name=attr_name),
-            filter_fun=node -> node[attr_name] !== nothing
-        )
-    end
 end
 
 # 8- Non-mutating version (make a copy before the call, and return the copy):
