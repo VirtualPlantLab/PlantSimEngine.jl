@@ -59,10 +59,10 @@ transform!(
 
 # Initialising all components with their corresponding models and initialisations at time-step 1:
 init_mtg_models!(mtg, models, 1)
-# Note that this is possible only because the initialisation values are found in the MTG.
-# If the initialisations are constant values between components, we can directly initialize
-# them in the models definition (as we do in the begining).
 ```
+Note that this is possible only because the initialisation values are found in the MTG.
+If the initialisations are constant values between components, we can directly initialize
+them in the models definition (as we do in the begining).
 """
 function init_mtg_models!(
     mtg,

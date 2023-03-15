@@ -207,28 +207,6 @@ end
 # 6- Compatibility with MTG:
 function run!(
     mtg::MultiScaleTreeGraph.Node,
-    models::Dict{String,O},
-    meteo::M,
-    constants=PlantMeteo.Constants()
-) where {O<:ModelList,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere}}
-    # Define the attribute name used for the models in the nodes
-    attr_name = MultiScaleTreeGraph.cache_name("PlantSimEngine models")
-
-    # initialize the MTG nodes with the corresponding models:
-    init_mtg_models!(mtg, models, attr_name=attr_name)
-
-    MultiScaleTreeGraph.transform!(
-        mtg,
-        (node) -> run!(node[attr_name], meteo, constants, node),
-        ignore_nothing=true
-    )
-end
-
-
-# 7- Compatibility with MTG + Weather (TimeStepTable{Atmosphere}), compute all nodes for one time step, then move to the next time step.
-function run!(
-    mtg::MultiScaleTreeGraph.Node,
-    models::Dict{String,M},
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
@@ -242,7 +220,7 @@ function run!(
     attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
     # Initialize the models and pre-allocate nodes attributes:
-    init_mtg_models!(mtg, models, length(meteo), attr_name=attr_name)
+    # init_mtg_models!(mtg, models, length(meteo), attr_name=attr_name)
 
     # # Here we make a simulation for one time-step and going to the next node.
     # # This is good for models that need the result of others nodes on one time-step.
