@@ -47,9 +47,13 @@ The `ModelList` is a container that holds a list of models, their parameter valu
 
 Model coupling is done by adding models to the `ModelList`. Let's create a `ModelList` with the seven models from the example script `examples/dummy.jl`:
 
-```@example usepkg
+```julia
 using PlantSimEngine
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl")) # include the dummy models
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+```
+
+```@example usepkg
+include the dummy models
 m = ModelList(
     Process1Model(2.0), 
     Process2Model(),
