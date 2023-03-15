@@ -65,13 +65,27 @@ init_mtg_models!(mtg, models, 1)
 ```
 """
 function init_mtg_models!(
-    mtg::MultiScaleTreeGraph.Node,
+    mtg,
+    models::Dict{String,<:ModelList},
+    nsteps;
+    verbose=true,
+    attr_name=Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models")),
+    force=false
+)
+    error(
+        "The function `init_mtg_models!` is not implemented for the type $(typeof(mtg)).",
+        ". At the moment, only `MultiScaleTreeGraph.Node` with `Dict` attributes are supported."
+    )
+end
+
+function init_mtg_models!(
+    mtg::MultiScaleTreeGraph.Node{N,A,T},
     models::Dict{String,<:ModelList},
     nsteps;
     verbose=true,
     attr_name=:models,
     force=false
-)
+) where {N<:MultiScaleTreeGraph.AbstractNodeMTG,A<:AbstractDict,T}
 
     attr_name_sym = Symbol(attr_name)
     # Check if all components have a model
@@ -131,10 +145,9 @@ function init_mtg_models!(
                     if length(default_value) > 1 && nsteps > length(default_value)
                         error("The default value for $(var) in `models` for $(node.MTG.symbol) type is only defined for $(length(default_value)) time-steps, you required $(nsteps).")
                     end
-                    # Use this if we don't want scalars in the attributes
-                    # # If the value already exist but is not an array, make an array out of it.
-                    # # This happens when dealing with variables initialized with only one value.
-                    # node[var] = fill(default_value, nsteps)
+
+                    # If the value already exist but is not an array, make an array out of it.
+                    # This happens when dealing with variables initialized with only one value.
                     if length(default_value) == 1
                         node[var] = fill(default_value[1], nsteps)
                     else
@@ -187,7 +200,6 @@ function init_mtg_models!(
                 # end for var in vars_default)
 
                 # Finally, use references to the attributes values as the status of the ModelList:
-
                 node[attr_name_sym] =
                     copy(
                         models[node.MTG.symbol],

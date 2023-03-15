@@ -82,7 +82,54 @@ end
     @test get_node(mtg, 3)[:var1][1] == 16.0
 end
 
-#! make another way for the simulation: we compute all needed variables when parsing the MTG
-#! with the right amount of steps also. To do that, we need to pass the models and the meteo
-#! to the read_MTG function. This way we use a TimeStepTable to store the attributes, which 
-#! will make the simulation faster.
+
+@testset "MTG simulation: Dict attributes" begin
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    var1 = [15.0, 16.0]
+    var2 = 0.3
+    leaf[:var1] = var1
+    leaf[:var2] = var2
+
+    models = Dict(
+        "Leaf" => ModelList(
+            process1=Process1Model(1.0),
+            process2=Process2Model(),
+            process3=Process3Model()
+        )
+    )
+
+    to_init = init_mtg_models!(mtg, models, length(meteo))
+
+    attr_before_sim = deepcopy(leaf.attributes)
+
+    @test attr_before_sim[:var1] == var1
+    # :var2 was repeated for each time-step at init, so it should be a vector now:
+    @test attr_before_sim[:var2] == [var2, var2]
+    # :var3 was not initialized, so it should be a vector of -Inf:
+    @test attr_before_sim[:var3] == [-Inf, -Inf]
+    @test attr_before_sim[:var4] == [-Inf, -Inf]
+    @test attr_before_sim[:var5] == [-Inf, -Inf]
+    @test attr_before_sim[:var6] == [-Inf, -Inf]
+
+    # Making the simulation:
+    constants = PlantMeteo.Constants()
+    MultiScaleTreeGraph.transform!(
+        mtg,
+        (node) -> run!(node[:models], meteo, constants, node),
+        filter_fun=node -> node[:models] !== nothing
+    )
+
+    # The inputs should not have changed:
+    @test attr_before_sim[:var1] == leaf.attributes[:var1]
+    @test attr_before_sim[:var2] == leaf.attributes[:var2]
+    # The outputs should have changed:
+    @test attr_before_sim[:var3] != leaf.attributes[:var3]
+
+    # And they should have changed according to the models:
+    @test leaf.attributes[:var3] == models["Leaf"].models.process1.a .+ attr_before_sim[:var1] .* attr_before_sim[:var2]
+    @test leaf.attributes[:var4] == leaf.attributes[:var3] .* 4.0
+    @test leaf.attributes[:var5] == (leaf.attributes[:var4] ./ 2.0) .+ 1.0 .* meteo.T .+ 2.0 .* meteo.Wind .+ 3.0 .* meteo.Rh
+    @test leaf.attributes[:var6] == leaf.attributes[:var5] .+ leaf.attributes[:var4]
+end
