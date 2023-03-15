@@ -212,7 +212,7 @@ function run!(
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {M<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
+) where {A<:PlantMeteo.AbstractAtmosphere}
 
     @assert extra === nothing "The extra argument cannot be used with an MTG. It already contains the node."
 

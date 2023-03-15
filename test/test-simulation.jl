@@ -185,7 +185,8 @@ end;
     ]
     )
 
-    run!(mtg, models, meteo)
+    init_mtg_models!(mtg, models, length(meteo))
+    run!(mtg, meteo)
     df_leaf = DataFrame(leaf)
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
     @test [df_leaf[1, i] for i in vars] == [
@@ -221,7 +222,8 @@ end;
     ]
     )
 
-    run!(mtg, models, meteo)
+    init_mtg_models!(mtg, models, length(meteo))
+    run!(mtg, meteo)
 
     df_leaf = DataFrame(leaf)
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
