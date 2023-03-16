@@ -21,3 +21,7 @@ Transducers.jl-compatible parallel fold implemented using the Dagger.jl framewor
 [ParallelMagics.jl](https://github.com/JuliaFolds/ParallelMagics.jl) to check if automatic parallelization is possible.
 
 Finally, you can take a look into [Transducers.jl's documentation](https://github.com/JuliaFolds/Transducers.jl) for more information, for example if you don't know what is an executor, you can look into [this explanation](https://juliafolds.github.io/Transducers.jl/stable/explanation/glossary/#glossary-executor).
+
+## Tutorial
+
+You can learn how to run a simulation from the [documentation of PlantBiophysics.jl](https://vezy.github.io/PlantBiophysics.jl/stable/simulation/first_simulation/).
