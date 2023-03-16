@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Processes · PlantSimEngine.jl</title><script data-outdated-warner src="../../assets/warner.js"></script><link rel="canonical" href="https://VEZY.github.io/PlantSimEngine.jl/extending/implement_a_process/"/><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.045/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.13.24/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><form class="docs-search" action="../../search/"><input class="docs-search-query" id="documenter-search-query" name="q" type="text" placeholder="Search docs"/></form><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><a class="tocitem" href="../../design/">Design</a></li><li><a class="tocitem" href="../../model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><a class="tocitem" href="../../fitting/">Fitting</a></li><li><span class="tocitem">Extending</span><ul><li class="is-active"><a class="tocitem" href>Processes</a><ul class="internal"><li><a class="tocitem" href="#Introduction"><span>Introduction</span></a></li><li><a class="tocitem" href="#Implement-a-process"><span>Implement a process</span></a></li><li><a class="tocitem" href="#Implement-a-new-model-for-the-process"><span>Implement a new model for the process</span></a></li></ul></li><li><a class="tocitem" href="../implement_a_model/">Models</a></li></ul></li><li><span class="tocitem">Coupling</span><ul><li><a class="tocitem" href="../../model_coupling/model_coupling_user/">Users</a></li><li><a class="tocitem" href="../../model_coupling/model_coupling_modeler/">Modelers</a></li></ul></li><li><a class="tocitem" href="../../API/">API</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Extending</a></li><li class="is-active"><a href>Processes</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Processes</a></li></ul></nav><div class="docs-right"><a class="docs-edit-link" href="https://github.com/VEZY/PlantSimEngine.jl/blob/main/docs/src/extending/implement_a_process.md#" title="Edit on GitHub"><span class="docs-icon fab"></span><span class="docs-label is-hidden-touch">Edit on GitHub</span></a><a class="docs-settings-button fas fa-cog" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-sidebar-button fa fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a></div></header><article class="content" id="documenter-page"><h1 id="Implement-a-new-process"><a class="docs-heading-anchor" href="#Implement-a-new-process">Implement a new process</a><a id="Implement-a-new-process-1"></a><a class="docs-heading-anchor-permalink" href="#Implement-a-new-process" title="Permalink"></a></h1><h2 id="Introduction"><a class="docs-heading-anchor" href="#Introduction">Introduction</a><a id="Introduction-1"></a><a class="docs-heading-anchor-permalink" href="#Introduction" title="Permalink"></a></h2><p><code>PlantSimEngine.jl</code> was designed to make the implementation of new processes and models easy and fast. Let&#39;s learn about how to implement a new process with a simple example: implementing a growth model.</p><h2 id="Implement-a-process"><a class="docs-heading-anchor" href="#Implement-a-process">Implement a process</a><a id="Implement-a-process-1"></a><a class="docs-heading-anchor-permalink" href="#Implement-a-process" title="Permalink"></a></h2><p>To implement a new process, we need to define an abstract structure that will help us associate the models to this process. We also need to generate some boilerplate code, such as a method for the <code>process</code> function. Fortunately, PlantSimEngine provides a macro to generate all that at once: <a href="../../API/#PlantSimEngine.@process-Tuple{Any, Vararg{Any}}"><code>@process</code></a>. This macro takes only one argument: the name of the process.</p><p>For example, the photosynthesis process in <a href="https://github.com/VEZY/PlantBiophysics.jl">PlantBiophysics.jl</a> is declared using just this tiny line of code:</p><pre><code class="language-julia hljs">@process photosynthesis</code></pre><p>If we want to simulate the growth of a plant, we could add a new process called <code>growth</code>:</p><pre><code class="language-julia hljs">@process &quot;growth&quot;</code></pre><p>And that&#39;s it! Note that the function guides you in the steps you can make after creating a process. Let&#39;s break it up here.</p><p>So what you just did is to create a new process called <code>growth</code>. By doing so, you created a new abstract structure called <code>AbstractGrowthModel</code>. It is used as a supertype for the types used for model implementation. This abstract type is always named using the process name in title case (using <code>titlecase()</code>), prefixed with <code>Abstract</code> and suffixed with <code>Model</code>.</p><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>If you don&#39;t understand what a supertype is, no worries, you&#39;ll understand by seeing the examples below</p></div></div><h2 id="Implement-a-new-model-for-the-process"><a class="docs-heading-anchor" href="#Implement-a-new-model-for-the-process">Implement a new model for the process</a><a id="Implement-a-new-model-for-the-process-1"></a><a class="docs-heading-anchor-permalink" href="#Implement-a-new-model-for-the-process" title="Permalink"></a></h2><p>To better understand how models are implemented, you can read the detailed instructions from the <a href="../implement_a_model/#model_implementation_page">previous section</a>. But for the sake of completeness, we&#39;ll implement a growth model here.</p><p>This growth model needs the carbohydrate assimilation that we could compute using <em>e.g.</em> the coupled energy balance process from <code>PlantBiophysics.jl</code>. Then the model removes the maintenance respiration and the growth respiration from that source of carbon, and increments the leaf biomass by the remaining carbon offer.</p><p>Let&#39;s implement this model below:</p><pre><code class="language-julia hljs">using PlantSimEngine, PlantMeteo # PlantMeteo is used for the meteorology
+
+# Make the struct to hold the parameters, with its documentation:
+&quot;&quot;&quot;
+    DummyGrowth(Rm_factor, Rg_cost)
+    DummyGrowth(;Rm_factor = 0.5, Rg_cost = 1.2)
+
+Computes the leaf biomass growth of a plant.
+
+# Arguments
+
+- `Rm_factor`: the fraction of assimilation that goes into maintenance respiration
+- `Rg_cost`: the cost of growth maintenance, in gram of carbon biomass per gram of assimilate
+&quot;&quot;&quot;
+struct DummyGrowth{T} &lt;: AbstractGrowthModel
+    Rm_factor::T
+    Rg_cost::T
+end
+
+# Note that DummyGrowth is a subtype of AbstractGrowthModel, this is important
+
+# Instantiate the struct with default values + kwargs:
+function DummyGrowth(;Rm_factor = 0.5, Rg_cost = 1.2)
+    DummyGrowth(promote(Rm_factor,Rg_cost)...)
+end
+
+# Define inputs:
+function PlantSimEngine.inputs_(::DummyGrowth)
+    (A=-Inf,)
+end
+
+# Define outputs:
+function PlantSimEngine.outputs_(::DummyGrowth)
+    (Rm=-Inf, Rg=-Inf, leaf_allocation=-Inf, leaf_biomass=0.0)
+end
+
+# Tells Julia what is the type of elements:
+Base.eltype(x::DummyGrowth{T}) where {T} = T
+
+# Implement the growth model:
+function PlantSimEngine.run!(::DummyGrowth, models, status, meteo, constants, extra)
+
+    # The maintenance respiration is simply a factor of the assimilation:
+    status.Rm = status.A * models.growth.Rm_factor
+    # Note that we use models.growth.Rm_factor to access the parameter of the model
+
+    # Let&#39;s say that all carbon is allocated to the leaves:
+    status.leaf_allocation = status.A - status.Rm
+
+    # And that this carbon is allocated with a cost (growth respiration Rg):
+    status.Rg = 1 - (status.leaf_allocation / models.growth.Rg_cost)
+
+    status.leaf_biomass = status.leaf_biomass + status.leaf_allocation - status.Rg
+end</code></pre><p>Now we can make a simulation as usual:</p><pre><code class="language-julia hljs">meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
+
+leaf = ModelList(DummyGrowth(), status = (A = 20.0,))
+
+run!(leaf,meteo)
+
+leaf[:leaf_biomass] # biomass in gC</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">1-element Vector{Float64}:
+ 17.333333333333336</code></pre><p>We can also start the simulation later when the plant already has some biomass by initializing the <code>leaf_biomass</code>:</p><pre><code class="language-julia hljs">meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
+
+leaf = ModelList(DummyGrowth(), status = (A = 20.0, leaf_biomass = 2400.0))
+
+run!(leaf,meteo)
+
+leaf[:leaf_biomass] # biomass in gC</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">1-element Vector{Float64}:
+ 2417.3333333333335</code></pre></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../fitting/">« Fitting</a><a class="docs-footer-nextpage" href="../implement_a_model/">Models »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 0.27.24 on <span class="colophon-date" title="Thursday 16 March 2023 10:22">Thursday 16 March 2023</span>. Using Julia version 1.8.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
