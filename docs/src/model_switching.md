@@ -52,8 +52,9 @@ using PlantSimEngine
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 ```
 
+Include the dummy models:
+
 ```@example usepkg
-include the dummy models
 m = ModelList(
     Process1Model(2.0), 
     Process2Model(),
