@@ -92,7 +92,7 @@ function init_mtg_models!(
     # Check if all components have a model
     component_no_models = setdiff(MultiScaleTreeGraph.components(mtg), keys(models))
     if verbose && length(component_no_models) > 0
-        @info string("No model found for component(s) ", join(component_no_models, ", ", ", and "))
+        @info string("No model found for component(s) ", join(component_no_models, ", ", ", and ")) maxlog = 1
     end
 
     # Get the variables in the models that has values that are not initialized:
@@ -156,6 +156,9 @@ function init_mtg_models!(
                     end
                 end
 
+                # Pre-allocate the warning information if a variable is found but has length == 1 and is changed to length nsteps:
+                verbose && (attr_one_value = Symbol[])
+
                 # Pre-allocate the node attributes for all time-step:
                 for var in keys(st)
                     # var = :var2
@@ -173,8 +176,9 @@ function init_mtg_models!(
 
                         if !force
                             error("The attribute $(var) is already defined in node $(node.id) but has length != nsteps ($nsteps). Update it or set `force=true`.")
+                        elseif verbose
+                            push!(attr_one_value, var) # Store the variable name for the warning message at the end (return all variables at once)
                         end
-                        verbose && @info "The attribute $(var) is already defined in node $(node.id) but has length == 1. Extending it to nsteps ($nsteps)."
 
                         node[var] = fill(node[var], nsteps)
                     else
@@ -182,10 +186,15 @@ function init_mtg_models!(
                         # This happens when dealing with variables initialized with only one value.
                         if !force && length(node[var]) > 1
                             error("The attribute $(var) is already defined in node $(node.id) but has length != nsteps ($nsteps). Update it or set `force=true`.")
+                        elseif verbose
+                            push!(attr_one_value, var) # Store the variable name for the warning message at the end (return all variables at once)
                         end
-                        verbose && @info "The attribute $(var) is already defined in node $(node.id) but has length == 1. Extending it to nsteps ($nsteps)."
                         node[var] = fill(node[var], nsteps)
                     end
+                end
+
+                if verbose && length(attr_one_value) > 0
+                    @info "The attributes $(attr_one_value) were already defined in node $(node.id) but had length == 1. Extending it to nsteps ($nsteps)." maxlog = 3
                 end
 
                 # Initialize the ModelList using attributes:

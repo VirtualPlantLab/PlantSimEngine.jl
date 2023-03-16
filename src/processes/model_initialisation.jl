@@ -247,7 +247,7 @@ function is_initialized(m::T; verbose=true) where {T<:ModelList}
     var_names = to_initialize(m; verbose=verbose)
 
     if any([length(to_init) > 0 for (process, to_init) in pairs(var_names)])
-        verbose && @info "Some variables must be initialized before simulation: $var_names (see `to_initialize()`)"
+        verbose && @info "Some variables must be initialized before simulation: $var_names (see `to_initialize()`)" maxlog = 1
         return false
     else
         return true
@@ -257,7 +257,7 @@ end
 function is_initialized(models...; verbose=true)
     var_names = to_initialize(models...)
     if length(var_names) > 0
-        verbose && @info "Some variables must be initialized before simulation: $(var_names) (see `to_initialize()`)"
+        verbose && @info "Some variables must be initialized before simulation: $(var_names) (see `to_initialize()`)" maxlog = 1
         return false
     else
         return true
