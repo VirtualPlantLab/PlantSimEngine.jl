@@ -136,8 +136,14 @@ function init_mtg_models!(
                     # Make a copy of the default value:
                     default_value = copy(models[node.MTG.symbol][var])
 
-                    # If the variable is already defined in the node and we don't force overwrite, raise an error:
-                    if !force && node[var] !== nothing
+                    # If the value already exist but is not an array, make an array out of it.
+                    # This happens when dealing with variables initialized with only one value.
+                    if length(default_value) == 1 && nsteps > 1
+                        default_value = fill(default_value[1], nsteps)
+                    end
+
+                    # If the variable is already defined in the node, is different than default_value, and we don't force overwrite, raise an error:
+                    if !force && node[var] !== nothing && node[var] != default_value
                         error("The attribute $(var) is already defined in node $(node.id). Remove it from the `models` or set `force=true`.")
                     end
 
@@ -147,13 +153,7 @@ function init_mtg_models!(
                         error("The default value for $(var) in `models` for $(node.MTG.symbol) type is only defined for $(length(default_value)) time-steps, you required $(nsteps).")
                     end
 
-                    # If the value already exist but is not an array, make an array out of it.
-                    # This happens when dealing with variables initialized with only one value.
-                    if length(default_value) == 1
-                        node[var] = fill(default_value[1], nsteps)
-                    else
-                        node[var] = default_value
-                    end
+                    node[var] = default_value
                 end
 
                 # Pre-allocate the warning information if a variable is found but has length == 1 and is changed to length nsteps:
