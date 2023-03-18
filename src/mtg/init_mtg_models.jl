@@ -221,6 +221,7 @@ function init_mtg_models!(
                 # If some initialisations are not available from the node attributes:
                 if length(attr_not_found) > 0
                     for i in attr_not_found
+                        !haskey(attrs_missing, node.MTG.symbol) && (attrs_missing[node.MTG.symbol] = Set{Symbol}())
                         push!(attrs_missing[node.MTG.symbol], i)
                     end
                 end
