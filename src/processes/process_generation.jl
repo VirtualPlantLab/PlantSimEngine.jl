@@ -84,46 +84,64 @@ macro process(f, args...)
 
         * {#8abeff}run!(){/#8abeff} to compute the process in-place.      
 
-        * {#8abeff}$process_abstract_type{/#8abeff}, an abstract struct used as a supertype for models implementations.
+        * {#8abeff}$(process_abstract_type){/#8abeff}, an abstract struct used as a supertype for models implementations.
 
         !!! tip "What's next?"
             You can now define one or several models implementations for the {underline bold red}$(process_name){/underline bold red} process
             by adding a method to {#8abeff}run!(){/#8abeff} with your own model type
 
-        Here's an example implementation:
+        Here's an example implementation where we define a new model type called {underline bold red}$(dummy_type_name){/underline bold red},
+        with a single parameter `a`:
 
         ```julia
-        # Define a new model type:
-        struct $(dummy_type_name) <: $process_abstract_type
-            # The model parameters here, *e.g.*:
-            a::Float64
-        end
+            struct $(dummy_type_name) <: $(process_abstract_type)
+                a::Float64
+            end
+        ```
 
-        # Define the model inputs and outputs by adding methods 
-        # to inputs_ and outputs_ from PlantSimEngine:
-        PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
-        PlantSimEngine.outputs_(::$dummy_type_name) = (Y=-Inf,)
+        We also have to define the model inputs and outputs by adding methods to `inputs_`:
 
-        # Optionnaly, you can declare a hard-dependency on another process that is called
-        # inside your process implementation:
-        PlantSimEngine.dep(::$dummy_type_name) = (other_process_name=AbstractOtherProcessModel,)
+        ```julia
+            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
+        ```
 
-        # Define the model implementation by adding a method to `run!`:
+        And `outputs_` from PlantSimEngine:
+
+        ```julia
+            PlantSimEngine.outputs_(::$(dummy_type_name)) = (Y=-Inf,)
+        ```
+
+        Optionnaly, you can declare a hard-dependency on another process that is called
+        inside your process implementation:
+
+        ```julia
+            PlantSimEngine.dep(::$(dummy_type_name)) = (other_process_name=AbstractOtherProcessModel,)
+        ```
+
+        And finally, we can define the model implementation by adding a method to `run!`:
+
+        ```julia
         function PlantSimEngine.run!(
-            ::$dummy_type_name,
+            ::$(dummy_type_name),
             models,
             status,
             meteo,
             constants,
             extra
         )
-            # The model implementation is given here, *e.g.*:
             status.Y = model.$(process_name).a * meteo.CO2 + status.X
-
-            # Calling a hard-coupled process is done as the following:
             run!(model.other_process_name, models, status, meteo, constants, extra)
         end
         ```
+
+        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the ModelList, the status, the meteorology,
+        the constants and any extra values.
+
+        Then we can use variables from the status as inputs or outputs, model parameters from the ModelList (indexing by process, here 
+        using "$(process_name)" as the process name), and meteorology variables.
+
+        Optioannly, we can also call a hard-dependency process by using the {#8abeff}run!(){/#8abeff} function on the model type of the dependency
+        as shown above (`run!(model.other_process_name, models, status, meteo, constants, extra)`).
 
         !!! tip "Variables and parameters usage"
             Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
