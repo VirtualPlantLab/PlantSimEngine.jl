@@ -26,6 +26,7 @@ makedocs(;
         "Extending" => [
             "Processes" => "./extending/implement_a_process.md",
             "Models" => "./extending/implement_a_model.md",
+            "Input types" => "./extending/inputs.md",
         ],
         "Coupling" => [
             "Users" => "./model_coupling/model_coupling_user.md",

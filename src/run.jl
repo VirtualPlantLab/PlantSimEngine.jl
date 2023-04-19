@@ -82,15 +82,41 @@ run!
 
 # Managing one or several objects, one or several time-steps:
 
+# This is the default function called by the user, which uses traits
+# to dispatch to the correct method. The traits are defined in table_traits.jl
+# and define either TableAlike or SingletonAlike objects. 
+# Please use these traits to define your own objects.
+function run!(
+    object,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    check=true,
+    executor=ThreadedEx()
+)
+    run!(
+        DataFormat(object),
+        DataFormat(meteo),
+        object,
+        meteo,
+        constants,
+        extra;
+        check,
+        executor
+    )
+end
+
 # 1- several objects and several time-steps
 function run!(
+    ::TableAlike,
+    ::TableAlike,
     object::T,
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
+) where {T<:Union{AbstractArray,AbstractDict},A}
 
     # Computing for each time-step:
     @floop executor for (i, meteo_i) in collect(enumerate(meteo)), obj in collect(values(object))
@@ -113,24 +139,28 @@ end
 
 # 2- one object, one time-step
 function run!(
-    object::T,
-    meteo::M=nothing,
+    ::SingletonAlike,
+    ::SingletonAlike,
+    object,
+    meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true
-) where {T<:ModelList{Mo,S} where {Mo,S<:Status},M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
-    run!(object, dep(object), object.status[1], meteo, constants, extra)
+)
+    run!(object, dep(object), status(object, 1), meteo, constants, extra)
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
 function run!(
+    ::TableAlike,
+    ::SingletonAlike,
     object::T,
-    meteo::M=nothing,
+    meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {T<:ModelList,M<:Union{PlantMeteo.AbstractAtmosphere,PlantMeteo.TimeStepRow{At} where At<:Atmosphere,Nothing}}
+) where {T<:ModelList}
     dep_tree = dep(object)
 
     if check && length(dep_tree.not_found) > 0
@@ -147,13 +177,15 @@ end
 
 # 4- one object, several meteo time-step, several status time-steps
 function run!(
+    ::TableAlike,
+    ::TableAlike,
     object::T,
-    meteo::TimeStepTable{A},
+    meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {T<:ModelList,A<:PlantMeteo.AbstractAtmosphere}
+) where {T<:ModelList}
     dep_tree = dep(object)
 
     if check
@@ -176,13 +208,15 @@ end
 
 # 5- several objects and one meteo time-step
 function run!(
+    ::TableAlike,
+    ::SingletonAlike,
     object::T,
-    meteo::A,
+    meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {T<:Union{AbstractArray,AbstractDict},A<:PlantMeteo.AbstractAtmosphere}
+) where {T<:Union{AbstractArray,AbstractDict}}
 
     # Each object:
     @floop executor for obj in collect(values(object))
@@ -206,13 +240,15 @@ end
 
 # 6- Compatibility with MTG:
 function run!(
+    ::TreeAlike,
+    ::TableAlike,
     mtg::MultiScaleTreeGraph.Node,
-    meteo::TimeStepTable{A},
+    meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
-) where {A<:PlantMeteo.AbstractAtmosphere}
+)
 
     @assert extra === nothing "The extra argument cannot be used with an MTG. It already contains the node."
 

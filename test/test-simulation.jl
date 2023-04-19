@@ -25,6 +25,18 @@
     )
 end;
 
+@testset "Simulation: 1 time-step, 0 Atmosphere" begin
+    models = ModelList(
+        Process1Model(1.0),
+        status=(var1=15.0, var2=0.3)
+    )
+    run!(models)
+
+    vars = keys(status(models))
+    @test [models[i][1] for i in vars] == [15.0, 0.3, 5.5]
+end;
+
+
 @testset "Simulation: 1 time-step, 1 Atmosphere" begin
     models = ModelList(
         process1=Process1Model(1.0),

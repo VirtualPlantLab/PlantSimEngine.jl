@@ -47,6 +47,9 @@ include("mtg/init_mtg_models.jl")
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
 
+# Tables traits
+include("table_traits.jl")
+
 # Model dependencies:
 include("dependencies/dependency_tree.jl")
 include("dependencies/soft_dependencies.jl")

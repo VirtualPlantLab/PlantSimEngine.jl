@@ -40,52 +40,44 @@ PlantSimEngine.check_dimensions(models, w)
 ERROR: DimensionMismatch: Component status should have the same number of time-steps (2) than weather data (3).
 ```
 """
-function check_dimensions(
-    st::T,
-    weather::TimeStepTable{A}
-) where {T<:TimeStepTable,A<:PlantMeteo.AbstractAtmosphere}
+check_dimensions(component, weather) = check_dimensions(DataFormat(component), DataFormat(weather), component, weather)
 
-    length(st) > 1 && length(st) != length(weather) &&
-        throw(DimensionMismatch("Component status should have the same number of time-steps ($(length(st))) than weather data ($(length(weather)))."))
-
-    return nothing
-end
-
-# A Status (one time-step) is always authorized with a Weather (it is recycled).
-# The status is updated at each time-step, but no intermediate saving though!
-function check_dimensions(
-    st::T,
-    weather::TimeStepTable{A}
-) where {T<:Status,A<:PlantMeteo.AbstractAtmosphere}
-    return nothing
-end
-
-function check_dimensions(
-    st,
-    weather::Atmosphere
-)
-    return nothing
-end
-
-# We define this one just to avoid ambiguity between the two above
-function check_dimensions(component::T, w::Atmosphere) where {T<:ModelList}
-    return nothing
-end
-
+# Here we add methods for applying to a component, an array or a dict of:
 function check_dimensions(component::T, w) where {T<:ModelList}
     check_dimensions(status(component), w)
 end
 
 # for several components as an array
-function check_dimensions(component::T, weather::TimeStepTable{A}) where {T<:AbstractArray{<:ModelList},A<:PlantMeteo.AbstractAtmosphere}
+function check_dimensions(component::T, weather) where {T<:AbstractArray{<:ModelList}}
     for i in component
         check_dimensions(i, weather)
     end
 end
 
 # for several components as a Dict
-function check_dimensions(component::T, weather::TimeStepTable{A}) where {T<:AbstractDict{N,<:ModelList},A<:PlantMeteo.AbstractAtmosphere} where {N}
+function check_dimensions(component::T, weather) where {T<:AbstractDict{N,<:ModelList} where {N}}
     for (key, val) in component
         check_dimensions(val, weather)
     end
+end
+
+
+function check_dimensions(::TableAlike, ::TableAlike, st, weather)
+    length(st) > 1 && length(st) != length(weather) &&
+        throw(DimensionMismatch("Component status should have the same number of time-steps ($(length(st))) than weather data ($(length(weather)))."))
+    return nothing
+end
+
+# A Status (one time-step) is always authorized with a Weather (it is recycled).
+# The status is updated at each time-step, but no intermediate saving though!
+function check_dimensions(::SingletonAlike, ::TableAlike, st, weather)
+    return nothing
+end
+
+function check_dimensions(s, ::SingletonAlike, st, weather)
+    return nothing
+end
+
+function check_dimensions(::SingletonAlike, ::SingletonAlike, st, weather)
+    return nothing
 end
