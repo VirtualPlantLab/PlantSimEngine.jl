@@ -63,7 +63,7 @@ end
 
 
 function check_dimensions(::TableAlike, ::TableAlike, st, weather)
-    length(st) > 1 && length(st) != length(weather) &&
+    length(st) > 1 && length(st) != length(Tables.rows(weather)) &&
         throw(DimensionMismatch("Component status should have the same number of time-steps ($(length(st))) than weather data ($(length(weather)))."))
     return nothing
 end
