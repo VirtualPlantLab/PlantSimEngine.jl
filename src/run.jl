@@ -119,7 +119,7 @@ function run!(
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
     # Computing for each time-step:
-    @floop executor for (i, meteo_i) in collect(enumerate(meteo)), obj in collect(values(object))
+    @floop executor for (i, meteo_i) in enumerate(Tables.rows(meteo)), obj in collect(values(object))
         dep_tree = dep(obj)
 
         if check
@@ -201,7 +201,7 @@ function run!(
     end
 
     # Computing for each time-step:
-    @floop executor for (i, meteo_i) in collect(enumerate(meteo))
+    @floop executor for (i, meteo_i) in enumerate(Tables.rows(meteo))
         run!(object, dep_tree, object[i], meteo_i, constants, extra)
     end
 end
