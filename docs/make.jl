@@ -1,9 +1,10 @@
 using PlantSimEngine
 using PlantMeteo
-using DataFrames
+using DataFrames, CSV
 using Documenter
+using CairoMakie
 
-DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames); recursive=true)
+DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames, CSV, CairoMakie); recursive=true)
 
 makedocs(;
     modules=[PlantSimEngine],
@@ -32,7 +33,8 @@ makedocs(;
             "Users" => "./model_coupling/model_coupling_user.md",
             "Modelers" => "./model_coupling/model_coupling_modeler.md",
         ],
-        "API" => "API.md"
+        "FAQ" => ["./FAQ/translate_a_model.md"],
+        "API" => "API.md",
     ]
 )
 
