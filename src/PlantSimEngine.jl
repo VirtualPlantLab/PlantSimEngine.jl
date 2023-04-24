@@ -6,7 +6,7 @@ import Tables
 
 import CSV # For reading csv files with variables()
 
-# For tree dependency:
+# For graph dependency:
 import AbstractTrees
 import Term
 import Markdown

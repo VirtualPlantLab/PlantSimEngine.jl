@@ -2,7 +2,7 @@
     run!(object, meteo, constants, extra=nothing; check=true, executor=Floops.ThreadedEx())
 
 Run the simulation for each model in the model list in the correct order, *i.e.* respecting
-the dependency tree.
+the dependency graph.
 
 If several time-steps are given, the models are run sequentially for each time-step.
 
@@ -27,7 +27,7 @@ function (see examples).
 
 ## Model execution 
 
-The models are run according to the dependency tree. If a model has a soft dependency on another
+The models are run according to the dependency graph. If a model has a soft dependency on another
 model (*i.e.* its inputs are computed by another model), the other model is run first. If a model
 has several soft dependencies, the parents (the soft dependencies) are always computed first.
 
@@ -118,22 +118,23 @@ function run!(
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
+    meteo_rows = Tables.rows(meteo)
     # Computing for each time-step:
-    @floop executor for (i, meteo_i) in enumerate(Tables.rows(meteo)), obj in collect(values(object))
-        dep_tree = dep(obj)
+    @floop executor for (i, meteo_i) in enumerate(meteo_rows), obj in collect(values(object))
+        dep_graph = dep(obj, length(meteo_rows))
 
         if check
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(obj, meteo)
 
-            if length(dep_tree.not_found) > 0
+            if length(dep_graph.not_found) > 0
                 error(
                     "The following processes are missing in the ModelList: ",
-                    dep_tree.not_found
+                    dep_graph.not_found
                 )
             end
         end
-        run!(obj, dep_tree, obj[i], meteo_i, constants, extra)
+        run!(obj, dep_graph, i, obj[i], meteo_i, constants, extra)
     end
 end
 
@@ -147,7 +148,7 @@ function run!(
     extra=nothing;
     check=true
 )
-    run!(object, dep(object), status(object, 1), meteo, constants, extra)
+    run!(object, dep(object), 1, status(object, 1), meteo, constants, extra)
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
@@ -161,17 +162,18 @@ function run!(
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
-    dep_tree = dep(object)
+    sim_rows = Tables.rows(status(object))
+    dep_graph = dep(object, length(sim_rows))
 
-    if check && length(dep_tree.not_found) > 0
+    if check && length(dep_graph.not_found) > 0
         error(
             "The following processes are missing to run the ModelList: ",
-            dep_tree.not_found
+            dep_graph.not_found
         )
     end
 
-    @floop executor for i in Tables.rows(status(object))
-        run!(object, dep_tree, i, meteo, constants, extra)
+    @floop executor for (i, row) in enumerate(sim_rows)
+        run!(object, dep_graph, i, row, meteo, constants, extra)
     end
 end
 
@@ -186,23 +188,24 @@ function run!(
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
-    dep_tree = dep(object)
+    meteo_rows = Tables.rows(meteo)
+    dep_graph = dep(object, length(meteo_rows))
 
     if check
         # Check if the meteo data and the status have the same length (or length 1)
         check_dimensions(object, meteo)
 
-        if length(dep_tree.not_found) > 0
+        if length(dep_graph.not_found) > 0
             error(
                 "The following processes are missing to run the ModelList: ",
-                dep_tree.not_found
+                dep_graph.not_found
             )
         end
     end
 
     # Computing for each time-step:
-    @floop executor for (i, meteo_i) in enumerate(Tables.rows(meteo))
-        run!(object, dep_tree, object[i], meteo_i, constants, extra)
+    @floop executor for (i, meteo_i) in enumerate(meteo_rows)
+        run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
     end
 end
 
@@ -220,21 +223,21 @@ function run!(
 
     # Each object:
     @floop executor for obj in collect(values(object))
-        dep_tree = dep(obj)
+        dep_graph = dep(obj)
 
         if check
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(obj, meteo)
 
-            if length(dep_tree.not_found) > 0
+            if length(dep_graph.not_found) > 0
                 error(
                     "The following processes are missing to run the ModelList: ",
-                    dep_tree.not_found
+                    dep_graph.not_found
                 )
             end
         end
 
-        run!(obj, dep_tree, status(obj)[1], meteo, constants, extra)
+        run!(obj, dep_graph, 1, status(obj)[1], meteo, constants, extra)
     end
 end
 
@@ -294,15 +297,15 @@ end
 
 #! Actual call to the model:
 
-# Running the simulation on the dependency tree (always one time-step, one object):
-function run!(object::T, dep_tree::DependencyTree{Dict{Symbol,N}}, st, meteo, constants, extra; executor=ThreadedEx()) where {
+# Running the simulation on the dependency graph (always one time-step, one object):
+function run!(object::T, dep_graph::DependencyTree{Dict{Symbol,N}}, i, st, meteo, constants, extra; executor=ThreadedEx()) where {
     T<:ModelList,
     N<:Union{HardDependencyNode,SoftDependencyNode}
 }
     # Run the simulation of each soft-coupled model in the dependency tree:
     # Note: hard-coupled processes handle themselves already
-    @floop executor for (process, node) in collect(dep_tree.roots)
-        run!(object, node, st, meteo, constants, extra)
+    @floop executor for (process, node) in collect(dep_graph.roots)
+        run!(object, node, i, st, meteo, constants, extra)
     end
 end
 
@@ -310,6 +313,7 @@ end
 function run!(
     object::T,
     node::SoftDependencyNode,
+    i, # time-step to index into the dependency node (to know if the model has been called already)
     st,
     meteo,
     constants,
@@ -317,20 +321,20 @@ function run!(
 ) where {T<:ModelList}
 
     # Check if all the parents have been called before the child:
-    if !AbstractTrees.isroot(node) && any([p.simulation_id <= node.simulation_id for p in node.parent])
+    if !AbstractTrees.isroot(node) && any([p.simulation_id[i] <= node.simulation_id[i] for p in node.parent])
         # If not, this node should be called via another parent
         return nothing
     end
 
     # Actual call to the model:
     run!(node.value, object.models, st, meteo, constants, extra)
-    node.simulation_id += 1 # increment the simulation id, to know if the model has been called already
+    node.simulation_id[i] += 1 # increment the simulation id, to know if the model has been called already
 
     # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
     for child in node.children
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe.
-        run!(object, child, st, meteo, constants, extra)
+        run!(object, child, i, st, meteo, constants, extra)
     end
 end

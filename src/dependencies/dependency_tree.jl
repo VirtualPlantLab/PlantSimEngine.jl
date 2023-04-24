@@ -17,18 +17,18 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
-    simulation_id::Int # id of the simulation
+    simulation_id::Vector{Int} # id of the simulation
 end
 
 """
     DependencyTree{T}(roots::T, not_found::Dict{Symbol,DataType})
 
-A tree of dependencies between models.
+A graph of dependencies between models.
 
 # Arguments
 
-- `roots::T`: the root nodes of the tree.
-- `not_found::Dict{Symbol,DataType}`: the models that were not found in the tree.
+- `roots::T`: the root nodes of the graph.
+- `not_found::Dict{Symbol,DataType}`: the models that were not found in the graph.
 """
 struct DependencyTree{T}
     roots::T

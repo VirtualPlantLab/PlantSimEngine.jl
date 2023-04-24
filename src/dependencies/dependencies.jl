@@ -1,11 +1,13 @@
-dep(::T) where {T<:AbstractModel} = NamedTuple()
+dep(::T, nsteps=1) where {T<:AbstractModel} = NamedTuple()
 
 """
-    dep(models::ModelList; verbose::Bool=true)
+    dep(m::ModelList, nsteps=1; verbose::Bool=true)
 
-Get the model dependency tree given a ModelList. If one tree is returned, then all models are
-coupled. If several trees are returned, then only the models inside each tree are coupled, and
-the models in different trees are not coupled.
+Get the model dependency graph given a ModelList. If one graph is returned, then all models are
+coupled. If several graphs are returned, then only the models inside each graph are coupled, and
+the models in different graphs are not coupled.
+`nsteps` is the number of steps the dependency graph will be used over. It is used to determine
+the length of the `simulation_id` argument for each soft dependencies in the graph.
 
 # Examples
 
@@ -38,19 +40,19 @@ vars = (
 dep(;vars...)
 ```
 """
-function dep(; verbose::Bool=true, vars...)
+function dep(nsteps=1; verbose::Bool=true, vars...)
     hard_dep = hard_dependencies((; vars...), verbose=verbose)
-    deps = soft_dependencies(hard_dep)
+    deps = soft_dependencies(hard_dep, nsteps)
 
     # Return the dependency tree
     return deps
 end
 
-function dep(m::ModelList; verbose::Bool=true)
-    dep(; verbose=verbose, m.models...)
+function dep(m::ModelList, nsteps=1; verbose::Bool=true)
+    dep(nsteps; verbose=verbose, m.models...)
 end
 
 
-function dep(m::NamedTuple; verbose::Bool=true)
-    dep(; verbose=verbose, m...)
+function dep(m::NamedTuple, nsteps=1; verbose::Bool=true)
+    dep(nsteps; verbose=verbose, m...)
 end

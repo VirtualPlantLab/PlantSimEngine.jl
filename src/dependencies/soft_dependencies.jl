@@ -34,7 +34,7 @@ hard_dep = hard_dependencies(models.models, verbose=true)
 soft_dep = soft_dependencies(hard_dep)
 ```
 """
-function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}})
+function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, nsteps=1)
 
     # Compute the variables of each node in the hard-dependency tree:
     d_vars = Dict()
@@ -62,7 +62,7 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}})
             nothing,
             nothing,
             SoftDependencyNode[],
-            0
+            fill(0, nsteps)
         )
         for (process_, soft_dep_vars) in d.roots
     )
