@@ -1,12 +1,13 @@
 using PlantSimEngine
 using Test, Aqua
-using Tables, DataFrames
+using Tables, DataFrames, CSV
 using MultiScaleTreeGraph
 using PlantMeteo, Statistics
 using Documenter # for doctests
 
 # Include the example dummy processes:
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(
