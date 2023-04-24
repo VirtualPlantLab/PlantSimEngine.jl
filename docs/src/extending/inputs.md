@@ -26,5 +26,5 @@ For example if you use models that need to get data from a different time step (
 To do so, you need to implement the following methods for your structure that defines your rows:
 
 - `Base.parent`: return the parent table of the row, *e.g.* the full DataFrame
-- `PlantMeteo.rownumber`: return the row number of the row in the parent table, *e.g.* the row number in the DataFrame
+- `DataAPI.rownumber`: return the row number of the row in the parent table, *e.g.* the row number in the DataFrame
 - (Optionnally) `PlantMeteo.row_from_parent(row, i)`: return row `i` from the parent table, *e.g.* the row `i` from the DataFrame. This is only needed if you want high performance, the default implementation calls `Tables.rows(parent(row))[i]`.

@@ -42,6 +42,127 @@ To use the package, execute this command from the Julia REPL:
 using PlantSimEngine
 ```
 
+## Example usage
+
+The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
+
+### Simple example 
+
+Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
+
+```julia
+# ] add PlantSimEngine
+using PlantSimEngine
+
+# Include the model definition from the examples folder:
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+
+# Define the model:
+model = ModelList(
+    ToyLAIModel(),
+    status=(degree_days_cu=1.0:2000.0,),
+)
+
+run!(model) # run the model
+
+status(model) # extract the status, i.e. the output of the model
+```
+
+Which gives:
+
+```
+TimeStepTable{Status{(:degree_days_cu, :LAI...}(1300 x 2):
+╭─────┬────────────────┬────────────╮
+│ Row │ degree_days_cu │        LAI │
+│     │        Float64 │    Float64 │
+├─────┼────────────────┼────────────┤
+│   1 │            1.0 │ 0.00560052 │
+│   2 │            2.0 │ 0.00565163 │
+│   3 │            3.0 │ 0.00570321 │
+│   4 │            4.0 │ 0.00575526 │
+│   5 │            5.0 │ 0.00580778 │
+│  ⋮  │       ⋮        │     ⋮      │
+╰─────┴────────────────┴────────────╯
+                    1295 rows omitted
+```
+
+> **Note**  
+> The `ToyLAIModel` is available from the [examples folder](./examples/ToyLAIModel.jl), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
+
+Of course you can plot the outputs quite easily:
+
+```julia
+# ] add CairoMakie
+using CairoMakie
+
+f, ax, p = lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
+save("examples/LAI_growth.png", f) # save the figure
+```
+
+![LAI Growth](examples/LAI_growth.png)
+
+### Model coupling
+
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple model, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a simple Beer's law model for light interception, and a simple model that computes the accumulation of degree days:
+
+```julia
+# ] add PlantSimEngine, DataFrames, CSV
+using PlantSimEngine, PlantMeteo, DataFrames, CSV
+
+# Include the model definition from the examples folder:
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyDegreeDays.jl"))
+
+# Import the example meteorological data:
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+# Define the model:
+model = ModelList(
+    ToyLAIModel(),
+    Beer(0.6),
+    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),
+)
+
+# Run the simulation:
+run!(model, meteo_day)
+
+status(model)
+```
+
+Which returns:
+
+```
+TimeStepTable{Status{(:degree_days_cu, :LAI...}(365 x 3):
+╭─────┬────────────────┬────────────┬───────────╮
+│ Row │ degree_days_cu │        LAI │     aPPFD │
+│     │        Float64 │    Float64 │   Float64 │
+├─────┼────────────────┼────────────┼───────────┤
+│   1 │            0.0 │ 0.00631893 │ 0.0542087 │
+│   2 │            0.0 │ 0.00631893 │ 0.0296743 │
+│   3 │            0.0 │ 0.00631893 │ 0.0430024 │
+│   4 │            0.0 │ 0.00631893 │ 0.0533719 │
+│   5 │            0.0 │ 0.00631893 │  0.062068 │
+│  ⋮  │       ⋮        │     ⋮      │     ⋮     │
+╰─────┴────────────────┴────────────┴───────────╯
+                                 360 rows omitted
+```
+
+```julia
+# Plot the results:
+using CairoMakie
+
+fig = Figure(resolution=(800, 600))
+ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
+lines!(ax, model[:degree_days_cu], model[:LAI], color=:mediumseagreen)
+
+ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
+lines!(ax2, model[:degree_days_cu], model[:aPPFD], color=:firebrick1)
+
+save("examples/LAI_growth2.png", fig)
+```
+![LAI Growth and light interception](examples/LAI_growth2.png)
+
 ## Projects that use PlantSimEngine
 
 Take a look at these projects that use PlantSimEngine:

@@ -96,12 +96,12 @@ This way users can create a model with default parameters just by calling `ToyLA
 Then we can define the inputs and outputs of the model, and the default value at initialization:
 
 ```julia
-PlantSimEngine.inputs_(::ToyLAIModel) = (degree_days_cu=-999,)
+PlantSimEngine.inputs_(::ToyLAIModel) = (degree_days_cu=-Inf,)
 PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 ```
 
 !!! note
-    Note that we use `-999` as a default value for the degree days, and `-Inf` for the LAI. These two are recommended values for `Int` and `Float64` respectively, as they are valid values for these types, and are easy to catch in the outputs if not properly set because they propagate nicely. You can also use `NaN` for `Float64`.
+    Note that we use `-Inf` for the default value, it is the recommended value for `Float64` (-999 for `Int`), as it is a valid value for this type, and is easy to catch in the outputs if not properly set because it propagates nicely. You can also use `NaN` instead.
 
 #### Define the model function
 
