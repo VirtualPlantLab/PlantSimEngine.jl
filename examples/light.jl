@@ -15,7 +15,7 @@ Required inputs: `LAI` in m² m⁻².
 Required meteorology data: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
 PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹).
 
-Output: PPFD, the absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹.
+Output: aPPFD, the absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹.
 """
 struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
@@ -24,7 +24,9 @@ end
 """
     run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
 
-Computes the light interception of an object using the Beer-Lambert law.
+Computes the photosynthetic photon flux density (`aPPFD`, µmol m⁻² s⁻¹) absorbed by an 
+object using the incoming PAR radiation flux (`Ri_PAR_f`, W m⁻²) and the Beer-Lambert law
+of light extinction.
 
 # Arguments
 
@@ -41,17 +43,17 @@ initialisations for `LAI` (m² m⁻²): the leaf area index.
 ```julia
 m = ModelList(Beer(0.5), status=(LAI=2.0,))
 
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
+meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_q=300.0)
 
 run!(m, meteo)
 
-m[:PPFD]
+m[:aPPFD]
 ```
 """
 function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
-    status.PPFD =
+    status.aPPFD =
         meteo.Ri_PAR_f *
-        exp(-models.light_interception.k * status.LAI) *
+        (1 - exp(-models.light_interception.k * status.LAI)) *
         constants.J_to_umol
 end
 
@@ -60,7 +62,7 @@ function PlantSimEngine.inputs_(::Beer)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (PPFD=-Inf,)
+    (aPPFD=-Inf,)
 end
 
 
@@ -73,7 +75,7 @@ Compute the `k` parameter of the Beer-Lambert law from measurements.
 
 - `::Type{Beer}`: the model type
 - `df`: a `DataFrame` with the following columns:
-    - `PPFD`: the measured absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹
+    - `aPPFD`: the measured absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹
     - `LAI`: the measured leaf area index in m² m⁻²
     - `Ri_PAR_f`: the measured incident flux of atmospheric radiation in the PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹)
 
@@ -84,11 +86,11 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)
-df = DataFrame(PPFD=m[:PPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
 fit(Beer, df)
 ```
 """
 function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
-    k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.PPFD ./ J_to_umol)) ./ df.LAI)
+    k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.aPPFD ./ J_to_umol)) ./ df.LAI)
     return (k=k,)
 end

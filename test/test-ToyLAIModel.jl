@@ -21,3 +21,19 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
     @test m[:LAI][begin] ≈ 0.006318927533891692
     @test m[:LAI][end] ≈ 0.0
 end
+
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+models = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+)
+
+run!(models, meteo_day)
+
+models.status[:aPPFD] # mol m-2 d-1
+
+model = ModelList(
+    ToyLAIModel(),
+    status=(degree_days_cu=1:1300,),
+)
