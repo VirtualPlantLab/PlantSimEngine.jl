@@ -19,11 +19,6 @@ function PlantSimEngine.run!(::Process1Model, models, status, meteo, constants=n
     status.var3 = models.process1.a + status.var1 * status.var2
 end
 
-PlantSimEngine.process_(supertype(typeof(Process1Model(1.0))))
-@macroexpand @process "process1" verbose = false
-
-
-
 # Defining a 2nd process called "process2", and a model
 # that implements an algorithm, and that depends on the first one:
 @process "process2" verbose = false
