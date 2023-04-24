@@ -1,7 +1,7 @@
 """
     to_initialize(v::T, vars...) where T <: Union{Missing,AbstractModel}
     to_initialize(m::T)  where T <: ModelList
-    to_initialize(m::DependencyTree)
+    to_initialize(m::DependencyGraph)
 
 Return the variables that must be initialized providing a set of models and processes. The
 function takes into account model coupling and only returns the variables that are needed
@@ -42,8 +42,8 @@ function to_initialize(m::ModelList; verbose::Bool=true)
     return NamedTuple(to_init)
 end
 
-function to_initialize(m::DependencyTree)
-    dependencies = traverse_dependency_tree(m, to_initialize)
+function to_initialize(m::DependencyGraph)
+    dependencies = traverse_dependency_graph(m, to_initialize)
 
     outputs_all = Set{Symbol}()
     for (key, value) in dependencies
@@ -75,7 +75,7 @@ end
 Return the variables that must be initialized providing a set of models and processes. The
 function just returns the inputs and outputs of each model, with their default values.
 To take into account model coupling, use the function at an upper-level instead, *i.e.* 
-`to_initialize(m::ModelList)` or `to_initialize(m::DependencyTree)`.
+`to_initialize(m::ModelList)` or `to_initialize(m::DependencyGraph)`.
 """
 function to_initialize(m::AbstractDependencyNode)
     return (inputs=inputs_(m.value), outputs=outputs_(m.value))
@@ -192,8 +192,8 @@ function init_variables(m::ModelList; verbose::Bool=true)
     init_variables(dep(m; verbose=verbose))
 end
 
-function init_variables(m::DependencyTree)
-    dependencies = traverse_dependency_tree(m, init_variables)
+function init_variables(m::DependencyGraph)
+    dependencies = traverse_dependency_graph(m, init_variables)
     return NamedTuple(dependencies)
 end
 

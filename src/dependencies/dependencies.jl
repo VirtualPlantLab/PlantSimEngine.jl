@@ -44,7 +44,7 @@ function dep(nsteps=1; verbose::Bool=true, vars...)
     hard_dep = hard_dependencies((; vars...), verbose=verbose)
     deps = soft_dependencies(hard_dep, nsteps)
 
-    # Return the dependency tree
+    # Return the dependency graph
     return deps
 end
 

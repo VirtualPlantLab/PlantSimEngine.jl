@@ -119,7 +119,7 @@ end
     variables(m::AbstractDependencyNode)
 
 Returns a tuple with the name of the inputs and outputs variables needed by a model in 
-a dependency tree.
+a dependency graph.
 """
 function variables(m::SoftDependencyNode)
     self_variables = (inputs=inputs(m.value), outputs=outputs(m.value))

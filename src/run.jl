@@ -298,18 +298,18 @@ end
 #! Actual call to the model:
 
 # Running the simulation on the dependency graph (always one time-step, one object):
-function run!(object::T, dep_graph::DependencyTree{Dict{Symbol,N}}, i, st, meteo, constants, extra; executor=ThreadedEx()) where {
+function run!(object::T, dep_graph::DependencyGraph{Dict{Symbol,N}}, i, st, meteo, constants, extra; executor=ThreadedEx()) where {
     T<:ModelList,
     N<:Union{HardDependencyNode,SoftDependencyNode}
 }
-    # Run the simulation of each soft-coupled model in the dependency tree:
+    # Run the simulation of each soft-coupled model in the dependency graph:
     # Note: hard-coupled processes handle themselves already
     @floop executor for (process, node) in collect(dep_graph.roots)
         run!(object, node, i, st, meteo, constants, extra)
     end
 end
 
-# for each dependency node in the tree (always one time-step, one object), actual workhorse:
+# for each dependency node in the graph (always one time-step, one object), actual workhorse:
 function run!(
     object::T,
     node::SoftDependencyNode,

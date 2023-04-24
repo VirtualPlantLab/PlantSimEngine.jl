@@ -1,13 +1,13 @@
 """
-    soft_dependencies(d::DependencyTree)
+    soft_dependencies(d::DependencyGraph)
 
-Return a [`DependencyTree`](@ref) with the soft dependencies of the processes in the dependency tree `d`.
+Return a [`DependencyGraph`](@ref) with the soft dependencies of the processes in the dependency graph `d`.
 A soft dependency is a dependency that is not explicitely defined in the model, but that
 can be inferred from the inputs and outputs of the processes.
 
 # Arguments
 
-- `d::DependencyTree`: the hard-dependency tree.
+- `d::DependencyGraph`: the hard-dependency graph.
 
 # Example
 
@@ -27,34 +27,34 @@ models = ModelList(
     process6=Process6Model(),
 )
 
-# Create the hard-dependency tree:
+# Create the hard-dependency graph:
 hard_dep = hard_dependencies(models.models, verbose=true)
 
-# Get the soft dependencies tree:
+# Get the soft dependencies graph:
 soft_dep = soft_dependencies(hard_dep)
 ```
 """
-function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, nsteps=1)
+function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, nsteps=1)
 
-    # Compute the variables of each node in the hard-dependency tree:
+    # Compute the variables of each node in the hard-dependency graph:
     d_vars = Dict()
     for (procname, node) in d.roots
         var = Pair{Symbol,NamedTuple}[]
-        traverse_dependency_tree!(node, variables, var)
+        traverse_dependency_graph!(node, variables, var)
         push!(d_vars, procname => var)
     end
 
     # Note: all variables are collected at once for each hard-coupled nodes
     # because they are treated as one process afterwards (see below)
 
-    # Get all nodes of the dependency tree (hard and soft):
-    # all_nodes = Dict(traverse_dependency_tree(d, x -> x))
+    # Get all nodes of the dependency graph (hard and soft):
+    # all_nodes = Dict(traverse_dependency_graph(d, x -> x))
 
-    # Compute the inputs and outputs of each process tree in the dependency tree
+    # Compute the inputs and outputs of each process graph in the dependency graph
     inputs_process = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars)
     outputs_process = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars)
 
-    soft_dep_tree = Dict(
+    soft_dep_graph = Dict(
         process_ => SoftDependencyNode(
             soft_dep_vars.value,
             process_, # process name
@@ -68,8 +68,8 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
     )
 
     independant_process_root = Dict{Symbol,SoftDependencyNode}()
-    for (proc, i) in soft_dep_tree
-        # proc = :process3; i = soft_dep_tree[proc]
+    for (proc, i) in soft_dep_graph
+        # proc = :process3; i = soft_dep_graph[proc]
         # Search if the process has soft dependencies:
         soft_deps = search_inputs_in_output(proc, inputs_process, outputs_process)
 
@@ -79,7 +79,7 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
 
         if length(soft_deps_not_hard) == 0 && i.process in keys(d.roots)
             # If the process has no soft dependencies, then it is independant (so it is a root)
-            # Note that the process is only independent if it is also a root in the hard-dependency tree
+            # Note that the process is only independent if it is also a root in the hard-dependency graph
             independant_process_root[proc] = i
         else
             # If the process has soft dependencies, then it is not independant
@@ -93,7 +93,7 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
                 end
 
                 # preventing a cyclic dependency: if the parent also has a dependency on the current node:
-                if soft_dep_tree[parent_soft_dep].parent !== nothing && any([i == p for p in soft_dep_tree[parent_soft_dep].parent])
+                if soft_dep_graph[parent_soft_dep].parent !== nothing && any([i == p for p in soft_dep_graph[parent_soft_dep].parent])
                     error(
                         "Cyclic dependency detected for process $proc:",
                         " $proc depends on $parent_soft_dep, which depends on $proc.",
@@ -102,7 +102,7 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
                 end
 
                 # preventing a cyclic dependency: if the current node has the parent node as a child:
-                if i.children !== nothing && any([soft_dep_tree[parent_soft_dep] == p for p in i.children])
+                if i.children !== nothing && any([soft_dep_graph[parent_soft_dep] == p for p in i.children])
                     error(
                         "Cyclic dependency detected for process $proc:",
                         " $proc depends on $parent_soft_dep, which depends on $proc.",
@@ -111,14 +111,14 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
                 end
 
                 # Add the current node as a child of the node on which it depends
-                push!(soft_dep_tree[parent_soft_dep].children, i)
+                push!(soft_dep_graph[parent_soft_dep].children, i)
 
                 # Add the node on which the current node depends as a parent
                 if i.parent === nothing
                     # If the node had no parent already, it is nothing, so we change into a vector
-                    i.parent = [soft_dep_tree[parent_soft_dep]]
+                    i.parent = [soft_dep_graph[parent_soft_dep]]
                 else
-                    push!(i.parent, soft_dep_tree[parent_soft_dep])
+                    push!(i.parent, soft_dep_graph[parent_soft_dep])
                 end
 
                 # Add the soft dependencies (variables) of the parent to the current node
@@ -127,7 +127,7 @@ function soft_dependencies(d::DependencyTree{Dict{Symbol,HardDependencyNode}}, n
         end
     end
 
-    return DependencyTree(independant_process_root, d.not_found)
+    return DependencyGraph(independant_process_root, d.not_found)
 end
 
 """
@@ -160,7 +160,7 @@ drop_process(proc_vars, process) = Base.structdiff(proc_vars, NamedTuple{(proces
 """
     search_inputs_in_output(process, inputs, outputs)
 
-Return a dictionary with the soft dependencies of the processes in the dependency tree `d`.
+Return a dictionary with the soft dependencies of the processes in the dependency graph `d`.
 A soft dependency is a dependency that is not explicitely defined in the model, but that
 can be inferred from the inputs and outputs of the processes.
 

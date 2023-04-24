@@ -51,7 +51,7 @@ include("evaluation/statistics.jl")
 include("table_traits.jl")
 
 # Model dependencies:
-include("dependencies/dependency_tree.jl")
+include("dependencies/dependency_graph.jl")
 include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
 include("dependencies/dependencies.jl")
