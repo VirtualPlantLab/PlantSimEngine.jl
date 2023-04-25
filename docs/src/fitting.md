@@ -2,7 +2,7 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo, DataFrames, Statistics
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 run!(m, meteo)
@@ -22,7 +22,7 @@ The method is implemented as a function with the following design pattern: the c
 
 ## Example with Beer
 
-The example script (see `src/examples/light.jl`) that implements the `Beer` model provides an example of how to implement the `fit` method for a model:
+The example script (see `src/examples/Beer.jl`) that implements the `Beer` model provides an example of how to implement the `fit` method for a model:
 
 ```julia
 function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
@@ -42,7 +42,7 @@ Importing the script first:
 
 ```julia
 using PlantSimEngine, PlantMeteo, DataFrames, Statistics
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 ```
 
 Defining the meteo data:

@@ -10,7 +10,7 @@ The call to the function should take the model type as the first argument (T::Ty
 the data as the second argument (as a `Table.jl` compatible type, such as `DataFrame`), and the 
 parameters initializations as keyword arguments (with default values when necessary).
 
-For example the method for fitting the `Beer` model from the example script (see `src/examples/light.jl`) looks like 
+For example the method for fitting the `Beer` model from the example script (see `src/examples/Beer.jl`) looks like 
 this:
 
 ```julia
@@ -26,7 +26,7 @@ Here is an example usage with the `Beer` model, where we fit the `k` parameter f
 and `Ri_PAR_f`. 
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)

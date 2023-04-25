@@ -22,7 +22,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
     @test m[:LAI][end] ≈ 0.0
 end
 
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 models = ModelList(
     ToyLAIModel(),
     Beer(0.5),

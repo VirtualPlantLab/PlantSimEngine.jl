@@ -4,7 +4,7 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 run!(leaf, meteo)
@@ -34,7 +34,7 @@ The abstract process type is then used as a supertype of all models implementati
 ### Models (ModelList)
 
 A process is simulated using a particular implementation, or **a model**. Each model is implemented using a structure that lists the parameters of the model. For example, PlantBiophysics provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example 
-script in this package too at [`examples/light.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/light.jl).
+script in this package too at [`examples/Beer.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/Beer.jl).
 
 Models can use three types of entries:
 
@@ -48,7 +48,7 @@ Parameters are constant values that are used by the model to compute its outputs
 
 Users can choose which model is used to simulate a process using the [`ModelList`](@ref) structure. `ModelList` is also used to store the values of the parameters, and to initialize variables.
 
-For example let's instantiate a [`ModelList`](@ref) with the Beer-Lambert model of light extinction. The model is implemented with the [`Beer`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/light.jl) structure and has only one parameter: the extinction coefficient (`k`).
+For example let's instantiate a [`ModelList`](@ref) with the Beer-Lambert model of light extinction. The model is implemented with the [`Beer`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/Beer.jl) structure and has only one parameter: the extinction coefficient (`k`).
 
 Importing the package:
 
@@ -59,7 +59,7 @@ using PlantSimEngine
 Including the script that defines `light_interception` and `Beer`:
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 ```
 
 And then making a [`ModelList`](@ref) with the `Beer` model:
@@ -188,7 +188,7 @@ For example we can simulate the `light_interception` of a leaf like so:
 using PlantSimEngine, PlantMeteo
 
 # Including the script defining light_interception and Beer:
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 

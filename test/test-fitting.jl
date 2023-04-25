@@ -1,4 +1,4 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+# include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 
 # Tests:
 # Defining a list of models without status:

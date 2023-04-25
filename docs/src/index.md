@@ -7,7 +7,7 @@ using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
 # Include the model definition from the examples folder:
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -119,7 +119,7 @@ using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
 # Include the model definition from the examples folder:
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
