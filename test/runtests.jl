@@ -8,6 +8,7 @@ using Documenter # for doctests
 # Include the example dummy processes:
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(

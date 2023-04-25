@@ -1,4 +1,4 @@
-include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+# include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
 
 # Tests:
 # Defining a list of models without status:
@@ -8,10 +8,9 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
     m = ModelList(Beer(k), status=(LAI=2.0,))
     run!(m, meteo)
 
-    df = DataFrame(PPFD=m[:PPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+    df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
 
     k_fit = fit(Beer, df).k
-
     @test k_fit == k
 end;
 
