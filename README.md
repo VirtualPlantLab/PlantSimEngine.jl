@@ -60,7 +60,7 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 # Define the model:
 model = ModelList(
     ToyLAIModel(),
-    status=(degree_days_cu=1.0:2000.0,),
+    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 run!(model) # run the model
@@ -95,15 +95,14 @@ Of course you can plot the outputs quite easily:
 # ] add CairoMakie
 using CairoMakie
 
-f, ax, p = lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
-save("examples/LAI_growth.png", f) # save the figure
+lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
 ```
 
 ![LAI Growth](examples/LAI_growth.png)
 
 ### Model coupling
 
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple model, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a simple Beer's law model for light interception, and a simple model that computes the accumulation of degree days:
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
 
 ```julia
 # ] add PlantSimEngine, DataFrames, CSV
@@ -112,18 +111,38 @@ using PlantSimEngine, PlantMeteo, DataFrames, CSV
 # Include the model definition from the examples folder:
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyDegreeDays.jl"))
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-# Define the model:
+# Define the list of models for coupling:
 model = ModelList(
     ToyLAIModel(),
     Beer(0.6),
-    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),
+    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
+```
 
+The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+
+```
+╭──── Dependency graph ──────────────────────────────────────────╮
+│  ╭──── LAI_Dynamic ─────────────────────────────────────────╮  │
+│  │  ╭──── Main model ────────╮                              │  │
+│  │  │  Process: LAI_Dynamic  │                              │  │
+│  │  │  Model: ToyLAIModel    │                              │  │
+│  │  │  Dep: nothing          │                              │  │
+│  │  ╰────────────────────────╯                              │  │
+│  │                  │  ╭──── Soft-coupled model ─────────╮  │  │
+│  │                  │  │  Process: light_interception    │  │  │
+│  │                  └──│  Model: Beer                    │  │  │
+│  │                     │  Dep: (LAI_Dynamic = (:LAI,),)  │  │  │
+│  │                     ╰─────────────────────────────────╯  │  │
+│  ╰──────────────────────────────────────────────────────────╯  │
+╰────────────────────────────────────────────────────────────────╯
+```
+
+```julia
 # Run the simulation:
 run!(model, meteo_day)
 
@@ -138,11 +157,11 @@ TimeStepTable{Status{(:degree_days_cu, :LAI...}(365 x 3):
 │ Row │ degree_days_cu │        LAI │     aPPFD │
 │     │        Float64 │    Float64 │   Float64 │
 ├─────┼────────────────┼────────────┼───────────┤
-│   1 │            0.0 │ 0.00631893 │ 0.0542087 │
-│   2 │            0.0 │ 0.00631893 │ 0.0296743 │
-│   3 │            0.0 │ 0.00631893 │ 0.0430024 │
-│   4 │            0.0 │ 0.00631893 │ 0.0533719 │
-│   5 │            0.0 │ 0.00631893 │  0.062068 │
+│   1 │            0.0 │ 0.00554988 │ 0.0476221 │
+│   2 │            0.0 │ 0.00554988 │ 0.0260688 │
+│   3 │            0.0 │ 0.00554988 │ 0.0377774 │
+│   4 │            0.0 │ 0.00554988 │ 0.0468871 │
+│   5 │            0.0 │ 0.00554988 │ 0.0545266 │
 │  ⋮  │       ⋮        │     ⋮      │     ⋮     │
 ╰─────┴────────────────┴────────────┴───────────╯
                                  360 rows omitted
@@ -159,8 +178,9 @@ lines!(ax, model[:degree_days_cu], model[:LAI], color=:mediumseagreen)
 ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
 lines!(ax2, model[:degree_days_cu], model[:aPPFD], color=:firebrick1)
 
-save("examples/LAI_growth2.png", fig)
+fig
 ```
+
 ![LAI Growth and light interception](examples/LAI_growth2.png)
 
 ## Projects that use PlantSimEngine
