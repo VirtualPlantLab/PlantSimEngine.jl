@@ -9,7 +9,6 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     children::Vector{HardDependencyNode}
 end
 
-
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
@@ -19,6 +18,10 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     children::Vector{SoftDependencyNode}
     simulation_id::Vector{Int} # id of the simulation
 end
+
+# Add methods to check if a node is parallelizable:
+object_parallelizable(x::T) where {T<:AbstractDependencyNode} = x.value => object_parallelizable(x.value)
+timestep_parallelizable(x::T) where {T<:AbstractDependencyNode} = x.value => timestep_parallelizable(x.value)
 
 """
     DependencyGraph{T}(roots::T, not_found::Dict{Symbol,DataType})
@@ -34,6 +37,18 @@ struct DependencyGraph{T}
     roots::T
     not_found::Dict{Symbol,DataType}
 end
+
+# Add methods to check if a node is parallelizable:
+function which_timestep_parallelizable(x::T) where {T<:DependencyGraph}
+    return traverse_dependency_graph(x, timestep_parallelizable)
+end
+
+function which_object_parallelizable(x::T) where {T<:DependencyGraph}
+    return traverse_dependency_graph(x, object_parallelizable)
+end
+
+object_parallelizable(x::T) where {T<:DependencyGraph} = all([i.second.second for i in which_object_parallelizable(x)])
+timestep_parallelizable(x::T) where {T<:DependencyGraph} = all([i.second.second for i in which_timestep_parallelizable(x)])
 
 AbstractTrees.children(t::AbstractDependencyNode) = t.children
 AbstractTrees.nodevalue(t::AbstractDependencyNode) = t.value # needs recent AbstractTrees
@@ -79,7 +94,6 @@ vars = (
 )
 
 graph = dep(vars)
-
 traverse_dependency_graph(graph, f)
 ```
 """

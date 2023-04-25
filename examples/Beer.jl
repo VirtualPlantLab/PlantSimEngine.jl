@@ -21,6 +21,10 @@ struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
 end
 
+# Beer is parallelizable over time-steps and objects, so we can declare it as such using the trait:
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
+
 """
     run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
 

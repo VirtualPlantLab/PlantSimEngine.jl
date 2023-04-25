@@ -20,3 +20,8 @@ function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, 
         PlantMeteo.prev_value(status, :degree_days_cu, default=m.init_degreedays) + status.degree_days
     println("step = ", status.step)
 end
+
+# The computation of ToyDegreeDaysCumulModel dependents on previous values, but it is independent of other objects.
+# The default trait is that models are dependent of other time-steps and object. So we need to change the default trait
+# for objects:
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyDegreeDaysCumulModel}) = PlantSimEngine.IsObjectIndependent()

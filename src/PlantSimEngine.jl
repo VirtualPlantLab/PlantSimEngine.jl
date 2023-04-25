@@ -12,7 +12,7 @@ import Term
 import Markdown
 
 # For multi-threading:
-import FLoops: @floop, ThreadedEx, SequentialEx
+import FLoops: @floop, ThreadedEx, SequentialEx, DistributedEx
 
 # For MTG compatibility:
 import MultiScaleTreeGraph
@@ -47,8 +47,9 @@ include("mtg/init_mtg_models.jl")
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
 
-# Tables traits
-include("table_traits.jl")
+# Traits
+include("traits/table_traits.jl")
+include("traits/parallel_traits.jl")
 
 # Model dependencies:
 include("dependencies/dependency_graph.jl")
@@ -83,4 +84,6 @@ export fit
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather
 
+# Re-exporting FLoops executors:
+export SequentialEx, ThreadedEx, DistributedEx
 end

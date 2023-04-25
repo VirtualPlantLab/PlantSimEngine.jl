@@ -13,7 +13,7 @@ If several time-steps are given, the models are run sequentially for each time-s
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
 - `extra`: extra parameters.
-- `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time).
+- `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time), and return more information while running.
 - `executor`: the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) executor used to run the simulation either in sequential (`executor=SequentialEx()`), in a 
 multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed way (`executor=DistributedEx()`).
 
@@ -33,6 +33,8 @@ has several soft dependencies, the parents (the soft dependencies) are always co
 
 ## Parallel execution
 
+Users can ask for parallel execution by providing a compatible executor to the `executor` argument. The package will also automatically
+check if the execution can be parallelized. If it is not the case and the user asked for a parallel computation, it return a warning and run the simulation sequentially.
 We use the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) package to run the simulation in parallel. That means that you can provide any compatible executor to the `executor` argument.
 You can take a look at [FoldsThreads.jl](https://github.com/JuliaFolds/FoldsThreads.jl) for extra thread-based executors, [FoldsDagger.jl](https://github.com/JuliaFolds/FoldsDagger.jl) for 
 Transducers.jl-compatible parallel fold implemented using the Dagger.jl framework, and soon [FoldsCUDA.jl](https://github.com/JuliaFolds/FoldsCUDA.jl) for GPU computations 
@@ -118,23 +120,50 @@ function run!(
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
-    meteo_rows = Tables.rows(meteo)
-    # Computing for each time-step:
-    @floop executor for (i, meteo_i) in enumerate(meteo_rows), obj in collect(values(object))
-        dep_graph = dep(obj, length(meteo_rows))
-
-        if check
-            # Check if the meteo data and the status have the same length (or length 1)
-            check_dimensions(obj, meteo)
-
-            if length(dep_graph.not_found) > 0
-                error(
-                    "The following processes are missing in the ModelList: ",
-                    dep_graph.not_found
-                )
+    obj_parallelizable = all([object_parallelizable(dep(obj)) for obj in collect(values(object))])
+    # Check if the simulation can be parallelized over objects:
+    if !obj_parallelizable && executor != SequentialEx()
+        is_obj_parallel = Set{AbstractModel}()
+        for obj_par in [which_object_parallelizable(dep(obj)) for obj in collect(values(object))]
+            for mod in obj_par[findall(x -> x.second.second == false, obj_par)]
+                push!(is_obj_parallel, mod.second.first)
             end
         end
-        run!(obj, dep_graph, i, obj[i], meteo_i, constants, extra)
+
+        mods_not_parallel = join(is_obj_parallel, "; ")
+
+        check && @warn string(
+            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
+            "The simulation will be run sequentially."
+        ) maxlog = 1
+        executor_obj = SequentialEx()
+    else
+        executor_obj = executor
+    end
+
+    @floop executor_obj for obj in collect(values(object))
+        run!(obj, meteo, constants, extra, check=check, executor=executor)
+        # # Check if the simulation can be parallelized over time-steps:
+        # if !timestep_parallelizable(dep_graphs[obj_index]) && executor != SequentialEx()
+        #     executor_time = SequentialEx()
+        # else
+        #     executor_time = executor
+        # end
+
+        # @floop executor_time for (i, meteo_i) in enumerate(meteo_rows)
+        #     if check
+        #         # Check if the meteo data and the status have the same length (or length 1)
+        #         check_dimensions(obj, meteo)
+
+        #         if length(dep_graphs[obj_index].not_found) > 0
+        #             error(
+        #                 "The following processes are missing in the ModelList: ",
+        #                 dep_graphs[obj_index].not_found
+        #             )
+        #         end
+        #     end
+        #     run!(obj, dep_graphs[obj_index], i, obj[i], meteo_i, constants, extra)
+        # end
     end
 end
 
@@ -172,6 +201,17 @@ function run!(
         )
     end
 
+    if !timestep_parallelizable(dep_graph) && executor != SequentialEx()
+        is_ts_parallel = which_timestep_parallelizable(dep_graph)
+        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
+
+        check && @warn string(
+            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
+            "The simulation will be run sequentially."
+        ) maxlog = 1
+        executor = SequentialEx()
+    end
+
     @floop executor for (i, row) in enumerate(sim_rows)
         run!(object, dep_graph, i, row, meteo, constants, extra)
     end
@@ -203,6 +243,17 @@ function run!(
         end
     end
 
+    if !timestep_parallelizable(dep_graph) && executor != SequentialEx()
+        is_ts_parallel = which_timestep_parallelizable(dep_graph)
+        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
+
+        check && @warn string(
+            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
+            "The simulation will be run sequentially."
+        ) maxlog = 1
+        executor = SequentialEx()
+    end
+
     # Computing for each time-step:
     @floop executor for (i, meteo_i) in enumerate(meteo_rows)
         run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
@@ -221,23 +272,42 @@ function run!(
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict}}
 
-    # Each object:
-    @floop executor for obj in collect(values(object))
-        dep_graph = dep(obj)
+    dep_graphs = [dep(obj) for obj in collect(values(object))]
+    obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
 
+    # Check if the simulation can be parallelized over objects:
+    if !obj_parallelizable && executor != SequentialEx()
+        is_obj_parallel = Set{AbstractModel}()
+        for graph in dep_graphs
+            obj_par = which_object_parallelizable(graph)
+            for mod in obj_par[findall(x -> x.second.second == false, obj_par)]
+                push!(is_obj_parallel, mod.second.first)
+            end
+        end
+
+        mods_not_parallel = join(is_obj_parallel, "; ")
+
+        check && @warn string(
+            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
+            "The simulation will be run sequentially."
+        ) maxlog = 1
+        executor = SequentialEx()
+    end
+    # Each object:
+    @floop executor for (i, obj) in enumerate(collect(values(object)))
         if check
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(obj, meteo)
 
-            if length(dep_graph.not_found) > 0
+            if length(dep_graphs[i].not_found) > 0
                 error(
                     "The following processes are missing to run the ModelList: ",
-                    dep_graph.not_found
+                    dep_graphs[i].not_found
                 )
             end
         end
 
-        run!(obj, dep_graph, 1, status(obj)[1], meteo, constants, extra)
+        run!(obj, dep_graphs[i], 1, status(obj)[1], meteo, constants, extra)
     end
 end
 
@@ -253,6 +323,7 @@ function run!(
     executor=ThreadedEx()
 )
 
+    #! Manage parallel computations over nodes
     @assert extra === nothing "The extra argument cannot be used with an MTG. It already contains the node."
 
     # Define the attribute name used for the models in the nodes

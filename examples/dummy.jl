@@ -18,6 +18,9 @@ PlantSimEngine.outputs_(::Process1Model) = (var3=-Inf,)
 function PlantSimEngine.run!(::Process1Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var3 = models.process1.a + status.var1 * status.var2
 end
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.IsObjectIndependent()
+
 
 # Defining a 2nd process called "process2", and a model
 # that implements an algorithm, and that depends on the first one:
@@ -39,6 +42,8 @@ function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=n
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
 end
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process2Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process2Model}) = PlantSimEngine.IsObjectIndependent()
 
 # Defining a 3d process called "process3", and a model
 # that implements an algorithm, and that depends on the second one (and
@@ -61,7 +66,8 @@ function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=n
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4
 end
-
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process3Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process3Model}) = PlantSimEngine.IsObjectIndependent()
 
 # Defining a 4th process called "process4", and a model
 # that implements an algorithm, and that computes the 
@@ -83,7 +89,8 @@ function PlantSimEngine.run!(::Process4Model, models, status, meteo, constants=n
     status.var1 = status.var0 + 0.01
     status.var2 = status.var1 + 0.02
 end
-
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process4Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process4Model}) = PlantSimEngine.IsObjectIndependent()
 
 # Defining a 5th process called "process5", and a model
 # that implements an algorithm, and that computes other 
@@ -102,6 +109,8 @@ PlantSimEngine.outputs_(::Process5Model) = (var7=-Inf,)
 function PlantSimEngine.run!(::Process5Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var7 = status.var5 * status.var6
 end
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process5Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process5Model}) = PlantSimEngine.IsObjectIndependent()
 
 
 # Defining a 6th process called "process6", and a model
@@ -122,6 +131,8 @@ PlantSimEngine.outputs_(::Process6Model) = (var8=-Inf,)
 function PlantSimEngine.run!(::Process6Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var8 = status.var7 + 1.0
 end
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process6Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process6Model}) = PlantSimEngine.IsObjectIndependent()
 
 # Defining a 7th process called "process7", and a model
 # that depends on nothing but var0 so it is independant. 
@@ -142,3 +153,5 @@ PlantSimEngine.outputs_(::Process7Model) = (var9=-Inf,)
 function PlantSimEngine.run!(::Process7Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var9 = status.var0 + 1.0
 end
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process7Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Process7Model}) = PlantSimEngine.IsObjectIndependent()

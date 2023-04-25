@@ -32,3 +32,8 @@ function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=not
         status.LAI = 0
     end
 end
+
+# The computation of ToyLAIModel is independant of previous values and other objects. We can add this information as 
+# traits to the model to tell PlantSimEngine that it is safe to run the models in parallel:
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsObjectIndependent()
