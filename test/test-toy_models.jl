@@ -1,4 +1,6 @@
 # include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 @testset "ToyLAIModel" begin
@@ -18,22 +20,19 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
     @test_nowarn run!(m)
 
     @test m[:degree_days_cu] == cumsum(meteo_day.degree_days)
-    @test m[:LAI][begin] ≈ 0.006318927533891692
+    @test m[:LAI][begin] ≈ 0.00554987593080316
     @test m[:LAI][end] ≈ 0.0
 end
 
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-models = ModelList(
-    ToyLAIModel(),
-    Beer(0.5),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
-)
+@testset "ToyLAIModel+Beer" begin
+    models = ModelList(
+        ToyLAIModel(),
+        Beer(0.5),
+        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    )
 
-run!(models, meteo_day)
+    run!(models, meteo_day)
 
-models.status[:aPPFD] # mol m-2 d-1
-
-model = ModelList(
-    ToyLAIModel(),
-    status=(degree_days_cu=1:1300,),
-)
+    @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
+    @test mean(models.status[:LAI]) ≈ 1.098492557536525
+end

@@ -46,6 +46,10 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
         include("test-fitting.jl")
     end
 
+    @testset "Toy models" begin
+        include("test-toy_models.jl")
+    end
+
     if VERSION == v"1.8"
         # Error formating changed in Julia 1.8 (or was it 1.7?), so the doctest
         # that returns an error in PlantSimEngine.check_dimensions(models, w)
