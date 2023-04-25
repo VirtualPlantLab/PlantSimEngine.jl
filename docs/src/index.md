@@ -159,8 +159,6 @@ The `ModelList` couples the models by automatically computing the dependency gra
 We can plot the results by indexing the model with the variable name (e.g. `model2[:LAI]`):
 
 ```@example readme
-
-```@example readme
 using CairoMakie
 
 fig = Figure(resolution=(800, 600))
