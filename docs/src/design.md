@@ -119,7 +119,7 @@ to_initialize(m)
 Their values are uninitialized though (hence the warnings):
 
 ```@example usepkg
-(m[:LAI], m[:PPFD])
+(m[:LAI], m[:aPPFD])
 ```
 
 Uninitialized variables are initialized to the value given in the `inputs` or `outputs` methods, which is usually equal to `typemin()`, *e.g.* `-Inf` for `Float64`.
@@ -196,7 +196,7 @@ leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 
 run!(leaf, meteo)
 
-leaf[:PPFD]
+leaf[:aPPFD]
 ```
 
 ### Outputs
@@ -214,19 +214,19 @@ status(leaf)
 We can extract the value of one variable using the `status` function, *e.g.* for the intercepted light:
 
 ```@example usepkg
-status(leaf, :PPFD)
+status(leaf, :aPPFD)
 ```
 
 Or similarly using the dot syntax:
 
 ```@example usepkg
-leaf.status.PPFD
+leaf.status.aPPFD
 ```
 
 Or much simpler (and recommended), by indexing directly into the model list:
 
 ```@example usepkg
-leaf[:PPFD]
+leaf[:aPPFD]
 ```
 
 Another simple way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:

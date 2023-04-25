@@ -300,7 +300,7 @@ It is used to be able to *e.g.* give constant values for all time-steps for one 
 # Examples
 
 ```@example
-PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], PPFD=1000.0))
+PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 ```
 """
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}

@@ -87,7 +87,7 @@ TimeStepTable{Status{(:degree_days_cu, :LAI...}(1300 x 2):
 ```
 
 > **Note**  
-> The `ToyLAIModel` is available from the [examples folder](./examples/ToyLAIModel.jl), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
+> The `ToyLAIModel` is available from the [examples folder](https://github.com/VEZY/PlantSimEngine.jl/tree/main/examples), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
 
 Of course you can plot the outputs quite easily:
 

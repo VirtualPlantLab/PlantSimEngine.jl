@@ -149,7 +149,7 @@ One last thing to do is to define the inputs and outputs of our model. This is d
 In our case, the `Beer` model has one input and one output:
 
 - Inputs: `:LAI`, the leaf area index (m² m⁻²)
-- Outputs: `:PPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
+- Outputs: `:aPPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
 
 Here is how we communicate that to PlantSimEngine:
 
@@ -159,7 +159,7 @@ function PlantSimEngine.inputs_(::Beer)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (PPFD=-Inf,)
+    (aPPFD=-Inf,)
 end
 ```
 

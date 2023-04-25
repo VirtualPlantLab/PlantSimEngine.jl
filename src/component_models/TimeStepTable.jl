@@ -17,7 +17,7 @@ using PlantSimEngine, DataFrames
 # A TimeStepTable from a DataFrame:
 df = DataFrame(
     Tₗ=[25.0, 26.0],
-    PPFD=[1000.0, 1200.0],
+    aPPFD=[1000.0, 1200.0],
     Cₛ=[400.0, 400.0],
     Dₗ=[1.0, 1.2],
 )
@@ -38,8 +38,8 @@ status(models)
 # Of course we can also create a TimeStepTable with Status manually:
 TimeStepTable(
     [
-        Status(Tₗ=25.0, PPFD=1000.0, Cₛ=400.0, Dₗ=1.0),
-        Status(Tₗ=26.0, PPFD=1200.0, Cₛ=400.0, Dₗ=1.2),
+        Status(Tₗ=25.0, aPPFD=1000.0, Cₛ=400.0, Dₗ=1.0),
+        Status(Tₗ=26.0, aPPFD=1200.0, Cₛ=400.0, Dₗ=1.2),
     ]
 )
 ```

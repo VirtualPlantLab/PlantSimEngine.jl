@@ -1,5 +1,5 @@
 @testset "Testing TimeStepTable{Status}" begin
-    vars = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, PPFD=1500)
+    vars = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500)
     ts = TimeStepTable([vars, vars])
 
     @test Tables.istable(typeof(ts))
@@ -15,7 +15,7 @@
     @test ts_first.Rₛ == 13.747
     @test Tables.getcolumn(ts_first, :Rₛ) == 13.747
     @test Tables.getcolumn(ts_first, 1) == 13.747
-    @test keys(ts) == propertynames(ts_first) == (:Rₛ, :sky_fraction, :d, :PPFD)
+    @test keys(ts) == propertynames(ts_first) == (:Rₛ, :sky_fraction, :d, :aPPFD)
 
     # Get column value using getcolumn:
     @test Tables.getcolumn(ts_rows[1], 1) == vars[1]
