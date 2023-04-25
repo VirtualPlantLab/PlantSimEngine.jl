@@ -2,14 +2,42 @@
 CurrentModule = PlantSimEngine
 ```
 
+```@setup readme
+using PlantSimEngine, PlantMeteo, DataFrames, CSV
+
+# Include the model definition from the examples folder:
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+
+# Import the example meteorological data:
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+# Define the model:
+model = ModelList(
+    ToyLAIModel(),
+    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+)
+
+run!(model)
+
+# Define the list of models for coupling:
+model2 = ModelList(
+    ToyLAIModel(),
+    Beer(0.6),
+    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+)
+run!(model2, meteo_day)
+
+```
+
 # PlantSimEngine
 
-[![Stable](https://img.shields.io/badge/docs-stable-blue.svg)](https://VEZY.github.io/PlantSimEngine.jl/stable)
-[![Dev](https://img.shields.io/badge/docs-dev-blue.svg)](https://VEZY.github.io/PlantSimEngine.jl/dev)
 [![Build Status](https://github.com/VEZY/PlantSimEngine.jl/actions/workflows/CI.yml/badge.svg?branch=main)](https://github.com/VEZY/PlantSimEngine.jl/actions/workflows/CI.yml?query=branch%3Amain)
 [![Coverage](https://codecov.io/gh/VEZY/PlantSimEngine.jl/branch/main/graph/badge.svg)](https://codecov.io/gh/VEZY/PlantSimEngine.jl)
 [![ColPrac: Contributor's Guide on Collaborative Practices for Community Packages](https://img.shields.io/badge/ColPrac-Contributor's%20Guide-blueviolet)](https://github.com/SciML/ColPrac)
+[![Aqua QA](https://raw.githubusercontent.com/JuliaTesting/Aqua.jl/master/badge.svg)](https://github.com/JuliaTesting/Aqua.jl)
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
+[![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
 ## Overview
 
@@ -41,6 +69,108 @@ To use the package, execute this command from the Julia REPL:
 
 ```julia
 using PlantSimEngine
+```
+
+## Example usage
+
+The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
+
+### Simple example 
+
+Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
+
+```@example readme
+# ] add PlantSimEngine
+using PlantSimEngine
+
+# Include the model definition from the examples folder:
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+
+# Define the model:
+model = ModelList(
+    ToyLAIModel(),
+    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+)
+
+run!(model) # run the model
+
+status(model) # extract the status, i.e. the output of the model
+```
+
+> **Note**  
+> The `ToyLAIModel` is available from the [examples folder](./examples/ToyLAIModel.jl), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
+
+Of course you can plot the outputs quite easily:
+
+```@example readme
+# ] add CairoMakie
+using CairoMakie
+
+lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
+```
+
+### Model coupling
+
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
+
+```@example readme
+# ] add PlantSimEngine, DataFrames, CSV
+using PlantSimEngine, PlantMeteo, DataFrames, CSV
+
+# Include the model definition from the examples folder:
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/light.jl"))
+
+# Import the example meteorological data:
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+# Define the list of models for coupling:
+model2 = ModelList(
+    ToyLAIModel(),
+    Beer(0.6),
+    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+)
+
+# Run the simulation:
+run!(model2, meteo_day)
+
+status(model2)
+```
+
+The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+
+```
+╭──── Dependency graph ──────────────────────────────────────────╮
+│  ╭──── LAI_Dynamic ─────────────────────────────────────────╮  │
+│  │  ╭──── Main model ────────╮                              │  │
+│  │  │  Process: LAI_Dynamic  │                              │  │
+│  │  │  Model: ToyLAIModel    │                              │  │
+│  │  │  Dep: nothing          │                              │  │
+│  │  ╰────────────────────────╯                              │  │
+│  │                  │  ╭──── Soft-coupled model ─────────╮  │  │
+│  │                  │  │  Process: light_interception    │  │  │
+│  │                  └──│  Model: Beer                    │  │  │
+│  │                     │  Dep: (LAI_Dynamic = (:LAI,),)  │  │  │
+│  │                     ╰─────────────────────────────────╯  │  │
+│  ╰──────────────────────────────────────────────────────────╯  │
+╰────────────────────────────────────────────────────────────────╯
+```
+
+We can plot the results by indexing the model with the variable name (e.g. `model2[:LAI]`):
+
+```@example readme
+
+```@example readme
+using CairoMakie
+
+fig = Figure(resolution=(800, 600))
+ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
+lines!(ax, model2[:degree_days_cu], model2[:LAI], color=:mediumseagreen)
+
+ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
+lines!(ax2, model2[:degree_days_cu], model2[:aPPFD], color=:firebrick1)
+
+fig
 ```
 
 ## Projects that use PlantSimEngine
