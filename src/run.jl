@@ -134,7 +134,7 @@ function run!(
 
         check && @warn string(
             "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to avoid this warning."
+            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
         ) maxlog = 1
         executor_obj = SequentialEx()
     else
@@ -207,7 +207,7 @@ function run!(
 
         check && @warn string(
             "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to avoid this warning."
+            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
         ) maxlog = 1
         executor = SequentialEx()
     end
@@ -249,7 +249,7 @@ function run!(
 
         check && @warn string(
             "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to avoid this warning."
+            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
         ) maxlog = 1
         executor = SequentialEx()
     end
@@ -289,7 +289,7 @@ function run!(
 
         check && @warn string(
             "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to avoid this warning."
+            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
         ) maxlog = 1
         executor = SequentialEx()
     end
