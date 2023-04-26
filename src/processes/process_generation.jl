@@ -13,6 +13,15 @@ the second is any additional documentation that should be added
 to the `Abstract<ProcessName>Model` type, and the third determines whether 
 the short tutorial should be printed or not.
 
+Newcomers are encouraged to use this macro because it explains in detail what to do next with
+the process. But more experienced users may want to directly define their process without 
+printing the tutorial. To do so, you can just define a new abstract type and define it as a 
+subtype of `AbstractModel`:
+
+```julia
+abstract type MyNewProcess <: AbstractModel end
+```
+
 # Examples
 
 ```julia
@@ -140,8 +149,23 @@ macro process(f, args...)
         Then we can use variables from the status as inputs or outputs, model parameters from the ModelList (indexing by process, here 
         using "$(process_name)" as the process name), and meteorology variables.
 
-        Optioannly, we can also call a hard-dependency process by using the {#8abeff}run!(){/#8abeff} function on the model type of the dependency
-        as shown above (`run!(model.other_process_name, models, status, meteo, constants, extra)`).
+        Note that our example model has an hard-dependency on another process called `other_process_name` that is called using the {#8abeff}run!(){/#8abeff} function with 
+        the process as the first argument: `run!(model.other_process_name, models, status, meteo, constants, extra)`.
+
+        If your model can be run in parallel, you can also add traits to your model type so `PlantSimEngine` knows
+        it can safely parallelize the computation:
+
+        - over space (*i.e.* over objects):
+
+        ```@example usepkg
+        PlantSimEngine.ObjectDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsObjectIndependent()
+        ```
+
+        - over time (*i.e.* time-steps):
+
+        ```@example usepkg
+        PlantSimEngine.TimeStepDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsTimeStepIndependent()
+        ```
 
         !!! tip "Variables and parameters usage"
             Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
