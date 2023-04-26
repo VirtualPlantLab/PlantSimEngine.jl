@@ -11,7 +11,16 @@ Computes the carbon biomass increment of a plant based on the radiation use effi
 
 # Arguments
 
-- `efficiency`: the radiation use efficiency, in gram of carbon biomass per gram of assimilate
+- `efficiency`: the radiation use efficiency, in gC[biomass] mol[PAR]⁻¹
+
+# Inputs
+
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+
+# Outputs
+
+- `biomass_increment`: the daily biomass increment, in gC[biomass] m⁻² d⁻¹
+- `biomass`: the plant biomass, in gC[biomass] m⁻² d⁻¹
 """
 struct ToyRUEGrowthModel{T} <: AbstractGrowthModel
     efficiency::T

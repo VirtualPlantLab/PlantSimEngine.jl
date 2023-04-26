@@ -28,7 +28,7 @@ If we want to simulate the growth of a plant, we could add a new process called 
 
 And that's it! Note that the function guides you in the steps you can make after creating a process. Let's break it up here.
 
-!!! note
+!!! tip
     If you know what you're doing, you can directly define a process by hand just by defining an abstract type that is a subtype of `AbstractModel`:
     ```julia
     abstract type AbstractGrowthModel <: PlantSimEngine.AbstractModel end
@@ -37,7 +37,7 @@ And that's it! Note that the function guides you in the steps you can make after
     ```julia
     PlantSimEngine.process_(::Type{AbstractGrowthModel}) = :growth
     ```
-    But this way, you don't get the nice tutorial adapted to your process 😃.
+    But this way, you don't get the nice tutorial adapted to your process 🙃.
 
 So what you just did is to create a new process called `growth`. By doing so, you created a new abstract structure called `AbstractGrowthModel`, which is used as a supertype of the models. This abstract type is always named using the process name in title case (using `titlecase()`), prefixed with `Abstract` and suffixed with `Model`.
 
@@ -48,52 +48,67 @@ So what you just did is to create a new process called `growth`. By doing so, yo
 
 To better understand how models are implemented, you can read the detailed instructions from the [next section](@ref model_implementation_page). But for the sake of completeness, we'll implement a growth model here.
 
-This growth model needs the carbohydrate assimilation that we could compute using *e.g.* the coupled energy balance process from `PlantBiophysics.jl`. Then the model removes the maintenance respiration and the growth respiration from that source of carbon, and increments the plant biomass by the remaining carbon offer.
+This growth model needs the absorbed photosynthetically active radiation (aPPFD) as an input, and outputs the assimilation, the maintenance respiration, the growth respiration, the biomass increment and the biomass. The assimilation is computed as the product of the aPPFD and the light use efficiency (LUE). The maintenance respiration is a fraction of the assimilation, and the growth respiration is a fraction of the net primary productivity (NPP), which is the assimilation minus the maintenance respiration. The biomass increment is the NPP minus the growth respiration, and the biomass is the sum of the biomass increment and the previous biomass.
 
 The model is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl), and is reproduced below:
 
 ```@example usepkg
-using PlantSimEngine, PlantMeteo # PlantMeteo is used for the meteorology
-
 # Make the struct to hold the parameters, with its documentation:
 """
-    ToyAssimGrowth(Rm_factor, Rg_cost)
-    ToyAssimGrowth(;Rm_factor = 0.5, Rg_cost = 1.2)
+    ToyAssimGrowthModel(Rm_factor, Rg_cost)
+    ToyAssimGrowthModel(; LUE=0.2, Rm_factor = 0.5, Rg_cost = 1.2)
 
 Computes the biomass growth of a plant.
 
 # Arguments
 
-- `Rm_factor`: the fraction of assimilation that goes into maintenance respiration
-- `Rg_cost`: the cost of growth maintenance, in gram of carbon biomass per gram of assimilate
+- `LUE=0.2`: the light use efficiency, in gC mol[PAR]⁻¹
+- `Rm_factor=0.5`: the fraction of assimilation that goes into maintenance respiration
+- `Rg_cost=1.2`: the cost of growth maintenance, in gram of carbon biomass per gram of assimilate
+
+# Inputs
+
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+
+# Outputs
+
+- `A`: the assimilation, in gC m⁻² d⁻¹
+- `Rm`: the maintenance respiration, in gC m⁻² d⁻¹
+- `Rg`: the growth respiration, in gC m⁻² d⁻¹
+- `biomass_increment`: the daily biomass increment, in gC m⁻² d⁻¹
+- `biomass`: the plant biomass, in gC m⁻² d⁻¹
 """
-struct ToyAssimGrowth{T} <: AbstractGrowthModel
+struct ToyAssimGrowthModel{T} <: AbstractGrowthModel
+    LUE::T
     Rm_factor::T
     Rg_cost::T
 end
 
-# Note that ToyAssimGrowth is a subtype of AbstractGrowthModel, this is important
+# Note that ToyAssimGrowthModel is a subtype of AbstractGrowthModel, this is important
 
 # Instantiate the `struct` with keyword arguments and default values:
-function ToyAssimGrowth(; Rm_factor=0.5, Rg_cost=1.2)
-    ToyAssimGrowth(promote(Rm_factor, Rg_cost)...)
+function ToyAssimGrowthModel(; LUE=0.2, Rm_factor=0.5, Rg_cost=1.2)
+    ToyAssimGrowthModel(promote(LUE, Rm_factor, Rg_cost)...)
 end
 
 # Define inputs:
-function PlantSimEngine.inputs_(::ToyAssimGrowth)
-    (A=-Inf,)
+function PlantSimEngine.inputs_(::ToyAssimGrowthModel)
+    (aPPFD=-Inf,)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyAssimGrowth)
-    (Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
+function PlantSimEngine.outputs_(::ToyAssimGrowthModel)
+    (A=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
 end
 
 # Tells Julia what is the type of elements:
-Base.eltype(x::ToyAssimGrowth{T}) where {T} = T
+Base.eltype(x::ToyAssimGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(::ToyAssimGrowth, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, constants, extra)
+
+    # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
+    status.A = status.aPPFD * models.growth.LUE
     # The maintenance respiration is simply a factor of the assimilation:
     status.Rm = status.A * models.growth.Rm_factor
     # Note that we use models.growth.Rm_factor to access the parameter of the model
@@ -112,26 +127,26 @@ function PlantSimEngine.run!(::ToyAssimGrowth, models, status, meteo, constants,
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowth}) = PlantSimEngine.IsObjectIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowthModel}) = PlantSimEngine.IsObjectIndependent()
 ```
 
 Now we can make a simulation as usual:
 
 ```@example usepkg
-model = ModelList(ToyAssimGrowth(), status = (A = 20.0,))
+model = ModelList(ToyAssimGrowthModel(), status = (aPPFD = 20.0,))
 run!(model)
-model[:biomass] # biomass in gC
+model[:biomass] # biomass in gC m⁻²
 ```
 
 We can also run the simulation over more time-steps:
 
 ```@example usepkg
 model = ModelList(
-    ToyAssimGrowth(),
-    status=(A=[10.0, 30.0, 25.0],),
+    ToyAssimGrowthModel(),
+    status=(aPPFD=[10.0, 30.0, 25.0],),
 )
 
 run!(model)
 
-model.status[:biomass] # biomass in gC
+model.status[:biomass] # biomass in gC m⁻²
 ```

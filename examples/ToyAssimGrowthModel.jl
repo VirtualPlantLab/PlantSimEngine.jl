@@ -5,43 +5,60 @@
 
 # Make the struct to hold the parameters, with its documentation:
 """
-    ToyAssimGrowth(Rm_factor, Rg_cost)
-    ToyAssimGrowth(;Rm_factor = 0.5, Rg_cost = 1.2)
+    ToyAssimGrowthModel(Rm_factor, Rg_cost)
+    ToyAssimGrowthModel(; LUE=0.2, Rm_factor = 0.5, Rg_cost = 1.2)
 
 Computes the biomass growth of a plant.
 
 # Arguments
 
-- `Rm_factor`: the fraction of assimilation that goes into maintenance respiration
-- `Rg_cost`: the cost of growth maintenance, in gram of carbon biomass per gram of assimilate
+- `LUE=0.2`: the light use efficiency, in gC mol[PAR]⁻¹
+- `Rm_factor=0.5`: the fraction of assimilation that goes into maintenance respiration
+- `Rg_cost=1.2`: the cost of growth maintenance, in gram of carbon biomass per gram of assimilate
+
+# Inputs
+
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+
+# Outputs
+
+- `A`: the assimilation, in gC m⁻² d⁻¹
+- `Rm`: the maintenance respiration, in gC m⁻² d⁻¹
+- `Rg`: the growth respiration, in gC m⁻² d⁻¹
+- `biomass_increment`: the daily biomass increment, in gC m⁻² d⁻¹
+- `biomass`: the plant biomass, in gC m⁻² d⁻¹
 """
-struct ToyAssimGrowth{T} <: AbstractGrowthModel
+struct ToyAssimGrowthModel{T} <: AbstractGrowthModel
+    LUE::T
     Rm_factor::T
     Rg_cost::T
 end
 
-# Note that ToyAssimGrowth is a subtype of AbstractGrowthModel, this is important
+# Note that ToyAssimGrowthModel is a subtype of AbstractGrowthModel, this is important
 
 # Instantiate the `struct` with keyword arguments and default values:
-function ToyAssimGrowth(; Rm_factor=0.5, Rg_cost=1.2)
-    ToyAssimGrowth(promote(Rm_factor, Rg_cost)...)
+function ToyAssimGrowthModel(; LUE=0.2, Rm_factor=0.5, Rg_cost=1.2)
+    ToyAssimGrowthModel(promote(LUE, Rm_factor, Rg_cost)...)
 end
 
 # Define inputs:
-function PlantSimEngine.inputs_(::ToyAssimGrowth)
-    (A=-Inf,)
+function PlantSimEngine.inputs_(::ToyAssimGrowthModel)
+    (aPPFD=-Inf,)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyAssimGrowth)
-    (Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
+function PlantSimEngine.outputs_(::ToyAssimGrowthModel)
+    (A=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
 end
 
 # Tells Julia what is the type of elements:
-Base.eltype(x::ToyAssimGrowth{T}) where {T} = T
+Base.eltype(x::ToyAssimGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(::ToyAssimGrowth, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, constants, extra)
+
+    # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
+    status.A = status.aPPFD * models.growth.LUE
     # The maintenance respiration is simply a factor of the assimilation:
     status.Rm = status.A * models.growth.Rm_factor
     # Note that we use models.growth.Rm_factor to access the parameter of the model
@@ -60,4 +77,4 @@ function PlantSimEngine.run!(::ToyAssimGrowth, models, status, meteo, constants,
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowth}) = PlantSimEngine.IsObjectIndependent()
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowthModel}) = PlantSimEngine.IsObjectIndependent()

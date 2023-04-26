@@ -40,7 +40,7 @@ end
 
 
 @testset "ToyRUEGrowthModel" begin
-    rue = 1.5
+    rue = 0.3
     @test_nowarn ModelList(ToyRUEGrowthModel(rue))
     @test_nowarn ModelList(ToyRUEGrowthModel(rue), status=(aPPFD=[10.0, 30.0, 25.0],))
 
@@ -50,7 +50,7 @@ end
         status=(aPPFD=30.0,),
     )
 
-    run!(model)
+    run!(model, executor=SequentialEx())
     @test model.status[:biomass] ≈ rue * model.status[:aPPFD]
 
     # Several time steps:
@@ -59,41 +59,41 @@ end
         status=(aPPFD=[10.0, 30.0, 25.0],),
     )
 
-    run!(model)
+    run!(model, executor=SequentialEx())
     @test model.status[:biomass] ≈ cumsum(rue * model.status[:aPPFD])
 end
 
-@testset "ToyAssimGrowth" begin
-    @test_nowarn ModelList(ToyAssimGrowth())
-    @test_nowarn ModelList(ToyAssimGrowth(), status=(A=[10.0, 30.0, 25.0],))
+@testset "ToyAssimGrowthModel" begin
+    @test_nowarn ModelList(ToyAssimGrowthModel())
+    @test_nowarn ModelList(ToyAssimGrowthModel(), status=(A=[10.0, 30.0, 25.0],))
 
     # Uninitialized:
-    @test to_initialize(ModelList(ToyAssimGrowth())) == (growth=(:A,),)
+    @test to_initialize(ModelList(ToyAssimGrowthModel())) == (growth=(:aPPFD,),)
 
     # One time step:
     model = ModelList(
-        ToyAssimGrowth(),
-        status=(A=30.0,),
+        ToyAssimGrowthModel(),
+        status=(aPPFD=30.0,),
     )
 
     @test to_initialize(model) == NamedTuple()
 
     run!(model)
-    @test model.status[:biomass] ≈ [26.5]
+    @test model.status[:biomass] ≈ [4.5]
 
     # Several time steps:
     model = ModelList(
-        ToyAssimGrowth(),
-        status=(A=[10.0, 30.0, 25.0],),
+        ToyAssimGrowthModel(),
+        status=(aPPFD=[10.0, 30.0, 25.0],),
     )
 
     run!(model)
     @test model.status[:biomass] ≈ cumsum(model.status[:biomass_increment])
-    @test model.status[:biomass_increment] ≈ [8.166666666666668, 26.5, 21.916666666666668]
+    @test model.status[:biomass_increment] ≈ [0.8333333333333334, 4.5, 3.5833333333333335]
 end
 
 @testset "ToyLAIModel+Beer+ToyRUEGrowthModel" begin
-    rue = 1.5
+    rue = 0.3
     models = ModelList(
         ToyLAIModel(),
         Beer(0.5),
@@ -109,5 +109,5 @@ end
 
     @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
     @test mean(models.status[:LAI]) ≈ 1.098492557536525
-    @test models.status[:biomass][end] ≈ 5207.284425361584
+    @test models.status[:biomass][end] ≈ 1041.4568850723167
 end
