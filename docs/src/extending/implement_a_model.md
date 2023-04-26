@@ -18,6 +18,11 @@ If you want to implement a new model, the best way to do it is to start from ano
 
 For a complete example, you can look at the code in [`PlantBiophysics.jl`](https://github.com/VEZY/PlantBiophysics.jl), were you will find *e.g.* a photosynthesis model, with the implementation of the `FvCB` model in this Julia file: [src/photosynthesis/FvCB.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/photosynthesis/FvCB.jl); an energy balance model with the implementation of the `Monteith` model in [src/energy/Monteith.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl); or a stomatal conductance model in [src/conductances/stomatal/medlyn.jl](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/conductances/stomatal/medlyn.jl).
 
+`PlantSimEngine` also provide toy models that can be used as a base to better understand how to implement a new model: 
+
+- The Beer model for light interception in [examples/Beer.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/Beer.jl)
+- A toy LAI development in [examples/ToyLAIModel.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/ToyLAIModel.jl)
+
 ## Requirements
 
 In those files, you'll see that in order to implement a new model you'll need to implement:
@@ -241,5 +246,26 @@ Base.eltype(x::Beer{T}) where {T} = T
 ```
 
 This one helps Julia know the type of the elements in the structure, and make it faster.
+
+### Traits
+
+`PlantSimEngine` defines traits to get additional information about the models. At the moment, there are two traits implemented that help the package to know if a model can be run in parallel over space (*i.e.* objects) and/or time (*i.e.* time-steps).
+
+By default, all models are assumed to be **not** parallelizable over objects and time-steps, because it is the safest default. If your model is parallelizable, you should add the trait to the model.
+
+For example, if we want to add the trait for parallelization over objects to our `Beer` model, we would do:
+
+```@example usepkg
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
+```
+
+And if we want to add the trait for parallelization over time-steps to our `Beer` model, we would do:
+
+```@example usepkg
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
+```
+
+!!! note
+    A model is parallelizable over objects if it does not call another model directly inside its code. Similarly, a model is parallelizable over time-steps if it does not get values from other time-steps directly inside its code. In practice, most of the models are parallelizable one way or another, but it is safer to assume they are not.
 
 OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue.
