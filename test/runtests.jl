@@ -9,6 +9,8 @@ using Documenter # for doctests
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(
