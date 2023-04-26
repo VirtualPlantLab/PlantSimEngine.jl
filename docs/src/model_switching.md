@@ -1,40 +1,28 @@
 # Model switching
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-m = ModelList(
-    Process1Model(2.0), 
-    Process2Model(),
-    Process3Model(),
-    Process4Model(),
-    Process5Model(),
-    Process6Model(),
-    Process7Model(),
-    status = (var0=1.0,)
+using PlantSimEngine, PlantMeteo, CSV, DataFrames
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+ 
+models = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2),
+    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
 )
-run!(m, meteo)
-struct AnotherProcess1Model <: AbstractProcess1Model
-    a
-    b # this is a new parameter
-end
-PlantSimEngine.inputs_(::AnotherProcess1Model) = (var1=-Inf, var2=-Inf, var10=-Inf,)
-PlantSimEngine.outputs_(::AnotherProcess1Model) = (var3=-Inf,)
-function PlantSimEngine.run!(::AnotherProcess1Model, models, status, meteo, constants=nothing, extra=nothing)
-    status.var3 = models.process1.a + status.var1 * status.var2 + status.var10
-end
-m2 = ModelList(
-    AnotherProcess1Model(2.0, 0.5), 
-    Process2Model(),
-    Process3Model(),
-    Process4Model(),
-    Process5Model(),
-    Process6Model(),
-    Process7Model(),
-    status = (var0=1.0, var10=2.0)
+run!(models, meteo_day)
+models2 = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyAssimGrowthModel(),
+    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
 )
-run!(m2, meteo)
+run!(models2, meteo_day)
 ```
 
 One of the main objective of PlantSimEngine is allowing users to switch between model implementations for a given process **without making any change to the code**. 
@@ -45,25 +33,26 @@ The package was carefully designed around this idea to make it easy and computat
 
 The `ModelList` is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
 
-Model coupling is done by adding models to the `ModelList`. Let's create a `ModelList` with the seven models from the example script `examples/dummy.jl`:
+Model coupling is done by adding models to the `ModelList`. Let's create a `ModelList` with several models from the example scripts in the [`examples`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/) folder:
+
+Importing the models from the scripts:
 
 ```julia
 using PlantSimEngine
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
 ```
 
-Include the dummy models:
+Coupling the models in a `ModelList`:
 
 ```@example usepkg
-m = ModelList(
-    Process1Model(2.0), 
-    Process2Model(),
-    Process3Model(),
-    Process4Model(),
-    Process5Model(),
-    Process6Model(),
-    Process7Model(),
-    status = (var0=1.0,)
+models = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2),
+    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
 )
 
 nothing # hide
@@ -71,66 +60,57 @@ nothing # hide
 
 PlantSimEngine uses the `ModelList` to compute the dependency graph of the models. Here we have seven models, one for each process. The dependency graph is computed automatically by PlantSimEngine, and is used to run the simulation in the correct order.
 
-We can run the simulation by calling the `run!` function with a meteorology:
+We can run the simulation by calling the `run!` function with a meteorology. Here we use an example meteorology:
 
 ```@example usepkg
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-
-run!(m, meteo)
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 ```
 
-And then we can access the status of the variables:
+!!! tip
+    To reproduce this meteorology, you can check the code presented [in this section in the FAQ](@ref defining_the_meteo)
+
+We can now run the simulation:
 
 ```@example usepkg
-status(m)
+run!(models, meteo_day)
 ```
 
-Now what if we want to switch the model for process 1? We can do this by simply replacing the model in the `ModelList`, and PlantSimEngine will automatically update the dependency graph, and adapt the simulation to the new model.
-
-First, let's create a new model for process 1. This model is a copy of the old model, but with one more input (`var10`) and one more parameter (`b`):
-
-``` julia
-struct AnotherProcess1Model <: AbstractProcess1Model
-    a
-    b # this is a new parameter
-end
-PlantSimEngine.inputs_(::AnotherProcess1Model) = (var1=-Inf, var2=-Inf, var10=-Inf)
-PlantSimEngine.outputs_(::AnotherProcess1Model) = (var3=-Inf,)
-function PlantSimEngine.run!(::AnotherProcess1Model, models, status, meteo, constants=nothing, extra=nothing)
-    status.var3 = models.process1.a + status.var1 * status.var2 + models.process1.b * status.var10
-end
-```
-
-Now we can switch the model used for process 1 by simply replacing the old model (`Process1Model`) by the new one `AnotherProcess1Model` in the `ModelList`:
+And then we can access the status of the `ModelList` using the [`status`](@ref) function:
 
 ```@example usepkg
-m2 = ModelList(
-    AnotherProcess1Model(2.0, 0.5), 
-    Process2Model(),
-    Process3Model(),
-    Process4Model(),
-    Process5Model(),
-    Process6Model(),
-    Process7Model(),
-    status = (var0=1.0, var10=2.0)
+status(models)
+```
+
+Now what if we want to switch the model that computes growth ? We can do this by simply replacing the model in the `ModelList`, and PlantSimEngine will automatically update the dependency graph, and adapt the simulation to the new model.
+
+Let's switch `ToyRUEGrowthModel` by `ToyAssimGrowthModel`:
+
+```@example usepkg
+models2 = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyAssimGrowthModel(),
+    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
 )
 
 nothing # hide
 ```
 
-And run the simulation with the new model:
+`ToyAssimGrowthModel` is a little bit more complex than `ToyRUEGrowthModel`, as it also computes the maintenance and growth respiration of the plant, so it has more parameters (we use the default values here).
+
+We can run a new simulation:
 
 ```@example usepkg
-run!(m2, meteo)
+run!(models2, meteo_day)
 ```
 
 And we can see that the status of the variables is different from the previous simulation:
 
 ```@example usepkg
-status(m2)
+status(models2)
 ```
 
 !!! note
-    In our example we replaced a hard-dependency model, but the same principle applies to soft-dependency models.
+    In our example we replaced a soft-dependency model, but the same principle applies to hard-dependency models.
 
 And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪
