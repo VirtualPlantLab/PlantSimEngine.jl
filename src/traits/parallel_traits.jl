@@ -200,7 +200,7 @@ object_parallelizable(MyModel()) # true
 abstract type ObjectDependencyTrait <: DependencyTrait end
 struct IsObjectDependent <: ObjectDependencyTrait end
 struct IsObjectIndependent <: ObjectDependencyTrait end
-ObjectDependencyTrait(::Type) = IsObjectIndependent()
+ObjectDependencyTrait(::Type) = IsObjectDependent()
 
 """
     object_parallelizable(x::T)
