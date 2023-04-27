@@ -22,19 +22,19 @@ That means that you can provide any compatible executor to the `executor` argume
 `PlantSimEngine.jl` uses [Holy traits](https://invenia.github.io/blog/2019/11/06/julialang-features-part-2/) to define if a model can be run in parallel.
 
 !!! note
-    A model is runnable in parallel over time-steps if it does not uses or set values from other time-steps, and over objects if it does not uses or set values from other objects.
+    A model is executable in parallel over time-steps if it does not uses or set values from other time-steps, and over objects if it does not uses or set values from other objects.
 
-You can define a model as runnable in parallel by defining the traits for time-steps and objects. For example, the `ToyLAIModel` model from the [examples folder](https://github.com/VEZY/PlantSimEngine.jl/tree/main/examples) can be run in parallel over time-steps and objects, so it defines the following traits:
+You can define a model as executable in parallel by defining the traits for time-steps and objects. For example, the `ToyLAIModel` model from the [examples folder](https://github.com/VEZY/PlantSimEngine.jl/tree/main/examples) can be run in parallel over time-steps and objects, so it defines the following traits:
 
 ```julia
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsTimeStepIndependent()
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsObjectIndependent()
 ```
 
-By default all models are considered not runnable in parallel, because it is the safest option to avoid bugs that are difficult to catch, so you only need to define these traits if it is runnable in parallel for them.
+By default all models are considered not executable in parallel, because it is the safest option to avoid bugs that are difficult to catch, so you only need to define these traits if it is executable in parallel for them.
 
 !!! tip
-    A model that is defined runnable in parallel will not necessarily will. First, the user has to pass a parallel `executor` to [`run!`](@ref) (*e.g.* `ThreadedEx`). Second, if the model is coupled with another model that is not runnable in parallel, `PlantSimEngine` will run all models in sequential.
+    A model that is defined executable in parallel will not necessarily will. First, the user has to pass a parallel `executor` to [`run!`](@ref) (*e.g.* `ThreadedEx`). Second, if the model is coupled with another model that is not executable in parallel, `PlantSimEngine` will run all models in sequential.
 
 ### Further executors
 
