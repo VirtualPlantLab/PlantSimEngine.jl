@@ -64,6 +64,7 @@ We can run the simulation by calling the `run!` function with a meteorology. Her
 
 ```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+nothing # hide
 ```
 
 !!! tip
@@ -74,6 +75,9 @@ We can now run the simulation:
 ```@example usepkg
 run!(models, meteo_day)
 ```
+
+!!! note
+    You'll notice a warning returned by `run!` here. If you read its content, you'll see it says that `ToyRUEGrowthModel` does not allow for parallel computations over time-steps. This is because it uses values from the previous time-steps in its computations. By default, `run!` makes the simulations in parallel, so to avoid the warning, you must explicitly tell it to use a sequential execution instead. To do so, you can use the `executor=SequentialEx()` keyword argument.
 
 And then we can access the status of the `ModelList` using the [`status`](@ref) function:
 
@@ -89,7 +93,7 @@ Let's switch `ToyRUEGrowthModel` by `ToyAssimGrowthModel`:
 models2 = ModelList(
     ToyLAIModel(),
     Beer(0.5),
-    ToyAssimGrowthModel(),
+    ToyAssimGrowthModel(), # This was `ToyRUEGrowthModel(0.2)` before
     status=(degree_days_cu=cumsum(meteo_day.degree_days),),
 )
 
@@ -114,3 +118,6 @@ status(models2)
     In our example we replaced a soft-dependency model, but the same principle applies to hard-dependency models.
 
 And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪
+
+!!! note
+    This was a very standard but easy example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will tell you that this kind of model is required for the simulation.
