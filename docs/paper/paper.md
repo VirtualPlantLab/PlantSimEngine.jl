@@ -17,23 +17,23 @@ affiliations:
    index: 1
  - name: AMAP, Univ Montpellier, CIRAD, CNRS, INRAE, IRD, Montpellier, France.
    index: 2
-date: 10 February 2023
+date: 02 May 2023
 bibliography: paper.bib
 ---
 
 # Summary
 
-`PlantSimEngine` is a package for the simulation and modelling of plants, soil and atmosphere, with a focus on ease of use and computational efficiency. It is designed to help researchers and practitioners prototype, implement and evaluate plant or crop models at any scale, without the hassle of technical computer science details. The package defines a framework for declaring processes and implementing associated models for their simulation, with key features including but not limited to:
+`PlantSimEngine` provides a high-level interface for model generation for the simulation and modelling of plants, soil and atmosphere, with a focus on ease of use and computational efficiency. It is designed to help researchers and practitioners prototype, implement and evaluate plant or crop models at any scale, without the hassle of technical computer science details. The package defines a framework for declaring processes and implementing associated models for their simulation, with key features including but not limited to:
 
-- easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer...
-- fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
-- no hassle, the package manages automatically input and output variables, time-steps, objects, coupling of models with a dependency graph
-- switch between models without changing any code, with a simple syntax to define the model to use for a given process
+- Easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer, etc...
+- Fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
+- No hassle, the package manages automatically input and output variables, time-steps, objects, coupling of models with a dependency graph
+- Switch between models without changing any code, with a simple syntax to define the model to use for a given process
 - Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
-- fast computation, with 100th of nanoseconds for the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) [@vezy_vezyplantbiophysicsjl_2023], a package that uses PlantSimEngine
+- Fast computation, with 100th of nanoseconds for the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) [@vezy_vezyplantbiophysicsjl_2023], a package that uses PlantSimEngine
 - Out of the box sequential, parallel (multi-threaded) or distributed (multi-process) computations over objects, time-steps and independent processes (thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/))
-- easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl) [@vezy_multiscaletreegraphjl_2023]
-- composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) [@carlson_montecarlomeasurementsjl_2020] to propagate measurement error
+- Easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl) [@vezy_multiscaletreegraphjl_2023]
+- Composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) [@carlson_montecarlomeasurementsjl_2020] to propagate measurement error
 
 # Statement of need
 
