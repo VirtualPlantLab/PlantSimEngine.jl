@@ -18,15 +18,15 @@ The package defines a framework for declaring processes and implementing associa
 
 It focuses on key aspects of simulation and modeling such as: 
 
-- easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer...
-- fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
-- no hassle, the package manages automatically input and output variables, time-steps, objects, soft and hard coupling of models with a dependency graph
-- switch between models without changing any code, with a simple syntax to define the model to use for a given process
+- Easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer...
+- Fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
+- No hassle, the package manages automatically input and output variables, time-steps, objects, soft and hard coupling of models with a dependency graph
+- Switch between models without changing any code, with a simple syntax to define the model to use for a given process
 - Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
 - 🚀(very) fast computation 🚀, think of 100th of nanoseconds for one model, two coupled models (see this [benchmark script](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/benchmark.jl)), or the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) that uses PlantSimEngine
 - Out of the box Sequential, Parallel (Multi-threaded) or Distributed (Multi-Process) computations over objects, time-steps and independent processes (thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/))
-- easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl)
-- composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to propagate measurement error
+- Easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl)
+- Composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to propagate measurement error
 
 ## Installation
 
