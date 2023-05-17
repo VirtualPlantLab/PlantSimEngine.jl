@@ -41,7 +41,6 @@ include("component_models/get_status.jl")
 include("dataframe.jl")
 
 # MTG compatibility:
-include("mtg/mtg_helpers.jl")
 include("mtg/init_mtg_models.jl")
 
 # Model evaluation (statistics):

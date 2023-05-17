@@ -13,12 +13,8 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
 
 @testset "Testing PlantSimEngine" begin
-    Aqua.test_all(
-        PlantSimEngine,
-        # Removing this test as dependencies return ambiguities...
-        #! But do it sometimes just to check that there are no ambiguities!
-        ambiguities=false
-    )
+    Aqua.test_all(PlantSimEngine, ambiguities=false)
+    Aqua.test_ambiguities([PlantSimEngine])
 
     @testset "ModelList" begin
         include("test-ModelList.jl")
