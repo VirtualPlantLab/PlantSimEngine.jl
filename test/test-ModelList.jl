@@ -13,6 +13,17 @@
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
     @test to_initialize(leaf) == (process1=(:var1, :var2), process2=(:var1,))
+    @test length(status(leaf)) == 1
+
+    # Requiring 3 steps for initialization:
+    leaf = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        nsteps=3
+    )
+
+    @test length(status(leaf)) == 3
+    @test status(leaf, :var1) == [-Inf, -Inf, -Inf]
 end;
 
 
@@ -65,6 +76,17 @@ end;
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
     @test to_initialize(leaf) == (process1=(:var2,),)
+
+    # Requiring 3 steps for initialization:
+    leaf = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        status=(var1=15.0,),
+        nsteps=3
+    )
+
+    @test length(status(leaf)) == 3
+    @test status(leaf, :var1) == [15.0, 15.0, 15.0]
 end;
 
 @testset "ModelList with fully initialized status" begin
