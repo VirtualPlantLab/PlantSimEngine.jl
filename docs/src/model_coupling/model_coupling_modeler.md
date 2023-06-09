@@ -20,7 +20,7 @@ This section uses notions from the previous section. If you are not familiar wit
 
 A model that calls explicitly another process is called a hard-coupled model. It is implemented by calling the process function directly.
 
-Let's go through the example processes and models from a script provided by the package here [examples/dummy.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/dummy.jl)
+Let's go through the example processes and models from a script provided by the package here [examples/dummy.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/dummy.jl)
 
 In this script, we declare seven processes and seven models, one for each process. The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`...
 

@@ -50,7 +50,7 @@ To better understand how models are implemented, you can read the detailed instr
 
 This growth model needs the absorbed photosynthetically active radiation (aPPFD) as an input, and outputs the assimilation, the maintenance respiration, the growth respiration, the biomass increment and the biomass. The assimilation is computed as the product of the aPPFD and the light use efficiency (LUE). The maintenance respiration is a fraction of the assimilation, and the growth respiration is a fraction of the net primary productivity (NPP), which is the assimilation minus the maintenance respiration. The biomass increment is the NPP minus the growth respiration, and the biomass is the sum of the biomass increment and the previous biomass.
 
-The model is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl), and is reproduced below:
+The model is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl), and is reproduced below:
 
 ```@example usepkg
 # Make the struct to hold the parameters, with its documentation:

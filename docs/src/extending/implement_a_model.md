@@ -20,8 +20,8 @@ For a complete example, you can look at the code in [`PlantBiophysics.jl`](https
 
 `PlantSimEngine` also provide toy models that can be used as a base to better understand how to implement a new model: 
 
-- The Beer model for light interception in [examples/Beer.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/Beer.jl)
-- A toy LAI development in [examples/ToyLAIModel.jl](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/ToyLAIModel.jl)
+- The Beer model for light interception in [examples/Beer.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/Beer.jl)
+- A toy LAI development in [examples/ToyLAIModel.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyLAIModel.jl)
 
 ## Requirements
 
@@ -33,7 +33,7 @@ In those files, you'll see that in order to implement a new model you'll need to
 
 If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implement a new process](@ref)).
 
-In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in `PlantSimEngine.jl` here: [`examples/Beer.jl`](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/Beer.jl).
+In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in `PlantSimEngine.jl` here: [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/Beer.jl).
 
 We can include this file like so:
 

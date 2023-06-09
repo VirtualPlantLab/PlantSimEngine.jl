@@ -16,7 +16,7 @@ m = ModelList(
 
 `PlantSimEngine.jl` is designed to make model coupling simple for both the modeler and the user. For example, `PlantBiophysics.jl` implements the [`Fvcb`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Fvcb) model to simulate the photosynthesis process. This model needs the stomatal conductance process to be simulated, so it calls again `run!` inside its implementation at some point. Note that it does not force any kind of conductance model over another, just that there is one to simulate the process. This ensures that users can choose whichever model they want to use for this simulation, independent of the photosynthesis model.
 
-We provide an example script that implements seven dummy processes in [`examples/dummy`](https://github.com/VEZY/PlantSimEngine.jl/blob/main/examples/dummy.jl). The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`... 
+We provide an example script that implements seven dummy processes in [`examples/dummy`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/dummy.jl). The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`... 
 
 ## Hard coupled models
 

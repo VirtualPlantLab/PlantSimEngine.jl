@@ -33,7 +33,7 @@ The package was carefully designed around this idea to make it easy and computat
 
 The `ModelList` is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
 
-Model coupling is done by adding models to the `ModelList`. Let's create a `ModelList` with several models from the example scripts in the [`examples`](https://github.com/VEZY/PlantSimEngine.jl/blob/master/examples/) folder:
+Model coupling is done by adding models to the `ModelList`. Let's create a `ModelList` with several models from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder:
 
 Importing the models from the scripts:
 

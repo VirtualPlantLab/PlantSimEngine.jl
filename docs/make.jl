@@ -9,11 +9,11 @@ DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, Plant
 makedocs(;
     modules=[PlantSimEngine],
     authors="Rémi Vezy <VEZY@users.noreply.github.com> and contributors",
-    repo="https://github.com/VEZY/PlantSimEngine.jl/blob/{commit}{path}#{line}",
+    repo="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/{commit}{path}#{line}",
     sitename="PlantSimEngine.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
-        canonical="https://VEZY.github.io/PlantSimEngine.jl",
+        canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
         assets=String[]
     ),
@@ -39,6 +39,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/VEZY/PlantSimEngine.jl",
+    repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
     devbranch="main"
 )
