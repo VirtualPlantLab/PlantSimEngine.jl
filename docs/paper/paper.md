@@ -71,7 +71,7 @@ PlantSimEngine's approach streamlines the process of model development by automa
 
 PlantSimEngine is used in the following packages:
 
-- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl), for the simulation of biophysical processes for plants such as photosynthesis, conductance for heat, water vapor and CO₂, latent, sensible energy fluxes, net radiation and temperature
+- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl), for the simulation of biophysical processes for plants such as photosynthesis, conductance for heat, water vapor and CO2, latent, sensible energy fluxes, net radiation and temperature
 
 - [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), an experimental crop model for oil palm
 
