@@ -80,13 +80,13 @@ function init_mtg_models!(
 end
 
 function init_mtg_models!(
-    mtg::MultiScaleTreeGraph.Node{N,A,T},
+    mtg::MultiScaleTreeGraph.Node{N,A},
     models::Dict{String,<:ModelList},
     nsteps;
     verbose=true,
     attr_name=Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models")),
     force=false
-) where {N<:MultiScaleTreeGraph.AbstractNodeMTG,A<:AbstractDict,T}
+) where {N<:MultiScaleTreeGraph.AbstractNodeMTG,A<:AbstractDict}
 
     attr_name_sym = Symbol(attr_name)
     # Check if all components have a model
