@@ -11,6 +11,7 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"))
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
@@ -46,6 +47,10 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
 
     @testset "Toy models" begin
         include("test-toy_models.jl")
+    end
+
+    @testset "MTG" begin
+        include("test-mtg.jl")
     end
 
     if VERSION == v"1.8"

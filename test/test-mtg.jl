@@ -25,17 +25,17 @@ meteo = Weather(
     @test descendants(mtg, :var1) == [nothing, nothing]
     @test descendants(mtg, :var2) == [nothing, var2]
 
-    to_init = init_mtg_models!(mtg, models, length(meteo))
+    to_init = init_mtg_models!(mtg, models, length(meteo), attr_name=:models)
     @test to_init == Dict{String,Set{Symbol}}("Leaf" => Set(Symbol[:var2]))
     @test NamedTuple(get_node(mtg, 3)[:models][1]) == (var4=-Inf, var5=-Inf, var6=-Inf, var1=var1, var3=-Inf, var2=var2)
 
     # The following shouldn't work because var2 has only one value: 
-    @test_throws ["Issue in function", "for node #3"] init_mtg_models!(mtg, models, 10)
+    @test_throws ["The attribute", "in node 3"] init_mtg_models!(mtg, models, 10)
 
     # Same with two time-steps:
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
     internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    leaf = Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
     var1 = [15.0, 16.0]
     var2 = [0.3, 0.4]
     leaf[:var2] = var2
@@ -48,7 +48,7 @@ meteo = Weather(
             status=(var1=var1,)
         )
     )
-    to_init = init_mtg_models!(mtg, models, length(meteo))
+    to_init = init_mtg_models!(mtg, models, length(meteo), attr_name=:models)
     @test NamedTuple(status(get_node(mtg, 3)[:models])[2]) == (var4=-Inf, var5=-Inf, var6=-Inf, var1=16.0, var3=-Inf, var2=0.4)
 end
 
@@ -70,7 +70,7 @@ end
         )
     )
 
-    to_init = init_mtg_models!(mtg, models, length(meteo))
+    to_init = init_mtg_models!(mtg, models, length(meteo), attr_name=:models)
 
     nsteps = length(meteo)
 
@@ -100,7 +100,7 @@ end
         )
     )
 
-    to_init = init_mtg_models!(mtg, models, length(meteo))
+    to_init = init_mtg_models!(mtg, models, length(meteo), attr_name=:models)
 
     attr_before_sim = deepcopy(leaf.attributes)
 
