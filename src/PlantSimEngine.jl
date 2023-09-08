@@ -27,6 +27,7 @@ include("Abstract_model_structs.jl")
 
 # Simulation row (status):
 include("component_models/Status.jl")
+include("component_models/RefVector.jl")
 
 # Simulation table (time-step table, from PlantMeteo):
 include("component_models/TimeStepTable.jl")
