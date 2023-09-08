@@ -4,7 +4,7 @@
         models::Dict{String,<:ModelList},
         i=nothing;
         verbose=true,
-        attr_name=:models
+        attr_name=Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models")),
     )
 
 initialize the components of an MTG (*i.e.* nodes) with the corresponding models.
@@ -19,7 +19,7 @@ and if not found, returns an error.
 - `models::Dict{String,ModelList}`: a dictionary of models named by components names
 - `i=nothing`: the time-step to initialize. If `nothing`, initialize all the time-steps.
 - `verbose = true`: return information during the processes
-- `attr_name = :models`: the node attribute name used to store the models, default to 
+- `attr_name = Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))`: the node attribute name used to store the models, default to 
 Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 
 # Examples
