@@ -13,6 +13,10 @@ so in essence, it is a stuct that stores a `NamedTuple` of the references to the
 A leaf with one value for all variables will make a status with one time step:
 
 ```jldoctest st1
+julia> using PlantSimEngine
+```
+
+```jldoctest st1
 julia> st = PlantSimEngine.Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500.0);
 ```
 
