@@ -66,6 +66,8 @@ end
 Base.keys(::Status{names}) where {names} = names
 Base.values(st::Status) = getindex.(values(getfield(st, :vars)))
 refvalues(mnt::Status) = values(getfield(mnt, :vars))
+refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
+
 Base.NamedTuple(mnt::Status) = NamedTuple{keys(mnt)}(values(mnt))
 Base.Tuple(mnt::Status) = values(mnt)
 
@@ -109,7 +111,7 @@ end
 
 Base.propertynames(::Status{T,R}) where {T,R} = T
 Base.length(mnt::Status) = length(getfield(mnt, :vars))
-Base.eltype(::Type{Status{T}}) where {T} = T
+Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype(T)
 
 Base.iterate(mnt::Status, iter=1) = iterate(NamedTuple(mnt), iter)
 
