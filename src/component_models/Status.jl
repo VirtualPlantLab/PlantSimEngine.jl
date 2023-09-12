@@ -115,7 +115,7 @@ end
 
 Base.propertynames(::Status{T,R}) where {T,R} = T
 Base.length(mnt::Status) = length(getfield(mnt, :vars))
-Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype(T)
+Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(T))
 
 Base.iterate(mnt::Status, iter=1) = iterate(NamedTuple(mnt), iter)
 
