@@ -227,7 +227,7 @@ function ModelList(
     return model_list
 end
 
-parse_models(m::Tuple) = NamedTuple([process(i) => i for i in m])
+parse_models(m) = NamedTuple([process(i) => i for i in m])
 
 init_fun_default(x::Vector{T}) where {T} = TimeStepTable([Status(i) for i in x])
 init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
@@ -261,16 +261,20 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, ns
     # If the user gave an empty status, we initialize all variables to their default values:
     if x === nothing || (!Tables.istable(x) && length(x) == 0)
         if nsteps === nothing
-            return init_fun(fill(ref_vars, 1))
+            return init_fun(ref_vars)
         else
             return init_fun(fill(ref_vars, nsteps))
         end
     end
 
-    # Making a vars for each ith value in the user vars:
-    x_full = []
-    for r in Tables.rows(x)
-        push!(x_full, merge(ref_vars, NamedTuple(r)))
+    if Tables.istable(x)
+        # Making a vars for each ith value in the user vars:
+        x_full = [merge(ref_vars, NamedTuple(x[1]))]
+        for r in Tables.rows(x)[2:end]
+            push!(x_full, merge(ref_vars, NamedTuple(r)))
+        end
+    else
+        x_full = merge(ref_vars, NamedTuple(x))
     end
 
     return init_fun(x_full)
@@ -314,7 +318,9 @@ PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}, nsteps) where {N,T}
     length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
-    length_vars = [length(i) for i in vars_vals]
+    length_vars = [isa(i, RefVector) ? 1 : length(i) for i in vars_vals]
+    #Note: length is 1 for RefVector because it is a vector of references to other scales, 
+    # not a vector of values
 
     # One of the variable is given as an array, meaning this is actually several
     # time-steps. In this case we make an array of vars.
