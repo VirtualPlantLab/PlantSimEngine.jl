@@ -34,6 +34,7 @@ include("component_models/TimeStepTable.jl")
 
 # List of models:
 include("component_models/ModelList.jl")
+include("mtg/MultiScaleModel.jl")
 
 # Getters / setters for status:
 include("component_models/get_status.jl")
@@ -43,6 +44,7 @@ include("dataframe.jl")
 
 # MTG compatibility:
 include("mtg/init_mtg_models.jl")
+include("mtg/mapping.jl")
 
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
@@ -70,7 +72,7 @@ include("run.jl")
 include("evaluation/fit.jl")
 
 export AbstractModel
-export ModelList
+export ModelList, MultiScaleModel
 export init_mtg_models!
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
