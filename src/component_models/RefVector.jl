@@ -103,6 +103,14 @@ end
 Base.size(rv::RefVector) = size(rv.v)
 Base.length(rv::RefVector) = length(rv.v)
 Base.eltype(::Type{RefVector{T}}) where {T} = T
+Base.parent(v::RefVector) = v.v
+
+# Base.push!(v::RefVector, val) = push!(parent(v), val)
+Base.resize!(v::RefVector, nl::Integer) = (resize!(v.parent, nl); v)
+Base.push!(v::RefVector, x...) = (push!(parent(v), x...); v)
+Base.pop!(v::RefVector) = pop!(parent(v))
+Base.append!(v::RefVector, items) = (append!(parent(v), items); v)
+Base.empty!(v::RefVector) = (empty!(parent(v)); v)
 
 function Base.show(io::IO, rv::RefVector{T}) where {T}
     print(io, "RefVector{")
