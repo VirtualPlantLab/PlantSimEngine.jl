@@ -4,6 +4,7 @@ using Tables, DataFrames, CSV
 using MultiScaleTreeGraph
 using PlantMeteo, Statistics
 using Documenter # for doctests
+using Random # for ToySoilModel 
 
 # Include the example dummy processes:
 include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
@@ -11,7 +12,12 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+
+# For the multiscale models:
 include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"))
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"))
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
