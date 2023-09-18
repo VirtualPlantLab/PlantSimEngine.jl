@@ -106,6 +106,103 @@ function to_initialize(; verbose=true, vars...)
     return NamedTuple(to_init)
 end
 
+# For the list of models given to an MTG:
+function to_initialize(models::Dict{String,Any}, organs_statuses)
+    var_need_init = Dict{String,Any}()
+    for organ in keys(models)
+        # organ = "Plant"
+        # Get all models for the organ:
+        mods = PlantSimEngine.get_models(models[organ])
+        map_vars = PlantSimEngine.get_mapping(models[organ])
+        multiscale_vars = collect(first(i) for i in map_vars)
+        ins = merge(PlantSimEngine.inputs_.(mods)...)
+        outs = merge(PlantSimEngine.outputs_.(mods)...)
+
+        # Variables in the node that are defined as multiscale:
+        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
+        # multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
+
+        # Variables we need to initialise for this scale:
+        vars_needed_this_scale = setdiff(keys(ins), keys(outs))
+
+        need_initialisation = Symbol[]
+        need_models_from_scales = NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}[]
+
+        for var in vars_needed_this_scale # e.g. var = :carbon_demand
+            # If the variable is multiscale (it is computed by anothe model), we check if there is a model at the 
+            # other scale(s) that computes it:
+            if var in multi_scale_ins
+                # Scale(s) at which the variable is computed:
+                from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
+                # We check if there is a model at the other scale(s) that computes it:
+                outputs_from_scales = PlantSimEngine.map_scale(models, from_scales) do m, s
+                    # We check that the node type exist in the model list:
+                    haskey(m, s) || error(
+                        "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of models."
+                    )
+                    # If it does, we get the outputs of its models:
+                    merge(PlantSimEngine.outputs_.(PlantSimEngine.get_models(m[s]))...)
+                end
+
+                outputs_from_scales = merge(outputs_from_scales...)
+                push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
+            elseif organs_statuses[organ][var] == ins[var]
+                push!(need_initialisation, var)
+            end
+            # Note: if the variable is an output of the model for another scale (in `multi_scale_outs`), we don't need to initialise it at this scale.
+        end
+        if length(need_initialisation) > 0
+            var_need_init[organ] = (; need_initialisation, need_models_from_scales)
+        end
+        # to_initialize(ModelList(PlantSimEngine.parse_models(mods), organs_statuses[organ]))
+    end
+end
+
+
+function get_status(models::Dict{String,Any}, type_promotion)
+    organs_mapping, var_outputs_from_mapping = PlantSimEngine.compute_mapping(models, type_promotion)
+    # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
+    organs_statuses = Dict{String,Status}()
+
+    for organ in keys(models)
+        # organ = "Internode"
+        # Parsing the models into a NamedTuple to get the process name:
+        node_models = PlantSimEngine.parse_models(PlantSimEngine.get_models(models[organ]))
+
+        # Get the status if any was given by the user (this can be used as default values in the mapping):
+        st = PlantSimEngine.get_status(models[organ]) # User status
+
+        if isnothing(st)
+            st = NamedTuple()
+        else
+            st = NamedTuple(st)
+        end
+
+        # Add the variables that are defined as multiscale (coming from other scales):
+        if haskey(organs_mapping, organ)
+            st_vars_mapped = (; zip(PlantSimEngine.vars_from_mapping(organs_mapping[organ]), PlantSimEngine.vars_type_from_mapping(organs_mapping[organ]))...)
+            !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
+        end
+
+        # Add the variable(s) written by other scales into this node scale:
+        haskey(var_outputs_from_mapping, organ) && (st = merge(st, var_outputs_from_mapping[organ]))
+
+        # Then we initialise a status taking into account the status given by the user.
+        # This step is done to get default values for each variables:
+        if length(st) == 0
+            st = nothing
+        else
+            st = Status(st)
+        end
+
+        st = PlantSimEngine.add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
+        # The status is added to the vector of statuses.
+        push!(organs_statuses, organ => st)
+    end
+
+    return organs_statuses
+end
+
 """
     init_status!(object::Dict{String,ModelList};vars...)
     init_status!(component::ModelList;vars...)
@@ -274,7 +371,8 @@ function vars_not_init_(st::T, default_values) where {T<:Status}
 
     not_init = Symbol[]
     for i in keys(default_values)
-        if getproperty(st, i) == default_values[i]
+        # if the variable value is equal to the default value, or if it is an uninitialized RefVector (length == 0):
+        if getproperty(st, i) == default_values[i] || (isa(getproperty(st, i), RefVector) && length(getproperty(st, i)) == 0)
             push!(not_init, i)
         end
     end

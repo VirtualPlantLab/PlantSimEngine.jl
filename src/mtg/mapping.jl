@@ -1,3 +1,7 @@
+inputs_(m::MultiScaleModel) = inputs_(m.model)
+outputs_(m::MultiScaleModel) = outputs_(m.model)
+
+
 """
     model(m::AbstractModel)
 
@@ -75,7 +79,7 @@ get_models(m::MultiScaleModel) = [model(m)]
 # Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.
 
 # Get the models of an AbstractModel:
-get_models(m::AbstractModel) = model(m)
+get_models(m::AbstractModel) = [model(m)]
 
 # Same, for the status (if any provided):
 
@@ -130,8 +134,88 @@ end
 get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping(m)
 get_mapping(m::AbstractModel) = Pair{Symbol,String}[]
 
-# Functions to get the variables from the mapping:
+"""
+    compute_mapping(models::Dict{String,Any}, type_promotion)
 
+
+"""
+function compute_mapping(models::Dict{String,Any}, type_promotion)
+    # Initialise a dict that defines the multiscale variables for each organ type:
+    organs_mapping = Dict{String,Any}()
+    # Initialise a Dict that defines the variables that are outputs from a mapping, 
+    # i.e. variables that are written by a model at another scale:
+    var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
+    for organ in keys(models)
+        # organ = "Leaf"
+        map_vars = PlantSimEngine.get_mapping(models[organ])
+        if length(map_vars) == 0
+            continue
+        end
+
+        multiscale_vars = collect(first(i) for i in map_vars)
+        mods = PlantSimEngine.get_models(models[organ])
+        ins = merge(PlantSimEngine.inputs_.(mods)...)
+        outs = merge(PlantSimEngine.outputs_.(mods)...)
+
+        # Variables in the node that are defined as multiscale:
+        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
+        multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
+
+        multi_scale_vars = Status(PlantSimEngine.convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
+
+        # Users can provide initialisation values in a status. We get them here:
+        st = PlantSimEngine.get_status(models[organ])
+
+        # Add the values given by the user (initialisation) to the mapping, and make it a Status:
+        if isnothing(st)
+            new_st = multi_scale_vars
+        else
+            # If the user provided the multiscale variable in the status, and it is an output variable, 
+            # we use those values for the mapping:
+            for i in keys(multi_scale_vars)
+                if i in multi_scale_outs && i in keys(st)
+                    multi_scale_vars[i] = st[i]
+                end
+            end
+            # NB: we do this only for multiscale outputs, because this output cannot be 
+            # defined from the models at the target scale, so we need to add it to this other scale
+            # as an output variable.
+
+            new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
+            diff = intersect(keys(st), keys(multi_scale_vars))
+            for i in diff
+                if isa(new_st[i], PlantSimEngine.RefVector)
+                    new_st[i][1] = st[i]
+                else
+                    new_st[i] = st[i]
+                end
+            end
+        end
+
+        # Add outputs from this scale as a variable for other scales:
+        PlantSimEngine.outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
+
+        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{PlantSimEngine.RefVector,PlantSimEngine.MappedVar}}}()
+        for var_mapping in map_vars
+            # var_mapping = map_vars[1]
+            variable, organs_mapped = var_mapping
+
+            if haskey(organ_mapping, organs_mapped)
+                push!(organ_mapping[organs_mapped], variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+            else
+                organ_mapping[organs_mapped] = Dict(variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+            end
+        end
+
+        organs_mapping[organ] = Dict(k => NamedTuple(v) for (k, v) in organ_mapping)
+    end
+
+    var_outputs_from_mapping = Dict(k => NamedTuple(v) for (k, v) in var_outputs_from_mapping)
+
+    return (; organs_mapping, var_outputs_from_mapping)
+end
+
+# Functions to get the variables from the mapping:
 """
     vars_from_mapping(m)
 
@@ -395,4 +479,13 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
         push!(statuses, organs_statuses[node.MTG.symbol])
         organs_statuses
     end
+end
+
+
+function map_scale(f, m, scale::String)
+    map_scale(f, m, [scale])
+end
+
+function map_scale(f, m, scales::AbstractVector{String})
+    map(s -> f(m, s), scales)
 end
