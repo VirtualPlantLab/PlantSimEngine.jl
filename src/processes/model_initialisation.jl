@@ -106,8 +106,22 @@ function to_initialize(; verbose=true, vars...)
     return NamedTuple(to_init)
 end
 
+""" 
+    VarFromMTG(var::Symbol, scale::String)
+
+A strucure to hold the variables that are needed for initialisation, and that must be taken from the MTG attributes.
+"""
+struct VarFromMTG
+    var::Symbol
+    scale::String
+end
+
 # For the list of models given to an MTG:
-function to_initialize(models::Dict{String,Any}, organs_statuses)
+function to_initialize(models::Dict{String,Any}, organs_statuses, mtg)
+
+    # Get the variables in the MTG:
+    vars_in_mtg = names(mtg)
+
     var_need_init = Dict{String,Any}()
     for organ in keys(models)
         # organ = "Plant"
@@ -126,6 +140,7 @@ function to_initialize(models::Dict{String,Any}, organs_statuses)
         vars_needed_this_scale = setdiff(keys(ins), keys(outs))
 
         need_initialisation = Symbol[]
+        need_var_from_mtg = VarFromMTG[]
         need_models_from_scales = NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}[]
 
         for var in vars_needed_this_scale # e.g. var = :carbon_demand
@@ -147,60 +162,23 @@ function to_initialize(models::Dict{String,Any}, organs_statuses)
                 outputs_from_scales = merge(outputs_from_scales...)
                 push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
             elseif organs_statuses[organ][var] == ins[var]
-                push!(need_initialisation, var)
+                # In this case the variable is an input of the model, and is not computed by other models at this scale or the others.
+                if var in vars_in_mtg
+                    # If the variable can be found in the MTG, we will take it from there:
+                    push!(need_var_from_mtg, VarFromMTG(var, organ))
+                else
+                    # Else, the user need to initialise it:
+                    push!(need_initialisation, var)
+                end
             end
             # Note: if the variable is an output of the model for another scale (in `multi_scale_outs`), we don't need to initialise it at this scale.
         end
         if length(need_initialisation) > 0
-            var_need_init[organ] = (; need_initialisation, need_models_from_scales)
+            var_need_init[organ] = (; need_initialisation, need_models_from_scales, need_var_from_mtg)
         end
-        # to_initialize(ModelList(PlantSimEngine.parse_models(mods), organs_statuses[organ]))
-    end
-end
-
-
-function get_status(models::Dict{String,Any}, type_promotion)
-    organs_mapping, var_outputs_from_mapping = PlantSimEngine.compute_mapping(models, type_promotion)
-    # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
-    organs_statuses = Dict{String,Status}()
-
-    for organ in keys(models)
-        # organ = "Internode"
-        # Parsing the models into a NamedTuple to get the process name:
-        node_models = PlantSimEngine.parse_models(PlantSimEngine.get_models(models[organ]))
-
-        # Get the status if any was given by the user (this can be used as default values in the mapping):
-        st = PlantSimEngine.get_status(models[organ]) # User status
-
-        if isnothing(st)
-            st = NamedTuple()
-        else
-            st = NamedTuple(st)
-        end
-
-        # Add the variables that are defined as multiscale (coming from other scales):
-        if haskey(organs_mapping, organ)
-            st_vars_mapped = (; zip(PlantSimEngine.vars_from_mapping(organs_mapping[organ]), PlantSimEngine.vars_type_from_mapping(organs_mapping[organ]))...)
-            !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
-        end
-
-        # Add the variable(s) written by other scales into this node scale:
-        haskey(var_outputs_from_mapping, organ) && (st = merge(st, var_outputs_from_mapping[organ]))
-
-        # Then we initialise a status taking into account the status given by the user.
-        # This step is done to get default values for each variables:
-        if length(st) == 0
-            st = nothing
-        else
-            st = Status(st)
-        end
-
-        st = PlantSimEngine.add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
-        # The status is added to the vector of statuses.
-        push!(organs_statuses, organ => st)
     end
 
-    return organs_statuses
+    return var_need_init
 end
 
 """

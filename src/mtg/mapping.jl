@@ -147,24 +147,24 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
     var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
     for organ in keys(models)
         # organ = "Leaf"
-        map_vars = PlantSimEngine.get_mapping(models[organ])
+        map_vars = get_mapping(models[organ])
         if length(map_vars) == 0
             continue
         end
 
         multiscale_vars = collect(first(i) for i in map_vars)
-        mods = PlantSimEngine.get_models(models[organ])
-        ins = merge(PlantSimEngine.inputs_.(mods)...)
-        outs = merge(PlantSimEngine.outputs_.(mods)...)
+        mods = get_models(models[organ])
+        ins = merge(inputs_.(mods)...)
+        outs = merge(outputs_.(mods)...)
 
         # Variables in the node that are defined as multiscale:
         multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
         multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
 
-        multi_scale_vars = Status(PlantSimEngine.convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
+        multi_scale_vars = Status(convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
 
         # Users can provide initialisation values in a status. We get them here:
-        st = PlantSimEngine.get_status(models[organ])
+        st = get_status(models[organ])
 
         # Add the values given by the user (initialisation) to the mapping, and make it a Status:
         if isnothing(st)
@@ -184,7 +184,7 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
             new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
             diff = intersect(keys(st), keys(multi_scale_vars))
             for i in diff
-                if isa(new_st[i], PlantSimEngine.RefVector)
+                if isa(new_st[i], RefVector)
                     new_st[i][1] = st[i]
                 else
                     new_st[i] = st[i]
@@ -193,17 +193,17 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
         end
 
         # Add outputs from this scale as a variable for other scales:
-        PlantSimEngine.outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
+        outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
 
-        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{PlantSimEngine.RefVector,PlantSimEngine.MappedVar}}}()
+        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{RefVector,MappedVar}}}()
         for var_mapping in map_vars
             # var_mapping = map_vars[1]
             variable, organs_mapped = var_mapping
 
             if haskey(organ_mapping, organs_mapped)
-                push!(organ_mapping[organs_mapped], variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                push!(organ_mapping[organs_mapped], variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
             else
-                organ_mapping[organs_mapped] = Dict(variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                organ_mapping[organs_mapped] = Dict(variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
             end
         end
 
@@ -233,15 +233,15 @@ See also `vars_type_from_mapping` to get the variables type.
 
 ```jldoctest
 vars_mapping = Dict(
-    ["Leaf"] => Dict(:A => PlantSimEngine.RefVector{Float64}[-Inf]), 
+    ["Leaf"] => Dict(:A => RefVector{Float64}[-Inf]), 
     ["Leaf", "Internode"] => Dict(
-        :carbon_allocation => PlantSimEngine.RefVector{Float64}[], 
-        :carbon_demand => PlantSimEngine.RefVector{Float64}[])
+        :carbon_allocation => RefVector{Float64}[], 
+        :carbon_demand => RefVector{Float64}[])
 );
 ```
 
 ```jldoctest
-julia> PlantSimEngine.vars_from_mapping(vars_mapping)
+julia> vars_from_mapping(vars_mapping)
 3-element Vector{Symbol}:
  :A
  :carbon_allocation
@@ -320,24 +320,24 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
     for organ in keys(models)
         # organ = "Leaf"
-        map_vars = PlantSimEngine.get_mapping(models[organ])
+        map_vars = get_mapping(models[organ])
         if length(map_vars) == 0
             continue
         end
 
         multiscale_vars = collect(first(i) for i in map_vars)
-        mods = PlantSimEngine.get_models(models[organ])
-        ins = merge(PlantSimEngine.inputs_.(mods)...)
-        outs = merge(PlantSimEngine.outputs_.(mods)...)
+        mods = get_models(models[organ])
+        ins = merge(inputs_.(mods)...)
+        outs = merge(outputs_.(mods)...)
 
         # Variables in the node that are defined as multiscale:
         multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
         multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
 
-        multi_scale_vars = Status(PlantSimEngine.convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
+        multi_scale_vars = Status(convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
 
         # Users can provide initialisation values in a status. We get them here:
-        st = PlantSimEngine.get_status(models[organ])
+        st = get_status(models[organ])
 
         # Add the values given by the user (initialisation) to the mapping, and make it a Status:
         if isnothing(st)
@@ -357,7 +357,7 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
             new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
             diff = intersect(keys(st), keys(multi_scale_vars))
             for i in diff
-                if isa(new_st[i], PlantSimEngine.RefVector)
+                if isa(new_st[i], RefVector)
                     new_st[i][1] = st[i]
                 else
                     new_st[i] = st[i]
@@ -366,17 +366,17 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
         end
 
         # Add outputs from this scale as a variable for other scales:
-        PlantSimEngine.outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
+        outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
 
-        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{PlantSimEngine.RefVector,PlantSimEngine.MappedVar}}}()
+        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{RefVector,MappedVar}}}()
         for var_mapping in map_vars
             # var_mapping = map_vars[1]
             variable, organs_mapped = var_mapping
 
             if haskey(organ_mapping, organs_mapped)
-                push!(organ_mapping[organs_mapped], variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                push!(organ_mapping[organs_mapped], variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
             else
-                organ_mapping[organs_mapped] = Dict(variable => PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                organ_mapping[organs_mapped] = Dict(variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
             end
         end
 
@@ -416,10 +416,10 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     for organ in keys(models)
         # organ = "Soil"
         # Parsing the models into a NamedTuple to get the process name:
-        node_models = PlantSimEngine.parse_models(PlantSimEngine.get_models(models[organ]))
+        node_models = parse_models(get_models(models[organ]))
 
         # Get the status if any was given by the user (this can be used as default values in the mapping):
-        st = PlantSimEngine.get_status(models[organ]) # User status
+        st = get_status(models[organ]) # User status
 
         if isnothing(st)
             st = NamedTuple()
@@ -429,7 +429,7 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
 
         # Add the variables that are defined as multiscale (coming from other scales):
         if haskey(organs_mapping, organ)
-            st_vars_mapped = (; zip(PlantSimEngine.vars_from_mapping(organs_mapping[organ]), PlantSimEngine.vars_type_from_mapping(organs_mapping[organ]))...)
+            st_vars_mapped = (; zip(vars_from_mapping(organs_mapping[organ]), vars_type_from_mapping(organs_mapping[organ]))...)
             !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
         end
 
@@ -444,7 +444,7 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
             st = Status(st)
         end
 
-        st = PlantSimEngine.add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
+        st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
         # The status is added to the vector of statuses.
         push!(organs_statuses, organ => st)
     end
@@ -453,13 +453,13 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
     for (organ, st) in organs_statuses # e.g.: organ = "Leaf"; st = organs_statuses[organ]
         # If there is any MappedVar in the status:
-        if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
+        if any(x -> isa(x, MappedVar), values(st))
             val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
             for (k, v) in val_pointers
-                if isa(v, PlantSimEngine.MappedVar)
-                    val_pointers[k] = PlantSimEngine.refvalue(organs_statuses[val.organ], val.var)
+                if isa(v, MappedVar)
+                    val_pointers[k] = refvalue(organs_statuses[val.organ], val.var)
                 else
-                    val_pointers[k] = PlantSimEngine.refvalue(st, k)
+                    val_pointers[k] = refvalue(st, k)
                 end
             end
             organs_statuses[organ] = Status(NamedTuple(val_pointers))
@@ -488,4 +488,169 @@ end
 
 function map_scale(f, m, scales::AbstractVector{String})
     map(s -> f(m, s), scales)
+end
+
+
+# Return an error if some variables are not initialized or computed by other models in the output
+# from to_initialize(models, organs_statuses)
+function error_mtg_init(var_need_init)
+    if length(var_need_init) > 0
+        error_string = String[]
+        for need_init in var_need_init
+            organ_init = first(need_init)
+            need_initialisation = last(need_init).need_initialisation
+
+            # A model needs initialisations:
+            if length(need_initialisation) > 0
+                push!(
+                    error_string,
+                    "Nodes of type $organ_init need variables $need_initialisation, but they are not initialized or computed."
+                )
+            end
+
+            # The mapping is wrong:
+            need_models_from_scales = last(need_init).need_models_from_scales
+            for er in need_models_from_scales
+                var, scale, need_scales = er
+                push!(
+                    error_string,
+                    "Nodes of type $need_scales should provide a model to compute variable `:$var` as input for nodes of type $scale, but none is provided."
+                )
+            end
+        end
+
+        if length(error_string) > 0
+            error(join(error_string, "\n"))
+        end
+    end
+end
+
+
+"""
+    status_template(models::Dict{String,Any}, type_promotion)
+
+Create a status template for a given set of models and type promotion.
+
+# Arguments
+- `models::Dict{String,Any}`: A dictionary of models.
+- `type_promotion`: The type promotion to use.
+
+# Returns
+- A dictionary with a `status` template for each organ type.
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine, Random
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```
+
+```jldoctest mylabel
+julia> models = Dict(
+            "Plant" =>
+                MultiScaleModel(
+                    model=ToyCAllocationModel(),
+                    mapping=[
+                        # inputs
+                        :A => ["Leaf"],
+                        :carbon_demand => ["Leaf", "Internode"],
+                        # outputs
+                        :carbon_allocation => ["Leaf", "Internode"]
+                    ],
+                ),
+            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            "Leaf" => (
+                MultiScaleModel(
+                    model=ToyAssimModel(),
+                    mapping=[:soil_water_content => "Soil",],
+                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                ),
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+                Status(aPPFD=1300.0, TT=10.0),
+            ),
+            "Soil" => (
+                ToySoilWaterModel(),
+            ),
+        );
+```
+
+```jldoctest mylabel
+julia> status_template(models, nothing)
+Dict{String, Status} with 4 entries:
+  "Soil"      => Status(soil_water_content = -Inf,)
+  "Internode" => Status(TT = -Inf, carbon_demand = -Inf, carbon_allocation = -Inf)
+  "Plant"     => Status(A = RefVector{Float64}[], carbon_demand = RefVector{Float64}[], carbon_offer = -Inf, carbon_allocation = RefVector{Float64}[])
+  "Leaf"      => Status(aPPFD = 1300.0, soil_water_content = MappedVar{String, Float64}("Soil", :soil_water_content, -Inf), A = -Inf, TT = 10.0, carbon_demand = -Inf, carbon_allocation = -Inf)
+```
+
+Note that variables that are multiscale (*i.e.* defined in a mapping) are linked between scales, so if we write at a scale, the value will be 
+automatically updated at the other scale:
+
+```jldoctest mylabel
+organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][:soil_water_content]
+true
+```
+"""
+function status_template(models::Dict{String,Any}, type_promotion)
+    organs_mapping, var_outputs_from_mapping = compute_mapping(models, type_promotion)
+    # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
+    organs_statuses = Dict{String,Status}()
+
+    for organ in keys(models)
+        # organ = "Internode"
+        # Parsing the models into a NamedTuple to get the process name:
+        node_models = parse_models(get_models(models[organ]))
+
+        # Get the status if any was given by the user (this can be used as default values in the mapping):
+        st = get_status(models[organ]) # User status
+
+        if isnothing(st)
+            st = NamedTuple()
+        else
+            st = NamedTuple(st)
+        end
+
+        # Add the variables that are defined as multiscale (coming from other scales):
+        if haskey(organs_mapping, organ)
+            st_vars_mapped = (; zip(vars_from_mapping(organs_mapping[organ]), vars_type_from_mapping(organs_mapping[organ]))...)
+            !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
+        end
+
+        # Add the variable(s) written by other scales into this node scale:
+        haskey(var_outputs_from_mapping, organ) && (st = merge(st, var_outputs_from_mapping[organ]))
+
+        # Then we initialise a status taking into account the status given by the user.
+        # This step is done to get default values for each variables:
+        if length(st) == 0
+            st = nothing
+        else
+            st = Status(st)
+        end
+
+        st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
+        # The status is added to the vector of statuses.
+        push!(organs_statuses, organ => st)
+    end
+
+    # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
+    # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
+    for (organ, st) in organs_statuses # e.g.: organ = "Leaf"; st = organs_statuses[organ]
+        # If there is any MappedVar in the status:
+        if any(x -> isa(x, MappedVar), values(st))
+            val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
+            for (k, v) in val_pointers
+                if isa(v, MappedVar)
+                    val_pointers[k] = refvalue(organs_statuses[v.organ], v.var)
+                else
+                    val_pointers[k] = refvalue(st, k)
+                end
+            end
+            organs_statuses[organ] = Status(NamedTuple(val_pointers))
+        end
+    end
+
+    return organs_statuses
 end
