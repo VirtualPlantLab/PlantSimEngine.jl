@@ -137,7 +137,59 @@ get_mapping(m::AbstractModel) = Pair{Symbol,String}[]
 """
     compute_mapping(models::Dict{String,Any}, type_promotion)
 
+Compute the mapping of a dictionary of model mapping.
 
+# Arguments
+
+- `models::Dict{String,Any}`: a dictionary of model mapping
+- `type_promotion`: the type promotion to use for the variables
+
+# Returns
+
+- organs_mapping: for each organ type, the variables that are mapped to other scales, how they are mapped (RefVector or RefValue)
+and the nodes that are targeted by the mapping
+- var_outputs_from_mapping: for each organ type, the variables that are written by a model at another scale and its default value
+
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```
+
+```jldoctest mylabel
+models = Dict(
+    "Plant" =>
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                # inputs
+                :A => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                # outputs
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+    "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil",],
+            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+        ),
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        Status(aPPFD=1300.0, TT=10.0),
+    ),
+)
+```
+
+```jldoctest mylabel
+compute_mapping(models, nothing)
+```
 """
 function compute_mapping(models::Dict{String,Any}, type_promotion)
     # Initialise a dict that defines the multiscale variables for each organ type:
@@ -182,8 +234,8 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
             # as an output variable.
 
             new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
-            diff = intersect(keys(st), keys(multi_scale_vars))
-            for i in diff
+            diff_keys = intersect(keys(st), keys(multi_scale_vars))
+            for i in diff_keys
                 if isa(new_st[i], RefVector)
                     new_st[i][1] = st[i]
                 else
@@ -294,183 +346,23 @@ end
 
 # Initialisations with the mapping:
 function init_simulation!(mtg, models; type_promotion=nothing, check=true)
-    # if check
-    #     attr_name_sym = Set(keys(models))
-    #     multiscale_vars_names = collect(keys(multiscale_vars))
-    #     for i in multiscale_vars_names
-    #         if isa(i, Vector{String})
-    #             for n in i
-    #                 push!(attr_name_sym, n)
-    #             end
-    #         else
-    #             push!(attr_name_sym, i)
-    #         end
-    #     end
-    #     # Check if all components have a model
-    #     component_no_models = setdiff(MultiScaleTreeGraph.components(mtg), attr_name_sym)
-    #     if length(component_no_models) > 0
-    #         @info string("No model found for component(s) ", join(component_no_models, ", ", ", and ")) maxlog = 1
-    #     end
-    # end
+    # We make a pre-initialised status for each kind of organ (this is a template for each node type):
+    organs_statuses = PlantSimEngine.status_template(models, type_promotion)
 
-    # Initialise a dict that defines the multiscale variables for each organ type:
-    organs_mapping = Dict{String,Any}()
-    # Initialise a Dict that defines the variables that are outputs from a mapping, 
-    # i.e. variables that are written by a model at another scale:
-    var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
-    for organ in keys(models)
-        # organ = "Leaf"
-        map_vars = get_mapping(models[organ])
-        if length(map_vars) == 0
-            continue
-        end
+    # We need to know which variables are not initialized, and not computed by other models:
+    var_need_init = PlantSimEngine.to_initialize(models, organs_statuses)
 
-        multiscale_vars = collect(first(i) for i in map_vars)
-        mods = get_models(models[organ])
-        ins = merge(inputs_.(mods)...)
-        outs = merge(outputs_.(mods)...)
-
-        # Variables in the node that are defined as multiscale:
-        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
-        multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
-
-        multi_scale_vars = Status(convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
-
-        # Users can provide initialisation values in a status. We get them here:
-        st = get_status(models[organ])
-
-        # Add the values given by the user (initialisation) to the mapping, and make it a Status:
-        if isnothing(st)
-            new_st = multi_scale_vars
-        else
-            # If the user provided the multiscale variable in the status, and it is an output variable, 
-            # we use those values for the mapping:
-            for i in keys(multi_scale_vars)
-                if i in multi_scale_outs && i in keys(st)
-                    multi_scale_vars[i] = st[i]
-                end
-            end
-            # NB: we do this only for multiscale outputs, because this output cannot be 
-            # defined from the models at the target scale, so we need to add it to this other scale
-            # as an output variable.
-
-            new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
-            diff = intersect(keys(st), keys(multi_scale_vars))
-            for i in diff
-                if isa(new_st[i], RefVector)
-                    new_st[i][1] = st[i]
-                else
-                    new_st[i] = st[i]
-                end
-            end
-        end
-
-        # Add outputs from this scale as a variable for other scales:
-        outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
-
-        organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{RefVector,MappedVar}}}()
-        for var_mapping in map_vars
-            # var_mapping = map_vars[1]
-            variable, organs_mapped = var_mapping
-
-            if haskey(organ_mapping, organs_mapped)
-                push!(organ_mapping[organs_mapped], variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
-            else
-                organ_mapping[organs_mapped] = Dict(variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
-            end
-        end
-
-        organs_mapping[organ] = Dict(k => NamedTuple(v) for (k, v) in organ_mapping)
-        # organs_mapping[organ] = organ_mapping
-    end
-
-    # Output of the code above: 
-    # - organs_mapping: for each organ type, the variables that are mapped to other scales, how they are mapped (RefVector or RefValue)
-    #   and the nodes that are targeted by the mapping
-    # - var_outputs_from_mapping: for each organ type, the variables that are written by a model at another scale and its default value
-
-    var_outputs_from_mapping = Dict(k => NamedTuple(v) for (k, v) in var_outputs_from_mapping)
-
-    #! recommencer par ici. Ce qu'il faut que je fasse: 
-    #! 1. instantier des RefVector{Type} pour chaque variable multiscale, pour chaque type de mapping, e.g. :A => ["Leaf, "Internode"]
-    #! 2. créer un Status pour chaque noeud de façon usuelle, sauf que:
-    #!      - pour les variables multiscale, que l'on instancie en utilisant les RefVector vides.
-    #!      - pour les variables multiscale qui sont des outputs d'autres échelles, on doit créer la variable avec une bonne valeur par défaut.
-    #! 3. traverser les MTG pour remplir les RefVector, sachant qu'ils seront automatiquement remplis partout puisque c'est des Ref (a vérifier).
-    #! 4. ajouter des checks, par exemple une variable output
-    #! 5. faire un tableau de status, qui potentiellement référence le noeud. Et faire une `sort` en fonction de l'arbre de dépendence multi-échelle
-    #! 6. ajouter des tests
-
-    # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
-    organs_statuses = Dict{String,Status}()
-    #! what we need to do here:
-    #! 1. get the models for the node
-    #! 2. get the variables that are defined as multiscale (used by other scales),
-    #!    and use them as default values for the status (do not forget to remove the default value at some point)
-    #!    (check why we need a default value here, it was used for the output at the other scale but may not be needed anymore)
-    #! 3. get the variables that are written by a model from another scale (if so), and add them to the status
-    #! tip: utiliser `var_outputs_from_mapping` pour ajouter les variables dans le status
-    #! des échelles cibles. (Dict de échelle cible: variables à ajouter)
-
-    # We make a pre-initialised status for each kind of organ:
-    for organ in keys(models)
-        # organ = "Soil"
-        # Parsing the models into a NamedTuple to get the process name:
-        node_models = parse_models(get_models(models[organ]))
-
-        # Get the status if any was given by the user (this can be used as default values in the mapping):
-        st = get_status(models[organ]) # User status
-
-        if isnothing(st)
-            st = NamedTuple()
-        else
-            st = NamedTuple(st)
-        end
-
-        # Add the variables that are defined as multiscale (coming from other scales):
-        if haskey(organs_mapping, organ)
-            st_vars_mapped = (; zip(vars_from_mapping(organs_mapping[organ]), vars_type_from_mapping(organs_mapping[organ]))...)
-            !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
-        end
-
-        # Add the variable(s) written by other scales into this node scale:
-        haskey(var_outputs_from_mapping, organ) && (st = merge(st, var_outputs_from_mapping[organ]))
-
-        # Then we initialise a status taking into account the status given by the user.
-        # This step is done to get default values for each variables:
-        if length(st) == 0
-            st = nothing
-        else
-            st = Status(st)
-        end
-
-        st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
-        # The status is added to the vector of statuses.
-        push!(organs_statuses, organ => st)
-    end
-
-    # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
-    # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
-    for (organ, st) in organs_statuses # e.g.: organ = "Leaf"; st = organs_statuses[organ]
-        # If there is any MappedVar in the status:
-        if any(x -> isa(x, MappedVar), values(st))
-            val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-            for (k, v) in val_pointers
-                if isa(v, MappedVar)
-                    val_pointers[k] = refvalue(organs_statuses[val.organ], val.var)
-                else
-                    val_pointers[k] = refvalue(st, k)
-                end
-            end
-            organs_statuses[organ] = Status(NamedTuple(val_pointers))
-        end
-    end
+    # If we find some, we return an error:
+    error_mtg_init(var_need_init)
 
     #! continue here. What we need to do:
-    #! 3. traverser les MTG pour remplir les RefVector, sachant qu'ils seront automatiquement remplis partout puisque c'est des Ref (a vérifier).
-    #! 4. ajouter des checks, par exemple une variable output
-    #! 5. faire un tableau de status, qui potentiellement référence le noeud. Et faire une `sort` en fonction de l'arbre de dépendence multi-échelle
-    #! 6. ajouter des tests
+    #!  - traverser les MTG pour initialiser un Status par organe, et mettre le vecteur de ces status dans un Dict{Organe, Status}
+    #!  - dans le même traversal, trouver les variables qui doivent être initialisées depuis le mtg (et erreur si elles n'y sont pas)
+    #!  - remplir les RefVector, sachant qu'ils seront automatiquement remplis partout puisque c'est des Ref (a vérifier).
+    #!  - Ajouter la référence au noeud dans le status ? 
+    #!  - calculer le graphe de dépendence des modèles, et faire des calls en fonction
+    #!  - ajouter des tests
+    #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
     statuses = Status[]
     # We traverse the MTG to initialise the mapping depending on the number of nodes and their types
     traverse!(mtg) do node
@@ -504,7 +396,7 @@ function error_mtg_init(var_need_init)
             if length(need_initialisation) > 0
                 push!(
                     error_string,
-                    "Nodes of type $organ_init need variables $need_initialisation, but they are not initialized or computed."
+                    "Nodes of type $organ_init need variable(s) $(join(need_initialisation, ", ")) to be initialized or computed by a model."
                 )
             end
 
