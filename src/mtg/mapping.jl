@@ -252,14 +252,29 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
             # var_mapping = map_vars[1]
             variable, organs_mapped = var_mapping
 
+            ref_var = PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable))
             if haskey(organ_mapping, organs_mapped)
-                push!(organ_mapping[organs_mapped], variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                push!(organ_mapping[organs_mapped], variable => ref_var)
             else
-                organ_mapping[organs_mapped] = Dict(variable => create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable)))
+                organ_mapping[organs_mapped] = Dict(variable => ref_var)
+            end
+
+            # If the mapping is one node type only and is given as a string, we add the variable of the source scale 
+            # as a MappedVar linked to itself, so we remember to not deepcopy when we build the status for the source node.
+            # This is a special case for when the source scale only has one node in the MTG, and one variable is mapped.
+            if isa(organs_mapped, AbstractString)
+                if !haskey(organs_mapping, organs_mapped)
+                    organs_mapping[organs_mapped] = Dict(organs_mapped => organ_mapping[organs_mapped])
+                else
+                    push!(organs_mapping[organs_mapped][organs_mapped], organ_mapping[organs_mapped])
+                end
             end
         end
+        organs_mapping[organ] = organ_mapping
+    end
 
-        organs_mapping[organ] = Dict(k => NamedTuple(v) for (k, v) in organ_mapping)
+    for (k, v) in organs_mapping
+        organs_mapping[k] = Dict(k => NamedTuple(v) for (k, v) in v)
     end
 
     var_outputs_from_mapping = Dict(k => NamedTuple(v) for (k, v) in var_outputs_from_mapping)
@@ -315,7 +330,6 @@ function create_var_ref(organ::Vector{<:AbstractString}, var, default::T) where 
     RefVector(Base.RefValue{T}[])
 end
 
-#! reverse parameter order , it is more logical
 struct MappedVar{S<:AbstractString,T}
     organ::S
     var::Symbol
@@ -350,10 +364,10 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     organs_statuses = PlantSimEngine.status_template(models, type_promotion)
 
     # We need to know which variables are not initialized, and not computed by other models:
-    var_need_init = PlantSimEngine.to_initialize(models, organs_statuses)
+    var_need_init = PlantSimEngine.to_initialize(models, organs_statuses, mtg)
 
     # If we find some, we return an error:
-    error_mtg_init(var_need_init)
+    check && PlantSimEngine.error_mtg_init(var_need_init)
 
     #! continue here. What we need to do:
     #!  - traverser les MTG pour initialiser un Status par organe, et mettre le vecteur de ces status dans un Dict{Organe, Status}
@@ -363,14 +377,75 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     #!  - calculer le graphe de dépendence des modèles, et faire des calls en fonction
     #!  - ajouter des tests
     #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
-    statuses = Status[]
-    # We traverse the MTG to initialise the mapping depending on the number of nodes and their types
-    traverse!(mtg) do node
-        # Check if the node has a model defined for its symbol:
-        # node = get_node(mtg, 1)
-        push!(statuses, organs_statuses[node.MTG.symbol])
-        organs_statuses
+
+    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
+    dict_mapped_vars = Dict{Pair,Any}()
+    # # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
+    # # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
+    for (organ, st) in organs_statuses # e.g.: organ = "Soil"; st = organs_statuses[organ]
+        val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
+        # If there is any MappedVar in the status:
+        if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
+            for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
+                if isa(v, PlantSimEngine.MappedVar)
+                    # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
+                    if !haskey(dict_mapped_vars, v.organ => v.var)
+                        push!(dict_mapped_vars, Pair(v.organ, v.var) => Ref(st[k].default))
+                    end
+
+                    # Then we replace the MappedVar by a RefValue to the actual variable:
+                    val_pointers[k] = dict_mapped_vars[v.organ=>v.var]
+                else
+                    val_pointers[k] = st[k]
+                end
+            end
+        end
+        organs_statuses_dict[organ] = val_pointers
     end
+
+    #! Continue here (bis): use organs_statuses_dict to initialise the MTG nodes statuses. The Status will be created manually
+    #! to control the references. 
+    #! Standard values will be copied and a reference to this copy will be used. 
+    #! RefValues will be used as is (i.e. the reference will be passed to the Status)
+    #! RefVector will be passes as is, and instantiated on the fly traversing the MTG.
+
+    nodes_with_models = collect(keys(organs_statuses))
+    # We traverse the MTG a first time to initialise the statuses linked to the nodes:
+    statuses = Dict(i => Status[] for i in nodes_with_models)
+    traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
+        if node.MTG.symbol in nodes_with_models # Check if the node has a model defined for its symbol
+            # If there is any MappedVar in the status:
+            st = organs_statuses[node.MTG.symbol]
+            if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
+                val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
+                for (k, v) in val_pointers
+                    if isa(v, PlantSimEngine.MappedVar)
+                        val_pointers[k] = PlantSimEngine.refvalue(organs_statuses[v.organ], v.var)
+                    else
+                        val_pointers[k] = PlantSimEngine.refvalue(st, k)
+                    end
+                end
+                st = Status(NamedTuple(val_pointers))
+            else
+                st = deepcopy(st)
+            end
+
+            push!(statuses[node.MTG.symbol], st)
+        end
+    end
+    #! 1. For the soil_water_content of the soil, we need a way to know that it will be mapped,
+    #!  so we need to reference the original status, not deepcopying it. We should use a MappedVar
+    #!  too, referencing the "Soil" type of node in the template (i.e. itself).
+    #! 2. We need a way to know if a variable of a node needs to be pushed into a RefVector of another scale,
+    #!  so this way we only traverse the MTG once and push into the RefVector of the template status.
+
+    # Print an info if models are declared for nodes that don't exist in the MTG:
+    if check && any(x -> length(last(x)) == 0, statuses)
+        model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
+        @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
+    end
+
+    push!(statuses[1][:carbon_allocation], PlantSimEngine.refvalue(statuses[2], :carbon_allocation))
 end
 
 
@@ -525,23 +600,6 @@ function status_template(models::Dict{String,Any}, type_promotion)
         st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
         # The status is added to the vector of statuses.
         push!(organs_statuses, organ => st)
-    end
-
-    # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
-    # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
-    for (organ, st) in organs_statuses # e.g.: organ = "Leaf"; st = organs_statuses[organ]
-        # If there is any MappedVar in the status:
-        if any(x -> isa(x, MappedVar), values(st))
-            val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-            for (k, v) in val_pointers
-                if isa(v, MappedVar)
-                    val_pointers[k] = refvalue(organs_statuses[v.organ], v.var)
-                else
-                    val_pointers[k] = refvalue(st, k)
-                end
-            end
-            organs_statuses[organ] = Status(NamedTuple(val_pointers))
-        end
     end
 
     return organs_statuses
