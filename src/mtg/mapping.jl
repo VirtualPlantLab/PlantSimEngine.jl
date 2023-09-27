@@ -373,12 +373,10 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     #!  - traverser les MTG pour initialiser un Status par organe, et mettre le vecteur de ces status dans un Dict{Organe, Status}
     #!  - dans le même traversal, trouver les variables qui doivent être initialisées depuis le mtg (et erreur si elles n'y sont pas)
     #!  - remplir les RefVector, sachant qu'ils seront automatiquement remplis partout puisque c'est des Ref (a vérifier).
-    #!  - Ajouter la référence au noeud dans le status ? 
+    #!  - Ajouter la référence au noeud dans le status 
     #!  - calculer le graphe de dépendence des modèles, et faire des calls en fonction
     #!  - ajouter des tests
     #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
-    #! We need a way to know if a variable of a node needs to be pushed into a RefVector of another scale,
-    #!  so this way we only traverse the MTG once and push into the RefVector of the template status.
 
     organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
     dict_mapped_vars = Dict{Pair,Any}()
@@ -410,23 +408,40 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     # We traverse the MTG a first time to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in nodes_with_models)
     traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
-        if node.MTG.symbol in nodes_with_models # Check if the node has a model defined for its symbol
-            #! 1. if some values still need to be instantiated, look into the MTG node if we can find them,
-            #!  and if not, throw an error.
-            #! 2. Add a Ref to the node into the status.
+        # Check if the node has a model defined for its symbol
+        node.MTG.symbol ∉ nodes_with_models && return
 
-            st = PlantSimEngine.status_from_template(organs_statuses_dict[node.MTG.symbol])
-            push!(
-                statuses[node.MTG.symbol],
-                st
-            )
+        # We make a copy of the template status for this node:
+        st_template = copy(organs_statuses_dict[node.MTG.symbol])
 
-            # Instantiate the RefVectors on the fly for other scales that map into this scale
-            if haskey(vars_to_add_in_refvector, node.MTG.symbol)
-                for (organ, vars) in vars_to_add_in_refvector[node.MTG.symbol]
-                    for var in vars # e.g.: var = :carbon_demand
-                        push!(organs_statuses_dict[organ][var], PlantSimEngine.refvalue(st, var))
-                    end
+        # We add a reference to the node into the status, so that we can access it from the models if needed.
+        push!(st_template, :node => Ref(node))
+
+        # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
+        # and if so, use their value in the status:
+        if haskey(var_need_init, node.MTG.symbol) && length(var_need_init[node.MTG.symbol].need_var_from_mtg) > 0
+            for i in var_need_init[node.MTG.symbol].need_var_from_mtg
+                @assert typeof(node[i.var]) == typeof(st[i.var]) string(
+                    "Initializing variable $(i.var) using MTG node $(node.id): expected type $(typeof(st[i.var])), found $(typeof(node[i.var])). ",
+                    "Please check the type of the variable in the MTG, and make it a $(typeof(st[i.var]))."
+                )
+                st_template[i.var] = node[i.var]
+                #! NB: the variable is not a reference to the value in the MTG, but a copy of it.
+                #! This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
+                #! and it will be automatically passed as is.
+            end
+        end
+
+        # Make the node status from the template:
+        st = PlantSimEngine.status_from_template(st_template)
+
+        push!(statuses[node.MTG.symbol], st)
+
+        # Instantiate the RefVectors on the fly for other scales that map into this scale
+        if haskey(vars_to_add_in_refvector, node.MTG.symbol)
+            for (organ, vars) in vars_to_add_in_refvector[node.MTG.symbol]
+                for var in vars # e.g.: var = :carbon_demand
+                    push!(organs_statuses_dict[organ][var], PlantSimEngine.refvalue(st, var))
                 end
             end
         end
@@ -594,7 +609,32 @@ function status_template(models::Dict{String,Any}, type_promotion)
         push!(organs_statuses, organ => st)
     end
 
-    return organs_statuses
+    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
+    dict_mapped_vars = Dict{Pair,Any}()
+    # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
+    # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
+    for (organ, st) in organs_statuses # e.g.: organ = "Soil"; st = organs_statuses[organ]
+        val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
+        # If there is any MappedVar in the status:
+        if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
+            for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
+                if isa(v, PlantSimEngine.MappedVar)
+                    # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
+                    if !haskey(dict_mapped_vars, v.organ => v.var)
+                        push!(dict_mapped_vars, Pair(v.organ, v.var) => Ref(st[k].default))
+                    end
+
+                    # Then we replace the MappedVar by a RefValue to the actual variable:
+                    val_pointers[k] = dict_mapped_vars[v.organ=>v.var]
+                else
+                    val_pointers[k] = st[k]
+                end
+            end
+        end
+        organs_statuses_dict[organ] = val_pointers
+    end
+
+    return organs_statuses_dict
 end
 
 """
