@@ -414,23 +414,10 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     statuses = Dict(i => Status[] for i in nodes_with_models)
     traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
         if node.MTG.symbol in nodes_with_models # Check if the node has a model defined for its symbol
-            # If there is any MappedVar in the status:
-            st = organs_statuses[node.MTG.symbol]
-            if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
-                val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-                for (k, v) in val_pointers
-                    if isa(v, PlantSimEngine.MappedVar)
-                        val_pointers[k] = PlantSimEngine.refvalue(organs_statuses[v.organ], v.var)
-                    else
-                        val_pointers[k] = PlantSimEngine.refvalue(st, k)
-                    end
-                end
-                st = Status(NamedTuple(val_pointers))
-            else
-                st = deepcopy(st)
-            end
-
-            push!(statuses[node.MTG.symbol], st)
+            push!(
+                statuses[node.MTG.symbol],
+                PlantSimEngine.status_from_template(organs_statuses_dict[node.MTG.symbol])
+            )
         end
     end
     #! 1. For the soil_water_content of the soil, we need a way to know that it will be mapped,
@@ -566,8 +553,7 @@ function status_template(models::Dict{String,Any}, type_promotion)
     # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
     organs_statuses = Dict{String,Status}()
 
-    for organ in keys(models)
-        # organ = "Internode"
+    for organ in keys(models) # e.g.: organ = "Internode"
         # Parsing the models into a NamedTuple to get the process name:
         node_models = parse_models(get_models(models[organ]))
 
@@ -604,3 +590,71 @@ function status_template(models::Dict{String,Any}, type_promotion)
 
     return organs_statuses
 end
+
+"""
+    status_from_template(d::Dict{Symbol,Any})
+
+Create a status from a template dictionary of variables and values. If the values 
+are already RefValues or RefVectors, they are used as is, else they are converted to Refs.
+
+# Arguments
+
+- `d::Dict{Symbol,Any}`: A dictionary of variables and values.
+
+# Returns
+
+- A [`Status`](@ref).
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine
+julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0));
+julia> a
+1.0
+julia> b
+2.0
+```
+"""
+function status_from_template(d::Dict{Symbol,T} where {T})
+    Status(NamedTuple(first(i) => ref_var(last(i)) for i in d))
+end
+
+"""
+    ref_var(v)
+
+Create a reference to a variable. If the variable is already a `Base.RefValue`,
+it is returned as is, else it is returned as a Ref to the copy of the value, or a 
+or a Ref to the `RefVector` (in case `v` is a `RefVector`).
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine
+julia> ref_var(1.0)
+Base.RefValue{Float64}(1.0)
+```
+
+```jldoctest mylabel
+julia> ref_var([1.0])
+Base.RefValue{Vector{Float64}}([1.0])
+```
+
+```jldoctest mylabel
+julia> ref_var(Base.RefValue(1.0))
+Base.RefValue{Float64}(1.0)
+```
+
+```jldoctest mylabel
+julia> ref_var(Base.RefValue([1.0]))
+Base.RefValue{Vector{Float64}}([1.0])
+```
+
+```jldoctest mylabel
+julia> ref_var(PlantSimEngine.RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
+Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
+```
+"""
+ref_var(v) = Base.Ref(copy(v))
+ref_var(v::T) where {T<:Base.RefValue} = v
+ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
