@@ -358,10 +358,20 @@ function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, m
     end
 end
 
-# Initialisations with the mapping:
-function init_simulation!(mtg, models; type_promotion=nothing, check=true)
+"""
+    init_simulation(mtg, models; type_promotion=nothing, check=true)
+
+Initialise the simulation by creating:
+
+- a status for each node type, considering multi-scale variables.
+- the dependency graph of the models, and the order in which they should be called.
+"""
+function init_simulation(mtg, models; type_promotion=nothing, check=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
     organs_statuses = PlantSimEngine.status_template(models, type_promotion)
+    # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
+    # the RefVectors properly:
+    var_refvector = PlantSimEngine.reverse_mapping(models)
 
     # We need to know which variables are not initialized, and not computed by other models:
     var_need_init = PlantSimEngine.to_initialize(models, organs_statuses, mtg)
@@ -378,74 +388,8 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     #!  - ajouter des tests
     #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
 
-    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
-    dict_mapped_vars = Dict{Pair,Any}()
-    # # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
-    # # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
-    for (organ, st) in organs_statuses # e.g.: organ = "Soil"; st = organs_statuses[organ]
-        val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-        # If there is any MappedVar in the status:
-        if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
-            for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
-                if isa(v, PlantSimEngine.MappedVar)
-                    # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
-                    if !haskey(dict_mapped_vars, v.organ => v.var)
-                        push!(dict_mapped_vars, Pair(v.organ, v.var) => Ref(st[k].default))
-                    end
-
-                    # Then we replace the MappedVar by a RefValue to the actual variable:
-                    val_pointers[k] = dict_mapped_vars[v.organ=>v.var]
-                else
-                    val_pointers[k] = st[k]
-                end
-            end
-        end
-        organs_statuses_dict[organ] = val_pointers
-    end
-
-    vars_to_add_in_refvector = PlantSimEngine.reverse_mapping(models)
-    nodes_with_models = collect(keys(organs_statuses_dict))
-    # We traverse the MTG a first time to initialise the statuses linked to the nodes:
-    statuses = Dict(i => Status[] for i in nodes_with_models)
-    traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
-        # Check if the node has a model defined for its symbol
-        node.MTG.symbol ∉ nodes_with_models && return
-
-        # We make a copy of the template status for this node:
-        st_template = copy(organs_statuses_dict[node.MTG.symbol])
-
-        # We add a reference to the node into the status, so that we can access it from the models if needed.
-        push!(st_template, :node => Ref(node))
-
-        # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
-        # and if so, use their value in the status:
-        if haskey(var_need_init, node.MTG.symbol) && length(var_need_init[node.MTG.symbol].need_var_from_mtg) > 0
-            for i in var_need_init[node.MTG.symbol].need_var_from_mtg
-                @assert typeof(node[i.var]) == typeof(st[i.var]) string(
-                    "Initializing variable $(i.var) using MTG node $(node.id): expected type $(typeof(st[i.var])), found $(typeof(node[i.var])). ",
-                    "Please check the type of the variable in the MTG, and make it a $(typeof(st[i.var]))."
-                )
-                st_template[i.var] = node[i.var]
-                #! NB: the variable is not a reference to the value in the MTG, but a copy of it.
-                #! This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
-                #! and it will be automatically passed as is.
-            end
-        end
-
-        # Make the node status from the template:
-        st = PlantSimEngine.status_from_template(st_template)
-
-        push!(statuses[node.MTG.symbol], st)
-
-        # Instantiate the RefVectors on the fly for other scales that map into this scale
-        if haskey(vars_to_add_in_refvector, node.MTG.symbol)
-            for (organ, vars) in vars_to_add_in_refvector[node.MTG.symbol]
-                for var in vars # e.g.: var = :carbon_demand
-                    push!(organs_statuses_dict[organ][var], PlantSimEngine.refvalue(st, var))
-                end
-            end
-        end
-    end
+    # Get the status of each node by node type, pre-initialised considering multi-scale variables:
+    statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -511,7 +455,8 @@ Create a status template for a given set of models and type promotion.
 - `type_promotion`: The type promotion to use.
 
 # Returns
-- A dictionary with a `status` template for each organ type.
+
+- A dictionary with the organ types as keys, and a dictionary of variables => default values as values.
 
 # Examples
 
@@ -554,11 +499,11 @@ julia> models = Dict(
 
 ```jldoctest mylabel
 julia> status_template(models, nothing)
-Dict{String, Status} with 4 entries:
-  "Soil"      => Status(soil_water_content = -Inf,)
-  "Internode" => Status(TT = -Inf, carbon_demand = -Inf, carbon_allocation = -Inf)
-  "Plant"     => Status(A = RefVector{Float64}[], carbon_demand = RefVector{Float64}[], carbon_offer = -Inf, carbon_allocation = RefVector{Float64}[])
-  "Leaf"      => Status(aPPFD = 1300.0, soil_water_content = MappedVar{String, Float64}("Soil", :soil_water_content, -Inf), A = -Inf, TT = 10.0, carbon_demand = -Inf, carbon_allocation = -Inf)
+Dict{String, Dict{Symbol, Any}} with 4 entries:
+  "Soil"      => Dict(:soil_water_content=>RefValue{Float64}(-Inf))
+  "Internode" => Dict(:carbon_allocation=>-Inf, :TT=>-Inf, :carbon_demand=>-Inf)
+  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :A=>RefVector{Float64}[], :carbon_offer=>-Inf, :carbon_demand=>RefVector{Float64}[])
+  "Leaf"      => Dict(:carbon_allocation=>-Inf, :A=>-Inf, :TT=>10.0, :aPPFD=>1300.0, :soil_water_content=>RefValue{Float64}(-Inf), :carbon_demand=>-Inf)
 ```
 
 Note that variables that are multiscale (*i.e.* defined in a mapping) are linked between scales, so if we write at a scale, the value will be 
@@ -571,8 +516,9 @@ true
 """
 function status_template(models::Dict{String,Any}, type_promotion)
     organs_mapping, var_outputs_from_mapping = compute_mapping(models, type_promotion)
-    # Vector of statuses, pre-initialised with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
-    organs_statuses = Dict{String,Status}()
+    # Vector of pre-initialised variables with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
+    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
+    dict_mapped_vars = Dict{Pair,Any}()
 
     for organ in keys(models) # e.g.: organ = "Internode"
         # Parsing the models into a NamedTuple to get the process name:
@@ -605,17 +551,10 @@ function status_template(models::Dict{String,Any}, type_promotion)
         end
 
         st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
-        # The status is added to the vector of statuses.
-        push!(organs_statuses, organ => st)
-    end
 
-    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
-    dict_mapped_vars = Dict{Pair,Any}()
-    # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
-    # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
-    for (organ, st) in organs_statuses # e.g.: organ = "Soil"; st = organs_statuses[organ]
+        # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
+        # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
         val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-        # If there is any MappedVar in the status:
         if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
             for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
                 if isa(v, PlantSimEngine.MappedVar)
@@ -786,4 +725,57 @@ function reverse_mapping(models)
     end
 
     return filter!(x -> length(last(x)) > 0, var_to_ref)
+end
+
+"""
+    init_statuses(mtg, models, status_template, var_need_init)
+    init_statuses(mtg, models, status_template)
+
+Get the status of each node in the MTG by node type, pre-initialised considering multi-scale variables
+using the template given by `status_template`.
+"""
+function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{String,Any}())
+    nodes_with_models = collect(keys(status_template))
+    # We traverse the MTG a first time to initialise the statuses linked to the nodes:
+    statuses = Dict(i => Status[] for i in nodes_with_models)
+    MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
+        # Check if the node has a model defined for its symbol
+        node.MTG.symbol ∉ nodes_with_models && return
+
+        # We make a copy of the template status for this node:
+        st_template = copy(status_template[node.MTG.symbol])
+
+        # We add a reference to the node into the status, so that we can access it from the models if needed.
+        push!(st_template, :node => Ref(node))
+
+        # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
+        # and if so, use their value in the status:
+        if haskey(var_need_init, node.MTG.symbol) && length(var_need_init[node.MTG.symbol].need_var_from_mtg) > 0
+            for i in var_need_init[node.MTG.symbol].need_var_from_mtg
+                @assert typeof(node[i.var]) == typeof(st_template[i.var]) string(
+                    "Initializing variable $(i.var) using MTG node $(node.id): expected type $(typeof(st_template[i.var])), found $(typeof(node[i.var])). ",
+                    "Please check the type of the variable in the MTG, and make it a $(typeof(st_template[i.var]))."
+                )
+                st_template[i.var] = node[i.var]
+                #! NB: the variable is not a reference to the value in the MTG, but a copy of it.
+                #! This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
+                #! and it will be automatically passed as is.
+            end
+        end
+
+        # Make the node status from the template:
+        st = PlantSimEngine.status_from_template(st_template)
+
+        push!(statuses[node.MTG.symbol], st)
+
+        # Instantiate the RefVectors on the fly for other scales that map into this scale
+        if haskey(var_refvector, node.MTG.symbol)
+            for (organ, vars) in var_refvector[node.MTG.symbol]
+                for var in vars # e.g.: var = :carbon_demand
+                    push!(status_template[organ][var], PlantSimEngine.refvalue(st, var))
+                end
+            end
+        end
+    end
+    return statuses
 end
