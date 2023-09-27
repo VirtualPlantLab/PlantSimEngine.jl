@@ -252,7 +252,7 @@ function compute_mapping(models::Dict{String,Any}, type_promotion)
             # var_mapping = map_vars[1]
             variable, organs_mapped = var_mapping
 
-            ref_var = PlantSimEngine.create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable))
+            ref_var = create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable))
             if haskey(organ_mapping, organs_mapped)
                 push!(organ_mapping[organs_mapped], variable => ref_var)
             else
@@ -388,16 +388,16 @@ automatically passed as is.
 """
 function init_simulation(mtg, models; type_promotion=nothing, check=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
-    organs_statuses = PlantSimEngine.status_template(models, type_promotion)
+    organs_statuses = status_template(models, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
     # the RefVectors properly:
-    var_refvector = PlantSimEngine.reverse_mapping(models)
+    var_refvector = reverse_mapping(models)
 
     # We need to know which variables are not initialized, and not computed by other models:
-    var_need_init = PlantSimEngine.to_initialize(models, organs_statuses, mtg)
+    var_need_init = to_initialize(models, organs_statuses, mtg)
 
     # If we find some, we return an error:
-    check && PlantSimEngine.error_mtg_init(var_need_init)
+    check && error_mtg_init(var_need_init)
 
     #! continue here. What we need to do:
     #!  - traverser les MTG pour initialiser un Status par organe, et mettre le vecteur de ces status dans un Dict{Organe, Status}
@@ -409,7 +409,7 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true)
     #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
-    statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
+    statuses = init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -575,9 +575,9 @@ function status_template(models::Dict{String,Any}, type_promotion)
         # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
         # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
         val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-        if any(x -> isa(x, PlantSimEngine.MappedVar), values(st))
+        if any(x -> isa(x, MappedVar), values(st))
             for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
-                if isa(v, PlantSimEngine.MappedVar)
+                if isa(v, MappedVar)
                     # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
                     if !haskey(dict_mapped_vars, v.organ => v.var)
                         push!(dict_mapped_vars, Pair(v.organ, v.var) => Ref(st[k].default))
@@ -614,7 +614,7 @@ are already RefValues or RefVectors, they are used as is, else they are converte
 
 ```jldoctest mylabel
 julia> using PlantSimEngine
-julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0));
+julia> a, b = status_from_template(Dict(:a => 1.0, :b => 2.0));
 julia> a
 1.0
 julia> b
@@ -656,8 +656,8 @@ Base.RefValue{Vector{Float64}}([1.0])
 ```
 
 ```jldoctest mylabel
-julia> ref_var(PlantSimEngine.RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
-Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
+julia> ref_var(RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
+Base.RefValue{RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
 ```
 """
 ref_var(v) = Base.Ref(copy(v))
@@ -729,7 +729,7 @@ function reverse_mapping(models)
     var_to_ref = Dict{String,Any}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
     for organ in keys(models)
         # organ = "Plant"
-        map_vars = PlantSimEngine.get_mapping(models[organ])
+        map_vars = get_mapping(models[organ])
         for i in map_vars # e.g.: i = :carbon_demand => ["Leaf", "Internode"] 
             mapped = last(i) # e.g.: mapped = ["Leaf", "Internode"]
             if isa(mapped, Vector)
@@ -784,7 +784,7 @@ function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{S
         end
 
         # Make the node status from the template:
-        st = PlantSimEngine.status_from_template(st_template)
+        st = status_from_template(st_template)
 
         push!(statuses[node.MTG.symbol], st)
 
@@ -792,7 +792,7 @@ function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{S
         if haskey(var_refvector, node.MTG.symbol)
             for (organ, vars) in var_refvector[node.MTG.symbol]
                 for var in vars # e.g.: var = :carbon_demand
-                    push!(status_template[organ][var], PlantSimEngine.refvalue(st, var))
+                    push!(status_template[organ][var], refvalue(st, var))
                 end
             end
         end
