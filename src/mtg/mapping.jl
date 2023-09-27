@@ -365,6 +365,26 @@ Initialise the simulation by creating:
 
 - a status for each node type, considering multi-scale variables.
 - the dependency graph of the models, and the order in which they should be called.
+
+# Arguments
+
+- `mtg`: the MTG
+- `models::Dict{String,Any}`: a dictionary of model mapping
+- `type_promotion`: the type promotion to use for the variables
+- `check`: whether to check the mapping for errors
+
+# Details
+
+The function first computes a template of status for each organ type that has a model in the mapping.
+This template is used to initialise the status of each node in the MTG, taking into account the user-defined 
+initialisation, and the multiscale mapping. The multiscale mapping is used to make references to the variables
+that are defined at another scale, so that the values are automatically updated when the variable is changed at
+the other scale.
+
+Note that if a variable is not computed by models or initialised from the mapping, it is searched in the MTG attributes. 
+The value is not a reference to the one in the attribute of the MTG, but a copy of it. This is because we can't reference 
+a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
+automatically passed as is.
 """
 function init_simulation(mtg, models; type_promotion=nothing, check=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
