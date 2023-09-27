@@ -377,6 +377,8 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
     #!  - calculer le graphe de dépendence des modèles, et faire des calls en fonction
     #!  - ajouter des tests
     #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
+    #! We need a way to know if a variable of a node needs to be pushed into a RefVector of another scale,
+    #!  so this way we only traverse the MTG once and push into the RefVector of the template status.
 
     organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
     dict_mapped_vars = Dict{Pair,Any}()
@@ -403,28 +405,32 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
         organs_statuses_dict[organ] = val_pointers
     end
 
-    #! Continue here (bis): use organs_statuses_dict to initialise the MTG nodes statuses. The Status will be created manually
-    #! to control the references. 
-    #! Standard values will be copied and a reference to this copy will be used. 
-    #! RefValues will be used as is (i.e. the reference will be passed to the Status)
-    #! RefVector will be passes as is, and instantiated on the fly traversing the MTG.
-
-    nodes_with_models = collect(keys(organs_statuses))
+    vars_to_add_in_refvector = PlantSimEngine.reverse_mapping(models)
+    nodes_with_models = collect(keys(organs_statuses_dict))
     # We traverse the MTG a first time to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in nodes_with_models)
     traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
         if node.MTG.symbol in nodes_with_models # Check if the node has a model defined for its symbol
+            #! 1. if some values still need to be instantiated, look into the MTG node if we can find them,
+            #!  and if not, throw an error.
+            #! 2. Add a Ref to the node into the status.
+
+            st = PlantSimEngine.status_from_template(organs_statuses_dict[node.MTG.symbol])
             push!(
                 statuses[node.MTG.symbol],
-                PlantSimEngine.status_from_template(organs_statuses_dict[node.MTG.symbol])
+                st
             )
+
+            # Instantiate the RefVectors on the fly for other scales that map into this scale
+            if haskey(vars_to_add_in_refvector, node.MTG.symbol)
+                for (organ, vars) in vars_to_add_in_refvector[node.MTG.symbol]
+                    for var in vars # e.g.: var = :carbon_demand
+                        push!(organs_statuses_dict[organ][var], PlantSimEngine.refvalue(st, var))
+                    end
+                end
+            end
         end
     end
-    #! 1. For the soil_water_content of the soil, we need a way to know that it will be mapped,
-    #!  so we need to reference the original status, not deepcopying it. We should use a MappedVar
-    #!  too, referencing the "Soil" type of node in the template (i.e. itself).
-    #! 2. We need a way to know if a variable of a node needs to be pushed into a RefVector of another scale,
-    #!  so this way we only traverse the MTG once and push into the RefVector of the template status.
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -432,7 +438,7 @@ function init_simulation!(mtg, models; type_promotion=nothing, check=true)
         @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
     end
 
-    push!(statuses[1][:carbon_allocation], PlantSimEngine.refvalue(statuses[2], :carbon_allocation))
+    return statuses
 end
 
 
@@ -658,3 +664,86 @@ Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.
 ref_var(v) = Base.Ref(copy(v))
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
+
+
+"""
+    reverse_mapping(models)
+
+Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales.
+This is used for *e.g.* knowing which scales are needed to add values to others.
+
+# Arguments
+
+- `models::Dict{String,Any}`: A dictionary of model mapping.
+
+# Returns
+
+- A dictionary of variables (keys) to a dictionary (values) of organs => vector of variables.
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```
+
+```jldoctest mylabel
+julia> models = Dict(
+            "Plant" =>
+                MultiScaleModel(
+                    model=ToyCAllocationModel(),
+                    mapping=[
+                        # inputs
+                        :A => ["Leaf"],
+                        :carbon_demand => ["Leaf", "Internode"],
+                        # outputs
+                        :carbon_allocation => ["Leaf", "Internode"]
+                    ],
+                ),
+            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            "Leaf" => (
+                MultiScaleModel(
+                    model=ToyAssimModel(),
+                    mapping=[:soil_water_content => "Soil",],
+                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                ),
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+                Status(aPPFD=1300.0, TT=10.0),
+            ),
+            "Soil" => (
+                ToySoilWaterModel(),
+            ),
+        );
+```
+
+```jldoctest mylabel
+julia> reverse_mapping(models)
+Dict{String, Any} with 2 entries:
+  "Internode" => Dict("Plant"=>[:carbon_demand, :carbon_allocation])
+  "Leaf"      => Dict("Plant"=>[:A, :carbon_demand, :carbon_allocation])
+```
+"""
+function reverse_mapping(models)
+    var_to_ref = Dict{String,Any}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
+    for organ in keys(models)
+        # organ = "Plant"
+        map_vars = PlantSimEngine.get_mapping(models[organ])
+        for i in map_vars # e.g.: i = :carbon_demand => ["Leaf", "Internode"] 
+            mapped = last(i) # e.g.: mapped = ["Leaf", "Internode"]
+            if isa(mapped, Vector)
+                for j in mapped # e.g.: j = "Leaf"
+                    if haskey(var_to_ref[j], organ)
+                        push!(var_to_ref[j][organ], first(i))
+                    else
+                        var_to_ref[j][organ] = [first(i)]
+                    end
+                end
+            end
+        end
+    end
+
+    return filter!(x -> length(last(x)) > 0, var_to_ref)
+end
