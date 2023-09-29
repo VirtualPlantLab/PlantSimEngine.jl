@@ -12,7 +12,7 @@ end
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
-    hard_dependency::Union{Vector{HardDependencyNode}}
+    hard_dependency::Vector{HardDependencyNode}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
