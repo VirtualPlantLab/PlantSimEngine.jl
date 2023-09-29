@@ -330,7 +330,7 @@ function create_var_ref(organ::Vector{<:AbstractString}, var, default::T) where 
     RefVector(Base.RefValue{T}[])
 end
 
-struct MappedVar{S<:AbstractString,T}
+struct MappedVar{S<:Union{A,Vector{A}} where {A<:AbstractString},T}
     organ::S
     var::Symbol
     default::T
@@ -391,7 +391,8 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true)
     organs_statuses = status_template(models, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
     # the RefVectors properly:
-    var_refvector = reverse_mapping(models)
+    var_refvector = reverse_mapping(models, all=false)
+    #NB: we use all=false because we only want the variables that are mapped as RefVectors.
 
     # We need to know which variables are not initialized, and not computed by other models:
     var_need_init = to_initialize(models, organs_statuses, mtg)
@@ -666,7 +667,7 @@ ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 
 
 """
-    reverse_mapping(models)
+    reverse_mapping(models; all=true)
 
 Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales.
 This is used for *e.g.* knowing which scales are needed to add values to others.
@@ -674,6 +675,7 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 # Arguments
 
 - `models::Dict{String,Any}`: A dictionary of model mapping.
+- `all::Bool`: Whether to get all the variables that are mapped to other scales, including the ones that are mapped as single values.
 
 # Returns
 
@@ -725,13 +727,17 @@ Dict{String, Any} with 2 entries:
   "Leaf"      => Dict("Plant"=>[:A, :carbon_demand, :carbon_allocation])
 ```
 """
-function reverse_mapping(models)
+function reverse_mapping(models; all=true)
     var_to_ref = Dict{String,Any}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
     for organ in keys(models)
         # organ = "Plant"
         map_vars = get_mapping(models[organ])
         for i in map_vars # e.g.: i = :carbon_demand => ["Leaf", "Internode"] 
             mapped = last(i) # e.g.: mapped = ["Leaf", "Internode"]
+
+            # If we want to get all the variables that are mapped to other scales, including the ones that are mapped as single values:
+            isa(mapped, AbstractString) && all && (mapped = [mapped])
+
             if isa(mapped, Vector)
                 for j in mapped # e.g.: j = "Leaf"
                     if haskey(var_to_ref[j], organ)
@@ -798,4 +804,24 @@ function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{S
         end
     end
     return statuses
+end
+
+"""
+    variables_multiscale(node, organ, mapping)
+
+Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
+defining variables as `MappedVar` if they are mapped to another scale.
+"""
+function variables_multiscale(node, organ, mapping)
+    map(variables(node)) do vars
+        vars_ = Vector{Union{Symbol,PlantSimEngine.MappedVar}}()
+        for var in vars # e.g. var = :soil_water_content
+            if haskey(mapping[organ], var)
+                push!(vars_, PlantSimEngine.MappedVar(mapping[organ][var], var, nothing))
+            else
+                push!(vars_, var)
+            end
+        end
+        return (vars_...,)
+    end
 end
