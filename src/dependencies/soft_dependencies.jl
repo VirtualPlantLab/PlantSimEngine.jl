@@ -37,7 +37,7 @@ soft_dep = soft_dependencies(hard_dep)
 function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, nsteps=1)
 
     # Compute the variables of each node in the hard-dependency graph:
-    d_vars = Dict()
+    d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple{(:inputs, :outputs),Tuple{Tuple{Vararg{Symbol}},Tuple{Vararg{Symbol}}}}}}}()
     for (procname, node) in d.roots
         var = Pair{Symbol,NamedTuple}[]
         traverse_dependency_graph!(node, variables, var)
@@ -51,8 +51,12 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
     # all_nodes = Dict(traverse_dependency_graph(d, x -> x))
 
     # Compute the inputs and outputs of each process graph in the dependency graph
-    inputs_process = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars)
-    outputs_process = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars)
+    inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Symbol}}}}}(
+        key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars
+    )
+    outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Symbol}}}}}(
+        key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars
+    )
 
     soft_dep_graph = Dict(
         process_ => SoftDependencyNode(
@@ -223,6 +227,34 @@ function search_inputs_in_output(process, inputs, outputs)
     return NamedTuple(inputs_as_output_of_process)
 end
 
+function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
+    vars_input = PlantSimEngine.flatten_vars(inputs[process])
+
+    inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
+    for var in vars_input # e.g. var = PlantSimEngine.MappedVar{String, Nothing}("Soil", :soil_water_content, nothing)
+        # The variable is a multiscale variable:
+        if isa(var, PlantSimEngine.MappedVar)
+            for (proc_output, pairs_vars_output) in soft_dep_graphs[var.organ][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
+                process == proc_output && error("Process $process declared at two scales: $organ and $(var.organ). A process can only be simulated at one scale.")
+                vars_output = PlantSimEngine.flatten_vars(pairs_vars_output)
+                if var.var in vars_output
+                    # The variable is found at another scale:
+                    if haskey(inputs_as_output_of_other_scale, var.organ)
+                        if haskey(inputs_as_output_of_other_scale[var.organ], proc_output)
+                            push!(inputs_as_output_of_other_scale[var.organ][proc_output], var.var)
+                        else
+                            inputs_as_output_of_other_scale[var.organ][proc_output] = [var.var]
+                        end
+                    else
+                        inputs_as_output_of_other_scale[var.organ] = Dict(proc_output => [var.var])
+                    end
+                end
+            end
+        end
+    end
+
+    return inputs_as_output_of_other_scale
+end
 
 """
     flatten_vars(vars)
@@ -249,7 +281,7 @@ Set{Symbol} with 4 elements:
 ```
 """
 function flatten_vars(vars)
-    vars_input = Set{Symbol}()
+    vars_input = Set()
     for (key, val) in vars
         for j in val
             push!(vars_input, j)
