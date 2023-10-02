@@ -1,4 +1,4 @@
-function multiscale_dep(models, verbose=true)
+function multiscale_dep(models; verbose=true)
 
     mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in models)
     #! continue here: we have the inputs and outputs variables for each process per scale, and if the variable can 

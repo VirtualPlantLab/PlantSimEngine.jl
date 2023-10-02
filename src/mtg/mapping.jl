@@ -319,36 +319,53 @@ vars_from_mapping(m) = collect(Iterators.flatten(keys.(values(m))))
 vars_type_from_mapping(m) = collect(Iterators.flatten(values.(values(m))))
 
 """
-    create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}
-    create_var_ref(organ::AbstractString, default)
+    MappedVar(organ, var, default)
 
-Create a RefVector from a vector of organs and a default value. The RefVector will be filled with the default value.
+A variable mapped to another scale.
 
-Create the reference to a multiscale variable. The reference is a RefVector if the organ was given as a vector, or a Ref if it is a scalar.
+# Arguments
+
+- `organ`: the organ(s) that are targeted by the mapping
+- `var`: the variable that is mapped
+- `default`: the default value of the variable
+
+# Examples
+
+```jldoctest
+julia> using PlantSimEngine
+```
+
+```jldoctest
+julia> MappedVar("Leaf", :A, 1.0)
+```
 """
-function create_var_ref(organ::Vector{<:AbstractString}, var, default::T) where {T}
-    RefVector(Base.RefValue{T}[])
-end
-
 struct MappedVar{S<:Union{A,Vector{A}} where {A<:AbstractString},T}
     organ::S
     var::Symbol
     default::T
 end
 
-function create_var_ref(organ::AbstractString, var, default)
-    MappedVar(organ, var, default)
+"""
+    create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}
+    create_var_ref(organ::AbstractString, default)
+
+Create a referece variable. The reference is a `RefVector` if the organ is a vector of strings, and a `MappedVar` 
+if it is a singleton string. This is because we want to avoid indeing into a vector of values if there is only one 
+value to map.
+"""
+function create_var_ref(organ::Vector{<:AbstractString}, var, default::T) where {T}
+    RefVector(Base.RefValue{T}[])
 end
+
+create_var_ref(organ::AbstractString, var, default) = MappedVar(organ, var, default)
 
 function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, map_vars)
     multi_scale_outs_organ = filter(x -> first(x) in keys(multi_scale_outs), map_vars)
-    for (var, organs) in multi_scale_outs_organ
-        # var, organs = multi_scale_outs_organ[1]
+    for (var, organs) in multi_scale_outs_organ # var, organs = multi_scale_outs_organ[1]
         if isa(organs, String)
             organs = [organs]
         end
-        for org in organs
-            # org = organs[1]
+        for org in organs # org = organs[1]
             if haskey(var_outputs_from_mapping, org)
                 push!(var_outputs_from_mapping[org], var => multi_scale_outs[var])
             else
@@ -359,12 +376,12 @@ function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, m
 end
 
 """
-    init_simulation(mtg, models; type_promotion=nothing, check=true)
+    init_simulation(mtg, models; type_promotion=nothing, check=true, verbose=true)
 
 Initialise the simulation by creating:
 
-- a status for each node type, considering multi-scale variables.
-- the dependency graph of the models, and the order in which they should be called.
+- a status for each node type, considering multi-scale variables
+- the dependency graph of the models
 
 # Arguments
 
@@ -372,21 +389,29 @@ Initialise the simulation by creating:
 - `models::Dict{String,Any}`: a dictionary of model mapping
 - `type_promotion`: the type promotion to use for the variables
 - `check`: whether to check the mapping for errors
+- `verbose`: print information about errors in the mapping
 
 # Details
 
 The function first computes a template of status for each organ type that has a model in the mapping.
-This template is used to initialise the status of each node in the MTG, taking into account the user-defined 
-initialisation, and the multiscale mapping. The multiscale mapping is used to make references to the variables
+This template is used to initialise the status of each node of the MTG, taking into account the user-defined 
+initialisation, and the (multiscale) mapping. The mapping is used to make references to the variables
 that are defined at another scale, so that the values are automatically updated when the variable is changed at
-the other scale.
+the other scale. Two types of multiscale variables are available: `RefVector` and `MappedVar`. The first one is
+used when the variable is mapped to a vector of nodes, and the second one when it is mapped to a single node. This 
+is given by the user through the mapping, using a string for a single node (*e.g.* `=> "Leaf"`), and a vector of strings for a vector of
+nodes (*e.g.* `=> ["Leaf"]` for one type of node or `=> ["Leaf", "Internode"]` for several). 
+
+The function also computes the dependency graph of the models, i.e. the order in which the models should be
+called, considering the dependencies between them. The dependency graph is used to call the models in the right order
+when the simulation is run.
 
 Note that if a variable is not computed by models or initialised from the mapping, it is searched in the MTG attributes. 
 The value is not a reference to the one in the attribute of the MTG, but a copy of it. This is because we can't reference 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, models; type_promotion=nothing, check=true)
+function init_simulation(mtg, models; type_promotion=nothing, check=true, verbose=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
     organs_statuses = status_template(models, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
@@ -400,15 +425,6 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true)
     # If we find some, we return an error:
     check && error_mtg_init(var_need_init)
 
-    #! continue here. What we need to do:
-    #!  - traverser les MTG pour initialiser un Status par organe, et mettre le vecteur de ces status dans un Dict{Organe, Status}
-    #!  - dans le même traversal, trouver les variables qui doivent être initialisées depuis le mtg (et erreur si elles n'y sont pas)
-    #!  - remplir les RefVector, sachant qu'ils seront automatiquement remplis partout puisque c'est des Ref (a vérifier).
-    #!  - Ajouter la référence au noeud dans le status 
-    #!  - calculer le graphe de dépendence des modèles, et faire des calls en fonction
-    #!  - ajouter des tests
-    #!  - ajouter des checks, e.g. est-ce que tous les organes du MTG ont un modèle ou pas...
-
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses = init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
 
@@ -418,7 +434,10 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true)
         @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
     end
 
-    return statuses
+    # Compute the multi-scale dependency graph of the models:
+    mapping_dependency = multiscale_dep(models, verbose=verbose)
+
+    return statuses, mapping_dependency
 end
 
 
@@ -762,7 +781,7 @@ using the template given by `status_template`.
 """
 function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{String,Any}())
     nodes_with_models = collect(keys(status_template))
-    # We traverse the MTG a first time to initialise the statuses linked to the nodes:
+    # We traverse the MTG to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in nodes_with_models)
     MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
         # Check if the node has a model defined for its symbol
@@ -783,9 +802,9 @@ function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{S
                     "Please check the type of the variable in the MTG, and make it a $(typeof(st_template[i.var]))."
                 )
                 st_template[i.var] = node[i.var]
-                #! NB: the variable is not a reference to the value in the MTG, but a copy of it.
-                #! This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
-                #! and it will be automatically passed as is.
+                # NB: the variable is not a reference to the value in the MTG, but a copy of it.
+                # This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
+                # and it will be automatically passed as is.
             end
         end
 
@@ -794,7 +813,8 @@ function init_statuses(mtg, status_template, var_refvector, var_need_init=Dict{S
 
         push!(statuses[node.MTG.symbol], st)
 
-        # Instantiate the RefVectors on the fly for other scales that map into this scale
+        # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
+        # add a reference to the value of any variable that is used by another scale into its RefVector:
         if haskey(var_refvector, node.MTG.symbol)
             for (organ, vars) in var_refvector[node.MTG.symbol]
                 for var in vars # e.g.: var = :carbon_demand
