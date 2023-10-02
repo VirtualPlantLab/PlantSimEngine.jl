@@ -62,6 +62,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
         process_ => SoftDependencyNode(
             soft_dep_vars.value,
             process_, # process name
+            "",
             AbstractTrees.children(soft_dep_vars), # hard dependencies
             nothing,
             nothing,

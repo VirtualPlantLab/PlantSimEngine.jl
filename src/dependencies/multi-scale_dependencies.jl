@@ -47,6 +47,7 @@ function multiscale_dep(models; verbose=true)
             process_ => SoftDependencyNode(
                 soft_dep_vars.value,
                 process_, # process name
+                organ, # scale
                 AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,

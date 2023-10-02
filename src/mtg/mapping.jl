@@ -378,10 +378,12 @@ end
 """
     init_simulation(mtg, models; type_promotion=nothing, check=true, verbose=true)
 
-Initialise the simulation by creating:
+Initialise the simulation. Returns:
 
-- a status for each node type, considering multi-scale variables
+- the mtg
+- a status for each node by organ type, considering multi-scale variables
 - the dependency graph of the models
+- the models parsed as a Dict of organ type => NamedTuple of process => model mapping
 
 # Arguments
 
@@ -435,11 +437,40 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true, verbos
     end
 
     # Compute the multi-scale dependency graph of the models:
-    mapping_dependency = multiscale_dep(models, verbose=verbose)
+    dependency_graph = multiscale_dep(models, verbose=verbose)
 
-    return statuses, mapping_dependency
+    models = Dict(first(m) => PlantSimEngine.parse_models(PlantSimEngine.get_models(last(m))) for m in models)
+
+    return mtg, statuses, dependency_graph, models
 end
 
+"""
+    GraphSimulation(graph, mapping)
+    GraphSimulation(graph, statuses, dependency_graph)
+
+A type that holds all information for a simulation over a graph.
+
+# Arguments
+
+- `graph`: an graph, such as an MTG
+- `mapping`: a dictionary of model mapping
+- `statuses`: a structure that defines the status of each node in the graph
+- `dependency_graph`: the dependency graph of the models applied to the graph
+"""
+struct GraphSimulation{T,S}
+    graph::T
+    statuses::S
+    dependency_graph::DependencyGraph
+    models::Dict{String,NamedTuple}
+end
+
+function GraphSimulation(graph, mapping; type_promotion=nothing, check=true, verbose=true)
+    GraphSimulation(init_simulation(graph, mapping; type_promotion=type_promotion, check=check, verbose=verbose)...)
+end
+
+dep(g::GraphSimulation) = g.dependency_graph
+status(g::GraphSimulation) = g.statuses
+get_models(g::GraphSimulation) = g.models
 
 function map_scale(f, m, scale::String)
     map_scale(f, m, [scale])

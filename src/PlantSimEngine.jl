@@ -42,6 +42,13 @@ include("component_models/get_status.jl")
 # Transform into a dataframe:
 include("dataframe.jl")
 
+# Model dependencies:
+include("dependencies/dependency_graph.jl")
+include("dependencies/soft_dependencies.jl")
+include("dependencies/hard_dependencies.jl")
+include("dependencies/multi-scale_dependencies.jl")
+include("dependencies/dependencies.jl")
+
 # MTG compatibility:
 include("mtg/init_mtg_models.jl")
 include("mtg/mapping.jl")
@@ -52,13 +59,6 @@ include("evaluation/statistics.jl")
 # Traits
 include("traits/table_traits.jl")
 include("traits/parallel_traits.jl")
-
-# Model dependencies:
-include("dependencies/dependency_graph.jl")
-include("dependencies/soft_dependencies.jl")
-include("dependencies/hard_dependencies.jl")
-include("dependencies/multi-scale_dependencies.jl")
-include("dependencies/dependencies.jl")
 
 # Processes:
 include("processes/model_initialisation.jl")
