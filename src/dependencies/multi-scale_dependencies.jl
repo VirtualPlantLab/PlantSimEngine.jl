@@ -1,6 +1,6 @@
 function multiscale_dep(models, verbose=true)
 
-    mapping = Dict(first(mod) => Dict(PlantSimEngine.get_mapping(last(mod))) for mod in models)
+    mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in models)
     #! continue here: we have the inputs and outputs variables for each process per scale, and if the variable can 
     #! be found at another scale, it is defined as a MappedVar (variables + mapped scale).
     #! Now what we need to do is to compute the dependency graph for each process each scale, by searching the inputs
@@ -22,63 +22,65 @@ function multiscale_dep(models, verbose=true)
     # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
     # are independant.
     soft_dep_graphs = Dict{String,Any}(i => 0.0 for i in keys(models))
+    not_found = Dict{Symbol,DataType}()
     for (organ, model) in models
         # organ = "Leaf"; model = models[organ]
-        mods = PlantSimEngine.parse_models(PlantSimEngine.get_models(model))
+        mods = parse_models(get_models(model))
 
         # Move some models below others when they are manually linked (hard-dependency):
-        hard_deps = PlantSimEngine.hard_dependencies((; mods...), verbose=verbose)
+        hard_deps = hard_dependencies((; mods...), verbose=verbose)
         d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
         for (procname, node) in hard_deps.roots
             var = Pair{Symbol,NamedTuple}[]
-            PlantSimEngine.traverse_dependency_graph!(node, x -> PlantSimEngine.variables_multiscale(x, organ, mapping), var)
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, mapping), var)
             push!(d_vars, procname => var)
         end
 
-        inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,PlantSimEngine.MappedVar}}}}}}(
+        inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
             key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars
         )
-        outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,PlantSimEngine.MappedVar}}}}}}(
+        outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
             key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars
         )
 
         soft_dep_graph = Dict(
-            process_ => PlantSimEngine.SoftDependencyNode(
+            process_ => SoftDependencyNode(
                 soft_dep_vars.value,
                 process_, # process name
-                PlantSimEngine.AbstractTrees.children(soft_dep_vars), # hard dependencies
+                AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,
-                PlantSimEngine.SoftDependencyNode[],
+                SoftDependencyNode[],
                 [0] # Vector of zeros of length = number of time-steps
             )
             for (process_, soft_dep_vars) in hard_deps.roots
         )
 
         soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process, outputs=outputs_process)
+        not_found = merge(not_found, hard_deps.not_found)
     end
 
     # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
     # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
     # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
     # of the nodes that they depend on.
-    independant_process_root = Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}()
+    independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
     for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs[organ]
         for (proc, i) in soft_dep_graph
             # proc = :carbon_allocation; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
-            soft_deps = PlantSimEngine.search_inputs_in_output(proc, ins, outs)
+            soft_deps = search_inputs_in_output(proc, ins, outs)
 
             # Remove the hard dependencies from the soft dependencies:
-            soft_deps_not_hard = PlantSimEngine.drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
+            soft_deps_not_hard = drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
             # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
 
             # Check if the process has soft dependencies at other scales:
-            soft_deps_multiscale = PlantSimEngine.search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs)
+            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs)
             # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
             # is computed by the process :soil_water at the scale "Soil".
 
-            if length(soft_deps_not_hard) == 0 && i.process in keys(hard_deps.roots) && length(soft_deps_multiscale) == 0
+            if length(soft_deps_not_hard) == 0 && i.process in keys(soft_dep_graph) && length(soft_deps_multiscale) == 0
                 # If the process has no soft (multiscale) dependencies, then it is independant (so it is a root)
                 # Note that the process is only independent if it is also a root in the hard-dependency graph
                 independant_process_root[organ=>proc] = i
@@ -187,4 +189,6 @@ function multiscale_dep(models, verbose=true)
     #! 3. For each soft-dependency root, check if the process is independant (i.e. if it has no soft-dependencies).
     #!    within its own scale, but also in other scales. If it is independant, then it is a root of the soft-dependency multiscale graph.
     #!    If it is not, then add it as a child of the other soft-dependency node that it depends on.
+
+    return DependencyGraph(independant_process_root, not_found)
 end

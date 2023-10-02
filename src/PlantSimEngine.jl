@@ -57,6 +57,7 @@ include("traits/parallel_traits.jl")
 include("dependencies/dependency_graph.jl")
 include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
+include("dependencies/multi-scale_dependencies.jl")
 include("dependencies/dependencies.jl")
 
 # Processes:
