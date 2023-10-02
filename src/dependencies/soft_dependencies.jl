@@ -227,6 +227,35 @@ function search_inputs_in_output(process, inputs, outputs)
     return NamedTuple(inputs_as_output_of_process)
 end
 
+
+"""
+    search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
+
+# Arguments
+
+- `process::Symbol`: the process for which we want to find the soft dependencies at other scales.
+- `organ::String`: the organ for which we want to find the soft dependencies.
+- `inputs::Dict{Symbol, Vector{Pair{Symbol}, Tuple{Symbol, Vararg{Symbol}}}}`: a dict of process => [:subprocess => (:var1, :var2)].
+- `soft_dep_graphs::Dict{String, ...}`: a dict of organ => (soft_dep_graph, inputs, outputs).
+
+# Details
+
+The inputs (and similarly, outputs) give the inputs of each process, classified by the process it comes from. It can
+come from itself (its own inputs), or from another process that is a hard-dependency.
+
+# Returns
+
+A dictionary with the soft dependencies variables found in outputs of other scales for each process, e.g.:
+    
+```julia
+Dict{String, Dict{Symbol, Vector{Symbol}}} with 2 entries:
+    "Internode" => Dict(:carbon_demand=>[:carbon_demand])
+    "Leaf"      => Dict(:photosynthesis=>[:A], :carbon_demand=>[:carbon_demand])
+```
+
+This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:A` 
+is computed by the process `:photosynthesis` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
+"""
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
     vars_input = PlantSimEngine.flatten_vars(inputs[process])
 
@@ -234,19 +263,31 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     for var in vars_input # e.g. var = PlantSimEngine.MappedVar{String, Nothing}("Soil", :soil_water_content, nothing)
         # The variable is a multiscale variable:
         if isa(var, PlantSimEngine.MappedVar)
-            for (proc_output, pairs_vars_output) in soft_dep_graphs[var.organ][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
-                process == proc_output && error("Process $process declared at two scales: $organ and $(var.organ). A process can only be simulated at one scale.")
-                vars_output = PlantSimEngine.flatten_vars(pairs_vars_output)
-                if var.var in vars_output
-                    # The variable is found at another scale:
-                    if haskey(inputs_as_output_of_other_scale, var.organ)
-                        if haskey(inputs_as_output_of_other_scale[var.organ], proc_output)
-                            push!(inputs_as_output_of_other_scale[var.organ][proc_output], var.var)
+            var_organ = var.organ
+
+            @assert var_organ != organ "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
+
+            if !isa(var_organ, AbstractVector)
+                # In case the organ is given as a singleton (e.g. "Soil" instead of ["Soil"])
+                var_organ = [var_organ]
+            end
+
+            for org in var_organ # e.g. org = "Soil"
+                # The variable is a multiscale variable:
+                for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
+                    process == proc_output && error("Process $process declared at two scales: $organ and $org. A process can only be simulated at one scale.")
+                    vars_output = PlantSimEngine.flatten_vars(pairs_vars_output)
+                    if var.var in vars_output
+                        # The variable is found at another scale:
+                        if haskey(inputs_as_output_of_other_scale, org)
+                            if haskey(inputs_as_output_of_other_scale[org], proc_output)
+                                push!(inputs_as_output_of_other_scale[org][proc_output], var.var)
+                            else
+                                inputs_as_output_of_other_scale[org][proc_output] = [var.var]
+                            end
                         else
-                            inputs_as_output_of_other_scale[var.organ][proc_output] = [var.var]
+                            inputs_as_output_of_other_scale[org] = Dict(proc_output => [var.var])
                         end
-                    else
-                        inputs_as_output_of_other_scale[var.organ] = Dict(proc_output => [var.var])
                     end
                 end
             end
