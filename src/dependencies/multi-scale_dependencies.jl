@@ -18,6 +18,9 @@ function multiscale_dep(models, verbose=true)
     #! Then we traverse all these and we set nodes that need outputs from other nodes as inputs as children/parents.
     #! If a node has no dependency, it is set as a root node and pushed into a new Dict (independant_process_root). This Dict is the dependency graph.
 
+    # First step, get the hard-dependency graph and create SoftDependencyNodes for each hard-dependency root. In other word, we want 
+    # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
+    # are independant.
     soft_dep_graphs = Dict{String,Any}(i => 0.0 for i in keys(models))
     for (organ, model) in models
         # organ = "Leaf"; model = models[organ]
@@ -47,7 +50,7 @@ function multiscale_dep(models, verbose=true)
                 nothing,
                 nothing,
                 PlantSimEngine.SoftDependencyNode[],
-                [0]
+                [0] # Vector of zeros of length = number of time-steps
             )
             for (process_, soft_dep_vars) in hard_deps.roots
         )
@@ -55,15 +58,19 @@ function multiscale_dep(models, verbose=true)
         soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process, outputs=outputs_process)
     end
 
-    independant_process_root = Dict{Symbol,PlantSimEngine.SoftDependencyNode}()
-    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs # e.g. organ = "Plant"; soft_dep_graph, inputs_process, outputs_process = soft_dep_graphs[organ]
+    # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
+    # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
+    # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
+    # of the nodes that they depend on.
+    independant_process_root = Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}()
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs[organ]
         for (proc, i) in soft_dep_graph
-            # proc = :photosynthesis; i = soft_dep_graph[proc]
+            # proc = :carbon_allocation; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
             soft_deps = PlantSimEngine.search_inputs_in_output(proc, ins, outs)
 
             # Remove the hard dependencies from the soft dependencies:
-            soft_deps_not_hard = PlantSimEngine.drop_process(soft_dep_graphs, [hd.process for hd in i.hard_dependency])
+            soft_deps_not_hard = PlantSimEngine.drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
             # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
 
             # Check if the process has soft dependencies at other scales:
@@ -74,9 +81,8 @@ function multiscale_dep(models, verbose=true)
             if length(soft_deps_not_hard) == 0 && i.process in keys(hard_deps.roots) && length(soft_deps_multiscale) == 0
                 # If the process has no soft (multiscale) dependencies, then it is independant (so it is a root)
                 # Note that the process is only independent if it is also a root in the hard-dependency graph
-                independant_process_root[proc] = i
+                independant_process_root[organ=>proc] = i
             else
-
                 # If the process has soft dependencies at its scale, add it:
                 if length(soft_deps_not_hard) > 0
                     # If the process has soft dependencies, then it is not independant
@@ -129,7 +135,44 @@ function multiscale_dep(models, verbose=true)
                     #! Take inspiration from the code above happening at the same scale.
                     #! Note that the node can have both soft dependencies at its own scale and at other scales, but it is not 
                     #! a big deal because in the end we drop the scales and only keep the root soft-dependency nodes.
+                    for org in keys(soft_deps_multiscale)
+                        # org = "Leaf"
+                        for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]
+                            # parent_soft_dep= :photosynthesis; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
+                            parent_node = soft_dep_graphs[org][:soft_dep_graph][parent_soft_dep]
+                            # preventing a cyclic dependency: if the parent also has a dependency on the current node:
+                            if parent_node.parent !== nothing && any([i == p for p in parent_node.parent])
+                                error(
+                                    "Cyclic dependency detected for process $proc:",
+                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one",
+                                    " This is not allowed, you may need to develop a new process that does the whole computation by itself."
+                                )
+                            end
 
+                            # preventing a cyclic dependency: if the current node has the parent node as a child:
+                            if i.children !== nothing && any([parent_node == p for p in i.children])
+                                error(
+                                    "Cyclic dependency detected for process $proc:",
+                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one.",
+                                    " This is not allowed, you may need to develop a new process that does the whole computation by itself."
+                                )
+                            end
+
+                            # Add the current node as a child of the node on which it depends:
+                            push!(parent_node.children, i)
+
+                            # Add the node on which the current node depends as a parent
+                            if i.parent === nothing
+                                # If the node had no parent already, it is nothing, so we change into a vector
+                                i.parent = [parent_node]
+                            else
+                                push!(i.parent, parent_node)
+                            end
+
+                            # Add the multiscale soft dependencies variables of the parent to the current node
+                            i.parent_vars = NamedTuple(Symbol(k) => NamedTuple(v) for (k, v) in soft_deps_multiscale)
+                        end
+                    end
                 end
                 #! To do: make this code work without multiscale mapping, so we have only one code base for both cases. 
                 #! Also, put some parts into functions to make the code more readable.
