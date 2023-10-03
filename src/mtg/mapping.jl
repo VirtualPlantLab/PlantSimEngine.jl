@@ -153,15 +153,15 @@ and the nodes that are targeted by the mapping
 
 # Examples
 
-```jldoctest mylabel
-julia> using PlantSimEngine
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```julia
+using PlantSimEngine
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
 ```
 
-```jldoctest mylabel
+```julia
 models = Dict(
     "Plant" =>
         MultiScaleModel(
@@ -187,12 +187,12 @@ models = Dict(
 )
 ```
 
-```jldoctest mylabel
-compute_mapping(models, nothing)
+```julia
+organs_mapping, var_outputs_from_mapping = compute_mapping(models, nothing);
 ```
 
-```jldoctest mylabel
-compute_mapping(models, Dict(Float64 => Float32))
+```julia
+compute_mapping(models, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
 ```
 """
 function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
@@ -237,7 +237,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             # defined from the models at the target scale, so we need to add it to this other scale
             # as an output variable.
 
-            new_st = Status(merge(convert_vars(type_promotion, st), NamedTuple(multi_scale_vars)))
+            new_st = Status(merge(NamedTuple(convert_vars(type_promotion, st)), NamedTuple(multi_scale_vars)))
             diff_keys = intersect(keys(st), keys(multi_scale_vars))
             for i in diff_keys
                 if isa(new_st[i], RefVector)
