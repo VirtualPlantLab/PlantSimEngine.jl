@@ -16,9 +16,7 @@ PlantSimEngine.outputs_(::ToyDegreeDaysCumulModel) = (degree_days_cu=-Inf,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
-    status.degree_days_cu =
-        PlantMeteo.prev_value(status, :degree_days_cu, default=m.init_degreedays) + status.degree_days
-    println("step = ", status.step)
+    status.degree_days_cu += status.degree_days
 end
 
 # The computation of ToyDegreeDaysCumulModel dependents on previous values, but it is independent of other objects.

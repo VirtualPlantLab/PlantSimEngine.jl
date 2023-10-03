@@ -23,13 +23,13 @@ PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=nothing, extra=nothing)
     status.LAI =
         models.LAI_Dynamic.max_lai *
-        (1 /
-         (1 + exp((models.LAI_Dynamic.dd_incslope - status.degree_days_cu) / models.LAI_Dynamic.inc_slope)) -
-         1 / (1 + exp((models.LAI_Dynamic.dd_decslope - status.degree_days_cu) / models.LAI_Dynamic.dec_slope))
+        (1.0 /
+         (1.0 + exp((models.LAI_Dynamic.dd_incslope - status.degree_days_cu) / models.LAI_Dynamic.inc_slope)) -
+         1.0 / (1.0 + exp((models.LAI_Dynamic.dd_decslope - status.degree_days_cu) / models.LAI_Dynamic.dec_slope))
         )
 
-    if status.LAI < 0
-        status.LAI = 0
+    if status.LAI < 0.0
+        status.LAI = 0.0
     end
 end
 

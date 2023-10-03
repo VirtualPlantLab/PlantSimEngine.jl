@@ -44,7 +44,7 @@ Base.eltype(x::ToyRUEGrowthModel{T}) where {T} = T
 # Implement the growth model:
 function PlantSimEngine.run!(::ToyRUEGrowthModel, models, status, meteo, constants, extra)
     status.biomass_increment = status.aPPFD * models.growth.efficiency
-    status.biomass = PlantMeteo.prev_value(status, :biomass; default=0.0) + status.biomass_increment
+    status.biomass += status.biomass_increment
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):

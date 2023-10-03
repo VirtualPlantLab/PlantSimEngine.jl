@@ -48,7 +48,7 @@ Base.eltype(::ToyAssimModel{T}) where {T} = T
 # Implement the growth model:
 function PlantSimEngine.run!(::ToyAssimModel, models, status, meteo, constants, extra)
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
-    status.A = status.aPPFD * models.growth.LUE * status.soil_water_content
+    status.A = status.aPPFD * models.photosynthesis.LUE * status.soil_water_content
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
