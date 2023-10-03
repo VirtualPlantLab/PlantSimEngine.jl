@@ -190,6 +190,10 @@ models = Dict(
 ```jldoctest mylabel
 compute_mapping(models, nothing)
 ```
+
+```jldoctest mylabel
+compute_mapping(models, Dict(Float64 => Float32))
+```
 """
 function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # Initialise a dict that defines the multiscale variables for each organ type:
@@ -224,7 +228,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         else
             # If the user provided the multiscale variable in the status, and it is an output variable, 
             # we use those values for the mapping:
-            for i in keys(multi_scale_vars)
+            for i in keys(multi_scale_vars) # e.g. i = keys(multi_scale_vars)[1]
                 if i in multi_scale_outs && i in keys(st)
                     multi_scale_vars[i] = st[i]
                 end
@@ -233,7 +237,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             # defined from the models at the target scale, so we need to add it to this other scale
             # as an output variable.
 
-            new_st = Status(merge(NamedTuple(st), NamedTuple(multi_scale_vars)))
+            new_st = Status(merge(convert_vars(type_promotion, st), NamedTuple(multi_scale_vars)))
             diff_keys = intersect(keys(st), keys(multi_scale_vars))
             for i in diff_keys
                 if isa(new_st[i], RefVector)
@@ -252,11 +256,11 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             # var_mapping = map_vars[1]
             variable, organs_mapped = var_mapping
 
-            ref_var = create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable))
+            ref_var_ = create_var_ref(organs_mapped, variable, getproperty(multi_scale_vars, variable))
             if haskey(organ_mapping, organs_mapped)
-                push!(organ_mapping[organs_mapped], variable => ref_var)
+                push!(organ_mapping[organs_mapped], variable => ref_var_)
             else
-                organ_mapping[organs_mapped] = Dict(variable => ref_var)
+                organ_mapping[organs_mapped] = Dict(variable => ref_var_)
             end
 
             # If the mapping is one node type only and is given as a string, we add the variable of the source scale 
