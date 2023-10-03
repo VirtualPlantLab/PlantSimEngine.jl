@@ -117,7 +117,7 @@ struct VarFromMTG
 end
 
 # For the list of models given to an MTG:
-function to_initialize(models::Dict{String,Any}, organs_statuses, mtg)
+function to_initialize(models::Dict{String,T}, organs_statuses, mtg) where {T}
 
     # Get the variables in the MTG:
     vars_in_mtg = names(mtg)

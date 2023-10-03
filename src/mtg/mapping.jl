@@ -191,7 +191,7 @@ models = Dict(
 compute_mapping(models, nothing)
 ```
 """
-function compute_mapping(models::Dict{String,Any}, type_promotion)
+function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # Initialise a dict that defines the multiscale variables for each organ type:
     organs_mapping = Dict{String,Any}()
     # Initialise a Dict that defines the variables that are outputs from a mapping, 
@@ -353,7 +353,7 @@ Create a referece variable. The reference is a `RefVector` if the organ is a vec
 if it is a singleton string. This is because we want to avoid indeing into a vector of values if there is only one 
 value to map.
 """
-function create_var_ref(organ::Vector{<:AbstractString}, var, default::T) where {T}
+function create_var_ref(organ::Vector{<:AbstractString}, var, default::AbstractVector{T}) where {T}
     RefVector(Base.RefValue{T}[])
 end
 
@@ -362,14 +362,22 @@ create_var_ref(organ::AbstractString, var, default) = MappedVar(organ, var, defa
 function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, map_vars)
     multi_scale_outs_organ = filter(x -> first(x) in keys(multi_scale_outs), map_vars)
     for (var, organs) in multi_scale_outs_organ # var, organs = multi_scale_outs_organ[1]
+        if isa(multi_scale_outs[var], AbstractVector)
+            var_default_value = multi_scale_outs[var][1]
+        else
+            error(
+                "The variable $var is an output variable mapped to nodes of type $organs, but its default value is not a vector. " *
+                "Make sure the model that computes this variable has a vector of values as outputs."
+            )
+        end
         if isa(organs, String)
             organs = [organs]
         end
         for org in organs # org = organs[1]
             if haskey(var_outputs_from_mapping, org)
-                push!(var_outputs_from_mapping[org], var => multi_scale_outs[var])
+                push!(var_outputs_from_mapping[org], var => var_default_value)
             else
-                var_outputs_from_mapping[org] = [var => multi_scale_outs[var]]
+                var_outputs_from_mapping[org] = [var => var_default_value]
             end
         end
     end
@@ -457,11 +465,11 @@ A type that holds all information for a simulation over a graph.
 - `statuses`: a structure that defines the status of each node in the graph
 - `dependency_graph`: the dependency graph of the models applied to the graph
 """
-struct GraphSimulation{T,S}
+struct GraphSimulation{T,S,U}
     graph::T
     statuses::S
     dependency_graph::DependencyGraph
-    models::Dict{String,NamedTuple}
+    models::Dict{String,U}
 end
 
 function GraphSimulation(graph, mapping; type_promotion=nothing, check=true, verbose=true)
@@ -585,7 +593,7 @@ organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][:soil_w
 true
 ```
 """
-function status_template(models::Dict{String,Any}, type_promotion)
+function status_template(models::Dict{String,T}, type_promotion) where {T}
     organs_mapping, var_outputs_from_mapping = compute_mapping(models, type_promotion)
     # Vector of pre-initialised variables with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
     organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()

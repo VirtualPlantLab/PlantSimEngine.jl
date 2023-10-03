@@ -317,21 +317,24 @@ end
 # that we use with the first method in this file.
 function run!(
     object::MultiScaleTreeGraph.Node,
-    mapping::Dict{String,Any},
+    mapping::Dict{String,T} where {T},
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
     executor=ThreadedEx()
 )
+    sim = GraphSimulation(object, mapping, check=check)
     run!(
-        GraphSimulation(object, mapping, check=check),
+        sim,
         meteo,
         constants,
         extra;
         check,
         executor
     )
+
+    return sim
 end
 
 # 6.2: if we pass a TreeAlike object (e.g. a GraphSimulation):
