@@ -56,8 +56,8 @@ DataFormat(::Type{<:Dict}) = TableAlike()
 
 DataFormat(::Type{<:NamedTuple}) = SingletonAlike()
 DataFormat(::Type{<:Status}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S} where {Mo,S<:Status}}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S}}) where {Mo,S} = TableAlike()
+DataFormat(::Type{<:ModelList{Mo,S,V} where {Mo,S<:Status,V}}) = SingletonAlike()
+DataFormat(::Type{<:ModelList{Mo,S,V}}) where {Mo,S,V} = TableAlike()
 DataFormat(::Type{<:GraphSimulation}) = TreeAlike()
 
 DataFormat(::Type{<:PlantMeteo.AbstractAtmosphere}) = SingletonAlike()

@@ -177,9 +177,14 @@ julia> status(m)
 Note that computations will be slower using DataFrame, so if performance is an issue, use
 TimeStepTable instead (or a NamedTuple as shown in the example).
 """
-struct ModelList{M<:NamedTuple,S}
+struct ModelList{M<:NamedTuple,S,V<:Tuple{Vararg{Symbol}}}
     models::M
     status::S
+    vars_not_propagated::V
+end
+
+function ModelList(models::M, status::S) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}},S}
+    ModelList(models, status, ())
 end
 
 # General interface:
@@ -215,12 +220,19 @@ function ModelList(
     # Make a vector of NamedTuples from the input (please implement yours if you need it)
     ts_kwargs = homogeneous_ts_kwargs(status, nsteps)
 
+    # Variables for which a value was given for each time-step by the user:
+    vars_not_propagated = get_vars_not_propagated(status)
+    # Note: that the length was checked in homogeneous_ts_kwargs, so we don't need to check it again here.
+    # Note 2: we need to know these variables because they will not be propagated between time-steps, but set at 
+    # the given value instead.
+
     # Add the missing variables required by the models (set to default value):
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion; init_fun=init_fun, nsteps=nsteps)
 
     model_list = ModelList(
         mods,
-        ts_kwargs
+        ts_kwargs,
+        vars_not_propagated
     )
     variables_check && !is_initialized(model_list)
 
@@ -340,6 +352,15 @@ function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}, nsteps) where {N,T}
 
     return vars_array
 end
+
+
+"""
+    get_vars_not_propagated(status)
+
+Returns all variables that are given for several time-steps in the status.
+"""
+get_vars_not_propagated(status) = (findall(x -> length(x) > 1, status)...,)
+get_vars_not_propagated(::Type{Nothing}) = ()
 
 """
     Base.copy(l::ModelList)
