@@ -187,6 +187,7 @@ end;
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model()
+            Process1Model(1.0),
         )
     )
 

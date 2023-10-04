@@ -3,11 +3,11 @@ outputs_(m::MultiScaleModel) = outputs_(m.model)
 
 
 """
-    model(m::AbstractModel)
+    model_(m::AbstractModel)
 
 Get the model of an AbstractModel (it is the model itself if it is not a MultiScaleModel).
 """
-model(m::AbstractModel) = m
+model_(m::AbstractModel) = m
 
 # Functions to get the models from the dictionary that defines the mapping:
 
@@ -72,14 +72,14 @@ julia> get_models(models2)
  ToyCDemandModel{Float64}(10.0, 200.0)
 ```
 """
-get_models(m) = [model(i) for i in m if !isa(i, Status)]
+get_models(m) = [model_(i) for i in m if !isa(i, Status)]
 
 # Get the models of a MultiScaleModel:
-get_models(m::MultiScaleModel) = [model(m)]
+get_models(m::MultiScaleModel) = [model_(m)]
 # Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.
 
 # Get the models of an AbstractModel:
-get_models(m::AbstractModel) = [model(m)]
+get_models(m::AbstractModel) = [model_(m)]
 
 # Same, for the status (if any provided):
 
@@ -124,14 +124,14 @@ Returns a vector of pairs of symbols and strings or vectors of strings
 See [`get_models`](@ref) for examples.
 """
 function get_mapping(m)
-    mod_mapping = [mapping(i) for i in m if isa(i, MultiScaleModel)]
+    mod_mapping = [mapping_(i) for i in m if isa(i, MultiScaleModel)]
     if length(mod_mapping) == 0
         return Pair{Symbol,String}[]
     end
     return reduce(vcat, mod_mapping)
 end
 
-get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping(m)
+get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping_(m)
 get_mapping(m::AbstractModel) = Pair{Symbol,String}[]
 
 """
@@ -388,7 +388,7 @@ function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, m
 end
 
 """
-    init_simulation(mtg, models; type_promotion=nothing, check=true, verbose=true)
+    init_simulation(mtg, mapping; type_promotion=nothing, check=true, verbose=true)
 
 Initialise the simulation. Returns:
 
@@ -400,7 +400,7 @@ Initialise the simulation. Returns:
 # Arguments
 
 - `mtg`: the MTG
-- `models::Dict{String,Any}`: a dictionary of model mapping
+- `mapping::Dict{String,Any}`: a dictionary of model mapping
 - `type_promotion`: the type promotion to use for the variables
 - `check`: whether to check the mapping for errors
 - `verbose`: print information about errors in the mapping
@@ -425,16 +425,16 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, models; type_promotion=nothing, check=true, verbose=true)
+function init_simulation(mtg, mapping; type_promotion=nothing, check=true, verbose=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
-    organs_statuses = status_template(models, type_promotion)
+    organs_statuses = status_template(mapping, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
     # the RefVectors properly:
-    var_refvector = reverse_mapping(models, all=false)
+    var_refvector = reverse_mapping(mapping, all=false)
     #NB: we use all=false because we only want the variables that are mapped as RefVectors.
 
     # We need to know which variables are not initialized, and not computed by other models:
-    var_need_init = to_initialize(models, mtg)
+    var_need_init = to_initialize(mapping, mtg)
 
     # If we find some, we return an error:
     check && error_mtg_init(var_need_init)
@@ -449,9 +449,9 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true, verbos
     end
 
     # Compute the multi-scale dependency graph of the models:
-    dependency_graph = multiscale_dep(models, verbose=verbose)
+    dependency_graph = multiscale_dep(mapping, verbose=verbose)
 
-    models = Dict(first(m) => PlantSimEngine.parse_models(PlantSimEngine.get_models(last(m))) for m in models)
+    models = Dict(first(m) => PlantSimEngine.parse_models(PlantSimEngine.get_models(last(m))) for m in mapping)
 
     return mtg, statuses, dependency_graph, models
 end

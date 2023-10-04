@@ -56,13 +56,13 @@ MultiScaleModel{ToyCAllocationModel, String}(ToyCAllocationModel(), ["carbon_all
 We can access the mapping and the model:
 
 ```jldoctest mylabel
-julia> PlantSimEngine.mapping(multiscale_model)
+julia> PlantSimEngine.mapping_(multiscale_model)
 1-element Vector{Pair{Symbol, Vector{String}}}:
  :carbon_allocation => ["Leaf", "Internode"]
 ```
 
 ```jldoctest mylabel
-julia> PlantSimEngine.model(multiscale_model)
+julia> PlantSimEngine.model_(multiscale_model)
 ToyCAllocationModel()
 ```
 """
@@ -80,5 +80,5 @@ end
 
 MultiScaleModel(; model, mapping) = MultiScaleModel(model, mapping)
 
-mapping(m::MultiScaleModel) = m.mapping
-model(m::MultiScaleModel) = m.model
+mapping_(m::MultiScaleModel) = m.mapping
+model_(m::MultiScaleModel) = m.model
