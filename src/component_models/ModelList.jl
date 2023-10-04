@@ -360,7 +360,7 @@ end
 Returns all variables that are given for several time-steps in the status.
 """
 get_vars_not_propagated(status) = (findall(x -> length(x) > 1, status)...,)
-get_vars_not_propagated(::Type{Nothing}) = ()
+get_vars_not_propagated(::Nothing) = ()
 
 """
     Base.copy(l::ModelList)
@@ -394,14 +394,16 @@ ml3 = copy(models, TimeStepTable([Status(var1=20.0, var2=0.5))])
 function Base.copy(m::T) where {T<:ModelList}
     ModelList(
         m.models,
-        deepcopy(m.status)
+        deepcopy(m.status),
+        m.vars_not_propagated
     )
 end
 
 function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
-        status
+        status,
+        m.vars_not_propagated
     )
 end
 

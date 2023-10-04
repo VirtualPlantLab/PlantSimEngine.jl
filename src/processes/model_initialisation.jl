@@ -208,7 +208,13 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
                 end
 
                 outputs_from_scales = merge(outputs_from_scales...)
-                push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
+                if var in keys(outputs_from_scales)
+                    # If the variable is computed by a model at the other scale, we don't need to initialise it:
+                    continue
+                else
+                    # Else, we need to initialise it:
+                    push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
+                end
             else
                 # In this case the variable is an input of the model, and is not computed by other mapping at this scale or the others.
                 if var in vars_in_mtg

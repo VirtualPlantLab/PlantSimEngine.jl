@@ -143,27 +143,6 @@ function run!(
 
     @floop executor_obj for obj in collect(values(object))
         run!(obj, meteo, constants, extra, check=check, executor=executor)
-        # # Check if the simulation can be parallelized over time-steps:
-        # if !timestep_parallelizable(dep_graphs[obj_index]) && executor != SequentialEx()
-        #     executor_time = SequentialEx()
-        # else
-        #     executor_time = executor
-        # end
-
-        # @floop executor_time for (i, meteo_i) in enumerate(meteo_rows)
-        #     if check
-        #         # Check if the meteo data and the status have the same length (or length 1)
-        #         check_dimensions(obj, meteo)
-
-        #         if length(dep_graphs[obj_index].not_found) > 0
-        #             error(
-        #                 "The following processes are missing in the ModelList: ",
-        #                 dep_graphs[obj_index].not_found
-        #             )
-        #         end
-        #     end
-        #     run!(obj, dep_graphs[obj_index], i, obj[i], meteo_i, constants, extra)
-        # end
     end
 end
 
@@ -201,19 +180,27 @@ function run!(
         )
     end
 
-    if !timestep_parallelizable(dep_graph) && executor != SequentialEx()
-        is_ts_parallel = which_timestep_parallelizable(dep_graph)
-        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
+    if !timestep_parallelizable(dep_graph)
+        if executor != SequentialEx()
+            is_ts_parallel = which_timestep_parallelizable(dep_graph)
+            mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
 
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-        ) maxlog = 1
-        executor = SequentialEx()
-    end
-
-    @floop executor for (i, row) in enumerate(sim_rows)
-        run!(object, dep_graph, i, row, meteo, constants, extra)
+            check && @warn string(
+                "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
+                "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+            ) maxlog = 1
+        end
+        # Not parallelizable over time-steps, it means some values depend on the previous value.
+        # In this case we propagate the values of the variables from one time-step to the other, except for 
+        # the variables the user provided for all time-steps.
+        for (i, row) in enumerate(sim_rows)
+            i > 1 && propagate_values!(sim_rows[i-1], row, object.vars_not_propagated)
+            run!(object, dep_graph, i, row, meteo, constants, extra)
+        end
+    else
+        @floop executor for (i, row) in enumerate(sim_rows)
+            run!(object, dep_graph, i, row, meteo, constants, extra)
+        end
     end
 end
 
@@ -243,20 +230,29 @@ function run!(
         end
     end
 
-    if !timestep_parallelizable(dep_graph) && executor != SequentialEx()
-        is_ts_parallel = which_timestep_parallelizable(dep_graph)
-        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
+    if !timestep_parallelizable(dep_graph)
+        if executor != SequentialEx()
+            is_ts_parallel = which_timestep_parallelizable(dep_graph)
+            mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
 
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-        ) maxlog = 1
-        executor = SequentialEx()
-    end
+            check && @warn string(
+                "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
+                "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+            ) maxlog = 1
+        end
 
-    # Computing for each time-step:
-    @floop executor for (i, meteo_i) in enumerate(meteo_rows)
-        run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
+        # Not parallelizable over time-steps, it means some values depend on the previous value.
+        # In this case we propagate the values of the variables from one time-step to the other, except for 
+        # the variables the user provided for all time-steps.
+        for (i, meteo_i) in enumerate(meteo_rows)
+            i > 1 && propagate_values!(object[i-1], object[i], object.vars_not_propagated)
+            run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
+        end
+    else
+        # Computing time-steps in parallel:
+        @floop executor for (i, meteo_i) in enumerate(meteo_rows)
+            run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
+        end
     end
 end
 
@@ -369,27 +365,15 @@ function run!(
 )
 
     dep_graph = dep(object)
-    if !timestep_parallelizable(dep_graph) && executor != SequentialEx()
-        is_ts_parallel = which_timestep_parallelizable(dep_graph)
-        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
-
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-        ) maxlog = 1
-        executor2 = SequentialEx()
-    else
-        executor2 = executor # We define executor2 to limit boxed variables: https://juliafolds.github.io/FLoops.jl/dev/howto/avoid-box/
-    end
-
     models = get_models(object)
 
-    # Optionnaly in parallel over time-steps:
-    @floop executor2 for (i, meteo_i) in enumerate(Tables.rows(meteo))
-        # In parallel over dependency roots (independant computations):
-        # @floop executor for (process_key, dependency_node) in collect(dep_graph.roots)
-        #! put this into another function so I can call an @floop again
-        for (process_key, dependency_node) in collect(dep_graph.roots)
+    # Note: The object is not thread safe here, because we write all meteo time-steps into the same Status (for each node)
+    # This is because the number of nodes is usually higher than the number of cores anyway, so we don't gain much by parallelizing over
+    # meteo time-steps in addition. This way we also reduce the memory footprint that can grow very large if we have many time-steps.
+    for (i, meteo_i) in enumerate(Tables.rows(meteo))
+        # In parallel over dependency root, i.e. for independant computations:
+        @floop executor for (process_key, dependency_node) in collect(dep_graph.roots)
+            # Note: parallelization over objects is handled by the run! method below
             run!(object, dependency_node, i, models, meteo_i, constants, extra, check, executor)
         end
     end
