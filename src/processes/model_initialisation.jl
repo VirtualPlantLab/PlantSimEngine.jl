@@ -1,11 +1,22 @@
 """
-    to_initialize(v::T, vars...) where T <: Union{Missing,AbstractModel}
+    to_initialize(; verbose=true, vars...)
     to_initialize(m::T)  where T <: ModelList
     to_initialize(m::DependencyGraph)
+    to_initialize(mapping::Dict{String,T}, graph=nothing)
 
 Return the variables that must be initialized providing a set of models and processes. The
 function takes into account model coupling and only returns the variables that are needed
 considering that some variables that are outputs of some models are used as inputs of others.
+
+# Arguments
+
+- `verbose`: if `true`, print information messages.
+- `vars...`: the models and processes to consider.
+- `m::T`: a [`ModelList`](@ref).
+- `m::DependencyGraph`: a [`DependencyGraph`](@ref).
+- `mapping::Dict{String,T}`: a mapping that associates models to organs.
+- `graph`: a graph representing a plant or a scene, *e.g.* a multiscale tree graph. The graph
+  is used to check if variables that are not initialized can be found in the graph nodes attributes.
 
 # Examples
 
@@ -28,6 +39,30 @@ m = ModelList(
     ),
     Status(var1 = 5.0, var2 = -Inf, var3 = -Inf, var4 = -Inf, var5 = -Inf)
 )
+
+to_initialize(m)
+```
+
+Or with a mapping:
+
+```@example
+using PlantSimEngine
+
+# Including an example script that implements dummy processes and models:
+include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+
+mapping = Dict(
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    ),
+    "Internode" => ModelList(
+        process1=Process1Model(1.0),
+    )
+)
+
+to_initialize(mapping)
 ```
 """
 function to_initialize(m::ModelList; verbose::Bool=true)
@@ -116,28 +151,41 @@ struct VarFromMTG
     scale::String
 end
 
-# For the list of models given to an MTG:
-function to_initialize(models::Dict{String,T}, organs_statuses, mtg) where {T}
+# For the list of mapping given to an MTG:
+function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
 
     # Get the variables in the MTG:
-    vars_in_mtg = names(mtg)
+    if isnothing(graph)
+        vars_in_mtg = names(graph)
+    else
+        vars_in_mtg = Symbol[]
+    end
 
     var_need_init = Dict{String,Any}()
-    for organ in keys(models)
+    for organ in keys(mapping)
         # organ = "Plant"
-        # Get all models for the organ:
-        mods = PlantSimEngine.get_models(models[organ])
-        map_vars = PlantSimEngine.get_mapping(models[organ])
+        # Get all mapping for the organ:
+        mods = PlantSimEngine.get_models(mapping[organ])
+        map_vars = PlantSimEngine.get_mapping(mapping[organ])
+        user_st = PlantSimEngine.get_status(mapping[organ]) # User status
+
+        if isnothing(user_st)
+            user_st = NamedTuple()
+        else
+            user_st = NamedTuple(user_st)
+        end
+
         multiscale_vars = collect(first(i) for i in map_vars)
         ins = merge(PlantSimEngine.inputs_.(mods)...)
         outs = merge(PlantSimEngine.outputs_.(mods)...)
 
         # Variables in the node that are defined as multiscale:
         multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
-        # multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
 
         # Variables we need to initialise for this scale:
         vars_needed_this_scale = setdiff(keys(ins), keys(outs))
+        # And that are not provided by the user:
+        setdiff!(vars_needed_this_scale, keys(user_st))
 
         need_initialisation = Symbol[]
         need_var_from_mtg = VarFromMTG[]
@@ -150,19 +198,19 @@ function to_initialize(models::Dict{String,T}, organs_statuses, mtg) where {T}
                 # Scale(s) at which the variable is computed:
                 from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
                 # We check if there is a model at the other scale(s) that computes it:
-                outputs_from_scales = PlantSimEngine.map_scale(models, from_scales) do m, s
+                outputs_from_scales = PlantSimEngine.map_scale(mapping, from_scales) do m, s
                     # We check that the node type exist in the model list:
                     haskey(m, s) || error(
-                        "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of models."
+                        "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of mapping."
                     )
-                    # If it does, we get the outputs of its models:
+                    # If it does, we get the outputs of its mapping:
                     merge(PlantSimEngine.outputs_.(PlantSimEngine.get_models(m[s]))...)
                 end
 
                 outputs_from_scales = merge(outputs_from_scales...)
                 push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
-            elseif organs_statuses[organ][var] == ins[var]
-                # In this case the variable is an input of the model, and is not computed by other models at this scale or the others.
+            else
+                # In this case the variable is an input of the model, and is not computed by other mapping at this scale or the others.
                 if var in vars_in_mtg
                     # If the variable can be found in the MTG, we will take it from there:
                     push!(need_var_from_mtg, VarFromMTG(var, organ))
