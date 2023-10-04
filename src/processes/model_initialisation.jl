@@ -156,9 +156,9 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
 
     # Get the variables in the MTG:
     if isnothing(graph)
-        vars_in_mtg = names(graph)
-    else
         vars_in_mtg = Symbol[]
+    else
+        vars_in_mtg = names(graph)
     end
 
     var_need_init = Dict{String,Any}()
