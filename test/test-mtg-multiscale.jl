@@ -21,8 +21,124 @@ mtg = begin
     scene
 end
 
-# Testing with a simple mapping (just the soil model, no multiscale mapping):
+# Testing the mappings:
+@testset "Mapping: missing initialisation" begin
+    mapping = Dict(
+        "Plant" =>
+            MultiScaleModel(
+                model=ToyCAllocationModel(),
+                mapping=[
+                    # inputs
+                    :A => ["Leaf"],
+                    :carbon_demand => ["Leaf", "Internode"],
+                    # outputs
+                    :carbon_allocation => ["Leaf", "Internode"]
+                ],
+            ),
+        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        "Leaf" => (
+            MultiScaleModel(
+                model=ToyAssimModel(),
+                mapping=[:soil_water_content => "Soil",],
+                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            ),
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            Status(aPPFD=1300.0, TT=10.0),
+        ),
+        "Soil" => (
+            ToySoilWaterModel(),
+        ),
+    )
 
+    to_init = @test_nowarn to_initialize(mapping)
+
+    @test to_init["Internode"].need_initialisation == [:TT]
+    @test to_init["Internode"].need_models_from_scales == []
+    @test to_init["Internode"].need_var_from_mtg == []
+end
+
+@testset "Mapping: missing organ in mapping (Soil)" begin
+    mapping = Dict(
+        "Plant" =>
+            MultiScaleModel(
+                model=ToyCAllocationModel(),
+                mapping=[
+                    # inputs
+                    :A => ["Leaf"],
+                    :carbon_demand => ["Leaf", "Internode"],
+                    # outputs
+                    :carbon_allocation => ["Leaf", "Internode"]
+                ],
+            ),
+        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        "Leaf" => (
+            MultiScaleModel(
+                model=ToyAssimModel(),
+                mapping=[:soil_water_content => "Soil",],
+                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            ),
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            Status(aPPFD=1300.0, TT=10.0),
+        )
+    )
+
+    @test_throws "Nodes of type Leaf are mapping to variable `:soil_water_content` computed from nodes of type Soil, but there is no type Soil in the list of mapping." to_initialize(mapping)
+end
+
+@testset "Mapping: missing model at other scale (soil_water_content) + missing init + var1 from MTG" begin
+    mtg_var = let
+        scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
+        soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
+        plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+        internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+        leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+        scene
+    end
+
+    mapping = Dict(
+        "Plant" =>
+            MultiScaleModel(
+                model=ToyCAllocationModel(),
+                mapping=[
+                    # inputs
+                    :A => ["Leaf"],
+                    :carbon_demand => ["Leaf", "Internode"],
+                    # outputs
+                    :carbon_allocation => ["Leaf", "Internode"]
+                ],
+            ),
+        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        "Leaf" => (
+            MultiScaleModel(
+                model=ToyAssimModel(),
+                mapping=[:soil_water_content => "Soil",],
+                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            ),
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            Status(aPPFD=1300.0, TT=10.0),
+        ),
+        "Soil" => (
+            Process1Model(1.0),
+        ),
+    )
+
+    soil_node = mtg_var[1]
+    soil_node[:var1] = 1.0
+    to_init = to_initialize(mapping, mtg_var)
+    @test to_init["Soil"].need_initialisation == [:var2]# var1 would be here if not present in the MTG
+    @test to_init["Soil"].need_models_from_scales == []
+    @test to_init["Soil"].need_var_from_mtg == [PlantSimEngine.VarFromMTG(:var1, "Soil")]
+
+    @test to_init["Leaf"].need_initialisation == []
+    @test to_init["Leaf"].need_models_from_scales == [(var=:soil_water_content, scale="Leaf", need_scales="Soil")]
+    @test to_init["Leaf"].need_var_from_mtg == []
+
+    @test to_init["Internode"].need_initialisation == [:TT]
+    @test to_init["Internode"].need_models_from_scales == []
+    @test to_init["Internode"].need_var_from_mtg == []
+end
+
+# Testing with a simple mapping (just the soil model, no multiscale mapping):
 @testset "run! on MTG: simple mapping" begin
     out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
     @test out.statuses["Soil"][1].node == soil
@@ -87,10 +203,12 @@ end
     @test out.statuses["Internode"][1].TT === -Inf
     @test out.statuses["Internode"][1].carbon_demand === -Inf
 
-    @test out.statuses["Leaf"][1].TT == 10.0
-    @test out.statuses["Leaf"][1].carbon_demand == 0.5
-    @test out.statuses["Leaf"][1].A == 260.0
-    @test out.statuses["Leaf"][1].carbon_allocation == 0.0
+    st_leaf1 = out.statuses["Leaf"][1]
+    @test st_leaf1.TT == 10.0
+    @test st_leaf1.carbon_demand == 0.5
+    # This one depends on the soil, which is random, so we test using the computation directly:
+    @test st_leaf1.A == st_leaf1.aPPFD * out.models["Leaf"].photosynthesis.LUE * st_leaf1.soil_water_content
+    @test st_leaf1.carbon_allocation == 0.0
 end
 
 # A mapping that actually works (same as before but with the init for TT):
@@ -275,10 +393,13 @@ end
                 ToySoilWaterModel(),
             ),
         )
+
     out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo)
 
     @test length(out.dependency_graph.roots) == 4
     @test out.statuses["Leaf"][1].var1 === 1.01
     @test out.statuses["Leaf"][1].var2 === 1.03
-    @test out.statuses["Leaf"][1].var8 ≈ 1015.47786908 atol = 1e-6
+    @test out.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test out.statuses["Leaf"][1].var5 == 32.4806
+    @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 end

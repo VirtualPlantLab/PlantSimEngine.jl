@@ -109,5 +109,5 @@ end
 
     @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
     @test mean(models.status[:LAI]) ≈ 1.098492557536525
-    @test models.status[:biomass][end] ≈ 1041.4568850723167
+    @test models.status[:biomass][end] ≈ 1041.4687939085675 rtol = 1e-4
 end

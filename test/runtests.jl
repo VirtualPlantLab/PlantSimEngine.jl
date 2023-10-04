@@ -58,7 +58,7 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"))
         include("test-mtg.jl")
     end
 
-    @testset "MTG" begin
+    @testset "MTG with multiscale mapping" begin
         include("test-mtg-multiscale.jl")
     end
 
