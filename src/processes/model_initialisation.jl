@@ -221,7 +221,7 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
             end
             # Note: if the variable is an output of the model for another scale (in `multi_scale_outs`), we don't need to initialise it at this scale.
         end
-        if length(need_initialisation) > 0
+        if length(need_initialisation) > 0 || length(need_var_from_mtg) > 0 || length(need_models_from_scales) > 0
             var_need_init[organ] = (; need_initialisation, need_models_from_scales, need_var_from_mtg)
         end
     end
