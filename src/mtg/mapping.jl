@@ -434,7 +434,7 @@ function init_simulation(mtg, models; type_promotion=nothing, check=true, verbos
     #NB: we use all=false because we only want the variables that are mapped as RefVectors.
 
     # We need to know which variables are not initialized, and not computed by other models:
-    var_need_init = to_initialize(models, organs_statuses, mtg)
+    var_need_init = to_initialize(models, mtg)
 
     # If we find some, we return an error:
     check && error_mtg_init(var_need_init)
