@@ -30,8 +30,11 @@ meteo = Weather(
     @test NamedTuple(get_node(mtg, 3)[:models][1]) == (var4=-Inf, var5=-Inf, var6=-Inf, var1=var1, var3=-Inf, var2=var2)
 
     # The following shouldn't work because var2 has only one value: 
-    @test_throws ["The attribute", "in node 3"] init_mtg_models!(mtg, models, 10)
-
+    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
+        @test_throws ErrorException init_mtg_models!(mtg, models, 10)
+    else
+        @test_throws ["The attribute", "in node 3"] init_mtg_models!(mtg, models, 10)
+    end
     # Same with two time-steps:
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
     internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))

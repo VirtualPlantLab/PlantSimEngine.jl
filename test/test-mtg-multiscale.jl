@@ -82,7 +82,12 @@ end
         )
     )
 
-    @test_throws "Nodes of type Leaf are mapping to variable `:soil_water_content` computed from nodes of type Soil, but there is no type Soil in the list of mapping." to_initialize(mapping)
+
+    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
+        @test_throws ErrorException to_initialize(mapping)
+    else
+        @test_throws "Nodes of type Leaf are mapping to variable `:soil_water_content` computed from nodes of type Soil, but there is no type Soil in the list of mapping." to_initialize(mapping)
+    end
 end
 
 @testset "Mapping: missing model at other scale (soil_water_content) + missing init + var1 from MTG" begin
@@ -187,7 +192,12 @@ end
         ),
     )
     # The mapping above should throw an error because TT is not initialized for the Internode:
-    @test_throws "Nodes of type Internode need variable(s) TT to be initialized or computed by a model." run!(mtg, mapping_all, meteo)
+    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
+        @test_throws ErrorException run!(mtg, mapping_all, meteo)
+    else
+        @test_throws "Nodes of type Internode need variable(s) TT to be initialized or computed by a model." run!(mtg, mapping_all, meteo)
+    end
+
     # It should work if we don't check the mapping though:
     out = @test_nowarn run!(mtg, mapping_all, meteo, check=false)
     # Note that the outputs are garbage because the TT is not initialized.
@@ -337,7 +347,11 @@ end
     )
 
     # Need init for var2, so it returns an error:
-    @test_throws "Nodes of type Leaf need variable(s) var2 to be initialized or computed by a model." PlantSimEngine.init_simulation(mtg, mapping)
+    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
+        @test_throws ErrorException PlantSimEngine.init_simulation(mtg, mapping)
+    else
+        @test_throws "Nodes of type Leaf need variable(s) var2 to be initialized or computed by a model." PlantSimEngine.init_simulation(mtg, mapping)
+    end
 
     mapping = Dict(
         "Leaf" => (
@@ -357,6 +371,56 @@ end
 end
 
 @testset "MTG with complex mapping" begin
+    mapping =
+        Dict(
+            "Plant" =>
+                MultiScaleModel(
+                    model=ToyCAllocationModel(),
+                    mapping=[
+                        # inputs
+                        :A => ["Leaf"],
+                        :carbon_demand => ["Leaf", "Internode"],
+                        # outputs
+                        :carbon_allocation => ["Leaf", "Internode"]
+                    ],
+                ),
+            "Internode" => (
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+                Status(TT=10.0)
+            ),
+            "Leaf" => (
+                MultiScaleModel(
+                    model=ToyAssimModel(),
+                    mapping=[:soil_water_content => "Soil",],
+                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                ),
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+                Process1Model(1.0),
+                Process2Model(),
+                Process3Model(),
+                Process4Model(),
+                Process5Model(),
+                Process6Model(),
+                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0),
+            ),
+            "Soil" => (
+                ToySoilWaterModel(),
+            ),
+        )
+
+    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
+
+    @test length(out.dependency_graph.roots) == 4
+    @test out.statuses["Leaf"][1].var1 === 1.01
+    @test out.statuses["Leaf"][1].var2 === 1.03
+    @test out.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test out.statuses["Leaf"][1].var5 == 32.4806
+    @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+end
+
+
+
+@testset "MTG with dynamic output variables" begin
     mapping =
         Dict(
             "Plant" =>
