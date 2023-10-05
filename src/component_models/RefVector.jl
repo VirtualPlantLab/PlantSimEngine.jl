@@ -51,7 +51,6 @@ We can access the values of the RefVector:
 ```jldoctest mylabel
 julia> rv[1]
 1.0
-1.0
 ```
 
 Updating the value in the RefVector will update the value in the original struct:
@@ -86,6 +85,7 @@ julia> rv = PlantSimEngine.RefVector(vec)
 
 ```jldoctest mylabel
 julia> rv[1]
+1.0
 ```
 """
 struct RefVector{T} <: AbstractVector{T}

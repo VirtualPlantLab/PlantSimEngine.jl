@@ -142,11 +142,25 @@ Propagates the values of all variables in `status1` to `status2`, except for var
 
 ```jldoctest st1
 julia> status1 = Status(var1 = 15.0, var2 = 0.3);
+```
+
+```jldoctest st1
 julia> status2 = Status(var1 = 16.0, var2 = -Inf);
+```
+
+```jldoctest st1
 julia> vars_not_propagated = (:var1,);
-julia> propagate_values!(status1, status2, vars_not_propagated);
+
+```jldoctest st1
+julia> PlantSimEngine.propagate_values!(status1, status2, vars_not_propagated);
+```
+
+```jldoctest st1
 julia> status2.var2 == status1.var2
 true
+```
+
+```jldoctest st1
 julia> status2.var1 == status1.var1
 false
 ```

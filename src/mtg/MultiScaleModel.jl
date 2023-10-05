@@ -23,7 +23,11 @@ of one node, they will be updated in the other nodes.
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine
+julia> using PlantSimEngine;
+```
+
+```jldoctest mylabel
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
 ```
 
 Let's take a model:
@@ -49,15 +53,15 @@ between the `carbon_allocation` variable and the `Leaf` and `Internode` nodes.
 We can now make the model multi-scale by passing the model and the mapping to the `MultiScaleModel` constructor :
 
 ```jldoctest mylabel
-julia> multiscale_model = MultiScaleModel(model, mapping)
-MultiScaleModel{ToyCAllocationModel, String}(ToyCAllocationModel(), ["carbon_allocation" => ["Leaf", "Internode"]])
+julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapping)
+MultiScaleModel{ToyCAllocationModel, String}(ToyCAllocationModel(), Pair{Symbol, Union{String, Vector{String}}}[:carbon_allocation => ["Leaf", "Internode"]])
 ```
 
 We can access the mapping and the model:
 
 ```jldoctest mylabel
 julia> PlantSimEngine.mapping_(multiscale_model)
-1-element Vector{Pair{Symbol, Vector{String}}}:
+1-element Vector{Pair{Symbol, Union{String, Vector{String}}}}:
  :carbon_allocation => ["Leaf", "Internode"]
 ```
 

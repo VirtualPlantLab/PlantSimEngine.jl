@@ -450,7 +450,7 @@ function run!(
     if !last(object_parallelizable(node)) && executor != SequentialEx()
         check && @warn string(
             "A parallel executor was provided (`executor=$(executor)`) but the model $(node.value) (or its hard dependencies) cannot be run in parallel over objects.",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+            " The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
         ) maxlog = 1
         executor = SequentialEx()
     end

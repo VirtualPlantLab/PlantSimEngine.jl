@@ -71,7 +71,7 @@ julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(),
 
 ```jldoctest 1
 julia> typeof(models)
-ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}}
+ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -281,7 +281,7 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, ns
 
     if Tables.istable(x)
         # Making a vars for each ith value in the user vars:
-        x_full = [merge(ref_vars, NamedTuple(x[1]))]
+        x_full = [merge(ref_vars, NamedTuple(Tables.rows(x)[1]))]
         for r in Tables.rows(x)[2:end]
             push!(x_full, merge(ref_vars, NamedTuple(r)))
         end
@@ -360,6 +360,7 @@ end
 Returns all variables that are given for several time-steps in the status.
 """
 get_vars_not_propagated(status) = (findall(x -> length(x) > 1, status)...,)
+get_vars_not_propagated(df::DataFrames.DataFrame) = (propertynames(df)...,)
 get_vars_not_propagated(::Nothing) = ()
 
 """

@@ -25,28 +25,40 @@ Returns a vector of models
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine
+julia> using PlantSimEngine;
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
 ```
 
 If we just give a MultiScaleModel, we get its model as a one-element vector:
 
 ```jldoctest mylabel
-julia> models = MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapping=[
-                :A => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                :carbon_allocation => ["Leaf", "Internode"]
-            ],
+julia> models = MultiScaleModel( \
+            model=ToyCAllocationModel(), \
+            mapping=[ \
+                :A => ["Leaf"], \
+                :carbon_demand => ["Leaf", "Internode"], \
+                :carbon_allocation => ["Leaf", "Internode"] \
+            ], \
         );
 ```
 
 ```jldoctest mylabel
-julia> get_models(models)
+julia> PlantSimEngine.get_models(models)
 1-element Vector{ToyCAllocationModel}:
  ToyCAllocationModel()
 ```
@@ -54,19 +66,20 @@ julia> get_models(models)
 If we give a tuple of models, we get each model in a vector:
 
 ```jldoctest mylabel
-julia> models2 = (
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
-            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
-        ),
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        Status(aPPFD=1300.0, TT=10.0),
+julia> models2 = (  \
+        MultiScaleModel( \
+            model=ToyAssimModel(), \
+            mapping=[:soil_water_content => "Soil",], \
+        ), \
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        Status(aPPFD=1300.0, TT=10.0), \
     );
 ```
 
+Notice that we provide "Soil", not ["Soil"] in the mapping because a single value is expected for the mapping here.
+
 ```jldoctest mylabel
-julia> get_models(models2)
+julia> PlantSimEngine.get_models(models2)
 2-element Vector{AbstractModel}:
  ToyAssimModel{Float64}(0.2)
  ToyCDemandModel{Float64}(10.0, 200.0)
@@ -302,17 +315,21 @@ See also `vars_type_from_mapping` to get the variables type.
 
 # Examples
 
-```jldoctest
-vars_mapping = Dict(
-    ["Leaf"] => Dict(:A => RefVector{Float64}[-Inf]), 
-    ["Leaf", "Internode"] => Dict(
-        :carbon_allocation => RefVector{Float64}[], 
-        :carbon_demand => RefVector{Float64}[])
-);
+```jldoctest test1
+julia> vars_mapping = Dict( \
+    ["Leaf"] => Dict(:A => PlantSimEngine.RefVector{Float64}[]), \
+    ["Leaf", "Internode"] => Dict( \
+        :carbon_allocation => PlantSimEngine.RefVector{Float64}[], \
+        :carbon_demand => PlantSimEngine.RefVector{Float64}[] \
+    ) \
+)
+Dict{Vector{String}, Dict{Symbol, Vector{PlantSimEngine.RefVector{Float64}}}} with 2 entries:
+  ["Leaf"]              => Dict(:A=>[])
+  ["Leaf", "Internode"] => Dict(:carbon_allocation=>[], :carbon_demand=>[])
 ```
 
-```jldoctest
-julia> vars_from_mapping(vars_mapping)
+```jldoctest test1
+julia> PlantSimEngine.vars_from_mapping(vars_mapping)
 3-element Vector{Symbol}:
  :A
  :carbon_allocation
@@ -340,7 +357,8 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest
-julia> MappedVar("Leaf", :A, 1.0)
+julia> PlantSimEngine.MappedVar("Leaf", :A, 1.0)
+PlantSimEngine.MappedVar{String, Float64}("Leaf", :A, 1.0)
 ```
 """
 struct MappedVar{S<:Union{A,Vector{A}} where {A<:AbstractString},T}
@@ -544,56 +562,65 @@ Create a status template for a given set of models and type promotion.
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine, Random
+julia> using PlantSimEngine;
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
 ```
 
 ```jldoctest mylabel
-julia> models = Dict(
-            "Plant" =>
-                MultiScaleModel(
-                    model=ToyCAllocationModel(),
-                    mapping=[
-                        # inputs
-                        :A => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
-                        # outputs
-                        :carbon_allocation => ["Leaf", "Internode"]
-                    ],
-                ),
-            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            "Leaf" => (
-                MultiScaleModel(
-                    model=ToyAssimModel(),
-                    mapping=[:soil_water_content => "Soil",],
-                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
-                ),
-                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                Status(aPPFD=1300.0, TT=10.0),
-            ),
-            "Soil" => (
-                ToySoilWaterModel(),
-            ),
+julia> models = Dict( \
+            "Plant" => \
+                MultiScaleModel( \
+                    model=ToyCAllocationModel(), \
+                    mapping=[ \
+                        :A => ["Leaf"], \
+                        :carbon_demand => ["Leaf", "Internode"], \
+                        :carbon_allocation => ["Leaf", "Internode"] \
+                    ], \
+                ), \
+            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+            "Leaf" => ( \
+                MultiScaleModel( \
+                    model=ToyAssimModel(), \
+                    mapping=[:soil_water_content => "Soil",], \
+                ), \
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+                Status(aPPFD=1300.0, TT=10.0), \
+            ), \
+            "Soil" => ( \
+                ToySoilWaterModel(), \
+            ), \
         );
 ```
 
 ```jldoctest mylabel
-julia> status_template(models, nothing)
+julia> organs_statuses = PlantSimEngine.status_template(models, nothing)
 Dict{String, Dict{Symbol, Any}} with 4 entries:
   "Soil"      => Dict(:soil_water_content=>RefValue{Float64}(-Inf))
   "Internode" => Dict(:carbon_allocation=>-Inf, :TT=>-Inf, :carbon_demand=>-Inf)
-  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :A=>RefVector{Float64}[], :carbon_offer=>-Inf, :carbon_demand=>RefVector{Float64}[])
-  "Leaf"      => Dict(:carbon_allocation=>-Inf, :A=>-Inf, :TT=>10.0, :aPPFD=>1300.0, :soil_water_content=>RefValue{Float64}(-Inf), :carbon_demand=>-Inf)
+  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :A=>RefVector{F…
+  "Leaf"      => Dict(:carbon_allocation=>-Inf, :A=>-Inf, :TT=>10.0, :aPPFD=>13…
 ```
 
 Note that variables that are multiscale (*i.e.* defined in a mapping) are linked between scales, so if we write at a scale, the value will be 
 automatically updated at the other scale:
 
 ```jldoctest mylabel
-organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][:soil_water_content]
+julia> organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][:soil_water_content]
 true
 ```
 """
@@ -677,9 +704,18 @@ are already RefValues or RefVectors, they are used as is, else they are converte
 
 ```jldoctest mylabel
 julia> using PlantSimEngine
-julia> a, b = status_from_template(Dict(:a => 1.0, :b => 2.0));
+```
+
+```jldoctest mylabel
+julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0));
+```
+
+```jldoctest mylabel
 julia> a
 1.0
+```
+
+```jldoctest mylabel
 julia> b
 2.0
 ```
@@ -698,29 +734,32 @@ or a Ref to the `RefVector` (in case `v` is a `RefVector`).
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine
-julia> ref_var(1.0)
+julia> using PlantSimEngine;
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var(1.0)
 Base.RefValue{Float64}(1.0)
 ```
 
 ```jldoctest mylabel
-julia> ref_var([1.0])
+julia> PlantSimEngine.ref_var([1.0])
 Base.RefValue{Vector{Float64}}([1.0])
 ```
 
 ```jldoctest mylabel
-julia> ref_var(Base.RefValue(1.0))
+julia> PlantSimEngine.ref_var(Base.RefValue(1.0))
 Base.RefValue{Float64}(1.0)
 ```
 
 ```jldoctest mylabel
-julia> ref_var(Base.RefValue([1.0]))
+julia> PlantSimEngine.ref_var(Base.RefValue([1.0]))
 Base.RefValue{Vector{Float64}}([1.0])
 ```
 
 ```jldoctest mylabel
-julia> ref_var(RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
-Base.RefValue{RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
+julia> PlantSimEngine.ref_var(PlantSimEngine.RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
+Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
 ```
 """
 ref_var(v) = Base.Ref(copy(v))
@@ -747,44 +786,58 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 
 ```jldoctest mylabel
 julia> using PlantSimEngine
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+```
+
+```jldoctest mylabel
 julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
 ```
 
 ```jldoctest mylabel
-julia> models = Dict(
-            "Plant" =>
-                MultiScaleModel(
-                    model=ToyCAllocationModel(),
-                    mapping=[
-                        # inputs
-                        :A => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
-                        # outputs
-                        :carbon_allocation => ["Leaf", "Internode"]
-                    ],
-                ),
-            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            "Leaf" => (
-                MultiScaleModel(
-                    model=ToyAssimModel(),
-                    mapping=[:soil_water_content => "Soil",],
-                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
-                ),
-                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                Status(aPPFD=1300.0, TT=10.0),
-            ),
-            "Soil" => (
-                ToySoilWaterModel(),
-            ),
+julia> models = Dict( \
+            "Plant" => \
+                MultiScaleModel( \
+                    model=ToyCAllocationModel(), \
+                    mapping=[ \
+                        :A => ["Leaf"], \
+                        :carbon_demand => ["Leaf", "Internode"], \
+                        :carbon_allocation => ["Leaf", "Internode"] \
+                    ], \
+                ), \
+            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+            "Leaf" => ( \
+                MultiScaleModel( \
+                    model=ToyAssimModel(), \
+                    mapping=[:soil_water_content => "Soil",], \
+                ), \
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+                Status(aPPFD=1300.0, TT=10.0), \
+            ), \
+            "Soil" => ( \
+                ToySoilWaterModel(), \
+            ), \
         );
 ```
 
+Notice we provide "Soil", not ["Soil"] in the mapping of the `ToyAssimModel` for the `Leaf`. This is because
+we expect a single value for the `soil_water_content` to be mapped here (there is only one soil). This allows 
+to get the value as a singleton instead of a vector of values.
+
 ```jldoctest mylabel
-julia> reverse_mapping(models)
-Dict{String, Any} with 2 entries:
+julia> PlantSimEngine.reverse_mapping(models)
+Dict{String, Any} with 3 entries:
+  "Soil"      => Dict("Leaf"=>[:soil_water_content])
   "Internode" => Dict("Plant"=>[:carbon_demand, :carbon_allocation])
   "Leaf"      => Dict("Plant"=>[:A, :carbon_demand, :carbon_allocation])
 ```

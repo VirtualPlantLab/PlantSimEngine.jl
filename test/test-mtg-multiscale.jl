@@ -243,7 +243,7 @@ mapping = Dict(
 )
 
 @testset "run! on MTG with complete mapping (with init)" begin
-    out = @test_nowarn run!(mtg, mapping, meteo, executor=ThreadedEx())
+    out = @test_nowarn run!(mtg, mapping, meteo, executor=SequentialEx())
 
     @test typeof(out.statuses) == Dict{String,Vector{Status}}
     @test length(out.statuses["Plant"]) == 1
@@ -394,7 +394,7 @@ end
             ),
         )
 
-    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo)
+    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
 
     @test length(out.dependency_graph.roots) == 4
     @test out.statuses["Leaf"][1].var1 === 1.01
