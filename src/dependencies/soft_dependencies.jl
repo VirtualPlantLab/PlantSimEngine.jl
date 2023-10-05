@@ -258,12 +258,12 @@ This means that the variable `:carbon_demand` is computed by the process `:carbo
 is computed by the process `:photosynthesis` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
-    vars_input = PlantSimEngine.flatten_vars(inputs[process])
+    vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
-    for var in vars_input # e.g. var = PlantSimEngine.MappedVar{String, Nothing}("Soil", :soil_water_content, nothing)
+    for var in vars_input # e.g. var = MappedVar{String, Nothing}("Soil", :soil_water_content, nothing)
         # The variable is a multiscale variable:
-        if isa(var, PlantSimEngine.MappedVar)
+        if isa(var, MappedVar)
             var_organ = var.organ
 
             @assert var_organ != organ "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
@@ -277,7 +277,7 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                 # The variable is a multiscale variable:
                 for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
                     process == proc_output && error("Process $process declared at two scales: $organ and $org. A process can only be simulated at one scale.")
-                    vars_output = PlantSimEngine.flatten_vars(pairs_vars_output)
+                    vars_output = flatten_vars(pairs_vars_output)
                     if var.var in vars_output
                         # The variable is found at another scale:
                         if haskey(inputs_as_output_of_other_scale, org)

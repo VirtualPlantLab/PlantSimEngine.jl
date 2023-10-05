@@ -165,9 +165,9 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
     for organ in keys(mapping)
         # organ = "Plant"
         # Get all mapping for the organ:
-        mods = PlantSimEngine.get_models(mapping[organ])
-        map_vars = PlantSimEngine.get_mapping(mapping[organ])
-        user_st = PlantSimEngine.get_status(mapping[organ]) # User status
+        mods = get_models(mapping[organ])
+        map_vars = get_mapping(mapping[organ])
+        user_st = get_status(mapping[organ]) # User status
 
         if isnothing(user_st)
             user_st = NamedTuple()
@@ -176,8 +176,8 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
         end
 
         multiscale_vars = collect(first(i) for i in map_vars)
-        ins = merge(PlantSimEngine.inputs_.(mods)...)
-        outs = merge(PlantSimEngine.outputs_.(mods)...)
+        ins = merge(inputs_.(mods)...)
+        outs = merge(outputs_.(mods)...)
 
         # Variables in the node that are defined as multiscale:
         multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
@@ -198,13 +198,13 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
                 # Scale(s) at which the variable is computed:
                 from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
                 # We check if there is a model at the other scale(s) that computes it:
-                outputs_from_scales = PlantSimEngine.map_scale(mapping, from_scales) do m, s
+                outputs_from_scales = map_scale(mapping, from_scales) do m, s
                     # We check that the node type exist in the model list:
                     haskey(m, s) || error(
                         "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of mapping."
                     )
                     # If it does, we get the outputs of its mapping:
-                    merge(PlantSimEngine.outputs_.(PlantSimEngine.get_models(m[s]))...)
+                    merge(outputs_.(get_models(m[s]))...)
                 end
 
                 outputs_from_scales = merge(outputs_from_scales...)

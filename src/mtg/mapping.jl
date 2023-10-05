@@ -469,7 +469,7 @@ function init_simulation(mtg, mapping; type_promotion=nothing, check=true, verbo
     # Compute the multi-scale dependency graph of the models:
     dependency_graph = multiscale_dep(mapping, verbose=verbose)
 
-    models = Dict(first(m) => PlantSimEngine.parse_models(PlantSimEngine.get_models(last(m))) for m in mapping)
+    models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
     return mtg, statuses, dependency_graph, models
 end
@@ -930,10 +930,10 @@ defining variables as `MappedVar` if they are mapped to another scale.
 """
 function variables_multiscale(node, organ, mapping)
     map(variables(node)) do vars
-        vars_ = Vector{Union{Symbol,PlantSimEngine.MappedVar}}()
+        vars_ = Vector{Union{Symbol,MappedVar}}()
         for var in vars # e.g. var = :soil_water_content
             if haskey(mapping[organ], var)
-                push!(vars_, PlantSimEngine.MappedVar(mapping[organ][var], var, nothing))
+                push!(vars_, MappedVar(mapping[organ][var], var, nothing))
             else
                 push!(vars_, var)
             end
