@@ -7,9 +7,38 @@ meteo = Weather(
 ]
 )
 
+# A mapping that actually works (same as before but with the init for TT):
+mapping_1 = Dict(
+    "Plant" =>
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                # inputs
+                :A => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                # outputs
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+    "Internode" => (
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        Status(TT=10.0)
+    ),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil",],
+            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+        ),
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        Status(aPPFD=1300.0, TT=10.0),
+    ),
+    "Soil" => (
+        ToySoilWaterModel(),
+    ),
+)
 
 # Example MTG:
-
 mtg = begin
     scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
     soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
@@ -19,6 +48,98 @@ mtg = begin
     internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
     leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
     scene
+end
+
+
+@testset "status_template" begin
+    organs_statuses = PlantSimEngine.status_template(mapping, nothing)
+    @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
+    # Check that the soil_water_content is linked between the soil and the leaves:
+    @test organs_statuses["Soil"][:soil_water_content][] === -Inf
+    @test organs_statuses["Leaf"][:soil_water_content][] === -Inf
+
+    @test organs_statuses["Soil"][:soil_water_content][] === organs_statuses["Leaf"][:soil_water_content][]
+
+    organs_statuses["Soil"][:soil_water_content][] = 1.0
+    @test organs_statuses["Leaf"][:soil_water_content][] == 1.0
+
+    @test organs_statuses["Plant"][:A] == PlantSimEngine.RefVector{Float64}[]
+    @test organs_statuses["Plant"][:carbon_allocation] == PlantSimEngine.RefVector{Float64}[]
+    @test organs_statuses["Internode"][:carbon_allocation] == -Inf
+    @test organs_statuses["Leaf"][:carbon_demand] == -Inf
+
+    # Testing with a different type:
+    organs_statuses = PlantSimEngine.status_template(mapping, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
+
+    @test isa(organs_statuses["Plant"][:A], PlantSimEngine.RefVector{Float32})
+    @test isa(organs_statuses["Plant"][:carbon_allocation], PlantSimEngine.RefVector{Float32})
+    @test isa(organs_statuses["Internode"][:carbon_allocation], Float32)
+    @test isa(organs_statuses["Leaf"][:carbon_demand], Float32)
+    @test isa(organs_statuses["Soil"][:soil_water_content], Base.RefValue{Float32})
+end
+
+
+@testset "Multiscale initialisations and outputs" begin
+    outs = Dict(
+        "Flowers" => (:A, :carbon_demand), # There are no flowers in this MTG
+        "Leaf" => (:A, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
+        "Soil" => (:soil_water_content,),
+    )
+
+    type_promotion = nothing
+    nsteps = 2
+    organs_statuses = PlantSimEngine.status_template(mapping_1, type_promotion)
+
+    @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
+    @test collect(keys(organs_statuses["Soil"])) == [:soil_water_content]
+    @test collect(keys(organs_statuses["Leaf"])) == [:carbon_allocation, :A, :TT, :aPPFD, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses["Plant"])) == [:carbon_allocation, :A, :carbon_offer, :carbon_demand]
+    @test organs_statuses["Soil"][:soil_water_content][] === -Inf
+    @test organs_statuses["Leaf"][:carbon_allocation] === -Inf
+    @test organs_statuses["Leaf"][:TT] === 10.0
+    @test typeof(organs_statuses["Plant"][:carbon_allocation]) === PlantSimEngine.RefVector{Float64}
+
+
+
+    @test PlantSimEngine.reverse_mapping(mapping_1, all=true) == Dict{String,Any}(
+        "Soil" => Dict("Leaf" => [:soil_water_content]),
+        "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
+        "Leaf" => Dict("Plant" => [:A, :carbon_demand, :carbon_allocation])
+    )
+
+    var_refvector_1 = PlantSimEngine.reverse_mapping(mapping_1, all=false)
+    @test var_refvector == Dict{String,Any}(
+        "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
+        "Leaf" => Dict("Plant" => [:A, :carbon_demand, :carbon_allocation])
+    )
+
+    @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Any}()
+
+    var_need_init = PlantSimEngine.to_initialize(mapping_1, mtg)
+    @test var_need_init == Dict{String,Any}()
+
+    statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
+    @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
+
+    @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2
+    @test length(statuses["Soil"]) == length(statuses["Plant"]) == 1
+
+    e_1 = "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models."
+    e_2 = "You requested outputs for variables A, carbon_demand, non_existing_variable, but variables non_existing_variable have no models."
+
+    # If check is true, this should return an error (some outputs are not computed):
+    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
+        @test_throws ErrorException PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
+    else
+        @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
+    end
+
+    outs_ = @test_logs (:info, "$e_1") (:info, "$e_2") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
+
+    @test outs_ == Dict(
+        "Soil" => Dict(:soil_water_content => [[], []]),
+        "Leaf" => Dict(:A => [[], []], :carbon_demand => [[], []])
+    )
 end
 
 # Testing the mappings:
@@ -221,39 +342,8 @@ end
     @test st_leaf1.carbon_allocation == 0.0
 end
 
-# A mapping that actually works (same as before but with the init for TT):
-mapping = Dict(
-    "Plant" =>
-        MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapping=[
-                # inputs
-                :A => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                # outputs
-                :carbon_allocation => ["Leaf", "Internode"]
-            ],
-        ),
-    "Internode" => (
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        Status(TT=10.0)
-    ),
-    "Leaf" => (
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
-            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
-        ),
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        Status(aPPFD=1300.0, TT=10.0),
-    ),
-    "Soil" => (
-        ToySoilWaterModel(),
-    ),
-)
-
 @testset "run! on MTG with complete mapping (with init)" begin
-    out = @test_nowarn run!(mtg, mapping, meteo, executor=SequentialEx())
+    out = @test_nowarn run!(mtg, mapping_1, meteo, executor=SequentialEx())
 
     @test typeof(out.statuses) == Dict{String,Vector{Status}}
     @test length(out.statuses["Plant"]) == 1
@@ -304,34 +394,6 @@ mapping = Dict(
     for (j, i) in enumerate([2, 4])
         @test ref_values_callocation[i] === PlantSimEngine.refvalue(out.statuses["Leaf"][j], :carbon_allocation)
     end
-end
-
-
-@testset "status_template" begin
-    organs_statuses = PlantSimEngine.status_template(mapping, nothing)
-    @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
-    # Check that the soil_water_content is linked between the soil and the leaves:
-    @test organs_statuses["Soil"][:soil_water_content][] === -Inf
-    @test organs_statuses["Leaf"][:soil_water_content][] === -Inf
-
-    @test organs_statuses["Soil"][:soil_water_content][] === organs_statuses["Leaf"][:soil_water_content][]
-
-    organs_statuses["Soil"][:soil_water_content][] = 1.0
-    @test organs_statuses["Leaf"][:soil_water_content][] == 1.0
-
-    @test organs_statuses["Plant"][:A] == PlantSimEngine.RefVector{Float64}[]
-    @test organs_statuses["Plant"][:carbon_allocation] == PlantSimEngine.RefVector{Float64}[]
-    @test organs_statuses["Internode"][:carbon_allocation] == -Inf
-    @test organs_statuses["Leaf"][:carbon_demand] == -Inf
-
-    # Testing with a different type:
-    organs_statuses = PlantSimEngine.status_template(mapping, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
-
-    @test isa(organs_statuses["Plant"][:A], PlantSimEngine.RefVector{Float32})
-    @test isa(organs_statuses["Plant"][:carbon_allocation], PlantSimEngine.RefVector{Float32})
-    @test isa(organs_statuses["Internode"][:carbon_allocation], Float32)
-    @test isa(organs_statuses["Leaf"][:carbon_demand], Float32)
-    @test isa(organs_statuses["Soil"][:soil_water_content], Base.RefValue{Float32})
 end
 
 # Here we initialise var1 to a constant value:
