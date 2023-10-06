@@ -52,7 +52,7 @@ end
 
 
 @testset "status_template" begin
-    organs_statuses = PlantSimEngine.status_template(mapping, nothing)
+    organs_statuses = PlantSimEngine.status_template(mapping_1, nothing)
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     # Check that the soil_water_content is linked between the soil and the leaves:
     @test organs_statuses["Soil"][:soil_water_content][] === -Inf
@@ -69,7 +69,7 @@ end
     @test organs_statuses["Leaf"][:carbon_demand] == -Inf
 
     # Testing with a different type:
-    organs_statuses = PlantSimEngine.status_template(mapping, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
+    organs_statuses = PlantSimEngine.status_template(mapping_1, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
 
     @test isa(organs_statuses["Plant"][:A], PlantSimEngine.RefVector{Float32})
     @test isa(organs_statuses["Plant"][:carbon_allocation], PlantSimEngine.RefVector{Float32})
@@ -479,8 +479,6 @@ end
     @test out.statuses["Leaf"][1].var5 == 32.4806
     @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 end
-
-
 
 @testset "MTG with dynamic output variables" begin
     mapping =

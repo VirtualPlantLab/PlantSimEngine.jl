@@ -318,7 +318,7 @@ function run!(
     constants=PlantMeteo.Constants(),
     extra=nothing;
     nsteps=nothing,
-    outputs=Dict{String,Tuple{Symbol,Vararg{Symbol}}}(),
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )

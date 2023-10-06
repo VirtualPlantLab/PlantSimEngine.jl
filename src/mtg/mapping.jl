@@ -443,7 +443,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=Dict{String,Any}(), type_promotion=nothing, check=true, verbose=true)
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
     organs_statuses = status_template(mapping, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
@@ -499,7 +499,7 @@ struct GraphSimulation{T,S,U,O}
     outputs::Dict{String,O}
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=Dict{String,Vararg{Symbol}}(), type_promotion=nothing, check=true, verbose=true)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
     GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
 
@@ -1112,6 +1112,8 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     # Note: we use the type of the variable from the first status for each organ to pre-allocate the outputs, because they are
     # all the same type for others.
 end
+
+pre_allocate_outputs(statuses, ::Nothing, nsteps; check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
 
 function save_results!(object::GraphSimulation, i)
     outs = outputs(object)
