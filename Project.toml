@@ -19,6 +19,7 @@ Term = "22787eb5-b846-44ae-b979-8e399b8463ab"
 [compat]
 AbstractTrees = "0.4"
 CSV = "0.10"
+DataAPI = "1.15"
 DataFrames = "1"
 FLoops = "0.2"
 MultiScaleTreeGraph = "0.12"
