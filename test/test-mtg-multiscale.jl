@@ -517,12 +517,12 @@ end
         )
 
     out_vars = Dict(
-        "Leaf" => (:A, :carbon_demand, :soil_water_content),
+        "Leaf" => (:A, :carbon_demand, :soil_water_content, :carbon_allocation),
         "Internode" => (:carbon_allocation,),
         "Plant" => (:carbon_allocation,),
         "Soil" => (:soil_water_content,),
     )
-    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
+    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx())
 
     @test length(out.dependency_graph.roots) == 4
     @test out.statuses["Leaf"][1].var1 === 1.01
@@ -530,4 +530,11 @@ end
     @test out.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
     @test out.statuses["Leaf"][1].var5 == 32.4806
     @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+
+    @test out.outputs["Leaf"][:carbon_demand] == [[0.5, 0.5], [0.5, 0.5]]
+    @test out.outputs["Leaf"][:soil_water_content][1] == fill(out.outputs["Soil"][:soil_water_content][1][1], 2)
+    @test out.outputs["Leaf"][:soil_water_content][2] == fill(out.outputs["Soil"][:soil_water_content][2][1], 2)
+
+    @test out.outputs["Leaf"][:carbon_allocation] == out.outputs["Internode"][:carbon_allocation]
+    @test out.outputs["Plant"][:carbon_allocation][1][1][1] === out.outputs["Internode"][:carbon_allocation][1][1]
 end
