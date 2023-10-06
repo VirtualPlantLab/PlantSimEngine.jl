@@ -471,7 +471,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=Dict{String,Any}(), typ
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
-    outputs = pre_allocate_outputs(statuses, outputs, nsteps)
+    outputs = pre_allocate_outputs(statuses, outputs, nsteps, check=check)
 
     return (; mtg, statuses, dependency_graph, models, outputs)
 end
@@ -950,15 +950,21 @@ end
 
 
 """
-    pre_allocate_outputs(statuses, outputs)
+    pre_allocate_outputs(statuses, outs, nsteps; check=true)
 
 Pre-allocate the outputs of needed variable for each node type in vectors of vectors.
 The first level vectors have length nsteps, and the second level vectors have length n_nodes of this type.
 
+Note that we pre-allocate the vectors for the time-steps, but not for each organ, because we don't 
+know how many nodes will be in each organ in the future (organs can appear or disapear).
+
 # Arguments
 
 - `statuses`: a dictionary of status by node type
-- `outputs`: a dictionary of outputs by node type
+- `outs`: a dictionary of outputs by node type
+- `nsteps`: the number of time-steps
+- `check`: whether to check the mapping for errors. Default (`true`) returns an error if some variables do not exist.
+If false and some variables are missing, return an info, remove the unknown variables and continue.
 
 # Returns
 
@@ -1052,8 +1058,59 @@ Dict{String, Dict{Symbol, Vector{Vector{Float64}}}} with 2 entries:
   "Leaf" => Dict(:A=>[[], []], :carbon_demand=>[[], []])
 ```
 """
-function pre_allocate_outputs(statuses, outputs, nsteps)
-    Dict(organ => Dict(var => [typeof(statuses[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outputs)
+function pre_allocate_outputs(statuses, outs, nsteps; check=true)
+
+    outs_ = copy(outs)
+    # Checking that organs in outputs exist in the mtg (in the statuses):
+    if !all(i in keys(statuses) for i in keys(outs_))
+        not_in_statuses = setdiff(keys(outs_), keys(statuses))
+        e = string(
+            "You requested outputs for organs ",
+            join(keys(outs_), ", "),
+            ", but organs ",
+            join(not_in_statuses, ", "),
+            " have no models."
+        )
+
+        if check
+            error(e)
+        else
+            @info e
+            [delete!(outs_, i) for i in not_in_statuses]
+        end
+    end
+
+    # Checking that variables in outputs exist in the statuses:
+    for (organ, vars) in outs_
+        if !all(i in collect(keys(statuses[organ][1])) for i in vars)
+            not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
+            e = string(
+                "You requested outputs for variables ",
+                join(vars, ", "),
+                ", but variables ",
+                join(not_in_statuses, ", "),
+                " have no models."
+            )
+            if check
+                error(e)
+            else
+                @info e
+                existing_vars_requested = setdiff(outs_[organ], not_in_statuses)
+                if length(existing_vars_requested) == 0
+                    # None of the variables requested by the user exist at this scale for this set of models
+                    delete!(outs_, organ)
+                else
+                    # Some still exist, we onl use the ones that do:
+                    outs_[organ] = (existing_vars_requested...,)
+                end
+            end
+        end
+    end
+
+    # Making the pre-allocated outputs:
+    Dict(organ => Dict(var => [typeof(statuses[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_)
+    # Note: we use the type of the variable from the first status for each organ to pre-allocate the outputs, because they are
+    # all the same type for others.
 end
 
 function save_results!(object::GraphSimulation, i)
