@@ -317,10 +317,14 @@ function run!(
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    nsteps=nothing,
+    outputs::Dict{String,Tuple{Symbol,Vararg{Symbol}}}=Dict{String,Tuple{Symbol,Vararg{Symbol}}}(),
     check=true,
     executor=ThreadedEx()
 )
-    sim = GraphSimulation(object, mapping, check=check)
+    isnothing(nsteps) && (nsteps = get_nsteps(meteo))
+
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=outputs)
     run!(
         sim,
         meteo,
@@ -376,6 +380,8 @@ function run!(
             # Note: parallelization over objects is handled by the run! method below
             run!(object, dependency_node, i, models, meteo_i, constants, extra, check, executor)
         end
+        # At the end of the time-step, we save the results of the simulation in the object:
+        save_results!(object, i)
     end
 end
 

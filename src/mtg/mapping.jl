@@ -443,7 +443,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; type_promotion=nothing, check=true, verbose=true)
+function init_simulation(mtg, mapping; nsteps=1, outputs=Dict{String,Any}(), type_promotion=nothing, check=true, verbose=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
     organs_statuses = status_template(mapping, type_promotion)
     # Get the reverse mapping, i.e. the variables that are mapped to other scales. This is used to initialise 
@@ -471,12 +471,14 @@ function init_simulation(mtg, mapping; type_promotion=nothing, check=true, verbo
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
-    return mtg, statuses, dependency_graph, models
+    outputs = pre_allocate_outputs(statuses, outputs, nsteps)
+
+    return (; mtg, statuses, dependency_graph, models, outputs)
 end
 
 """
     GraphSimulation(graph, mapping)
-    GraphSimulation(graph, statuses, dependency_graph)
+    GraphSimulation(graph, statuses, dependency_graph, models, outputs)
 
 A type that holds all information for a simulation over a graph.
 
@@ -486,21 +488,25 @@ A type that holds all information for a simulation over a graph.
 - `mapping`: a dictionary of model mapping
 - `statuses`: a structure that defines the status of each node in the graph
 - `dependency_graph`: the dependency graph of the models applied to the graph
+- `models`: a dictionary of models
+- `outputs`: a dictionary of outputs
 """
-struct GraphSimulation{T,S,U}
+struct GraphSimulation{T,S,U,O}
     graph::T
     statuses::S
     dependency_graph::DependencyGraph
     models::Dict{String,U}
+    outputs::Dict{String,O}
 end
 
-function GraphSimulation(graph, mapping; type_promotion=nothing, check=true, verbose=true)
-    GraphSimulation(init_simulation(graph, mapping; type_promotion=type_promotion, check=check, verbose=verbose)...)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=Dict{String,Vararg{Symbol}}(), type_promotion=nothing, check=true, verbose=true)
+    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph
 status(g::GraphSimulation) = g.statuses
 get_models(g::GraphSimulation) = g.models
+outputs(g::GraphSimulation) = g.outputs
 
 function map_scale(f, m, scale::String)
     map_scale(f, m, [scale])
@@ -939,5 +945,124 @@ function variables_multiscale(node, organ, mapping)
             end
         end
         return (vars_...,)
+    end
+end
+
+
+"""
+    pre_allocate_outputs(statuses, outputs)
+
+Pre-allocate the outputs of needed variable for each node type in vectors of vectors.
+The first level vectors have length nsteps, and the second level vectors have length n_nodes of this type.
+
+# Arguments
+
+- `statuses`: a dictionary of status by node type
+- `outputs`: a dictionary of outputs by node type
+
+# Returns
+
+- A dictionary of pre-allocated output of vector of time-step and vector of node of that type.
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine
+```
+
+```jldoctest mylabel
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
+```
+
+```jldoctest mylabel
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+```
+
+```jldoctest mylabel
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+```
+
+```jldoctest mylabel
+julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```
+
+```jldoctest mylabel
+julia> models = Dict( \
+            "Plant" => \
+                MultiScaleModel( \
+                    model=ToyCAllocationModel(), \
+                    mapping=[ \
+                        :A => ["Leaf"], \
+                        :carbon_demand => ["Leaf", "Internode"], \
+                        :carbon_allocation => ["Leaf", "Internode"] \
+                    ], \
+                ), \
+            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+            "Leaf" => ( \
+                MultiScaleModel( \
+                    model=ToyAssimModel(), \
+                    mapping=[:soil_water_content => "Soil",], \
+                ), \
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+                Status(aPPFD=1300.0, TT=10.0), \
+            ), \
+            "Soil" => ( \
+                ToySoilWaterModel(), \
+            ), \
+        );
+```
+
+```jldoctest mylabel
+mtg = let \
+    scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0)) \
+    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1)) \
+    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1)) \
+    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2)) \
+    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2)) \
+    internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2)) \
+    leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2)) \
+    scene \
+end
+```
+
+```jldoctest mylabel
+julia> organs_statuses = PlantSimEngine.status_template(models, nothing);
+```
+
+```jldoctest mylabel
+julia> var_refvector = PlantSimEngine.reverse_mapping(mapping, all=false)
+```
+
+```jldoctest mylabel
+julia> var_need_init = PlantSimEngine.to_initialize(mapping, mtg)
+```
+
+```jldoctest mylabel
+julia> statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
+```
+
+```jldoctest mylabel
+julia> outputs = Dict("Leaf" => (:A, :carbon_demand), "Soil" => (:soil_water_content,));
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.pre_allocate_outputs(statuses, outputs, 2)
+Dict{String, Dict{Symbol, Vector{Vector{Float64}}}} with 2 entries:
+  "Soil" => Dict(:soil_water_content=>[[], []])
+  "Leaf" => Dict(:A=>[[], []], :carbon_demand=>[[], []])
+```
+"""
+function pre_allocate_outputs(statuses, outputs, nsteps)
+    Dict(organ => Dict(var => [typeof(statuses[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outputs)
+end
+
+function save_results!(object::GraphSimulation, i)
+    outs = outputs(object)
+    statuses = status(object)
+
+    for (organ, vars) in outs
+        for (var, values) in vars
+            values[i] = [status[var] for status in statuses[organ]]
+        end
     end
 end
