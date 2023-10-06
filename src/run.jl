@@ -349,10 +349,12 @@ function run!(
     executor=ThreadedEx()
 )
     models = get_models(object)
+    st = status(object)
+
     # Run the simulation of each soft-coupled model in the dependency graph:
     # Note: hard-coupled processes handle themselves already
     @floop executor for (process_key, dependency_node) in collect(dep(object).roots)
-        run!(object, dependency_node, 1, models, meteo, constants, extra, check, executor)
+        run!(object, dependency_node, 1, models, meteo, constants, st, check, executor)
     end
 end
 
@@ -370,6 +372,9 @@ function run!(
 
     dep_graph = dep(object)
     models = get_models(object)
+    st = status(object)
+
+    !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
     # Note: The object is not thread safe here, because we write all meteo time-steps into the same Status (for each node)
     # This is because the number of nodes is usually higher than the number of cores anyway, so we don't gain much by parallelizing over
@@ -378,7 +383,7 @@ function run!(
         # In parallel over dependency root, i.e. for independant computations:
         @floop executor for (process_key, dependency_node) in collect(dep_graph.roots)
             # Note: parallelization over objects is handled by the run! method below
-            run!(object, dependency_node, i, models, meteo_i, constants, extra, check, executor)
+            run!(object, dependency_node, i, models, meteo_i, constants, st, check, executor)
         end
         # At the end of the time-step, we save the results of the simulation in the object:
         save_results!(object, i)
