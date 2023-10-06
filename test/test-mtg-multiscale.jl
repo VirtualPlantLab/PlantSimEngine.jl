@@ -99,8 +99,6 @@ end
     @test organs_statuses["Leaf"][:TT] === 10.0
     @test typeof(organs_statuses["Plant"][:carbon_allocation]) === PlantSimEngine.RefVector{Float64}
 
-
-
     @test PlantSimEngine.reverse_mapping(mapping_1, all=true) == Dict{String,Any}(
         "Soil" => Dict("Leaf" => [:soil_water_content]),
         "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
@@ -108,7 +106,7 @@ end
     )
 
     var_refvector_1 = PlantSimEngine.reverse_mapping(mapping_1, all=false)
-    @test var_refvector == Dict{String,Any}(
+    @test var_refvector_1 == Dict{String,Any}(
         "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
         "Leaf" => Dict("Plant" => [:A, :carbon_demand, :carbon_allocation])
     )
@@ -118,7 +116,7 @@ end
     var_need_init = PlantSimEngine.to_initialize(mapping_1, mtg)
     @test var_need_init == Dict{String,Any}()
 
-    statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
+    statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector_1, var_need_init)
     @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
 
     @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2
