@@ -318,7 +318,7 @@ function run!(
     constants=PlantMeteo.Constants(),
     extra=nothing;
     nsteps=nothing,
-    outputs::Dict{String,Tuple{Symbol,Vararg{Symbol}}}=Dict{String,Tuple{Symbol,Vararg{Symbol}}}(),
+    outputs=Dict{String,Tuple{Symbol,Vararg{Symbol}}}(),
     check=true,
     executor=ThreadedEx()
 )
