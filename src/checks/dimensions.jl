@@ -81,3 +81,21 @@ end
 function check_dimensions(::SingletonAlike, ::SingletonAlike, st, weather)
     return nothing
 end
+
+
+"""
+    get_nsteps(t)
+
+Get the number of steps in the object.
+"""
+function get_nsteps(t)
+    get_nsteps(DataFormat(t), t)
+end
+
+function get_nsteps(::SingletonAlike, t)
+    1
+end
+
+function get_nsteps(::TableAlike, t)
+    DataAPI.nrow(t)
+end
