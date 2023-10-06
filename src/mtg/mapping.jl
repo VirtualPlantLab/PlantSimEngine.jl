@@ -973,7 +973,7 @@ If false and some variables are missing, return an info, remove the unknown vari
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine
+julia> using PlantSimEngine, MultiScaleTreeGraph
 ```
 
 ```jldoctest mylabel
@@ -993,7 +993,7 @@ julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
 ```
 
 ```jldoctest mylabel
-julia> models = Dict( \
+julia> mapping = Dict( \
             "Plant" => \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
@@ -1019,32 +1019,47 @@ julia> models = Dict( \
 ```
 
 ```jldoctest mylabel
-mtg = let \
-    scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0)) \
-    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1)) \
-    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1)) \
-    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2)) \
-    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2)) \
-    internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2)) \
-    leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2)) \
-    scene \
-end
+julia> mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0));
 ```
 
 ```jldoctest mylabel
-julia> organs_statuses = PlantSimEngine.status_template(models, nothing);
+julia> soil = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1));
 ```
 
 ```jldoctest mylabel
-julia> var_refvector = PlantSimEngine.reverse_mapping(mapping, all=false)
+julia> plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1));
 ```
 
 ```jldoctest mylabel
-julia> var_need_init = PlantSimEngine.to_initialize(mapping, mtg)
+julia> internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2));
 ```
 
 ```jldoctest mylabel
-julia> statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init)
+julia> leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
+```
+
+```jldoctest mylabel
+julia> internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2));
+```
+
+```jldoctest mylabel
+julia> leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
+```
+
+```jldoctest mylabel
+julia> organs_statuses = PlantSimEngine.status_template(mapping, nothing);
+```
+
+```jldoctest mylabel
+julia> var_refvector = PlantSimEngine.reverse_mapping(mapping, all=false);
+```
+
+```jldoctest mylabel
+julia> var_need_init = PlantSimEngine.to_initialize(mapping, mtg);
+```
+
+```jldoctest mylabel
+julia> statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init);
 ```
 
 ```jldoctest mylabel

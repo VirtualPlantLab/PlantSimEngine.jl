@@ -516,6 +516,12 @@ end
             ),
         )
 
+    out_vars = Dict(
+        "Leaf" => (:A, :carbon_demand, :soil_water_content),
+        "Internode" => (:carbon_allocation,),
+        "Plant" => (:carbon_allocation,),
+        "Soil" => (:soil_water_content,),
+    )
     out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
 
     @test length(out.dependency_graph.roots) == 4
