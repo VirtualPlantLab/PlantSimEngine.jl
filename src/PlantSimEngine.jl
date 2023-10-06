@@ -3,6 +3,7 @@ module PlantSimEngine
 # FOr data formatting:
 import DataFrames
 import Tables
+import DataAPI
 
 import CSV # For reading csv files with variables()
 
