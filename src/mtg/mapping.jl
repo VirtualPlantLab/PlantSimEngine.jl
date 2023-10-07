@@ -467,7 +467,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     end
 
     # Compute the multi-scale dependency graph of the models:
-    dependency_graph = multiscale_dep(mapping, verbose=verbose)
+    dependency_graph = dep(mapping, verbose=verbose)
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
@@ -630,18 +630,18 @@ julia> organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][
 true
 ```
 """
-function status_template(models::Dict{String,T}, type_promotion) where {T}
-    organs_mapping, var_outputs_from_mapping = compute_mapping(models, type_promotion)
+function status_template(mapping::Dict{String,T}, type_promotion) where {T}
+    organs_mapping, var_outputs_from_mapping = compute_mapping(mapping, type_promotion)
     # Vector of pre-initialised variables with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
     organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
     dict_mapped_vars = Dict{Pair,Any}()
 
-    for organ in keys(models) # e.g.: organ = "Internode"
+    for organ in keys(mapping) # e.g.: organ = "Internode"
         # Parsing the models into a NamedTuple to get the process name:
-        node_models = parse_models(get_models(models[organ]))
+        node_models = parse_models(get_models(mapping[organ]))
 
         # Get the status if any was given by the user (this can be used as default values in the mapping):
-        st = get_status(models[organ]) # User status
+        st = get_status(mapping[organ]) # User status
 
         if isnothing(st)
             st = NamedTuple()

@@ -1,5 +1,6 @@
 """
     run!(object, meteo, constants, extra=nothing; check=true, executor=Floops.ThreadedEx())
+    run!(object, mapping, meteo, constants, extra; nsteps, outputs, check, executor)
 
 Run the simulation for each model in the model list in the correct order, *i.e.* respecting
 the dependency graph.
@@ -8,7 +9,7 @@ If several time-steps are given, the models are run sequentially for each time-s
 
 # Arguments
 
-- `object`: a [`ModelList`](@ref), an array or dict of `ModelList`, or an MTG.
+- `object`: a [`ModelList`](@ref), an array or dict of `ModelList`, or a plant graph (MTG).
 - `meteo`: a [`PlantMeteo.TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.TimeStepTable) of 
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
@@ -16,6 +17,9 @@ If several time-steps are given, the models are run sequentially for each time-s
 - `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time), and return more information while running.
 - `executor`: the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) executor used to run the simulation either in sequential (`executor=SequentialEx()`), in a 
 multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed way (`executor=DistributedEx()`).
+- `mapping`: a mapping between the MTG and the model list.
+- `nsteps`: the number of time-steps to run, only needed if no meteo is given (else it is infered from it).
+- `outputs`: the outputs to get in dynamic for each node type of the MTG.
 
 # Returns 
 
@@ -469,8 +473,6 @@ function run!(
     @floop executor for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
         # Actual call to the model:
         run!(node.value, models_at_scale, st, meteo, constants, extra)
-
-        #TODO: keep track of the outputs users need here.
     end
 
     node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
