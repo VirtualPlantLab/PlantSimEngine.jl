@@ -67,8 +67,8 @@ models = (
 dep(;models...)
 ```
 """
-function dep(nsteps::Int=1; verbose::Bool=true, models...)
-    hard_dep = hard_dependencies((; models...), verbose=verbose)
+function dep(nsteps=1; verbose::Bool=true, vars...)
+    hard_dep = hard_dependencies((; vars...), verbose=verbose)
     deps = soft_dependencies(hard_dep, nsteps)
 
     # Return the dependency graph
