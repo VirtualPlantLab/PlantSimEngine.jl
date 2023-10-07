@@ -135,6 +135,130 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
     return DependencyGraph(independant_process_root, d.not_found)
 end
 
+# For multiscale mapping:
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}})
+    independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs[organ]
+        for (proc, i) in soft_dep_graph
+            # proc = :carbon_allocation; i = soft_dep_graph[proc]
+            # Search if the process has soft dependencies:
+            soft_deps = search_inputs_in_output(proc, ins, outs)
+
+            # Remove the hard dependencies from the soft dependencies:
+            soft_deps_not_hard = drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
+            # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
+
+            # Check if the process has soft dependencies at other scales:
+            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots)
+            # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
+            # is computed by the process :soil_water at the scale "Soil".
+
+            if length(soft_deps_not_hard) == 0 && i.process in keys(soft_dep_graph) && length(soft_deps_multiscale) == 0
+                # If the process has no soft (multiscale) dependencies, then it is independant (so it is a root)
+                # Note that the process is only independent if it is also a root in the hard-dependency graph
+                independant_process_root[organ=>proc] = i
+            else
+                # If the process has soft dependencies at its scale, add it:
+                if length(soft_deps_not_hard) > 0
+                    # If the process has soft dependencies, then it is not independant
+                    # and we need to add its parent(s) to the node, and the node as a child
+                    for (parent_soft_dep, soft_dep_vars) in pairs(soft_deps_not_hard)
+                        # parent_soft_dep = :process5; soft_dep_vars = soft_deps[parent_soft_dep]
+
+                        # preventing a cyclic dependency
+                        if parent_soft_dep == proc
+                            error("Cyclic model dependency detected for process $proc")
+                        end
+
+                        # preventing a cyclic dependency: if the parent also has a dependency on the current node:
+                        if soft_dep_graph[parent_soft_dep].parent !== nothing && any([i == p for p in soft_dep_graph[parent_soft_dep].parent])
+                            error(
+                                "Cyclic dependency detected for process $proc:",
+                                " $proc depends on $parent_soft_dep, which depends on $proc.",
+                                " This is not allowed, but is possible via a hard dependency."
+                            )
+                        end
+
+                        # preventing a cyclic dependency: if the current node has the parent node as a child:
+                        if i.children !== nothing && any([soft_dep_graph[parent_soft_dep] == p for p in i.children])
+                            error(
+                                "Cyclic dependency detected for process $proc:",
+                                " $proc depends on $parent_soft_dep, which depends on $proc.",
+                                " This is not allowed, but is possible via a hard dependency."
+                            )
+                        end
+
+                        # Add the current node as a child of the node on which it depends
+                        push!(soft_dep_graph[parent_soft_dep].children, i)
+
+                        # Add the node on which the current node depends as a parent
+                        if i.parent === nothing
+                            # If the node had no parent already, it is nothing, so we change into a vector
+                            i.parent = [soft_dep_graph[parent_soft_dep]]
+                        else
+                            push!(i.parent, soft_dep_graph[parent_soft_dep])
+                        end
+
+                        # Add the soft dependencies (variables) of the parent to the current node
+                        i.parent_vars = soft_deps
+                    end
+                end
+
+                # If the node has soft dependencies at other scales, add it as child of the other scale (and add its parent too):
+                if length(soft_deps_multiscale) > 0
+                    #! Continue here: add the node as a child of the other scale, and add this other node has its parent.
+                    #! Take inspiration from the code above happening at the same scale.
+                    #! Note that the node can have both soft dependencies at its own scale and at other scales, but it is not 
+                    #! a big deal because in the end we drop the scales and only keep the root soft-dependency nodes.
+                    for org in keys(soft_deps_multiscale)
+                        # org = "Leaf"
+                        for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]
+                            # parent_soft_dep= :photosynthesis; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
+                            parent_node = soft_dep_graphs_roots.roots[org][:soft_dep_graph][parent_soft_dep]
+                            # preventing a cyclic dependency: if the parent also has a dependency on the current node:
+                            if parent_node.parent !== nothing && any([i == p for p in parent_node.parent])
+                                error(
+                                    "Cyclic dependency detected for process $proc:",
+                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one",
+                                    " This is not allowed, you may need to develop a new process that does the whole computation by itself."
+                                )
+                            end
+
+                            # preventing a cyclic dependency: if the current node has the parent node as a child:
+                            if i.children !== nothing && any([parent_node == p for p in i.children])
+                                error(
+                                    "Cyclic dependency detected for process $proc:",
+                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one.",
+                                    " This is not allowed, you may need to develop a new process that does the whole computation by itself."
+                                )
+                            end
+
+                            # Add the current node as a child of the node on which it depends:
+                            push!(parent_node.children, i)
+
+                            # Add the node on which the current node depends as a parent
+                            if i.parent === nothing
+                                # If the node had no parent already, it is nothing, so we change into a vector
+                                i.parent = [parent_node]
+                            else
+                                push!(i.parent, parent_node)
+                            end
+
+                            # Add the multiscale soft dependencies variables of the parent to the current node
+                            i.parent_vars = NamedTuple(Symbol(k) => NamedTuple(v) for (k, v) in soft_deps_multiscale)
+                        end
+                    end
+                end
+                #! To do: make this code work without multiscale mapping, so we have only one code base for both cases. 
+                #! Also, put some parts into functions to make the code more readable.
+            end
+        end
+    end
+
+    return DependencyGraph(independant_process_root, soft_dep_graphs_roots.not_found)
+end
+
+
 """
     drop_process(proc_vars, process)
 
