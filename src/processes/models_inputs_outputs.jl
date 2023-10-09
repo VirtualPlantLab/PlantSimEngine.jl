@@ -37,6 +37,21 @@ function inputs_(model::Missing)
 end
 
 """
+    inputs(mapping::Dict{String,T})
+
+Get the inputs of the models in a mapping, for each process and organ type.
+"""
+function inputs(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (inputs(i.second)...,) for i in mods)...))
+    end
+    return vars
+end
+
+
+"""
     outputs(model::AbstractModel)
     outputs(...)
 
@@ -65,6 +80,21 @@ end
 function outputs(v::T, vars...) where {T<:AbstractModel}
     length((vars...,)) > 0 ? union(outputs(v), outputs(vars...)) : outputs(v)
 end
+
+"""
+    outputs(mapping::Dict{String,T})
+
+Get the outputs of the models in a mapping, for each process and organ type.
+"""
+function outputs(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (outputs(i.second)...,) for i in mods)...))
+    end
+    return vars
+end
+
 
 function outputs_(model::AbstractModel)
     NamedTuple()
@@ -155,6 +185,21 @@ variables(PlantBiophysics)
 """
 function variables(pkg::Module)
     sort!(CSV.read(joinpath(dirname(dirname(pathof(pkg))), "data", "variables.csv"), DataFrames.DataFrame))
+end
+
+"""
+    variables(mapping::Dict{String,T})
+
+Get the variables (inputs and outputs) of the models in a mapping, for each 
+process and organ type.
+"""
+function variables(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (variables(i.second)...,) for i in mods)...))
+    end
+    return vars
 end
 
 """

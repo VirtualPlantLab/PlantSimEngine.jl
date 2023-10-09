@@ -51,6 +51,26 @@ mtg = begin
 end
 
 
+@testset "inputs and outputs of a mapping" begin
+    ins = inputs(mapping_1)
+
+    @test collect(keys(ins)) == collect(keys(mapping_1))
+    @test ins["Soil"] == (soil_water=(),)
+    @test ins["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content), carbon_demand=(:TT,))
+
+    outs = outputs(mapping_1)
+    @test collect(keys(outs)) == collect(keys(mapping_1))
+    @test outs["Soil"] == (soil_water=(:soil_water_content,),)
+    @test outs["Leaf"] == (photosynthesis=(:A,), carbon_demand=(:carbon_demand,))
+    @test outs["Plant"] == (carbon_allocation=(:carbon_offer, :carbon_allocation),)
+
+    vars = variables(mapping_1)
+    @test collect(keys(vars)) == collect(keys(mapping_1))
+    @test vars["Soil"] == outs["Soil"]
+    @test vars["Plant"] == (carbon_allocation=(:A, :carbon_demand, :carbon_offer, :carbon_allocation),)
+    @test vars["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content, :A), carbon_demand=(:TT, :carbon_demand))
+end
+
 @testset "status_template" begin
     organs_statuses = PlantSimEngine.status_template(mapping_1, nothing)
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
