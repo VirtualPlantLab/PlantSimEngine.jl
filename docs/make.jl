@@ -39,6 +39,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
+    repo="github.com/VirtualPlantLab/PlantSimEngine.jl.git",
     devbranch="main"
 )
