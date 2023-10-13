@@ -557,4 +557,20 @@ end
 
     @test out.outputs["Leaf"][:carbon_allocation] == out.outputs["Internode"][:carbon_allocation]
     @test out.outputs["Plant"][:carbon_allocation][1][1][1] === out.outputs["Internode"][:carbon_allocation][1][1]
+
+    # Testing the outputs if transformed into a DataFrame:
+    outs = outputs(out, DataFrame)
+
+    @test isa(outs, DataFrame)
+    @test size(outs) == (12, 7)
+
+    @test unique(outs.timestep) == [1, 2]
+    @test sort(unique(outs.organ)) == sort(collect(keys(out_vars)))
+    @test length(filter(x -> x !== nothing, outs.A)) == length(filter(x -> x, traverse(mtg, node -> node.MTG.scale == 2)))
+    # a = status(out, TimeStepTable{Status})
+    A = outputs(out, :A)
+    @test A == outs.A
+
+    A2 = outputs(out, 5)
+    @test A == A2
 end

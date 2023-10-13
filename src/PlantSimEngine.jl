@@ -23,6 +23,9 @@ import Statistics
 
 using PlantMeteo
 
+# Docs templates:
+include("doc_templates/mtg-related.jl")
+
 # Models:
 include("Abstract_model_structs.jl")
 
@@ -50,8 +53,10 @@ include("dependencies/hard_dependencies.jl")
 include("dependencies/dependencies.jl")
 
 # MTG compatibility:
+include("mtg/GraphSimulation.jl")
 include("mtg/init_mtg_models.jl")
 include("mtg/mapping.jl")
+include("mtg/save_results.jl")
 
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
