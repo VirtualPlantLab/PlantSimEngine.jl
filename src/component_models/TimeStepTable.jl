@@ -48,12 +48,15 @@ function PlantMeteo.TimeStepTable{Status}(df::DataFrames.DataFrame, metadata=Nam
     PlantMeteo.TimeStepTable((propertynames(df)...,), metadata, [Status(NamedTuple(ts)) for ts in Tables.rows(df)])
 end
 
-"""
-    Tables.schema(m::TimeStepTable{Status})
+# """
+#     Tables.schema(m::TimeStepTable{Status})
 
-Create a schema for a `TimeStepTable{Status}`.
-"""
-function Tables.schema(m::PlantMeteo.TimeStepTable{T}) where {T<:Status}
-    # This one is complicated because the types of the variables are hidden in the Status as RefValues:
-    Tables.Schema(names(m), DataType[i.types[1] for i in T.parameters[2].parameters])
-end
+# Create a schema for a `TimeStepTable{Status}`.
+# """
+# function Tables.schema(m::PlantMeteo.TimeStepTable{T}) where {T<:Status}
+#     # This one is complicated because the types of the variables are hidden in the Status as RefValues:
+#     # col_types = fieldtypes(getfield(m, :ts)[1])
+
+#     # # Tables.Schema(names(m), DataType[i.types[1] for i in T.parameters[2].parameters])
+#     # Tables.Schema(names(m), col_types)
+# end
