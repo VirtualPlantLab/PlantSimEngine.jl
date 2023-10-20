@@ -115,22 +115,34 @@ julia> statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvect
 julia> outputs = Dict("Leaf" => (:A, :carbon_demand), "Soil" => (:soil_water_content,));
 ```
 
+Pre-allocate the outputs as a dictionary:
+
 ```jldoctest mylabel
-julia> PlantSimEngine.pre_allocate_outputs(statuses, outputs, 2)
-Dict{String, Dict{Symbol, Vector{Vector{Float64}}}} with 2 entries:
-  "Soil" => Dict(:soil_water_content=>[[], []])
-  "Leaf" => Dict(:A=>[[], []], :carbon_demand=>[[], []])
+julia> outs = PlantSimEngine.pre_allocate_outputs(statuses, outputs, 2);
+```
+
+The dictionary has a key for each organ from which we want outputs:
+
+```jldoctest mylabel
+julia> collect(keys(outs))
+2-element Vector{String}:
+ "Soil"
+ "Leaf"
+```
+
+Each organ has a dictionary of variables for which we want outputs from, 
+with the pre-allocated empty vectors (one per time-step that will be filled with one value per node):
+
+```jldoctest mylabel
+julia> collect(keys(outs["Leaf"]))
+3-element Vector{Symbol}:
+ :A
+ :node
+ :carbon_demand
 ```
 """
 function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     outs_ = copy(outs)
-
-    # Add the :node variable to the outputs:
-    for (organ, vars) in outs_
-        if :node ∉ outs_[organ]
-            outs_[organ] = (vars..., :node)
-        end
-    end
 
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -151,7 +163,7 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
         end
     end
 
-    # Checking that variables in outputs exist in the statuses:
+    # Checking that variables in outputs exist in the statuses, and adding the :node variable:
     for (organ, vars) in outs_
         if !all(i in collect(keys(statuses[organ][1])) for i in vars)
             not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
@@ -175,6 +187,10 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
                     outs_[organ] = (existing_vars_requested...,)
                 end
             end
+        end
+
+        if :node ∉ outs_[organ]
+            outs_[organ] = (outs_[organ]..., :node)
         end
     end
 

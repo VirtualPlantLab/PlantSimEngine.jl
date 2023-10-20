@@ -152,11 +152,11 @@ end
         @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
     end
 
-    outs_ = @test_logs (:info, "$e_1") (:info, "$e_2") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
+    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variables A, carbon_demand, non_existing_variable, but variables non_existing_variable have no models.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
 
     @test outs_ == Dict(
-        "Soil" => Dict(:soil_water_content => [[], []]),
-        "Leaf" => Dict(:A => [[], []], :carbon_demand => [[], []])
+        "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),
+        "Leaf" => Dict(:A => [[], []], :node => [[], []], :carbon_demand => [[], []])
     )
 end
 
