@@ -25,21 +25,13 @@ If false and some variables are missing, return an info, remove the unknown vari
 julia> using PlantSimEngine, MultiScaleTreeGraph
 ```
 
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-```
+Import example models (can be found in the `examples` folder of the package): 
 
 ```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
+import_multiscale_example();
 ```
 
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
-```
+Define the models mapping:
 
 ```jldoctest mylabel
 julia> mapping = Dict( \

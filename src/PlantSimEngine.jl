@@ -77,6 +77,9 @@ include("run.jl")
 # Fitting
 include("evaluation/fit.jl")
 
+# Examples
+include("examples_import.jl")
+
 export AbstractModel
 export ModelList, MultiScaleModel
 export init_mtg_models!

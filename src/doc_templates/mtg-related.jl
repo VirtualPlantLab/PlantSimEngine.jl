@@ -58,21 +58,3 @@ mapping = Dict( \
 )
 ```
 """
-
-const EXAMPLE_MTG_MODELS = """
-```@example
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-```
-
-```@example
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-```
-
-```@example
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-```
-
-```@example
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
-```
-"""

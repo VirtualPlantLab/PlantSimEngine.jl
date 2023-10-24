@@ -51,7 +51,11 @@ sing the sink function, for exemple a `DataFrame`.
 using PlantSimEngine, MultiScaleTreeGraph, DataFrames
 ```
 
-$EXAMPLE_MTG_MODELS
+Import example models (can be found in the `examples` folder of the package): 
+
+```@example
+import_multiscale_example();
+```
 
 $MAPPING_EXAMPLE
 

@@ -28,20 +28,10 @@ Returns a vector of models
 julia> using PlantSimEngine;
 ```
 
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-```
+Import example models (can be found in the `examples` folder of the package): 
 
 ```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+import_multiscale_example();
 ```
 
 If we just give a MultiScaleModel, we get its model as a one-element vector:
@@ -168,10 +158,12 @@ and the nodes that are targeted by the mapping
 
 ```julia
 using PlantSimEngine
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+```
+
+Import example models (can be found in the `examples` folder of the package): 
+
+```julia
+import_multiscale_example();
 ```
 
 ```julia
@@ -541,20 +533,10 @@ Create a status template for a given set of models and type promotion.
 julia> using PlantSimEngine;
 ```
 
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-```
+Import example models (can be found in the `examples` folder of the package): 
 
 ```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+import_multiscale_example();
 ```
 
 ```jldoctest mylabel
@@ -764,20 +746,10 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 julia> using PlantSimEngine
 ```
 
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"));
-```
+Import example models (can be found in the `examples` folder of the package): 
 
 ```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
-```
-
-```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"));
+import_multiscale_example();
 ```
 
 ```jldoctest mylabel
