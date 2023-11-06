@@ -22,13 +22,13 @@ If false and some variables are missing, return an info, remove the unknown vari
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine, MultiScaleTreeGraph
+julia> using PlantSimEngine, MultiScaleTreeGraph, PlantSimEngine.Examples
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
 ```jldoctest mylabel
-import_multiscale_example();
+julia> using PlantSimEngine.Examples;
 ```
 
 Define the models mapping:
@@ -59,32 +59,10 @@ julia> mapping = Dict( \
         );
 ```
 
-```jldoctest mylabel
-julia> mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0));
-```
+Importing an example MTG provided by the package:
 
 ```jldoctest mylabel
-julia> soil = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1));
-```
-
-```jldoctest mylabel
-julia> plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1));
-```
-
-```jldoctest mylabel
-julia> internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2));
-```
-
-```jldoctest mylabel
-julia> leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
-```
-
-```jldoctest mylabel
-julia> internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2));
-```
-
-```jldoctest mylabel
-julia> leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
+julia> mtg = import_mtg_example();
 ```
 
 ```jldoctest mylabel

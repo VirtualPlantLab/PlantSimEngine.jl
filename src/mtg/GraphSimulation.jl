@@ -48,18 +48,20 @@ sing the sink function, for exemple a `DataFrame`.
 # Examples
 
 ```@example
-using PlantSimEngine, MultiScaleTreeGraph, DataFrames
+using PlantSimEngine, MultiScaleTreeGraph, DataFrames, PlantSimEngine.Examples
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
-```@example
-import_multiscale_example();
+```jldoctest mylabel
+julia> using PlantSimEngine.Examples;
 ```
 
 $MAPPING_EXAMPLE
 
-$MTG_EXAMPLE
+```@example
+import_mtg_example();
+```
 
 ```@example
 sim = run!(mtg, mapping, meteo, outputs = Dict(
