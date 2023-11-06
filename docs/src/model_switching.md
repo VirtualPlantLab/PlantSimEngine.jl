@@ -13,14 +13,14 @@ models = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 run!(models, meteo_day)
 models2 = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyAssimGrowthModel(),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 run!(models2, meteo_day)
 ```
@@ -52,7 +52,7 @@ models = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 nothing # hide
@@ -94,7 +94,7 @@ models2 = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyAssimGrowthModel(), # This was `ToyRUEGrowthModel(0.2)` before
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 nothing # hide

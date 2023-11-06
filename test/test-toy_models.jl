@@ -7,20 +7,20 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 
 @testset "ToyLAIModel" begin
     @test_nowarn ModelList(ToyLAIModel())
-    @test_nowarn ModelList(ToyLAIModel(), status=(degree_days_cu=10,))
+    @test_nowarn ModelList(ToyLAIModel(), status=(TT_cu=10,))
     @test_nowarn ModelList(
         ToyLAIModel(),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     m = ModelList(
         ToyLAIModel(),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     @test_nowarn run!(m)
 
-    @test m[:degree_days_cu] == cumsum(meteo_day.degree_days)
+    @test m[:TT_cu] == cumsum(meteo_day.TT)
     @test m[:LAI][begin] ≈ 0.00554987593080316
     @test m[:LAI][end] ≈ 0.0
 end
@@ -29,7 +29,7 @@ end
     models = ModelList(
         ToyLAIModel(),
         Beer(0.5),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     run!(models, meteo_day)
@@ -98,7 +98,7 @@ end
         ToyLAIModel(),
         Beer(0.5),
         ToyRUEGrowthModel(rue),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     # Match the warning on the executor, the default is ThreadedEx() but ToyRUEGrowthModel can't be run in parallel:
