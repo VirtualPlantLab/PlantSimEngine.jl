@@ -1,7 +1,7 @@
 """
-    import_multiscale_example()
+A sub-module with example models.
 
-Import the examples used in the documentation for a set of multiscale models.
+Examples used in the documentation for a set of multiscale models.
 The models can be found in the `examples` folder of the package, and are stored 
 in the following files:
 
@@ -14,18 +14,20 @@ in the following files:
 
 ```jl
 using PlantSimEngine
-
-import_multiscale_example()
+using PlantSimEngine.Example
+ToyAssimModel()
 ```
 """
-function import_multiscale_example()
-    include(joinpath(@__DIR__, "../examples/ToyAssimModel.jl"))
-    include(joinpath(@__DIR__, "../examples/ToyCDemandModel.jl"))
-    include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
-    include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
-end
+module Examples
 
-
+using PlantSimEngine, MultiScaleTreeGraph
+include(joinpath(@__DIR__, "../examples/ToyDegreeDays.jl"))
+include(joinpath(@__DIR__, "../examples/Beer.jl"))
+include(joinpath(@__DIR__, "../examples/ToyLAIModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyAssimModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyCDemandModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
 
 """
     import_mtg_example()
@@ -35,11 +37,11 @@ Returns an example multiscale tree graph (MTG) with a scene, a soil, and a plant
 # Examples
 
 ```jldoctest mylabel
-julia> using PlantSimEngine
+julia> using PlantSimEngine.Examples
 ```
 
-```jldoctest
-julia> PlantSimEngine.import_mtg_example()
+```jldoctest mylabel
+julia> import_mtg_example()
 / 1: Scene
 ├─ / 2: Soil
 └─ + 3: Plant
@@ -59,4 +61,9 @@ function import_mtg_example()
     MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 
     return mtg
+end
+
+export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
+export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
+export import_mtg_example
 end
