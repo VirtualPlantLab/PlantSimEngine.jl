@@ -30,7 +30,10 @@ makedocs(;
             "Input types" => "./extending/inputs.md",
         ],
         "Coupling" => [
-            "Users" => "./model_coupling/model_coupling_user.md",
+            "Users" => [
+                "Simple case" => "./model_coupling/model_coupling_user.md",
+                "Multi-scale modelling" => "./model_coupling/multiscale.md",
+            ],
             "Modelers" => "./model_coupling/model_coupling_modeler.md",
         ],
         "FAQ" => ["./FAQ/translate_a_model.md"],
