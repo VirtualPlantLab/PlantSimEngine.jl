@@ -28,10 +28,10 @@ Returns a vector of models
 julia> using PlantSimEngine;
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
 ```jldoctest mylabel
-import_multiscale_example();
+julia> using PlantSimEngine.Examples;
 ```
 
 If we just give a MultiScaleModel, we get its model as a one-element vector:
@@ -160,10 +160,10 @@ and the nodes that are targeted by the mapping
 using PlantSimEngine
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
-```julia
-import_multiscale_example();
+```jldoctest mylabel
+julia> using PlantSimEngine.Examples;
 ```
 
 ```julia
@@ -207,7 +207,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # i.e. variables that are written by a model at another scale:
     var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
     for organ in keys(models)
-        # organ = "Leaf"
+        # organ = "Plant"
         map_vars = get_mapping(models[organ])
         if length(map_vars) == 0
             continue
@@ -217,12 +217,43 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         mods = get_models(models[organ])
         ins = merge(inputs_.(mods)...)
         outs = merge(outputs_.(mods)...)
-
-        # Variables in the node that are defined as multiscale:
-        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
         multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
 
-        multi_scale_vars = Status(convert_vars(type_promotion, merge(ins[multi_scale_ins], outs[multi_scale_outs])))
+        multi_scale_vars_vec = Pair{Symbol,Any}[]
+        for (var, scales) in map_vars # e.g. var = :A; scales = ["Leaf"]
+            isa(scales, AbstractString) && (scales = [scales])
+
+            # The variable default value is always taken from the upper-stream model:
+            if var in keys(ins)
+                # The variable is taken as an input from another scale. We take its default value from the model at the other scale:
+                mapped_out_var = []
+                for s in scales
+                    @assert haskey(models, s) "Scale $s required as a mapping for scale $organ, but not found in the mapping."
+                    mapped_out = merge(PlantSimEngine.outputs_.(PlantSimEngine.get_models(models[s]))...)
+                    @assert hasproperty(mapped_out, var) "No model computes variable $var at scale $s, need one for scale $organ"
+                    push!(mapped_out_var, mapped_out[var])
+                end
+                mapped_out = unique(mapped_out_var)
+                if length(mapped_out) > 1
+                    @info "Found different default values for variable $var in models at scales $scales: $mapped_out. Taking the first one."
+                end
+                mapped_out = mapped_out[1]
+
+                # If the variable is given as a vector as default value, it means it will be taken from several organs.
+                # In this case, we keep the vector format:
+                if isa(ins[var], AbstractVector)
+                    mapped_out = fill(mapped_out, length(ins[var]))
+                end
+                push!(multi_scale_vars_vec, var => mapped_out)
+            elseif var in keys(outs)
+                # The variable is an output of this scale for another scale. We take its default value from this scale:
+                push!(multi_scale_vars_vec, var => outs[var])
+            else
+                error("Variable $var required to be mapped from scale(s) $scales to scale $organ was not found in any model from the scale(s) $scales.")
+            end
+        end
+
+        multi_scale_vars = Status(PlantSimEngine.convert_vars(type_promotion, NamedTuple(multi_scale_vars_vec)))
 
         # Users can provide initialisation values in a status. We get them here:
         st = get_status(models[organ])
@@ -274,8 +305,12 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             if isa(organs_mapped, AbstractString)
                 if !haskey(organs_mapping, organs_mapped)
                     organs_mapping[organs_mapped] = Dict(organs_mapped => organ_mapping[organs_mapped])
+                elseif !haskey(organs_mapping[organs_mapped], organs_mapped)
+                    push!(organs_mapping[organs_mapped], organs_mapped => organ_mapping[organs_mapped])
+                elseif !haskey(organs_mapping[organs_mapped][organs_mapped], variable)
+                    push!(organs_mapping[organs_mapped][organs_mapped], variable => organ_mapping[organs_mapped][variable])
                 else
-                    push!(organs_mapping[organs_mapped][organs_mapped], organ_mapping[organs_mapped])
+                    @info "Variable $variable already mapped from scale $organs_mapped to scale $organs_mapped. Skipping."
                 end
             end
         end
@@ -364,7 +399,7 @@ end
     create_var_ref(organ::AbstractString, default)
 
 Create a referece variable. The reference is a `RefVector` if the organ is a vector of strings, and a `MappedVar` 
-if it is a singleton string. This is because we want to avoid indeing into a vector of values if there is only one 
+if it is a singleton string. This is because we want to avoid indexing into a vector of values if there is only one 
 value to map.
 """
 function create_var_ref(organ::Vector{<:AbstractString}, var, default::AbstractVector{T}) where {T}
@@ -533,10 +568,10 @@ Create a status template for a given set of models and type promotion.
 julia> using PlantSimEngine;
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
 ```jldoctest mylabel
-import_multiscale_example();
+julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
@@ -746,10 +781,10 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 julia> using PlantSimEngine
 ```
 
-Import example models (can be found in the `examples` folder of the package): 
+Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
 
 ```jldoctest mylabel
-import_multiscale_example();
+julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
