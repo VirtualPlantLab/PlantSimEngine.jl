@@ -1,5 +1,5 @@
 # Declaring the process of LAI dynamic:
-@process "soil_water" verbose = false
+PlantSimEngine.@process "soil_water" verbose = false
 
 
 """

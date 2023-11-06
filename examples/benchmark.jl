@@ -10,7 +10,7 @@ using PlantSimEngine, PlantMeteo, DataFrames, CSV, Dates, Statistics
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
 models = ModelList(
     ToyLAIModel(),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 # Match the warning on the executor, the default is ThreadedEx() but ToyRUEGrowthModel can't be run in parallel:
@@ -26,7 +26,7 @@ median_time_seq_ns = median(time_run_seq.times) / nrow(meteo_day)
 models_coupled = ModelList(
     ToyLAIModel(),
     Beer(0.5),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 # Match the warning on the executor, the default is ThreadedEx() but ToyRUEGrowthModel can't be run in parallel:

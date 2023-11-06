@@ -1,7 +1,7 @@
 # using PlantSimEngine, PlantMeteo # Import the necessary packages, PlantMeteo is used for the meteorology
 
 # Defining the process:
-@process "carbon_demand" verbose = false
+PlantSimEngine.@process "carbon_demand" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """

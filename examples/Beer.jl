@@ -4,7 +4,7 @@
 # allows us to not have a (cyclic) dependency on PlantBiophysics.jl in the docs.
 
 # Generate the light interception process methods:
-@process "light_interception" verbose = false
+PlantSimEngine.@process "light_interception" verbose = false
 
 """
     Beer(k)
@@ -57,7 +57,7 @@ m[:aPPFD]
 function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
     status.aPPFD =
         meteo.Ri_PAR_f *
-        (1 - exp(-models.light_interception.k * status.LAI)) *
+        (1.0 - exp(-models.light_interception.k * status.LAI)) *
         constants.J_to_umol
 end
 

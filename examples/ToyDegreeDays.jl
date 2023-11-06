@@ -1,22 +1,33 @@
 
 # Declaring the process of LAI dynamic:
-@process "Degreedays" verbose = false
+PlantSimEngine.@process "Degreedays" verbose = false
 
 # Declaring the model of LAI dynamic with its parameter values:
+
+"""
+    ToyDegreeDaysCumulModel(;init_TT=0.0, T_base=10.0, T_max=43.0)
+
+Computes the thermal time in degree days and cumulated degree-days based on the average daily temperature (`T`),
+the initial cumulated degree days, the base temperature below which there is no growth, and the maximum 
+temperature for growh.
+"""
 struct ToyDegreeDaysCumulModel <: AbstractDegreedaysModel
-    init_degreedays::Float64
+    init_TT::Float64
+    T_base::Float64
+    T_max::Float64
 end
 
 # Defining default values:
-ToyDegreeDaysCumulModel(init_degreedays=0.0) = ToyDegreeDaysCumulModel(init_degreedays)
+ToyDegreeDaysCumulModel(; init_TT=0.0, T_base=10.0, T_max=43.0) = ToyDegreeDaysCumulModel(init_TT, T_base, T_max)
 
 # Defining the inputs and outputs of the model:
 PlantSimEngine.inputs_(::ToyDegreeDaysCumulModel) = NamedTuple()
-PlantSimEngine.outputs_(::ToyDegreeDaysCumulModel) = (degree_days_cu=-Inf,)
+PlantSimEngine.outputs_(m::ToyDegreeDaysCumulModel) = (TT=-Inf, TT_cu=0.0,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
-    status.degree_days_cu += status.degree_days
+    status.TT = max(0.0, min(meteo.T, m.T_max) - m.T_base)
+    status.TT_cu += status.TT
 end
 
 # The computation of ToyDegreeDaysCumulModel dependents on previous values, but it is independent of other objects.

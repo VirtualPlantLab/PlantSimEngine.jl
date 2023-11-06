@@ -1,6 +1,6 @@
 
 # Declaring the process of LAI dynamic:
-@process "LAI_Dynamic" verbose = false
+PlantSimEngine.@process "LAI_Dynamic" verbose = false
 
 
 # Declaring the model of LAI dynamic with its parameter values:
@@ -16,7 +16,7 @@ end
 ToyLAIModel(; max_lai=8.0, dd_incslope=800, inc_slope=110, dd_decslope=1500, dec_slope=20) = ToyLAIModel(max_lai, dd_incslope, inc_slope, dd_decslope, dec_slope)
 
 # Defining the inputs and outputs of the model:
-PlantSimEngine.inputs_(::ToyLAIModel) = (degree_days_cu=-Inf,)
+PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=-Inf,)
 PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
@@ -24,8 +24,8 @@ function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=not
     status.LAI =
         models.LAI_Dynamic.max_lai *
         (1.0 /
-         (1.0 + exp((models.LAI_Dynamic.dd_incslope - status.degree_days_cu) / models.LAI_Dynamic.inc_slope)) -
-         1.0 / (1.0 + exp((models.LAI_Dynamic.dd_decslope - status.degree_days_cu) / models.LAI_Dynamic.dec_slope))
+         (1.0 + exp((models.LAI_Dynamic.dd_incslope - status.TT_cu) / models.LAI_Dynamic.inc_slope)) -
+         1.0 / (1.0 + exp((models.LAI_Dynamic.dd_decslope - status.TT_cu) / models.LAI_Dynamic.dec_slope))
         )
 
     if status.LAI < 0.0
