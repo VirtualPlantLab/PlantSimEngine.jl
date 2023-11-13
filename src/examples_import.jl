@@ -67,6 +67,15 @@ function import_mtg_example()
     return mtg
 end
 
+# Processes:
+export AbstractProcess1Model, AbstractProcess2Model, AbstractProcess3Model
+export AbstractProcess4Model, AbstractProcess5Model, AbstractProcess6Model
+export AbstractProcess7Model
+export AbstractLight_InterceptionModel, AbstractLai_DynamicModel, AbstractDegreedaysModel
+export AbstractPhotosynthesisModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel
+export AbstractSoil_WaterModel, AbstractGrowthModel
+
+# Models:
 export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
 export ToyAssimGrowthModel, ToyRUEGrowthModel
