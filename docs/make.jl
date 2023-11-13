@@ -9,13 +9,14 @@ DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, Plant
 makedocs(;
     modules=[PlantSimEngine],
     authors="Rémi Vezy <VEZY@users.noreply.github.com> and contributors",
-    repo="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/{commit}{path}#{line}",
+    repo=Documenter.Remotes.GitHub("VirtualPlantLab", "PlantSimEngine.jl"),
     sitename="PlantSimEngine.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
-        assets=String[]
+        assets=String[],
+        size_threshold=250000
     ),
     pages=[
         "Home" => "index.md",
