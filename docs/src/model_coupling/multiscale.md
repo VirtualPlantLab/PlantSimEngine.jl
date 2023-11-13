@@ -77,7 +77,8 @@ mapping = Dict(
         ),
         Status(aPPFD=1300.0),        
     ),
-)
+);
+nothing # hide
 ```
 
 The `MultiScaleModel` takes two arguments: the model and the mapping between the model and the scales. The mapping is a vector of pairs mapping the variable's name with the name of the scale its value comes from. In this example, we map the `soil_water_content` variable to the `"Soil"` scale.
@@ -141,6 +142,7 @@ mapping = Dict(
         ToySoilWaterModel(),
     ),
 );
+nothing # hide
 ```
 
 In this example, we expect to make a simulation at five different scales: `"Scene"`, `"Plant"`, `"Internode"`, `"Leaf"`, and `"Soil"`. The `"Scene"` scale represents the whole scene, where one or several plants can live. The `"Plant"` scale is, well, the whole plant scale, `"Internode"` and `"Leaf"` are organ scales, and `"Soil"` is the soil scale. This mapping is used to compute the carbon allocation (`ToyCAllocationModel`) to the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (`ToyCDemandModel`). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`), which is needed to calculate the assimilation at the `"Leaf"` scale (`ToyAssimModel`).
@@ -216,7 +218,8 @@ And that's it!
 We can now access the outputs for each scale as a dictionary of vectors of values per variable and scale like this:
 
 ```@example usepkg
-outputs(sim)
+outputs(sim);
+nothing # hide
 ```
 
 Or as a `DataFrame` using the `DataFrames` package:
@@ -229,7 +232,8 @@ outputs(sim, DataFrame)
 The values for the last time-step of the simulation are also available from the statuses:
 
 ```@example usepkg
-status(sim)
+status(sim);
+nothing # hide
 ```
 
 This is a dictionary with the scale as the key and a vector of `Status` as values, one per node of that scale. So, in this example, the `"Leaf"` scale has two nodes, so the value is a vector of two `Status` objects, and the `"Soil"` scale has only one node, so the value is a vector of one `Status` object.
