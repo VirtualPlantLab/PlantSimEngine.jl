@@ -6,17 +6,7 @@ using PlantMeteo, Statistics
 using Documenter # for doctests
 
 # Include the example dummy processes:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
-
-# For the multiscale models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCDemandModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"))
+using PlantSimEngine.Examples
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
@@ -52,10 +42,6 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToySoilModel.jl"))
 
     @testset "Toy models" begin
         include("test-toy_models.jl")
-    end
-
-    @testset "MTG" begin
-        include("test-mtg.jl")
     end
 
     @testset "MTG with multiscale mapping" begin

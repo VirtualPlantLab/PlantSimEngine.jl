@@ -27,8 +27,8 @@ Symbol(MultiScaleTreeGraph.cache_name("PlantSimEngine models"))
 ```@example
 using PlantSimEngine, MultiScaleTreeGraph
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 # Make an MTG:
 mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))

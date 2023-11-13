@@ -1,7 +1,7 @@
 # using PlantSimEngine, PlantMeteo # Import the necessary packages, PlantMeteo is used for the meteorology
 
-# Defining the process:
-@process "growth" verbose = false
+# The process is defined in ToyAssimGrowthModel.jl:
+# PlantSimEngine.@process "growth" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """

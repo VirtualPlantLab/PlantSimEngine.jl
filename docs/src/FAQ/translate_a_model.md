@@ -4,7 +4,8 @@
 using PlantSimEngine
 using CairoMakie
 using CSV, DataFrames
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 
 function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
     LAI = max_lai * (1 / (1 + exp((dd_incslope - TT_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - TT_cu) / dec_slope)))

@@ -78,11 +78,12 @@ Return a vector of pairs of the node and the result of the function `f`.
 ```julia
 using PlantSimEngine
 
+# Including example processes and models:
+using PlantSimEngine.Examples;
+
 function f(node)
     node.value
 end
-
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 vars = (
     process1=Process1Model(1.0),

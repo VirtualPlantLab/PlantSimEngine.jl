@@ -1,5 +1,3 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-
 # Tests:
 # Defining a list of models without status:
 @testset "ModelList with no status" begin

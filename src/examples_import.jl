@@ -14,18 +14,22 @@ in the following files:
 
 ```jl
 using PlantSimEngine
-using PlantSimEngine.Example
+using PlantSimEngine.Examples
 ToyAssimModel()
 ```
 """
 module Examples
 
-using PlantSimEngine, MultiScaleTreeGraph
+using PlantSimEngine, MultiScaleTreeGraph, PlantMeteo, Statistics
+
+include(joinpath(@__DIR__, "../examples/dummy.jl"))
 include(joinpath(@__DIR__, "../examples/ToyDegreeDays.jl"))
 include(joinpath(@__DIR__, "../examples/Beer.jl"))
 include(joinpath(@__DIR__, "../examples/ToyLAIModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyAssimModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCDemandModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyAssimGrowthModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyRUEGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
 
@@ -65,5 +69,9 @@ end
 
 export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
+export ToyAssimGrowthModel, ToyRUEGrowthModel
+export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
+export Process6Model, Process7Model
+
 export import_mtg_example
 end

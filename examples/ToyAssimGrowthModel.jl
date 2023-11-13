@@ -1,7 +1,5 @@
-# using PlantSimEngine, PlantMeteo # Import the necessary packages, PlantMeteo is used for the meteorology
-
 # Defining the process:
-@process "growth" verbose = false
+PlantSimEngine.@process "growth" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """

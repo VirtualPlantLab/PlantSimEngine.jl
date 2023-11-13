@@ -2,10 +2,8 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo, CSV, DataFrames
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine.Examples
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
  
@@ -39,10 +37,8 @@ Importing the models from the scripts:
 
 ```julia
 using PlantSimEngine
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+# Import the examples defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 ```
 
 Coupling the models in a `ModelList`:

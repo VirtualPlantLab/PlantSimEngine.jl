@@ -1,5 +1,3 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-
 @testset "Check missing model" begin
     # No problem here:
     @test_nowarn ModelList(

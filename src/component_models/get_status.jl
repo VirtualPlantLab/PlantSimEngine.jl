@@ -12,8 +12,8 @@ See also [`is_initialized`](@ref) and [`to_initialize`](@ref)
 ```jldoctest
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+# Including example models and processes:
+using PlantSimEngine.Examples;
 
 # Create a ModelList
 models = ModelList(

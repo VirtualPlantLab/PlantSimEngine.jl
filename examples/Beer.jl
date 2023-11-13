@@ -85,8 +85,16 @@ Compute the `k` parameter of the Beer-Lambert law from measurements.
 
 # Examples
 
+Import the example models defined in the `Examples` sub-module:
+
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine
+using PlantSimEngine.Examples
+```
+
+Create a model list with a Beer model, and fit it to the data:
+
+```julia
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)

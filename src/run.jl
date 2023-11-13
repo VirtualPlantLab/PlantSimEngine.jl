@@ -53,10 +53,10 @@ Import the packages:
 julia> using PlantSimEngine, PlantMeteo;
 ```
 
-Load the dummy models given as example in the package:
+Load the dummy models given as example in the `Examples` sub-module:
 
 ```jldoctest run
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+julia> using PlantSimEngine.Examples;
 ```
 
 Create a model list:

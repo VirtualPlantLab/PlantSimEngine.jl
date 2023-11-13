@@ -15,7 +15,7 @@ can be inferred from the inputs and outputs of the processes.
 using PlantSimEngine
 
 # Load the dummy models given as example in the package:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+using PlantSimEngine.Examples
 
 # Create a model list:
 models = ModelList(

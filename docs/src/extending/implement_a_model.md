@@ -33,12 +33,13 @@ In those files, you'll see that in order to implement a new model you'll need to
 
 If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implement a new process](@ref)).
 
-In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, but also in an example script in `PlantSimEngine.jl` here: [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/Beer.jl).
+In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, and also made available as an example model from the `Examples` sub-module. You can access the script from here: [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/Beer.jl).
 
-We can include this file like so:
+We can import the model like so:
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 ```
 
 But instead of just using it, we will review the script line by line.

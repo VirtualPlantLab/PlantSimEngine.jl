@@ -26,7 +26,9 @@ Here is an example usage with the `Beer` model, where we fit the `k` parameter f
 and `Ri_PAR_f`. 
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
+
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)

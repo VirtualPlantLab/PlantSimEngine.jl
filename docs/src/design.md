@@ -4,7 +4,7 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 run!(leaf, meteo)
@@ -56,10 +56,10 @@ Importing the package:
 using PlantSimEngine
 ```
 
-Including the script that defines `light_interception` and `Beer`:
+Import the examples defined in the `Examples` sub-module (`light_interception` and `Beer`):
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine.Examples
 ```
 
 And then making a [`ModelList`](@ref) with the `Beer` model:
@@ -187,8 +187,8 @@ For example we can simulate the `light_interception` of a leaf like so:
 ```@example usepkg
 using PlantSimEngine, PlantMeteo
 
-# Including the script defining light_interception and Beer:
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine.Examples
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 

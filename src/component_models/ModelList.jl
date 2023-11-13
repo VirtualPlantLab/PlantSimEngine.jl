@@ -58,10 +58,10 @@ one model implementation each: `Process1Model`, `Process2Model` and `Process3Mod
 julia> using PlantSimEngine;
 ```
 
-Including an example script that implements dummy processes and models:
+Including example processes and models:
 
 ```jldoctest 1
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest 1
@@ -374,8 +374,8 @@ Copy a [`ModelList`](@ref), eventually with new values for the status.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 # Create a model list:
 models = ModelList(
@@ -440,8 +440,8 @@ If we want all the variables that are Reals to be Float32, we can use:
 ```julia
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 ref_vars = init_variables(
     process1=Process1Model(1.0),

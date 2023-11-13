@@ -10,7 +10,7 @@ recycled (length 1 for one of them).
 using PlantSimEngine, PlantMeteo
 
 # Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+using PlantSimEngine.Examples
 
 # Creating a dummy weather:
 w = Atmosphere(T = 20.0, Rh = 0.5, Wind = 1.0)

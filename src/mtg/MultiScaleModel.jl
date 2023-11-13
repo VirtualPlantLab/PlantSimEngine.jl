@@ -26,8 +26,10 @@ of one node, they will be updated in the other nodes.
 julia> using PlantSimEngine;
 ```
 
+Including example processes and models:
+
 ```jldoctest mylabel
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/ToyCAllocationModel.jl"));
+julia> using PlantSimEngine.Examples;
 ```
 
 Let's take a model:

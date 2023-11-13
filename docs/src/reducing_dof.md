@@ -2,7 +2,8 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Import the examples defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
 struct ForceProcess1Model <: AbstractProcess1Model end
@@ -44,7 +45,8 @@ Let's define a model list as usual with the seven processes from `examples/dummy
 
 ```@example usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Import the examples defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
 m = ModelList(

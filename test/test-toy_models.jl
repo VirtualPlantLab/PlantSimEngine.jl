@@ -1,8 +1,3 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
-
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 @testset "ToyLAIModel" begin

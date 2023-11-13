@@ -2,10 +2,7 @@
 
 using BenchmarkTools
 using PlantSimEngine, PlantMeteo, DataFrames, CSV, Dates, Statistics
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+# using PlantSimEngine.Examples
 
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
 models = ModelList(

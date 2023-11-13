@@ -54,8 +54,8 @@ Here's a simple example of a model that simulates the growth of a plant, using a
 # ] add PlantSimEngine
 using PlantSimEngine
 
-# Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# Include the model definition from the examples sub-module:
+using PlantSimEngine.Examples
 
 # Define the model:
 model = ModelList(
@@ -109,8 +109,7 @@ Model coupling is done automatically by the package, and is based on the depende
 using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
 # Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine.Examples
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)

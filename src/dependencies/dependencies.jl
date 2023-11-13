@@ -41,8 +41,8 @@ these graphs independently to retrieve the models that are coupled together, in 
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 models = ModelList(
     process1=Process1Model(1.0),

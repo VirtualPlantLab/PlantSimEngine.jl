@@ -23,8 +23,8 @@ considering that some variables that are outputs of some models are used as inpu
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
@@ -48,8 +48,8 @@ Or with a mapping:
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 mapping = Dict(
     "Leaf" => ModelList(
@@ -246,8 +246,8 @@ Initialise model variables for components with user input.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = Dict(
     "Leaf" => ModelList(
@@ -300,8 +300,8 @@ inputs and outputs of the models.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 init_variables(Process1Model(2.0))
 init_variables(process1=Process1Model(2.0), process2=Process2Model())
@@ -360,8 +360,8 @@ for other models.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = ModelList(
     process1=Process1Model(1.0),
@@ -435,8 +435,8 @@ Return an initialisation of the model variables with given values.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = ModelList(
     process1=Process1Model(1.0),
