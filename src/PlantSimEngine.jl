@@ -54,7 +54,6 @@ include("dependencies/dependencies.jl")
 
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
-include("mtg/init_mtg_models.jl")
 include("mtg/mapping.jl")
 include("mtg/save_results.jl")
 
@@ -82,7 +81,6 @@ include("examples_import.jl")
 
 export AbstractModel
 export ModelList, MultiScaleModel
-export init_mtg_models!
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
