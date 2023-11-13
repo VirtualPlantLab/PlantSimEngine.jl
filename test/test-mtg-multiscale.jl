@@ -7,6 +7,31 @@ meteo = Weather(
 ]
 )
 
+@testset "MTG initialisation" begin
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    var1 = 15.0
+    var2 = 0.3
+    leaf[:var2] = var2
+
+    models = Dict(
+        "Leaf" => (
+            Process1Model(1.0),
+            Process2Model(),
+            Process3Model(),
+            Status(var1=var1,)
+        )
+    )
+
+    @test descendants(mtg, :var1) == [nothing, nothing]
+    @test descendants(mtg, :var2) == [nothing, var2]
+
+    to_init = to_initialize(models)
+    @test to_init["Leaf"].need_initialisation == Symbol[:var2]
+    @test get_node(mtg, 3)[:var2] == var2
+end
+
 # A mapping that actually works (same as before but with the init for TT):
 mapping_1 = Dict(
     "Plant" =>
