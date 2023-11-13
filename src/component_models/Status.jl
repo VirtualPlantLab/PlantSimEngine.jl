@@ -54,7 +54,7 @@ julia> st[1] = 22.0
 22.0
 ```
 """
-struct Status{N,T<:Tuple{Vararg{<:Ref}}}
+struct Status{N,T<:Tuple{Vararg{Ref}}}
     vars::NamedTuple{N,T}
 end
 
