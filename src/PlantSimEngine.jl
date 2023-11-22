@@ -55,6 +55,7 @@ include("dependencies/dependencies.jl")
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
 include("mtg/mapping.jl")
+include("mtg/initialisation.jl")
 include("mtg/save_results.jl")
 
 # Model evaluation (statistics):

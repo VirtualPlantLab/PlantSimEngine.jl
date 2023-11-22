@@ -44,7 +44,10 @@ julia> mapping = Dict( \
                         :carbon_allocation => ["Leaf", "Internode"] \
                     ], \
                 ), \
-            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+            "Internode" => (  \
+                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+                Status(aPPFD=1300.0, TT=10.0), \
+                ), \
             "Leaf" => ( \
                 MultiScaleModel( \
                     model=ToyAssimModel(), \
@@ -66,19 +69,7 @@ julia> mtg = import_mtg_example();
 ```
 
 ```jldoctest mylabel
-julia> organs_statuses = PlantSimEngine.status_template(mapping, nothing);
-```
-
-```jldoctest mylabel
-julia> var_refvector = PlantSimEngine.reverse_mapping(mapping, all=false);
-```
-
-```jldoctest mylabel
-julia> var_need_init = PlantSimEngine.to_initialize(mapping, mtg);
-```
-
-```jldoctest mylabel
-julia> statuses = PlantSimEngine.init_statuses(mtg, organs_statuses, var_refvector, var_need_init);
+julia> statuses = PlantSimEngine.init_statuses(mtg, mapping);
 ```
 
 ```jldoctest mylabel

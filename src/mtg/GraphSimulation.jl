@@ -60,7 +60,7 @@ julia> using PlantSimEngine.Examples;
 $MAPPING_EXAMPLE
 
 ```@example
-import_mtg_example();
+mtg = import_mtg_example();
 ```
 
 ```@example
