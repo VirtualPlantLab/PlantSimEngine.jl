@@ -309,8 +309,9 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
                     push!(organs_mapping[organs_mapped], organs_mapped => organ_mapping[organs_mapped])
                 elseif !haskey(organs_mapping[organs_mapped][organs_mapped], variable)
                     push!(organs_mapping[organs_mapped][organs_mapped], variable => organ_mapping[organs_mapped][variable])
-                else
-                    @info "Variable $variable already mapped from scale $organs_mapped to scale $organs_mapped. Skipping."
+                    # else
+                    #@info "Variable $variable already mapped from scale $organs_mapped to scale $organs_mapped. Skipping."
+                    # NB: I removed this else because it happens a lot when we have a variable mapped a lot to a scale (e.g. :TT)
                 end
             end
         end
@@ -542,7 +543,7 @@ to get the value as a singleton instead of a vector of values.
 
 ```jldoctest mylabel
 julia> PlantSimEngine.reverse_mapping(models)
-Dict{String, Any} with 3 entries:
+Dict{String, Dict{String, Vector{Symbol}}} with 3 entries:
   "Soil"      => Dict("Leaf"=>[:soil_water_content])
   "Internode" => Dict("Plant"=>[:carbon_demand, :carbon_allocation])
   "Leaf"      => Dict("Plant"=>[:A, :carbon_demand, :carbon_allocation])

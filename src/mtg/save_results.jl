@@ -69,23 +69,23 @@ julia> mtg = import_mtg_example();
 ```
 
 ```jldoctest mylabel
-julia> statuses = PlantSimEngine.init_statuses(mtg, mapping);
+julia> statuses, = PlantSimEngine.init_statuses(mtg, mapping);
 ```
 
 ```jldoctest mylabel
-julia> outputs = Dict("Leaf" => (:A, :carbon_demand), "Soil" => (:soil_water_content,));
+julia> outs = Dict("Leaf" => (:A, :carbon_demand), "Soil" => (:soil_water_content,));
 ```
 
 Pre-allocate the outputs as a dictionary:
 
 ```jldoctest mylabel
-julia> outs = PlantSimEngine.pre_allocate_outputs(statuses, outputs, 2);
+julia> preallocated_vars = PlantSimEngine.pre_allocate_outputs(statuses, outs, 2);
 ```
 
 The dictionary has a key for each organ from which we want outputs:
 
 ```jldoctest mylabel
-julia> collect(keys(outs))
+julia> collect(keys(preallocated_vars))
 2-element Vector{String}:
  "Soil"
  "Leaf"
@@ -95,7 +95,7 @@ Each organ has a dictionary of variables for which we want outputs from,
 with the pre-allocated empty vectors (one per time-step that will be filled with one value per node):
 
 ```jldoctest mylabel
-julia> collect(keys(outs["Leaf"]))
+julia> collect(keys(preallocated_vars["Leaf"]))
 3-element Vector{Symbol}:
  :A
  :node
