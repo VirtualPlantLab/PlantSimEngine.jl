@@ -1,3 +1,13 @@
+""" 
+    VarFromMTG(var::Symbol, scale::String)
+
+A strucure to hold the variables that are needed for initialisation, and that must be taken from the MTG attributes.
+"""
+struct VarFromMTG
+    var::Symbol
+    scale::String
+end
+
 """
     GraphSimulation(graph, mapping)
     GraphSimulation(graph, statuses, dependency_graph, models, outputs)
@@ -9,13 +19,19 @@ A type that holds all information for a simulation over a graph.
 - `graph`: an graph, such as an MTG
 - `mapping`: a dictionary of model mapping
 - `statuses`: a structure that defines the status of each node in the graph
+- `status_templates`: a dictionary of status templates
+- `map_other_scales`: a dictionary of mapping for other scales
+- `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
 - `outputs`: a dictionary of outputs
 """
-struct GraphSimulation{T,S,U,O}
+struct GraphSimulation{T,S,U,O,V}
     graph::T
     statuses::S
+    status_templates::Dict{String,Dict{Symbol,Any}}
+    map_other_scales::Dict{String,Dict{String,Vector{Symbol}}}
+    var_need_init::Dict{String,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
     outputs::Dict{String,O}
@@ -27,6 +43,9 @@ end
 
 dep(g::GraphSimulation) = g.dependency_graph
 status(g::GraphSimulation) = g.statuses
+status_template(g::GraphSimulation) = g.status_templates
+map_other_scales(g::GraphSimulation) = g.map_other_scales
+var_need_init(g::GraphSimulation) = g.var_need_init
 get_models(g::GraphSimulation) = g.models
 outputs(g::GraphSimulation) = g.outputs
 

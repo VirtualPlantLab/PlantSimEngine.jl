@@ -2,6 +2,20 @@
     init_statuses(mtg, mapping; type_promotion=nothing, check=true)
     
 Get the status of each node in the MTG by node type, pre-initialised considering multi-scale variables.
+
+# Arguments
+
+- `mtg`: the plant graph
+- `mapping`: a dictionary of model mapping
+- `type_promotion`: the type promotion to use for the variables
+- `check`: whether to check the mapping for errors
+
+# Return
+
+A NamedTuple of status by node type, a dictionary of status templates by node type, a dictionary of variables mapped to other scales,
+a dictionary of variables that need to be initialised or computed by other models, and a vector of nodes that have a model defined for their symbol:
+
+`(;statuses, status_templates, map_other_scales, var_need_init, nodes_with_models)`
 """
 function init_statuses(mtg, mapping; type_promotion=nothing, check=true)
     # We make a pre-initialised status for each kind of organ (this is a template for each node type):
@@ -17,14 +31,13 @@ function init_statuses(mtg, mapping; type_promotion=nothing, check=true)
     # If we find some, we return an error:
     check && error_mtg_init(var_need_init)
 
-    nodes_with_models = collect(keys(status_templates))
     # We traverse the MTG to initialise the statuses linked to the nodes:
-    statuses = Dict(i => Status[] for i in nodes_with_models)
+    statuses = Dict(i => Status[] for i in collect(keys(status_templates)))
     MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = get_node(mtg, 5)
-        init_status!(node, statuses, status_templates, map_other_scales, var_need_init, nodes_with_models)
+        init_status!(node, statuses, status_templates, map_other_scales, var_need_init)
     end
 
-    return statuses
+    return (; statuses, status_templates, map_other_scales, var_need_init)
 end
 
 
@@ -35,7 +48,6 @@ end
         status_templates, 
         map_other_scales, 
         var_need_init=Dict{String,Any}(), 
-        nodes_with_models=collect(keys(status_templates))
     )
 
 Initialise the status of a node, taking into account the multiscale mapping, and add it to the 
@@ -54,15 +66,14 @@ statuses dictionary.
 
 Most arguments can be computed from the graph and the mapping:
 - `statuses` is given by the first initialisation: `statuses = Dict(i => Status[] for i in nodes_with_models)`
-- `status_templates` is computed usin `status_template(mappinxg, type_promotion)`
+- `status_templates` is computed usin `status_template(mapping, type_promotion)`
 - `map_other_scales` is computed using `reverse_mapping(mapping, all=false)`. We use `all=false` because we only 
 want the variables that are mapped as `RefVectors`
 - `var_need_init` is computed using `to_initialize(mapping, mtg)`
-- `nodes_with_models` is computed using `collect(keys(status_templates))`
 """
-function init_status!(node, statuses, status_templates, map_other_scales, var_need_init=Dict{String,Any}(), nodes_with_models=collect(keys(status_templates)))
+function init_status!(node, statuses, status_templates, map_other_scales, var_need_init=Dict{String,Any}())
     # Check if the node has a model defined for its symbol, if not, no need to compute
-    node.MTG.symbol ∉ nodes_with_models && return
+    node.MTG.symbol ∉ collect(keys(status_templates)) && return
 
     # We make a copy of the template status for this node:
     st_template = copy(status_templates[node.MTG.symbol])
@@ -99,6 +110,8 @@ function init_status!(node, statuses, status_templates, map_other_scales, var_ne
             end
         end
     end
+
+    return st
 end
 
 
@@ -349,7 +362,9 @@ automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
-    statuses = init_statuses(mtg, mapping; type_promotion=type_promotion, check=check)
+    statuses, status_templates, map_other_scales, var_need_init =
+        init_statuses(mtg, mapping; type_promotion=type_promotion, check=check)
+
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
@@ -363,5 +378,5 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs = pre_allocate_outputs(statuses, outputs, nsteps, check=check)
 
-    return (; mtg, statuses, dependency_graph, models, outputs)
+    return (; mtg, statuses, status_templates, map_other_scales, var_need_init, dependency_graph, models, outputs)
 end

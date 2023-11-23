@@ -161,7 +161,7 @@ end
     var_need_init = PlantSimEngine.to_initialize(mapping_1, mtg)
     @test var_need_init == Dict{String,Any}()
 
-    statuses = PlantSimEngine.init_statuses(mtg, mapping_1)
+    statuses, = PlantSimEngine.init_statuses(mtg, mapping_1)
     @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
 
     @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2

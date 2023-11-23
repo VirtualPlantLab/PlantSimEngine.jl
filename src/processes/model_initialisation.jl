@@ -141,16 +141,6 @@ function to_initialize(; verbose=true, vars...)
     return NamedTuple(to_init)
 end
 
-""" 
-    VarFromMTG(var::Symbol, scale::String)
-
-A strucure to hold the variables that are needed for initialisation, and that must be taken from the MTG attributes.
-"""
-struct VarFromMTG
-    var::Symbol
-    scale::String
-end
-
 # For the list of mapping given to an MTG:
 function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
 
@@ -161,7 +151,7 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
         vars_in_mtg = names(graph)
     end
 
-    var_need_init = Dict{String,Any}()
+    var_need_init = Dict{String,NamedTuple{(:need_initialisation, :need_models_from_scales, :need_var_from_mtg),Tuple{Vector{Symbol},Vector{NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}},Vector{VarFromMTG}}}}()
     for organ in keys(mapping)
         # organ = "Plant"
         # Get all mapping for the organ:

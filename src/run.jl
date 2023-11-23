@@ -13,7 +13,7 @@ If several time-steps are given, the models are run sequentially for each time-s
 - `meteo`: a [`PlantMeteo.TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.TimeStepTable) of 
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
-- `extra`: extra parameters.
+- `extra`: extra parameters, not available for simulation of plant graphs (the simulation object is passed using this).
 - `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time), and return more information while running.
 - `executor`: the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) executor used to run the simulation either in sequential (`executor=SequentialEx()`), in a 
 multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed way (`executor=DistributedEx()`).
@@ -353,12 +353,11 @@ function run!(
     executor=ThreadedEx()
 )
     models = get_models(object)
-    st = status(object)
 
     # Run the simulation of each soft-coupled model in the dependency graph:
     # Note: hard-coupled processes handle themselves already
     @floop executor for (process_key, dependency_node) in collect(dep(object).roots)
-        run!(object, dependency_node, 1, models, meteo, constants, st, check, executor)
+        run!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
     end
 end
 
@@ -376,7 +375,7 @@ function run!(
 
     dep_graph = dep(object)
     models = get_models(object)
-    st = status(object)
+    # st = status(object)
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
@@ -387,7 +386,7 @@ function run!(
         # In parallel over dependency root, i.e. for independant computations:
         @floop executor for (process_key, dependency_node) in collect(dep_graph.roots)
             # Note: parallelization over objects is handled by the run! method below
-            run!(object, dependency_node, i, models, meteo_i, constants, st, check, executor)
+            run!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
         end
         # At the end of the time-step, we save the results of the simulation in the object:
         save_results!(object, i)
@@ -445,7 +444,7 @@ function run!(
     models,
     meteo,
     constants,
-    extra,
+    extra::T, # we pass the simulation object as extra so we can access its parameters during simulation
     check,
     executor
 ) where {T<:GraphSimulation} # T is the status of each node by organ type

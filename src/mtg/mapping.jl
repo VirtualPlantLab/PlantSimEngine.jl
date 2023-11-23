@@ -549,7 +549,7 @@ Dict{String, Any} with 3 entries:
 ```
 """
 function reverse_mapping(models; all=true)
-    var_to_ref = Dict{String,Any}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
+    var_to_ref = Dict{String,Dict{String,Vector{Symbol}}}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
     for organ in keys(models)
         # organ = "Plant"
         map_vars = get_mapping(models[organ])
