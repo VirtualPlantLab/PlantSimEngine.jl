@@ -1,3 +1,9 @@
+"""
+    hard_dependencies(models; verbose::Bool=true)
+    hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true)
+
+Compute the hard dependencies between models.
+"""
 function hard_dependencies(models; verbose::Bool=true)
     dep_graph = Dict(
         p => HardDependencyNode(
@@ -69,4 +75,51 @@ function hard_dependencies(models; verbose::Bool=true)
     end
 
     return DependencyGraph(unique_roots, dep_not_found)
+end
+
+# When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
+function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
+    full_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
+
+    soft_dep_graphs = Dict{String,Any}(i => 0.0 for i in keys(mapping))
+    not_found = Dict{Symbol,DataType}()
+    for (organ, model) in mapping
+        # organ = "Leaf"; model = mapping[organ]
+        mods = parse_models(get_models(model))
+
+        # Move some models below others when they are manually linked (hard-dependency):
+        hard_deps = hard_dependencies((; mods...), verbose=verbose)
+        d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
+        for (procname, node) in hard_deps.roots
+            var = Pair{Symbol,NamedTuple}[]
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_mapping), var)
+            push!(d_vars, procname => var)
+        end
+
+        inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
+            key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars
+        )
+        outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
+            key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars
+        )
+
+        soft_dep_graph = Dict(
+            process_ => SoftDependencyNode(
+                soft_dep_vars.value,
+                process_, # process name
+                organ, # scale
+                AbstractTrees.children(soft_dep_vars), # hard dependencies
+                nothing,
+                nothing,
+                SoftDependencyNode[],
+                [0] # Vector of zeros of length = number of time-steps
+            )
+            for (process_, soft_dep_vars) in hard_deps.roots
+        )
+
+        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process, outputs=outputs_process)
+        not_found = merge(not_found, hard_deps.not_found)
+    end
+
+    return DependencyGraph(soft_dep_graphs, not_found)
 end

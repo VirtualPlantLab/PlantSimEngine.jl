@@ -1,19 +1,30 @@
 """
-    to_initialize(v::T, vars...) where T <: Union{Missing,AbstractModel}
+    to_initialize(; verbose=true, vars...)
     to_initialize(m::T)  where T <: ModelList
     to_initialize(m::DependencyGraph)
+    to_initialize(mapping::Dict{String,T}, graph=nothing)
 
 Return the variables that must be initialized providing a set of models and processes. The
 function takes into account model coupling and only returns the variables that are needed
 considering that some variables that are outputs of some models are used as inputs of others.
+
+# Arguments
+
+- `verbose`: if `true`, print information messages.
+- `vars...`: the models and processes to consider.
+- `m::T`: a [`ModelList`](@ref).
+- `m::DependencyGraph`: a [`DependencyGraph`](@ref).
+- `mapping::Dict{String,T}`: a mapping that associates models to organs.
+- `graph`: a graph representing a plant or a scene, *e.g.* a multiscale tree graph. The graph
+  is used to check if variables that are not initialized can be found in the graph nodes attributes.
 
 # Examples
 
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
@@ -28,6 +39,30 @@ m = ModelList(
     ),
     Status(var1 = 5.0, var2 = -Inf, var3 = -Inf, var4 = -Inf, var5 = -Inf)
 )
+
+to_initialize(m)
+```
+
+Or with a mapping:
+
+```@example
+using PlantSimEngine
+
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
+
+mapping = Dict(
+    "Leaf" => ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model()
+    ),
+    "Internode" => ModelList(
+        process1=Process1Model(1.0),
+    )
+)
+
+to_initialize(mapping)
 ```
 """
 function to_initialize(m::ModelList; verbose::Bool=true)
@@ -106,6 +141,90 @@ function to_initialize(; verbose=true, vars...)
     return NamedTuple(to_init)
 end
 
+# For the list of mapping given to an MTG:
+function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
+
+    # Get the variables in the MTG:
+    if isnothing(graph)
+        vars_in_mtg = Symbol[]
+    else
+        vars_in_mtg = names(graph)
+    end
+
+    var_need_init = Dict{String,NamedTuple{(:need_initialisation, :need_models_from_scales, :need_var_from_mtg),Tuple{Vector{Symbol},Vector{NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}},Vector{VarFromMTG}}}}()
+    for organ in keys(mapping)
+        # organ = "Plant"
+        # Get all mapping for the organ:
+        mods = get_models(mapping[organ])
+        map_vars = get_mapping(mapping[organ])
+        user_st = get_status(mapping[organ]) # User status
+
+        if isnothing(user_st)
+            user_st = NamedTuple()
+        else
+            user_st = NamedTuple(user_st)
+        end
+
+        multiscale_vars = collect(first(i) for i in map_vars)
+        ins = merge(inputs_.(mods)...)
+        outs = merge(outputs_.(mods)...)
+
+        # Variables in the node that are defined as multiscale:
+        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
+
+        # Variables we need to initialise for this scale:
+        vars_needed_this_scale = setdiff(keys(ins), keys(outs))
+        # And that are not provided by the user:
+        setdiff!(vars_needed_this_scale, keys(user_st))
+
+        need_initialisation = Symbol[]
+        need_var_from_mtg = VarFromMTG[]
+        need_models_from_scales = NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}[]
+
+        for var in vars_needed_this_scale # e.g. var = :carbon_demand
+            # If the variable is multiscale (it is computed by anothe model), we check if there is a model at the 
+            # other scale(s) that computes it:
+            if var in multi_scale_ins
+                # Scale(s) at which the variable is computed:
+                from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
+                # We check if there is a model at the other scale(s) that computes it:
+                outputs_from_scales = map_scale(mapping, from_scales) do m, s
+                    # We check that the node type exist in the model list:
+                    haskey(m, s) || error(
+                        "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of mapping."
+                    )
+                    # If it does, we get the outputs of its mapping:
+                    merge(outputs_.(get_models(m[s]))...)
+                end
+
+                outputs_from_scales = merge(outputs_from_scales...)
+                if var in keys(outputs_from_scales)
+                    # If the variable is computed by a model at the other scale, we don't need to initialise it:
+                    continue
+                else
+                    # Else, we need to initialise it:
+                    push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
+                end
+            else
+                # In this case the variable is an input of the model, and is not computed by other mapping at this scale or the others.
+                if var in vars_in_mtg
+                    # If the variable can be found in the MTG, we will take it from there:
+                    push!(need_var_from_mtg, VarFromMTG(var, organ))
+                else
+                    # Else, the user need to initialise it:
+                    push!(need_initialisation, var)
+                end
+            end
+            # Note: if the variable is an output of the model for another scale (in `multi_scale_outs`), we don't need to initialise it at this scale.
+        end
+        if length(need_initialisation) > 0 || length(need_var_from_mtg) > 0 || length(need_models_from_scales) > 0
+            var_need_init[organ] = (; need_initialisation, need_models_from_scales, need_var_from_mtg)
+        end
+    end
+
+    return var_need_init
+end
+
 """
     init_status!(object::Dict{String,ModelList};vars...)
     init_status!(component::ModelList;vars...)
@@ -117,8 +236,8 @@ Initialise model variables for components with user input.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = Dict(
     "Leaf" => ModelList(
@@ -171,8 +290,8 @@ inputs and outputs of the models.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 init_variables(Process1Model(2.0))
 init_variables(process1=Process1Model(2.0), process2=Process2Model())
@@ -231,8 +350,8 @@ for other models.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = ModelList(
     process1=Process1Model(1.0),
@@ -274,7 +393,8 @@ function vars_not_init_(st::T, default_values) where {T<:Status}
 
     not_init = Symbol[]
     for i in keys(default_values)
-        if getproperty(st, i) == default_values[i]
+        # if the variable value is equal to the default value, or if it is an uninitialized RefVector (length == 0):
+        if getproperty(st, i) == default_values[i] || (isa(getproperty(st, i), RefVector) && length(getproperty(st, i)) == 0)
             push!(not_init, i)
         end
     end
@@ -305,8 +425,8 @@ Return an initialisation of the model variables with given values.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples
 
 models = ModelList(
     process1=Process1Model(1.0),

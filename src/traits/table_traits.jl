@@ -13,10 +13,11 @@ how to iterate over the data. The following data formats are supported:
   `TimeStepTable`. The data is iterated over by rows using the `Tables.jl` interface.
 - `SingletonAlike`: The data is a singleton-like object, e.g. a `NamedTuple`
     or a `TimeStepRow`. The data is iterated over by columns.
+- `TreeAlike`: The data is a tree-like object, e.g. a `Node`.
 
 The default implementation returns `TableAlike` for `AbstractDataFrame`,
-`TimeStepTable`, `AbstractVector` and `Dict`, `TreeAlike` for `Node`, `SingletonAlike`
-for `Status`, `ModelList`, `NamedTuple` and `TimeStepRow`.
+`TimeStepTable`, `AbstractVector` and `Dict`, `TreeAlike` for `GraphSimulation`, 
+`SingletonAlike` for `Status`, `ModelList`, `NamedTuple` and `TimeStepRow`.
 
 The default implementation for `Any` throws an error. Users that want to use another input
 should define this trait for the new data format, e.g.:
@@ -55,9 +56,9 @@ DataFormat(::Type{<:Dict}) = TableAlike()
 
 DataFormat(::Type{<:NamedTuple}) = SingletonAlike()
 DataFormat(::Type{<:Status}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S} where {Mo,S<:Status}}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S}}) where {Mo,S} = TableAlike()
-DataFormat(::Type{<:MultiScaleTreeGraph.Node}) = TreeAlike()
+DataFormat(::Type{<:ModelList{Mo,S,V} where {Mo,S<:Status,V}}) = SingletonAlike()
+DataFormat(::Type{<:ModelList{Mo,S,V}}) where {Mo,S,V} = TableAlike()
+DataFormat(::Type{<:GraphSimulation}) = TreeAlike()
 
 DataFormat(::Type{<:PlantMeteo.AbstractAtmosphere}) = SingletonAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepRow}) = SingletonAlike()

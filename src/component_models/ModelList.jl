@@ -58,10 +58,10 @@ one model implementation each: `Process1Model`, `Process2Model` and `Process3Mod
 julia> using PlantSimEngine;
 ```
 
-Including an example script that implements dummy processes and models:
+Including example processes and models:
 
 ```jldoctest 1
-julia> include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest 1
@@ -71,7 +71,7 @@ julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(),
 
 ```jldoctest 1
 julia> typeof(models)
-ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}}
+ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -177,9 +177,14 @@ julia> status(m)
 Note that computations will be slower using DataFrame, so if performance is an issue, use
 TimeStepTable instead (or a NamedTuple as shown in the example).
 """
-struct ModelList{M<:NamedTuple,S}
+struct ModelList{M<:NamedTuple,S,V<:Tuple{Vararg{Symbol}}}
     models::M
     status::S
+    vars_not_propagated::V
+end
+
+function ModelList(models::M, status::S) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}},S}
+    ModelList(models, status, ())
 end
 
 # General interface:
@@ -215,19 +220,26 @@ function ModelList(
     # Make a vector of NamedTuples from the input (please implement yours if you need it)
     ts_kwargs = homogeneous_ts_kwargs(status, nsteps)
 
+    # Variables for which a value was given for each time-step by the user:
+    vars_not_propagated = get_vars_not_propagated(status)
+    # Note: that the length was checked in homogeneous_ts_kwargs, so we don't need to check it again here.
+    # Note 2: we need to know these variables because they will not be propagated between time-steps, but set at 
+    # the given value instead.
+
     # Add the missing variables required by the models (set to default value):
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion; init_fun=init_fun, nsteps=nsteps)
 
     model_list = ModelList(
         mods,
-        ts_kwargs
+        ts_kwargs,
+        vars_not_propagated
     )
     variables_check && !is_initialized(model_list)
 
     return model_list
 end
 
-parse_models(m::Tuple) = NamedTuple([process(i) => i for i in m])
+parse_models(m) = NamedTuple([process(i) => i for i in m])
 
 init_fun_default(x::Vector{T}) where {T} = TimeStepTable([Status(i) for i in x])
 init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
@@ -261,16 +273,20 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, ns
     # If the user gave an empty status, we initialize all variables to their default values:
     if x === nothing || (!Tables.istable(x) && length(x) == 0)
         if nsteps === nothing
-            return init_fun(fill(ref_vars, 1))
+            return init_fun(ref_vars)
         else
             return init_fun(fill(ref_vars, nsteps))
         end
     end
 
-    # Making a vars for each ith value in the user vars:
-    x_full = []
-    for r in Tables.rows(x)
-        push!(x_full, merge(ref_vars, NamedTuple(r)))
+    if Tables.istable(x)
+        # Making a vars for each ith value in the user vars:
+        x_full = [merge(ref_vars, NamedTuple(Tables.rows(x)[1]))]
+        for r in Tables.rows(x)[2:end]
+            push!(x_full, merge(ref_vars, NamedTuple(r)))
+        end
+    else
+        x_full = merge(ref_vars, NamedTuple(x))
     end
 
     return init_fun(x_full)
@@ -314,7 +330,9 @@ PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}, nsteps) where {N,T}
     length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
-    length_vars = [length(i) for i in vars_vals]
+    length_vars = [isa(i, RefVector) ? 1 : length(i) for i in vars_vals]
+    #Note: length is 1 for RefVector because it is a vector of references to other scales, 
+    # not a vector of values
 
     # One of the variable is given as an array, meaning this is actually several
     # time-steps. In this case we make an array of vars.
@@ -335,6 +353,16 @@ function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}, nsteps) where {N,T}
     return vars_array
 end
 
+
+"""
+    get_vars_not_propagated(status)
+
+Returns all variables that are given for several time-steps in the status.
+"""
+get_vars_not_propagated(status) = (findall(x -> length(x) > 1, status)...,)
+get_vars_not_propagated(df::DataFrames.DataFrame) = (propertynames(df)...,)
+get_vars_not_propagated(::Nothing) = ()
+
 """
     Base.copy(l::ModelList)
     Base.copy(l::ModelList, status)
@@ -346,8 +374,8 @@ Copy a [`ModelList`](@ref), eventually with new values for the status.
 ```@example
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 # Create a model list:
 models = ModelList(
@@ -367,14 +395,16 @@ ml3 = copy(models, TimeStepTable([Status(var1=20.0, var2=0.5))])
 function Base.copy(m::T) where {T<:ModelList}
     ModelList(
         m.models,
-        deepcopy(m.status)
+        deepcopy(m.status),
+        m.vars_not_propagated
     )
 end
 
 function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
-        status
+        status,
+        m.vars_not_propagated
     )
 end
 
@@ -410,8 +440,8 @@ If we want all the variables that are Reals to be Float32, we can use:
 ```julia
 using PlantSimEngine
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Including example processes and models:
+using PlantSimEngine.Examples;
 
 ref_vars = init_variables(
     process1=Process1Model(1.0),

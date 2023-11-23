@@ -54,13 +54,13 @@ Here's a simple example of a model that simulates the growth of a plant, using a
 # ] add PlantSimEngine
 using PlantSimEngine
 
-# Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# Include the model definition from the examples sub-module:
+using PlantSimEngine.Examples
 
 # Define the model:
 model = ModelList(
     ToyLAIModel(),
-    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 run!(model) # run the model
@@ -71,9 +71,9 @@ status(model) # extract the status, i.e. the output of the model
 Which gives:
 
 ```
-TimeStepTable{Status{(:degree_days_cu, :LAI...}(1300 x 2):
+TimeStepTable{Status{(:TT_cu, :LAI...}(1300 x 2):
 ╭─────┬────────────────┬────────────╮
-│ Row │ degree_days_cu │        LAI │
+│ Row │ TT_cu │        LAI │
 │     │        Float64 │    Float64 │
 ├─────┼────────────────┼────────────┤
 │   1 │            1.0 │ 0.00560052 │
@@ -95,7 +95,7 @@ Of course you can plot the outputs quite easily:
 # ] add CairoMakie
 using CairoMakie
 
-lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
+lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
 ```
 
 ![LAI Growth](examples/LAI_growth.png)
@@ -109,8 +109,7 @@ Model coupling is done automatically by the package, and is based on the depende
 using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
 # Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine.Examples
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -119,7 +118,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 model = ModelList(
     ToyLAIModel(),
     Beer(0.6),
-    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 ```
 
@@ -152,9 +151,9 @@ status(model)
 Which returns:
 
 ```
-TimeStepTable{Status{(:degree_days_cu, :LAI...}(365 x 3):
+TimeStepTable{Status{(:TT_cu, :LAI...}(365 x 3):
 ╭─────┬────────────────┬────────────┬───────────╮
-│ Row │ degree_days_cu │        LAI │     aPPFD │
+│ Row │ TT_cu │        LAI │     aPPFD │
 │     │        Float64 │    Float64 │   Float64 │
 ├─────┼────────────────┼────────────┼───────────┤
 │   1 │            0.0 │ 0.00554988 │ 0.0476221 │
@@ -173,10 +172,10 @@ using CairoMakie
 
 fig = Figure(resolution=(800, 600))
 ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
-lines!(ax, model[:degree_days_cu], model[:LAI], color=:mediumseagreen)
+lines!(ax, model[:TT_cu], model[:LAI], color=:mediumseagreen)
 
 ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, model[:degree_days_cu], model[:aPPFD], color=:firebrick1)
+lines!(ax2, model[:TT_cu], model[:aPPFD], color=:firebrick1)
 
 fig
 ```

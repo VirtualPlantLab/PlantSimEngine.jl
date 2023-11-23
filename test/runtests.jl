@@ -6,11 +6,7 @@ using PlantMeteo, Statistics
 using Documenter # for doctests
 
 # Include the example dummy processes:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+using PlantSimEngine.Examples
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
@@ -48,7 +44,12 @@ include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
         include("test-toy_models.jl")
     end
 
-    if VERSION == v"1.8"
+    @testset "MTG with multiscale mapping" begin
+        include("test-mtg-multiscale.jl")
+        include("test-mtg-dynamic.jl")
+    end
+
+    if VERSION >= v"1.8"
         # Error formating changed in Julia 1.8 (or was it 1.7?), so the doctest
         # that returns an error in PlantSimEngine.check_dimensions(models, w)
         # fails in Julia 1.6. So we test the doctests only in Julia 1.8 and later.

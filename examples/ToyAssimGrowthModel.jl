@@ -1,7 +1,5 @@
-# using PlantSimEngine, PlantMeteo # Import the necessary packages, PlantMeteo is used for the meteorology
-
 # Defining the process:
-@process "growth" verbose = false
+PlantSimEngine.@process "growth" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """
@@ -73,7 +71,7 @@ function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, const
     status.biomass_increment = NPP - status.Rg
 
     # The biomass is the biomass from the previous time-step plus the biomass increment:
-    status.biomass = PlantMeteo.prev_value(status, :biomass; default=0.0) + status.biomass_increment
+    status.biomass += status.biomass_increment
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):

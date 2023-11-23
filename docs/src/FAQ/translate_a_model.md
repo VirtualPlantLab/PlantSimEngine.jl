@@ -4,10 +4,11 @@
 using PlantSimEngine
 using CairoMakie
 using CSV, DataFrames
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 
-function lai_toymodel(degree_days_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
-    LAI = max_lai * (1 / (1 + exp((dd_incslope - degree_days_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - degree_days_cu) / dec_slope)))
+function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
+    LAI = max_lai * (1 / (1 + exp((dd_incslope - TT_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - TT_cu) / dec_slope)))
     if LAI < 0
         LAI = 0
     end
@@ -33,15 +34,15 @@ Simulate leaf area index (LAI, m² m⁻²) for a crop based on the amount of deg
 
 # Arguments
 
-- `degree_days_cu`: degree-days since sowing
+- `TT_cu`: degree-days since sowing
 - `max_lai=8`: Maximum value for LAI
 - `dd_incslope=500`: degree-days at which we get the maximal increase in LAI
 - `inc_slope=5`: slope of the increasing part of the LAI curve
 - `dd_decslope=1000`: degree-days at which we get the maximal decrease in LAI
 - `dec_slope=2`: slope of the decreasing part of the LAI curve
 """
-function lai_toymodel(degree_days_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
-    LAI = max_lai * (1 / (1 + exp((dd_incslope - degree_days_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - degree_days_cu) / dec_slope)))
+function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
+    LAI = max_lai * (1 / (1 + exp((dd_incslope - TT_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - TT_cu) / dec_slope)))
     if LAI < 0
         LAI = 0
     end
@@ -96,7 +97,7 @@ This way users can create a model with default parameters just by calling `ToyLA
 Then we can define the inputs and outputs of the model, and the default value at initialization:
 
 ```julia
-PlantSimEngine.inputs_(::ToyLAIModel) = (degree_days_cu=-Inf,)
+PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=-Inf,)
 PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 ```
 
@@ -109,7 +110,7 @@ Finally, we can define the model function that will be called at each time step:
 
 ```julia
 function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=nothing, extra=nothing)
-    status.LAI = models.LAI_Dynamic.max_lai * (1 / (1 + exp((models.LAI_Dynamic.dd_incslope - status.degree_days_cu) / model.LAI_Dynamic.inc_slope)) - 1 / (1 + exp((models.LAI_Dynamic.dd_decslope - status.degree_days_cu) / models.LAI_Dynamic.dec_slope)))
+    status.LAI = models.LAI_Dynamic.max_lai * (1 / (1 + exp((models.LAI_Dynamic.dd_incslope - status.TT_cu) / model.LAI_Dynamic.inc_slope)) - 1 / (1 + exp((models.LAI_Dynamic.dd_decslope - status.TT_cu) / models.LAI_Dynamic.dec_slope)))
 
     if status.LAI < 0
         status.LAI = 0
@@ -138,21 +139,21 @@ period = [Dates.Date("2021-01-01"), Dates.Date("2021-12-31")]
 meteo = get_weather(43.649777, 3.869889, period, sink = DataFrame)
 
 # Compute the degree-days with a base temperature of 10°C:
-meteo.degree_days = max.(meteo.T .- 10.0, 0.0)
+meteo.TT = max.(meteo.T .- 10.0, 0.0)
 
 # Aggregate the weather data to daily values:
-meteo_day = to_daily(meteo, :degree_days => (x -> sum(x) / 24) => :degree_days)
+meteo_day = to_daily(meteo, :TT => (x -> sum(x) / 24) => :TT)
 ```
 
-Then we can define our list of models, passing the values for `degree_days_cu` in the status at initialization:
+Then we can define our list of models, passing the values for `TT_cu` in the status at initialization:
 
 ```@example mymodel
 m = ModelList(
     ToyLAIModel(),
-    status = (degree_days_cu = cumsum(meteo_day.degree_days),),
+    status = (TT_cu = cumsum(meteo_day.TT),),
 )
 
 run!(m)
 
-lines(m[:degree_days_cu], m[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
+lines(m[:TT_cu], m[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
 ```

@@ -2,10 +2,8 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo, CSV, DataFrames
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine.Examples
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
  
@@ -13,14 +11,14 @@ models = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 run!(models, meteo_day)
 models2 = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyAssimGrowthModel(),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 run!(models2, meteo_day)
 ```
@@ -39,10 +37,8 @@ Importing the models from the scripts:
 
 ```julia
 using PlantSimEngine
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
+# Import the examples defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 ```
 
 Coupling the models in a `ModelList`:
@@ -52,7 +48,7 @@ models = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 nothing # hide
@@ -94,7 +90,7 @@ models2 = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyAssimGrowthModel(), # This was `ToyRUEGrowthModel(0.2)` before
-    status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+    status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 nothing # hide

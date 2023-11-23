@@ -5,9 +5,8 @@ CurrentModule = PlantSimEngine
 ```@setup readme
 using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
-# Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+# Import the examples defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -15,7 +14,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 # Define the model:
 model = ModelList(
     ToyLAIModel(),
-    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 run!(model)
@@ -24,7 +23,7 @@ run!(model)
 model2 = ModelList(
     ToyLAIModel(),
     Beer(0.6),
-    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 run!(model2, meteo_day)
 
@@ -83,13 +82,13 @@ Here's a simple example of a model that simulates the growth of a plant, using a
 # ] add PlantSimEngine
 using PlantSimEngine
 
-# Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
+# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine.Examples
 
 # Define the model:
 model = ModelList(
     ToyLAIModel(),
-    status=(degree_days_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 run!(model) # run the model
@@ -106,7 +105,7 @@ Of course you can plot the outputs quite easily:
 # ] add CairoMakie
 using CairoMakie
 
-lines(model[:degree_days_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
+lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
 ```
 
 ### Model coupling
@@ -117,9 +116,8 @@ Model coupling is done automatically by the package, and is based on the depende
 # ] add PlantSimEngine, DataFrames, CSV
 using PlantSimEngine, PlantMeteo, DataFrames, CSV
 
-# Include the model definition from the examples folder:
-include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+# Import the examples defined in the `Examples` sub-module
+using PlantSimEngine.Examples
 
 # Import the example meteorological data:
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -128,7 +126,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 model2 = ModelList(
     ToyLAIModel(),
     Beer(0.6),
-    status=(degree_days_cu=cumsum(meteo_day[:, :degree_days]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 
 # Run the simulation:
@@ -163,10 +161,10 @@ using CairoMakie
 
 fig = Figure(resolution=(800, 600))
 ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
-lines!(ax, model2[:degree_days_cu], model2[:LAI], color=:mediumseagreen)
+lines!(ax, model2[:TT_cu], model2[:LAI], color=:mediumseagreen)
 
 ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, model2[:degree_days_cu], model2[:aPPFD], color=:firebrick1)
+lines!(ax2, model2[:TT_cu], model2[:aPPFD], color=:firebrick1)
 
 fig
 ```

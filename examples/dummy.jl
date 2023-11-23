@@ -3,7 +3,7 @@
 # Defining a process called "process1" and a model
 # that implements an algorithm (Process1Model): 
 
-@process "process1" verbose = false
+PlantSimEngine.@process "process1" verbose = false
 
 """
     Process1Model(a)
@@ -24,7 +24,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.I
 
 # Defining a 2nd process called "process2", and a model
 # that implements an algorithm, and that depends on the first one:
-@process "process2" verbose = false
+PlantSimEngine.@process "process2" verbose = false
 
 """
     Process2Model()
@@ -37,7 +37,7 @@ PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (process1=AbstractProcess1Model,)
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    run!(models.process1, models, status, meteo, constants)
+    PlantSimEngine.run!(models.process1, models, status, meteo, constants)
     # computing var4 and var5:
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
@@ -48,7 +48,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process2Model}) = PlantSimEngine.I
 # Defining a 3d process called "process3", and a model
 # that implements an algorithm, and that depends on the second one (and
 # by extension on the first one):
-@process "process3" verbose = false
+PlantSimEngine.@process "process3" verbose = false
 
 """
     Process3Model()
@@ -61,7 +61,7 @@ PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf)
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    run!(models.process2, models, status, meteo, constants, extra)
+    PlantSimEngine.run!(models.process2, models, status, meteo, constants, extra)
     # re-computing var4:
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4
@@ -72,7 +72,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process3Model}) = PlantSimEngine.I
 # Defining a 4th process called "process4", and a model
 # that implements an algorithm, and that computes the 
 # inputs of the root of the previous ones (process3): 
-@process "process4" verbose = false
+PlantSimEngine.@process "process4" verbose = false
 
 """
     Process4Model()
@@ -95,7 +95,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process4Model}) = PlantSimEngine.I
 # Defining a 5th process called "process5", and a model
 # that implements an algorithm, and that computes other 
 # variables from outputs of process 1-2-3 (soft coupling): 
-@process "process5" verbose = false
+PlantSimEngine.@process "process5" verbose = false
 
 """
     Process5Model()
@@ -116,7 +116,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process5Model}) = PlantSimEngine.I
 # Defining a 6th process called "process6", and a model
 # that implements an algorithm, and that computes other 
 # variables from outputs of process 5 (soft-coupling): 
-@process "process6" verbose = false
+PlantSimEngine.@process "process6" verbose = false
 
 """
     Process6Model()
@@ -138,7 +138,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:Process6Model}) = PlantSimEngine.I
 # that depends on nothing but var0 so it is independant. 
 # But Process6Model depends on its output, so it is a soft-coupling:
 # variables from outputs of process 5 (soft-coupling):(var0=-Inf,)
-@process "process7" verbose = false
+PlantSimEngine.@process "process7" verbose = false
 
 """
     Process7Model()

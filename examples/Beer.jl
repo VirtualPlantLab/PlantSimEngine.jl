@@ -4,7 +4,7 @@
 # allows us to not have a (cyclic) dependency on PlantBiophysics.jl in the docs.
 
 # Generate the light interception process methods:
-@process "light_interception" verbose = false
+PlantSimEngine.@process "light_interception" verbose = false
 
 """
     Beer(k)
@@ -57,7 +57,7 @@ m[:aPPFD]
 function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
     status.aPPFD =
         meteo.Ri_PAR_f *
-        (1 - exp(-models.light_interception.k * status.LAI)) *
+        (1.0 - exp(-models.light_interception.k * status.LAI)) *
         constants.J_to_umol
 end
 
@@ -85,8 +85,16 @@ Compute the `k` parameter of the Beer-Lambert law from measurements.
 
 # Examples
 
+Import the example models defined in the `Examples` sub-module:
+
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
+using PlantSimEngine
+using PlantSimEngine.Examples
+```
+
+Create a model list with a Beer model, and fit it to the data:
+
+```julia
 m = ModelList(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)

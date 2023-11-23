@@ -68,15 +68,15 @@ end
 
 Implementation of `DataFrame` for a `ModelList` model with several time steps.
 """
-function DataFrames.DataFrame(components::ModelList{T,S}) where {T,S<:TimeStepTable}
+function DataFrames.DataFrame(components::ModelList{T,S,V}) where {T,S<:TimeStepTable,V}
     DataFrames.DataFrame([(NamedTuple(j)..., timestep=i) for (i, j) in enumerate(status(components))])
 end
 
 """
-    DataFrame(components::ModelList{T,S}) where {T,S<:AbstractDict}
+    DataFrame(components::ModelList{T,S,V}) where {T,S<:Status,V}
 
 Implementation of `DataFrame` for a `ModelList` model with one time step.
 """
-function DataFrames.DataFrame(components::ModelList{T,S}) where {T,S<:Status}
+function DataFrames.DataFrame(components::ModelList{T,S,V}) where {T,S<:Status,V}
     DataFrames.DataFrame([NamedTuple(status(components)[1])])
 end

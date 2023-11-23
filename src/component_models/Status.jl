@@ -13,6 +13,10 @@ so in essence, it is a stuct that stores a `NamedTuple` of the references to the
 A leaf with one value for all variables will make a status with one time step:
 
 ```jldoctest st1
+julia> using PlantSimEngine
+```
+
+```jldoctest st1
 julia> st = PlantSimEngine.Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500.0);
 ```
 
@@ -50,7 +54,7 @@ julia> st[1] = 22.0
 22.0
 ```
 """
-struct Status{N,T<:Tuple{Vararg{<:Ref}}}
+struct Status{N,T<:Tuple{Vararg{Ref}}}
     vars::NamedTuple{N,T}
 end
 
@@ -66,6 +70,8 @@ end
 Base.keys(::Status{names}) where {names} = names
 Base.values(st::Status) = getindex.(values(getfield(st, :vars)))
 refvalues(mnt::Status) = values(getfield(mnt, :vars))
+refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
+
 Base.NamedTuple(mnt::Status) = NamedTuple{keys(mnt)}(values(mnt))
 Base.Tuple(mnt::Status) = values(mnt)
 
@@ -109,7 +115,7 @@ end
 
 Base.propertynames(::Status{T,R}) where {T,R} = T
 Base.length(mnt::Status) = length(getfield(mnt, :vars))
-Base.eltype(::Type{Status{T}}) where {T} = T
+Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(T))
 
 Base.iterate(mnt::Status, iter=1) = iterate(NamedTuple(mnt), iter)
 
@@ -118,4 +124,49 @@ Base.lastindex(mnt::Status) = lastindex(NamedTuple(mnt))
 
 function Base.indexed_iterate(mnt::Status, i::Int, state=1)
     Base.indexed_iterate(NamedTuple(mnt), i, state)
+end
+
+
+"""
+    propagate_values!(status1::Dict, status2::Dict, vars_not_propagated::Set)
+
+Propagates the values of all variables in `status1` to `status2`, except for vars in `vars_not_propagated`.
+
+# Arguments
+
+- `status1::Dict`: A dictionary containing the current values of variables.
+- `status2::Dict`: A dictionary to which the values of variables will be propagated.
+- `vars_not_propagated::Set`: A set of variables whose values should not be propagated.
+
+# Examples
+
+```jldoctest st1
+julia> status1 = Status(var1 = 15.0, var2 = 0.3);
+```
+
+```jldoctest st1
+julia> status2 = Status(var1 = 16.0, var2 = -Inf);
+```
+
+```jldoctest st1
+julia> vars_not_propagated = (:var1,);
+
+```jldoctest st1
+julia> PlantSimEngine.propagate_values!(status1, status2, vars_not_propagated);
+```
+
+```jldoctest st1
+julia> status2.var2 == status1.var2
+true
+```
+
+```jldoctest st1
+julia> status2.var1 == status1.var1
+false
+```
+"""
+function propagate_values!(status1, status2, vars_not_propagated)
+    for var in setdiff(keys(status1), vars_not_propagated)
+        status2[var] = status1[var]
+    end
 end

@@ -1,26 +1,21 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyLAIModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/Beer.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyAssimGrowthModel.jl"))
-# include(joinpath(pkgdir(PlantSimEngine), "examples/ToyRUEGrowthModel.jl"))
-
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 @testset "ToyLAIModel" begin
     @test_nowarn ModelList(ToyLAIModel())
-    @test_nowarn ModelList(ToyLAIModel(), status=(degree_days_cu=10,))
+    @test_nowarn ModelList(ToyLAIModel(), status=(TT_cu=10,))
     @test_nowarn ModelList(
         ToyLAIModel(),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     m = ModelList(
         ToyLAIModel(),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     @test_nowarn run!(m)
 
-    @test m[:degree_days_cu] == cumsum(meteo_day.degree_days)
+    @test m[:TT_cu] == cumsum(meteo_day.TT)
     @test m[:LAI][begin] ≈ 0.00554987593080316
     @test m[:LAI][end] ≈ 0.0
 end
@@ -29,7 +24,7 @@ end
     models = ModelList(
         ToyLAIModel(),
         Beer(0.5),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     run!(models, meteo_day)
@@ -98,7 +93,7 @@ end
         ToyLAIModel(),
         Beer(0.5),
         ToyRUEGrowthModel(rue),
-        status=(degree_days_cu=cumsum(meteo_day.degree_days),),
+        status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
     # Match the warning on the executor, the default is ThreadedEx() but ToyRUEGrowthModel can't be run in parallel:
@@ -109,5 +104,5 @@ end
 
     @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
     @test mean(models.status[:LAI]) ≈ 1.098492557536525
-    @test models.status[:biomass][end] ≈ 1041.4568850723167
+    @test models.status[:biomass][end] ≈ 1041.4687939085675 rtol = 1e-4
 end

@@ -2,7 +2,9 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
+
 m = ModelList(
     Process1Model(2.0), 
     Process2Model(),

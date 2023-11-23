@@ -11,8 +11,8 @@ Returns an empty tuple by default for `AbstractModel`s (no inputs) or `Missing` 
 ```jldoctest
 using PlantSimEngine;
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples;
 
 inputs(Process1Model(1.0))
 
@@ -37,6 +37,21 @@ function inputs_(model::Missing)
 end
 
 """
+    inputs(mapping::Dict{String,T})
+
+Get the inputs of the models in a mapping, for each process and organ type.
+"""
+function inputs(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (inputs(i.second)...,) for i in mods)...))
+    end
+    return vars
+end
+
+
+"""
     outputs(model::AbstractModel)
     outputs(...)
 
@@ -49,8 +64,8 @@ Returns an empty tuple by default for `AbstractModel`s (no outputs) or `Missing`
 ```jldoctest
 using PlantSimEngine;
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples;
 
 outputs(Process1Model(1.0))
 
@@ -65,6 +80,21 @@ end
 function outputs(v::T, vars...) where {T<:AbstractModel}
     length((vars...,)) > 0 ? union(outputs(v), outputs(vars...)) : outputs(v)
 end
+
+"""
+    outputs(mapping::Dict{String,T})
+
+Get the outputs of the models in a mapping, for each process and organ type.
+"""
+function outputs(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (outputs(i.second)...,) for i in mods)...))
+    end
+    return vars
+end
+
 
 function outputs_(model::AbstractModel)
     NamedTuple()
@@ -90,8 +120,8 @@ Each model can (and should) have a method for this function.
 
 using PlantSimEngine;
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples;
 
 variables(Process1Model(1.0))
 
@@ -158,6 +188,21 @@ function variables(pkg::Module)
 end
 
 """
+    variables(mapping::Dict{String,T})
+
+Get the variables (inputs and outputs) of the models in a mapping, for each 
+process and organ type.
+"""
+function variables(mapping::Dict{String,T}) where {T}
+    vars = Dict{String,NamedTuple}()
+    for organ in keys(mapping)
+        mods = pairs(parse_models(get_models(mapping[organ])))
+        push!(vars, organ => (; (i.first => (variables(i.second)...,) for i in mods)...))
+    end
+    return vars
+end
+
+"""
     variables_typed(model)
     variables_typed(model, models...)
 
@@ -169,8 +214,8 @@ union of those for several models.
 ```jldoctest
 using PlantSimEngine;
 
-# Including an example script that implements dummy processes and models:
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"));
+# Load the dummy models given as example in the package:
+using PlantSimEngine.Examples;
 
 PlantSimEngine.variables_typed(Process1Model(1.0))
 (var1 = Float64, var2 = Float64, var3 = Float64)

@@ -9,13 +9,14 @@ DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, Plant
 makedocs(;
     modules=[PlantSimEngine],
     authors="Rémi Vezy <VEZY@users.noreply.github.com> and contributors",
-    repo="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/{commit}{path}#{line}",
+    repo=Documenter.Remotes.GitHub("VirtualPlantLab", "PlantSimEngine.jl"),
     sitename="PlantSimEngine.jl",
     format=Documenter.HTML(;
         prettyurls=get(ENV, "CI", "false") == "true",
         canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
-        assets=String[]
+        assets=String[],
+        size_threshold=250000
     ),
     pages=[
         "Home" => "index.md",
@@ -30,7 +31,10 @@ makedocs(;
             "Input types" => "./extending/inputs.md",
         ],
         "Coupling" => [
-            "Users" => "./model_coupling/model_coupling_user.md",
+            "Users" => [
+                "Simple case" => "./model_coupling/model_coupling_user.md",
+                "Multi-scale modelling" => "./model_coupling/multiscale.md",
+            ],
             "Modelers" => "./model_coupling/model_coupling_modeler.md",
         ],
         "FAQ" => ["./FAQ/translate_a_model.md"],
@@ -39,6 +43,6 @@ makedocs(;
 )
 
 deploydocs(;
-    repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
+    repo="github.com/VirtualPlantLab/PlantSimEngine.jl.git",
     devbranch="main"
 )

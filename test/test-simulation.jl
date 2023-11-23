@@ -1,5 +1,3 @@
-# include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
-
 @testset "Check missing model" begin
     # No problem here:
     @test_nowarn ModelList(
@@ -182,11 +180,11 @@ end;
     leaf[:var1] = [15.0, 16.0]
     leaf[:var2] = 0.3
 
-    models = Dict(
-        "Leaf" => ModelList(
-            process1=Process1Model(1.0),
-            process2=Process2Model(),
-            process3=Process3Model()
+    mapping = Dict(
+        "Leaf" => (
+            Process1Model(1.0),
+            Process2Model(),
+            Process3Model()
         )
     )
 
@@ -197,54 +195,15 @@ end;
     ]
     )
 
-    init_mtg_models!(mtg, models, length(meteo))
-    run!(mtg, meteo)
-    df_leaf = DataFrame(leaf)
+    # var1 is taken from the MTG attributes but is a vector instead of a scalar, expecting an error:
+    @test_throws AssertionError run!(mtg, mapping, meteo)
+
+    leaf[:var1] = 15.0
+
+    out = @test_nowarn run!(mtg, mapping, meteo)
+
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [df_leaf[1, i] for i in vars] == [
-        [22.0, 23.2],
-        [56.95, 63.2],
-        [34.95, 40.0],
-        [15.0, 16.0],
-        [0.3, 0.3],
-        [5.5, 5.8],
-    ]
-end;
-
-
-@testset "Simulation: 2 time-step, 2 Atmospheres, MTG" begin
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
-    leaf[:var1] = [15.0, 16.0]
-    leaf[:var2] = 0.3
-
-    models = Dict(
-        "Leaf" => ModelList(
-            process1=Process1Model(1.0),
-            process2=Process2Model(),
-            process3=Process3Model()
-        )
-    )
-
-    meteo = Weather(
-        [
-        Atmosphere(T=20.0, Wind=1.0, Rh=0.65),
-        Atmosphere(T=25.0, Wind=0.5, Rh=0.8)
-    ]
-    )
-
-    init_mtg_models!(mtg, models, length(meteo))
-    run!(mtg, meteo)
-
-    df_leaf = DataFrame(leaf)
-    vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [df_leaf[1, i] for i in vars] == [
-        [22.0, 23.2],
-        [56.95, 63.2],
-        [34.95, 40.0],
-        [15.0, 16.0],
-        [0.3, 0.3],
-        [5.5, 5.8],
+    @test [out.statuses["Leaf"][1][i] for i in vars] == [
+        22.0, 61.4, 39.4, 15.0, 0.3, 5.5
     ]
 end;

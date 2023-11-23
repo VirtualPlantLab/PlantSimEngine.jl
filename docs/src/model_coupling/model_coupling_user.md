@@ -2,7 +2,9 @@
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
+
 m = ModelList(
     Process1Model(2.0), 
     Process2Model(),
@@ -29,16 +31,17 @@ The other models for the other processes are called `Process4Model`, `Process5Mo
 
 Back to our example, using `Process3Model` requires a "process2" model, and in our case the only model available is `Process2Model`. The latter also requires a "process1" model, and again we only have one model implementation for this process, which is `Process1Model`. 
 
-Let's include this script so we can play around:
+Let's use the `Examples` sub-module so we can play around:
 
 ```julia
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
+# Import the example models defined in the `Examples` sub-module:
+using PlantSimEngine.Examples
 ```
 
 !!! tip
     Use subtype(x) to know which models are available for a process, e.g. for "process1" you can do `subtypes(AbstractProcess1Model)`.
 
-Here is how we can make the models coupling:
+Here is how we can make the model coupling:
 
 ```@example usepkg
 m = ModelList(Process1Model(2.0), Process2Model(), Process3Model())
@@ -47,11 +50,11 @@ nothing # hide
 
 We can see that only the first model has a parameter. You can usually know that by looking at the help of the structure (*e.g.* `?Process1Model`), else, you can still look at the field names of the structure like so `fieldnames(Process1Model)`.
 
-Note that the user only declares the models, not the way the models are coupled, because `PlantSimEngine.jl` deals with that automatically.
+Note that the user only declares the models, not the way the models are coupled because `PlantSimEngine.jl` deals with that automatically.
 
 Now the example above returns some warnings saying we need to initialize some variables: `var1` and `var2`. `PlantSimEngine.jl` automatically computes which variables should be initialized based on the inputs and outputs of all models, considering their hard or soft-coupling.
 
-For example `Process1Model` requires the following variables as inputs:
+For example, `Process1Model` requires the following variables as inputs:
 
 ```@example usepkg
 inputs(Process1Model(2.0))

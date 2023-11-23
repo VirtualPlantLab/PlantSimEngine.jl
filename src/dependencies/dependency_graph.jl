@@ -12,7 +12,8 @@ end
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
-    hard_dependency::Union{Vector{HardDependencyNode}}
+    scale::String
+    hard_dependency::Vector{HardDependencyNode}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
@@ -77,11 +78,12 @@ Return a vector of pairs of the node and the result of the function `f`.
 ```julia
 using PlantSimEngine
 
+# Including example processes and models:
+using PlantSimEngine.Examples;
+
 function f(node)
     node.value
 end
-
-include(joinpath(pkgdir(PlantSimEngine), "examples/dummy.jl"))
 
 vars = (
     process1=Process1Model(1.0),
