@@ -32,6 +32,8 @@ include(joinpath(@__DIR__, "../examples/ToyAssimGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyRUEGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyInternodeEmergence.jl"))
+
 
 """
     import_mtg_example()
@@ -74,6 +76,7 @@ export AbstractProcess7Model
 export AbstractLight_InterceptionModel, AbstractLai_DynamicModel, AbstractDegreedaysModel
 export AbstractPhotosynthesisModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel
 export AbstractSoil_WaterModel, AbstractGrowthModel
+export AbstractOrgan_EmergenceModel
 
 # Models:
 export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
@@ -82,5 +85,6 @@ export ToyAssimGrowthModel, ToyRUEGrowthModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 
+export ToyInternodeEmergence
 export import_mtg_example
 end
