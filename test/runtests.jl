@@ -46,8 +46,8 @@ using PlantSimEngine.Examples
 
     @testset "MTG with multiscale mapping" begin
         include("test-mtg-multiscale.jl")
+        include("test-mtg-dynamic.jl")
     end
-
 
     if VERSION >= v"1.8"
         # Error formating changed in Julia 1.8 (or was it 1.7?), so the doctest
