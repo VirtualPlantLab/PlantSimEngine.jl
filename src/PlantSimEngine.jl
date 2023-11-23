@@ -57,6 +57,7 @@ include("mtg/GraphSimulation.jl")
 include("mtg/mapping.jl")
 include("mtg/initialisation.jl")
 include("mtg/save_results.jl")
+include("mtg/add_organ.jl")
 
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
@@ -85,6 +86,7 @@ export ModelList, MultiScaleModel
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
+export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables

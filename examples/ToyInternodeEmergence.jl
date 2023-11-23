@@ -26,12 +26,10 @@ function PlantSimEngine.run!(m::ToyInternodeEmergence, models, status, meteo, co
     if length(status.node.children) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
         # NB: the node can produce one leaf, and one internode only, so we check that it did not produce 
         # any internode yet.
-        new_node = MultiScaleTreeGraph.Node(status.node, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-        status_new_node = PlantSimEngine.init_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.map_other_scales, sim_object.var_need_init)
-        leaf_node = MultiScaleTreeGraph.Node(new_node, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-        PlantSimEngine.init_status!(leaf_node, sim_object.statuses, sim_object.status_templates, sim_object.map_other_scales, sim_object.var_need_init)
+        status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 1, 2)
+        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 1, 2)
 
-        status_new_node.TT_cu_emergence = status.TT_cu
+        status_new_internode.TT_cu_emergence = status.TT_cu
     end
 
     return nothing
