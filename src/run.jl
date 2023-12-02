@@ -334,8 +334,8 @@ function run!(
         meteo,
         constants,
         extra;
-        check,
-        executor
+        check=check,
+        executor=executor
     )
 
     return sim
