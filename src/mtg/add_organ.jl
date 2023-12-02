@@ -1,5 +1,5 @@
 """
-    add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, index, scale)
+    add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, scale; index=0, id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(node)), attributes=Dict{Symbol,Any}())
 
 Add an organ to the graph, automatically taking care of initialising the status of the organ (multiscale-)variables.
 
@@ -14,8 +14,10 @@ This function should be called from a model that implements organ emergence, for
     * `"+"`: the new node is branching the parent organ
     * `"/"`: the new node is decomposing the parent organ, *i.e.* we change scale
 * `symbol`: the symbol of the organ, *e.g.* `"Leaf"`
-* `index`: the index of the organ, *e.g.* `1`. The index may be used to easily identify branching order, or growth unit index on the axis. It is different from the node `id` that is unique.
 * `scale`: the scale of the organ, *e.g.* `2`.
+* `index`: the index of the organ, *e.g.* `1`. The index may be used to easily identify branching order, or growth unit index on the axis. It is different from the node `id` that is unique.
+* `id`: the unique id of the new node. If not provided, a new id is generated.
+* `attributes`: the attributes of the new node. If not provided, an empty dictionary is used.
 
 # Returns 
 
@@ -26,8 +28,8 @@ This function should be called from a model that implements organ emergence, for
 See the `ToyInternodeEmergence` example model from the `Examples` module (also found in the `examples` folder),
 or the `test-mtg-dynamic.jl` test file for an example usage.
 """
-function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, index, scale)
-    new_node = MultiScaleTreeGraph.Node(node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale))
+function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, scale; index=0, id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(node)), attributes=Dict{Symbol,Any}())
+    new_node = MultiScaleTreeGraph.Node(id, node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale), attributes)
     st = PlantSimEngine.init_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.map_other_scales, sim_object.var_need_init)
 
     return st
