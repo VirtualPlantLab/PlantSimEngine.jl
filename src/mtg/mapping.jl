@@ -207,7 +207,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # i.e. variables that are written by a model at another scale:
     var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
     for organ in keys(models)
-        # organ = "Plant"
+        # organ = "Scene"
         map_vars = get_mapping(models[organ])
         if length(map_vars) == 0
             continue
@@ -220,16 +220,25 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
 
         multi_scale_vars_vec = Pair{Symbol,Any}[]
-        for (var, scales) in map_vars # e.g. var = :A; scales = ["Leaf"]
-            isa(scales, AbstractString) && (scales = [scales])
+        for (var, scales) in map_vars # e.g. var = :leaf_area; scales = ["Leaf"]
+            if isa(scales, AbstractString)
+                if isa(ins[var], AbstractVector)
+                    error(
+                        "In mapping for organ $organ, variable $var is mapped to a single node type, but its default value is a vector. " *
+                        """Did you mean to map it to a vector of nodes? If so, your mapping should be: `:$var => ["$scales"]` """ *
+                        """instead of `:$var => "$scales"`."""
+                    )
+                end
+                scales = [scales]
+            end
 
             # The variable default value is always taken from the upper-stream model:
-            if var in keys(ins)
+            if var in keys(ins) # e.g. var = :leaf_area
                 # The variable is taken as an input from another scale. We take its default value from the model at the other scale:
                 mapped_out_var = []
-                for s in scales
+                for s in scales # s = scales[1]
                     @assert haskey(models, s) "Scale $s required as a mapping for scale $organ, but not found in the mapping."
-                    mapped_out = merge(PlantSimEngine.outputs_.(PlantSimEngine.get_models(models[s]))...)
+                    mapped_out = merge(outputs_.(get_models(models[s]))...)
                     @assert hasproperty(mapped_out, var) "No model computes variable $var at scale $s, need one for scale $organ"
                     push!(mapped_out_var, mapped_out[var])
                 end
@@ -253,7 +262,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             end
         end
 
-        multi_scale_vars = Status(PlantSimEngine.convert_vars(type_promotion, NamedTuple(multi_scale_vars_vec)))
+        multi_scale_vars = Status(convert_vars(type_promotion, NamedTuple(multi_scale_vars_vec)))
 
         # Users can provide initialisation values in a status. We get them here:
         st = get_status(models[organ])
