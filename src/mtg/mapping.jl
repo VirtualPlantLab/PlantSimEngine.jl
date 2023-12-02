@@ -313,7 +313,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             # This is a special case for when the source scale only has one node in the MTG, and one variable is mapped.
             if isa(organs_mapped, AbstractString)
                 if !haskey(organs_mapping, organs_mapped)
-                    organs_mapping[organs_mapped] = Dict(organs_mapped => organ_mapping[organs_mapped])
+                    organs_mapping[organs_mapped] = Dict{Union{String,Vector{String}},Any}(organs_mapped => organ_mapping[organs_mapped])
                 elseif !haskey(organs_mapping[organs_mapped], organs_mapped)
                     push!(organs_mapping[organs_mapped], organs_mapped => organ_mapping[organs_mapped])
                 elseif !haskey(organs_mapping[organs_mapped][organs_mapped], variable)
@@ -324,7 +324,12 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
                 end
             end
         end
-        organs_mapping[organ] = organ_mapping
+
+        if haskey(organs_mapping, organ)
+            merge!(organs_mapping[organ], deepcopy(organ_mapping))
+        else
+            organs_mapping[organ] = deepcopy(organ_mapping)
+        end
     end
 
     for (k, v) in organs_mapping
