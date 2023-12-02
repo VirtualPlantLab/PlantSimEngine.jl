@@ -400,7 +400,7 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
             for org in var_organ # e.g. org = "Soil"
                 # The variable is a multiscale variable:
                 for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
-                    process == proc_output && error("Process $process declared at two scales: $organ and $org. A process can only be simulated at one scale.")
+                    process == proc_output && @info "Process $process declared at two scales: $organ and $org. Are you sure this process has to be simulated at several scales?"
                     vars_output = flatten_vars(pairs_vars_output)
                     if var.var in vars_output
                         # The variable is found at another scale:
