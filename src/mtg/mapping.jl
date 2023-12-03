@@ -222,7 +222,8 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         multi_scale_vars_vec = Pair{Symbol,Any}[]
         for (var, scales) in map_vars # e.g. var = :leaf_area; scales = ["Leaf"]
             if isa(scales, AbstractString)
-                if isa(ins[var], AbstractVector)
+                if hasproperty(ins, var) && isa(ins[var], AbstractVector) ||
+                   hasproperty(outs, var) && isa(outs[var], AbstractVector)
                     error(
                         "In mapping for organ $organ, variable $var is mapped to a single node type, but its default value is a vector. " *
                         """Did you mean to map it to a vector of nodes? If so, your mapping should be: `:$var => ["$scales"]` """ *
