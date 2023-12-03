@@ -234,7 +234,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             end
 
             # The variable default value is always taken from the upper-stream model:
-            if var in keys(ins) # e.g. var = :leaf_area
+            if hasproperty(ins, var) # e.g. var = :leaf_area
                 # The variable is taken as an input from another scale. We take its default value from the model at the other scale:
                 mapped_out_var = []
                 for s in scales # s = scales[1]
@@ -255,7 +255,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
                     mapped_out = fill(mapped_out, length(ins[var]))
                 end
                 push!(multi_scale_vars_vec, var => mapped_out)
-            elseif var in keys(outs)
+            elseif hasproperty(outs, var)
                 # The variable is an output of this scale for another scale. We take its default value from this scale:
                 push!(multi_scale_vars_vec, var => outs[var])
             else
