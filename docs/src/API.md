@@ -4,7 +4,6 @@
 
 ```@index
 Modules = [PlantSimEngine]
-Private = false
 ```
 
 ## API documentation
