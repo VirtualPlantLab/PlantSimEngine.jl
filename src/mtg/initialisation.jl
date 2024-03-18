@@ -73,20 +73,20 @@ want the variables that are mapped as `RefVectors`
 """
 function init_status!(node, statuses, status_templates, map_other_scales, var_need_init=Dict{String,Any}())
     # Check if the node has a model defined for its symbol, if not, no need to compute
-    node.MTG.symbol ∉ collect(keys(status_templates)) && return
+    symbol(node) ∉ collect(keys(status_templates)) && return
 
     # We make a copy of the template status for this node:
-    st_template = copy(status_templates[node.MTG.symbol])
+    st_template = copy(status_templates[symbol(node)])
 
     # We add a reference to the node into the status, so that we can access it from the models if needed.
     push!(st_template, :node => Ref(node))
 
     # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
     # and if so, use their value in the status:
-    if haskey(var_need_init, node.MTG.symbol) && length(var_need_init[node.MTG.symbol].need_var_from_mtg) > 0
-        for i in var_need_init[node.MTG.symbol].need_var_from_mtg
+    if haskey(var_need_init, symbol(node)) && length(var_need_init[symbol(node)].need_var_from_mtg) > 0
+        for i in var_need_init[symbol(node)].need_var_from_mtg
             @assert typeof(node[i.var]) == typeof(st_template[i.var]) string(
-                "Initializing variable $(i.var) using MTG node $(node.id): expected type $(typeof(st_template[i.var])), found $(typeof(node[i.var])). ",
+                "Initializing variable $(i.var) using MTG node $(MultiScaleTreeGraph.node_id(node)): expected type $(typeof(st_template[i.var])), found $(typeof(node[i.var])). ",
                 "Please check the type of the variable in the MTG, and make it a $(typeof(st_template[i.var]))."
             )
             st_template[i.var] = node[i.var]
@@ -99,12 +99,12 @@ function init_status!(node, statuses, status_templates, map_other_scales, var_ne
     # Make the node status from the template:
     st = status_from_template(st_template)
 
-    push!(statuses[node.MTG.symbol], st)
+    push!(statuses[symbol(node)], st)
 
     # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
     # add a reference to the value of any variable that is used by another scale into its RefVector:
-    if haskey(map_other_scales, node.MTG.symbol)
-        for (organ, vars) in map_other_scales[node.MTG.symbol]
+    if haskey(map_other_scales, symbol(node))
+        for (organ, vars) in map_other_scales[symbol(node)]
             for var in vars # e.g.: var = :carbon_demand
                 push!(status_templates[organ][var], refvalue(st, var))
             end

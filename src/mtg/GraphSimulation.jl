@@ -125,7 +125,7 @@ function outputs(sim::GraphSimulation, sink)
         for timestep in steps_iterable # timestep = 1
             node_iterable = axes(vars[var_names[1]][timestep], 1)
             for node in node_iterable # node = 1
-                vars_values = (; timestep=timestep, organ=organ, node=vars[:node][timestep][node].id, zip(var_names, [vars[v][timestep][node] for v in var_names])...)
+                vars_values = (; timestep=timestep, organ=organ, node=MultiScaleTreeGraph.node_id(vars[:node][timestep][node]), zip(var_names, [vars[v][timestep][node] for v in var_names])...)
                 vars_no_values = setdiff(var_names_all, keys(vars_values))
                 if length(vars_no_values) > 0
                     vars_values = (; vars_values..., zip(vars_no_values, [nothing for v in vars_no_values])...)

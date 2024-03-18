@@ -23,7 +23,7 @@ PlantSimEngine.outputs_(m::ToyInternodeEmergence) = (TT_cu_emergence=0.0,)
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
 
-    if length(status.node.children) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
+    if length(MultiScaleTreeGraph.children(status.node)) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
         # NB: the node can produce one leaf, and one internode only, so we check that it did not produce 
         # any internode yet.
         status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
