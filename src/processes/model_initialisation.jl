@@ -143,13 +143,15 @@ end
 
 # For the list of mapping given to an MTG:
 function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
-
     # Get the variables in the MTG:
     if isnothing(graph)
         vars_in_mtg = Symbol[]
     else
         vars_in_mtg = names(graph)
     end
+
+    # Get the reverse mapping between scales:
+    rev_mapping = reverse_mapping(mapping; all=true)
 
     var_need_init = Dict{String,NamedTuple{(:need_initialisation, :need_models_from_scales, :need_var_from_mtg),Tuple{Vector{Symbol},Vector{NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}},Vector{VarFromMTG}}}}()
     for organ in keys(mapping)
@@ -181,14 +183,14 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
         need_var_from_mtg = VarFromMTG[]
         need_models_from_scales = NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}[]
 
-        for var in vars_needed_this_scale # e.g. var = :carbon_demand
+        for var in vars_needed_this_scale # e.g. var_ = :carbon_demand
             # If the variable is multiscale (it is computed by anothe model), we check if there is a model at the 
             # other scale(s) that computes it:
             if var in multi_scale_ins
                 # Scale(s) at which the variable is computed:
                 from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
                 # We check if there is a model at the other scale(s) that computes it:
-                outputs_from_scales = map_scale(mapping, from_scales) do m, s
+                outputs_from_scales = PlantSimEngine.map_scale(mapping, from_scales) do m, s
                     # We check that the node type exist in the model list:
                     haskey(m, s) || error(
                         "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of mapping."
@@ -202,7 +204,25 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
                     # If the variable is computed by a model at the other scale, we don't need to initialise it:
                     continue
                 else
-                    # Else, we need to initialise it:
+                    # If the variable is not found, it may be computed by another scale onto this one (in this case we return an error).
+                    PlantSimEngine.map_scale(mapping, from_scales) do m, s
+                        map_vars = get_mapping(mapping[s])
+                        multiscale_vars = collect(first(i) for i in map_vars)
+
+                        computed_elsewhere = filter(x -> x.first == var, get_mapping(mapping[s]))
+                        if length(computed_elsewhere) > 0
+                            # found[1] = true
+                            computed_elsewhere = computed_elsewhere[1].second
+
+                            # The variable if not computed at the scale given by the user, but we found it at another scale:
+                            error(
+                                "Nodes of type $organ are mapping variable `:$var` computed from nodes of type $s, but type $s does not compute this variable. ",
+                                "The variable is computed by nodes of type $computed_elsewhere."
+                            )
+                        end
+                    end
+
+                    # If still not found, add the variable into need_models_from_scales:
                     push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
                 end
             else

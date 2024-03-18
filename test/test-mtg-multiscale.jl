@@ -1,4 +1,3 @@
-
 # Example meteo:
 meteo = Weather(
     [
@@ -94,6 +93,10 @@ end
     @test vars["Soil"] == outs["Soil"]
     @test vars["Plant"] == (carbon_allocation=(:A, :carbon_demand, :carbon_offer, :carbon_allocation),)
     @test vars["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content, :A), carbon_demand=(:TT, :carbon_demand))
+
+    @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :A => [-Inf], :carbon_demand => [-Inf])
+    @test PlantSimEngine.find_var_mapped_default(mapping_1, "Leaf") == [:soil_water_content => -Inf]
+    @test PlantSimEngine.find_var_mapped_default(mapping_1, "Soil") === nothing
 end
 
 @testset "status_template" begin
@@ -219,6 +222,10 @@ end
     @test to_init["Internode"].need_initialisation == [:TT]
     @test to_init["Internode"].need_models_from_scales == []
     @test to_init["Internode"].need_var_from_mtg == []
+
+    @test Dict(PlantSimEngine.find_var_mapped_default(mapping, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :A => [-Inf], :carbon_demand => [-Inf])
+    @test PlantSimEngine.find_var_mapped_default(mapping, "Leaf") == [:soil_water_content => -Inf]
+    @test PlantSimEngine.find_var_mapped_default(mapping, "Soil") === nothing
 end
 
 @testset "Mapping: missing organ in mapping (Soil)" begin
@@ -246,11 +253,12 @@ end
         )
     )
 
-
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
-        @test_throws ErrorException to_initialize(mapping)
+        @test_throws AssertionError to_initialize(mapping)
+        @test_throws AssertionError PlantSimEngine.find_var_mapped_default(mapping, "Plant")
     else
-        @test_throws "Nodes of type Leaf are mapping to variable `:soil_water_content` computed from nodes of type Soil, but there is no type Soil in the list of mapping." to_initialize(mapping)
+        @test_throws "Scale Soil not found in the mapping, but mapped to the Leaf scale." to_initialize(mapping)
+        @test_throws "Scale Soil not found in the mapping, but mapped to the Leaf scale." PlantSimEngine.find_var_mapped_default(mapping, "Plant")
     end
 end
 
@@ -294,6 +302,7 @@ end
     soil_node = mtg_var[1]
     soil_node[:var1] = 1.0
     to_init = to_initialize(mapping, mtg_var)
+
     @test to_init["Soil"].need_initialisation == [:var2]# var1 would be here if not present in the MTG
     @test to_init["Soil"].need_models_from_scales == []
     @test to_init["Soil"].need_var_from_mtg == [PlantSimEngine.VarFromMTG(:var1, "Soil")]

@@ -131,7 +131,7 @@ function get_mapping(m)
     if length(mod_mapping) == 0
         return Pair{Symbol,String}[]
     end
-    return reduce(vcat, mod_mapping)
+    return reduce(vcat, mod_mapping) |> unique
 end
 
 get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping_(m)
@@ -206,6 +206,9 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # Initialise a Dict that defines the variables that are outputs from a mapping, 
     # i.e. variables that are written by a model at another scale:
     var_outputs_from_mapping = Dict{String,Vector{Pair{Symbol,Any}}}()
+
+    # rev_mapping = reverse_mapping(models; all=true)
+
     for organ in keys(models)
         # organ = "Scene"
         map_vars = get_mapping(models[organ])
@@ -218,51 +221,9 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         ins = merge(inputs_.(mods)...)
         outs = merge(outputs_.(mods)...)
         multi_scale_outs = intersect(keys(outs), multiscale_vars) # outputs: variables that are written to another scale
+        multi_scale_vars_vec = find_var_mapped_default(models, organ, map_vars, ins, outs)
 
-        multi_scale_vars_vec = Pair{Symbol,Any}[]
-        for (var, scales) in map_vars # e.g. var = :leaf_area; scales = ["Leaf"]
-            if isa(scales, AbstractString)
-                if hasproperty(ins, var) && isa(ins[var], AbstractVector) ||
-                   hasproperty(outs, var) && isa(outs[var], AbstractVector)
-                    error(
-                        "In mapping for organ $organ, variable $var is mapped to a single node type, but its default value is a vector. " *
-                        """Did you mean to map it to a vector of nodes? If so, your mapping should be: `:$var => ["$scales"]` """ *
-                        """instead of `:$var => "$scales"`."""
-                    )
-                end
-                scales = [scales]
-            end
-
-            # The variable default value is always taken from the upper-stream model:
-            if hasproperty(ins, var) # e.g. var = :leaf_area
-                # The variable is taken as an input from another scale. We take its default value from the model at the other scale:
-                mapped_out_var = []
-                for s in scales # s = scales[1]
-                    @assert haskey(models, s) "Scale $s required as a mapping for scale $organ, but not found in the mapping."
-                    mapped_out = merge(outputs_.(get_models(models[s]))...)
-                    @assert hasproperty(mapped_out, var) "No model computes variable $var at scale $s, need one for scale $organ"
-                    push!(mapped_out_var, mapped_out[var])
-                end
-                mapped_out = unique(mapped_out_var)
-                if length(mapped_out) > 1
-                    @info "Found different default values for variable $var in models at scales $scales: $mapped_out. Taking the first one."
-                end
-                mapped_out = mapped_out[1]
-
-                # If the variable is given as a vector as default value, it means it will be taken from several organs.
-                # In this case, we keep the vector format:
-                if isa(ins[var], AbstractVector)
-                    mapped_out = fill(mapped_out, length(ins[var]))
-                end
-                push!(multi_scale_vars_vec, var => mapped_out)
-            elseif hasproperty(outs, var)
-                # The variable is an output of this scale for another scale. We take its default value from this scale:
-                push!(multi_scale_vars_vec, var => outs[var])
-            else
-                error("Variable $var required to be mapped from scale(s) $scales to scale $organ was not found in any model from the scale(s) $scales.")
-            end
-        end
-
+        # As a status, promoted to what the user required:
         multi_scale_vars = Status(convert_vars(type_promotion, NamedTuple(multi_scale_vars_vec)))
 
         # Users can provide initialisation values in a status. We get them here:
@@ -460,7 +421,7 @@ end
     ref_var(v)
 
 Create a reference to a variable. If the variable is already a `Base.RefValue`,
-it is returned as is, else it is returned as a Ref to the copy of the value, or a 
+it is returned as is, else it is returned as a Ref to the copy of the value,
 or a Ref to the `RefVector` (in case `v` is a `RefVector`).
 
 # Examples
@@ -495,6 +456,7 @@ Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.
 ```
 """
 ref_var(v) = Base.Ref(copy(v))
+ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 
@@ -502,7 +464,8 @@ ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 """
     reverse_mapping(models; all=true)
 
-Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales.
+Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales, or in other words,
+what variables are given to other scales from a given scale.
 This is used for *e.g.* knowing which scales are needed to add values to others.
 
 # Arguments
@@ -577,6 +540,7 @@ function reverse_mapping(models; all=true)
 
             if isa(mapped, Vector)
                 for j in mapped # e.g.: j = "Leaf"
+                    @assert haskey(var_to_ref, j) "Scale $j not found in the mapping, but mapped to the $organ scale."
                     if haskey(var_to_ref[j], organ)
                         push!(var_to_ref[j][organ], first(i))
                     else

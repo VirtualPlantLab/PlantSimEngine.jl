@@ -71,7 +71,7 @@ julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(),
 
 ```jldoctest 1
 julia> typeof(models)
-ModelList{NamedTuple{(:process1, :process2, :process3), Tuple{Process1Model, Process2Model, Process3Model}}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
+ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
