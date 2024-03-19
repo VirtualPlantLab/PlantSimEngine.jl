@@ -600,7 +600,7 @@ end
 
     @test unique(outs.timestep) == [1, 2]
     @test sort(unique(outs.organ)) == sort(collect(keys(out_vars)))
-    @test length(filter(x -> x !== nothing, outs.A)) == length(filter(x -> x, traverse(mtg, node -> node.MTG.scale == 2)))
+    @test length(filter(x -> x !== nothing, outs.A)) == length(filter(x -> x, traverse(mtg, node -> MultiScaleTreeGraph.scale(node) == 2)))
     # a = status(out, TimeStepTable{Status})
     A = outputs(out, :A)
     @test A == outs.A
