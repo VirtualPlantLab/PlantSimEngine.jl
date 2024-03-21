@@ -62,10 +62,6 @@ mapping_1 = Dict(
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         Status(aPPFD=1300.0, TT=10.0),
-        MultiScaleModel(
-            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapping=[:TT => "Scene",],
-        ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
     ),
     "Soil" => (
@@ -91,19 +87,19 @@ end
 
     @test collect(keys(ins)) == collect(keys(mapping_1))
     @test ins["Soil"] == (soil_water=(),)
-    @test ins["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content), carbon_demand=(:TT,))
+    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:biomass,))
 
     outs = outputs(mapping_1)
     @test collect(keys(outs)) == collect(keys(mapping_1))
     @test outs["Soil"] == (soil_water=(:soil_water_content,),)
-    @test outs["Leaf"] == (photosynthesis=(:carbon_assimilation,), carbon_demand=(:carbon_demand,))
-    @test outs["Plant"] == (carbon_allocation=(:carbon_offer, :carbon_allocation),)
+    @test outs["Leaf"] == (carbon_assimilation=(:carbon_assimilation,), carbon_demand=(:carbon_demand,), maintenance_respiration=(:Rm,))
+    @test outs["Plant"] == (carbon_allocation=(:carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm,))
 
     vars = variables(mapping_1)
     @test collect(keys(vars)) == collect(keys(mapping_1))
     @test vars["Soil"] == outs["Soil"]
-    @test vars["Plant"] == (carbon_allocation=(:carbon_assimilation, :carbon_demand, :carbon_offer, :carbon_allocation),)
-    @test vars["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content, :carbon_assimilation), carbon_demand=(:TT, :carbon_demand))
+    @test vars["Plant"] == (carbon_allocation=(:carbon_assimilation, :Rm, :carbon_demand, :carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm_organs, :Rm),)
+    @test vars["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content, :carbon_assimilation), carbon_demand=(:TT, :carbon_demand), maintenance_respiration=(:biomass, :Rm))
 
     @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :carbon_assimilation => [-Inf], :carbon_demand => [-Inf])
     @test PlantSimEngine.find_var_mapped_default(mapping_1, "Leaf") == [:soil_water_content => -Inf]
@@ -390,7 +386,7 @@ end
         "Soil" => (soil_water=ToySoilWaterModel(0.1:0.1:1.0),),
         "Internode" => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
         "Plant" => (carbon_allocation=ToyCAllocationModel(),),
-        "Leaf" => (photosynthesis=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
+        "Leaf" => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
     )
 
     @test length(out.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
@@ -401,7 +397,7 @@ end
     @test st_leaf1.TT == 10.0
     @test st_leaf1.carbon_demand == 0.5
     # This one depends on the soil, which is random, so we test using the computation directly:
-    @test st_leaf1.A == st_leaf1.aPPFD * out.models["Leaf"].photosynthesis.LUE * st_leaf1.soil_water_content
+    @test st_leaf1.A == st_leaf1.aPPFD * out.models["Leaf"].carbon_assimilation.LUE * st_leaf1.soil_water_content
     @test st_leaf1.carbon_allocation == 0.0
 end
 
@@ -423,7 +419,7 @@ end
     leaf1_status = out.statuses["Leaf"][1]
 
     # This is the model that computes the assimilation (testing manually that we get the right result here):
-    @test leaf1_status.A == leaf1_status.aPPFD * out.models["Leaf"].photosynthesis.LUE * leaf1_status.soil_water_content
+    @test leaf1_status.A == leaf1_status.aPPFD * out.models["Leaf"].carbon_assimilation.LUE * leaf1_status.soil_water_content
 
     @test out.statuses["Plant"][1].carbon_demand[[1, 3]] == [i.carbon_demand for i in out.statuses["Internode"]]
     @test out.statuses["Plant"][1].carbon_demand[[2, 4]] == [i.carbon_demand for i in out.statuses["Leaf"]]

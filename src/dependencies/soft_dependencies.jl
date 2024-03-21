@@ -213,7 +213,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                     for org in keys(soft_deps_multiscale)
                         # org = "Leaf"
                         for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]
-                            # parent_soft_dep= :photosynthesis; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
+                            # parent_soft_dep= :carbon_assimilation; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
                             parent_node = soft_dep_graphs_roots.roots[org][:soft_dep_graph][parent_soft_dep]
                             # preventing a cyclic dependency: if the parent also has a dependency on the current node:
                             if parent_node.parent !== nothing && any([i == p for p in parent_node.parent])
@@ -375,11 +375,11 @@ A dictionary with the soft dependencies variables found in outputs of other scal
 ```julia
 Dict{String, Dict{Symbol, Vector{Symbol}}} with 2 entries:
     "Internode" => Dict(:carbon_demand=>[:carbon_demand])
-    "Leaf"      => Dict(:photosynthesis=>[:carbon_assimilation], :carbon_demand=>[:carbon_demand])
+    "Leaf"      => Dict(:carbon_assimilation=>[:carbon_assimilation], :carbon_demand=>[:carbon_demand])
 ```
 
 This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:carbon_assimilation` 
-is computed by the process `:photosynthesis` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
+is computed by the process `:carbon_assimilation` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
     vars_input = flatten_vars(inputs[process])

@@ -1,7 +1,3 @@
-
-"""
-
-"""
 function find_var_mapped_default(mapping, organ)
     map_vars = get_mapping(mapping[organ])
 
