@@ -31,17 +31,23 @@ leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
 const MAPPING_EXAMPLE = """
 ```@example
 mapping = Dict( \
-    "Plant" =>  \
+    "Plant" =>  ( \
         MultiScaleModel(  \
             model=ToyCAllocationModel(), \
             mapping=[ \
-                :A => ["Leaf"], \
+                :carbon_assimilation => ["Leaf"], \
                 :carbon_demand => ["Leaf", "Internode"], \
                 :carbon_allocation => ["Leaf", "Internode"] \
             ], \
+        ), 
+        MultiScaleModel(  \
+            model=ToyPlantRmModel(), \
+            mapping= [:Rm => ["Leaf", "Internode"] => :Rm_organs], \
         ), \
+    ),\
     "Internode" => ( \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
         Status(TT=10.0) \
     ), \
     "Leaf" => ( \
@@ -50,6 +56,7 @@ mapping = Dict( \
             mapping=[:soil_water_content => "Soil",], \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
         Status(aPPFD=1300.0, TT=10.0), \
     ), \
     "Soil" => ( \

@@ -74,13 +74,13 @@ ToyCAllocationModel()
 """
 struct MultiScaleModel{T<:AbstractModel,S<:AbstractString}
     model::T
-    mapping::Vector{Pair{Symbol,Union{S,Vector{S}}}}
+    mapping::Vector{Pair{Symbol,Union{S,Vector{S},Pair{S,Symbol},Pair{Vector{S},Symbol}}}}
 end
 
 function MultiScaleModel(model, mapping)
     MultiScaleModel(
         model,
-        Vector{Pair{Symbol,Union{String,Vector{String}}}}(mapping)
+        Vector{Pair{Symbol,Union{String,Vector{String},Pair{String,Symbol},Pair{Vector{String},Symbol}}}}(mapping)
     )
 end
 

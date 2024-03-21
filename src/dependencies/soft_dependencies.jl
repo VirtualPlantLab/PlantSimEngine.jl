@@ -375,10 +375,10 @@ A dictionary with the soft dependencies variables found in outputs of other scal
 ```julia
 Dict{String, Dict{Symbol, Vector{Symbol}}} with 2 entries:
     "Internode" => Dict(:carbon_demand=>[:carbon_demand])
-    "Leaf"      => Dict(:photosynthesis=>[:A], :carbon_demand=>[:carbon_demand])
+    "Leaf"      => Dict(:photosynthesis=>[:carbon_assimilation], :carbon_demand=>[:carbon_demand])
 ```
 
-This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:A` 
+This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:carbon_assimilation` 
 is computed by the process `:photosynthesis` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)

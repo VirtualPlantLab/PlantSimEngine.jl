@@ -33,19 +33,25 @@ end
 
 # A mapping that actually works (same as before but with the init for TT):
 mapping_1 = Dict(
-    "Plant" =>
+    "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapping=[
                 # inputs
-                :A => ["Leaf"],
+                :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
                 # outputs
                 :carbon_allocation => ["Leaf", "Internode"]
             ],
         ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm => ["Leaf", "Internode"] => :Rm_organs],
+        ),
+    ),
     "Internode" => (
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(TT=10.0)
     ),
     "Leaf" => (
@@ -56,6 +62,11 @@ mapping_1 = Dict(
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         Status(aPPFD=1300.0, TT=10.0),
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],
+        ),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
     ),
     "Soil" => (
         ToySoilWaterModel(),
@@ -85,16 +96,16 @@ end
     outs = outputs(mapping_1)
     @test collect(keys(outs)) == collect(keys(mapping_1))
     @test outs["Soil"] == (soil_water=(:soil_water_content,),)
-    @test outs["Leaf"] == (photosynthesis=(:A,), carbon_demand=(:carbon_demand,))
+    @test outs["Leaf"] == (photosynthesis=(:carbon_assimilation,), carbon_demand=(:carbon_demand,))
     @test outs["Plant"] == (carbon_allocation=(:carbon_offer, :carbon_allocation),)
 
     vars = variables(mapping_1)
     @test collect(keys(vars)) == collect(keys(mapping_1))
     @test vars["Soil"] == outs["Soil"]
-    @test vars["Plant"] == (carbon_allocation=(:A, :carbon_demand, :carbon_offer, :carbon_allocation),)
-    @test vars["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content, :A), carbon_demand=(:TT, :carbon_demand))
+    @test vars["Plant"] == (carbon_allocation=(:carbon_assimilation, :carbon_demand, :carbon_offer, :carbon_allocation),)
+    @test vars["Leaf"] == (photosynthesis=(:aPPFD, :soil_water_content, :carbon_assimilation), carbon_demand=(:TT, :carbon_demand))
 
-    @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :A => [-Inf], :carbon_demand => [-Inf])
+    @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :carbon_assimilation => [-Inf], :carbon_demand => [-Inf])
     @test PlantSimEngine.find_var_mapped_default(mapping_1, "Leaf") == [:soil_water_content => -Inf]
     @test PlantSimEngine.find_var_mapped_default(mapping_1, "Soil") === nothing
 end
@@ -111,7 +122,7 @@ end
     organs_statuses["Soil"][:soil_water_content][] = 1.0
     @test organs_statuses["Leaf"][:soil_water_content][] == 1.0
 
-    @test organs_statuses["Plant"][:A] == PlantSimEngine.RefVector{Float64}[]
+    @test organs_statuses["Plant"][:carbon_assimilation] == PlantSimEngine.RefVector{Float64}[]
     @test organs_statuses["Plant"][:carbon_allocation] == PlantSimEngine.RefVector{Float64}[]
     @test organs_statuses["Internode"][:carbon_allocation] == -Inf
     @test organs_statuses["Leaf"][:carbon_demand] == -Inf
@@ -119,7 +130,7 @@ end
     # Testing with a different type:
     organs_statuses = PlantSimEngine.status_template(mapping_1, Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
 
-    @test isa(organs_statuses["Plant"][:A], PlantSimEngine.RefVector{Float32})
+    @test isa(organs_statuses["Plant"][:carbon_assimilation], PlantSimEngine.RefVector{Float32})
     @test isa(organs_statuses["Plant"][:carbon_allocation], PlantSimEngine.RefVector{Float32})
     @test isa(organs_statuses["Internode"][:carbon_allocation], Float32)
     @test isa(organs_statuses["Leaf"][:carbon_demand], Float32)
@@ -129,8 +140,8 @@ end
 
 @testset "Multiscale initialisations and outputs" begin
     outs = Dict(
-        "Flowers" => (:A, :carbon_demand), # There are no flowers in this MTG
-        "Leaf" => (:A, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
+        "Flowers" => (:carbon_assimilation, :carbon_demand), # There are no flowers in this MTG
+        "Leaf" => (:carbon_assimilation, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
         "Soil" => (:soil_water_content,),
     )
 
@@ -140,8 +151,8 @@ end
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"])) == [:soil_water_content]
-    @test collect(keys(organs_statuses["Leaf"])) == [:carbon_allocation, :A, :TT, :aPPFD, :soil_water_content, :carbon_demand]
-    @test collect(keys(organs_statuses["Plant"])) == [:carbon_allocation, :A, :carbon_offer, :carbon_demand]
+    @test collect(keys(organs_statuses["Leaf"])) == [:carbon_allocation, :carbon_assimilation, :TT, :aPPFD, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses["Plant"])) == [:carbon_allocation, :carbon_assimilation, :carbon_offer, :carbon_demand]
     @test organs_statuses["Soil"][:soil_water_content][] === -Inf
     @test organs_statuses["Leaf"][:carbon_allocation] === -Inf
     @test organs_statuses["Leaf"][:TT] === 10.0
@@ -150,13 +161,13 @@ end
     @test PlantSimEngine.reverse_mapping(mapping_1, all=true) == Dict{String,Any}(
         "Soil" => Dict("Leaf" => [:soil_water_content]),
         "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
-        "Leaf" => Dict("Plant" => [:A, :carbon_demand, :carbon_allocation])
+        "Leaf" => Dict("Plant" => [:carbon_assimilation, :carbon_demand, :carbon_allocation])
     )
 
     var_refvector_1 = PlantSimEngine.reverse_mapping(mapping_1, all=false)
     @test var_refvector_1 == Dict{String,Any}(
         "Internode" => Dict("Plant" => [:carbon_demand, :carbon_allocation]),
-        "Leaf" => Dict("Plant" => [:A, :carbon_demand, :carbon_allocation])
+        "Leaf" => Dict("Plant" => [:carbon_assimilation, :carbon_demand, :carbon_allocation])
     )
 
     @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Any}()
@@ -184,7 +195,7 @@ end
 
     @test outs_ == Dict(
         "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),
-        "Leaf" => Dict(:A => [[], []], :node => [[], []], :carbon_demand => [[], []])
+        "Leaf" => Dict(:carbon_assimilation => [[], []], :node => [[], []], :carbon_demand => [[], []])
     )
 end
 
@@ -196,7 +207,7 @@ end
                 model=ToyCAllocationModel(),
                 mapping=[
                     # inputs
-                    :A => ["Leaf"],
+                    :carbon_assimilation => ["Leaf"],
                     :carbon_demand => ["Leaf", "Internode"],
                     # outputs
                     :carbon_allocation => ["Leaf", "Internode"]
@@ -223,7 +234,7 @@ end
     @test to_init["Internode"].need_models_from_scales == []
     @test to_init["Internode"].need_var_from_mtg == []
 
-    @test Dict(PlantSimEngine.find_var_mapped_default(mapping, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :A => [-Inf], :carbon_demand => [-Inf])
+    @test Dict(PlantSimEngine.find_var_mapped_default(mapping, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :carbon_assimilation => [-Inf], :carbon_demand => [-Inf])
     @test PlantSimEngine.find_var_mapped_default(mapping, "Leaf") == [:soil_water_content => -Inf]
     @test PlantSimEngine.find_var_mapped_default(mapping, "Soil") === nothing
 end
@@ -235,7 +246,7 @@ end
                 model=ToyCAllocationModel(),
                 mapping=[
                     # inputs
-                    :A => ["Leaf"],
+                    :carbon_assimilation => ["Leaf"],
                     :carbon_demand => ["Leaf", "Internode"],
                     # outputs
                     :carbon_allocation => ["Leaf", "Internode"]
@@ -278,7 +289,7 @@ end
                 model=ToyCAllocationModel(),
                 mapping=[
                     # inputs
-                    :A => ["Leaf"],
+                    :carbon_assimilation => ["Leaf"],
                     :carbon_demand => ["Leaf", "Internode"],
                     # outputs
                     :carbon_allocation => ["Leaf", "Internode"]
@@ -344,7 +355,7 @@ end
                 model=ToyCAllocationModel(),
                 mapping=[
                     # inputs
-                    :A => ["Leaf"],
+                    :carbon_assimilation => ["Leaf"],
                     :carbon_demand => ["Leaf", "Internode"],
                     # outputs
                     :carbon_allocation => ["Leaf", "Internode"]
@@ -492,7 +503,7 @@ end
                     model=ToyCAllocationModel(),
                     mapping=[
                         # inputs
-                        :A => ["Leaf"],
+                        :carbon_assimilation => ["Leaf"],
                         :carbon_demand => ["Leaf", "Internode"],
                         # outputs
                         :carbon_allocation => ["Leaf", "Internode"]
@@ -540,7 +551,7 @@ end
                     model=ToyCAllocationModel(),
                     mapping=[
                         # inputs
-                        :A => ["Leaf"],
+                        :carbon_assimilation => ["Leaf"],
                         :carbon_demand => ["Leaf", "Internode"],
                         # outputs
                         :carbon_allocation => ["Leaf", "Internode"]
@@ -571,7 +582,7 @@ end
         )
 
     out_vars = Dict(
-        "Leaf" => (:A, :carbon_demand, :soil_water_content, :carbon_allocation),
+        "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
         "Internode" => (:carbon_allocation,),
         "Plant" => (:carbon_allocation,),
         "Soil" => (:soil_water_content,),
@@ -602,7 +613,7 @@ end
     @test sort(unique(outs.organ)) == sort(collect(keys(out_vars)))
     @test length(filter(x -> x !== nothing, outs.A)) == length(filter(x -> x, traverse(mtg, node -> MultiScaleTreeGraph.scale(node) == 2)))
     # a = status(out, TimeStepTable{Status})
-    A = outputs(out, :A)
+    A = outputs(out, :carbon_assimilation)
     @test A == outs.A
 
     A2 = outputs(out, 5)

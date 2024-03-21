@@ -84,7 +84,7 @@ mtg = import_mtg_example();
 
 ```@example
 sim = run!(mtg, mapping, meteo, outputs = Dict(
-    "Leaf" => (:A, :carbon_demand, :soil_water_content, :carbon_allocation),
+    "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
     "Internode" => (:carbon_allocation,),
     "Plant" => (:carbon_allocation,),
     "Soil" => (:soil_water_content,),

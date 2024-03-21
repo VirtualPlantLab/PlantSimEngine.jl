@@ -31,6 +31,7 @@ include(joinpath(@__DIR__, "../examples/ToyCDemandModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyAssimGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyRUEGrowthModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyMaintenanceRespirationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyInternodeEmergence.jl"))
 
@@ -81,7 +82,7 @@ export AbstractOrgan_EmergenceModel
 # Models:
 export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
-export ToyAssimGrowthModel, ToyRUEGrowthModel
+export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 

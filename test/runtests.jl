@@ -1,12 +1,11 @@
 using PlantSimEngine
+# Include the example dummy processes:
+using PlantSimEngine.Examples
 using Test, Aqua
 using Tables, DataFrames, CSV
 using MultiScaleTreeGraph
 using PlantMeteo, Statistics
 using Documenter # for doctests
-
-# Include the example dummy processes:
-using PlantSimEngine.Examples
 
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)

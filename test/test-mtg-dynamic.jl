@@ -22,10 +22,14 @@ mapping = Dict(
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapping=[
-                :A => ["Leaf"],
+                :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
                 :carbon_allocation => ["Leaf", "Internode"]
             ],
+        ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm => ["Leaf", "Internode"] => :Rm_organs],
         ),
     ),
     "Internode" => (
@@ -37,6 +41,7 @@ mapping = Dict(
             model=ToyInternodeEmergence(TT_emergence=20.0),
             mapping=[:TT_cu => "Scene"],
         ),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
     ),
     "Leaf" => (
         MultiScaleModel(
@@ -47,6 +52,7 @@ mapping = Dict(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapping=[:TT => "Scene",],
         ),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
     ),
     "Soil" => (
         ToySoilWaterModel(),
@@ -54,7 +60,7 @@ mapping = Dict(
 )
 
 out_vars = Dict(
-    "Leaf" => (:A, :carbon_demand, :soil_water_content, :carbon_allocation),
+    "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
     "Internode" => (:carbon_allocation, :TT_cu_emergence),
     "Plant" => (:carbon_allocation,),
     "Soil" => (:soil_water_content,),

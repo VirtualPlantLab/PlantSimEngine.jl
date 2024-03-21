@@ -40,7 +40,7 @@ If we just give a MultiScaleModel, we get its model as a one-element vector:
 julia> models = MultiScaleModel( \
             model=ToyCAllocationModel(), \
             mapping=[ \
-                :A => ["Leaf"], \
+                :carbon_assimilation => ["Leaf"], \
                 :carbon_demand => ["Leaf", "Internode"], \
                 :carbon_allocation => ["Leaf", "Internode"] \
             ], \
@@ -167,28 +167,38 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```julia
-models = Dict(
-    "Plant" =>
-        MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapping=[
-                # inputs
-                :A => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                # outputs
-                :carbon_allocation => ["Leaf", "Internode"]
-            ],
-        ),
-    "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-    "Leaf" => (
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
-            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
-        ),
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        Status(aPPFD=1300.0, TT=10.0),
+mapping = Dict( 
+    "Plant" =>  ( 
+        MultiScaleModel(  
+            model=ToyCAllocationModel(), 
+            mapping=[ 
+                :carbon_assimilation => ["Leaf"], 
+                :carbon_demand => ["Leaf", "Internode"], 
+                :carbon_allocation => ["Leaf", "Internode"] 
+            ], 
+        ), 
+        MultiScaleModel(  
+            model=ToyPlantRmModel(), 
+            mapping= [:Rm => ["Leaf", "Internode"] => :Rm_organs], 
+        ), 
     ),
+    "Internode" => ( 
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), 
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), 
+        Status(TT=10.0) 
+    ), 
+    "Leaf" => ( 
+        MultiScaleModel( 
+            model=ToyAssimModel(), 
+            mapping=[:soil_water_content => "Soil",], 
+        ), 
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), 
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), 
+        Status(aPPFD=1300.0, TT=10.0), 
+    ), 
+    "Soil" => ( 
+        ToySoilWaterModel(), 
+    ), 
 )
 ```
 
@@ -321,21 +331,21 @@ See also `vars_type_from_mapping` to get the variables type.
 
 ```jldoctest test1
 julia> vars_mapping = Dict( \
-    ["Leaf"] => Dict(:A => PlantSimEngine.RefVector{Float64}[]), \
+    ["Leaf"] => Dict(:carbon_assimilation => PlantSimEngine.RefVector{Float64}[]), \
     ["Leaf", "Internode"] => Dict( \
         :carbon_allocation => PlantSimEngine.RefVector{Float64}[], \
         :carbon_demand => PlantSimEngine.RefVector{Float64}[] \
     ) \
 )
 Dict{Vector{String}, Dict{Symbol, Vector{PlantSimEngine.RefVector{Float64}}}} with 2 entries:
-  ["Leaf"]              => Dict(:A=>[])
+  ["Leaf"]              => Dict(:carbon_assimilation=>[])
   ["Leaf", "Internode"] => Dict(:carbon_allocation=>[], :carbon_demand=>[])
 ```
 
 ```jldoctest test1
 julia> PlantSimEngine.vars_from_mapping(vars_mapping)
 3-element Vector{Symbol}:
- :A
+ :carbon_assimilation
  :carbon_allocation
  :carbon_demand
 ```
@@ -361,8 +371,8 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest
-julia> PlantSimEngine.MappedVar("Leaf", :A, 1.0)
-PlantSimEngine.MappedVar{String, Float64}("Leaf", :A, 1.0)
+julia> PlantSimEngine.MappedVar("Leaf", :carbon_assimilation, 1.0)
+PlantSimEngine.MappedVar{String, Float64}("Leaf", :carbon_assimilation, 1.0)
 ```
 """
 struct MappedVar{S<:Union{A,Vector{A}} where {A<:AbstractString},T}
@@ -375,7 +385,7 @@ end
     create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}
     create_var_ref(organ::AbstractString, default)
 
-Create a referece variable. The reference is a `RefVector` if the organ is a vector of strings, and a `MappedVar` 
+Create a reference variable. The reference is a `RefVector` if the organ is a vector of strings, and a `MappedVar` 
 if it is a singleton string. This is because we want to avoid indexing into a vector of values if there is only one 
 value to map.
 """
@@ -495,7 +505,7 @@ julia> models = Dict( \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
                     mapping=[ \
-                        :A => ["Leaf"], \
+                        :carbon_assimilation => ["Leaf"], \
                         :carbon_demand => ["Leaf", "Internode"], \
                         :carbon_allocation => ["Leaf", "Internode"] \
                     ], \
@@ -524,7 +534,7 @@ julia> PlantSimEngine.reverse_mapping(models)
 Dict{String, Dict{String, Vector{Symbol}}} with 3 entries:
   "Soil"      => Dict("Leaf"=>[:soil_water_content])
   "Internode" => Dict("Plant"=>[:carbon_demand, :carbon_allocation])
-  "Leaf"      => Dict("Plant"=>[:A, :carbon_demand, :carbon_allocation])
+  "Leaf"      => Dict("Plant"=>[:carbon_assimilation, :carbon_demand, :carbon_allocation])
 ```
 """
 function reverse_mapping(models; all=true)

@@ -1,7 +1,7 @@
 # using PlantSimEngine, PlantMeteo # Import the necessary packages, PlantMeteo is used for the meteorology
 
 # Defining the process:
-PlantSimEngine.@process "photosynthesis" verbose = false
+PlantSimEngine.@process "carbon_assimilation" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """
@@ -21,9 +21,15 @@ Computes the assimilation of a plant (= photosynthesis).
 
 # Outputs
 
-- `A`: the assimilation, in gC m⁻² d⁻¹
+- `carbon_assimilation`: the assimilation or photosynthesis, also sometimes denoted `A`, in gC m⁻² d⁻¹
+
+# Details
+
+The assimilation is computed as the product of the absorbed photosynthetic photon flux density (aPPFD) and the light use efficiency (LUE),
+so the units of the assimilation usually are in gC m⁻² d⁻¹, but they could be in another spatial or temporal unit depending on the unit of `aPPFD`, *e.g.* 
+if `aPPFD` is in mol[PAR] plant⁻¹ d⁻¹, the assimilation will be in gC plant⁻¹ d⁻¹.
 """
-struct ToyAssimModel{T} <: AbstractPhotosynthesisModel
+struct ToyAssimModel{T} <: AbstractCarbon_AssimilationModel
     LUE::T
 end
 
@@ -39,7 +45,7 @@ end
 
 # Define outputs:
 function PlantSimEngine.outputs_(::ToyAssimModel)
-    (A=-Inf,)
+    (carbon_assimilation=-Inf,)
 end
 
 # Tells Julia what is the type of elements:
@@ -48,7 +54,7 @@ Base.eltype(::ToyAssimModel{T}) where {T} = T
 # Implement the growth model:
 function PlantSimEngine.run!(::ToyAssimModel, models, status, meteo, constants, extra)
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
-    status.A = status.aPPFD * models.photosynthesis.LUE * status.soil_water_content
+    status.carbon_assimilation = status.aPPFD * models.photosynthesis.LUE * status.soil_water_content
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):

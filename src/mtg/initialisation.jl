@@ -141,38 +141,48 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
-julia> models = Dict( \
-            "Plant" => \
-                MultiScaleModel( \
-                    model=ToyCAllocationModel(), \
-                    mapping=[ \
-                        :A => ["Leaf"], \
-                        :carbon_demand => ["Leaf", "Internode"], \
-                        :carbon_allocation => ["Leaf", "Internode"] \
-                    ], \
-                ), \
-            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-            "Leaf" => ( \
-                MultiScaleModel( \
-                    model=ToyAssimModel(), \
-                    mapping=[:soil_water_content => "Soil",], \
-                ), \
-                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-                Status(aPPFD=1300.0, TT=10.0), \
-            ), \
-            "Soil" => ( \
-                ToySoilWaterModel(), \
-            ), \
-        );
+julia> mapping = Dict( \
+    "Plant" =>  ( \
+        MultiScaleModel(  \
+            model=ToyCAllocationModel(), \
+            mapping=[ \
+                :carbon_assimilation => ["Leaf"], \
+                :carbon_demand => ["Leaf", "Internode"], \
+                :carbon_allocation => ["Leaf", "Internode"] \
+            ], \
+        ), 
+        MultiScaleModel(  \
+            model=ToyPlantRmModel(), \
+            mapping= [:Rm => ["Leaf", "Internode"] => :Rm_organs], \
+        ), \
+    ),\
+    "Internode" => ( \
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
+        Status(TT=10.0) \
+    ), \
+    "Leaf" => ( \
+        MultiScaleModel( \
+            model=ToyAssimModel(), \
+            mapping=[:soil_water_content => "Soil",], \
+        ), \
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
+        Status(aPPFD=1300.0, TT=10.0), \
+    ), \
+    "Soil" => ( \
+        ToySoilWaterModel(), \
+    ), \
+    );
 ```
 
 ```jldoctest mylabel
-julia> organs_statuses = PlantSimEngine.status_template(models, nothing)
+julia> organs_statuses = PlantSimEngine.status_template(mapping, nothing)
 Dict{String, Dict{Symbol, Any}} with 4 entries:
   "Soil"      => Dict(:soil_water_content=>RefValue{Float64}(-Inf))
   "Internode" => Dict(:carbon_allocation=>-Inf, :TT=>-Inf, :carbon_demand=>-Inf)
-  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :A=>RefVector{F…
-  "Leaf"      => Dict(:carbon_allocation=>-Inf, :A=>-Inf, :TT=>10.0, :aPPFD=>13…
+  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :carbon_assimilation=>RefVector{F…
+  "Leaf"      => Dict(:carbon_allocation=>-Inf, :carbon_assimilation=>-Inf, :TT=>10.0, :aPPFD=>13…
 ```
 
 Note that variables that are multiscale (*i.e.* defined in a mapping) are linked between scales, so if we write at a scale, the value will be 

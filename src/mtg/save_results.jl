@@ -35,31 +35,38 @@ Define the models mapping:
 
 ```jldoctest mylabel
 julia> mapping = Dict( \
-            "Plant" => \
-                MultiScaleModel( \
-                    model=ToyCAllocationModel(), \
-                    mapping=[ \
-                        :A => ["Leaf"], \
-                        :carbon_demand => ["Leaf", "Internode"], \
-                        :carbon_allocation => ["Leaf", "Internode"] \
-                    ], \
-                ), \
-            "Internode" => (  \
-                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-                Status(aPPFD=1300.0, TT=10.0), \
-                ), \
-            "Leaf" => ( \
-                MultiScaleModel( \
-                    model=ToyAssimModel(), \
-                    mapping=[:soil_water_content => "Soil",], \
-                ), \
-                ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-                Status(aPPFD=1300.0, TT=10.0), \
-            ), \
-            "Soil" => ( \
-                ToySoilWaterModel(), \
-            ), \
-        );
+    "Plant" =>  ( \
+        MultiScaleModel(  \
+            model=ToyCAllocationModel(), \
+            mapping=[ \
+                :carbon_assimilation => ["Leaf"], \
+                :carbon_demand => ["Leaf", "Internode"], \
+                :carbon_allocation => ["Leaf", "Internode"] \
+            ], \
+        ), 
+        MultiScaleModel(  \
+            model=ToyPlantRmModel(), \
+            mapping= [:Rm => ["Leaf", "Internode"] => :Rm_organs], \
+        ), \
+    ),\
+    "Internode" => ( \
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
+        Status(TT=10.0) \
+    ), \
+    "Leaf" => ( \
+        MultiScaleModel( \
+            model=ToyAssimModel(), \
+            mapping=[:soil_water_content => "Soil",], \
+        ), \
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
+        Status(aPPFD=1300.0, TT=10.0), \
+    ), \
+    "Soil" => ( \
+        ToySoilWaterModel(), \
+    ), \
+);
 ```
 
 Importing an example MTG provided by the package:
@@ -73,7 +80,7 @@ julia> statuses, = PlantSimEngine.init_statuses(mtg, mapping);
 ```
 
 ```jldoctest mylabel
-julia> outs = Dict("Leaf" => (:A, :carbon_demand), "Soil" => (:soil_water_content,));
+julia> outs = Dict("Leaf" => (:carbon_assimilation, :carbon_demand), "Soil" => (:soil_water_content,));
 ```
 
 Pre-allocate the outputs as a dictionary:
@@ -97,7 +104,7 @@ with the pre-allocated empty vectors (one per time-step that will be filled with
 ```jldoctest mylabel
 julia> collect(keys(preallocated_vars["Leaf"]))
 3-element Vector{Symbol}:
- :A
+ :carbon_assimilation
  :node
  :carbon_demand
 ```
