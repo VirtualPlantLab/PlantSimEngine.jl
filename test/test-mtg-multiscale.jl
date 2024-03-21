@@ -101,7 +101,7 @@ end
     @test vars["Plant"] == (carbon_allocation=(:carbon_assimilation, :Rm, :carbon_demand, :carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm_organs, :Rm),)
     @test vars["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content, :carbon_assimilation), carbon_demand=(:TT, :carbon_demand), maintenance_respiration=(:biomass, :Rm))
 
-    @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :carbon_assimilation => [-Inf], :carbon_demand => [-Inf])
+    @test Dict(PlantSimEngine.find_var_mapped_default(mapping_1, "Plant")) == Dict{Symbol,Any}(:carbon_allocation => [-Inf], :carbon_assimilation => [-Inf], :Rm => -Inf, :carbon_demand => [-Inf])
     @test PlantSimEngine.find_var_mapped_default(mapping_1, "Leaf") == [:soil_water_content => -Inf]
     @test PlantSimEngine.find_var_mapped_default(mapping_1, "Soil") === nothing
 end

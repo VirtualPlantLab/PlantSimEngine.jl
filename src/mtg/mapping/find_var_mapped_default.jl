@@ -42,7 +42,10 @@ function find_var_mapped_default(mapping, organ, map_vars, ins, outs)
     rev_mapping = reverse_mapping(mapping; all=true)
 
     multi_scale_vars_vec = Pair{Symbol,Any}[]
-    for (var, scales) in map_vars # e.g. var = :leaf_area; scales = ["Leaf"]
+    for (var, scales) in map_vars # e.g. var = :Rm; scales = (["Leaf", "Internode"] => :Rm_organs)
+        if isa(scales, Pair) # we have the new name in the scales, e.g. scales = (["Leaf", "Internode"] => :Rm_organs)
+            scales = scales[1]
+        end
         if isa(scales, AbstractString)
             if hasproperty(ins, var) && isa(ins[var], AbstractVector) ||
                hasproperty(outs, var) && isa(outs[var], AbstractVector)

@@ -542,8 +542,11 @@ function reverse_mapping(models; all=true)
     for organ in keys(models)
         # organ = "Plant"
         map_vars = get_mapping(models[organ])
-        for i in map_vars # e.g.: i = :carbon_demand => ["Leaf", "Internode"] 
+        for i in map_vars # e.g.: i = map_vars[end]
             mapped = last(i) # e.g.: mapped = ["Leaf", "Internode"]
+
+            # If the mapping includes a new name for the variable on the scale it is mapped into, we remove it:
+            isa(mapped, Pair) && (mapped = mapped.first)
 
             # If we want to get all the variables that are mapped to other scales, including the ones that are mapped as single values:
             isa(mapped, AbstractString) && all && (mapped = [mapped])
