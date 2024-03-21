@@ -179,7 +179,7 @@ mapping = Dict(
         ), 
         MultiScaleModel(  
             model=ToyPlantRmModel(), 
-            mapping= [:Rm => ["Leaf", "Internode"] => :Rm_organs], 
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],]
         ), 
     ),
     "Internode" => ( 
@@ -220,7 +220,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
     # rev_mapping = reverse_mapping(models; all=true)
 
     for organ in keys(models)
-        # organ = "Scene"
+        # organ = "Plant"
         map_vars = get_mapping(models[organ])
         if length(map_vars) == 0
             continue
@@ -266,7 +266,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         end
 
         # Add outputs from this scale as a variable for other scales:
-        outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars)
+        outputs_from_other_scale!(var_outputs_from_mapping, NamedTuple(new_st)[(multi_scale_outs)], map_vars, organ)
 
         organ_mapping = Dict{Union{String,Vector{String}},Dict{Symbol,Union{RefVector,MappedVar}}}()
         for var_mapping in map_vars
@@ -395,14 +395,18 @@ end
 
 create_var_ref(organ::AbstractString, var, default) = MappedVar(organ, var, default)
 
-function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, map_vars)
+function outputs_from_other_scale!(var_outputs_from_mapping, multi_scale_outs, map_vars, current_organ)
     multi_scale_outs_organ = filter(x -> first(x) in keys(multi_scale_outs), map_vars)
-    for (var, organs) in multi_scale_outs_organ # var, organs = multi_scale_outs_organ[1]
+    for (var, organs) in multi_scale_outs_organ # var, organs = multi_scale_outs_organ[2]
+        if isa(organs, Pair)
+            organs = organs.first
+        end
+
         if isa(multi_scale_outs[var], AbstractVector)
             var_default_value = multi_scale_outs[var][1]
         else
             error(
-                "The variable $var is an output variable mapped to nodes of type $organs, but its default value is not a vector. " *
+                "The variable $var is an output variable mapped from `$organs` to `$current_organ`, but its default value is not a vector. " *
                 "Make sure the model that computes this variable has a vector of values as outputs."
             )
         end
@@ -547,6 +551,8 @@ function reverse_mapping(models; all=true)
 
             # If the mapping includes a new name for the variable on the scale it is mapped into, we remove it:
             isa(mapped, Pair) && (mapped = mapped.first)
+
+            isa(mapped, Vector{Pair}) && (mapped = mapped.first)
 
             # If we want to get all the variables that are mapped to other scales, including the ones that are mapped as single values:
             isa(mapped, AbstractString) && all && (mapped = [mapped])

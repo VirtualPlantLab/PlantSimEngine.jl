@@ -29,7 +29,7 @@ mapping = Dict(
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm => ["Leaf", "Internode"] => :Rm_organs],
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
