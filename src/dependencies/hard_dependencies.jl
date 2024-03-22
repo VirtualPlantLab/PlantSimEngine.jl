@@ -79,7 +79,7 @@ end
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
 function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
-    full_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
+    full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
 
     soft_dep_graphs = Dict{String,Any}(i => 0.0 for i in keys(mapping))
     not_found = Dict{Symbol,DataType}()
@@ -90,9 +90,9 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
         # Move some models below others when they are manually linked (hard-dependency):
         hard_deps = hard_dependencies((; mods...), verbose=verbose)
         d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
-        for (procname, node) in hard_deps.roots
+        for (procname, node) in hard_deps.roots # procname = :carbon_assimilation ; node = hard_deps.roots[procname]
             var = Pair{Symbol,NamedTuple}[]
-            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_mapping), var)
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping), var)
             push!(d_vars, procname => var)
         end
 

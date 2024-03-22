@@ -138,9 +138,9 @@ end
 # For multiscale mapping:
 function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}})
     independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
-    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs[organ]
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
-            # proc = :carbon_allocation; i = soft_dep_graph[proc]
+            # proc = :maintenance_respiration; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
             soft_deps = search_inputs_in_output(proc, ins, outs)
 
@@ -382,27 +382,31 @@ This means that the variable `:carbon_demand` is computed by the process `:carbo
 is computed by the process `:carbon_assimilation` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
+    # proc, organ, ins, soft_dep_graphs_roots.roots
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
-    for var in vars_input # e.g. var = MappedVar{String, Nothing}("Soil", :soil_water_content, nothing)
+    for var in vars_input # e.g. var = collect(vars_input)[1]
         # The variable is a multiscale variable:
         if isa(var, MappedVar)
-            var_organ = var.organ
-
-            @assert var_organ != organ "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
+            var_organ = mapped_organ(var)
 
             if !isa(var_organ, AbstractVector)
                 # In case the organ is given as a singleton (e.g. "Soil" instead of ["Soil"])
                 var_organ = [var_organ]
             end
 
-            for org in var_organ # e.g. org = "Soil"
+            @assert all(var_o != organ for var_o in var_organ) "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
+
+            for org in var_organ # e.g. org = "Leaf"
                 # The variable is a multiscale variable:
-                for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :soil_water; pairs_vars_output = [:soil_water=>(:soil_water_content,)]
-                    process == proc_output && @info "Process $process declared at two scales: $organ and $org. Are you sure this process has to be simulated at several scales?"
+                for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :maintenance_respiration; pairs_vars_output = soft_dep_graphs_roots.roots[org][:outputs][proc_output]
+                    # process == proc_output && @info "Process $process declared at two scales: $organ and $org. Are you sure this process has to be simulated at several scales?"
                     vars_output = flatten_vars(pairs_vars_output)
-                    if var.var in vars_output
+
+                    # If the variable is found in the outputs of the process at the other scale:
+                    if var_source(var, org) in vars_output
+                        # NB: We use the variable name used in the source scale, not the one in the target scale (var.var_source).
                         # The variable is found at another scale:
                         if haskey(inputs_as_output_of_other_scale, org)
                             if haskey(inputs_as_output_of_other_scale[org], proc_output)

@@ -354,14 +354,15 @@ vars_from_mapping(m) = collect(Iterators.flatten(keys.(values(m))))
 vars_type_from_mapping(m) = collect(Iterators.flatten(values.(values(m))))
 
 """
-    MappedVar(organ, var, default)
+    MappedVar(organ, var, var_source, default)
 
 A variable mapped to another scale.
 
 # Arguments
 
 - `organ`: the organ(s) that are targeted by the mapping
-- `var`: the variable that is mapped
+- `var`: the name of the variable that is mapped
+- `var_source`: the name of the variable from the source organ (the one that computes the variable)
 - `default`: the default value of the variable
 
 # Examples
@@ -375,11 +376,28 @@ julia> PlantSimEngine.MappedVar("Leaf", :carbon_assimilation, 1.0)
 PlantSimEngine.MappedVar{String, Float64}("Leaf", :carbon_assimilation, 1.0)
 ```
 """
-struct MappedVar{S<:Union{A,Vector{A}} where {A<:AbstractString},T}
-    organ::S
+struct MappedVar{O<:Union{A,Vector{A}} where {A<:AbstractString},V<:Union{S,Vector{S}} where {S<:Symbol},T}
+    organ::O
     var::Symbol
+    var_source::V
     default::T
 end
+
+mapped_var(m::MappedVar) = m.var
+mapped_organ(m::MappedVar) = m.organ
+var_source(m::MappedVar) = m.var_source
+function var_source(m::MappedVar{O,V,T}, organ) where {O<:String,V<:Symbol,T}
+    @assert organ == mapped_organ(m) "Organ $organ not found in the mapping of the variable $(m.var)."
+    m.var_source
+end
+
+function var_source(m::MappedVar{O,V,T}, organ) where {O<:Vector{String},V<:Vector{Symbol},T}
+    @assert organ in mapped_organ(m) "Organ $organ not found in the mapping of the variable $(m.var)."
+    m.var_source[findfirst(o -> o == organ, m.organ)]
+end
+
+mapped_default(m::MappedVar) = m.default
+mapped_default(m::MappedVar{O,V,T}, organ) where {O<:Vector{String},V<:Vector{Symbol},T} = m.default[findfirst(o -> o == organ, m.organ)]
 
 """
     create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}
@@ -476,7 +494,7 @@ ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 
 
 """
-    reverse_mapping(models; all=true)
+    reverse_mapping(mapping; all=true)
 
 Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales, or in other words,
 what variables are given to other scales from a given scale.
@@ -484,12 +502,14 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 
 # Arguments
 
-- `models::Dict{String,Any}`: A dictionary of model mapping.
+- `mapping::Dict{String,Any}`: A dictionary of model mapping.
 - `all::Bool`: Whether to get all the variables that are mapped to other scales, including the ones that are mapped as single values.
 
 # Returns
 
-- A dictionary of variables (keys) to a dictionary (values) of organs => vector of variables.
+A dictionary of organs (keys) with a dictionary of organs => vector of pair of variables. You can read the output as:
+"for each organ (source organ), to which other organ (target organ) it is giving values for its own variables. Then for each of these source organs, which variable it is
+giving to the target organ (first symbol in the pair), and to which variable it is mapping the value into the target organ (second symbol in the pair)".
 
 # Examples
 
@@ -504,7 +524,7 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
-julia> models = Dict( \
+julia> mapping = Dict( \
             "Plant" => \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
@@ -534,36 +554,31 @@ we expect a single value for the `soil_water_content` to be mapped here (there i
 to get the value as a singleton instead of a vector of values.
 
 ```jldoctest mylabel
-julia> PlantSimEngine.reverse_mapping(models)
-Dict{String, Dict{String, Vector{Symbol}}} with 3 entries:
-  "Soil"      => Dict("Leaf"=>[:soil_water_content])
-  "Internode" => Dict("Plant"=>[:carbon_demand, :carbon_allocation])
-  "Leaf"      => Dict("Plant"=>[:carbon_assimilation, :carbon_demand, :carbon_allocation])
+julia> PlantSimEngine.reverse_mapping(mapping)
+Dict{String, Dict{String, Vector{Pair{Symbol, Symbol}}}} with 3 entries:
+  "Soil"      => Dict("Leaf"=>[:soil_water_content=>:soil_water_content])
+  "Internode" => Dict("Plant"=>[:carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
+  "Leaf"      => Dict("Plant"=>[:carbon_assimilation=>:carbon_assimilation, :carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
 ```
 """
-function reverse_mapping(models; all=true)
-    var_to_ref = Dict{String,Dict{String,Vector{Symbol}}}(i => Dict{String,Vector{Symbol}}() for i in keys(models))
-    for organ in keys(models)
-        # organ = "Plant"
-        map_vars = get_mapping(models[organ])
-        for i in map_vars # e.g.: i = map_vars[end]
-            mapped = last(i) # e.g.: mapped = ["Leaf", "Internode"]
-
-            # If the mapping includes a new name for the variable on the scale it is mapped into, we remove it:
-            isa(mapped, Pair) && (mapped = mapped.first)
-
-            isa(mapped, Vector{Pair}) && (mapped = mapped.first)
+function reverse_mapping(mapping; all=true)
+    var_to_ref = Dict{String,Dict{String,Vector{Pair{Symbol,Symbol}}}}(i => Dict{String,Vector{Pair{Symbol,Symbol}}}() for i in keys(mapping))
+    for organ in keys(mapping)
+        # organ = "Leaf"
+        map_vars = get_mapping(mapping[organ])
+        for i in map_vars # e.g.: i = map_vars[1]
+            mapped = last(i)
 
             # If we want to get all the variables that are mapped to other scales, including the ones that are mapped as single values:
-            isa(mapped, AbstractString) && all && (mapped = [mapped])
+            isa(mapped, Pair{String,Symbol}) && all && (mapped = [mapped])
 
             if isa(mapped, Vector)
-                for j in mapped # e.g.: j = "Leaf"
-                    @assert haskey(var_to_ref, j) "Scale $j not found in the mapping, but mapped to the $organ scale."
-                    if haskey(var_to_ref[j], organ)
-                        push!(var_to_ref[j][organ], first(i))
+                for (o, v) in mapped # e.g.: o = "Leaf"
+                    @assert haskey(var_to_ref, o) "Scale $o not found in the mapping, but mapped to the $organ scale."
+                    if haskey(var_to_ref[o], organ)
+                        push!(var_to_ref[o][organ], v => first(i))
                     else
-                        var_to_ref[j][organ] = [first(i)]
+                        var_to_ref[o][organ] = [v => first(i)]
                     end
                 end
             end
@@ -579,12 +594,21 @@ end
 Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
 defining variables as `MappedVar` if they are mapped to another scale.
 """
-function variables_multiscale(node, organ, mapping)
+function variables_multiscale(node, organ, vars_mapping)
+    defaults = merge(inputs_(node.value), outputs_(node.value))
     map(variables(node)) do vars
         vars_ = Vector{Union{Symbol,MappedVar}}()
         for var in vars # e.g. var = :soil_water_content
-            if haskey(mapping[organ], var)
-                push!(vars_, MappedVar(mapping[organ][var], var, nothing))
+            if haskey(vars_mapping[organ], var)
+                if isa(vars_mapping[organ][var], Pair{String,Symbol})
+                    # One organ is mapped to the variable:
+                    organ_mapped, organ_mapped_var = vars_mapping[organ][var]
+                else
+                    # Several organs are mapped to the variable:
+                    organ_mapped = [first(i) for i in vars_mapping[organ][var]]
+                    organ_mapped_var = [last(i) for i in vars_mapping[organ][var]]
+                end
+                push!(vars_, MappedVar(organ_mapped, var, organ_mapped_var, defaults[var]))
             else
                 push!(vars_, var)
             end

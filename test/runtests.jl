@@ -15,6 +15,10 @@ using Documenter # for doctests
         include("test-ModelList.jl")
     end
 
+    @testset "ModelList" begin
+        include("test-mapping.jl")
+    end
+
     @testset "MultiScaleModel" begin
         include("test-MultiScaleModel.jl")
     end
