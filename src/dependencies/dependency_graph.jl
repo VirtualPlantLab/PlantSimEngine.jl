@@ -5,6 +5,8 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     process::Symbol
     dependency::NamedTuple
     missing_dependency::Vector{Int}
+    inputs
+    outputs
     parent::Union{Nothing,HardDependencyNode}
     children::Vector{HardDependencyNode}
 end
@@ -13,6 +15,8 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
     scale::String
+    inputs
+    outputs
     hard_dependency::Vector{HardDependencyNode}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
@@ -110,6 +114,27 @@ function traverse_dependency_graph(
     end
 
     return var
+end
+
+
+function traverse_dependency_graph!(
+    f::Function,
+    node::SoftDependencyNode,
+    visit_hard_dep=true
+)
+
+    f(node)
+    # Traverse the hard dependencies of the SoftDependencyNode if any:
+    if visit_hard_dep && node isa SoftDependencyNode
+        # draw a branching guide if there's more soft dependencies after this one:
+        for child in node.hard_dependency
+            traverse_dependency_graph!(f, child)
+        end
+    end
+
+    for child in node.children
+        traverse_dependency_graph!(f, child)
+    end
 end
 
 

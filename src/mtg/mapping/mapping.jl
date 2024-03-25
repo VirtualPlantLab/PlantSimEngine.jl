@@ -597,7 +597,7 @@ defining variables as `MappedVar` if they are mapped to another scale.
 function variables_multiscale(node, organ, vars_mapping)
     defaults = merge(inputs_(node.value), outputs_(node.value))
     map(variables(node)) do vars
-        vars_ = Vector{Union{Symbol,MappedVar}}()
+        vars_ = Vector{Pair{Symbol,Any}}()
         for var in vars # e.g. var = :soil_water_content
             if haskey(vars_mapping[organ], var)
                 if isa(vars_mapping[organ][var], Pair{String,Symbol})
@@ -608,11 +608,11 @@ function variables_multiscale(node, organ, vars_mapping)
                     organ_mapped = [first(i) for i in vars_mapping[organ][var]]
                     organ_mapped_var = [last(i) for i in vars_mapping[organ][var]]
                 end
-                push!(vars_, MappedVar(organ_mapped, var, organ_mapped_var, defaults[var]))
+                push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, defaults[var]))
             else
-                push!(vars_, var)
+                push!(vars_, var => defaults[var])
             end
         end
-        return (vars_...,)
+        return (; vars_...,)
     end
 end

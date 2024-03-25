@@ -63,6 +63,8 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
             soft_dep_vars.value,
             process_, # process name
             "",
+            inputs_(soft_dep_vars.value),
+            outputs_(soft_dep_vars.value),
             AbstractTrees.children(soft_dep_vars), # hard dependencies
             nothing,
             nothing,
@@ -138,9 +140,9 @@ end
 # For multiscale mapping:
 function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}})
     independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
-    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Leaf"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
-            # proc = :maintenance_respiration; i = soft_dep_graph[proc]
+            # proc = :carbon_demand; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
             soft_deps = search_inputs_in_output(proc, ins, outs)
 
@@ -163,17 +165,17 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                     # If the process has soft dependencies, then it is not independant
                     # and we need to add its parent(s) to the node, and the node as a child
                     for (parent_soft_dep, soft_dep_vars) in pairs(soft_deps_not_hard)
-                        # parent_soft_dep = :process5; soft_dep_vars = soft_deps[parent_soft_dep]
+                        # parent_soft_dep = :carbon_assimilation; soft_dep_vars = soft_deps[parent_soft_dep]
 
                         # preventing a cyclic dependency
                         if parent_soft_dep == proc
-                            error("Cyclic model dependency detected for process $proc")
+                            error("Cyclic model dependency detected for process $proc from organ $organ.")
                         end
 
                         # preventing a cyclic dependency: if the parent also has a dependency on the current node:
                         if soft_dep_graph[parent_soft_dep].parent !== nothing && any([i == p for p in soft_dep_graph[parent_soft_dep].parent])
                             error(
-                                "Cyclic dependency detected for process $proc:",
+                                "Cyclic dependency detected for process $proc from organ $organ:",
                                 " $proc depends on $parent_soft_dep, which depends on $proc.",
                                 " This is not allowed, but is possible via a hard dependency."
                             )
@@ -182,7 +184,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                         # preventing a cyclic dependency: if the current node has the parent node as a child:
                         if i.children !== nothing && any([soft_dep_graph[parent_soft_dep] == p for p in i.children])
                             error(
-                                "Cyclic dependency detected for process $proc:",
+                                "Cyclic dependency detected for process $proc from organ $organ:",
                                 " $proc depends on $parent_soft_dep, which depends on $proc.",
                                 " This is not allowed, but is possible via a hard dependency."
                             )
@@ -206,14 +208,10 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
 
                 # If the node has soft dependencies at other scales, add it as child of the other scale (and add its parent too):
                 if length(soft_deps_multiscale) > 0
-                    #! Continue here: add the node as a child of the other scale, and add this other node has its parent.
-                    #! Take inspiration from the code above happening at the same scale.
-                    #! Note that the node can have both soft dependencies at its own scale and at other scales, but it is not 
-                    #! a big deal because in the end we drop the scales and only keep the root soft-dependency nodes.
                     for org in keys(soft_deps_multiscale)
                         # org = "Leaf"
                         for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]
-                            # parent_soft_dep= :carbon_assimilation; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
+                            # parent_soft_dep= :maintenance_respiration; soft_dep_vars = soft_deps_multiscale[org][parent_soft_dep]
                             parent_node = soft_dep_graphs_roots.roots[org][:soft_dep_graph][parent_soft_dep]
                             # preventing a cyclic dependency: if the parent also has a dependency on the current node:
                             if parent_node.parent !== nothing && any([i == p for p in parent_node.parent])
@@ -330,15 +328,15 @@ search_inputs_in_output(:process3, in_, out_)
 ```
 """
 function search_inputs_in_output(process, inputs, outputs)
-
+    # proc, ins, outs
     # get the inputs of the node:
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_process = Dict()
-    for (proc_output, pairs_vars_output) in outputs
+    for (proc_output, pairs_vars_output) in outputs # e.g. proc_output = :carbon_assimilation; pairs_vars_output = outs[proc_output]
         if process != proc_output
             vars_output = flatten_vars(pairs_vars_output)
-            inputs_in_outputs = [i in vars_output for i in vars_input]
+            inputs_in_outputs = vars_in_variables(vars_input, vars_output)
 
             if any(inputs_in_outputs)
                 # variables in the inputs of proc_input that are in the outputs of proc_output
@@ -352,6 +350,13 @@ function search_inputs_in_output(process, inputs, outputs)
     return NamedTuple(inputs_as_output_of_process)
 end
 
+function vars_in_variables(vars::T1, variables::T2) where {T1<:NamedTuple,T2<:NamedTuple}
+    [i in keys(variables) for i in keys(vars)]
+end
+
+function vars_in_variables(vars, variables)
+    [i in variables for i in vars]
+end
 
 """
     search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs)
@@ -386,10 +391,10 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
-    for var in vars_input # e.g. var = collect(vars_input)[1]
+    for (var, val) in pairs(vars_input) # e.g. var = :Rm_organs;val = vars_input[var]
         # The variable is a multiscale variable:
-        if isa(var, MappedVar)
-            var_organ = mapped_organ(var)
+        if isa(val, MappedVar)
+            var_organ = mapped_organ(val)
 
             if !isa(var_organ, AbstractVector)
                 # In case the organ is given as a singleton (e.g. "Soil" instead of ["Soil"])
@@ -405,17 +410,17 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                     vars_output = flatten_vars(pairs_vars_output)
 
                     # If the variable is found in the outputs of the process at the other scale:
-                    if var_source(var, org) in vars_output
+                    if var_source(val, org) in keys(vars_output)
                         # NB: We use the variable name used in the source scale, not the one in the target scale (var.var_source).
                         # The variable is found at another scale:
                         if haskey(inputs_as_output_of_other_scale, org)
                             if haskey(inputs_as_output_of_other_scale[org], proc_output)
-                                push!(inputs_as_output_of_other_scale[org][proc_output], var.var)
+                                push!(inputs_as_output_of_other_scale[org][proc_output], val.var)
                             else
-                                inputs_as_output_of_other_scale[org][proc_output] = [var.var]
+                                inputs_as_output_of_other_scale[org][proc_output] = [val.var]
                             end
                         else
-                            inputs_as_output_of_other_scale[org] = Dict(proc_output => [var.var])
+                            inputs_as_output_of_other_scale[org] = Dict(proc_output => [val.var])
                         end
                     end
                 end
@@ -433,7 +438,7 @@ Return a set of the variables in the `vars` dictionary.
 
 # Arguments
 
-- `vars::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => symbols of inputs.
+- `vars::Dict{Symbol, Tuple{Symbol, Vararg{Symbol}}}`: a dict of process => namedtuple of variables => value.
 
 # Returns
 
@@ -449,6 +454,11 @@ Set{Symbol} with 4 elements:
   :var2
   :var1
 ```
+
+```julia
+julia> flatten_vars([:process1 => (var1 = -Inf, var2 = -Inf), :process2 => (var3 = -Inf, var4 = -Inf)])
+(var2 = -Inf, var4 = -Inf, var3 = -Inf, var1 = -Inf)
+```
 """
 function flatten_vars(vars)
     vars_input = Set()
@@ -458,4 +468,14 @@ function flatten_vars(vars)
         end
     end
     vars_input
+end
+
+function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:NamedTuple}
+    vars_input = Set()
+    for (key, val) in vars
+        for (k, j) in pairs(val)
+            push!(vars_input, k => j)
+        end
+    end
+    (; vars_input...)
 end

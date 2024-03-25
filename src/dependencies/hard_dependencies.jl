@@ -11,6 +11,8 @@ function hard_dependencies(models; verbose::Bool=true)
             p,
             NamedTuple(),
             Int[],
+            inputs_(i),
+            outputs_(i),
             nothing,
             HardDependencyNode[]
         ) for (p, i) in pairs(models)
@@ -81,7 +83,7 @@ end
 function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
     full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
 
-    soft_dep_graphs = Dict{String,Any}(i => 0.0 for i in keys(mapping))
+    soft_dep_graphs = Dict{String,Any}()
     not_found = Dict{Symbol,DataType}()
     for (organ, model) in mapping
         # organ = "Leaf"; model = mapping[organ]
@@ -96,25 +98,23 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
             push!(d_vars, procname => var)
         end
 
-        inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
-            key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars
-        )
-        outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Union{Symbol,MappedVar}}}}}}(
-            key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars
-        )
+        inputs_process = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars)
+        outputs_process = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars)
 
         soft_dep_graph = Dict(
             process_ => SoftDependencyNode(
                 soft_dep_vars.value,
                 process_, # process name
                 organ, # scale
+                inputs_process[process_], # These are the inputs, potentially multiscale
+                outputs_process[process_], # Same for outputs
                 AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,
                 SoftDependencyNode[],
                 [0] # Vector of zeros of length = number of time-steps
             )
-            for (process_, soft_dep_vars) in hard_deps.roots
+            for (process_, soft_dep_vars) in hard_deps.roots # proc_ = :carbon_assimilation ; soft_dep_vars = hard_deps.roots[proc_]
         )
 
         soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process, outputs=outputs_process)
