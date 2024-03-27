@@ -410,17 +410,17 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                     vars_output = flatten_vars(pairs_vars_output)
 
                     # If the variable is found in the outputs of the process at the other scale:
-                    if var_source(val, org) in keys(vars_output)
-                        # NB: We use the variable name used in the source scale, not the one in the target scale (var.var_source).
+                    if source_variable(val, org) in keys(vars_output)
+                        # NB: We use the variable name used in the source scale, not the one in the target scale (var.source_variable).
                         # The variable is found at another scale:
                         if haskey(inputs_as_output_of_other_scale, org)
                             if haskey(inputs_as_output_of_other_scale[org], proc_output)
-                                push!(inputs_as_output_of_other_scale[org][proc_output], val.var)
+                                push!(inputs_as_output_of_other_scale[org][proc_output], mapped_variable(val))
                             else
-                                inputs_as_output_of_other_scale[org][proc_output] = [val.var]
+                                inputs_as_output_of_other_scale[org][proc_output] = [mapped_variable(val)]
                             end
                         else
-                            inputs_as_output_of_other_scale[org] = Dict(proc_output => [val.var])
+                            inputs_as_output_of_other_scale[org] = Dict(proc_output => [mapped_variable(val)])
                         end
                     end
                 end
