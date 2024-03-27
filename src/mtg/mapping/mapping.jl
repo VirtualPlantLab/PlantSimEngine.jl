@@ -428,7 +428,9 @@ end
 MappedVar(source_organ, variable, source_variable, source_default) = MappedVar(source_organ, variable, source_variable, source_default, nothing)
 
 mapped_variable(m::MappedVar) = m.variable
-mapped_organ(m::MappedVar) = m.source_organ.scale
+source_organs(m::MappedVar) = m.source_organ
+source_organs(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = nothing
+mapped_organ(m::MappedVar) = source_organs(m).scale
 mapped_organ(m::MappedVar{O,V,T}) where {O<:SelfNodeMapping,V,T} = nothing
 mapped_organ_type(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = O
 source_variable(m::MappedVar) = m.source_variable
@@ -444,6 +446,7 @@ end
 
 mapped_default(m::MappedVar) = m.source_default
 mapped_default(m::MappedVar{O,V,T}, organ) where {O<:MultiNodeMapping,V<:Vector{Symbol},T} = m.source_default[findfirst(o -> o == organ, mapped_organ(m))]
+mapped_default(m) = m # For any variable that is not a MappedVar, we return it as is
 
 """
     create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}

@@ -474,6 +474,15 @@ function convert_vars(type_promotion::Nothing, ref_vars)
     return ref_vars
 end
 
+function convert_vars!(type_promotion::Dict{DataType,DataType}, ref_vars)
+    for (suptype, newtype) in type_promotion
+        for var in keys(ref_vars)
+            if isa(ref_vars[var], suptype)
+                ref_vars[var] = convert(newtype, ref_vars[var])
+            end
+        end
+    end
+end
 
 function Base.show(io::IO, ::MIME"text/plain", t::ModelList)
     print(io, dep(t, verbose=false))

@@ -1,35 +1,5 @@
 """
-    variables_multiscale(node, organ, mapping)
-
-Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
-defining variables as `MappedVar` if they are mapped to another scale.
-"""
-function variables_multiscale(node, organ, vars_mapping)
-    defaults = merge(inputs_(node.value), outputs_(node.value))
-    map(variables(node)) do vars
-        vars_ = Vector{Pair{Symbol,Any}}()
-        for var in vars # e.g. var = :soil_water_content
-            if haskey(vars_mapping[organ], var)
-                if isa(vars_mapping[organ][var], Pair{String,Symbol})
-                    # One organ is mapped to the variable:
-                    organ_mapped, organ_mapped_var = vars_mapping[organ][var]
-                    organ_mapped = SingleNodeMapping(organ_mapped)
-                else
-                    # Several organs are mapped to the variable:
-                    organ_mapped = MultiNodeMapping([first(i) for i in vars_mapping[organ][var]])
-                    organ_mapped_var = [last(i) for i in vars_mapping[organ][var]]
-                end
-                push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, defaults[var]))
-            else
-                push!(vars_, var => defaults[var])
-            end
-        end
-        return (; vars_...,)
-    end
-end
-
-"""
-    mapped_variables(mapping, dependency_graph=dep(mapping))
+    mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
 
 Get the variables for each organ type from a dependency graph, with `MappedVar`s for the multiscale mapping.
 
@@ -37,14 +7,9 @@ Get the variables for each organ type from a dependency graph, with `MappedVar`s
 
 - `mapping::Dict{String,T}`: the mapping between models and scales.
 - `dependency_graph::DependencyGraph`: the dependency graph.
-
-# Details
-
-This function returns a dictionary with the (multiscale-) variables for each organ type. The keys are the organ types, 
-and the values are tuples with the inputs and outputs for each organ type. The inputs and outputs are given as pairs of 
-`:process => (variables,)`.
+- `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph=dep(mapping))
+function mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 
@@ -56,6 +21,8 @@ function mapped_variables(mapping, dependency_graph=dep(mapping))
     # Find variables that are inputs to other scales as a `SingleNodeMapping` and declare them as MappedVar from themselves in the source scale.
     # This helps us declare it as a reference when we create the template status objects.
     transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
+
+    mapped_vars = default_variables_from_mapping(mapped_vars, verbose)
 
     return mapped_vars
 end
@@ -211,4 +178,85 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
     end
 
     return mapped_vars
+end
+
+"""
+    get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[])
+
+Get the default value of a variable from a mapping.
+
+# Arguments
+
+- `mapped_vars::Dict{String,Dict{Symbol,Any}}`: the variables mapped to each organ.
+- `val::Any`: the variable to get the default value of.
+- `mapping_stacktrace::Vector{Any}`: the stacktrace of the search for the value in ascendind the mapping.
+"""
+function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], level=1)
+    if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping})
+        # If the value is a MappedVar, we must find the default value of the variable it is mapping into.
+        # Except if it is mapping to itself, in which case we return the value as is.
+        level += 1
+        # Find the default value of the variable from the scale it is mapping into (upper scale):
+        m_organ = mapped_organ(val)
+        if isa(m_organ, AbstractString)
+            m_organ = [m_organ]
+        end
+        default_vals = []
+        for o in m_organ # e.g. o = "Leaf"
+            upper_value = mapped_vars[o][source_variable(val, o)]
+            push!(mapping_stacktrace, (mapped_organ=o, mapped_variable=source_variable(val, o), mapped_value=mapped_default(upper_value), level=level))
+            # Recursively find the default value until the default value is not a MappedVar:
+            push!(default_vals, get_multiscale_default_value(mapped_vars, upper_value, mapping_stacktrace, level))
+        end
+
+        default_vals = unique(default_vals)
+        if length(default_vals) == 1
+            return default_vals[1]
+        else
+            error(
+                "The variable `$(mapped_variable(val))` is mapped to several scales: $(m_organ), but the default values from the models that compute ",
+                "this variable at these scales is different: $(default_vals). Please make sure that the default values are the same for variable `$(mapped_variable(val))`.",
+            )
+        end
+    elseif isa(val, MappedVar{SelfNodeMapping})
+        return mapped_default(val)
+    else
+        return val
+    end
+end
+
+"""
+    default_variables_from_mapping(mapped_vars, verbose=true)
+
+Get the default values for the mapped variables by recursively searching from the mapping to find the original mapped value.
+
+# Arguments
+
+- `mapped_vars::Dict{String,Dict{Symbol,Any}}`: the variables mapped to each organ.
+- `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
+"""
+function default_variables_from_mapping(mapped_vars, verbose=true)
+    mapped_vars = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
+    mapped_vars_mutable = Dict{String,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
+    for (organ, vars) in mapped_vars # organ = "Plant"; vars = mapped_vars[organ]
+        for (var, val) in pairs(vars) # var = :Rm_organs; val = getproperty(vars,var)
+            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping})
+                mapping_stacktrace = [(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][source_variable(val, organ)]), level=1)]
+                default_value = get_multiscale_default_value(mapped_vars, val, mapping_stacktrace)
+                mapped_vars_mutable[organ][var] = MappedVar(source_organs(val), mapped_variable(val), source_variable(val), default_value)
+                if verbose
+                    @info """Default value for $(var) in $(organ) is taken from a mapping, here is the stacktrace: """ maxlog = 1
+
+                    @info Term.Tables.Table(Tables.matrix(reverse(mapping_stacktrace)); header=["Scale", "Variable name", "Default value", "Level"])
+
+                    @info """The stacktrace shows the step-by-step search for the default value, the last row is the value starting from the organ itself,
+                    and going up to the upper-most model in the dependency graph (first row). The `level` column indicates the level of the search,
+                    with 1 being the upper-most model in the dependency graph. The default value is the value found in the first row of the stacktrace,
+                    or the unique value between common levels.
+                    """ maxlog = 1
+                end
+            end
+        end
+    end
+    return mapped_vars_mutable
 end

@@ -55,9 +55,10 @@ include("dependencies/dependencies.jl")
 
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
-# include("mtg/mapping/mapping_graph.jl") #! to remove
 include("mtg/mapping/mapping.jl")
+include("mtg/mapping/convert_variable_types.jl")
 include("mtg/mapping/new_mapping.jl")  #! to change in mapping.jl
+include("mtg/mapping/status_template.jl") #! this is new
 include("mtg/mapping/find_var_mapped_default.jl")
 include("mtg/initialisation.jl")
 include("mtg/save_results.jl")

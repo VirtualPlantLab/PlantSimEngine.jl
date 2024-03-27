@@ -187,6 +187,62 @@ function traverse_dependency_graph!(
     end
 end
 
+"""
+    variables_multiscale(node, organ, mapping, st=NamedTuple())
+
+Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
+defining variables as `MappedVar` if they are mapped to another scale.
+
+Return a NamedTuple with the variables and their default values.
+
+# Arguments
+
+- `node::HardDependencyNode`: the node to get the variables from.
+- `organ::String`: the organ type, *e.g.* "Leaf".
+- `vars_mapping::Dict{String,T}`: the mapping of the models (see details below).
+- `st::NamedTuple`: an optional named tuple with default values for the variables.
+
+# Details
+
+The `vars_mapping` is a dictionary with the organ type as key and a dictionary as value. It is 
+computed from the user mapping like so:
+
+```julia
+full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
+```
+"""
+function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
+    defaults = merge(inputs_(node.value), outputs_(node.value))
+    map(variables(node)) do vars
+        vars_ = Vector{Pair{Symbol,Any}}()
+        for var in vars # e.g. var = :soil_water_content
+            if var in keys(st)
+                #If the user has given a status, we use it as default value:
+                default = st[var]
+            else
+                # Otherwise, we use the default value given by the model:
+                default = defaults[var]
+            end
+
+            if haskey(vars_mapping[organ], var)
+                if isa(vars_mapping[organ][var], Pair{String,Symbol})
+                    # One organ is mapped to the variable:
+                    organ_mapped, organ_mapped_var = vars_mapping[organ][var]
+                    organ_mapped = SingleNodeMapping(organ_mapped)
+                else
+                    # Several organs are mapped to the variable:
+                    organ_mapped = MultiNodeMapping([first(i) for i in vars_mapping[organ][var]])
+                    organ_mapped_var = [last(i) for i in vars_mapping[organ][var]]
+                end
+                push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
+            else
+                push!(vars_, var => default)
+            end
+        end
+        return (; vars_...,)
+    end
+end
+
 function draw_dependency_graph(
     io,
     graphs::DependencyGraph;

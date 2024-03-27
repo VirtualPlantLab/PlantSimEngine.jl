@@ -91,10 +91,19 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
 
         # Move some models below others when they are manually linked (hard-dependency):
         hard_deps = hard_dependencies((; mods...), verbose=verbose)
+
+        # Get the status given by the user, that is used to set the default values of the variables in the mapping:
+        st = get_status(model)
+        if isnothing(st)
+            st = NamedTuple()
+        else
+            st = NamedTuple(st)
+        end
+
         d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
         for (procname, node) in hard_deps.roots # procname = :carbon_assimilation ; node = hard_deps.roots[procname]
             var = Pair{Symbol,NamedTuple}[]
-            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping), var)
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st), var)
             push!(d_vars, procname => var)
         end
 
