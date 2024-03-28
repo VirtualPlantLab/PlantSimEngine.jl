@@ -22,7 +22,9 @@ function mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
     # This helps us declare it as a reference when we create the template status objects.
     transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
 
-    mapped_vars = default_variables_from_mapping(mapped_vars, verbose)
+    mapped_vars_per_organ = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
+
+    mapped_vars = default_variables_from_mapping(mapped_vars_per_organ, verbose)
 
     return mapped_vars
 end
@@ -236,12 +238,11 @@ Get the default values for the mapped variables by recursively searching from th
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
 function default_variables_from_mapping(mapped_vars, verbose=true)
-    mapped_vars = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
     mapped_vars_mutable = Dict{String,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
     for (organ, vars) in mapped_vars # organ = "Plant"; vars = mapped_vars[organ]
         for (var, val) in pairs(vars) # var = :Rm_organs; val = getproperty(vars,var)
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping})
-                mapping_stacktrace = [(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][source_variable(val, organ)]), level=1)]
+                mapping_stacktrace = Any[(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][var]), level=1)]
                 default_value = get_multiscale_default_value(mapped_vars, val, mapping_stacktrace)
                 mapped_vars_mutable[organ][var] = MappedVar(source_organs(val), mapped_variable(val), source_variable(val), default_value)
                 if verbose
