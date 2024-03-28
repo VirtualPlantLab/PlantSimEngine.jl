@@ -430,7 +430,7 @@ MappedVar(source_organ, variable, source_variable, source_default) = MappedVar(s
 mapped_variable(m::MappedVar) = m.variable
 source_organs(m::MappedVar) = m.source_organ
 source_organs(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = nothing
-mapped_organ(m::MappedVar) = source_organs(m).scale
+mapped_organ(m::MappedVar{O,V,T}) where {O,V,T} = source_organs(m).scale
 mapped_organ(m::MappedVar{O,V,T}) where {O<:SelfNodeMapping,V,T} = nothing
 mapped_organ_type(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = O
 source_variable(m::MappedVar) = m.source_variable
@@ -447,6 +447,18 @@ end
 mapped_default(m::MappedVar) = m.source_default
 mapped_default(m::MappedVar{O,V,T}, organ) where {O<:MultiNodeMapping,V<:Vector{Symbol},T} = m.source_default[findfirst(o -> o == organ, mapped_organ(m))]
 mapped_default(m) = m # For any variable that is not a MappedVar, we return it as is
+
+""" 
+    UninitializedVar(variable, value)
+
+A variable that is not initialized yet, it is given a name and a default value.
+"""
+struct UninitializedVar{T}
+    variable::Symbol
+    value::T
+end
+
+Base.eltype(u::UninitializedVar{T}) where {T} = T
 
 """
     create_var_ref(organ::Vector{<:AbstractString}, default::T) where {T}
@@ -543,7 +555,8 @@ ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 
 
 """
-    reverse_mapping(mapping; all=true)
+    reverse_mapping(mapping::Dict{String,Tuple{Any,Vararg{Any}}}; all=true)
+    reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
 Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales, or in other words,
 what variables are given to other scales from a given scale.
@@ -610,30 +623,38 @@ Dict{String, Dict{String, Vector{Pair{Symbol, Symbol}}}} with 3 entries:
   "Leaf"      => Dict("Plant"=>[:carbon_assimilation=>:carbon_assimilation, :carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
 ```
 """
-function reverse_mapping(mapping; all=true)
-    var_to_ref = Dict{String,Dict{String,Vector{Pair{Symbol,Symbol}}}}(i => Dict{String,Vector{Pair{Symbol,Symbol}}}() for i in keys(mapping))
-    for organ in keys(mapping)
-        # organ = "Leaf"
-        map_vars = get_mapping(mapping[organ])
-        for i in map_vars # e.g.: i = map_vars[1]
-            mapped = last(i)
+function reverse_mapping(mapping::Dict{String,Tuple{Any,Vararg{Any}}}; all=true)
+    # Method for the reverse mapping applied directly on the mapping (not used in the code base)
+    mapped_vars = mapped_variables(mapping, dep(mapping), verbose=false)
+    reverse_mapping(mapped_vars, all=all)
+end
 
-            # If we want to get all the variables that are mapped to other scales, including the ones that are mapped as single values:
-            isa(mapped, Pair{String,Symbol}) && all && (mapped = [mapped])
+function reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}}; all=true)
+    reverse_multiscale_mapping = Dict{String,Dict{String,Dict{Symbol,Any}}}(org => Dict{String,Dict{Symbol,Any}}() for org in keys(mapped_vars))
+    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+        for (var, val) in vars # e.g. var = :Rm_organs; val = vars[var]
+            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && (all || !isa(val, MappedVar{SingleNodeMapping}))
+                # Note: We skip the MappedVar{SelfNodeMapping} because it is a special case where the variable is mapped to itself
+                # and we don't want to add it to the reverse mapping. We also skip the MappedVar{SingleNodeMapping} if `all=false`
+                # because we don't want to add the variables that are mapped as single values to the reverse mapping.
 
-            if isa(mapped, Vector)
-                for (o, v) in mapped # e.g.: o = "Leaf"
-                    @assert haskey(var_to_ref, o) "Scale $o not found in the mapping, but mapped to the $organ scale."
-                    if haskey(var_to_ref[o], organ)
-                        push!(var_to_ref[o][organ], v => first(i))
-                    else
-                        var_to_ref[o][organ] = [v => first(i)]
+                mapped_orgs = mapped_organ(val)
+                isnothing(mapped_orgs) && continue
+                if mapped_orgs isa String
+                    mapped_orgs = [mapped_orgs]
+                end
+
+                for mapped_o in mapped_orgs # e.g.: mapped_o = "Leaf"
+                    # if !haskey(reverse_multiscale_mapping, mapped_o)
+                    #     reverse_multiscale_mapping[mapped_o] = Dict{Symbol,Vector{MappedVar}}()
+                    # end
+                    if !haskey(reverse_multiscale_mapping[mapped_o], organ)
+                        reverse_multiscale_mapping[mapped_o][organ] = Dict{Symbol,Any}(source_variable(val, mapped_o) => mapped_variable(val))
                     end
+                    push!(reverse_multiscale_mapping[mapped_o][organ], source_variable(val, mapped_o) => mapped_variable(val))
                 end
             end
         end
     end
-
-    return filter!(x -> length(last(x)) > 0, var_to_ref)
+    filter!(x -> length(last(x)) > 0, reverse_multiscale_mapping)
 end
-

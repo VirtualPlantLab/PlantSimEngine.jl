@@ -132,3 +132,7 @@ end
 function RefVector(field::Symbol, sts::Vector{<:Status})
     return RefVector(typeof(refvalue(sts[1], field))[refvalue(st, field) for st in sts])
 end
+
+function RefVector{T}() where {T}
+    return RefVector{T}(Base.RefValue{T}[])
+end

@@ -17,7 +17,7 @@ import FLoops: @floop, ThreadedEx, SequentialEx, DistributedEx
 
 # For MTG compatibility:
 import MultiScaleTreeGraph
-import MultiScaleTreeGraph: symbol
+import MultiScaleTreeGraph: symbol, node_id
 
 # To compute mean:
 import Statistics

@@ -502,9 +502,9 @@ Converts the types of the variables in a mapping (`mapped_vars`) using the `type
 The mapping should be a dictionary with organ name as keys and a dictionary of variables as values,
 with variable names as symbols and variable value as value.
 """
-function convert_vars!(mapped_vars::Dict{String,Dict{String}}, type_promotion)
+function convert_vars!(mapped_vars::Dict{String,Dict{Symbol,Any}}, type_promotion)
     for (organ, vars) in mapped_vars
-        convert_vars!(type_promotion, vars)
+        convert_vars!(vars, type_promotion)
     end
 end
 

@@ -22,7 +22,10 @@ function mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
     # This helps us declare it as a reference when we create the template status objects.
     transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
 
+    # We now merge inputs and outputs into a single dictionary:
     mapped_vars_per_organ = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
+    #* Important note: the merge order is important, because if an input variable is uninitialized but computed by a model at the same scale,
+    #* we don't need any initialisation (it is computed), so we take the default value from the output (that is the default value from the model).
 
     mapped_vars = default_variables_from_mapping(mapped_vars_per_organ, verbose)
 
@@ -260,4 +263,56 @@ function default_variables_from_mapping(mapped_vars, verbose=true)
         end
     end
     return mapped_vars_mutable
+end
+
+
+"""
+    convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+
+Convert the variables that are `MappedVar{SelfNodeMapping}` or `MappedVar{SingleNodeMapping}` to RefValues that reference a 
+common value for the variable; and convert `MappedVar{MultiNodeMapping}` to RefVectors that reference the values for the
+variable in the source organs.
+"""
+function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+    # For the variables that will be RefValues, i.e. referencing a value that exists for different scales, we need to first 
+    # create a common reference to the value that we use wherever we need this value. These values are created in the dict_mapped_vars
+    # Dict, and then referenced from there every time we point to it.
+    # So in essence we replace the MappedVar{SelfNodeMapping} and MappedVar{SingleNodeMapping} by a RefValue to the actual variable.
+    dict_mapped_vars = Dict{Pair,Any}()
+
+    # First pass: converting the MappedVar{SelfNodeMapping} and MappedVar{SingleNodeMapping} to RefValues:
+    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+        for (k, v) in vars # e.g.: k = :Rm_organs; v = vars[k]
+            if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
+                mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
+                # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
+                if !haskey(dict_mapped_vars, mapped_org => mapped_variable(v))
+                    push!(dict_mapped_vars, Pair(mapped_org, mapped_variable(v)) => Ref(mapped_default(vars[k])))
+                end
+
+                # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:
+                vars[k] = dict_mapped_vars[mapped_org=>mapped_variable(v)]
+            end
+        end
+    end
+
+    # Second pass: converting the MappedVar{MultiNodeMapping} to RefVectors:
+    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+        for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
+            if isa(v, MappedVar{MultiNodeMapping})
+                # We have to create a RefVector for the target organ:
+                orgs_defaults = [mapped_vars[org][source_variable(v, org)] for org in mapped_organ(v)] |> unique
+                if length(orgs_defaults) > 1
+                    error(
+                        "In organ $organ, the variable `$(mapped_variable(v))` is mapped to several scales: $(mapped_organ(v)), but the default values from the models that compute ",
+                        "this variable at these scales are different: $(orgs_defaults) (note that `type_promotion` has been applied). ",
+                        "Please make sure that the default values are the same for variable `$(mapped_variable(v))`."
+                    )
+                end
+                vars[k] = RefVector{typeof(orgs_defaults)}()
+            end
+        end
+    end
+
+    return mapped_vars
 end

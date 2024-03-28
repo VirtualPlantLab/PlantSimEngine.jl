@@ -191,7 +191,9 @@ end
     variables_multiscale(node, organ, mapping, st=NamedTuple())
 
 Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
-defining variables as `MappedVar` if they are mapped to another scale.
+defining variables as `MappedVar` if they are mapped to another scale. The default values are 
+taken from the model if not given by the user (`st`), and are marked as `UninitializedVar` if 
+they are inputs of the node.
 
 Return a NamedTuple with the variables and their default values.
 
@@ -212,15 +214,21 @@ full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in m
 ```
 """
 function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
-    defaults = merge(inputs_(node.value), outputs_(node.value))
+    ins = inputs_(node.value)
+    ins_variables = keys(ins)
+    defaults = merge(ins, outputs_(node.value))
     map(variables(node)) do vars
         vars_ = Vector{Pair{Symbol,Any}}()
         for var in vars # e.g. var = :soil_water_content
             if var in keys(st)
                 #If the user has given a status, we use it as default value:
                 default = st[var]
-            else
+            elseif var in ins_variables
                 # Otherwise, we use the default value given by the model:
+                # If the variable is an input, we mark it as uninitialized:
+                default = UninitializedVar(var, defaults[var])
+            else
+                # If the variable is an output, we use the default value given by the model:
                 default = defaults[var]
             end
 
