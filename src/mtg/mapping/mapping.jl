@@ -234,7 +234,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
         multi_scale_vars_vec = find_var_mapped_default(models, organ, map_vars, ins, outs)
 
         # As a status, promoted to what the user required:
-        multi_scale_vars = Status(convert_vars(type_promotion, NamedTuple(multi_scale_vars_vec)))
+        multi_scale_vars = Status(convert_vars(NamedTuple(multi_scale_vars_vec), type_promotion))
 
         # Users can provide initialisation values in a status. We get them here:
         st = get_status(models[organ])
@@ -254,7 +254,7 @@ function compute_mapping(models::Dict{String,T}, type_promotion) where {T}
             # defined from the models at the target scale, so we need to add it to this other scale
             # as an output variable.
 
-            new_st = Status(merge(NamedTuple(convert_vars(type_promotion, st)), NamedTuple(multi_scale_vars)))
+            new_st = Status(merge(NamedTuple(convert_vars(st, type_promotion)), NamedTuple(multi_scale_vars)))
             diff_keys = intersect(keys(st), keys(multi_scale_vars))
             for i in diff_keys
                 if isa(new_st[i], RefVector)

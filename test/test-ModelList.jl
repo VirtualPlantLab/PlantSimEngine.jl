@@ -164,11 +164,11 @@ end;
     )
     type_promotion = Dict(Real => Float32)
 
-    process3_Float32 = PlantSimEngine.convert_vars(type_promotion, ref_vars.process3)
+    process3_Float32 = PlantSimEngine.convert_vars(ref_vars.process3, type_promotion)
 
     @test all([isa(getfield(process3_Float32, i), Float32) for i in keys(process3_Float32)])
 
-    process3_same = PlantSimEngine.convert_vars(nothing, ref_vars.process3)
+    process3_same = PlantSimEngine.convert_vars(ref_vars.process3, nothing)
     @test process3_same == ref_vars.process3
 end
 

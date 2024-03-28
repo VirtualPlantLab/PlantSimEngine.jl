@@ -268,7 +268,7 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, ns
     # Else, we add the variables by making a new object (carefull, this is a copy so it takes more time):
 
     # Convert model variables types to the one required by the user:
-    ref_vars = convert_vars(type_promotion, ref_vars)
+    ref_vars = convert_vars(ref_vars, type_promotion)
 
     # If the user gave an empty status, we initialize all variables to their default values:
     if x === nothing || (!Tables.istable(x) && length(x) == 0)
@@ -304,7 +304,7 @@ function add_model_vars(x::Nothing, models, type_promotion)
     ref_vars = merge(init_variables(models; verbose=false)...)
     length(ref_vars) == 0 && return x
     # Convert model variables types to the one required by the user:
-    return convert_vars(type_promotion, ref_vars)
+    return convert_vars(ref_vars, type_promotion)
 end
 
 """
@@ -428,10 +428,13 @@ end
 
 
 """
-    convert_vars(type_promotion::Dict{DataType,DataType}, ref_vars)
-    convert_vars(type_promotion::Nothing, ref_vars)
+    convert_vars(ref_vars, type_promotion::Dict{DataType,DataType})
+    convert_vars(ref_vars, type_promotion::Nothing)
+    convert_vars!(ref_vars::Dict{Symbol}, type_promotion::Dict{DataType,DataType})
+    convert_vars!(ref_vars::Dict{Symbol}, type_promotion::Nothing)
 
 Convert the status variables to the type specified in the type promotion dictionary.
+*Note: the mutating version only works with a dictionary of variables.*
 
 # Examples
 
@@ -453,7 +456,9 @@ type_promotion = Dict(Real => Float32)
 PlantSimEngine.convert_vars(type_promotion, ref_vars.process3)
 ```
 """
-function convert_vars(type_promotion::Dict{DataType,DataType}, ref_vars)
+convert_vars, convert_vars!
+
+function convert_vars(ref_vars, type_promotion::Dict{DataType,DataType})
     dict_ref_vars = Dict{Symbol,Any}(zip(keys(ref_vars), values(ref_vars)))
     for (suptype, newtype) in type_promotion
         vars = []
@@ -469,18 +474,37 @@ function convert_vars(type_promotion::Dict{DataType,DataType}, ref_vars)
     return NamedTuple(dict_ref_vars)
 end
 
-# This is the generic one, with no convertion:
-function convert_vars(type_promotion::Nothing, ref_vars)
-    return ref_vars
-end
-
-function convert_vars!(type_promotion::Dict{DataType,DataType}, ref_vars)
+# Mutating version of the function, needs a dictionary of variables:
+function convert_vars!(ref_vars::Dict{Symbol,Any}, type_promotion::Dict{DataType,DataType})
     for (suptype, newtype) in type_promotion
         for var in keys(ref_vars)
             if isa(ref_vars[var], suptype)
                 ref_vars[var] = convert(newtype, ref_vars[var])
             end
         end
+    end
+end
+
+# This is the generic one, with no convertion:
+function convert_vars(ref_vars, type_promotion::Nothing)
+    return ref_vars
+end
+
+function convert_vars!(ref_vars::Dict{String,Dict{Symbol,Any}}, type_promotion::Nothing)
+    return ref_vars
+end
+
+"""
+    convert_vars!(mapped_vars::Dict{String,Dict{String,Any}}, type_promotion)
+
+Converts the types of the variables in a mapping (`mapped_vars`) using the `type_promotion` dictionary.
+
+The mapping should be a dictionary with organ name as keys and a dictionary of variables as values,
+with variable names as symbols and variable value as value.
+"""
+function convert_vars!(mapped_vars::Dict{String,Dict{String}}, type_promotion)
+    for (organ, vars) in mapped_vars
+        convert_vars!(type_promotion, vars)
     end
 end
 

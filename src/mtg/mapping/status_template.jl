@@ -1,11 +1,9 @@
-function status_template2(mapping::Dict{String}, type_promotion; verbose=false)
+function status_template2(mapping::Dict{String}, type_promotion=nothing; verbose=false)
 
     mapped_vars = mapped_variables(mapping, dep(mapping), verbose=verbose)
 
     # Update the types of the variables as desired by the user:
-    convert_variable_types!(mapped_vars, type_promotion)
-
-    #! continue here
+    convert_vars!(mapped_vars, type_promotion)
 
     # organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
     # dict_mapped_vars = Dict{Pair,Any}()
