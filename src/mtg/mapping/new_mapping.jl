@@ -302,6 +302,11 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
             if isa(v, MappedVar{MultiNodeMapping})
                 # We have to create a RefVector for the target organ:
                 orgs_defaults = [mapped_vars[org][source_variable(v, org)] for org in mapped_organ(v)] |> unique
+
+                if eltype(orgs_defaults) <: Ref
+                    orgs_defaults = [org[] for org in orgs_defaults] |> unique
+                end
+
                 if length(orgs_defaults) > 1
                     error(
                         "In organ $organ, the variable `$(mapped_variable(v))` is mapped to several scales: $(mapped_organ(v)), but the default values from the models that compute ",
@@ -309,7 +314,7 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
                         "Please make sure that the default values are the same for variable `$(mapped_variable(v))`."
                     )
                 end
-                vars[k] = RefVector{typeof(orgs_defaults)}()
+                vars[k] = RefVector{eltype(orgs_defaults)}()
             end
         end
     end

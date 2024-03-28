@@ -475,11 +475,27 @@ function convert_vars(ref_vars, type_promotion::Dict{DataType,DataType})
 end
 
 # Mutating version of the function, needs a dictionary of variables:
-function convert_vars!(ref_vars::Dict{Symbol,Any}, type_promotion::Dict{DataType,DataType})
+function convert_vars!(ref_vars::Dict{Symbol,Any}, type_promotion::Dict)
     for (suptype, newtype) in type_promotion
         for var in keys(ref_vars)
             if isa(ref_vars[var], suptype)
                 ref_vars[var] = convert(newtype, ref_vars[var])
+            elseif isa(ref_vars[var], MappedVar) && isa(mapped_default(ref_vars[var]), suptype)
+                ref_mapped_var = ref_vars[var]
+                old_default = mapped_default(ref_vars[var])
+
+                if isa(old_default, AbstractArray)
+                    new_val = [convert(newtype, i) for i in old_default]
+                else
+                    new_val = convert(newtype, old_default)
+                end
+
+                ref_vars[var] = MappedVar(
+                    source_organs(ref_mapped_var),
+                    mapped_variable(ref_mapped_var),
+                    source_variable(ref_mapped_var),
+                    new_val,
+                )
             end
         end
     end
