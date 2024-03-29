@@ -160,11 +160,16 @@ This helps us declare it as a reference when we create the template status objec
 These node are found in the mapping as `[:variable_name => "Plant"]` (notice that "Plant" is a scalar value).
 """
 function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
-    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs]["Leaf"]
-        for (var, mapped_var) in pairs(vars) # e.g. var = :soil_water_content; mapped_var = vars[:soil_water_content]
+    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Internode"; vars = mapped_vars[:inputs][organ]
+        for (var, mapped_var) in pairs(vars) # e.g. var = :TT; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
+
+                # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
+                isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
+                # Note: this happens when a variable is mapped to several scales, e.g. soil_water_content computed at soil scale can be 
+                # mapped at "Leaf" and "Internode" scale.
 
                 # Transforming the variable into a MappedVar pointing to itself:
                 self_mapped_var = (;

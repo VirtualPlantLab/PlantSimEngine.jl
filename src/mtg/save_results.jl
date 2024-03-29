@@ -132,7 +132,7 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     end
 
     # Checking that variables in outputs exist in the statuses, and adding the :node variable:
-    for (organ, vars) in outs_
+    for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
         if !all(i in collect(keys(statuses[organ][1])) for i in vars)
             not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
             e = string(

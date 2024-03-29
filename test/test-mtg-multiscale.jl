@@ -14,7 +14,7 @@ meteo = Weather(
     var2 = 0.3
     leaf[:var2] = var2
 
-    models = Dict(
+    mapping = Dict(
         "Leaf" => (
             Process1Model(1.0),
             Process2Model(),
@@ -26,7 +26,12 @@ meteo = Weather(
     @test descendants(mtg, :var1) == [nothing, nothing]
     @test descendants(mtg, :var2) == [nothing, var2]
 
-    to_init = to_initialize(models)
+
+    # dep(mapping)
+    # mapped_vars = mapped_variables(mapping, dep(mapping), verbose=false)
+    # reverse_mapping(mapped_vars, all=all)
+
+    to_init = to_initialize(mapping)
     @test to_init["Leaf"].need_initialisation == Symbol[:var2]
     @test get_node(mtg, 3)[:var2] == var2
 end

@@ -623,7 +623,7 @@ Dict{String, Dict{String, Vector{Pair{Symbol, Symbol}}}} with 3 entries:
   "Leaf"      => Dict("Plant"=>[:carbon_assimilation=>:carbon_assimilation, :carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
 ```
 """
-function reverse_mapping(mapping::Dict{String,Tuple{Any,Vararg{Any}}}; all=true)
+function reverse_mapping(mapping::Dict{String,T}; all=true) where {T<:Any}
     # Method for the reverse mapping applied directly on the mapping (not used in the code base)
     mapped_vars = mapped_variables(mapping, dep(mapping), verbose=false)
     reverse_mapping(mapped_vars, all=all)

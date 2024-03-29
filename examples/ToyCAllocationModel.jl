@@ -36,7 +36,7 @@ end
 
 # Define outputs:
 function PlantSimEngine.outputs_(::ToyCAllocationModel)
-    (carbon_offer=[-Inf], carbon_allocation=[-Inf],)
+    (carbon_offer=-Inf, carbon_allocation=[-Inf],)
 end
 
 function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, mtg)

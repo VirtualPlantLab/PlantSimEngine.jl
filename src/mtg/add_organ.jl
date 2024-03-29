@@ -30,8 +30,7 @@ or the `test-mtg-dynamic.jl` test file for an example usage.
 """
 function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, scale; index=0, id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(node)), attributes=Dict{Symbol,Any}())
     new_node = MultiScaleTreeGraph.Node(id, node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale), attributes)
-    #! delete sim_object.map_other_scales
-    st = PlantSimEngine.init_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.map_other_scales, sim_object.var_need_init)
+    st = init_node_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.reverse_multiscale_mapping, sim_object.var_need_init)
 
     return st
 end

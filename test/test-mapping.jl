@@ -53,5 +53,3 @@ root_models = Dict(
 for (proc, node) in dep_graph.roots # proc = ("Soil" => :soil_water) ; node = dep_graph.roots[proc]
     @test root_models[proc] == node.value
 end
-
-dump(dep_graph.roots["Internode"=>:carbon_demand])

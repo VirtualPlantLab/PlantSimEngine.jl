@@ -1,6 +1,7 @@
 # using PlantSimEngine, DataFrames, MultiScaleTreeGraph
 # using PlantSimEngine.Examples;
 mtg = import_mtg_example();
+
 # Example meteo:
 meteo = Weather(
     [
@@ -42,6 +43,7 @@ mapping = Dict(
             mapping=[:TT_cu => "Scene"],
         ),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(biomass=1.0)
     ),
     "Leaf" => (
         MultiScaleModel(
@@ -53,6 +55,7 @@ mapping = Dict(
             mapping=[:TT => "Scene",],
         ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(biomass=1.0)
     ),
     "Soil" => (
         ToySoilWaterModel(),

@@ -1,5 +1,5 @@
 """
-    init_statuses(mtg, mapping; type_promotion=nothing, check=true)
+    init_statuses(mtg, mapping, dependency_graph=dep(mapping); type_promotion=nothing, verbose=true)
     
 Get the status of each node in the MTG by node type, pre-initialised considering multi-scale variables.
 
@@ -7,19 +7,20 @@ Get the status of each node in the MTG by node type, pre-initialised considering
 
 - `mtg`: the plant graph
 - `mapping`: a dictionary of model mapping
+- `dependency_graph`: the dependency graph of the models
 - `type_promotion`: the type promotion to use for the variables
-- `check`: whether to check the mapping for errors
+- `verbose`: print information when compiling the mapping
 
 # Return
 
 A NamedTuple of status by node type, a dictionary of status templates by node type, a dictionary of variables mapped to other scales,
 a dictionary of variables that need to be initialised or computed by other models, and a vector of nodes that have a model defined for their symbol:
 
-`(;statuses, status_templates, map_other_scales, var_need_init, nodes_with_models)`
+`(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping; type_promotion=nothing, check=true, verbose=true)
+function init_statuses(mtg, mapping, dependency_graph=dep(mapping); type_promotion=nothing, verbose=false)
     # We compute the variables mapping for each scale:
-    mapped_vars = mapped_variables(mapping, dep(mapping), verbose=verbose)
+    mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 
     # Update the types of the variables as desired by the user:
     convert_vars!(mapped_vars, type_promotion)
@@ -34,8 +35,9 @@ function init_statuses(mtg, mapping; type_promotion=nothing, check=true, verbose
     # Note: these variables may be present in the MTG attributes, we check that below when traversing the MTG.
 
     # Compute the reverse multiscale dependencies, *i.e.* for each scale, which variable is mapped to the other scale
-    reverse_multiscale_mapping = reverse_mapping(mapping)
+    reverse_multiscale_mapping = reverse_mapping(mapped_vars, all=false)
     # Note: this is used when we add a node value for such variable in the RefVector of the other scale.
+    # Note 2: we use the `all=false` option to only get the variables that are mapped to another scale as a vector.
 
     # We traverse the MTG to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in collect(keys(mapped_vars)))
@@ -43,7 +45,7 @@ function init_statuses(mtg, mapping; type_promotion=nothing, check=true, verbose
         init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion)
     end
 
-    return (; statuses, mapped_vars, vars_need_init)
+    return (; statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init)
 end
 
 
@@ -51,7 +53,7 @@ end
     init_node_status!(
         node, 
         statuses, 
-        status_templates, 
+        mapped_vars, 
         reverse_multiscale_mapping,
         vars_need_init=Dict{String,Any}(), 
     )
@@ -62,7 +64,7 @@ Initialise the status of a plant graph node, taking into account the multiscale 
 
 - `node`: the node to initialise
 - `statuses`: the dictionary of statuses by node type
-- `status_templates`: the template of status for each node type
+- `mapped_vars`: the template of status for each node type
 - `reverse_multiscale_mapping`: the variables that are mapped to other scales
 - `var_need_init`: the variables that are not initialised or computed by other models
 - `nodes_with_models`: the nodes that have a model defined for their symbol
@@ -71,15 +73,15 @@ Initialise the status of a plant graph node, taking into account the multiscale 
 
 Most arguments can be computed from the graph and the mapping:
 - `statuses` is given by the first initialisation: `statuses = Dict(i => Status[] for i in nodes_with_models)`
-- `status_templates` is computed usin `status_template(mapping, type_promotion)`
+- `mapped_vars` is computed usin `status_template(mapping, type_promotion)`
 - `vars_need_init` is computed using `to_initialize(mapping, mtg)`
 """
-function init_node_status!(node, statuses, status_templates, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing)
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing)
     # Check if the node has a model defined for its symbol, if not, no need to compute
-    symbol(node) ∉ collect(keys(status_templates)) && return
+    symbol(node) ∉ collect(keys(mapped_vars)) && return
 
     # We make a copy of the template status for this node:
-    st_template = copy(status_templates[symbol(node)])
+    st_template = copy(mapped_vars[symbol(node)])
 
     # We add a reference to the node into the status, so that we can access it from the models if needed.
     push!(st_template, :node => Ref(node))
@@ -120,9 +122,9 @@ function init_node_status!(node, statuses, status_templates, reverse_multiscale_
     # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
     # add a reference to the value of any variable that is used by another scale into its RefVector:
     if haskey(reverse_multiscale_mapping, symbol(node))
-        for (organ, vars) in reverse_multiscale_mapping[symbol(node)] # e.g.: organ = "Plant"; vars = reverse_multiscale_mapping[symbol(node)][organ]
-            for (var_source, var_target) in vars # e.g.: var_source, var_target = :Rm => :Rm_organs
-                push!(status_templates[organ][var_target], refvalue(st, var_source))
+        for (organ, vars) in reverse_multiscale_mapping[symbol(node)] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
+            for (var_source, var_target) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
+                push!(mapped_vars[organ][var_target], refvalue(st, var_source))
             end
         end
     end
@@ -385,10 +387,13 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
+    # Compute the multi-scale dependency graph of the models:
+    dependency_graph = dep(mapping, verbose=verbose)
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
-    statuses, status_templates, map_other_scales, var_need_init =
-        init_statuses(mtg, mapping; type_promotion=type_promotion, check=check)
+    statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
+        init_statuses(mtg, mapping, dependency_graph; type_promotion=type_promotion, verbose=verbose)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -396,12 +401,9 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
     end
 
-    # Compute the multi-scale dependency graph of the models:
-    dependency_graph = dep(mapping, verbose=verbose)
-
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
     outputs = pre_allocate_outputs(statuses, outputs, nsteps, check=check)
 
-    return (; mtg, statuses, status_templates, map_other_scales, var_need_init, dependency_graph, models, outputs)
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph, models, outputs)
 end

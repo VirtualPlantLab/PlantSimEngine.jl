@@ -29,7 +29,7 @@ PlantSimEngine.outputs_(::ToyMaintenanceRespirationModel) = (Rm=-Inf,)
 function PlantSimEngine.run!(m::ToyMaintenanceRespirationModel, models, status, meteo, constants, extra=nothing)
     status.Rm =
         status.biomass * m.P_alive * m.nitrogen_content * m.Rm_base *
-        m.Q10^(((meteo.Tmax + meteo.Tmin) / 2.0 - m.T_ref) / 10.0)
+        m.Q10^((meteo.T - m.T_ref) / 10.0)
 end
 
 """

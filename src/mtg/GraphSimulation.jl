@@ -20,7 +20,7 @@ A type that holds all information for a simulation over a graph.
 - `mapping`: a dictionary of model mapping
 - `statuses`: a structure that defines the status of each node in the graph
 - `status_templates`: a dictionary of status templates
-- `map_other_scales`: a dictionary of mapping for other scales
+- `reverse_multiscale_mapping`: a dictionary of mapping for other scales
 - `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
@@ -30,21 +30,21 @@ struct GraphSimulation{T,S,U,O,V}
     graph::T
     statuses::S
     status_templates::Dict{String,Dict{Symbol,Any}}
-    map_other_scales::Dict{String,Dict{String,Vector{Symbol}}}
+    reverse_multiscale_mapping::Dict{String,Dict{String,Dict{Symbol,Any}}}
     var_need_init::Dict{String,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
     outputs::Dict{String,O}
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
     GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph
 status(g::GraphSimulation) = g.statuses
 status_template(g::GraphSimulation) = g.status_templates
-map_other_scales(g::GraphSimulation) = g.map_other_scales
+reverse_mapping(g::GraphSimulation) = g.reverse_multiscale_mapping
 var_need_init(g::GraphSimulation) = g.var_need_init
 get_models(g::GraphSimulation) = g.models
 outputs(g::GraphSimulation) = g.outputs
