@@ -150,13 +150,19 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
         vars_in_mtg = names(graph)
     end
 
-    # Variables that need to be initialized:
-    to_init = flatten_vars([to_initialize(dep(mapping))...])
+    to_init = Dict(org => Symbol[] for org in keys(mapping))
+    mapped_vars = mapped_variables(mapping, dep(mapping), verbose=false)
+    for (org, vars) in mapped_vars
+        for (var, val) in vars
+            if isa(val, UninitializedVar) && var ∉ vars_in_mtg
+                push!(to_init[org], var)
+            end
+        end
+    end
 
-    # Variables that are not in the MTG (can't initialise them from the attributes):
-    not_in_mtg = setdiff(keys(to_init), vars_in_mtg)
+    filter!(x -> length(last(x)) > 0, to_init)
 
-    return not_in_mtg
+    return to_init
 end
 
 """
