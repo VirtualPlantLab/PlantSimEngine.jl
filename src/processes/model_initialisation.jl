@@ -150,99 +150,13 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
         vars_in_mtg = names(graph)
     end
 
-    # Get the reverse mapping between scales:
-    rev_mapping = reverse_mapping(mapping; all=true)
+    # Variables that need to be initialized:
+    to_init = flatten_vars([to_initialize(dep(mapping))...])
 
-    var_need_init = Dict{String,NamedTuple{(:need_initialisation, :need_models_from_scales, :need_var_from_mtg),Tuple{Vector{Symbol},Vector{NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}},Vector{VarFromMTG}}}}()
-    for organ in keys(mapping)
-        # organ = "Plant"
-        # Get all mapping for the organ:
-        mods = get_models(mapping[organ])
-        map_vars = get_mapping(mapping[organ])
-        user_st = get_status(mapping[organ]) # User status
+    # Variables that are not in the MTG (can't initialise them from the attributes):
+    not_in_mtg = setdiff(keys(to_init), vars_in_mtg)
 
-        if isnothing(user_st)
-            user_st = NamedTuple()
-        else
-            user_st = NamedTuple(user_st)
-        end
-
-        multiscale_vars = collect(first(i) for i in map_vars)
-        ins = merge(inputs_.(mods)...)
-        outs = merge(outputs_.(mods)...)
-
-        # Variables in the node that are defined as multiscale:
-        multi_scale_ins = intersect(keys(ins), multiscale_vars) # inputs: variables that are taken from another scale
-
-        # Variables we need to initialise for this scale:
-        vars_needed_this_scale = setdiff(keys(ins), keys(outs))
-        # And that are not provided by the user:
-        setdiff!(vars_needed_this_scale, keys(user_st))
-
-        need_initialisation = Symbol[]
-        need_var_from_mtg = VarFromMTG[]
-        need_models_from_scales = NamedTuple{(:var, :scale, :need_scales),Tuple{Symbol,String,Union{String,Vector{String}}}}[]
-
-        for var in vars_needed_this_scale # e.g. var_ = :carbon_demand
-            # If the variable is multiscale (it is computed by anothe model), we check if there is a model at the 
-            # other scale(s) that computes it:
-            if var in multi_scale_ins
-                # Scale(s) at which the variable is computed:
-                from_scales = last(map_vars[findfirst(i -> i == var, multiscale_vars)])
-                # We check if there is a model at the other scale(s) that computes it:
-                outputs_from_scales = PlantSimEngine.map_scale(mapping, from_scales) do m, s
-                    # We check that the node type exist in the model list:
-                    haskey(m, s) || error(
-                        "Nodes of type $organ are mapping to variable `:$var` computed from nodes of type $s, but there is no type $s in the list of mapping."
-                    )
-                    # If it does, we get the outputs of its mapping:
-                    merge(outputs_.(get_models(m[s]))...)
-                end
-
-                outputs_from_scales = merge(outputs_from_scales...)
-                if var in keys(outputs_from_scales)
-                    # If the variable is computed by a model at the other scale, we don't need to initialise it:
-                    continue
-                else
-                    # If the variable is not found, it may be computed by another scale onto this one (in this case we return an error).
-                    PlantSimEngine.map_scale(mapping, from_scales) do m, s
-                        map_vars = get_mapping(mapping[s])
-                        multiscale_vars = collect(first(i) for i in map_vars)
-
-                        computed_elsewhere = filter(x -> x.first == var, get_mapping(mapping[s]))
-                        if length(computed_elsewhere) > 0
-                            # found[1] = true
-                            computed_elsewhere = computed_elsewhere[1].second
-
-                            # The variable if not computed at the scale given by the user, but we found it at another scale:
-                            error(
-                                "Nodes of type $organ are mapping variable `:$var` computed from nodes of type $s, but type $s does not compute this variable. ",
-                                "The variable is computed by nodes of type $computed_elsewhere."
-                            )
-                        end
-                    end
-
-                    # If still not found, add the variable into need_models_from_scales:
-                    push!(need_models_from_scales, (var=var, scale=organ, need_scales=from_scales))
-                end
-            else
-                # In this case the variable is an input of the model, and is not computed by other mapping at this scale or the others.
-                if var in vars_in_mtg
-                    # If the variable can be found in the MTG, we will take it from there:
-                    push!(need_var_from_mtg, VarFromMTG(var, organ))
-                else
-                    # Else, the user need to initialise it:
-                    push!(need_initialisation, var)
-                end
-            end
-            # Note: if the variable is an output of the model for another scale (in `multi_scale_outs`), we don't need to initialise it at this scale.
-        end
-        if length(need_initialisation) > 0 || length(need_var_from_mtg) > 0 || length(need_models_from_scales) > 0
-            var_need_init[organ] = (; need_initialisation, need_models_from_scales, need_var_from_mtg)
-        end
-    end
-
-    return var_need_init
+    return not_in_mtg
 end
 
 """

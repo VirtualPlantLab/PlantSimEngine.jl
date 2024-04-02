@@ -470,7 +470,7 @@ function flatten_vars(vars)
     vars_input
 end
 
-function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:NamedTuple}
+function flatten_vars(vars::Vector{N}) where {N<:Pair{Symbol}}
     vars_input = Set()
     for (key, val) in vars
         for (k, j) in pairs(val)

@@ -26,14 +26,9 @@ meteo = Weather(
     @test descendants(mtg, :var1) == [nothing, nothing]
     @test descendants(mtg, :var2) == [nothing, var2]
 
-
-    # dep(mapping)
-    # mapped_vars = mapped_variables(mapping, dep(mapping), verbose=false)
-    # reverse_mapping(mapped_vars, all=all)
-
     to_init = to_initialize(mapping)
-    @test to_init["Leaf"].need_initialisation == Symbol[:var2]
-    @test get_node(mtg, 3)[:var2] == var2
+    @test to_initialize(mapping) == Symbol[:var2, :var1]
+    @test to_initialize(mapping, mtg) == [:var1]
 end
 
 # A mapping that actually works (same as before but with the init for TT):
