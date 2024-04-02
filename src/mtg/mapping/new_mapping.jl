@@ -53,13 +53,14 @@ function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=
     nodes_ins = Dict{String,Any}(org => [] for org in keys(mapping))
     nodes_outs = Dict{String,Any}(org => [] for org in keys(mapping))
     for ((organ_, process_), root_node) in dependency_graph.roots
-        traverse_dependency_graph!(root_node) do node
+        traverse_dependency_graph!(root_node, visit_hard_dep=false) do node
             push!(nodes_ins[node.scale], node.inputs)
             push!(nodes_outs[node.scale], node.outputs)
         end
+        # note: we use visit_hard_dep=false because their inputs and outputs are already defined in their parent soft-dependency node
     end
-    ins = Dict(k => flatten_vars(vcat(v...)) for (k, v) in nodes_ins)
-    outs = Dict(k => flatten_vars(vcat(v...)) for (k, v) in nodes_outs)
+    ins = Dict{String,NamedTuple}(k => flatten_vars(vcat(v...)) for (k, v) in nodes_ins)
+    outs = Dict{String,NamedTuple}(k => flatten_vars(vcat(v...)) for (k, v) in nodes_outs)
 
     return Dict(:inputs => ins, :outputs => outs)
 end
@@ -165,6 +166,9 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
+
+                @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
+                                                                                                 "scale `$organ`, but is not computed by any model at `$source_organ` scale."
 
                 # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
                 isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
