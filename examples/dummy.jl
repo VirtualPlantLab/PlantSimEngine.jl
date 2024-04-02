@@ -57,7 +57,7 @@ A dummy model implementing a "process3" process for testing purposes.
 """
 struct Process3Model <: AbstractProcess3Model end
 PlantSimEngine.inputs_(::Process3Model) = (var4=-Inf, var5=-Inf)
-PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf)
+PlantSimEngine.outputs_(::Process3Model) = (var6=-Inf,)
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
