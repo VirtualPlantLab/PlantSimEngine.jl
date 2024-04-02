@@ -496,6 +496,17 @@ function convert_vars!(ref_vars::Dict{Symbol,Any}, type_promotion::Dict)
                     source_variable(ref_mapped_var),
                     new_val,
                 )
+            elseif isa(ref_vars[var], UninitializedVar) && isa(ref_vars[var].value, suptype)
+                ref_mapped_var = ref_vars[var]
+                old_default = ref_vars[var].value
+
+                if isa(old_default, AbstractArray)
+                    new_val = [convert(newtype, i) for i in old_default]
+                else
+                    new_val = convert(newtype, old_default)
+                end
+
+                ref_vars[var] = UninitializedVar(var, new_val)
             end
         end
     end
