@@ -5,6 +5,7 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     process::Symbol
     dependency::NamedTuple
     missing_dependency::Vector{Int}
+    scale::String
     inputs
     outputs
     parent::Union{Nothing,HardDependencyNode}
@@ -69,7 +70,7 @@ function Base.show(io::IO, t::DependencyGraph)
 end
 
 """
-    traverse_dependency_graph(graph::DependencyGraph, f::Function, visit_hard_dep=true)
+    traverse_dependency_graph(graph::DependencyGraph, f::Function; visit_hard_dep=true)
 
 Traverse the dependency `graph` and apply the function `f` to each node.
 The first-level soft-dependencies are traversed first, then their
@@ -119,7 +120,7 @@ end
 
 function traverse_dependency_graph!(
     f::Function,
-    node::SoftDependencyNode,
+    node::SoftDependencyNode;
     visit_hard_dep=true
 )
 
@@ -132,6 +133,19 @@ function traverse_dependency_graph!(
         end
     end
 
+    for child in node.children
+        traverse_dependency_graph!(f, child; visit_hard_dep=visit_hard_dep)
+    end
+end
+
+function traverse_dependency_graph!(
+    f::Function,
+    node::HardDependencyNode;
+    visit_hard_dep=true
+)
+
+    f(node)
+    # Traverse all hard dependencies:
     for child in node.children
         traverse_dependency_graph!(f, child)
     end
@@ -163,7 +177,7 @@ function traverse_dependency_graph!(
     end
 
     for child in node.children
-        traverse_dependency_graph!(child, f, var)
+        traverse_dependency_graph!(child, f, var; visit_hard_dep=visit_hard_dep)
     end
 end
 

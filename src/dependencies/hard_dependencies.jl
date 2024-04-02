@@ -4,13 +4,14 @@
 
 Compute the hard dependencies between models.
 """
-function hard_dependencies(models; verbose::Bool=true)
+function hard_dependencies(models; scale="", verbose::Bool=true)
     dep_graph = Dict(
         p => HardDependencyNode(
             i,
             p,
             NamedTuple(),
             Int[],
+            scale,
             inputs_(i),
             outputs_(i),
             nothing,
@@ -34,6 +35,7 @@ function hard_dependencies(models; verbose::Bool=true)
                     if verbose
                         @info string(
                             "Model ", typeof(i).name.name, " from process ", process,
+                            scale == "" ? "" : " at scale $scale",
                             " needs a model that is a subtype of ", depend, " in process ",
                             p
                         )
@@ -51,6 +53,7 @@ function hard_dependencies(models; verbose::Bool=true)
                 if verbose
                     @info string(
                         "Model ", typeof(i).name.name, " from process ", process,
+                        scale == "" ? "" : " at scale $scale",
                         " needs a model that is a subtype of ", depend, " in process ",
                         p, ", but the process is not parameterized in the ModelList."
                     )
@@ -90,7 +93,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
         mods = parse_models(get_models(model))
 
         # Move some models below others when they are manually linked (hard-dependency):
-        hard_deps = hard_dependencies((; mods...), verbose=verbose)
+        hard_deps = hard_dependencies((; mods...), scale=organ, verbose=verbose)
 
         # Get the status given by the user, that is used to set the default values of the variables in the mapping:
         st = get_status(model)

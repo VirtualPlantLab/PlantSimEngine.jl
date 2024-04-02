@@ -405,6 +405,7 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
 
             for org in var_organ # e.g. org = "Leaf"
                 # The variable is a multiscale variable:
+                haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")
                 for (proc_output, pairs_vars_output) in soft_dep_graphs[org][:outputs] # e.g. proc_output = :maintenance_respiration; pairs_vars_output = soft_dep_graphs_roots.roots[org][:outputs][proc_output]
                     # process == proc_output && @info "Process $process declared at two scales: $organ and $org. Are you sure this process has to be simulated at several scales?"
                     vars_output = flatten_vars(pairs_vars_output)
