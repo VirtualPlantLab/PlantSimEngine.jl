@@ -85,7 +85,6 @@ end
 mtg_init = deepcopy(mtg)
 transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
 
-
 @testset "inputs and outputs of a mapping" begin
     ins = inputs(mapping_1)
 
@@ -101,9 +100,10 @@ transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
 
     vars = variables(mapping_1)
     @test collect(keys(vars)) == collect(keys(mapping_1))
-    @test vars["Soil"] == outs["Soil"]
-    @test vars["Plant"] == (carbon_allocation=(:carbon_assimilation, :Rm, :carbon_demand, :carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm_organs, :Rm),)
-    @test vars["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content, :carbon_assimilation), carbon_demand=(:TT, :carbon_demand), maintenance_respiration=(:biomass, :Rm))
+    @test keys(vars["Soil"]) == keys(outs["Soil"])
+    @test keys(values(vars["Soil"])[1]) == values(outs["Soil"])[1]
+    @test vars["Plant"] == (carbon_allocation=(carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf], carbon_offer=-Inf, carbon_allocation=[-Inf]), maintenance_respiration=(Rm_organs=[-Inf], Rm=-Inf),)
+    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(biomass=0.0, Rm=-Inf))
 end
 
 @testset "Status initialisation" begin

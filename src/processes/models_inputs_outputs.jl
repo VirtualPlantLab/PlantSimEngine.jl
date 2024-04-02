@@ -142,7 +142,7 @@ variables(Process1Model(1.0), Process2Model())
 [`inputs`](@ref), [`outputs`](@ref) and [`variables_typed`](@ref)
 """
 function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
-    length((ms...,)) > 0 ? union(variables(m), variables(ms...)) : union(inputs(m), outputs(m))
+    length((ms...,)) > 0 ? merge(variables(m), variables(ms...)) : merge(inputs_(m), outputs_(m))
 end
 
 """
@@ -152,13 +152,13 @@ Returns a tuple with the name of the inputs and outputs variables needed by a mo
 a dependency graph.
 """
 function variables(m::SoftDependencyNode)
-    self_variables = (inputs=inputs(m.value), outputs=outputs(m.value))
+    self_variables = (inputs=inputs_(m.value), outputs=outputs_(m.value))
     # hard_dep_vars = map(variables, m.hard_dependencies)
     return self_variables
 end
 
 function variables(m::HardDependencyNode)
-    return (inputs=inputs(m.value), outputs=outputs(m.value))
+    return (inputs=inputs_(m.value), outputs=outputs_(m.value))
 end
 
 """
@@ -197,7 +197,7 @@ function variables(mapping::Dict{String,T}) where {T}
     vars = Dict{String,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
-        push!(vars, organ => (; (i.first => (variables(i.second)...,) for i in mods)...))
+        push!(vars, organ => (; (i.first => (; variables(i.second)...,) for i in mods)...))
     end
     return vars
 end

@@ -231,7 +231,7 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
     ins = inputs_(node.value)
     ins_variables = keys(ins)
     defaults = merge(ins, outputs_(node.value))
-    map(variables(node)) do vars
+    map(keys(defaults)) do vars
         vars_ = Vector{Pair{Symbol,Any}}()
         for var in vars # e.g. var = :soil_water_content
             if var in keys(st)

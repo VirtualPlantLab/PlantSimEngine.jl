@@ -94,7 +94,7 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{Symbol,Union{Pair
 
     function MultiScaleModel{T}(model::T, mapping) where {T<:AbstractModel}
         # Check that the variables in the mapping are variables of the model:
-        model_variables = variables(model)
+        model_variables = keys(variables(model))
         for (var, scales_mapping) in mapping
             if !(var in model_variables)
                 error("Mapping for model $model defines variable $var, but it is not a variable of the model.")
