@@ -56,10 +56,8 @@ using Documenter # for doctests
         include("test-mtg-dynamic.jl")
     end
 
-    if VERSION >= v"1.8"
-        # Error formating changed in Julia 1.8 (or was it 1.7?), so the doctest
-        # that returns an error in PlantSimEngine.check_dimensions(models, w)
-        # fails in Julia 1.6. So we test the doctests only in Julia 1.8 and later.
+    if VERSION >= v"1.10"
+        # Some formating changed in Julia 1.10, e.g. @NamedTuple instead of NamedTuple.
         @testset "Doctests" begin
             DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames); recursive=true)
 
