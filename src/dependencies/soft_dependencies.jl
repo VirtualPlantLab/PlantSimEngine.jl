@@ -37,7 +37,7 @@ soft_dep = soft_dependencies(hard_dep)
 function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, nsteps=1)
 
     # Compute the variables of each node in the hard-dependency graph:
-    d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple{(:inputs, :outputs),Tuple{Tuple{Vararg{Symbol}},Tuple{Vararg{Symbol}}}}}}}()
+    d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
     for (procname, node) in d.roots
         var = Pair{Symbol,NamedTuple}[]
         traverse_dependency_graph!(node, variables, var)
@@ -52,10 +52,10 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
 
     # Compute the inputs and outputs of each process graph in the dependency graph
     inputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Symbol}}}}}(
-        key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars
+        key => [j.first => keys(j.second.inputs) for j in val] for (key, val) in d_vars
     )
     outputs_process = Dict{Symbol,Vector{Pair{Symbol,Tuple{Vararg{Symbol}}}}}(
-        key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars
+        key => [j.first => keys(j.second.outputs) for j in val] for (key, val) in d_vars
     )
 
     soft_dep_graph = Dict(
@@ -471,7 +471,7 @@ function flatten_vars(vars)
     vars_input
 end
 
-function flatten_vars(vars::Vector{N}) where {N<:Pair{Symbol}}
+function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:NamedTuple}
     vars_input = Set()
     for (key, val) in vars
         for (k, j) in pairs(val)
@@ -479,4 +479,15 @@ function flatten_vars(vars::Vector{N}) where {N<:Pair{Symbol}}
         end
     end
     (; vars_input...)
+end
+
+
+function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:Tuple{Vararg{Symbol}}}
+    vars_input = Set{Symbol}()
+    for (key, val) in vars
+        for k in val
+            push!(vars_input, k)
+        end
+    end
+    (vars_input...,)
 end
