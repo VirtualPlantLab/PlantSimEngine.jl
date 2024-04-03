@@ -464,30 +464,22 @@ julia> flatten_vars([:process1 => (var1 = -Inf, var2 = -Inf), :process2 => (var3
 function flatten_vars(vars)
     vars_input = Set()
     for (key, val) in vars
-        for j in val
-            push!(vars_input, j)
-        end
+        flatten_vars(val, vars_input)
     end
-    vars_input
+    format_flatten((vars_input...,))
 end
 
-function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:NamedTuple}
-    vars_input = Set()
-    for (key, val) in vars
-        for (k, j) in pairs(val)
-            push!(vars_input, k => j)
-        end
+function flatten_vars(val::NamedTuple, vars_input::Set)
+    for (k, j) in pairs(val)
+        push!(vars_input, k => j)
     end
-    (; vars_input...)
 end
 
-
-function flatten_vars(vars::Vector{Pair{Symbol,N}}) where {N<:Tuple{Vararg{Symbol}}}
-    vars_input = Set{Symbol}()
-    for (key, val) in vars
-        for k in val
-            push!(vars_input, k)
-        end
+function flatten_vars(val::Tuple, vars_input::Set)
+    for j in val
+        push!(vars_input, j)
     end
-    (vars_input...,)
 end
+
+format_flatten(vars::Tuple{Vararg{Pair}}) = NamedTuple(vars)
+format_flatten(vars) = vars
