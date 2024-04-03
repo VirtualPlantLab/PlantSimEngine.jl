@@ -47,7 +47,7 @@ end;
 
     run!(models, meteo)
     vars = keys(status(models))
-    @test [models[i][1] for i in vars] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
+    @test [models[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
 end;
 
 @testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
@@ -69,14 +69,14 @@ end;
 
     @testset "simulation with an array of objects" begin
         run!([models, models2], meteo)
-        @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
-        @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+        @test [models[i][1] for i in keys(status(models))] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+        @test [models2[i][1] for i in keys(status(models2))] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 
     @testset "simulation with a dict of objects" begin
         run!(Dict("mod1" => models, "mod2" => models2), meteo)
-        @test [models[i][1] for i in keys(status(models))] == [22.0, 34.95, 56.95, 15.0, 5.5, 0.3]
-        @test [models2[i][1] for i in keys(status(models2))] == [26.0, 36.95, 62.95, 15.0, 6.5, 0.3]
+        @test [models[i][1] for i in keys(status(models))] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+        @test [models2[i][1] for i in keys(status(models2))] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 end;
 
@@ -93,8 +93,8 @@ end;
     run!(models, meteo)
     vars = keys(status(models))
     @test [models[i] for i in vars] == [
-        [22.0, 23.2],
         [34.95, 35.550000000000004],
+        [22.0, 23.2],
         [56.95, 58.75],
         [15.0, 16.0],
         [5.5, 5.8],
@@ -120,8 +120,8 @@ end;
     run!(models, meteo)
     vars = keys(status(models))
     @test [models[i] for i in vars] == [
-        [22.0, 23.2],
         [34.95, 40.0],
+        [22.0, 23.2],
         [56.95, 63.2],
         [15.0, 16.0],
         [5.5, 5.8],
@@ -155,20 +155,20 @@ end;
     @testset "simulation with an array of objects" begin
         run!([models, models2], meteo)
         @test [models[i] for i in keys(status(models))] == [
-            [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
+            [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
         @test [models2[i] for i in keys(status(models2))] == [
-            [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
+            [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end
 
     @testset "simulation with a dict of objects" begin
         run!(Dict("mod1" => models, "mod2" => models2), meteo)
         @test [models[i] for i in keys(status(models))] == [
-            [22.0, 23.2], [34.95, 40.0], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
+            [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
         @test [models2[i] for i in keys(status(models2))] == [
-            [26.0, 27.2], [36.95, 42.0], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
+            [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end
 end;

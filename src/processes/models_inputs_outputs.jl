@@ -129,12 +129,7 @@ variables(Process1Model(1.0), Process2Model())
 
 # output
 
-5-element Vector{Symbol}:
- :var1
- :var2
- :var3
- :var4
- :var5
+(var1 = -Inf, var2 = -Inf, var3 = -Inf, var4 = -Inf, var5 = -Inf)
 ```
 
 # See also

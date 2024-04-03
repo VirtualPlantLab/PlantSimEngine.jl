@@ -41,7 +41,7 @@ end
 
     @test typeof(status(models)) == TimeStepTable{
         Status{
-            (:var4, :var5, :var6, :var1, :var3, :var2),
+            (:var5, :var4, :var6, :var1, :var3, :var2),
             NTuple{6,Base.RefValue{Float64}}
         }
     }
@@ -50,7 +50,7 @@ end
 
     @test typeof(status(models, 1)) == PlantMeteo.TimeStepRow{
         Status{
-            (:var4, :var5, :var6, :var1, :var3, :var2),
+            (:var5, :var4, :var6, :var1, :var3, :var2),
             NTuple{6,Base.RefValue{Float64}}
         }
     }

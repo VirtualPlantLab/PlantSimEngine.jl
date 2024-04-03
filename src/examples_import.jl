@@ -75,7 +75,7 @@ export AbstractProcess1Model, AbstractProcess2Model, AbstractProcess3Model
 export AbstractProcess4Model, AbstractProcess5Model, AbstractProcess6Model
 export AbstractProcess7Model
 export AbstractLight_InterceptionModel, AbstractLai_DynamicModel, AbstractDegreedaysModel
-export AbstractPhotosynthesisModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel
+export AbstractCarbon_AssimilationModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel
 export AbstractSoil_WaterModel, AbstractGrowthModel
 export AbstractOrgan_EmergenceModel
 

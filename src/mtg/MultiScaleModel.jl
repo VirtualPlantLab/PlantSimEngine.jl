@@ -72,15 +72,15 @@ We can now make the model multi-scale by passing the model and the mapping to th
 
 ```jldoctest mylabel
 julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapping)
-MultiScaleModel{ToyCAllocationModel, String}(ToyCAllocationModel(), Pair{Symbol, Union{String, Vector{String}}}[:carbon_allocation => ["Leaf", "Internode"]])
+MultiScaleModel{ToyCAllocationModel, Vector{Pair{Symbol, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}}(ToyCAllocationModel(), Pair{Symbol, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}[:carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]])
 ```
 
 We can access the mapping and the model:
 
 ```jldoctest mylabel
 julia> PlantSimEngine.mapping_(multiscale_model)
-1-element Vector{Pair{Symbol, Union{String, Vector{String}}}}:
- :carbon_allocation => ["Leaf", "Internode"]
+1-element Vector{Pair{Symbol, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}:
+ :carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]
 ```
 
 ```jldoctest mylabel

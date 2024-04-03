@@ -413,8 +413,8 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest
-julia> PlantSimEngine.MappedVar("Leaf", :carbon_assimilation, :carbon_assimilation, 1.0, :photosynthesis)
-PlantSimEngine.MappedVar{String, Float64}("Leaf", :carbon_assimilation, 1.0)
+julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0, :photosynthesis)
+PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0, :photosynthesis)
 ```
 """
 struct MappedVar{O<:AbstractNodeMapping,V<:Union{S,Vector{S}} where {S<:Symbol},T}
@@ -617,10 +617,10 @@ to get the value as a singleton instead of a vector of values.
 
 ```jldoctest mylabel
 julia> PlantSimEngine.reverse_mapping(mapping)
-Dict{String, Dict{String, Vector{Pair{Symbol, Symbol}}}} with 3 entries:
-  "Soil"      => Dict("Leaf"=>[:soil_water_content=>:soil_water_content])
-  "Internode" => Dict("Plant"=>[:carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
-  "Leaf"      => Dict("Plant"=>[:carbon_assimilation=>:carbon_assimilation, :carbon_demand=>:carbon_demand, :carbon_allocation=>:carbon_allocation, :Rm=>:Rm_organs])
+Dict{String, Dict{String, Dict{Symbol, Any}}} with 3 entries:
+  "Soil"      => Dict("Leaf"=>Dict(:soil_water_content=>:soil_water_content))
+  "Internode" => Dict("Plant"=>Dict(:carbon_allocation=>:carbon_allocation, :carbon_demand=>:carbon_demand))
+  "Leaf"      => Dict("Plant"=>Dict(:carbon_allocation=>:carbon_allocation, :carbon_assimilation=>:carbon_assimilation, :carbon_demand=>:carbon_demand))
 ```
 """
 function reverse_mapping(mapping::Dict{String,T}; all=true) where {T<:Any}

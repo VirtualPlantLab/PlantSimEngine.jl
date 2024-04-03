@@ -71,7 +71,7 @@ julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(),
 
 ```jldoctest 1
 julia> typeof(models)
-ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, TimeStepTable{Status{(:var4, :var5, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
+ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, TimeStepTable{Status{(:var5, :var4, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -167,7 +167,7 @@ be automatically converted into a `TimeStepTable{Status}`.
 ```jldoctest 1
 julia> status(m)
 2×6 DataFrame
- Row │ var4     var5     var6     var1     var3     var2    
+ Row │ var5     var4     var6     var1     var3     var2    
      │ Float64  Float64  Float64  Float64  Float64  Float64 
 ─────┼──────────────────────────────────────────────────────
    1 │    -Inf     -Inf     -Inf   13.747     -Inf      1.0

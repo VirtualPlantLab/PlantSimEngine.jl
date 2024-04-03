@@ -7,9 +7,9 @@ meteo = Weather(
 )
 
 @testset "MTG initialisation" begin
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+    internode = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    leaf = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
     var1 = 15.0
     var2 = 0.3
     leaf[:var2] = var2
@@ -23,12 +23,11 @@ meteo = Weather(
         )
     )
 
-    @test descendants(mtg, :var1) == [nothing, nothing]
-    @test descendants(mtg, :var2) == [nothing, var2]
+    @test descendants(simple_mtg, :var1) == [nothing, nothing]
+    @test descendants(simple_mtg, :var2) == [nothing, var2]
 
-    to_init = to_initialize(mapping)
-    @test to_initialize(mapping) == Dict("Leaf" => [:var4, :var2])
-    @test to_initialize(mapping, mtg) == Dict("Leaf" => [:var4])
+    @test to_initialize(mapping) == Dict("Leaf" => [:var2]) # NB: :var1 is initialised in the status
+    @test to_initialize(mapping, simple_mtg) == Dict()
 end
 
 # A mapping that actually works (same as before but with the init for TT):
@@ -429,7 +428,7 @@ end
     @test st_leaf1.carbon_demand == 0.5
     # This one depends on the soil, which is random, so we test using the computation directly:
     @test st_leaf1.carbon_assimilation == st_leaf1.aPPFD * out.models["Leaf"].carbon_assimilation.LUE * st_leaf1.soil_water_content
-    @test st_leaf1.carbon_allocation == -Inf # Default is taken from the source model at plant scale
+    @test st_leaf1.carbon_allocation == 0.0
 end
 
 @testset "run! on MTG with complete mapping (with init)" begin

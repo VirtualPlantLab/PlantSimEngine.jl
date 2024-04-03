@@ -116,7 +116,7 @@ end;
         status=vals
     )
 
-    @test to_initialize(leaf) == (process3=(:var4, :var5,),)
+    @test to_initialize(leaf) == (process3=(:var5,),)
 
     # NB: decompose this test because the order of the variables change with the Julia version
     inits = init_variables(leaf)

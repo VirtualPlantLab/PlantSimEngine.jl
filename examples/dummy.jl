@@ -56,8 +56,10 @@ PlantSimEngine.@process "process3" verbose = false
 A dummy model implementing a "process3" process for testing purposes.
 """
 struct Process3Model <: AbstractProcess3Model end
-PlantSimEngine.inputs_(::Process3Model) = (var4=-Inf, var5=-Inf)
-PlantSimEngine.outputs_(::Process3Model) = (var6=-Inf,)
+PlantSimEngine.inputs_(::Process3Model) = (var5=-Inf,)
+PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf,)
+# NB: var4 is computed by process2, so it is not in the inputs, it is also recomputed by this model, 
+# so we need a hard dependency on process2:
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
