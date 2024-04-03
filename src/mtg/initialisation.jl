@@ -79,8 +79,9 @@ Initialise the status of a plant graph node, taking into account the multiscale 
 
 Most arguments can be computed from the graph and the mapping:
 - `statuses` is given by the first initialisation: `statuses = Dict(i => Status[] for i in nodes_with_models)`
-- `mapped_vars` is computed usin `status_template(mapping, type_promotion)`
-- `vars_need_init` is computed using `to_initialize(mapping, mtg)`
+- `mapped_vars` is computed using `mapped_variables()`, see code in `init_statuses`
+- `vars_need_init` is computed using `vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys for (org, vars) in mapped_vars) |>
+filter(x -> length(last(x)) > 0)`
 
 The `check` argument is a boolean indicating if variables initialisation should be checked. In the case that some variables need initialisation (partially initialized mapping), we check if the value can be found 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
@@ -148,147 +149,6 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
         end
     end
     return st
-end
-
-
-"""
-    status_template(models::Dict{String,Any}, type_promotion)
-
-Create a status template for a given set of models and type promotion.
-
-# Arguments
-- `models::Dict{String,Any}`: A dictionary of models.
-- `type_promotion`: The type promotion to use.
-
-# Returns
-
-- A dictionary with the organ types as keys, and a dictionary of variables => default values as values.
-
-# Examples
-
-```jldoctest mylabel
-julia> using PlantSimEngine;
-```
-
-Import example models (can be found in the `examples` folder of the package, or in the `Examples` sub-modules): 
-
-```jldoctest mylabel
-julia> using PlantSimEngine.Examples;
-```
-
-```jldoctest mylabel
-julia> mapping = Dict( \
-    "Plant" =>  ( \
-        MultiScaleModel(  \
-            model=ToyCAllocationModel(), \
-            mapping=[ \
-                :carbon_assimilation => ["Leaf"], \
-                :carbon_demand => ["Leaf", "Internode"], \
-                :carbon_allocation => ["Leaf", "Internode"] \
-            ], \
-        ), 
-        MultiScaleModel(  \
-            model=ToyPlantRmModel(), \
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],] \
-        ), \
-    ),\
-    "Internode" => ( \
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
-        Status(TT=10.0) \
-    ), \
-    "Leaf" => ( \
-        MultiScaleModel( \
-            model=ToyAssimModel(), \
-            mapping=[:soil_water_content => "Soil",], \
-        ), \
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
-        Status(aPPFD=1300.0, TT=10.0), \
-    ), \
-    "Soil" => ( \
-        ToySoilWaterModel(), \
-    ), \
-    );
-```
-
-```jldoctest mylabel
-julia> organs_statuses = PlantSimEngine.status_template(mapping, nothing)
-Dict{String, Dict{Symbol, Any}} with 4 entries:
-  "Soil"      => Dict(:soil_water_content=>RefValue{Float64}(-Inf))
-  "Internode" => Dict(:carbon_allocation=>-Inf, :TT=>-Inf, :carbon_demand=>-Inf)
-  "Plant"     => Dict(:carbon_allocation=>RefVector{Float64}[], :carbon_assimilation=>RefVector{F…
-  "Leaf"      => Dict(:carbon_allocation=>-Inf, :carbon_assimilation=>-Inf, :TT=>10.0, :aPPFD=>13…
-```
-
-Note that variables that are multiscale (*i.e.* defined in a mapping) are linked between scales, so if we write at a scale, the value will be 
-automatically updated at the other scale:
-
-```jldoctest mylabel
-julia> organs_statuses["Soil"][:soil_water_content] === organs_statuses["Leaf"][:soil_water_content]
-true
-```
-"""
-function status_template(mapping::Dict{String,T}, type_promotion) where {T}
-    organs_mapping, var_outputs_from_mapping = compute_mapping(mapping, type_promotion)
-    # Vector of pre-initialised variables with the default values for each variable, taking into account user-defined initialisation, and multiscale mapping:
-    organs_statuses_dict = Dict{String,Dict{Symbol,Any}}()
-    dict_mapped_vars = Dict{Pair,Any}()
-
-    for organ in keys(mapping) # e.g.: organ = "Internode"
-        # Parsing the models into a NamedTuple to get the process name:
-        node_models = parse_models(get_models(mapping[organ]))
-
-        # Get the status if any was given by the user (this can be used as default values in the mapping):
-        st = get_status(mapping[organ]) # User status
-
-        if isnothing(st)
-            st = NamedTuple()
-        else
-            st = NamedTuple(st)
-        end
-
-        # Add the variables that are defined as multiscale (coming from other scales):
-        if haskey(organs_mapping, organ)
-            st_vars_mapped = (; zip(vars_from_mapping(organs_mapping[organ]), vars_type_from_mapping(organs_mapping[organ]))...)
-            !isnothing(st_vars_mapped) && (st = merge(st, st_vars_mapped))
-        end
-
-        # Add the variable(s) written by other scales into this node scale:
-        haskey(var_outputs_from_mapping, organ) && (st = merge(st, var_outputs_from_mapping[organ]))
-
-        # Then we initialise a status taking into account the status given by the user.
-        # This step is done to get default values for each variables:
-        if length(st) == 0
-            st = nothing
-        else
-            st = Status(st)
-        end
-
-        st = add_model_vars(st, node_models, type_promotion; init_fun=x -> Status(x))
-
-        # For the variables that are RefValues of other variables at a different scale, we need to actually create a reference to this variable
-        # in the status. So we replace the RefValue by a RefValue to the actual variable, and instantiate a Status directly with the actual Refs.
-        val_pointers = Dict{Symbol,Any}(zip(keys(st), values(st)))
-        if any(x -> isa(x, MappedVar), values(st))
-            for (k, v) in val_pointers # e.g.: k = :soil_water_content; v = val_pointers[k]
-                if isa(v, MappedVar)
-                    # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
-                    if !haskey(dict_mapped_vars, v.organ => v.var)
-                        push!(dict_mapped_vars, Pair(v.organ, v.var) => Ref(st[k].default))
-                    end
-
-                    # Then we replace the MappedVar by a RefValue to the actual variable:
-                    val_pointers[k] = dict_mapped_vars[v.organ=>v.var]
-                else
-                    val_pointers[k] = st[k]
-                end
-            end
-        end
-        organs_statuses_dict[organ] = val_pointers
-    end
-
-    return organs_statuses_dict
 end
 
 """
