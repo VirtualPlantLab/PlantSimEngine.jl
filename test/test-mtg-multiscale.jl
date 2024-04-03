@@ -122,8 +122,8 @@ end
     organs_statuses["Soil"][1][:soil_water_content] = 1.0
     @test organs_statuses["Leaf"][1][:soil_water_content][] == 1.0
 
-    @test organs_statuses["Plant"][1][:carbon_assimilation] == PlantSimEngine.RefVector{Float64}[]
-    @test organs_statuses["Plant"][1][:carbon_allocation] == PlantSimEngine.RefVector{Float64}[]
+    @test organs_statuses["Plant"][1][:carbon_assimilation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf)])
+    @test organs_statuses["Plant"][1][:carbon_allocation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf), Ref(-Inf), Ref(-Inf)])
     @test organs_statuses["Internode"][1][:carbon_allocation] == -Inf
     @test organs_statuses["Leaf"][1][:carbon_demand] == -Inf
 
