@@ -118,6 +118,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
                 node_var =
                     try
                         promoted_var = [isa(node[var], subtype) ? convert(newtype, node[var]) : node[var] for (subtype, newtype) in type_promotion]
+                        @warn "Promoted `$(var)` from $subtype to $newtype in MTG node $(node_id(node)) ($(symbol(node))): $promoted_var ($(typeof(promoted_var)))" maxlog = 1
                         length(promoted_var) > 0 ? promoted_var[1] : node[var]
                     catch e
                         error("Failed to convert variable `$(var)` in MTG node $(node_id(node)) ($(symbol(node))) from type `$(typeof(node[var]))` to type `$(eltype(st_template[var]))`: $(e)")
