@@ -72,7 +72,7 @@ Computes the biomass growth of a plant.
 
 # Outputs
 
-- `A`: the assimilation, in gC m⁻² d⁻¹
+- `carbon_assimilation`: the assimilation, in gC m⁻² d⁻¹
 - `Rm`: the maintenance respiration, in gC m⁻² d⁻¹
 - `Rg`: the growth respiration, in gC m⁻² d⁻¹
 - `biomass_increment`: the daily biomass increment, in gC m⁻² d⁻¹
@@ -98,7 +98,7 @@ end
 
 # Define outputs:
 function PlantSimEngine.outputs_(::ToyAssimGrowthModel)
-    (A=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
+    (carbon_assimilation=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
 end
 
 # Tells Julia what is the type of elements:

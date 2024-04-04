@@ -60,7 +60,7 @@ end
 
 @testset "ToyAssimGrowthModel" begin
     @test_nowarn ModelList(ToyAssimGrowthModel())
-    @test_nowarn ModelList(ToyAssimGrowthModel(), status=(A=[10.0, 30.0, 25.0],))
+    @test_nowarn ModelList(ToyAssimGrowthModel(), status=(carbon_assimilation=[10.0, 30.0, 25.0],))
 
     # Uninitialized:
     @test to_initialize(ModelList(ToyAssimGrowthModel())) == (growth=(:aPPFD,),)

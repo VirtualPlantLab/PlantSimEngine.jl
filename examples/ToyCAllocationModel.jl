@@ -20,7 +20,7 @@ to each organ's demand.
 
 # Outputs
 
-- `A`: the assimilation, usually in gC m⁻² d⁻¹
+- `carbon_assimilation`: the carbon assimilation, usually in gC m⁻² d⁻¹
 
 # Details
 

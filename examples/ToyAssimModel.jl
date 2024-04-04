@@ -5,8 +5,7 @@ PlantSimEngine.@process "carbon_assimilation" verbose = false
 
 # Make the struct to hold the parameters, with its documentation:
 """
-    ToyAssimModel(A)
-    ToyAssimModel(; LUE=0.2, Rm_factor = 0.5, Rg_cost = 1.2)
+    ToyAssimModel(LUE)
 
 Computes the assimilation of a plant (= photosynthesis).
 
