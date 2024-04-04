@@ -394,7 +394,7 @@ vars_from_mapping(m) = collect(Iterators.flatten(keys.(values(m))))
 vars_type_from_mapping(m) = collect(Iterators.flatten(values.(values(m))))
 
 """
-    MappedVar(source_organ, variable, source_variable, source_default, source_process=nothing)
+    MappedVar(source_organ, variable, source_variable, source_default)
 
 A variable mapped to another scale.
 
@@ -404,7 +404,6 @@ A variable mapped to another scale.
 - `variable`: the name of the variable that is mapped
 - `source_variable`: the name of the variable from the source organ (the one that computes the variable)
 - `source_default`: the default value of the variable
-- `source_process`: the process that computes the variable in the source organ
 
 # Examples
 
@@ -413,8 +412,8 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest
-julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0, :photosynthesis)
-PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0, :photosynthesis)
+julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
+PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
 ```
 """
 struct MappedVar{O<:AbstractNodeMapping,V<:Union{S,Vector{S}} where {S<:Symbol},T}
@@ -422,10 +421,7 @@ struct MappedVar{O<:AbstractNodeMapping,V<:Union{S,Vector{S}} where {S<:Symbol},
     variable::Symbol
     source_variable::V
     source_default::T
-    source_process::Union{Nothing,Symbol}
 end
-
-MappedVar(source_organ, variable, source_variable, source_default) = MappedVar(source_organ, variable, source_variable, source_default, nothing)
 
 mapped_variable(m::MappedVar) = m.variable
 source_organs(m::MappedVar) = m.source_organ
