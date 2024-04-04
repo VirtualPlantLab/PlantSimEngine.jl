@@ -1,13 +1,3 @@
-""" 
-    VarFromMTG(var::Symbol, scale::String)
-
-A strucure to hold the variables that are needed for initialisation, and that must be taken from the MTG attributes.
-"""
-struct VarFromMTG
-    var::Symbol
-    scale::String
-end
-
 """
     GraphSimulation(graph, mapping)
     GraphSimulation(graph, statuses, dependency_graph, models, outputs)

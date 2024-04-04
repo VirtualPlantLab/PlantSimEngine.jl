@@ -289,7 +289,6 @@ end
 
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
         @test_throws AssertionError to_initialize(mapping)
-        @test_throws AssertionError PlantSimEngine.find_var_mapped_default(mapping, "Plant")
     else
         @test_throws "Scale Soil not found in the mapping, but mapped to the Leaf scale." to_initialize(mapping)
     end

@@ -196,42 +196,6 @@ function status_from_template(d::Dict{Symbol,T} where {T})
     Status(NamedTuple(first(i) => ref_var(last(i)) for i in d))
 end
 
-
-# Return an error if some variables are not initialized or computed by other models in the output
-# from to_initialize(models, organs_statuses)
-function error_mtg_init(var_need_init)
-    if length(var_need_init) > 0
-        error_string = String[]
-        for need_init in var_need_init
-            organ_init = first(need_init)
-            need_initialisation = last(need_init).need_initialisation
-
-            # A model needs initialisations:
-            if length(need_initialisation) > 0
-                push!(
-                    error_string,
-                    "Nodes of type $organ_init need variable(s) $(join(need_initialisation, ", ")) to be initialized or computed by a model."
-                )
-            end
-
-            # The mapping is wrong:
-            need_models_from_scales = last(need_init).need_models_from_scales
-            for er in need_models_from_scales
-                var, scale, need_scales = er
-                push!(
-                    error_string,
-                    "Nodes of type $need_scales should provide a model to compute variable `:$var` as input for nodes of type $scale, but none is provided."
-                )
-            end
-        end
-
-        if length(error_string) > 0
-            error(join(error_string, "\n"))
-        end
-    end
-end
-
-
 """
     init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
 
