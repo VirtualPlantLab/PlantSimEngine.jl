@@ -130,7 +130,7 @@ The `ModelList` couples the models by automatically computing the dependency gra
 │  │  ╭──── Main model ────────╮                              │  │
 │  │  │  Process: LAI_Dynamic  │                              │  │
 │  │  │  Model: ToyLAIModel    │                              │  │
-│  │  │  Dep: nothing          │                              │  │
+│  │  │  Dep:           │                              │  │
 │  │  ╰────────────────────────╯                              │  │
 │  │                  │  ╭──── Soft-coupled model ─────────╮  │  │
 │  │                  │  │  Process: light_interception    │  │  │
@@ -181,6 +181,128 @@ fig
 ```
 
 ![LAI Growth and light interception](examples/LAI_growth2.png)
+
+### Multiscale modelling 
+
+> See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
+
+The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
+
+```@example readme
+mapping = Dict(
+    "Scene" => ToyDegreeDaysCumulModel(),
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapping=[
+                :TT_cu => "Scene",
+            ],
+        ),
+        Beer(0.6),
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil"],
+        ),
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+        ),
+    ),
+    "Internode" => (
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],
+        ),
+        MultiScaleModel(
+            model=ToyInternodeEmergence(TT_emergence=20.0),
+            mapping=[:TT_cu => "Scene"],
+        ),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(biomass=1.0)
+    ),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],
+        ),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(biomass=1.0)
+    ),
+    "Soil" => (
+        ToySoilWaterModel(),
+    ),
+);
+```
+
+We can import an example plant from the package:
+
+```@example readme
+mtg = import_mtg_example()
+```
+
+Make a fake meteorological data:
+
+```@example readme
+meteo = Weather(
+    [
+    Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
+    Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
+]
+);
+```
+
+And run the simulation:
+
+```@example readme
+out_vars = Dict(
+    "Scene" => (:TT_cu,),
+    "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
+    "Leaf" => (:carbon_demand, :carbon_allocation),
+    "Internode" => (:carbon_demand, :carbon_allocation),
+    "Soil" => (:soil_water_content,),
+)
+
+out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
+```
+
+We can then extract the outputs in a `DataFrame` and sort them:
+
+```@example readme
+using DataFrames
+df_out = outputs(out, DataFrame)
+sort!(df_out, [:timestep, :node])
+```
+
+| **timestep**<br>`Int64` | **organ**<br>`String` | **node**<br>`Int64` | **carbon\_allocation**<br>`U{Nothing, Float64}` | **TT\_cu**<br>`U{Nothing, Float64}` | **carbon\_assimilation**<br>`U{Nothing, Float64}` | **aPPFD**<br>`U{Nothing, Float64}` | **LAI**<br>`U{Nothing, Float64}` | **soil\_water\_content**<br>`U{Nothing, Float64}` | **carbon\_demand**<br>`U{Nothing, Float64}` |
+|------------------------:|----------------------:|--------------------:|-----------------------------------------------------------------------------------:|------------------------------------:|--------------------------------------------------:|-----------------------------------:|---------------------------------:|--------------------------------------------------:|--------------------------------------------:|
+| 1                       | Scene                 | 1                   |                                                                             | 10.0                                |                                            |                             |                           |                                            |                                      |
+| 1                       | Soil                  | 2                   |                                                                             |                              |                                            |                             |                           | 0.3                                               |                                      |
+| 1                       | Plant                 | 3                   |                                                                             | 10.0                                | 0.299422                                          | 4.99037                            | 0.00607765                       | 0.3                                               |                                      |
+| 1                       | Internode             | 4                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
+| 1                       | Leaf                  | 5                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
+| 1                       | Internode             | 6                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
+| 1                       | Leaf                  | 7                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
+| 2                       | Scene                 | 1                   |                                                                             | 25.0                                |                                            |                             |                           |                                            |                                      |
+| 2                       | Soil                  | 2                   |                                                                             |                              |                                            |                             |                           | 0.2                                               |                                      |
+| 2                       | Plant                 | 3                   |                                                                             | 25.0                                | 0.381154                                          | 9.52884                            | 0.00696482                       | 0.2                                               |                                      |
+| 2                       | Internode             | 4                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+| 2                       | Leaf                  | 5                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+| 2                       | Internode             | 6                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+| 2                       | Leaf                  | 7                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+| 2                       | Internode             | 8                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+| 2                       | Leaf                  | 9                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+
+
+An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
+
+![Plant growth simulation](docs/src/www/image.png)
 
 ## Projects that use PlantSimEngine
 

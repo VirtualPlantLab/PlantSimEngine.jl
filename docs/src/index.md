@@ -38,6 +38,11 @@ run!(model2, meteo_day)
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
+```@contents
+Pages = ["index.md"]
+Depth = 5
+```
+
 ## Overview
 
 `PlantSimEngine` is a comprehensive package for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale. At its core, PlantSimEngine is designed with a strong emphasis on performance and efficiency.
@@ -168,6 +173,111 @@ lines!(ax2, model2[:TT_cu], model2[:aPPFD], color=:firebrick1)
 
 fig
 ```
+
+### Multiscale modelling 
+
+> See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
+
+The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
+
+```@example readme
+mapping = Dict(
+    "Scene" => ToyDegreeDaysCumulModel(),
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapping=[
+                :TT_cu => "Scene",
+            ],
+        ),
+        Beer(0.6),
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil"],
+        ),
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+        ),
+    ),
+    "Internode" => (
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],
+        ),
+        MultiScaleModel(
+            model=ToyInternodeEmergence(TT_emergence=20.0),
+            mapping=[:TT_cu => "Scene"],
+        ),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(biomass=1.0)
+    ),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],
+        ),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(biomass=1.0)
+    ),
+    "Soil" => (
+        ToySoilWaterModel(),
+    ),
+);
+nothing # hide
+```
+
+We can import an example plant from the package:
+
+```@example readme
+mtg = import_mtg_example()
+```
+
+Make a fake meteorological data:
+
+```@example readme
+meteo = Weather(
+    [
+    Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
+    Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
+]
+);
+nothing # hide
+```
+
+And run the simulation:
+
+```@example readme
+out_vars = Dict(
+    "Scene" => (:TT_cu,),
+    "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
+    "Leaf" => (:carbon_demand, :carbon_allocation),
+    "Internode" => (:carbon_demand, :carbon_allocation),
+    "Soil" => (:soil_water_content,),
+)
+
+out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
+nothing # hide
+```
+
+We can then extract the outputs in a `DataFrame` and sort them:
+
+```@example readme
+using DataFrames
+df_out = outputs(out, DataFrame)
+sort!(df_out, [:timestep, :node])
+```
+
+An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
+
+![Plant growth simulation](www/image.png)
 
 ## Projects that use PlantSimEngine
 
