@@ -73,7 +73,7 @@ mapping = Dict(
     "Leaf" => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
+            mapping=[:soil_water_content => "Soil" => :soil_water_content,],
         ),
         Status(aPPFD=1300.0),        
     ),
@@ -81,7 +81,7 @@ mapping = Dict(
 nothing # hide
 ```
 
-The `MultiScaleModel` takes two arguments: the model and the mapping between the model and the scales. The mapping is a vector of pairs mapping the variable's name with the name of the scale its value comes from. In this example, we map the `soil_water_content` variable to the `"Soil"` scale.
+The `MultiScaleModel` takes two arguments: the model and the mapping between the model and the scales. The mapping is a vector of pairs of pairs mapping the variable's name with the name of the scale its value comes from, and the name of the variable at that scale. In this example, we map the `soil_water_content` variable at scale "Leaf" to the `soil_water_content` variable at the `"Soil"` scale. If the name of the variable is the same between both scales, we can omit the variable name at the origin scale, *e.g.* `[:soil_water_content => "Soil"]`.
 
 !!! note 
     The variable `aPPFD` is still provided in the `Status` type as a constant value.
@@ -96,7 +96,7 @@ to_initialize(mapping)
 
 ## More on MultiScaleModel
 
-`MultiScaleModel` is a wrapper around a model that allows it to take inputs or give outputs from other scales. It takes two arguments: the model and the mapping between the model and the scales. The mapping is a vector of pairs mapping the variable's name with the name of the scale its value comes from.
+`MultiScaleModel` is a wrapper around a model that allows it to take inputs or give outputs from other scales. It takes two arguments: the model and the mapping between the model and the scales. The mapping is a vector of pairs of pairs mapping the variable's name with the name of the scale its value comes from, and its name at that scale.
 
 The variable can map a single value if there is only one node to map to or a vector of values if there are several. It can also map to several types of nodes at the same time.
 
@@ -153,18 +153,20 @@ mapping = Dict(
 nothing # hide
 ```
 
-In this example, we expect to make a simulation at five different scales: `"Scene"`, `"Plant"`, `"Internode"`, `"Leaf"`, and `"Soil"`. The `"Scene"` scale represents the whole scene, where one or several plants can live. The `"Plant"` scale is, well, the whole plant scale, `"Internode"` and `"Leaf"` are organ scales, and `"Soil"` is the soil scale. This mapping is used to compute the carbon allocation (`ToyCAllocationModel`) to the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (`ToyCDemandModel`). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`), which is needed to calculate the assimilation at the `"Leaf"` scale (`ToyAssimModel`).
+In this example, we expect to make a simulation at five different scales: `"Scene"`, `"Plant"`, `"Internode"`, `"Leaf"`, and `"Soil"`. The `"Scene"` scale represents the whole scene, where one or several plants can live. The `"Plant"` scale is, well, the whole plant scale, `"Internode"` and `"Leaf"` are organ scales, and `"Soil"` is the soil scale. This mapping is used to compute the carbon allocation (`ToyCAllocationModel`) to the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (`ToyCDemandModel`). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`), which is needed to calculate the assimilation at the `"Leaf"` scale (`ToyAssimModel`). We also can note that we compute the maintenance respiration at the `"Leaf"` and `"Internode"` scales (`ToyMaintenanceRespirationModel`), which is summed up to compute the total maintenance respiration at the `"Plant"` scale (`ToyPlantRmModel`). 
 
 We see that all scales are interconnected, with computations at the organ scale that may depend on the soil scale and at the plant scale that depends on the organ scale and scene scale.
 
-Something important to note here is that we have different ways to define the mapping for the `MultiScaleModel`. For example, we have `:carbon_assimilation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. This mapping means that the variable `carbon_assimilation` is mapped to the `"Leaf"` scale. However, we could also have `:carbon_assimilation => "Leaf"`, which is equivalent. 
+Something important to note here is that we have different ways to define the mapping for the `MultiScaleModel`. For example, we have `:carbon_assimilation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. This mapping means that the variable `carbon_assimilation` is mapped to the `"Leaf"` scale. However, we could also have `:carbon_assimilation => "Leaf"`, which is not completely equivalent.
 
-!!! note 
+!!! note
     Note the difference between `:carbon_assimilation => ["Leaf"]` and `:carbon_assimilation => "Leaf"` is that "Leaf" is given as a vector in the first definition, and as a scalar in the second one.
 
-The difference is that the first maps to a vector of values, while the second maps to a single value. The first one is useful when we don't know how many nodes there will be in the plant of type `"Leaf"`. In this case, the values are available as a vector in the `carbon_assimilation` variable of the `status` inside the model. The second one should only be used if we are sure that there will be only one node at this scale, and in this case, the one and single value is given as a scalar in the `carbon_assimilation` variable of the `status` inside the model.
+The difference is that the first one maps to a vector of values, while the second one maps to a single value. The first one is useful when we don't know how many nodes there will be in the plant of type `"Leaf"`. In this case, the values are available as a vector in the `carbon_assimilation` variable of the `status` inside the model. The second one should only be used if we are sure that there will be only one node at this scale, and in this case, the one and single value is given as a scalar in the `carbon_assimilation` variable of the `status` inside the model.
 
 A third form for the mapping would be `:carbon_assimilation => ["Leaf", "Internode"]`. This form is useful when we need values for a variable from several scales simultaneously. In this case, the values are available as a vector in the `carbon_assimilation` variable of the `status` inside the model, sorted in the same order as nodes are traversed in the graph.
+
+A last form is to map to a specific variable name at the target scale, *e.g.* `:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]`. This form is useful when the variable name is different between scales, and we want to map to a specific variable name at the target scale. In this example, the variable `Rm_organs` at plant scale takes its values (is mapped) from the variable `Rm` at the `"Leaf"` and `"Internode"` scales.
 
 ## Running a simulation
 
