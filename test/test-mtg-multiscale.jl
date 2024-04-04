@@ -84,6 +84,27 @@ end
 mtg_init = deepcopy(mtg)
 transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
 
+@testset "Multiscale dependency graph" begin
+    d = dep(mapping_1)
+    c_allocation_plant_scale = d.roots["Leaf"=>:carbon_demand].children[1].outputs
+    carbon_allocation_vars = last(c_allocation_plant_scale[1])
+    @test carbon_allocation_vars[:carbon_offer] == -Inf
+    @test isa(carbon_allocation_vars[:carbon_allocation], PlantSimEngine.MappedVar)
+    @test PlantSimEngine.mapped_organ(carbon_allocation_vars[:carbon_allocation]) == ["Leaf", "Internode"]
+    @test PlantSimEngine.mapped_default(carbon_allocation_vars[:carbon_allocation]) == PlantSimEngine.outputs_(ToyCAllocationModel()).carbon_allocation
+    @test PlantSimEngine.mapped_variable(carbon_allocation_vars[:carbon_allocation]) == :carbon_allocation
+    @test PlantSimEngine.source_variable(carbon_allocation_vars[:carbon_allocation]) == [:carbon_allocation, :carbon_allocation]
+
+    # Testing inputs and outputs of the nodes:
+    @test d.roots["Soil"=>:soil_water].inputs == [:soil_water => NamedTuple()]
+    # Testing if the status given by the user is used to set the default values of the variables in the nodes:
+    @test last(d.roots["Soil"=>:soil_water].children[1].inputs[1]).aPPFD == 1300.0
+    # Testing that the outputs that are not multiscale are simply initialised with the default values from the models:
+    @test d.roots["Internode"=>:carbon_demand].outputs[1] |> last |> first == -Inf
+    # Testing that the intputs that are not multiscale are initialised with the default values from the models, as an `UninitializedVar`:
+    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:biomass, 0.0)
+end
+
 @testset "inputs and outputs of a mapping" begin
     ins = inputs(mapping_1)
 
