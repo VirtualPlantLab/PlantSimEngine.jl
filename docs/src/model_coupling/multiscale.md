@@ -116,17 +116,23 @@ mapping = Dict(
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapping=[
-                :A => ["Leaf"],
+                :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
                 :carbon_allocation => ["Leaf", "Internode"]
             ],
+        ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapping=[:TT => "Scene",],
-        )
+        ),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(biomass=1.0),
     ),
     "Leaf" => (
         MultiScaleModel(
@@ -137,6 +143,8 @@ mapping = Dict(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapping=[:TT => "Scene",],
         ),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(biomass=0.5),
     ),
     "Soil" => (
         ToySoilWaterModel(),
@@ -149,14 +157,14 @@ In this example, we expect to make a simulation at five different scales: `"Scen
 
 We see that all scales are interconnected, with computations at the organ scale that may depend on the soil scale and at the plant scale that depends on the organ scale and scene scale.
 
-Something important to note here is that we have different ways to define the mapping for the `MultiScaleModel`. For example, we have `:A => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. This mapping means that the variable `A` is mapped to the `"Leaf"` scale. However, we could also have `:A => "Leaf"`, which is equivalent. 
+Something important to note here is that we have different ways to define the mapping for the `MultiScaleModel`. For example, we have `:carbon_assimilation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. This mapping means that the variable `A` is mapped to the `"Leaf"` scale. However, we could also have `:carbon_assimilation => "Leaf"`, which is equivalent. 
 
 !!! note 
-    Note the difference between `:A => ["Leaf"]` and `:A => "Leaf"` is that "Leaf" is given as a vector in the first definition, and as a scalar in the second one.
+    Note the difference between `:carbon_assimilation => ["Leaf"]` and `:carbon_assimilation => "Leaf"` is that "Leaf" is given as a vector in the first definition, and as a scalar in the second one.
 
 The difference is that the first maps to a vector of values, while the second maps to a single value. The first one is useful when we don't know how many nodes there will be in the plant of type `"Leaf"`. In this case, the values are available as a vector in the `A` variable of the `status` inside the model. The second one should only be used if we are sure that there will be only one node at this scale, and in this case, the one and single value is given as a scalar in the `A` variable of the `status` inside the model.
 
-A third form for the mapping would be `:A => ["Leaf", "Internode"]`. This form is useful when we need values for a variable from several scales simultaneously. In this case, the values are available as a vector in the `A` variable of the `status` inside the model, sorted in the same order as nodes are traversed in the graph.
+A third form for the mapping would be `:carbon_assimilation => ["Leaf", "Internode"]`. This form is useful when we need values for a variable from several scales simultaneously. In this case, the values are available as a vector in the `A` variable of the `status` inside the model, sorted in the same order as nodes are traversed in the graph.
 
 ## Running a simulation
 
@@ -183,7 +191,7 @@ Models can access only one time step at a time, so the output at the end of a si
 outs = Dict(
     "Scene" => (:TT, :TT_cu, :node),
     "Plant" => (:aPPFD, :LAI),
-    "Leaf" => (:A, :carbon_demand, :carbon_allocation, :TT),
+    "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),
     "Internode" => (:carbon_allocation,),
     "Soil" => (:soil_water_content,),
 )
