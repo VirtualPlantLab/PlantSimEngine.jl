@@ -42,7 +42,7 @@ end
 function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, mtg)
 
     carbon_demand_tot = sum(status.carbon_demand)
-    #Note: this model is multiscale, so status.carbon_demand, status.carbon_allocation, and status.A are vectors.
+    #Note: this model is multiscale, so status.carbon_demand, status.carbon_allocation, and status.carbon_assimilation are vectors.
     status.carbon_offer = sum(status.carbon_assimilation) - status.Rm
 
     # If the total demand is positive, we try allocating carbon:

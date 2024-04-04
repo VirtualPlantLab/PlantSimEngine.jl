@@ -108,13 +108,13 @@ Base.eltype(x::ToyAssimGrowthModel{T}) where {T} = T
 function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, constants, extra)
 
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
-    status.A = status.aPPFD * models.growth.LUE
+    status.carbon_assimilation = status.aPPFD * models.growth.LUE
     # The maintenance respiration is simply a factor of the assimilation:
-    status.Rm = status.A * models.growth.Rm_factor
+    status.Rm = status.carbon_assimilation * models.growth.Rm_factor
     # Note that we use models.growth.Rm_factor to access the parameter of the model
 
     # Net primary productivity of the plant (NPP) is the assimilation minus the maintenance respiration:
-    NPP = status.A - status.Rm
+    NPP = status.carbon_assimilation - status.Rm
 
     # The NPP is used with a cost (growth respiration Rg):
     status.Rg = 1 - (NPP / models.growth.Rg_cost)
