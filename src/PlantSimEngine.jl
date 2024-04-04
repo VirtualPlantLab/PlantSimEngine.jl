@@ -53,10 +53,15 @@ include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
 include("dependencies/dependencies.jl")
 
+# UninitializedVar:
+include("processes/uninitialized_var.jl")
+
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
+include("mtg/mapping/getters.jl")
 include("mtg/mapping/mapping.jl")
-include("mtg/mapping/new_mapping.jl")  #! to change in mapping.jl
+include("mtg/mapping/compute_mapping.jl")
+include("mtg/mapping/reverse_mapping.jl")
 include("mtg/initialisation.jl")
 include("mtg/save_results.jl")
 include("mtg/add_organ.jl")

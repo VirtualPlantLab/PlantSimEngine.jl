@@ -133,3 +133,9 @@ MultiScaleModel(; model, mapping) = MultiScaleModel(model, mapping)
 
 mapping_(m::MultiScaleModel) = m.mapping
 model_(m::MultiScaleModel) = m.model
+inputs_(m::MultiScaleModel) = inputs_(m.model)
+outputs_(m::MultiScaleModel) = outputs_(m.model)
+get_models(m::MultiScaleModel) = [model_(m)] # Get the models of a MultiScaleModel:
+# Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.
+get_status(m::MultiScaleModel) = nothing
+get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping_(m)

@@ -197,6 +197,49 @@ function status_from_template(d::Dict{Symbol,T} where {T})
 end
 
 """
+    ref_var(v)
+
+Create a reference to a variable. If the variable is already a `Base.RefValue`,
+it is returned as is, else it is returned as a Ref to the copy of the value,
+or a Ref to the `RefVector` (in case `v` is a `RefVector`).
+
+# Examples
+
+```jldoctest mylabel
+julia> using PlantSimEngine;
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var(1.0)
+Base.RefValue{Float64}(1.0)
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var([1.0])
+Base.RefValue{Vector{Float64}}([1.0])
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var(Base.RefValue(1.0))
+Base.RefValue{Float64}(1.0)
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var(Base.RefValue([1.0]))
+Base.RefValue{Vector{Float64}}([1.0])
+```
+
+```jldoctest mylabel
+julia> PlantSimEngine.ref_var(PlantSimEngine.RefVector([Ref(1.0), Ref(2.0), Ref(3.0)]))
+Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.0])
+```
+"""
+ref_var(v) = Base.Ref(copy(v))
+ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
+ref_var(v::T) where {T<:Base.RefValue} = v
+ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
+
+"""
     init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
 
 Initialise the simulation. Returns:
