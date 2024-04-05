@@ -65,7 +65,7 @@ AbstractTrees.printnode(io::IO, node::SoftDependencyNode{T}) where {T} = print(i
 Base.show(io::IO, t::AbstractDependencyNode) = AbstractTrees.print_tree(io, t)
 Base.length(t::AbstractDependencyNode) = length(collect(AbstractTrees.PreOrderDFS(t)))
 
-function Base.show(io::IO, t::DependencyGraph)
+function Base.show(io::IO, t::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}})
     draw_dependency_graph(io, t)
 end
 
@@ -237,7 +237,7 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
         vars_ = Vector{Pair{Symbol,Any}}()
         for var in vars # e.g. var = :soil_water_content
             if var in keys(st)
-                #If the user has given a status, we use it as default value:
+                #If the user has given a status, we use it as default value.
                 default = st[var]
             elseif var in ins_variables
                 # Otherwise, we use the default value given by the model:
@@ -269,7 +269,7 @@ end
 
 function draw_dependency_graph(
     io,
-    graphs::DependencyGraph;
+    graphs::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}};
     title="Dependency graph",
     title_style::String="#FFA726 italic",
     guides_style::String="#42A5F5",
