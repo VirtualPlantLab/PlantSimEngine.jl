@@ -73,7 +73,7 @@ For each organ in the `mapped_vars`, find the variables that are outputs from an
 This function is used with mapped_variables
 """
 function variables_outputs_from_other_scale(mapped_vars)
-    vars_outputs_from_scales = Dict{String,Vector{MappedVar}}()
+    vars_outputs_from_scales = Dict{String,Vector{Pair{Symbol,Any}}}()
     # Scale at which we have to add a variable => [(source_process, source_scale, variable), ...]
     for (organ, outs) in mapped_vars[:outputs] # organ = "Plant" ; outs = mapped_vars[:outputs][organ]
         for (var, val) in pairs(outs) # var = :carbon_allocation ; val = outs[1]
@@ -111,17 +111,17 @@ function variables_outputs_from_other_scale(mapped_vars)
                                                                         """`$(mapped_variable(val)) => ["$o"]`."""
                     end
                     # We make a MappedVar object to declare the variable as an input of this scale:
-                    mapped_var = MappedVar(
-                        SelfNodeMapping(), # The source organ is itself, we just do that so the variable exist in its status
-                        source_variable(val, o),
-                        source_variable(val, o),
-                        var_default_value,
-                    )
+                    # mapped_var = MappedVar(
+                    #     SelfNodeMapping(), # The source organ is itself, we just do that so the variable exist in its status
+                    #     source_variable(val, o),
+                    #     source_variable(val, o),
+                    #     var_default_value,
+                    # )
 
                     if !haskey(vars_outputs_from_scales, o)
-                        vars_outputs_from_scales[o] = [mapped_var]
+                        vars_outputs_from_scales[o] = [source_variable(val, o) => var_default_value]
                     else
-                        push!(vars_outputs_from_scales[o], mapped_var)
+                        push!(vars_outputs_from_scales[o], source_variable(val, o) => var_default_value)
                     end
                 end
             end
@@ -142,7 +142,7 @@ function add_mapped_variables_with_outputs_as_inputs!(mapped_vars)
 
     for (organ, vars) in outputs_written_by_other_scales # organ = "Internode" ; vars = outputs_written_by_other_scales["Internode"]
         if haskey(mapped_vars[:inputs], organ)
-            mapped_vars[:inputs][organ] = merge(mapped_vars[:inputs][organ], NamedTuple(mapped_variable(v) => v for v in vars))
+            mapped_vars[:inputs][organ] = merge(mapped_vars[:inputs][organ], NamedTuple(first(v) => last(v) for v in vars))
         else
             error("The scale $organ is mapped as an output scale from anothe scale, but is not declared in the mapping.")
         end
