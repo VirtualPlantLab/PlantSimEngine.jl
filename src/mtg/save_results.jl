@@ -52,7 +52,7 @@ julia> mapping = Dict( \
     "Internode" => ( \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
-        Status(TT=10.0, biomass=1.0) \
+        Status(TT=10.0, carbon_biomass=1.0) \
     ), \
     "Leaf" => ( \
         MultiScaleModel( \
@@ -61,7 +61,7 @@ julia> mapping = Dict( \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
-        Status(aPPFD=1300.0, TT=10.0, biomass=1.0), \
+        Status(aPPFD=1300.0, TT=10.0, carbon_biomass=1.0), \
     ), \
     "Soil" => ( \
         ToySoilWaterModel(), \

@@ -15,18 +15,18 @@ Computes the assimilation of a plant (= photosynthesis).
 
 # Inputs
 
-- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² time-step⁻¹
 - `soil_water_content`: the soil water content, in %
 
 # Outputs
 
-- `carbon_assimilation`: the assimilation or photosynthesis, also sometimes denoted `A`, in gC m⁻² d⁻¹
+- `carbon_assimilation`: the assimilation or photosynthesis, also sometimes denoted `A`, in gC m⁻² time-step⁻¹
 
 # Details
 
 The assimilation is computed as the product of the absorbed photosynthetic photon flux density (aPPFD) and the light use efficiency (LUE),
-so the units of the assimilation usually are in gC m⁻² d⁻¹, but they could be in another spatial or temporal unit depending on the unit of `aPPFD`, *e.g.* 
-if `aPPFD` is in mol[PAR] plant⁻¹ d⁻¹, the assimilation will be in gC plant⁻¹ d⁻¹.
+so the units of the assimilation usually are in gC m⁻² time-step⁻¹, but they could be in another spatial or temporal unit depending on the unit of `aPPFD`, *e.g.* 
+if `aPPFD` is in mol[PAR] plant⁻¹ time-step⁻¹, the assimilation will be in gC plant⁻¹ time-step⁻¹.
 """
 struct ToyAssimModel{T} <: AbstractCarbon_AssimilationModel
     LUE::T
@@ -50,7 +50,7 @@ end
 # Tells Julia what is the type of elements:
 Base.eltype(::ToyAssimModel{T}) where {T} = T
 
-# Implement the growth model:
+# Implement the model:
 function PlantSimEngine.run!(::ToyAssimModel, models, status, meteo, constants, extra)
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
     status.carbon_assimilation = status.aPPFD * models.carbon_assimilation.LUE * status.soil_water_content

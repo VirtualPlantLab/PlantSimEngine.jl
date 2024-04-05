@@ -123,7 +123,7 @@ end
     @test keys(vars["Soil"]) == keys(outs["Soil"])
     @test keys(values(vars["Soil"])[1]) == values(outs["Soil"])[1]
     @test vars["Plant"] == (carbon_allocation=(carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf], carbon_offer=-Inf, carbon_allocation=[-Inf]), maintenance_respiration=(Rm_organs=[-Inf], Rm=-Inf),)
-    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(biomass=0.0, Rm=-Inf))
+    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(carbon_biomass=0.0, Rm=-Inf))
 end
 
 @testset "Status initialisation" begin
@@ -563,7 +563,7 @@ end
             "Internode" => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-                Status(TT=10.0, biomass=1.0)
+                Status(TT=10.0, carbon_biomass=1.0)
             ),
             "Leaf" => (
                 MultiScaleModel(
@@ -579,7 +579,7 @@ end
                 Process4Model(),
                 Process5Model(),
                 Process6Model(),
-                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, biomass=1.0),
+                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
             "Soil" => (
                 ToySoilWaterModel(),
@@ -618,7 +618,7 @@ end
             "Internode" => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-                Status(TT=10.0, biomass=1.0)
+                Status(TT=10.0, carbon_biomass=1.0)
             ),
             "Leaf" => (
                 MultiScaleModel(
@@ -634,7 +634,7 @@ end
                 Process4Model(),
                 Process5Model(),
                 Process6Model(),
-                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, biomass=1.0),
+                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
             "Soil" => (
                 ToySoilWaterModel(),

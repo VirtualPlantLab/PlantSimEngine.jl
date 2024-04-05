@@ -10,13 +10,17 @@ model and the nodes symbols from which the values are taken from.
 - `mapping<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
 
 The mapping can be of the form:
-1. `[:variable_name => "Plant"]`
-2. `[:variable_name => ["Leaf"]]`
-3. `[:variable_name => ["Leaf", "Internode"]]`
-4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]`
-5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]`
 
-Explanation of the forms:
+1. `[:variable_name => "Plant"]`: We take one value from the Plant node
+2. `[:variable_name => ["Leaf"]]`: We take a vector of values from the Leaf nodes
+3. `[:variable_name => ["Leaf", "Internode"]]`:  We take a vector of values from the Leaf and Internode nodes
+4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]`:  We take one value from another variable name in the Plant node
+5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]`:  We take a vector of values from the Leaf and Internode nodes with different names
+6. `[PreviousTimeStep(:variable_name) => ...]`:  We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
+7. `[:variable_name => :variable_name_from_another_model]`: We take the value from another model at the same scale but rename it
+
+
+Details about the different forms:
 
 1. The variable `variable_name` of the model will be taken from the `Plant` node, assuming only one node has the `Plant` symbol.
 In this case the value available from the status will be a scalar, and so the user must guaranty that only one node of type `Plant` is available in the MTG.
@@ -32,6 +36,10 @@ and `Internode`.
 when the variable name in the model is different from the variable name in the scale it is taken from.
 
 5. The variable `variable_name` of the model will be taken from the variable called `variable_name_1` in the `Leaf` node and `variable_name_2` in the `Internode` node.
+
+6. The variable `variable_name` of the model uses the value computed on the previous time-step. This implies that the variable is not used to build the dependency graph
+because the dependency graph only applies on the current time-step. This is used to avoid circular dependencies when a variable depends on itself. The value can be initialized
+in the Status if needed.
 
 Note that the mapping does not make any copy of the values, it only references them. This means that if the values are updated in the status
 of one node, they will be updated in the other nodes.
@@ -88,7 +96,7 @@ julia> PlantSimEngine.model_(multiscale_model)
 ToyCAllocationModel()
 ```
 """
-struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{Symbol,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {S<:AbstractString}}
+struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}}
     model::T
     mapping::V
 
@@ -102,13 +110,15 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{Symbol,Union{Pair
         end
 
         # If the name of the variable mapped from the other scale is not given, we add it as the same of the variable name in the model. Cases:
-        # 1. `[:variable_name => "Plant"]`
-        # 2. `[:variable_name => ["Leaf"]]`
-        # 3. `[:variable_name => ["Leaf", "Internode"]]`
-        # 4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]`
-        # 5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]`
+        # 1. `[:variable_name => "Plant"]` # We take one value from the Plant node
+        # 2. `[:variable_name => ["Leaf"]]` # We take a vector of values from the Leaf nodes
+        # 3. `[:variable_name => ["Leaf", "Internode"]]` # We take a vector of values from the Leaf and Internode nodes
+        # 4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]` # We take one value from another variable name in the Plant node
+        # 5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]` # We take a vector of values from the Leaf and Internode nodes with different names
+        # 6. `[PreviousTimeStep(:variable_name) => ...]` # We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
+        # 7. `[:variable_name => :variable_name_from_another_model]` # We take the value from another model at the same scale but rename it
 
-        unfolded_mapping = Pair{Symbol,Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
+        unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
         for (var, scales_mapping) in mapping
             if isa(scales_mapping, AbstractString)
                 # Case 1, add the variable name in the model as the variable name in the scale:
