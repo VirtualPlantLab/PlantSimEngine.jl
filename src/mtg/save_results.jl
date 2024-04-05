@@ -147,12 +147,12 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
         end
         if !all(i in collect(keys(statuses[organ][1])) for i in vars)
             not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
+            plural = length(not_in_statuses) == 1 ? "" : "s"
             e = string(
-                "You requested outputs for variables ",
-                join(vars, ", "),
-                ", but variables ",
+                "You requested outputs for variable", plural, " ",
                 join(not_in_statuses, ", "),
-                " have no models."
+                " in organ $organ, but ",
+                length(not_in_statuses) == 1 ? "it has no model." : "they have no models."
             )
             if check
                 error(e)
