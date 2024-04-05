@@ -33,7 +33,7 @@ end
 
 # Define outputs:
 function PlantSimEngine.outputs_(::ToyCBiomassModel)
-    (carbon_biomass_increment=-Inf, carbon_biomass=-Inf, growth_respiration=-Inf,)
+    (carbon_biomass_increment=-Inf, carbon_biomass=0.0, growth_respiration=-Inf,)
 end
 
 function PlantSimEngine.run!(m::ToyCBiomassModel, models, status, meteo, constants, extra_args)
