@@ -93,7 +93,7 @@ function dep(mapping::Dict{String,T}; verbose::Bool=true) where {T}
     # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
     # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
     # of the nodes that they depend on.
-    dep_graph = soft_dependencies_multiscale(soft_dep_graphs_roots)
+    dep_graph = soft_dependencies_multiscale(soft_dep_graphs_roots, mapping)
     # During the building of the soft-dependency graph, we identified the inputs and outputs of each dependency node, 
     # and also defined **inputs** as MappedVar if they are multiscale, i.e. if they take their values from another scale.
     # What we are missing is that we need to also define **outputs** as multiscale if they are needed by another scale.

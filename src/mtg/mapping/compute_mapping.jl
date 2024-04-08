@@ -1,15 +1,17 @@
 """
-    mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
+    mapped_variables(mapping, dependency_graph=hard_dependencies(mapping; verbose=false); verbose=false)
 
 Get the variables for each organ type from a dependency graph, with `MappedVar`s for the multiscale mapping.
 
 # Arguments
 
 - `mapping::Dict{String,T}`: the mapping between models and scales.
-- `dependency_graph::DependencyGraph`: the dependency graph.
+- `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
+However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
+nodes under other models.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
+function mapped_variables(mapping, dependency_graph=hard_dependencies(mapping; verbose=false); verbose=false)
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 
@@ -33,14 +35,16 @@ function mapped_variables(mapping, dependency_graph=dep(mapping); verbose=false)
 end
 
 """
-    mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=dep(mapping))
+    mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=hard_dependencies(mapping; verbose=false))
 
 Get the variables for each organ type from a dependency graph, without the variables that are outputs from another scale.
 
 # Arguments
 
 - `mapping::Dict{String,T}`: the mapping between models and scales.
-- `dependency_graph::DependencyGraph`: the dependency graph.
+- `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
+However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
+nodes under other models.
 
 # Details
 
@@ -49,22 +53,13 @@ This function returns a dictionary with the (multiscale-) inputs and outputs var
 Note that this function does not include the variables that are outputs from another scale and not computed by this scale,
 see `mapped_variables_with_outputs_as_inputs` for that.
  """
-function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=dep(mapping))
-    nodes_ins = Dict{String,Any}(org => [] for org in keys(mapping))
-    nodes_outs = Dict{String,Any}(org => [] for org in keys(mapping))
-    for ((organ_, process_), root_node) in dependency_graph.roots
-        traverse_dependency_graph!(root_node, visit_hard_dep=false) do node
-            push!(nodes_ins[node.scale], node.inputs)
-            push!(nodes_outs[node.scale], node.outputs)
-        end
-        # note: we use visit_hard_dep=false because their inputs and outputs are already defined in their parent soft-dependency node
-    end
-    ins = Dict{String,NamedTuple}(k => flatten_vars(vcat(v...)) for (k, v) in nodes_ins)
-    outs = Dict{String,NamedTuple}(k => flatten_vars(vcat(v...)) for (k, v) in nodes_outs)
+function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=hard_dependencies(mapping; verbose=false))
+    nodes_insouts = Dict(organ => (inputs=ins, outputs=outs) for (organ, (soft_dep_graph, ins, outs)) in dependency_graph.roots)
+    ins = Dict(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
+    outs = Dict(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
 
     return Dict(:inputs => ins, :outputs => outs)
 end
-
 
 """
     variables_outputs_from_other_scale(mapped_vars)

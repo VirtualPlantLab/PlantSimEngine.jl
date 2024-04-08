@@ -7,7 +7,9 @@ Get the status of each node in the MTG by node type, pre-initialised considering
 
 - `mtg`: the plant graph
 - `mapping`: a dictionary of model mapping
-- `dependency_graph`: the dependency graph of the models
+- `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
+However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
+nodes under other models.
 - `type_promotion`: the type promotion to use for the variables
 - `verbose`: print information when compiling the mapping
 - `check`: whether to check the mapping for errors. Passed to `init_node_status!`.
@@ -19,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph=dep(mapping); type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph=hard_dependencies(mapping; verbose=false); type_promotion=nothing, verbose=false, check=true)
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 

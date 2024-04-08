@@ -9,6 +9,8 @@ struct UninitializedVar{T}
 end
 
 Base.eltype(u::UninitializedVar{T}) where {T} = T
+source_variable(m::UninitializedVar) = m.variable
+source_variable(m::UninitializedVar, org) = m.variable
 
 """
     PreviousTimeStep(variable)
