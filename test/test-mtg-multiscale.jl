@@ -127,7 +127,7 @@ end
 end
 
 @testset "Status initialisation" begin
-    @test_throws "Variable `biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1)
+    @test_throws "Variable `carbon_biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1)
     organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
@@ -168,11 +168,11 @@ end
     type_promotion = nothing
     nsteps = 2
     dependency_graph = dep(mapping_1)
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, dependency_graph; type_promotion=type_promotion)
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, PlantSimEngine.hard_dependencies(mapping_1; verbose=false); type_promotion=type_promotion)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]
-    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :node, :aPPFD, :carbon_biomass, :Rm, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :carbon_biomass, :aPPFD, :node, :Rm, :soil_water_content, :carbon_demand]
     @test collect(keys(organs_statuses["Plant"][1])) == [:Rm_organs, :carbon_allocation, :carbon_assimilation, :node, :carbon_offer, :Rm, :carbon_demand]
     @test organs_statuses["Soil"][1][:soil_water_content][] === -Inf
     @test organs_statuses["Leaf"][1][:carbon_allocation] === -Inf
@@ -191,8 +191,6 @@ end
     )
 
     @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Dict{String,Dict{Symbol,Any}}}()
-
-
     @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
     @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
 
@@ -212,7 +210,7 @@ end
         @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
     end
 
-    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variables carbon_assimilation, carbon_demand, non_existing_variable, but variables non_existing_variable have no models.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
+    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
 
     @test outs_ == Dict(
         "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),
@@ -516,7 +514,6 @@ end
             Status(var1=var1,)
         )
     )
-
     # Need init for var2, so it returns an error:
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
         @test_throws ErrorException PlantSimEngine.init_simulation(mtg, mapping)
