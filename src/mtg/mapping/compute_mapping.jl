@@ -162,6 +162,7 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
                 source_organ = mapped_organ(mapped_var)
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
+                @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
                 @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
                                                                                                  "scale `$organ`, but is not computed by any model at `$source_organ` scale."
 
