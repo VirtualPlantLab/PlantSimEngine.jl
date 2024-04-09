@@ -283,12 +283,10 @@ a value in a Dict. If you need a reference, you can use a `Ref` for your variabl
 automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    # Compute the multi-scale dependency graph of the models:
-    dependency_graph = dep(mapping, verbose=verbose)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, dependency_graph; type_promotion=type_promotion, verbose=verbose, check=check)
+        init_statuses(mtg, mapping, hard_dependencies(mapping; verbose=false); type_promotion=type_promotion, verbose=verbose, check=check)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -300,5 +298,5 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs = pre_allocate_outputs(statuses, outputs, nsteps, check=check)
 
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph, models, outputs)
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep(mapping, verbose=verbose), models, outputs)
 end
