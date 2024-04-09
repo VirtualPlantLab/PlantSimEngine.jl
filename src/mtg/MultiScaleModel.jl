@@ -136,22 +136,22 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
 end
 
 # Case 1: [:variable_name => "Plant"]
-function _get_var(i::Pair{Symbol,String})
+function _get_var(i::Pair{Symbol,S}) where {S<:String}
     return (var=first(i), scales_mapping=last(i), var_new=var)
 end
 
 # Case 2 and 3: [:variable_name => ["Leaf", "Internode"]] or [:variable_name => ["Leaf"]]
-function _get_var(i::Pair{Symbol,AbstractVector{String}})
+function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{<:AbstractString}}
     return first(i) => [scale => first(i) for scale in last(i)]
 end
 
 # Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale]
-function _get_var(i::Pair{Symbol,Pair{String,Symbol}})
+function _get_var(i::Pair{Symbol,Pair{S,Symbol}}) where {S<:String}
     return first(i) => last(i) => first(i)
 end
 
 # Case 5: [:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]
-function _get_var(i::Pair{Symbol,Vector{Pair{String,Symbol}}})
+function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{Pair{S,Symbol}} where {S<:AbstractString}}
     return first(i) => last(i) # Note that we do not need to do anything here, the mapping is already in the right format
 end
 
