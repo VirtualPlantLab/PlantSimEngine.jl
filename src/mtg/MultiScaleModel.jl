@@ -103,7 +103,8 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
     function MultiScaleModel{T}(model::T, mapping) where {T<:AbstractModel}
         # Check that the variables in the mapping are variables of the model:
         model_variables = keys(variables(model))
-        for (var, scales_mapping) in mapping
+        for i in mapping
+            var = isa(i, PreviousTimeStep) ? i.variable : first(i)
             if !(var in model_variables)
                 error("Mapping for model $model defines variable $var, but it is not a variable of the model.")
             end
@@ -117,24 +118,54 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         # 5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]` # We take a vector of values from the Leaf and Internode nodes with different names
         # 6. `[PreviousTimeStep(:variable_name) => ...]` # We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
         # 7. `[:variable_name => :variable_name_from_another_model]` # We take the value from another model at the same scale but rename it
+        # 8. `[PreviousTimeStep(:variable_name),]` # We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
         unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
-        for (var, scales_mapping) in mapping
-            if isa(scales_mapping, AbstractString)
-                # Case 1, add the variable name in the model as the variable name in the scale:
-                push!(unfolded_mapping, var => scales_mapping => var)
-            elseif isa(scales_mapping, AbstractVector{String})
-                # Case 2 and 3, add the variable name in the model as the variable name in the scale:
-                push!(unfolded_mapping, var => [scale => var for scale in scales_mapping])
-            else
-                # Case 3 and 4, everything we need is already in the scales_mapping:
-                push!(unfolded_mapping, var => scales_mapping)
-            end
+        for i in mapping
+            push!(unfolded_mapping, _get_var(i))
         end
 
         new{T,typeof(unfolded_mapping)}(model, unfolded_mapping)
     end
 end
+
+# Case 1: [:variable_name => "Plant"]
+function _get_var(i::Pair{Symbol,String})
+    return (var=first(i), scales_mapping=last(i), var_new=var)
+end
+
+# Case 2 and 3: [:variable_name => ["Leaf", "Internode"]] or [:variable_name => ["Leaf"]]
+function _get_var(i::Pair{Symbol,AbstractVector{String}})
+    return first(i) => [scale => first(i) for scale in last(i)]
+end
+
+# Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale]
+function _get_var(i::Pair{Symbol,Pair{String,Symbol}})
+    return first(i) => last(i) => first(i)
+end
+
+# Case 5: [:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]
+function _get_var(i::Pair{Symbol,Vector{Pair{String,Symbol}}})
+    return first(i) => last(i) # Note that we do not need to do anything here, the mapping is already in the right format
+end
+
+# Case 6: [PreviousTimeStep(:variable_name) => ...]
+function _get_var(i::Pair{PreviousTimeStep,Any})
+    vars = _get_var(i.first.variable => i.second) # Leverage the other methods here
+    return first(i) => last(vars) # And put back the PreviousTimeStep as the first element
+end
+
+# Case 7: [:variable_name => :variable_name_from_another_model]
+function _get_var(i::Pair{Symbol,Symbol})
+    return first(i) => "" => last(i)
+end
+
+# Case 8: [PreviousTimeStep(:variable_name),]
+function _get_var(i::PreviousTimeStep)
+    return i => "" => i.variable
+end
+
+
 
 function MultiScaleModel(model::T, mapping) where {T<:AbstractModel}
     MultiScaleModel{T}(model, mapping)
