@@ -55,8 +55,8 @@ see `mapped_variables_with_outputs_as_inputs` for that.
  """
 function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=hard_dependencies(mapping; verbose=false))
     nodes_insouts = Dict(organ => (inputs=ins, outputs=outs) for (organ, (soft_dep_graph, ins, outs)) in dependency_graph.roots)
-    ins = Dict(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
-    outs = Dict(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
+    ins = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
+    outs = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
 
     return Dict(:inputs => ins, :outputs => outs)
 end
