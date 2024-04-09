@@ -82,7 +82,7 @@ end
 
 # Another MTG with initialisation values for biomass:
 mtg_init = deepcopy(mtg)
-transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
+transform!(mtg_init, (x -> 1.0) => :carbon_biomass, symbol=["Internode", "Leaf"])
 
 @testset "Multiscale dependency graph" begin
     d = dep(mapping_1)
@@ -102,7 +102,7 @@ transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
     # Testing that the outputs that are not multiscale are simply initialised with the default values from the models:
     @test d.roots["Internode"=>:carbon_demand].outputs[1] |> last |> first == -Inf
     # Testing that the intputs that are not multiscale are initialised with the default values from the models, as an `UninitializedVar`:
-    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:biomass, 0.0)
+    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:carbon_biomass, 0.0)
 end
 
 @testset "inputs and outputs of a mapping" begin
@@ -110,7 +110,7 @@ end
 
     @test collect(keys(ins)) == collect(keys(mapping_1))
     @test ins["Soil"] == (soil_water=(),)
-    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:biomass,))
+    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:carbon_biomass,))
 
     outs = outputs(mapping_1)
     @test collect(keys(outs)) == collect(keys(mapping_1))
@@ -172,7 +172,7 @@ end
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]
-    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :node, :aPPFD, :biomass, :Rm, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :node, :aPPFD, :carbon_biomass, :Rm, :soil_water_content, :carbon_demand]
     @test collect(keys(organs_statuses["Plant"][1])) == [:Rm_organs, :carbon_allocation, :carbon_assimilation, :node, :carbon_offer, :Rm, :carbon_demand]
     @test organs_statuses["Soil"][1][:soil_water_content][] === -Inf
     @test organs_statuses["Leaf"][1][:carbon_allocation] === -Inf
@@ -193,7 +193,7 @@ end
     @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Dict{String,Dict{Symbol,Any}}}()
 
 
-    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:biomass], "Leaf" => [:biomass])
+    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
     @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
 
     statuses, other = PlantSimEngine.init_statuses(mtg_init, mapping_1)

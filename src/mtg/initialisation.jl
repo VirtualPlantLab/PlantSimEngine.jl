@@ -102,7 +102,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
     # and if so, use their value in the status:
     if haskey(vars_need_init, symbol(node)) && length(vars_need_init[symbol(node)]) > 0
-        for var in vars_need_init[symbol(node)] # e.g. var = :biomass
+        for var in vars_need_init[symbol(node)] # e.g. var = :carbon_biomass
             if !haskey(node, var)
                 if !check
                     # If we don't check, we use the default value from the model (and if it's an UninitializedVar we take its default value):
