@@ -243,7 +243,7 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
     defaults = merge(node_vars...)
     map((inputs=ins_variables, outputs=outs_variables)) do vars # Map over vars from :inputs and vars from :outputs
         vars_ = Vector{Pair{Symbol,Any}}()
-        for var in vars # e.g. var = :soil_water_content
+        for var in vars # e.g. var = :carbon_biomass
             if var in keys(st)
                 #If the user has given a status, we use it as default value.
                 default = st[var]
@@ -257,22 +257,31 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
             end
 
             if haskey(vars_mapping[organ], var)
-                if isa(vars_mapping[organ][var], Pair{String,Symbol})
-                    # One organ is mapped to the variable:
-                    organ_mapped, organ_mapped_var = vars_mapping[organ][var]
-                    organ_mapped = SingleNodeMapping(organ_mapped)
-                else
-                    # Several organs are mapped to the variable:
-                    organ_mapped = MultiNodeMapping([first(i) for i in vars_mapping[organ][var]])
-                    organ_mapped_var = [last(i) for i in vars_mapping[organ][var]]
-                end
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
                 push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
+            elseif haskey(vars_mapping[organ], PreviousTimeStep(var))
+                # The variable is mapped to the previous time step:
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var)])
+                push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var), organ_mapped_var, default))
             else
                 push!(vars_, var => default)
             end
         end
         return (; vars_...,)
     end
+end
+
+function _node_mapping(var_mapping::Pair{String,Symbol})
+    # One organ is mapped to the variable:
+    return SingleNodeMapping(first(var_mapping)), last(var_mapping)
+end
+
+function _node_mapping(var_mapping)
+    # Several organs are mapped to the variable:
+    organ_mapped = MultiNodeMapping([first(i) for i in var_mapping])
+    organ_mapped_var = [last(i) for i in var_mapping]
+
+    return organ_mapped, organ_mapped_var
 end
 
 function draw_dependency_graph(

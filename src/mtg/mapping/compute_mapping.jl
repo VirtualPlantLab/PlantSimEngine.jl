@@ -70,11 +70,14 @@ This function is used with mapped_variables
 function variables_outputs_from_other_scale(mapped_vars)
     vars_outputs_from_scales = Dict{String,Vector{Pair{Symbol,Any}}}()
     # Scale at which we have to add a variable => [(source_process, source_scale, variable), ...]
-    for (organ, outs) in mapped_vars[:outputs] # organ = "Plant" ; outs = mapped_vars[:outputs][organ]
-        for (var, val) in pairs(outs) # var = :carbon_allocation ; val = outs[1]
+    for (organ, outs) in mapped_vars[:outputs] # organ = "Leaf" ; outs = mapped_vars[:outputs][organ]
+        for (var, val) in pairs(outs) # var = :carbon_biomass ; val = outs[1]
             if isa(val, MappedVar)
                 orgs = mapped_organ(val)
                 orgs_iterable = isa(orgs, AbstractString) ? [orgs] : orgs
+
+                filter!(o -> length(o) > 0, orgs_iterable)
+                length(orgs_iterable) == 0 && continue # This can happen when we use a PreviousTimeStep alone
 
                 for o in orgs_iterable
                     # The MappedVar can only have one value for the default, because it comes from the computing scale (the source scale):
@@ -135,7 +138,7 @@ function add_mapped_variables_with_outputs_as_inputs!(mapped_vars)
     # Get the variables computed by a scale and written to another scale (we have to add them as inputs to the "another" scale):
     outputs_written_by_other_scales = variables_outputs_from_other_scale(mapped_vars)
 
-    for (organ, vars) in outputs_written_by_other_scales # organ = "Internode" ; vars = outputs_written_by_other_scales["Internode"]
+    for (organ, vars) in outputs_written_by_other_scales # organ = "" ; vars = outputs_written_by_other_scales[organ]
         if haskey(mapped_vars[:inputs], organ)
             mapped_vars[:inputs][organ] = merge(mapped_vars[:inputs][organ], NamedTuple(first(v) => last(v) for v in vars))
         else
