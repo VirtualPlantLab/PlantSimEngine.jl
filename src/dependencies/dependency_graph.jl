@@ -66,7 +66,15 @@ Base.show(io::IO, t::AbstractDependencyNode) = AbstractTrees.print_tree(io, t)
 Base.length(t::AbstractDependencyNode) = length(collect(AbstractTrees.PreOrderDFS(t)))
 
 function Base.show(io::IO, t::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}})
-    draw_dependency_graph(io, t)
+    # If the graph is cyclic, we print the cycle because we can't print indefinitely:
+    iscyclic, cycle_vec = is_graph_cyclic(t; warn=false, full_stack=true)
+    if iscyclic
+        print(io, "⚠ Cyclic dependency graph: \n $(print_cycle(cycle_vec))")
+        return nothing
+    else
+        draw_dependency_graph(io, t)
+        print(io, "The dependency graph is acyclic.")
+    end
 end
 
 """
@@ -429,11 +437,11 @@ Check if the dependency graph is cyclic.
 
 - `dependency_graph::DependencyGraph`: the dependency graph to check.
 - `full_stack::Bool=false`: if `true`, return the full stack of nodes that makes the cycle, otherwise return only the cycle.
-- `verbose::Bool=true`: if `true`, print a stylised warning message when a cycle is detected.
+- `warn::Bool=true`: if `true`, print a stylised warning message when a cycle is detected.
 
 Return a boolean indicating if the graph is cyclic, and the stack of nodes as a vector.
 """
-function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, verbose=true)
+function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, warn=true)
     visited = Dict{Pair{AbstractModel,String},Bool}()
     recursion_stack = Dict{Pair{AbstractModel,String},Bool}()
     for node in values(dependency_graph.roots)
@@ -453,24 +461,29 @@ function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, ve
                 cycle_vec = cycle_vec[1:cycled_nodes[2]]
             end
 
-            printed_cycle = Any[Term.RenderableText(string("{bold red}", last(cycle_vec[1]), ": ", typeof(first(cycle_vec[1]))))]
-            leading_space = [1]
-            for (m, s) in cycle_vec[2:end]
-                node_print = string(repeat(" ", leading_space[1]), "└ ", s, ": ", typeof(m))
-                if (m => s) == cycle_vec[1]
-                    node_print = Term.RenderableText("{bold red}$node_print")
-                else
-                    node_print = Term.RenderableText(node_print)
-                end
+            warn && @warn "Cyclic dependency detected in the graph: \n $(print_cycle(cycle_vec))"
 
-                push!(printed_cycle, node_print)
-                leading_space[1] += 1
-            end
-            printed_cycle = join(printed_cycle, "")
-            verbose && @warn "Cyclic dependency detected in the graph for root $(root): \n $printed_cycle"
             return true, cycle_vec
         end
     end
 
     return false, visited
+end
+
+function print_cycle(cycle_vec)
+    printed_cycle = Any[Term.RenderableText(string("{bold red}", last(cycle_vec[1]), ": ", typeof(first(cycle_vec[1]))))]
+    leading_space = [1]
+    for (m, s) in cycle_vec[2:end]
+        node_print = string(repeat(" ", leading_space[1]), "└ ", s, ": ", typeof(m))
+        if (m => s) == cycle_vec[1]
+            node_print = Term.RenderableText("{bold red}$node_print")
+        else
+            node_print = Term.RenderableText(node_print)
+        end
+
+        push!(printed_cycle, node_print)
+        leading_space[1] += 1
+    end
+
+    return join(printed_cycle, "")
 end

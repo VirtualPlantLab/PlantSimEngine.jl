@@ -54,6 +54,7 @@ using Documenter # for doctests
     @testset "MTG with multiscale mapping" begin
         include("test-mtg-multiscale.jl")
         include("test-mtg-dynamic.jl")
+        include("test-mtg-multiscale-cyclic-dep.jl")
     end
 
     if VERSION >= v"1.10"

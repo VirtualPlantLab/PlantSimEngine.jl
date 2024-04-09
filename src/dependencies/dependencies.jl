@@ -98,6 +98,12 @@ function dep(mapping::Dict{String,T}; verbose::Bool=true) where {T}
     # and also defined **inputs** as MappedVar if they are multiscale, i.e. if they take their values from another scale.
     # What we are missing is that we need to also define **outputs** as multiscale if they are needed by another scale.
 
+    # Checking that the graph is acyclic:
+    iscyclic, cycle_vec = is_graph_cyclic(dep_graph; warn=false)
+    # Note: we could do that in `soft_dependencies_multiscale` but we prefer to keep the function as simple as possible, and 
+    # usable on its own.
+
+    iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
     # Third step, we identify which 
     return dep_graph
 end
