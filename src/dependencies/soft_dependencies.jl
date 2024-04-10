@@ -420,7 +420,9 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
             for org in var_organ # e.g. org = "Leaf"
                 # The variable is a multiscale variable:
                 haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")
-                add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, org, source_variable(val, org), mapped_variable(val))
+                mapped_var = mapped_variable(val)
+                mapped_var = isa(mapped_var, PreviousTimeStep) ? mapped_var.variable : mapped_var
+                add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, org, source_variable(val, org), mapped_var)
             end
         elseif isa(val, UninitializedVar) && haskey(rev_mapping, organ)
             # The variable may be a variable written by another scale:
