@@ -110,7 +110,12 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         # Check that the variables in the mapping are variables of the model:
         model_variables = keys(variables(model))
         for i in mapping
+            # If the var is a PreviousTimeStep, we take the variable name, else take the first element of the pair:
             var = isa(i, PreviousTimeStep) ? i.variable : first(i)
+
+            # If it was a pair, the first element can still be a PreviousTimeStep, so we take the variable name:
+            var = isa(var, PreviousTimeStep) ? var.variable : var
+
             if !(var in model_variables)
                 error("Mapping for model $model defines variable $var, but it is not a variable of the model.")
             end
@@ -135,9 +140,14 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
     end
 end
 
+# Method used when the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
+function _get_var(i::Pair{Symbol,Any})
+    return _get_var(first(i) => last(i))
+end
+
 # Case 1: [:variable_name => "Plant"]
 function _get_var(i::Pair{Symbol,S}) where {S<:String}
-    return (var=first(i), scales_mapping=last(i), var_new=var)
+    return first(i) => last(i) => first(i)
 end
 
 # Case 2 and 3: [:variable_name => ["Leaf", "Internode"]] or [:variable_name => ["Leaf"]]
@@ -145,18 +155,18 @@ function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{<:AbstractString}}
     return first(i) => [scale => first(i) for scale in last(i)]
 end
 
-# Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale]
+# Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale], nothing to do, the mapping is already in the right format
 function _get_var(i::Pair{Symbol,Pair{S,Symbol}}) where {S<:String}
-    return first(i) => last(i) => first(i)
+    return i
 end
 
 # Case 5: [:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]
 function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{Pair{S,Symbol}} where {S<:AbstractString}}
-    return first(i) => last(i) # Note that we do not need to do anything here, the mapping is already in the right format
+    return i # Note that we do not need to do anything here, the mapping is already in the right format
 end
 
 # Case 6: [PreviousTimeStep(:variable_name) => ...]
-function _get_var(i::Pair{PreviousTimeStep,Any})
+function _get_var(i::Pair{PreviousTimeStep,T}) where {T}
     vars = _get_var(i.first.variable => i.second) # Leverage the other methods here
     return first(i) => last(vars) # And put back the PreviousTimeStep as the first element
 end
