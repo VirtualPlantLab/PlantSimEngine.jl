@@ -86,7 +86,7 @@ export AbstractOrgan_EmergenceModel
 export AbstractMaintenance_RespirationModel
 
 # Models:
-export Beer, ToyLightPartitioningModel, ToyLAIModel, ToyLeafSurfaceModel, ToyPlantLeafSurfaceModel, ToyDegreeDaysCumulModel
+export Beer, ToyLightPartitioningModel, ToyLAIModel, ToyLAIfromLeafAreaModel, ToyLeafSurfaceModel, ToyPlantLeafSurfaceModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
 export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel, ToyCBiomassModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
