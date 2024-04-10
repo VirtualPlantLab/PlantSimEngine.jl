@@ -292,17 +292,29 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
     dict_mapped_vars = Dict{Pair,Any}()
 
     # First pass: converting the MappedVar{SelfNodeMapping} and MappedVar{SingleNodeMapping} to RefValues:
-    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
-        for (k, v) in vars # e.g.: k = :Rm_organs; v = vars[k]
+    for (organ, vars) in mapped_vars # e.g.: organ = "Leaf"; vars = mapped_vars[organ]
+        for (k, v) in vars # e.g.: k = :carbon_biomass; v = vars[k]
             if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
                 mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
+                mapped_var = mapped_variable(v)
+                mapped_org == "" && continue
+
+                ref_val = Ref(mapped_default(vars[k]))
+
+                if isa(mapped_var, PreviousTimeStep)
+                    # If it is a PreviousTimeStep
+                    key = mapped_org => mapped_var.variable
+                else
+                    key = mapped_org => mapped_var
+                end
+
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
-                if !haskey(dict_mapped_vars, mapped_org => mapped_variable(v))
-                    push!(dict_mapped_vars, Pair(mapped_org, mapped_variable(v)) => Ref(mapped_default(vars[k])))
+                if !haskey(dict_mapped_vars, key)
+                    push!(dict_mapped_vars, key => ref_val)
                 end
 
                 # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:
-                vars[k] = dict_mapped_vars[mapped_org=>mapped_variable(v)]
+                vars[k] = dict_mapped_vars[key]
             end
         end
     end
@@ -330,5 +342,19 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
         end
     end
 
+    # Third pass: getting the same reference for the variables that are mapped at the same scale to another variable (changing its name):
+    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+        for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
+            if isa(v, MappedVar{SelfNodeMapping}) && mapped_organ(v) == ""
+                # If we want to rename the variable at the same scale, use a reference to the origin variable.
+                # Note: we use a PerStatusRef to make sure that each status has its own reference to the value (the ref is not shared between statuses).
+                vars[k] = RefVariable(source_variable(v))
+            end
+        end
+    end
     return mapped_vars
+end
+
+struct RefVariable
+    reference_variable::Symbol
 end
