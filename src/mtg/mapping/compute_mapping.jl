@@ -345,10 +345,17 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
     # Third pass: getting the same reference for the variables that are mapped at the same scale to another variable (changing its name):
     for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
-            if isa(v, MappedVar{SelfNodeMapping}) && mapped_organ(v) == ""
-                # If we want to rename the variable at the same scale, use a reference to the origin variable.
-                # Note: we use a PerStatusRef to make sure that each status has its own reference to the value (the ref is not shared between statuses).
-                vars[k] = RefVariable(source_variable(v))
+            if isa(v, MappedVar) && mapped_organ(v) == ""
+                mapped_var = mapped_variable(v)
+                isa(mapped_var, PreviousTimeStep) && (mapped_var = mapped_var.variable)
+                if mapped_var == source_variable(v)
+                    # Happens when the mapping is just [PreviousTimeStep(:variable_name)]
+                    vars[k] = mapped_default(vars[k])
+                else
+                    # If we want to rename the variable at the same scale, use a reference to the origin variable.
+                    # Note: we use a PerStatusRef to make sure that each status has its own reference to the value (the ref is not shared between statuses).
+                    vars[k] = RefVariable(source_variable(v))
+                end
             end
         end
     end
