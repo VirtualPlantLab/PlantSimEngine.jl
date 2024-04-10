@@ -1,3 +1,19 @@
+@testset "MultiScaleModel: mapping formatting" begin
+    std_mapping = :plant_surfaces => "Plant" => :plant_surfaces
+    @test PlantSimEngine._get_var(:plant_surfaces => "Plant") == std_mapping # Case 1
+    @test PlantSimEngine._get_var(:plant_surfaces => ["Plant"]) == (:plant_surfaces => ["Plant" => :plant_surfaces]) # Case 2
+    @test PlantSimEngine._get_var(:plant_surfaces => ["Plant", "Leaf"]) == (:plant_surfaces => ["Plant" => :plant_surfaces, "Leaf" => :plant_surfaces]) # Case 3
+    @test PlantSimEngine._get_var(:plant_surfaces => "Plant" => :plant_surfaces) == std_mapping # Similar to case 1
+    @test PlantSimEngine._get_var(:plant_surfaces => "Plant" => :surface) == (:plant_surfaces => "Plant" => :surface) # Case 4
+    @test PlantSimEngine._get_var(:plant_surfaces => ["Plant" => :surface, "Leaf" => :surface]) == (:plant_surfaces => ["Plant" => :surface, "Leaf" => :surface]) # Case 5
+    @test PlantSimEngine._get_var(:plant_surfaces => ["Plant" => :surface_1, "Leaf" => :surface_2]) == (:plant_surfaces => ["Plant" => :surface_1, "Leaf" => :surface_2]) # Case 5
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => "Plant") == (PreviousTimeStep(:plant_surfaces) => "Plant" => :plant_surfaces) # Case 6
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => "Plant" => :surface) == (PreviousTimeStep(:plant_surfaces) => "Plant" => :surface) # Case 6
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => ["Plant" => :surface, "Leaf" => :surface]) == (PreviousTimeStep(:plant_surfaces) => ["Plant" => :surface, "Leaf" => :surface]) # Case 6
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces)) == (PreviousTimeStep(:plant_surfaces) => "" => :plant_surfaces) # Case 7
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => :surface) == (PreviousTimeStep(:plant_surfaces) => "" => :surface)
+end;
+
 @testset "MultiScaleModel: case 1" begin
     models = MultiScaleModel(
         model=ToyLAIModel(),
@@ -37,3 +53,29 @@ end;
     @test models.model == ToyCAllocationModel()
     @test models.mapping == [:carbon_assimilation => ["Leaf" => :carbon_assimilation], :carbon_demand => ["Leaf" => :carbon_demand, "Internode" => :carbon_demand], :Rm => "Plant" => :Rm_plant]
 end;
+
+
+@testset "MultiScaleModel: case with PreviousTimeStep => ..." begin
+    models = MultiScaleModel(
+        model=ToyLAIfromLeafAreaModel(1.0),
+        mapping=[
+            PreviousTimeStep(:plant_surfaces) => "Plant" => :surface,
+        ],
+    )
+
+    @test models.model == ToyLAIfromLeafAreaModel(1.0)
+    @test models.mapping == [PreviousTimeStep(:plant_surfaces) => ("Plant" => :surface)]
+end;
+
+@testset "MultiScaleModel: several types of mapping" begin
+    models = MultiScaleModel(
+        model=ToyLightPartitioningModel(),
+        mapping=[
+            :aPPFD_larger_scale => "Scene" => :aPPFD,
+            :total_surface => "Scene"
+        ],
+    )
+
+    @test models.model == ToyLightPartitioningModel()
+    @test models.mapping == [:aPPFD_larger_scale => ("Scene" => :aPPFD), :total_surface => ("Scene" => :total_surface)]
+end
