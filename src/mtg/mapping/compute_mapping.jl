@@ -159,10 +159,11 @@ This helps us declare it as a reference when we create the template status objec
 These node are found in the mapping as `[:variable_name => "Plant"]` (notice that "Plant" is a scalar value).
 """
 function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
-    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Internode"; vars = mapped_vars[:inputs][organ]
-        for (var, mapped_var) in pairs(vars) # e.g. var = :TT; mapped_var = vars[var]
+    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs][organ]
+        for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
+                source_organ == "" && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
                 @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
@@ -211,6 +212,8 @@ function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], l
         level += 1
         # Find the default value of the variable from the scale it is mapping into (upper scale):
         m_organ = mapped_organ(val)
+        m_organ == "" && return mapped_default(val) # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
+
         if isa(m_organ, AbstractString)
             m_organ = [m_organ]
         end
@@ -250,9 +253,9 @@ Get the default values for the mapped variables by recursively searching from th
 """
 function default_variables_from_mapping(mapped_vars, verbose=true)
     mapped_vars_mutable = Dict{String,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
-    for (organ, vars) in mapped_vars # organ = "Plant"; vars = mapped_vars[organ]
-        for (var, val) in pairs(vars) # var = :Rm_organs; val = getproperty(vars,var)
-            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping})
+    for (organ, vars) in mapped_vars # organ = "Leaf"; vars = mapped_vars[organ]
+        for (var, val) in pairs(vars) # var = :carbon_biomass; val = getproperty(vars,var)
+            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && mapped_organ(val) != ""
                 mapping_stacktrace = Any[(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][var]), level=1)]
                 default_value = get_multiscale_default_value(mapped_vars, val, mapping_stacktrace)
                 mapped_vars_mutable[organ][var] = MappedVar(source_organs(val), mapped_variable(val), source_variable(val), default_value)

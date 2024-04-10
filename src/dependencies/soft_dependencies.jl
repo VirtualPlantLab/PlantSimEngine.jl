@@ -146,7 +146,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
     for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Leaf"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
 
-            # proc = :carbon_demand; i = soft_dep_graph[proc]
+            # proc = :maintenance_respiration; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
             soft_deps = search_inputs_in_output(proc, ins, outs)
 
@@ -342,14 +342,19 @@ function search_inputs_in_output(process, inputs, outputs)
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_process = Dict()
-    for (proc_output, pairs_vars_output) in outputs # e.g. proc_output = :carbon_assimilation; pairs_vars_output = outs[proc_output]
+    for (proc_output, pairs_vars_output) in outputs # e.g. proc_output = :carbon_biomass; pairs_vars_output = outs[proc_output]
         if process != proc_output
             vars_output = flatten_vars(pairs_vars_output)
             inputs_in_outputs = vars_in_variables(vars_input, vars_output)
 
             if any(inputs_in_outputs)
-                # variables in the inputs of proc_input that are in the outputs of proc_output
-                push!(inputs_as_output_of_process, proc_output => Tuple(vars_input)[inputs_in_outputs])
+                ins_in_outs = [vars_input...][inputs_in_outputs]
+
+                # Remove the variables that are computed at the previous time step (used to break a cyclic dependency):
+                filter!(x -> !isa(x, MappedVar) || !isa(mapped_variable(x), PreviousTimeStep), ins_in_outs)
+
+                # variables in the inputs of proc_input that are in the outputs of proc_output:
+                length(ins_in_outs) > 0 && push!(inputs_as_output_of_process, proc_output => Tuple(ins_in_outs))
                 # Note: proc_output is the process that computes the inputs of proc_input
                 # These inputs are given by `vars_input[inputs_in_outputs]`
             end
@@ -401,11 +406,11 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
-    for (var, val) in pairs(vars_input) # e.g. var = :Rm_organs;val = vars_input[var]
+    for (var, val) in pairs(vars_input) # e.g. var = :carbon_biomass;val = vars_input[var]
         # The variable is a multiscale variable:
         if isa(val, MappedVar)
             var_organ = mapped_organ(val)
-
+            var_organ == "" && continue # If the variable maps to nothing we skip it (e.g. [PreviousTimeStep(:var1)] or [:var => :new_var])
             if !isa(var_organ, AbstractVector)
                 # In case the organ is given as a singleton (e.g. "Soil" instead of ["Soil"])
                 var_organ = [var_organ]

@@ -22,7 +22,7 @@ Type for the self node mapping, *i.e.* a node that maps onto itself.
 This is used to flag variables that will be referenced as a scalar value by other models. It can happen in two conditions:
     - the variable is computed by another scale, so we need this variable to exist as an input to this scale (it is not 
     computed at this scale otherwise)
-    - the variable is an used as input to another scale but as a single value (scalar), so we need to reference it as a scalar.
+    - the variable is used as input to another scale but as a single value (scalar), so we need to reference it as a scalar.
 """
 struct SelfNodeMapping <: AbstractNodeMapping end
 
