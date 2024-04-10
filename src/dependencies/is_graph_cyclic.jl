@@ -40,6 +40,26 @@ function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, wa
     return false, visited
 end
 
+function is_graph_cyclic_(node, visited, recursion_stack, cycle_vec)
+    node_id = node.value => node.scale
+    visited[node_id] = true
+    recursion_stack[node_id] = true
+
+    for child in node.children
+        child_id = child.value => child.scale
+        if !haskey(visited, child_id) && is_graph_cyclic_(child, visited, recursion_stack, cycle_vec)
+            push!(cycle_vec, child_id)
+            return true
+        elseif haskey(recursion_stack, child_id) && recursion_stack[child_id]
+            push!(cycle_vec, child_id)
+            return true
+        end
+    end
+
+    recursion_stack[node_id] = false
+    return false
+end
+
 function print_cycle(cycle_vec)
     printed_cycle = Any[Term.RenderableText(string("{bold red}", last(cycle_vec[1]), ": ", typeof(first(cycle_vec[1]))))]
     leading_space = [1]
