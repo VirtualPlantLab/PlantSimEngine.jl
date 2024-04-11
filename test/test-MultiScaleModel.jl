@@ -65,7 +65,7 @@ end;
     )
 
     @test models.model == ToyLAIfromLeafAreaModel(1.0)
-    @test models.mapping == [PreviousTimeStep(:plant_surfaces) => ("Plant" => :surface)]
+    @test models.mapping == [PreviousTimeStep(:plant_surface, :LAI_Dynamics) => ("Plant" => :surface)]
 end;
 
 @testset "MultiScaleModel: several types of mapping" begin
