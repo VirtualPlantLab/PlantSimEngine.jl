@@ -85,7 +85,7 @@ sim = run!(mtg, mapping, meteo, outputs = Dict(
 outputs(sim, DataFrames)
 ```
 """
-function outputs(sim::GraphSimulation, sink)
+function outputs(sim::GraphSimulation, sink; refvectors=false)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
 
     outs = outputs(sim)
@@ -100,6 +100,9 @@ function outputs(sim::GraphSimulation, sink)
             variables_names_types_dict[k] = Union{variables_names_types_dict[k],v}
         end
     end
+
+    # If we have a variable that is only RefVector, we remove it from the variables_names_types:    
+    !refvectors && filter!(x -> !(last(x) <: Union{Nothing,RefVector}), variables_names_types_dict)
 
     variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
     var_names_all = keys(variables_names_types)
@@ -116,7 +119,7 @@ function outputs(sim::GraphSimulation, sink)
             for node in node_iterable # node = 1
                 vals = Dict(zip(var_names, [vars[v][timestep][node] for v in var_names]))
                 # Remove RefVector values:
-                filter!(x -> !isa(x.second, RefVector), vals)
+                !refvectors && filter!(x -> !isa(x.second, RefVector), vals)
                 vars_values = (; timestep=timestep, organ=organ, node=MultiScaleTreeGraph.node_id(vars[:node][timestep][node]), vals...)
                 vars_no_values = setdiff(var_names_all, keys(vars_values))
                 if length(vars_no_values) > 0
