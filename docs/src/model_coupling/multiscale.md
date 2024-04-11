@@ -23,40 +23,6 @@ using PlantSimEngine
 using PlantSimEngine.Examples # Import some example models
 ```
 
-```@meta
-DocTestSetup = quote
-    using PlantSimEngine
-    using PlantSimEngine.Examples # Import some example models
-    mapping_cyclic = Dict(
-        "Plant" => (
-            MultiScaleModel(
-                model=ToyCAllocationModel(),
-                mapping=[
-                    :carbon_demand => ["Leaf", "Internode"],
-                    :carbon_allocation => ["Leaf", "Internode"]
-                ],
-            ),
-            MultiScaleModel(
-                model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
-            ),
-            Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6),
-        ),
-        "Internode" => (
-            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-            Status(TT=10.0, carbon_biomass=1.0),
-        ),
-        "Leaf" => (
-            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-            ToyCBiomassModel(1.2),
-            Status(TT=10.0),
-        )
-    )
-end
-```
-
 !!! note
     The `Examples` submodule exports a few simple models we will use in this tutorial. The models are also found in the `examples` folder of the package.
 
@@ -326,15 +292,15 @@ For example the following mapping will raise an error:
 
 Let's see what happens when we try to build the dependency graph for this mapping:
 
-```jldoctest usepkg
+```julia
 julia> dep(mapping_cyclic)
-ERROR: Cyclic dependency detected in the graph. Cycle: 
+ERROR: Cyclic dependency detected in the graph. Cycle:
  Plant: ToyPlantRmModel
  └ Leaf: ToyMaintenanceRespirationModel
   └ Leaf: ToyCBiomassModel
    └ Plant: ToyCAllocationModel
     └ Plant: ToyPlantRmModel
- 
+
  You can break the cycle using the `PreviousTimeStep` variable in the mapping.
 ```
 
@@ -404,7 +370,3 @@ The `ToyMaintenanceRespirationModel` models are now defined as `MultiScaleModel`
 In this section, we saw how to define a mapping between models and scales, run a simulation, and access the outputs.
 
 This is just a simple example, but PlantSimEngine can be used to define and combine much more complex models at multiple scales of detail. With its modular architecture and intuitive API, PlantSimEngine is a powerful tool for multi-scale plant growth and development modeling.
-
-```@meta
-DocTestSetup = nothing
-```
