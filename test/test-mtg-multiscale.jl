@@ -375,7 +375,8 @@ end
 @testset "run! on MTG: simple mapping" begin
     out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
     @test out.statuses["Soil"][1].node == soil
-    @test out.models == Dict("Soil" => (soil_water=ToySoilWaterModel(0.1:0.1:1.0),))
+    @test out.models == Dict("Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),))
+    @test out.models["Soil"].soil_water.values == [0.5]
     @test length(out.dependency_graph.roots) == 1
     @test collect(keys(out.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
     @test out.graph == mtg
@@ -431,12 +432,12 @@ end
     # Note that the outputs are garbage because the TT is not initialized.
 
     @test out.models == Dict{String,NamedTuple}(
-        "Soil" => (soil_water=ToySoilWaterModel(0.1:0.1:1.0),),
+        "Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),),
         "Internode" => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
         "Plant" => (carbon_allocation=ToyCAllocationModel(),),
         "Leaf" => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
     )
-
+    @test out.models["Soil"].soil_water.values == [0.5]
     @test length(out.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
     @test out.statuses["Internode"][1].TT === -Inf
     @test out.statuses["Internode"][1].carbon_demand === -Inf
