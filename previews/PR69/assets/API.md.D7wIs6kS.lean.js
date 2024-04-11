@@ -1,0 +1,1 @@
+import{_ as s,c as i,o as a,a7 as e}from"./chunks/framework.BZ-6itpL.js";const c=JSON.parse('{"title":"API","description":"","frontmatter":{},"headers":[],"relativePath":"API.md","filePath":"API.md","lastUpdated":null}'),t={name:"API.md"},n=e("",308),l=[n];function p(h,k,r,d,o,g){return a(),i("div",null,l)}const y=s(t,[["render",p]]);export{c as __pageData,y as default};
