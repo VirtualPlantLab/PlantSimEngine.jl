@@ -131,9 +131,10 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         # 7. `[:variable_name => :variable_name_from_another_model]` # We take the value from another model at the same scale but rename it
         # 8. `[PreviousTimeStep(:variable_name),]` # We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
+        process_ = process(model)
         unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
         for i in mapping
-            push!(unfolded_mapping, _get_var(i))
+            push!(unfolded_mapping, _get_var(i, process_))
         end
 
         new{T,typeof(unfolded_mapping)}(model, unfolded_mapping)
@@ -141,44 +142,44 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
 end
 
 # Method used when the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
-function _get_var(i::Pair{Symbol,Any})
-    return _get_var(first(i) => last(i))
+function _get_var(i::Pair{Symbol,Any}, proc::Symbol=:unknown)
+    return _get_var(first(i) => last(i), proc)
 end
 
 # Case 1: [:variable_name => "Plant"]
-function _get_var(i::Pair{Symbol,S}) where {S<:String}
+function _get_var(i::Pair{Symbol,S}, proc::Symbol=:unknown) where {S<:String}
     return first(i) => last(i) => first(i)
 end
 
 # Case 2 and 3: [:variable_name => ["Leaf", "Internode"]] or [:variable_name => ["Leaf"]]
-function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{<:AbstractString}}
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:AbstractString}}
     return first(i) => [scale => first(i) for scale in last(i)]
 end
 
 # Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale], nothing to do, the mapping is already in the right format
-function _get_var(i::Pair{Symbol,Pair{S,Symbol}}) where {S<:String}
+function _get_var(i::Pair{Symbol,Pair{S,Symbol}}, proc::Symbol=:unknown) where {S<:String}
     return i
 end
 
 # Case 5: [:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]
-function _get_var(i::Pair{Symbol,T}) where {T<:AbstractVector{Pair{S,Symbol}} where {S<:AbstractString}}
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{Pair{S,Symbol}} where {S<:AbstractString}}
     return i # Note that we do not need to do anything here, the mapping is already in the right format
 end
 
 # Case 6: [PreviousTimeStep(:variable_name) => ...]
-function _get_var(i::Pair{PreviousTimeStep,T}) where {T}
-    vars = _get_var(i.first.variable => i.second) # Leverage the other methods here
-    return first(i) => last(vars) # And put back the PreviousTimeStep as the first element
+function _get_var(i::Pair{PreviousTimeStep,T}, proc::Symbol=:unknown) where {T}
+    vars = _get_var(i.first.variable => i.second, proc) # Leverage the other methods here
+    return PreviousTimeStep(first(i).variable, proc) => last(vars) # And put back the PreviousTimeStep as the first element
 end
 
-# Case 7: [:variable_name => :variable_name_from_another_model]
-function _get_var(i::Pair{Symbol,Symbol})
+# Case 7: [:variable_name => :variable_name_from_another_proc]
+function _get_var(i::Pair{Symbol,Symbol}, proc::Symbol=:unknown)
     return first(i) => "" => last(i)
 end
 
 # Case 8: [PreviousTimeStep(:variable_name),]
-function _get_var(i::PreviousTimeStep)
-    return i => "" => i.variable
+function _get_var(i::PreviousTimeStep, proc::Symbol=:unknown)
+    return PreviousTimeStep(i.variable, proc) => "" => i.variable
 end
 
 

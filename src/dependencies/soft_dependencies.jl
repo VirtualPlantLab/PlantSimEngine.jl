@@ -143,10 +143,9 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
     rev_mapping = reverse_mapping(mapped_vars, all=false)
 
     independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
-    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Leaf"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
-
-            # proc = :maintenance_respiration; i = soft_dep_graph[proc]
+            # proc = :leaf_surface; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
             soft_deps = search_inputs_in_output(proc, ins, outs)
 
@@ -169,7 +168,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                     # If the process has soft dependencies, then it is not independant
                     # and we need to add its parent(s) to the node, and the node as a child
                     for (parent_soft_dep, soft_dep_vars) in pairs(soft_deps_not_hard)
-                        # parent_soft_dep = :carbon_assimilation; soft_dep_vars = soft_deps[parent_soft_dep]
+                        # parent_soft_dep = :carbon_biomass; soft_dep_vars = soft_deps_not_hard[parent_soft_dep]
 
                         # preventing a cyclic dependency
                         if parent_soft_dep == proc
@@ -402,11 +401,11 @@ This means that the variable `:carbon_demand` is computed by the process `:carbo
 is computed by the process `:carbon_assimilation` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs, rev_mapping)
-    # proc, organ, ins, soft_dep_graphs_roots.roots
+    # proc, organ, ins, soft_dep_graphs=soft_dep_graphs_roots.roots
     vars_input = flatten_vars(inputs[process])
 
     inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
-    for (var, val) in pairs(vars_input) # e.g. var = :carbon_biomass;val = vars_input[var]
+    for (var, val) in pairs(vars_input) # e.g. var = :leaf_surfaces;val = vars_input[var]
         # The variable is a multiscale variable:
         if isa(val, MappedVar)
             var_organ = mapped_organ(val)
@@ -421,7 +420,7 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                 # The variable is a multiscale variable:
                 haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")
                 mapped_var = mapped_variable(val)
-                mapped_var = isa(mapped_var, PreviousTimeStep) ? mapped_var.variable : mapped_var
+                isa(mapped_var, PreviousTimeStep) && continue # Because we don't want to add the previous time step as a dependency
                 add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, org, source_variable(val, org), mapped_var)
             end
         elseif isa(val, UninitializedVar) && haskey(rev_mapping, organ)

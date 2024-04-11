@@ -127,10 +127,10 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
             if haskey(vars_mapping[organ], var)
                 organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
                 push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
-            elseif haskey(vars_mapping[organ], PreviousTimeStep(var))
+            elseif haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
                 # The variable is mapped to the previous time step:
-                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var)])
-                push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var), organ_mapped_var, default))
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+                push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
             else
                 push!(vars_, var => default)
             end

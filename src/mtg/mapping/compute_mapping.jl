@@ -28,7 +28,8 @@ function mapped_variables(mapping, dependency_graph=hard_dependencies(mapping; v
     mapped_vars_per_organ = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
     #* Important note: the merge order is important, because if an input variable is uninitialized but computed by a model at the same scale,
     #* we don't need any initialisation (it is computed), so we take the default value from the output (that is the default value from the model).
-
+    #* It is particularly important for variables that are PreviousTimeStep and mapping to another scale, because we need its initialisation from that other scale
+    #* that is an output.
     mapped_vars = default_variables_from_mapping(mapped_vars_per_organ, verbose)
 
     return mapped_vars
@@ -292,25 +293,16 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
     dict_mapped_vars = Dict{Pair,Any}()
 
     # First pass: converting the MappedVar{SelfNodeMapping} and MappedVar{SingleNodeMapping} to RefValues:
-    for (organ, vars) in mapped_vars # e.g.: organ = "Leaf"; vars = mapped_vars[organ]
-        for (k, v) in vars # e.g.: k = :carbon_biomass; v = vars[k]
+    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+        for (k, v) in vars # e.g.: k = :aPPFD_larger_scale; v = vars[k]
             if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
                 mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
-                mapped_var = mapped_variable(v)
                 mapped_org == "" && continue
-
-                ref_val = Ref(mapped_default(vars[k]))
-
-                if isa(mapped_var, PreviousTimeStep)
-                    # If it is a PreviousTimeStep
-                    key = mapped_org => mapped_var.variable
-                else
-                    key = mapped_org => mapped_var
-                end
+                key = mapped_org => source_variable(v)
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
                 if !haskey(dict_mapped_vars, key)
-                    push!(dict_mapped_vars, key => ref_val)
+                    push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
                 end
 
                 # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:
