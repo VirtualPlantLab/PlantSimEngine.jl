@@ -52,7 +52,7 @@ julia> mapping = Dict( \
     "Internode" => ( \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
-        Status(TT=10.0, biomass=1.0) \
+        Status(TT=10.0, carbon_biomass=1.0) \
     ), \
     "Leaf" => ( \
         MultiScaleModel( \
@@ -61,7 +61,7 @@ julia> mapping = Dict( \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
-        Status(aPPFD=1300.0, TT=10.0, biomass=1.0), \
+        Status(aPPFD=1300.0, TT=10.0, carbon_biomass=1.0), \
     ), \
     "Soil" => ( \
         ToySoilWaterModel(), \
@@ -133,14 +133,26 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
 
     # Checking that variables in outputs exist in the statuses, and adding the :node variable:
     for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
+        if length(statuses[organ]) == 0
+            # The organ is not found in the mtg, we remove it from the outputs:
+            e = "You required outputs for organ $organ, but this organ is not found in the provided MTG."
+
+            if check
+                error(e)
+            else
+                @info e
+                delete!(outs_, organ)
+            end
+            continue
+        end
         if !all(i in collect(keys(statuses[organ][1])) for i in vars)
             not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
+            plural = length(not_in_statuses) == 1 ? "" : "s"
             e = string(
-                "You requested outputs for variables ",
-                join(vars, ", "),
-                ", but variables ",
+                "You requested outputs for variable", plural, " ",
                 join(not_in_statuses, ", "),
-                " have no models."
+                " in organ $organ, but ",
+                length(not_in_statuses) == 1 ? "it has no model." : "they have no models."
             )
             if check
                 error(e)

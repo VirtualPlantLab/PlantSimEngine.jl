@@ -10,10 +10,17 @@ and proportion of living cells in the organs.
 # Arguments
 
 - `Q10`: Q10 factor (values should usually range between: 1.5 - 2.5, with 2.1 being the most common value)
-- `Rm_base`: Base maintenance respiration (gC gDM⁻¹ d⁻¹). Should be around 0.06.
+- `Rm_base`: Base maintenance respiration (gC gDM⁻¹ time-step⁻¹). Should be around 0.06.
 - `T_ref`: Reference temperature at which Q10 was measured (usually around 25.0°C)
 - `P_alive`: proportion of living cells in the organ
 - `nitrogen_content`: nitrogen content of the organ (gN gC⁻¹)
+
+
+# Inputs
+
+- `carbon_biomass`: the carbon biomass of the organ in gC
+
+
 """
 struct ToyMaintenanceRespirationModel{T} <: AbstractMaintenance_RespirationModel
     Q10::T
@@ -23,27 +30,27 @@ struct ToyMaintenanceRespirationModel{T} <: AbstractMaintenance_RespirationModel
     nitrogen_content::T
 end
 
-PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (biomass=0.0,)
+PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=0.0,)
 PlantSimEngine.outputs_(::ToyMaintenanceRespirationModel) = (Rm=-Inf,)
 
 function PlantSimEngine.run!(m::ToyMaintenanceRespirationModel, models, status, meteo, constants, extra=nothing)
     status.Rm =
-        status.biomass * m.P_alive * m.nitrogen_content * m.Rm_base *
+        status.carbon_biomass * m.P_alive * m.nitrogen_content * m.Rm_base *
         m.Q10^((meteo.T - m.T_ref) / 10.0)
 end
 
 """
-    PlantRm()
+    ToyPlantRmModel()
 
 Total plant maintenance respiration based on the sum of `Rm_organs`, the maintenance respiration of the organs.
 
 # Intputs
 
-- `Rm_organs`: a vector of maintenance respiration from all organs in the plant in gC d⁻¹
+- `Rm_organs`: a vector of maintenance respiration from all organs in the plant in gC time-step⁻¹
 
 # Outputs
 
-- `Rm`: the total plant maintenance respiration in gC d⁻¹
+- `Rm`: the total plant maintenance respiration in gC time-step⁻¹
 """
 struct ToyPlantRmModel <: AbstractMaintenance_RespirationModel end
 

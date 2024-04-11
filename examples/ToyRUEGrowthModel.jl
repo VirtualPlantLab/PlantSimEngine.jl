@@ -15,12 +15,12 @@ Computes the carbon biomass increment of a plant based on the radiation use effi
 
 # Inputs
 
-- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² time-step⁻¹
 
 # Outputs
 
-- `biomass_increment`: the daily biomass increment, in gC[biomass] m⁻² d⁻¹
-- `biomass`: the plant biomass, in gC[biomass] m⁻² d⁻¹
+- `biomass_increment`: the daily biomass increment, in gC[biomass] m⁻² time-step⁻¹
+- `biomass`: the plant biomass, in gC[biomass] m⁻² time-step⁻¹
 """
 struct ToyRUEGrowthModel{T} <: AbstractGrowthModel
     efficiency::T

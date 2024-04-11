@@ -82,7 +82,7 @@ end
 
 # Another MTG with initialisation values for biomass:
 mtg_init = deepcopy(mtg)
-transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
+transform!(mtg_init, (x -> 1.0) => :carbon_biomass, symbol=["Internode", "Leaf"])
 
 @testset "Multiscale dependency graph" begin
     d = dep(mapping_1)
@@ -102,7 +102,7 @@ transform!(mtg_init, (x -> 1.0) => :biomass, symbol=["Internode", "Leaf"])
     # Testing that the outputs that are not multiscale are simply initialised with the default values from the models:
     @test d.roots["Internode"=>:carbon_demand].outputs[1] |> last |> first == -Inf
     # Testing that the intputs that are not multiscale are initialised with the default values from the models, as an `UninitializedVar`:
-    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:biomass, 0.0)
+    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:carbon_biomass, 0.0)
 end
 
 @testset "inputs and outputs of a mapping" begin
@@ -110,7 +110,7 @@ end
 
     @test collect(keys(ins)) == collect(keys(mapping_1))
     @test ins["Soil"] == (soil_water=(),)
-    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:biomass,))
+    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:carbon_biomass,))
 
     outs = outputs(mapping_1)
     @test collect(keys(outs)) == collect(keys(mapping_1))
@@ -123,11 +123,11 @@ end
     @test keys(vars["Soil"]) == keys(outs["Soil"])
     @test keys(values(vars["Soil"])[1]) == values(outs["Soil"])[1]
     @test vars["Plant"] == (carbon_allocation=(carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf], carbon_offer=-Inf, carbon_allocation=[-Inf]), maintenance_respiration=(Rm_organs=[-Inf], Rm=-Inf),)
-    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(biomass=0.0, Rm=-Inf))
+    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(carbon_biomass=0.0, Rm=-Inf))
 end
 
 @testset "Status initialisation" begin
-    @test_throws "Variable `biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1)
+    @test_throws "Variable `carbon_biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1)
     organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
@@ -168,11 +168,11 @@ end
     type_promotion = nothing
     nsteps = 2
     dependency_graph = dep(mapping_1)
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, dependency_graph; type_promotion=type_promotion)
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, PlantSimEngine.hard_dependencies(mapping_1; verbose=false); type_promotion=type_promotion)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]
-    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :node, :aPPFD, :biomass, :Rm, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :carbon_biomass, :aPPFD, :node, :Rm, :soil_water_content, :carbon_demand]
     @test collect(keys(organs_statuses["Plant"][1])) == [:Rm_organs, :carbon_allocation, :carbon_assimilation, :node, :carbon_offer, :Rm, :carbon_demand]
     @test organs_statuses["Soil"][1][:soil_water_content][] === -Inf
     @test organs_statuses["Leaf"][1][:carbon_allocation] === -Inf
@@ -191,9 +191,7 @@ end
     )
 
     @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Dict{String,Dict{Symbol,Any}}}()
-
-
-    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:biomass], "Leaf" => [:biomass])
+    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
     @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
 
     statuses, other = PlantSimEngine.init_statuses(mtg_init, mapping_1)
@@ -212,7 +210,7 @@ end
         @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
     end
 
-    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variables carbon_assimilation, carbon_demand, non_existing_variable, but variables non_existing_variable have no models.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
+    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
 
     @test outs_ == Dict(
         "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),
@@ -377,7 +375,8 @@ end
 @testset "run! on MTG: simple mapping" begin
     out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
     @test out.statuses["Soil"][1].node == soil
-    @test out.models == Dict("Soil" => (soil_water=ToySoilWaterModel(0.1:0.1:1.0),))
+    @test out.models == Dict("Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),))
+    @test out.models["Soil"].soil_water.values == [0.5]
     @test length(out.dependency_graph.roots) == 1
     @test collect(keys(out.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
     @test out.graph == mtg
@@ -433,12 +432,12 @@ end
     # Note that the outputs are garbage because the TT is not initialized.
 
     @test out.models == Dict{String,NamedTuple}(
-        "Soil" => (soil_water=ToySoilWaterModel(0.1:0.1:1.0),),
+        "Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),),
         "Internode" => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
         "Plant" => (carbon_allocation=ToyCAllocationModel(),),
         "Leaf" => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
     )
-
+    @test out.models["Soil"].soil_water.values == [0.5]
     @test length(out.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
     @test out.statuses["Internode"][1].TT === -Inf
     @test out.statuses["Internode"][1].carbon_demand === -Inf
@@ -516,7 +515,6 @@ end
             Status(var1=var1,)
         )
     )
-
     # Need init for var2, so it returns an error:
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
         @test_throws ErrorException PlantSimEngine.init_simulation(mtg, mapping)
@@ -563,7 +561,7 @@ end
             "Internode" => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-                Status(TT=10.0, biomass=1.0)
+                Status(TT=10.0, carbon_biomass=1.0)
             ),
             "Leaf" => (
                 MultiScaleModel(
@@ -579,7 +577,7 @@ end
                 Process4Model(),
                 Process5Model(),
                 Process6Model(),
-                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, biomass=1.0),
+                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
             "Soil" => (
                 ToySoilWaterModel(),
@@ -618,7 +616,7 @@ end
             "Internode" => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-                Status(TT=10.0, biomass=1.0)
+                Status(TT=10.0, carbon_biomass=1.0)
             ),
             "Leaf" => (
                 MultiScaleModel(
@@ -634,7 +632,7 @@ end
                 Process4Model(),
                 Process5Model(),
                 Process6Model(),
-                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, biomass=1.0),
+                Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
             "Soil" => (
                 ToySoilWaterModel(),

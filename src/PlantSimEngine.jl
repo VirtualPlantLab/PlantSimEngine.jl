@@ -24,6 +24,9 @@ import Statistics
 
 using PlantMeteo
 
+# UninitializedVar + PreviousTimeStep:
+include("variables_wrappers.jl")
+
 # Docs templates:
 include("doc_templates/mtg-related.jl")
 
@@ -51,10 +54,10 @@ include("dataframe.jl")
 include("dependencies/dependency_graph.jl")
 include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
+include("dependencies/traversal.jl")
+include("dependencies/is_graph_cyclic.jl")
+include("dependencies/printing.jl")
 include("dependencies/dependencies.jl")
-
-# UninitializedVar:
-include("processes/uninitialized_var.jl")
 
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
@@ -88,6 +91,7 @@ include("evaluation/fit.jl")
 # Examples
 include("examples_import.jl")
 
+export PreviousTimeStep
 export AbstractModel
 export ModelList, MultiScaleModel
 export RMSE, NRMSE, EF, dr

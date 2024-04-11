@@ -16,15 +16,15 @@ Computes the biomass growth of a plant.
 
 # Inputs
 
-- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² d⁻¹
+- `aPPFD`: the absorbed photosynthetic photon flux density, in mol[PAR] m⁻² time-step⁻¹
 
 # Outputs
 
-- `carbon_assimilation`: the assimilation, in gC m⁻² d⁻¹
-- `Rm`: the maintenance respiration, in gC m⁻² d⁻¹
-- `Rg`: the growth respiration, in gC m⁻² d⁻¹
-- `biomass_increment`: the daily biomass increment, in gC m⁻² d⁻¹
-- `biomass`: the plant biomass, in gC m⁻² d⁻¹
+- `carbon_assimilation`: the assimilation, in gC m⁻² time-step⁻¹
+- `Rm`: the maintenance respiration, in gC m⁻² time-step⁻¹
+- `Rg`: the growth respiration, in gC m⁻² time-step⁻¹
+- `biomass_increment`: the daily biomass increment, in gC m⁻² time-step⁻¹
+- `biomass`: the plant biomass, in gC m⁻² time-step⁻¹
 """
 struct ToyAssimGrowthModel{T} <: AbstractGrowthModel
     LUE::T

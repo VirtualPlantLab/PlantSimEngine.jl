@@ -34,6 +34,9 @@ include(joinpath(@__DIR__, "../examples/ToyCAllocationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyMaintenanceRespirationModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySoilModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyInternodeEmergence.jl"))
+include(joinpath(@__DIR__, "../examples/ToyCBiomassModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyLeafSurfaceModel.jl"))
+include(joinpath(@__DIR__, "../examples/ToyLightPartitioningModel.jl"))
 
 
 """
@@ -74,15 +77,18 @@ end
 export AbstractProcess1Model, AbstractProcess2Model, AbstractProcess3Model
 export AbstractProcess4Model, AbstractProcess5Model, AbstractProcess6Model
 export AbstractProcess7Model
-export AbstractLight_InterceptionModel, AbstractLai_DynamicModel, AbstractDegreedaysModel
-export AbstractCarbon_AssimilationModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel
+export AbstractLight_InterceptionModel, AbstractLight_PartitioningModel
+export AbstractLai_DynamicModel, AbstractLeaf_SurfaceModel
+export AbstractDegreedaysModel
+export AbstractCarbon_AssimilationModel, AbstractCarbon_AllocationModel, AbstractCarbon_DemandModel, AbstractCarbon_BiomassModel
 export AbstractSoil_WaterModel, AbstractGrowthModel
 export AbstractOrgan_EmergenceModel
+export AbstractMaintenance_RespirationModel
 
 # Models:
-export Beer, ToyLAIModel, ToyDegreeDaysCumulModel
+export Beer, ToyLightPartitioningModel, ToyLAIModel, ToyLAIfromLeafAreaModel, ToyLeafSurfaceModel, ToyPlantLeafSurfaceModel, ToyDegreeDaysCumulModel
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
-export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel
+export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel, ToyCBiomassModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 

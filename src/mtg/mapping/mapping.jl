@@ -22,7 +22,7 @@ Type for the self node mapping, *i.e.* a node that maps onto itself.
 This is used to flag variables that will be referenced as a scalar value by other models. It can happen in two conditions:
     - the variable is computed by another scale, so we need this variable to exist as an input to this scale (it is not 
     computed at this scale otherwise)
-    - the variable is an used as input to another scale but as a single value (scalar), so we need to reference it as a scalar.
+    - the variable is used as input to another scale but as a single value (scalar), so we need to reference it as a scalar.
 """
 struct SelfNodeMapping <: AbstractNodeMapping end
 
@@ -58,33 +58,33 @@ julia> using PlantSimEngine
 
 ```jldoctest
 julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
-PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
+PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
 ```
 """
-struct MappedVar{O<:AbstractNodeMapping,V<:Union{S,Vector{S}} where {S<:Symbol},T}
+struct MappedVar{O<:AbstractNodeMapping,V1<:Union{Symbol,PreviousTimeStep},V2<:Union{S,Vector{S}} where {S<:Symbol},T}
     source_organ::O
-    variable::Symbol
-    source_variable::V
+    variable::V1
+    source_variable::V2
     source_default::T
 end
 
 mapped_variable(m::MappedVar) = m.variable
 source_organs(m::MappedVar) = m.source_organ
-source_organs(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = nothing
-mapped_organ(m::MappedVar{O,V,T}) where {O,V,T} = source_organs(m).scale
-mapped_organ(m::MappedVar{O,V,T}) where {O<:SelfNodeMapping,V,T} = nothing
-mapped_organ_type(m::MappedVar{O,V,T}) where {O<:AbstractNodeMapping,V,T} = O
+source_organs(m::MappedVar{O,V1,V2,T}) where {O<:AbstractNodeMapping,V1,V2,T} = nothing
+mapped_organ(m::MappedVar{O,V1,V2,T}) where {O,V1,V2,T} = source_organs(m).scale
+mapped_organ(m::MappedVar{O,V1,V2,T}) where {O<:SelfNodeMapping,V1,V2,T} = nothing
+mapped_organ_type(m::MappedVar{O,V1,V2,T}) where {O<:AbstractNodeMapping,V1,V2,T} = O
 source_variable(m::MappedVar) = m.source_variable
-function source_variable(m::MappedVar{O,V,T}, organ) where {O<:SingleNodeMapping,V<:Symbol,T}
+function source_variable(m::MappedVar{O,V1,V2,T}, organ) where {O<:SingleNodeMapping,V1,V2<:Symbol,T}
     @assert organ == mapped_organ(m) "Organ $organ not found in the mapping of the variable $(mapped_variable(m))."
     m.source_variable
 end
 
-function source_variable(m::MappedVar{O,V,T}, organ) where {O<:MultiNodeMapping,V<:Vector{Symbol},T}
+function source_variable(m::MappedVar{O,V1,V2,T}, organ) where {O<:MultiNodeMapping,V1,V2<:Vector{Symbol},T}
     @assert organ in mapped_organ(m) "Organ $organ not found in the mapping of the variable $(mapped_variable(m))."
     m.source_variable[findfirst(o -> o == organ, mapped_organ(m))]
 end
 
 mapped_default(m::MappedVar) = m.source_default
-mapped_default(m::MappedVar{O,V,T}, organ) where {O<:MultiNodeMapping,V<:Vector{Symbol},T} = m.source_default[findfirst(o -> o == organ, mapped_organ(m))]
+mapped_default(m::MappedVar{O,V1,V2,T}, organ) where {O<:MultiNodeMapping,V1,V2<:Vector{Symbol},T} = m.source_default[findfirst(o -> o == organ, mapped_organ(m))]
 mapped_default(m) = m # For any variable that is not a MappedVar, we return it as is

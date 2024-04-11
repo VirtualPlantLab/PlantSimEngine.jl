@@ -53,6 +53,9 @@ sing the sink function, for exemple a `DataFrame`.
 
 - `sim::GraphSimulation`: the simulation object, typically returned by `run!`.
 - `sink`: a sink compatible with the Tables.jl interface (*e.g.* a `DataFrame`)
+- `refvectors`: if `false` (default), the function will remove the RefVector values, otherwise it will keep them
+- `no_value`: the value to replace `nothing` values. Default is `nothing`. Usually used to replace `nothing` values 
+by `missing` in DataFrames.
 
 # Examples
 
@@ -85,7 +88,7 @@ sim = run!(mtg, mapping, meteo, outputs = Dict(
 outputs(sim, DataFrames)
 ```
 """
-function outputs(sim::GraphSimulation, sink)
+function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
 
     outs = outputs(sim)
@@ -95,11 +98,17 @@ function outputs(sim::GraphSimulation, sink)
 
     for (k, v) in variables_names_types
         if !haskey(variables_names_types_dict, k)
-            variables_names_types_dict[k] = Union{Nothing,v}
+            variables_names_types_dict[k] = Union{typeof(no_value),v}
         else
+            if !refvectors && v <: RefVector && !(variables_names_types_dict[k] <: Union{typeof(no_value),RefVector})
+                continue
+            end
             variables_names_types_dict[k] = Union{variables_names_types_dict[k],v}
         end
     end
+
+    # If we have a variable that is only RefVector, we remove it from the variables_names_types:    
+    !refvectors && filter!(x -> !(last(x) <: Union{typeof(no_value),RefVector}), variables_names_types_dict)
 
     variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
     var_names_all = keys(variables_names_types)
@@ -114,13 +123,13 @@ function outputs(sim::GraphSimulation, sink)
         for timestep in steps_iterable # timestep = 1
             node_iterable = axes(vars[var_names[1]][timestep], 1)
             for node in node_iterable # node = 1
-                vals = Dict(zip(var_names, [vars[v][timestep][node] for v in var_names]))
+                vals = Dict(zip(var_names, [something(vars[v][timestep][node], no_value) for v in var_names]))
                 # Remove RefVector values:
-                filter!(x -> !isa(x.second, RefVector), vals)
+                !refvectors && filter!(x -> !isa(x.second, RefVector), vals)
                 vars_values = (; timestep=timestep, organ=organ, node=MultiScaleTreeGraph.node_id(vars[:node][timestep][node]), vals...)
                 vars_no_values = setdiff(var_names_all, keys(vars_values))
                 if length(vars_no_values) > 0
-                    vars_values = (; vars_values..., zip(vars_no_values, [nothing for v in vars_no_values])...)
+                    vars_values = (; vars_values..., zip(vars_no_values, [no_value for v in vars_no_values])...)
                 end
                 push!(
                     t,

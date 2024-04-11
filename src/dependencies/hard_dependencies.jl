@@ -104,7 +104,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
         end
 
         d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
-        for (procname, node) in hard_deps.roots # procname = :carbon_assimilation ; node = hard_deps.roots[procname]
+        for (procname, node) in hard_deps.roots # procname = :leaf_surface ; node = hard_deps.roots[procname]
             var = Pair{Symbol,NamedTuple}[]
             traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st), var)
             push!(d_vars, procname => var)

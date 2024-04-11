@@ -7,7 +7,9 @@ Get the status of each node in the MTG by node type, pre-initialised considering
 
 - `mtg`: the plant graph
 - `mapping`: a dictionary of model mapping
-- `dependency_graph`: the dependency graph of the models
+- `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
+However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
+nodes under other models.
 - `type_promotion`: the type promotion to use for the variables
 - `verbose`: print information when compiling the mapping
 - `check`: whether to check the mapping for errors. Passed to `init_node_status!`.
@@ -19,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph=dep(mapping); type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph=hard_dependencies(mapping; verbose=false); type_promotion=nothing, verbose=false, check=true)
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 
@@ -100,7 +102,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
     # and if so, use their value in the status:
     if haskey(vars_need_init, symbol(node)) && length(vars_need_init[symbol(node)]) > 0
-        for var in vars_need_init[symbol(node)] # e.g. var = :biomass
+        for var in vars_need_init[symbol(node)] # e.g. var = :carbon_biomass
             if !haskey(node, var)
                 if !check
                     # If we don't check, we use the default value from the model (and if it's an UninitializedVar we take its default value):
@@ -150,7 +152,8 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # add a reference to the value of any variable that is used by another scale into its RefVector:
     if haskey(reverse_multiscale_mapping, symbol(node))
         for (organ, vars) in reverse_multiscale_mapping[symbol(node)] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
-            for (var_source, var_target) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
+            for (var_source, var_target_) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
+                var_target = var_target_ isa PreviousTimeStep ? var_target_.variable : var_target_
                 push!(mapped_vars[organ][var_target], refvalue(st, var_source))
             end
         end
@@ -193,7 +196,20 @@ julia> b
 ```
 """
 function status_from_template(d::Dict{Symbol,T} where {T})
-    Status(NamedTuple(first(i) => ref_var(last(i)) for i in d))
+    # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
+    sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
+    # Note: PerStatusRef are used to reference variables in the same status for renaming.
+
+    # We create the status with the right references for variables, and for PerStatusRef (we reference the reference variable):
+    for (k, v) in sorted_vars
+        if isa(v, RefVariable)
+            sorted_vars[k] = sorted_vars[v.reference_variable]
+        else
+            sorted_vars[k] = ref_var(v)
+        end
+    end
+
+    return Status(NamedTuple(sorted_vars))
 end
 
 """
@@ -238,6 +254,7 @@ ref_var(v) = Base.Ref(copy(v))
 ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
+ref_var(v::T) where {T<:RefVariable} = v
 
 """
     init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
@@ -281,12 +298,10 @@ a value in a Dict. If you need a reference, you can use a `Ref` for your variabl
 automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    # Compute the multi-scale dependency graph of the models:
-    dependency_graph = dep(mapping, verbose=verbose)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, dependency_graph; type_promotion=type_promotion, verbose=verbose, check=check)
+        init_statuses(mtg, mapping, hard_dependencies(mapping; verbose=false); type_promotion=type_promotion, verbose=verbose, check=check)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -298,5 +313,5 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs = pre_allocate_outputs(statuses, outputs, nsteps, check=check)
 
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph, models, outputs)
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep(mapping, verbose=verbose), models, outputs)
 end

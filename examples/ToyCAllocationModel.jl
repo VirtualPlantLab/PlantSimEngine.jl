@@ -14,18 +14,18 @@ to each organ's demand.
 
 # Inputs
 
-- `carbon_assimilation`: a vector of the assimilation of all photosynthetic organs, usually in gC m⁻² d⁻¹
-- `Rm`: the maintenance respiration of the plant, usually in gC m⁻² d⁻¹
-- `carbon_demand`: a vector of the carbon demand of the organs, usually in gC m⁻² d⁻¹
+- `carbon_assimilation`: a vector of the assimilation of all photosynthetic organs, usually in gC m⁻² time-step⁻¹
+- `Rm`: the maintenance respiration of the plant, usually in gC m⁻² time-step⁻¹
+- `carbon_demand`: a vector of the carbon demand of the organs, usually in gC m⁻² time-step⁻¹
 
 # Outputs
 
-- `carbon_assimilation`: the carbon assimilation, usually in gC m⁻² d⁻¹
+- `carbon_assimilation`: the carbon assimilation, usually in gC m⁻² time-step⁻¹
 
 # Details
 
-The units usually are in gC m⁻² d⁻¹, but they could be in another spatial or temporal unit depending on the unit of the inputs, *e.g.*
-in gC plant⁻¹ d⁻¹.
+The units usually are in gC m⁻² time-step⁻¹, but they could be in another spatial or temporal unit depending on the unit of the inputs, *e.g.*
+in gC plant⁻¹ time-step⁻¹.
 """
 struct ToyCAllocationModel <: AbstractCarbon_AllocationModel end
 
@@ -39,7 +39,7 @@ function PlantSimEngine.outputs_(::ToyCAllocationModel)
     (carbon_offer=-Inf, carbon_allocation=[-Inf],)
 end
 
-function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, mtg)
+function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, extra_args)
 
     carbon_demand_tot = sum(status.carbon_demand)
     #Note: this model is multiscale, so status.carbon_demand, status.carbon_allocation, and status.carbon_assimilation are vectors.
@@ -64,5 +64,5 @@ function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, const
     end
 end
 
-# And also over time (time-steps):
+# Can be parallelized over time-steps, but not objects (we have vectors of values coming from other objects as input):
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyCAllocationModel}) = PlantSimEngine.IsTimeStepIndependent()
