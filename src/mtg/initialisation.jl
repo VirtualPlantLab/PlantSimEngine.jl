@@ -197,7 +197,7 @@ julia> b
 """
 function status_from_template(d::Dict{Symbol,T} where {T})
     # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
-    sorted_vars = Dict(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
+    sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
     # Note: PerStatusRef are used to reference variables in the same status for renaming.
 
     # We create the status with the right references for variables, and for PerStatusRef (we reference the reference variable):
