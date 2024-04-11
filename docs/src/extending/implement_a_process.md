@@ -48,7 +48,7 @@ So what you just did is to create a new process called `growth`. By doing so, yo
 
 To better understand how models are implemented, you can read the detailed instructions from the [next section](@ref model_implementation_page). But for the sake of completeness, we'll implement a growth model here.
 
-This growth model needs the absorbed photosynthetically active radiation (aPPFD) as an input, and outputs the assimilation, the maintenance respiration, the growth respiration, the biomass increment and the biomass. The assimilation is computed as the product of the aPPFD and the light use efficiency (LUE). The maintenance respiration is a fraction of the assimilation, and the growth respiration is a fraction of the net primary productivity (NPP), which is the assimilation minus the maintenance respiration. The biomass increment is the NPP minus the growth respiration, and the biomass is the sum of the biomass increment and the previous biomass.
+This growth model needs the absorbed photosynthetically active radiation (aPPFD) as an input, and outputs the assimilation, the maintenance respiration, the growth respiration, the biomass increment and the biomass. The assimilation is computed as the product of the aPPFD and the light use efficiency (LUE). The maintenance respiration is a fraction of the assimilation, and the growth respiration is a fraction of the net primary productivity (NPP), which is the assimilation minus the maintenance respiration. The biomass increment is the NPP minus the growth respiration, and the biomass is the sum of the biomass increment and the previous biomass. Note that the previous biomass is always available in the `status` as long as you don't modify it.
 
 The model is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl), and is reproduced below:
 
@@ -123,7 +123,7 @@ function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, const
     status.biomass_increment = NPP - status.Rg
 
     # The biomass is the biomass from the previous time-step plus the biomass increment:
-    status.biomass = PlantMeteo.prev_value(status, :biomass; default=0.0) + status.biomass_increment
+    status.biomass += status.biomass_increment
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
