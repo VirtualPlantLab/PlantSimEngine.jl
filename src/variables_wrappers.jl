@@ -30,3 +30,15 @@ struct PreviousTimeStep
 end
 
 PreviousTimeStep(v::Symbol) = PreviousTimeStep(v, :unknown)
+
+"""
+    RefVariable(reference_variable)
+
+A structure to manually flag a variable in a model to use the value of another variable **at the same scale**.
+This is used for variable renaming, when a variable is computed by a model but is used by another model with a different name.
+
+Note: we don't really rename the variable in the status (we need it for the other models), but we create a new one that is a reference to the first one.
+"""
+struct RefVariable
+    reference_variable::Symbol
+end

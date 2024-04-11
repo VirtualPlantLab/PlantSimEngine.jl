@@ -353,7 +353,3 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
     end
     return mapped_vars
 end
-
-struct RefVariable
-    reference_variable::Symbol
-end
