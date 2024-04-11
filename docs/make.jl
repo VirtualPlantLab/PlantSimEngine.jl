@@ -16,7 +16,7 @@ makedocs(;
         repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
         devbranch="main",
         devurl="dev",
-        build_vitepress=false
+        # build_vitepress=false
     ),
     pages=[
         "Home" => "index.md",
