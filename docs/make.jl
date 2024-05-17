@@ -12,10 +12,7 @@ makedocs(;
     repo=Documenter.Remotes.GitHub("VirtualPlantLab", "PlantSimEngine.jl"),
     sitename="PlantSimEngine.jl",
     format=DocumenterVitepress.MarkdownVitepress(;
-        deploy_url="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
-        repo="github.com/VirtualPlantLab/PlantSimEngine.jl",
-        devbranch="main",
-        devurl="dev",
+        repo="https://github.com/VirtualPlantLab/PlantSimEngine.jl",
         # build_vitepress=false
     ),
     pages=[
