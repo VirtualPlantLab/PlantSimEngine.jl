@@ -18,9 +18,10 @@
 
 - Process Definition: Easily define new processes such as light interception, photosynthesis, growth, soil water transfer, and more.
 - Interactive Prototyping: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- Control Degrees of Freedom: Fix variables, pass measurements, or use simpler models for specific processes to reduce complexity.
 - Automatic Management: The package automatically manages input and output variables, time-steps, objects, and the coupling of models using a dependency graph.
 - Flexible Model Switching: Switch between models without changing any code, using a simple syntax to specify the model for a given process.
-- Reduced Degrees of Freedom: Fix variables, pass measurements, or use simpler models for specific processes to reduce complexity.
+- Integrated Data Use: Force variables to take measured values instead of model predictions, reducing degrees of freedom during model development and increasing accuracy during production mode.
 - High-Performance Computation: Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
 - Parallel and Distributed Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
 - Scalability: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
