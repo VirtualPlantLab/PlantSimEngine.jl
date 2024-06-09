@@ -12,21 +12,27 @@
 
 ## Overview
 
-`PlantSimEngine` is a comprehensive package for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale. At its core, PlantSimEngine is designed with a strong emphasis on performance and efficiency.
+`PlantSimEngine` is a modelling framework for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency.
 
-The package defines a framework for declaring processes and implementing associated models for their simulation. 
+**Key Features:**
 
-It focuses on key aspects of simulation and modeling such as: 
+- Process Definition: Easily define new processes such as light interception, photosynthesis, growth, soil water transfer, and more.
+- Interactive Prototyping: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- Automatic Management: The package automatically manages input and output variables, time-steps, objects, and the coupling of models using a dependency graph.
+- Flexible Model Switching: Switch between models without changing any code, using a simple syntax to specify the model for a given process.
+- Reduced Degrees of Freedom: Fix variables, pass measurements, or use simpler models for specific processes to reduce complexity.
+- High-Performance Computation: Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
+- Parallel and Distributed Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
+- Scalability: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
+- Composability: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for propagating measurement error.
 
-- Easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer...
-- Fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
-- No hassle, the package manages automatically input and output variables, time-steps, objects, soft and hard coupling of models with a dependency graph
-- Switch between models without changing any code, with a simple syntax to define the model to use for a given process
-- Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
-- 🚀(very) fast computation 🚀, think of 100th of nanoseconds for one model, two coupled models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)), or the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) that uses PlantSimEngine
-- Out of the box Sequential, Parallel (Multi-threaded) or Distributed (Multi-Process) computations over objects, time-steps and independent processes (thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/))
-- Easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl)
-- Composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to propagate measurement error
+**Benefits:**
+
+Improved Accuracy and Reliability:
+
+- Enhance the accuracy of plant growth and yield predictions by integrating detailed physiological processes and environmental interactions.
+- Reduced Modeling Time: Streamline the modeling process with automated management and fast prototyping capabilities.
+- Collaborative Research: Facilitate collaborative research efforts with flexible and composable modeling tools.
 
 ## Installation
 
