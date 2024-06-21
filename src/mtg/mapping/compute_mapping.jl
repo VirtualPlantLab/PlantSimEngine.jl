@@ -96,7 +96,7 @@ function variables_outputs_from_other_scale(mapped_vars)
                         else
                             error(
                                 "The variable `$(mapped_variable(val))` is an output variable computed by scale `$organ` and written to organs at scale `$(join(mapped_organ(val), ", "))`, " *
-                                "but the default value coming from `$organ` is not of length 1: $(var_default_value). " *
+                                "but the default value coming from `$organ` is of length 1: $(var_default_value) instead of a vector. " *
                                 "Make sure the model that computes this variable at scale `$organ` has a vector of values of length 1 as " *
                                 "default outputs for variable `$(mapped_variable(val))`."
                             )
