@@ -317,7 +317,7 @@ There are several ways to break a cyclic dependency:
 
 - **Merge models**: If two models depend on each other because they need *e.g.* recursive computations, they can be merged into a third model that handles the computation and takes the two models as hard dependencies. Hard dependencies are models that are explicitly called by another model and do not participate on the building of the dependency graph.
 - **Change models**: Of course models can be interchanged to avoid cyclic dependencies, but this is not really a solution, it is more a workaround.
-- **PreviousTimeScale**: We can break the dependency graph by defining some variables as taken from the previous time step. A very well known example is the computation of the light interception by a plant that depends on the leaf area, which is usually the result of a model that also depends on the light interception. The cyclic dependency is usually broken by using the leaf area from the previous time step in the interception model, which is a good approximation for most cases.
+- **PreviousTimeStep**: We can break the dependency graph by defining some variables as taken from the previous time step. A very well known example is the computation of the light interception by a plant that depends on the leaf area, which is usually the result of a model that also depends on the light interception. The cyclic dependency is usually broken by using the leaf area from the previous time step in the interception model, which is a good approximation for most cases.
 
 We can fix our previous mapping by computing the organs respiration using the carbon biomass from the previous time step instead. Let's see how to fix the cyclic dependency in our mapping (look at the leaf and internode scales):
 
@@ -363,7 +363,7 @@ The `ToyMaintenanceRespirationModel` models are now defined as `MultiScaleModel`
 
 !!! note
     `PreviousTimeStep` tells PlantSimEngine to take the value of the previous time step for the variable it wraps, or the value at initialization for the first time step. The value at initialization is the one provided by default in the models inputs, but is usually provided in the `Status` structure to override this default.
-    A `PreviousTimeStep` is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `Previous(:carbon_biomass) => "Leaf"`.
+    A `PreviousTimeStep` is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `PreviousTimeStep(:carbon_biomass) => "Leaf"`.
 
 ### Wrapping up
 
