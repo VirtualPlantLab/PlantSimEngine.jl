@@ -220,6 +220,7 @@ function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], l
         end
         default_vals = []
         for o in m_organ # e.g. o = "Leaf"
+            haskey(mapped_vars[o], source_variable(val, o)) || error("Variable `$(source_variable(val, o))` is mapped from scale `$o` to another scale, but is not computed by any model at `$o` scale.")
             upper_value = mapped_vars[o][source_variable(val, o)]
             push!(mapping_stacktrace, (mapped_organ=o, mapped_variable=source_variable(val, o), mapped_value=mapped_default(upper_value), level=level))
             # Recursively find the default value until the default value is not a MappedVar:
