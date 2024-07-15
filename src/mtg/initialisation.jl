@@ -61,7 +61,8 @@ end
         reverse_multiscale_mapping,
         vars_need_init=Dict{String,Any}(),
         type_promotion=nothing;
-        check=true
+        check=true,
+        attribute_name=:plantsimengine_status)
     )
 
 Initialise the status of a plant graph node, taking into account the multiscale mapping, and add it to the statuses dictionary.
@@ -76,6 +77,7 @@ Initialise the status of a plant graph node, taking into account the multiscale 
 - `nodes_with_models`: the nodes that have a model defined for their symbol
 - `type_promotion`: the type promotion to use for the variables
 - `check`: whether to check the mapping for errors (see details)
+- `attribute_name`: the name of the attribute to store the status in the node, by default: `:plantsimengine_status`
 
 # Details
 
@@ -89,7 +91,7 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true)
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
     # Check if the node has a model defined for its symbol, if not, no need to compute
     symbol(node) ∉ collect(keys(mapped_vars)) && return
 
@@ -158,6 +160,11 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
             end
         end
     end
+
+
+    # Finally, we add the status to the node:
+    node[attribute_name] = st
+
     return st
 end
 

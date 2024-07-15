@@ -458,9 +458,11 @@ end
     @test length(out.statuses["Leaf"]) == 2
     @test length(out.statuses["Internode"]) == 2
     @test length(out.statuses["Soil"]) == 1
-    @test out.statuses["Soil"][1].node == soil
+    @test out.statuses["Soil"][1].node == get_node(mtg_init, 2)
     @test out.statuses["Soil"][1].soil_water_content !== -Inf
 
+    # Testing that we get the link between the node and its status:
+    @test out.statuses["Soil"][1] == get_node(mtg_init, 2).plantsimengine_status
     # Testing if the value in the status of the leaves is the same as the one in the status of the soil:
     @test out.statuses["Soil"][1].soil_water_content === out.statuses["Leaf"][1].soil_water_content
     @test out.statuses["Soil"][1].soil_water_content === out.statuses["Leaf"][2].soil_water_content
@@ -491,6 +493,10 @@ end
 
     @test out.statuses["Internode"][1].carbon_allocation == 0.5
     @test out.statuses["Leaf"][1].carbon_allocation == 0.5
+
+
+    # Testing that we get the link between the node and its status:
+    @test out.statuses["Leaf"][2] == get_node(mtg_init, 7).plantsimengine_status
 
     # Testing the reference directly:
     ref_values_callocation = getfield(out.statuses["Plant"][1].carbon_allocation, :v)
