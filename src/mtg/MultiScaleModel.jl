@@ -134,7 +134,8 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         process_ = process(model)
         unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
         for i in mapping
-            push!(unfolded_mapping, _get_var(Pair(i.first, i.second), process_))
+            push!(unfolded_mapping, _get_var(isa(i, PreviousTimeStep) ? i : Pair(i.first, i.second), process_))
+            # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
         end
 
         new{T,typeof(unfolded_mapping)}(model, unfolded_mapping)

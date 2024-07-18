@@ -98,10 +98,6 @@ Return a NamedTuple with the variables and their default values.
 
 The `vars_mapping` is a dictionary with the organ type as key and a dictionary as value. It is 
 computed from the user mapping like so:
-
-```julia
-full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
-```
 """
 function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
     node_vars = variables(node) # e.g. (inputs = (:var1=-Inf, :var2=-Inf), outputs = (:var3=-Inf,))
@@ -127,11 +123,18 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
             if haskey(vars_mapping[organ], var)
                 organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
                 push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
+                #* We still check if the variable also exists wrapped in PreviousTimeStep, because one model could use the current 
+                #* values, and another one the previous values.
+                if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
+                    organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+                    push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
+                end
             elseif haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
-                # The variable is mapped to the previous time step:
+                # If not found in the current time step, we check if the variable is mapped to the previous time step:
                 organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
                 push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
             else
+                # Else we take the default value:
                 push!(vars_, var => default)
             end
         end
