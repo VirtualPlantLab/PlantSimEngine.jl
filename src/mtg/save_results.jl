@@ -134,15 +134,8 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     # Checking that variables in outputs exist in the statuses, and adding the :node variable:
     for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
         if length(statuses[organ]) == 0
-            # The organ is not found in the mtg, we remove it from the outputs:
-            e = "You required outputs for organ $organ, but this organ is not found in the provided MTG."
-
-            if check
-                error(e)
-            else
-                @info e
-                delete!(outs_, organ)
-            end
+            # The organ is not found in the mtg, we return an info and get along (it might be created during the simulation):
+            check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG."
             continue
         end
         if !all(i in collect(keys(statuses[organ][1])) for i in vars)
