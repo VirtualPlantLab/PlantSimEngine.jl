@@ -109,9 +109,9 @@ julia> collect(keys(preallocated_vars["Leaf"]))
  :carbon_demand
 ```
 """
-function pre_allocate_outputs(statuses, outs, nsteps; check=true)
+function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
     outs_ = copy(outs)
-
+    statuses_ = copy(statuses)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
         not_in_statuses = setdiff(keys(outs_), keys(statuses))
@@ -135,11 +135,22 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
         if length(statuses[organ]) == 0
             # The organ is not found in the mtg, we return an info and get along (it might be created during the simulation):
-            check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG."
-            continue
+            check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG at this point."
+
+            status_from_template = PlantSimEngine.init_node_status!(
+                MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", organ, 0, 0)),
+                statuses,
+                statuses_template,
+                reverse_multiscale_mapping,
+                vars_need_init,
+                type_promotion;
+                check=check
+            )
+
+            statuses_[organ] = [status_from_template]
         end
-        if !all(i in collect(keys(statuses[organ][1])) for i in vars)
-            not_in_statuses = (setdiff(vars, keys(statuses[organ][1]))...,)
+        if !all(i in collect(keys(statuses_[organ][1])) for i in vars)
+            not_in_statuses = (setdiff(vars, keys(statuses_[organ][1]))...,)
             plural = length(not_in_statuses) == 1 ? "" : "s"
             e = string(
                 "You requested outputs for variable", plural, " ",
@@ -168,7 +179,7 @@ function pre_allocate_outputs(statuses, outs, nsteps; check=true)
     end
 
     # Making the pre-allocated outputs:
-    Dict(organ => Dict(var => [typeof(statuses[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_)
+    Dict(organ => Dict(var => [typeof(statuses_[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_)
     # Note: we use the type of the variable from the first status for each organ to pre-allocate the outputs, because they are
     # all the same type for others.
 end
