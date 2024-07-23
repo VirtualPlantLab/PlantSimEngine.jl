@@ -194,7 +194,7 @@ end
     @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
     @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
 
-    statuses, other = PlantSimEngine.init_statuses(mtg_init, mapping_1)
+    statuses, status_templates, reverse_multiscale_mapping, vars_need_init = PlantSimEngine.init_statuses(mtg_init, mapping_1)
     @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
 
     @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2
@@ -205,12 +205,12 @@ end
 
     # If check is true, this should return an error (some outputs are not computed):
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
-        @test_throws ErrorException PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
+        @test_throws ErrorException PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, nsteps)
     else
-        @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps)
+        @test_throws e_1 PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, nsteps)
     end
 
-    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, outs, nsteps, check=false)
+    outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, nsteps, check=false)
 
     @test outs_ == Dict(
         "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),

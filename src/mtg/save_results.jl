@@ -76,7 +76,7 @@ julia> mtg = import_mtg_example();
 ```
 
 ```jldoctest mylabel
-julia> statuses, = PlantSimEngine.init_statuses(mtg, mapping);
+julia> statuses, status_templates, reverse_multiscale_mapping, vars_need_init = PlantSimEngine.init_statuses(mtg, mapping);
 ```
 
 ```jldoctest mylabel
@@ -86,7 +86,7 @@ julia> outs = Dict("Leaf" => (:carbon_assimilation, :carbon_demand), "Soil" => (
 Pre-allocate the outputs as a dictionary:
 
 ```jldoctest mylabel
-julia> preallocated_vars = PlantSimEngine.pre_allocate_outputs(statuses, outs, 2);
+julia> preallocated_vars = PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, 2);
 ```
 
 The dictionary has a key for each organ from which we want outputs:
@@ -184,7 +184,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     # all the same type for others.
 end
 
-pre_allocate_outputs(statuses, ::Nothing, nsteps; check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
+pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, ::Nothing, nsteps; type_promotion=nothing, check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
 
 """
     save_results!(object::GraphSimulation, i)
