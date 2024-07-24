@@ -58,6 +58,7 @@ include("dependencies/traversal.jl")
 include("dependencies/is_graph_cyclic.jl")
 include("dependencies/printing.jl")
 include("dependencies/dependencies.jl")
+include("dependencies/get_model_in_dependency_graph.jl")
 
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")

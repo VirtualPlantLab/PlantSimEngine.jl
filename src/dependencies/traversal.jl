@@ -47,12 +47,13 @@ function traverse_dependency_graph(
 end
 
 
-function traverse_dependency_graph!(
-    f::Function,
-    node::SoftDependencyNode;
-    visit_hard_dep=true
-)
+function traverse_dependency_graph!(f::Function, graph::DependencyGraph; visit_hard_dep=true)
+    for (p, root) in graph.roots
+        traverse_dependency_graph!(f, root, visit_hard_dep=visit_hard_dep)
+    end
+end
 
+function traverse_dependency_graph!(f::Function, node::SoftDependencyNode; visit_hard_dep=true)
     f(node)
     # Traverse the hard dependencies of the SoftDependencyNode if any:
     if visit_hard_dep && node isa SoftDependencyNode
@@ -67,12 +68,7 @@ function traverse_dependency_graph!(
     end
 end
 
-function traverse_dependency_graph!(
-    f::Function,
-    node::HardDependencyNode;
-    visit_hard_dep=true
-)
-
+function traverse_dependency_graph!(f::Function, node::HardDependencyNode; visit_hard_dep=true)
     f(node)
     # Traverse all hard dependencies:
     for child in node.children
