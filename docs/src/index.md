@@ -38,11 +38,6 @@ run!(model2, meteo_day)
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
-```@contents
-Pages = ["index.md"]
-Depth = 5
-```
-
 ## Overview
 
 `PlantSimEngine` is a comprehensive package for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale. At its core, PlantSimEngine is designed with a strong emphasis on performance and efficiency.
