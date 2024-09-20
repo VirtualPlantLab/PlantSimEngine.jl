@@ -123,6 +123,34 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     # Note: this is mono-scale at this point (computes each scale independently)
     hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
 
+    # Compute the inputs and outputs of all "root" node of the hard dependencies, so the root 
+    # node that takes control over other models appears to have the union of its own inputs (resp. outputs)
+    # and the ones from its hard dependencies.
+    #* Note that we compute this before computing the multiscale hard dependencies because the inputs/outputs
+    #* of hard-dependency models should remain in their own scale. Note that the variables from the hard 
+    #* dependency may not appear in its own scale, but this is treated in the soft-dependency computation
+    inputs_process = Dict{String,Dict{Symbol,Vector}}()
+    outputs_process = Dict{String,Dict{Symbol,Vector}}()
+    for (organ, model) in mapping
+        # Get the status given by the user, that is used to set the default values of the variables in the mapping:
+        st_scale_user = get_status(model)
+        if isnothing(st_scale_user)
+            st_scale_user = NamedTuple()
+        else
+            st_scale_user = NamedTuple(st_scale_user)
+        end
+
+        status_scale = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
+        for (procname, node) in hard_deps[organ].roots # procname = :leaf_surface ; node = hard_deps.roots[procname]
+            var = Pair{Symbol,NamedTuple}[]
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st_scale_user), var)
+            push!(status_scale, procname => var)
+        end
+
+        inputs_process[organ] = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in status_scale)
+        outputs_process[organ] = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in status_scale)
+    end
+
     # If some models needed as hard-dependency are not found in their own scale, check the other scales:
     for (organ, model) in mapping
         # organ = "Plant"; model = mapping[organ]
@@ -182,31 +210,13 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     end
 
     for (organ, model) in mapping
-        # Get the status given by the user, that is used to set the default values of the variables in the mapping:
-        st = get_status(model)
-        if isnothing(st)
-            st = NamedTuple()
-        else
-            st = NamedTuple(st)
-        end
-
-        d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
-        for (procname, node) in hard_deps[organ].roots # procname = :leaf_surface ; node = hard_deps.roots[procname]
-            var = Pair{Symbol,NamedTuple}[]
-            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st), var)
-            push!(d_vars, procname => var)
-        end
-
-        inputs_process = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in d_vars)
-        outputs_process = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in d_vars)
-
         soft_dep_graph = Dict(
             process_ => SoftDependencyNode(
                 soft_dep_vars.value,
                 process_, # process name
                 organ, # scale
-                inputs_process[process_], # These are the inputs, potentially multiscale
-                outputs_process[process_], # Same for outputs
+                inputs_process[organ][process_], # These are the inputs, potentially multiscale
+                outputs_process[organ][process_], # Same for outputs
                 AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,
@@ -224,7 +234,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
             end
         end
 
-        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process, outputs=outputs_process)
+        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ])
         not_found = merge(not_found, hard_deps[organ].not_found)
     end
 
