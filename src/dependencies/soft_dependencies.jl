@@ -412,6 +412,7 @@ end
 - `inputs::Dict{Symbol, Vector{Pair{Symbol}, Tuple{Symbol, Vararg{Symbol}}}}`: a dict of process => [:subprocess => (:var1, :var2)].
 - `soft_dep_graphs::Dict{String, ...}`: a dict of organ => (soft_dep_graph, inputs, outputs).
 - `rev_mapping::Dict{Symbol, Symbol}`: a dict of mapped variable => source variable (this is the reverse mapping).
+- 'hard_dependencies_from_other_scale' : a vector of HardDependencyNode to provide access to the hard dependencies without traversing the whole graph
 
 # Details
 
