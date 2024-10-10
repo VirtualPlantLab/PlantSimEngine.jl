@@ -15,7 +15,7 @@ function hard_dependencies(models; scale="", verbose::Bool=true)
             # The dependency can be given as multiscale, e.g. `leaf_area=AbstractLeaf_AreaModel => [m.leaf_symbol],`
             # This means we should search this model in another scale. This is not done here, but after the call to this 
             # function in the other method for `hard_dependencies` below.
-            if isa(depend, Pair)
+            if isa(depend, Pair) 
                 if scale != ""
                     # We skip this hard-dependency if it is multiscale, we compute this afterwards in this case
                     push!(dep_not_found, p => (parent_process=process, type=first(depend), scales=last(depend)))
@@ -120,7 +120,13 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     mods = Dict(organ => parse_models(get_models(model)) for (organ, model) in mapping)
 
     # For each scale, move the hard-dependency models as children of the its parent model.
-    # Note: this is mono-scale at this point (computes each scale independently)
+    # Note: this is mono-scale at this point (computes each scale independently)  
+    # Since the hard dependencies are inserted into the soft dependency graph as children and aren't referenced elsewhere
+    # it becomes harder to keep track of them as needed without traversing the graph
+    # so keep tabs on them during initialisation until they're no longer needed
+    hard_dependency_dict = Dict{Symbol, HardDependencyNode}()
+    hard_deps = Dict()
+    
     hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
 
     # Compute the inputs and outputs of all "root" node of the hard dependencies, so the root 
@@ -183,7 +189,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                 end
 
                 # We make a new node out of the previous one:
-                new_node = HardDependencyNode(
+               new_node = HardDependencyNode(
                     dep_node_model.value,
                     dep_node_model.process,
                     dep_node_model.dependency,
@@ -194,11 +200,13 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                     parent_node,
                     dep_node_model.children
                 )
-                # Note that we make a new node just in case it is a hard-dependency of a model at its own scale
-                # and at a different scale (several models can take control over a model)
-
+                
                 # Add our new node as a child of the parent node (the one that requires it as a hard dependency)
                 push!(parent_node.children, new_node)
+
+                # add the new node to the flat list of hard deps, as they aren't trivial to access in the dep graph, and we might need them later for a couple of things
+                hard_dependency_dict[p] = new_node
+
                 # If it was a root node, we delete it as a root node.
                 if dep_node_model in values(hard_deps[s].roots)
                     delete!(hard_deps[s].roots, p) # We delete the value that has the process as key
@@ -238,5 +246,5 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
         not_found = merge(not_found, hard_deps[organ].not_found)
     end
 
-    return DependencyGraph(soft_dep_graphs, not_found)
+    return (DependencyGraph(soft_dep_graphs, not_found), hard_dependency_dict)
 end
