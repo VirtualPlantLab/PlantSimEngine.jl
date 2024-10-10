@@ -151,10 +151,13 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
 
             # Remove the hard dependencies from the soft dependencies:
             soft_deps_not_hard = drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
+           
+            hard_dependencies_from_other_scale = [hd for hd in i.hard_dependency if hd.scale != i.scale]
+           
             # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
 
             # Check if the process has soft dependencies at other scales:
-            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, rev_mapping)
+            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, rev_mapping, hard_dependencies_from_other_scale)
             # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
             # is computed by the process :soil_water at the scale "Soil".
 
@@ -400,7 +403,7 @@ Dict{String, Dict{Symbol, Vector{Symbol}}} with 2 entries:
 This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:carbon_assimilation` 
 is computed by the process `:carbon_assimilation` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
 """
-function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs, rev_mapping)
+function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs, rev_mapping, hard_dependencies_from_other_scale)
     # proc, organ, ins, soft_dep_graphs=soft_dep_graphs_roots.roots
     vars_input = flatten_vars(inputs[process])
 
@@ -421,7 +424,18 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                 haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")
                 mapped_var = mapped_variable(val)
                 isa(mapped_var, PreviousTimeStep) && continue # Because we don't want to add the previous time step as a dependency
-                add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, org, source_variable(val, org), mapped_var)
+
+                # Avoid collecting variables at other scales if they come from a hard dependency
+                # They are handled internally by the hard dep, so if a hard dependency contains that variable, don't add it
+                # (This only needs to be done one level beneath the soft dependency nodes, any hard dependencies internal to another one don't expose their variables here)
+               
+                in_hard_dep::Bool = false
+                hd_os_current_scale = filter(x -> x.scale == org, hard_dependencies_from_other_scale)               
+                for hd_os in hd_os_current_scale
+                    hd_os_output_vars = [first(p) for p in pairs(hd_os.outputs)]
+                    in_hard_dep |= length(filter(x -> x == var, hd_os_output_vars)) > 0
+                end
+                !in_hard_dep && add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, org, source_variable(val, org), mapped_var)
             end
         elseif isa(val, UninitializedVar) && haskey(rev_mapping, organ)
             # The variable may be a variable written by another scale:
