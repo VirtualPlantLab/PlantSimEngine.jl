@@ -204,6 +204,16 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                 # Add our new node as a child of the parent node (the one that requires it as a hard dependency)
                 push!(parent_node.children, new_node)
 
+                # previously created nested hard dependency nodes' ancestors that have the new_node model as their caller now point to an outdated parent 
+                # (and hard dependency node in an outdated state), so their grandparent when traversing upwards might incorrectly be set to nothing
+                # update their parent to the correct new node
+                for (hd_sym, hd_node) in hard_dependency_dict
+
+                    if hd_node.parent.process == p
+                        hd_node.parent = new_node
+                    end
+                end
+
                 # add the new node to the flat list of hard deps, as they aren't trivial to access in the dep graph, and we might need them later for a couple of things
                 hard_dependency_dict[p] = new_node
 
