@@ -21,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph=hard_dependencies(mapping; verbose=false); type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)); type_promotion=nothing, verbose=false, check=true)
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 
@@ -308,7 +308,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, hard_dependencies(mapping; verbose=false); type_promotion=type_promotion, verbose=verbose, check=check)
+        init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false)); type_promotion=type_promotion, verbose=verbose, check=check)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)

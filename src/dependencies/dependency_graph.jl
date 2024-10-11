@@ -8,7 +8,7 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     scale::String
     inputs
     outputs
-    parent::Union{Nothing,HardDependencyNode}
+    parent::Union{Nothing,<:AbstractDependencyNode}
     children::Vector{HardDependencyNode}
 end
 
@@ -39,9 +39,9 @@ A graph of dependencies between models.
 - `roots::T`: the root nodes of the graph.
 - `not_found::Dict{Symbol,DataType}`: the models that were not found in the graph.
 """
-struct DependencyGraph{T}
+struct DependencyGraph{T,N}
     roots::T
-    not_found::Dict{Symbol,DataType}
+    not_found::Dict{Symbol,N}
 end
 
 # Add methods to check if a node is parallelizable:
