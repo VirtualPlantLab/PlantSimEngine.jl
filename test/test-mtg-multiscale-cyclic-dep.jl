@@ -47,8 +47,8 @@ out_vars = Dict(
 
     @test_throws "Cyclic dependency detected in the graph. Cycle:" dep(mapping_cyclic)
 
-    soft_dep_graphs_roots = PlantSimEngine.hard_dependencies(mapping_cyclic)
-    dep_graph = PlantSimEngine.soft_dependencies_multiscale(soft_dep_graphs_roots, mapping_cyclic)
+    soft_dep_graphs_roots, hard_dep_dict = PlantSimEngine.hard_dependencies(mapping_cyclic)
+    dep_graph = PlantSimEngine.soft_dependencies_multiscale(soft_dep_graphs_roots, mapping_cyclic, hard_dep_dict)
     iscyclic, cycle_vec = PlantSimEngine.is_graph_cyclic(dep_graph; warn=false)
 
     @test iscyclic
@@ -95,9 +95,9 @@ end
 
     @test_nowarn dep(mapping_nocyclic)
 
-    soft_dep_graphs_roots = PlantSimEngine.hard_dependencies(mapping_nocyclic)
+    soft_dep_graphs_roots, hard_dep_dict = PlantSimEngine.hard_dependencies(mapping_nocyclic)
     # soft_dep_graphs_roots.roots["Leaf"].inputs
-    dep_graph = PlantSimEngine.soft_dependencies_multiscale(soft_dep_graphs_roots, mapping_nocyclic)
+    dep_graph = PlantSimEngine.soft_dependencies_multiscale(soft_dep_graphs_roots, mapping_nocyclic, hard_dep_dict)
     iscyclic, cycle_vec = PlantSimEngine.is_graph_cyclic(dep_graph; warn=false)
 
     @test !iscyclic
