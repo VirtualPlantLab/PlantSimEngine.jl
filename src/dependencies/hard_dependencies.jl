@@ -124,10 +124,14 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     # Since the hard dependencies are inserted into the soft dependency graph as children and aren't referenced elsewhere
     # it becomes harder to keep track of them as needed without traversing the graph
     # so keep tabs on them during initialisation until they're no longer needed
-    hard_dependency_dict = Dict{Symbol, HardDependencyNode}()
+    hard_dependency_dict = Dict{Pair{Symbol, String}, HardDependencyNode}()
     hard_deps = Dict()
     
-    hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
+    hard_deps = Dict()
+    
+    for (organ, mods_scale) in mods
+         hard_deps[organ] = hard_dependencies(mods_scale, scale=organ, verbose=false)
+    end
 
     # Compute the inputs and outputs of all "root" node of the hard dependencies, so the root 
     # node that takes control over other models appears to have the union of its own inputs (resp. outputs)
@@ -207,15 +211,15 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                 # previously created nested hard dependency nodes' ancestors that have the new_node model as their caller now point to an outdated parent 
                 # (and hard dependency node in an outdated state), so their grandparent when traversing upwards might incorrectly be set to nothing
                 # update their parent to the correct new node
-                for (hd_sym, hd_node) in hard_dependency_dict
+                for ((hd_sym, hd_scale), hd_node) in hard_dependency_dict
 
-                    if hd_node.parent.process == p
+                    if (hd_node.parent.process == p) && (hd_node.parent.scale == hd_scale)
                         hd_node.parent = new_node
                     end
                 end
 
                 # add the new node to the flat list of hard deps, as they aren't trivial to access in the dep graph, and we might need them later for a couple of things
-                hard_dependency_dict[p] = new_node
+                hard_dependency_dict[Pair(p, new_node.scale)] = new_node
 
                 # If it was a root node, we delete it as a root node.
                 if dep_node_model in values(hard_deps[s].roots)

@@ -138,7 +138,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
 end
 
 # For multiscale mapping:
-function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Symbol, HardDependencyNode}) where {A<:Any}
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol, String}, HardDependencyNode}) where {A<:Any}
     mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
     rev_mapping = reverse_mapping(mapped_vars, all=false)
 
@@ -178,7 +178,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                             roots_at_given_scale = soft_dep_graphs_roots.roots[i.scale][:soft_dep_graph]
                             if !(parent_soft_dep in keys(roots_at_given_scale))                                                               
                                 master_node = ()
-                                for (hd_key, hd) in hard_dep_dict 
+                                for ((hd_key, hd_scale), hd) in hard_dep_dict 
                                     if parent_soft_dep == hd_key     
                                         master_node = hd                                                                                                                                                                                       
                                         depth = 0
@@ -257,7 +257,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                             roots_at_given_scale = soft_dep_graphs_roots.roots[org][:soft_dep_graph]   
                             if !(parent_soft_dep in keys(roots_at_given_scale))                                                               
                                 master_node = ()
-                                for (hd_key, hd) in hard_dep_dict 
+                                for ((hd_key, hd_scale), hd) in hard_dep_dict 
                                     if parent_soft_dep == hd_key     
                                         master_node = hd                                                                                                                                                                                       
                                         depth = 0
