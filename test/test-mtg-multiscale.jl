@@ -168,7 +168,7 @@ end
     type_promotion = nothing
     nsteps = 2
     dependency_graph = dep(mapping_1)
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, PlantSimEngine.hard_dependencies(mapping_1; verbose=false); type_promotion=type_promotion)
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, first(PlantSimEngine.hard_dependencies(mapping_1; verbose=false)); type_promotion=type_promotion)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]

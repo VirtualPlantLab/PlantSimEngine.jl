@@ -29,3 +29,15 @@ function get_model_nodes(dep_graph::DependencyGraph, model)
 
     return model_node
 end
+
+function get_model_nodes(dep_graph::DependencyGraph, process::Symbol)
+    process_node = Union{SoftDependencyNode,HardDependencyNode}[]
+
+    traverse_dependency_graph!(dep_graph) do node
+        if node.process == process
+            push!(process_node, node)
+        end
+    end
+
+    return process_node
+end
