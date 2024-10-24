@@ -80,11 +80,11 @@ A model that takes outputs of another model as inputs is called a soft-coupled m
 
 ```julia
  PlantSimEngine.dep(m::ParentModel) = (
-    name_provided_in_the_mapping=AbstractHardDependecyModel => ["Organ_Name_1",],
+    name_provided_in_the_mapping=AbstractHardDependencyModel => ["Organ_Name_1",],
 )
 ```
 
- Here's a concrete example in XPalm, an oil palm model developed on top of PlantSimEngine. 
+ Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an oil palm model developed on top of PlantSimEngine. 
  Organs are produced at the phytomer scale, but need to run an age model and a biomass model at the reproductive organs' scales.
 
 ```julia
