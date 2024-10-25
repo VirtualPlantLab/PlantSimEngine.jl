@@ -110,7 +110,14 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 ```
 """
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
-    outs_ = copy(outs)
+    
+    outs_ = Dict()#Dict{String, Vector{Symbol}}()
+    for i in keys(outs)
+        outs_[i] = [outs[i]...]
+    end
+
+    #Dict(i => Vector(outs[i]...) for i in keys(outs)))
+    
     statuses_ = copy(statuses)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -168,18 +175,20 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
                     delete!(outs_, organ)
                 else
                     # Some still exist, we only use the ones that do:
-                    outs_[organ] = (existing_vars_requested...,)
+                    outs_[organ] = [existing_vars_requested...]
                 end
             end
         end
 
         if :node ∉ outs_[organ]
-            outs_[organ] = (outs_[organ]..., :node)
+            push!(outs_[organ], :node)
         end
     end
 
+    outs_tuple = Dict(i => Tuple(x for x in outs_[i]) for i in keys(outs_))
+
     # Making the pre-allocated outputs:
-    Dict(organ => Dict(var => [typeof(statuses_[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_)
+    Dict(organ => Dict(var => [typeof(statuses_[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_tuple)
     # Note: we use the type of the variable from the first status for each organ to pre-allocate the outputs, because they are
     # all the same type for others.
 end
