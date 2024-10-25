@@ -110,14 +110,12 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 ```
 """
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
-    
-    outs_ = Dict()#Dict{String, Vector{Symbol}}()
-    for i in keys(outs)
+    outs_ = Dict{String,Vector{Symbol}}()
+    for i in keys(outs) # i = "Plant"
+        @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
         outs_[i] = [outs[i]...]
     end
 
-    #Dict(i => Vector(outs[i]...) for i in keys(outs)))
-    
     statuses_ = copy(statuses)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
