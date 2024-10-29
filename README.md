@@ -37,7 +37,7 @@ Improved Accuracy and Reliability:
 
 ## Ask Questions
 
-If you have any questions or feedback, [open an issue](https://github.com/VEZY/PlantBiophysics.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
+If you have any questions or feedback, [open an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
 
 ## Installation
 
