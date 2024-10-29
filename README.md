@@ -35,6 +35,10 @@ Improved Accuracy and Reliability:
 - Reduced Modeling Time: Streamline the modeling process with automated management and fast prototyping capabilities.
 - Collaborative Research: Facilitate collaborative research efforts with flexible and composable modeling tools.
 
+## Ask Questions
+
+If you have any questions or feedback, [open an issue](https://github.com/VEZY/PlantBiophysics.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
+
 ## Installation
 
 To install the package, enter the Julia package manager mode by pressing `]` in the REPL, and execute the following command:
