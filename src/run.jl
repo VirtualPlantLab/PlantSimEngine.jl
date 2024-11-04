@@ -86,45 +86,6 @@ julia> (models[:var4],models[:var6])
 """
 run!
 
-#todo vector of modellists case
-function run2!(
-    object,
-    meteo=nothing,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    check=true,
-    nsteps=nothing,
-    outputs=nothing,
-    executor=ThreadedEx()
-)
-    isnothing(nsteps) && (nsteps = get_nsteps(meteo))
-
-    default_scale = "Default"
-
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", default_scale, 0, 0),)
-
-    mapping = Dict(
-        default_scale => (
-        SingleModelScale1(),
-        Status(in = 1.0, in1 = 1.0),
-        ),
-    )
-
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=outputs)
-    run!(
-        sim,
-        meteo,
-        constants,
-        extra;
-        check=check,
-        executor=executor
-    )
-
-    return sim
-
-end
-
-
 # Managing one or several objects, one or several time-steps:
 
 # This is the default function called by the user, which uses traits
