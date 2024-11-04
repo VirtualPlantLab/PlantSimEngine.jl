@@ -18,7 +18,7 @@ PlantSimEngine.outputs_(::Process1Model) = (var3=-Inf,)
 function PlantSimEngine.run!(::Process1Model, models, status, meteo, constants=nothing, extra=nothing)
     status.var3 = models.process1.a + status.var1 * status.var2
 end
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.IsTimeStepIndependent()
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.IsTimeStepDependent()
 PlantSimEngine.ObjectDependencyTrait(::Type{<:Process1Model}) = PlantSimEngine.IsObjectIndependent()
 
 
