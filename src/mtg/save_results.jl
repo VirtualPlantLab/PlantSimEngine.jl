@@ -116,7 +116,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
         outs_[i] = [outs[i]...]
     end
 
-    statuses_ = copy(statuses)
+    statuses_ = copy(statuses_template)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
         not_in_statuses = setdiff(keys(outs_), keys(statuses))
@@ -141,21 +141,9 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
         if length(statuses[organ]) == 0
             # The organ is not found in the mtg, we return an info and get along (it might be created during the simulation):
             check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG at this point."
-
-            status_from_template = PlantSimEngine.init_node_status!(
-                MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", organ, 0, 0)),
-                statuses,
-                statuses_template,
-                reverse_multiscale_mapping,
-                vars_need_init,
-                type_promotion;
-                check=check
-            )
-
-            statuses_[organ] = [status_from_template]
         end
-        if !all(i in collect(keys(statuses_[organ][1])) for i in vars)
-            not_in_statuses = (setdiff(vars, keys(statuses_[organ][1]))...,)
+        if !all(i in collect(keys(statuses_[organ])) for i in vars)
+            not_in_statuses = (setdiff(vars, keys(statuses_[organ]))...,)
             plural = length(not_in_statuses) == 1 ? "" : "s"
             e = string(
                 "You requested outputs for variable", plural, " ",
@@ -185,10 +173,21 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
 
     outs_tuple = Dict(i => Tuple(x for x in outs_[i]) for i in keys(outs_))
 
+    node_types = []
+    for o in keys(statuses)
+        if length(statuses[o]) > 0
+            push!(node_types, typeof(statuses[o][1].node))
+        end
+    end
+
+    node_type = unique(node_types)
+    @assert length(node_type) == 1 "All plant graph nodes should have the same type, found $(unique(node_type))."
+    node_type = only(node_type)
+
     # Making the pre-allocated outputs:
-    Dict(organ => Dict(var => [typeof(statuses_[organ][1][var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_tuple)
-    # Note: we use the type of the variable from the first status for each organ to pre-allocate the outputs, because they are
-    # all the same type for others.
+    return Dict(organ => Dict(var => [var == :node ? node_type[] : typeof(status_from_template(statuses_template[organ])[var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_tuple)
+    # Note: we use the type of the variable from the status template for each organ to pre-allocate the outputs. We transform the status template into a status to get the types of the variables
+    # without the reference types, e.g. RefVector{Float64} becomes Vector{Float64}.
 end
 
 pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, ::Nothing, nsteps; type_promotion=nothing, check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
