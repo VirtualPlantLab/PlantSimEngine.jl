@@ -125,7 +125,6 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     # it becomes harder to keep track of them as needed without traversing the graph
     # so keep tabs on them during initialisation until they're no longer needed
     hard_dependency_dict = Dict{Pair{Symbol, String}, HardDependencyNode}()
-    hard_deps = Dict()
     
     hard_deps = Dict()
     
@@ -213,7 +212,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                 # update their parent to the correct new node
                 for ((hd_sym, hd_scale), hd_node) in hard_dependency_dict
 
-                    if (hd_node.parent.process == p) && (hd_node.parent.scale == hd_scale)
+                    if (hd_node.parent.process == p) && (hd_node.scale == hd_scale)
                         hd_node.parent = new_node
                     end
                 end

@@ -57,6 +57,10 @@ using Documenter # for doctests
         include("test-mtg-multiscale-cyclic-dep.jl")
     end
 
+    @testset "Multiscale corner-cases" begin
+        include("test-corner-cases.jl")
+    end
+
     if VERSION >= v"1.10"
         # Some formating changed in Julia 1.10, e.g. @NamedTuple instead of NamedTuple.
         @testset "Doctests" begin
