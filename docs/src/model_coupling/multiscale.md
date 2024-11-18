@@ -191,7 +191,7 @@ Models can access only one time step at a time, so the output at the end of a si
 
 ```@example usepkg
 outs = Dict(
-    "Scene" => (:TT, :TT_cu, :node),
+    "Scene" => (:TT, :TT_cu,),
     "Plant" => (:aPPFD, :LAI),
     "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),
     "Internode" => (:carbon_allocation,),

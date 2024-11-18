@@ -262,6 +262,7 @@ ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strin
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 ref_var(v::T) where {T<:RefVariable} = v
+ref_var(v::UninitializedVar) = Base.Ref(copy(v.value))
 
 """
     init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=true)
