@@ -126,11 +126,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     # so keep tabs on them during initialisation until they're no longer needed
     hard_dependency_dict = Dict{Pair{Symbol, String}, HardDependencyNode}()
     
-    hard_deps = Dict()
-    
-    for (organ, mods_scale) in mods
-         hard_deps[organ] = hard_dependencies(mods_scale, scale=organ, verbose=false)
-    end
+    hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
 
     # Compute the inputs and outputs of all "root" node of the hard dependencies, so the root 
     # node that takes control over other models appears to have the union of its own inputs (resp. outputs)
