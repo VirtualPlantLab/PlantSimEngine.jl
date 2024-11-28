@@ -1,7 +1,7 @@
-#TODO REMOVE SOME OF THOSE BITS
-using Pkg
+#TODO Cleanup
+#using Pkg
 #Pkg.develop("PlantSimEngine")
-using PlantSimEngine
+#using PlantSimEngine
 using Statistics
 using DataFrames
 using CSV
@@ -9,6 +9,7 @@ using Random
 using PlantBiophysics
 using BenchmarkTools
 using Test
+using PlantMeteo
 
 function benchmark_plantbiophysics()
 
@@ -59,7 +60,7 @@ function benchmark_plantbiophysics()
 
 
     constants = Constants()
-    time_PB = []
+    time_PB = Vector{Float64}(undef, N*microbenchmark_steps)
     for i = 1:N
         leaf = ModelList(
             energy_balance=Monteith(),
@@ -81,7 +82,11 @@ function benchmark_plantbiophysics()
         meteo = Atmosphere(T=set.T[i], Wind=set.Wind[i], P=set.P[i], Rh=set.Rh[i], Cₐ=set.Ca[i])
         st = PlantMeteo.row_struct(leaf.status[1])
         b_PB = @benchmark run!($leaf, $deps, 1, $st, $meteo, $constants, nothing; executor = ThreadedEx()) evals = microbenchmark_evals samples = microbenchmark_steps
-        append!(time_PB, b_PB.times .* 1e-9) # transform in seconds
+        
+        # transform in seconds        
+        for j in 1:microbenchmark_steps
+            time_PB[microbenchmark_steps*(i-1) + j] = b_PB.times[j]*1e-9
+        end
     end
     return time_PB
 end
@@ -89,13 +94,16 @@ end
 @testset "PlantBiophysics benchmark" begin
 
     time_PB = benchmark_plantbiophysics()
-    
+    N = length(time_PB)
     #statsPB = (mean(time_PB), median(time_PB), Statistics.std(time_PB), findmin(time_PB), findmax(time_PB))
-    mean(time_PB)
-    @test mean(time_PB) > 1000000000000000
-    #TODO deal with results
+    min__ = findmin(time_PB)[1]
+    max__ = findmin(time_PB)[1]
+    @test min__ > 1e-7
+    @test max__ < 1e-5
+    @test mean(time_PB) > 5e-7
+    @test mean(time_PB) < 5e-6
+    #TODO
 end
-
 
 #=
 function run_plantbiophysics()
