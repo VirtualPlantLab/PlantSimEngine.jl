@@ -126,6 +126,12 @@ function Base.indexed_iterate(mnt::Status, i::Int, state=1)
     Base.indexed_iterate(NamedTuple(mnt), i, state)
 end
 
+function Base.:(==)(s1::Status, s2::Status)
+    return (length(s1) == length(s2)) && 
+    (propertynames(s1) == propertynames(s2)) && 
+    (values(s1) == values(s2))
+end
+
 
 """
     propagate_values!(status1::Dict, status2::Dict, vars_not_propagated::Set)
