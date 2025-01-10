@@ -61,6 +61,16 @@ end
 ### and Mapping with custom models vs mapping with generated models for user-provided vector
 ###########################
 
+# This approach feels brittle but works
+
+# Currently untested in 'real' multi-scale modes, or with complex configs (hard dependencies). 
+# Need to rework the timestep generation and place it in PlantSimEngine, 
+# and work out how to reset generated_models which is unfortunately in global scope. 
+# Might also need more work on parameter initialisation. 
+# UUID not currently handled, as well so name conflicts galore.
+# And then to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
+# And then implement tests with proper output filtering
+
 function compare_outputs_modellist_mapping(models, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
 
@@ -72,6 +82,7 @@ function compare_outputs_modellist_mapping(models, graphsim)
     return graphsim_df_outputs_only_sorted == models_df_sorted
 end
 
+# simple conversion to a mapping, with manually written models
 function modellist_to_mapping(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing, TT_cu_vec=Vector{Float64}())
     
     modellist = Base.copy(modellist_original, modellist_original.status)
@@ -91,7 +102,6 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status, n
         model=ToyCurrenttimestepModel(),
         mapping=[PreviousTimeStep(:next_timestep),],
         ),
-        #Status(status),
         Status(current_timestep=1,next_timestep=1)
         ),
     )
@@ -165,18 +175,16 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectDependent()
 
 
-
+# TODO have a full-fledged multiscale version for PSE internal use, not just in the single-scale modellist to mapping scenario
 function replace_status_vectors_with_models(mapping, meteo)
 
-    #create dict of models <-> scale
-    #remove vectors from the statuses
-    #then fiddle with the mapping to remove what is necessary ? or add new models, and add the current_timestep (it needs to be multiscale)
 end
 
-
+# TODO this being in global scope (due to the way eval() works) is awkward
+# need to reset it between runs, and/or avoid overwriting it with the same models
+# or find a way to keep it local
 generated_models = ()
-# TODO call this function when generating the simulation graph
-# issue, how to reinsert this model back into the mapping ?
+
 # TODO name conflict -> UUID
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
 
@@ -208,7 +216,6 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n(:($var),)\nend\n\n"
             eval(Meta.parse(outputs_decl))
     
-            #constructor
             constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n\n"
             eval(Meta.parse(constructor_decl))
     
@@ -235,7 +242,6 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
 end
 
 
-#todo remove from status, add into mapping
 function modellist_to_mapping_2(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing)
     
     modellist = Base.copy(modellist_original, modellist_original.status)
@@ -245,7 +251,6 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
 
     #models = collect(values(object))
     models = modellist.models
-    #status_ts = modellist.status.ts
 
     mapping_incomplete = Dict(
         default_scale => (
@@ -254,7 +259,6 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
         model=ToyCurrenttimestepModel(),
         mapping=[PreviousTimeStep(:next_timestep),],
         ),
-        #Status(status),
         Status((modellist_status..., current_timestep=1,next_timestep=1,))
         ),
     )
@@ -262,6 +266,7 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
     timestep_scale = "Default"
     organ = "Default"
  
+    # recovering the status is a bit awkward
     st = (last(mapping_incomplete["Default"]))
     new_status, generated_models =  generate_model_from_status_vector_variable(mapping_incomplete, timestep_scale, st, organ)
 
@@ -362,12 +367,8 @@ end
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
-    #timestep_scale = "Default"
-    #organ = "Default"
-    #mapping = Dict()
-    #generate_model_from_status_vector_variable(mapping, timestep_scale, st2, organ)
-    
-    graphsim2 = @enter modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)#, TT_cu_vec=TT_cu_vec)
+   
+    graphsim2 = @enter modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
     sim2 = run!(graphsim2,
         meteo_day,
         PlantMeteo.Constants(),
