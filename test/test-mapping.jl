@@ -61,6 +61,16 @@ end
 ### and Mapping with custom models vs mapping with generated models for user-provided vector
 ###########################
 
+function compare_outputs_modellist_mapping(models, graphsim)
+    graphsim_df = outputs(graphsim, DataFrame)
+
+    graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
+    models_df = DataFrame(status(models))
+    
+    models_df_sorted = models_df[:, sortperm(names(models_df))]
+    graphsim_df_outputs_only_sorted = graphsim_df_outputs_only[:, sortperm(names(graphsim_df_outputs_only))]
+    return graphsim_df_outputs_only_sorted == models_df_sorted
+end
 
 function modellist_to_mapping(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing, TT_cu_vec=Vector{Float64}())
     
@@ -151,8 +161,152 @@ function PlantSimEngine.run!(m::ToyTestDegreeDaysCumulModel, models, status, met
     status.next_timestep = status.current_timestep + 1
 end
 
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectIndependent()
+# having the current_timestep means it is not object-dependent, and is a scene model in a multiscale simulation
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectDependent()
 
+
+
+function replace_status_vectors_with_models(mapping, meteo)
+
+    #create dict of models <-> scale
+    #remove vectors from the statuses
+    #then fiddle with the mapping to remove what is necessary ? or add new models, and add the current_timestep (it needs to be multiscale)
+end
+
+
+generated_models = ()
+# TODO call this function when generating the simulation graph
+# issue, how to reinsert this model back into the mapping ?
+# TODO name conflict -> UUID
+function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
+
+    new_status = NamedTuple()
+    #var = keys(st)[1]
+    #var_vals = values(st)[1]
+    #print(typeof(status))
+    for symbol in keys(status)
+        value = getproperty(status, symbol)
+        if isa(value, AbstractVector)
+
+            var_type = eltype(value)
+            process_name = lowercase(string(symbol)) # TODO + ### UUID ###
+         
+            process_decl = "PlantSimEngine.@process \"$process_name\" verbose = false\n\n"
+            eval(Meta.parse(process_decl))
+            
+            var_titlecase::String = titlecase(string(symbol))
+            model_name = "My$(var_titlecase)Model"
+            process_abstract_name = "Abstract$(var_titlecase)Model"
+            var_vector = "$(symbol)_vector"
+    
+            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::$var_type \nend\n\n"
+            eval(Meta.parse(struct_decl))
+            
+            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(:current_timestep,)\nend\n\n"
+            eval(Meta.parse(inputs_decl))
+    
+            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n(:($var),)\nend\n\n"
+            eval(Meta.parse(outputs_decl))
+    
+            #constructor
+            constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n\n"
+            eval(Meta.parse(constructor_decl))
+    
+            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$var = m.$var_vector[status.current_timestep]\nend\n\n"
+            eval(Meta.parse(run_decl))
+    
+            # add name to vector of models
+            if timestep_scale != organ
+                mapping_decl = "mapping[\"($organ)\"] = MultiScaleModel($process_name($var_vector), mapping=\"($timestep_scale)\" => (:current_timestep,))"
+                eval(Meta.parse(mapping_decl))
+            else
+            end 
+        
+        model_add_decl = "generated_models = (generated_models..., $model_name(1),)"
+        eval(Meta.parse(model_add_decl))
+        else
+            #setproperty!(new_status, symbol, value)
+            new_status = (new_status..., symbol => value)
+        end
+    end
+    
+    @assert length(status) == length(new_status) + length(generated_models) "Error during generation of models from vector values provided at the $organ-level status"
+    return new_status, generated_models
+end
+
+
+#todo remove from status, add into mapping
+function modellist_to_mapping_2(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing)
+    
+    modellist = Base.copy(modellist_original, modellist_original.status)
+
+    default_scale = "Default"
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", default_scale, 0, 0),)
+
+    #models = collect(values(object))
+    models = modellist.models
+    #status_ts = modellist.status.ts
+
+    mapping_incomplete = Dict(
+        default_scale => (
+        models..., 
+        MultiScaleModel(
+        model=ToyCurrenttimestepModel(),
+        mapping=[PreviousTimeStep(:next_timestep),],
+        ),
+        #Status(status),
+        Status((modellist_status..., current_timestep=1,next_timestep=1,))
+        ),
+    )
+    
+    timestep_scale = "Default"
+    organ = "Default"
+ 
+    st = (last(mapping_incomplete["Default"]))
+    new_status, generated_models =  generate_model_from_status_vector_variable(mapping_incomplete, timestep_scale, st, organ)
+
+    mapping = Dict(default_scale => (
+        models..., generated_models..., 
+        MultiScaleModel(
+            model=ToyCurrenttimestepModel(),
+            mapping=[PreviousTimeStep(:next_timestep),],
+            ),
+            Status(new_status,)
+    ),
+    )
+
+    if isnothing(outputs)
+        f = []
+        for i in 1:length(modellist.models)
+            aa = init_variables(modellist.models[i])
+            bb = keys(aa)
+            for j in 1:length(bb)
+                push!(f, bb[j])
+            end
+            #f = (f..., bb...)
+        end
+
+        f = unique!(f)
+        all_vars = (f...,)
+        #all_vars = merge((keys(init_variables(object.models[i])) for i in 1:length(object.models))...)
+    else 
+        all_vars = outputs
+        # TODO sanity check
+    end
+
+   #=run!(mtg, mapping,
+    meteo_day,
+    constants=PlantMeteo.Constants(),
+    extra=nothing,
+    nsteps = nsteps,
+    outputs = all_vars,
+    check=true,
+    executor=ThreadedEx()
+)=#
+
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=check, outputs=Dict(default_scale => all_vars))
+    return sim
+end
 
 
 #@testset "ModelList and Mapping result consistency" begin
@@ -170,7 +324,6 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         status=st,
     )
 
-   #@enter 
    run!(models,
         meteo_day
         ;
@@ -204,13 +357,24 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         executor=ThreadedEx()
     )
     sim
-graphsim_df = outputs(graphsim, DataFrame)
 
-graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
-models_df = DataFrame(status(models))
+    @test compare_outputs_modellist_mapping(models, graphsim)
 
-models_df_sorted = models_df[:, sortperm(names(models_df))]
-graphsim_df_outputs_only_sorted = graphsim_df_outputs_only[:, sortperm(names(graphsim_df_outputs_only))]
-@test graphsim_df_outputs_only_sorted == models_df_sorted
+    # fully automated model generation
+    st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
+    #timestep_scale = "Default"
+    #organ = "Default"
+    #mapping = Dict()
+    #generate_model_from_status_vector_variable(mapping, timestep_scale, st2, organ)
+    
+    graphsim2 = @enter modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)#, TT_cu_vec=TT_cu_vec)
+    sim2 = run!(graphsim2,
+        meteo_day,
+        PlantMeteo.Constants(),
+        nothing;
+        check=true,
+        executor=ThreadedEx()
+    )
+    @test compare_outputs_modellist_mapping(models, graphsim2)
 
 #end
