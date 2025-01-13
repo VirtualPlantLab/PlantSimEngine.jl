@@ -71,6 +71,9 @@ end
 # And then to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
 # And then implement tests with proper output filtering
 
+# Ah, another point that remains to be seen is that those SentinelArrays the TT_cu returns as from the CSV isn't an AbstractVector
+# meaning currently we won't generate models from them unless the conversion is made before that
+
 function compare_outputs_modellist_mapping(models, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
 
@@ -98,6 +101,7 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status, n
         default_scale => (
         models..., 
         ToyTestDegreeDaysCumulModel(TT_cu_vec=TT_cu_vec),
+        ToyNexttimestepModel(),
         MultiScaleModel(
         model=ToyCurrenttimestepModel(),
         mapping=[PreviousTimeStep(:next_timestep),],
@@ -152,6 +156,23 @@ function PlantSimEngine.run!(m::ToyCurrenttimestepModel, models, status, meteo, 
     status.current_timestep = status.next_timestep
  end 
 
+ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyCurrenttimestepModel}) = PlantSimEngine.IsObjectDependent()
+
+ PlantSimEngine.@process "Nexttimestep" verbose = false
+ struct ToyNexttimestepModel <: AbstractNexttimestepModel
+ end
+ 
+ PlantSimEngine.inputs_(::ToyNexttimestepModel) = (current_timestep=1,)
+ PlantSimEngine.outputs_(m::ToyNexttimestepModel) = (next_timestep=1,)
+ 
+ # Implementing the actual algorithm by adding a method to the run! function for our model:
+ function PlantSimEngine.run!(m::ToyNexttimestepModel, models, status, meteo, constants=nothing, extra=nothing)
+     status.next_timestep = status.current_timestep + 1
+  end 
+
+PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyNexttimestepModel}) = PlantSimEngine.IsObjectDependent()
+
+
 PlantSimEngine.@process "Degreedays" verbose = false
 
 struct ToyTestDegreeDaysCumulModel <: AbstractDegreedaysModel
@@ -160,7 +181,7 @@ end
 
 # Defining the inputs and outputs of the model:
 PlantSimEngine.inputs_(::ToyTestDegreeDaysCumulModel) = (current_timestep=1,)
-PlantSimEngine.outputs_(::ToyTestDegreeDaysCumulModel) = (TT_cu=0.0, next_timestep=1)
+PlantSimEngine.outputs_(::ToyTestDegreeDaysCumulModel) = (TT_cu=0.0,)
 
 ToyTestDegreeDaysCumulModel(; TT_cu_vec = Vector{Float64}()) = ToyTestDegreeDaysCumulModel(TT_cu_vec)
 
@@ -168,12 +189,9 @@ ToyTestDegreeDaysCumulModel(; TT_cu_vec = Vector{Float64}()) = ToyTestDegreeDays
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyTestDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
     status.TT_cu = m.TT_cu_vec[status.current_timestep]
-    status.next_timestep = status.current_timestep + 1
 end
 
-# having the current_timestep means it is not object-dependent, and is a scene model in a multiscale simulation
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectDependent()
-
 
 # TODO have a full-fledged multiscale version for PSE internal use, not just in the single-scale modellist to mapping scenario
 function replace_status_vectors_with_models(mapping, meteo)
@@ -188,14 +206,16 @@ generated_models = ()
 # TODO name conflict -> UUID
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
 
-    new_status = NamedTuple()
+    global generated_models = ()
+    global new_status = NamedTuple()
     #var = keys(st)[1]
     #var_vals = values(st)[1]
     #print(typeof(status))
     for symbol in keys(status)
-        value = getproperty(status, symbol)
+        global value = getproperty(status, symbol)
         if isa(value, AbstractVector)
-
+            # TODO assert length matches with timestep count
+            @assert length(value) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
             var_type = eltype(value)
             process_name = lowercase(string(symbol)) # TODO + ### UUID ###
          
@@ -207,19 +227,20 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             process_abstract_name = "Abstract$(var_titlecase)Model"
             var_vector = "$(symbol)_vector"
     
-            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::$var_type \nend\n\n"
+            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::Vector{$var_type} \nend\n\n"
             eval(Meta.parse(struct_decl))
             
-            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(:current_timestep,)\nend\n\n"
+            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(current_timestep=1,)\nend\n\n"
             eval(Meta.parse(inputs_decl))
     
-            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n(:($var),)\nend\n\n"
+            default_value = value[1]
+            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n($symbol=$default_value,)\nend\n\n"
             eval(Meta.parse(outputs_decl))
     
             constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n\n"
             eval(Meta.parse(constructor_decl))
     
-            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$var = m.$var_vector[status.current_timestep]\nend\n\n"
+            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$symbol = m.$var_vector[status.current_timestep]\nend\n\n"
             eval(Meta.parse(run_decl))
     
             # add name to vector of models
@@ -229,11 +250,12 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             else
             end 
         
-        model_add_decl = "generated_models = (generated_models..., $model_name(1),)"
+        model_add_decl = "generated_models = (generated_models..., $model_name($var_vector=$value),)"
         eval(Meta.parse(model_add_decl))
         else
             #setproperty!(new_status, symbol, value)
-            new_status = (new_status..., symbol => value)
+            new_status_decl = "new_status = Status(; NamedTuple(new_status)..., $symbol=value)"
+            eval(Meta.parse(new_status_decl))
         end
     end
     
@@ -272,11 +294,12 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
 
     mapping = Dict(default_scale => (
         models..., generated_models..., 
+        ToyNexttimestepModel(),
         MultiScaleModel(
             model=ToyCurrenttimestepModel(),
             mapping=[PreviousTimeStep(:next_timestep),],
             ),
-            Status(new_status,)
+            new_status,
     ),
     )
 
@@ -318,8 +341,12 @@ end
 
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-    st = (TT_cu=cumsum(meteo_day.TT),)
+    #st = (TT_cu=cumsum(meteo_day.TT),)
+    
     TT_cu_vec = Vector(cumsum(meteo_day.TT))
+
+    resize!(TT_cu_vec, 15)
+    st = (TT_cu = TT_cu_vec,)
 
     rue = 0.3
     models = ModelList(
@@ -329,11 +356,12 @@ end
         status=st,
     )
 
-   run!(models,
+    resize!(meteo_day, 15)
+    run!(models,
         meteo_day
         ;
         check=true,
-        executor=ThreadedEx()
+        executor=SequentialEx()
     )
 
     nsteps = nrow(meteo_day)
@@ -354,12 +382,12 @@ end
 
     #PlantSimEngine.check_simulation_id(graphsim, 1)
 
-    sim = run!(graphsim,
+    sim = @enter run!(graphsim,
         meteo_day,
         PlantMeteo.Constants(),
         nothing;
         check=true,
-        executor=ThreadedEx()
+        executor=SequentialEx()
     )
     sim
 
@@ -368,13 +396,14 @@ end
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
    
-    graphsim2 = @enter modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
+    st2 = (TT_cu = TT_cu_vec,)
+    graphsim2 = modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
     sim2 = run!(graphsim2,
         meteo_day,
         PlantMeteo.Constants(),
         nothing;
         check=true,
-        executor=ThreadedEx()
+        executor=SequentialEx()
     )
     @test compare_outputs_modellist_mapping(models, graphsim2)
 
