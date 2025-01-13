@@ -61,18 +61,22 @@ end
 ### and Mapping with custom models vs mapping with generated models for user-provided vector
 ###########################
 
-# This approach feels brittle but works
+# This approach feels brittle but works. An improvement would be to directly fiddle with the AST, but it's a little more involved
 
 # Currently untested in 'real' multi-scale modes, or with complex configs (hard dependencies). 
-# Need to rework the timestep generation and place it in PlantSimEngine, 
+# Need to place the simple timestep models in PlantSimEngine, and probably provide more complex ones at some point
 # and work out how to reset generated_models which is unfortunately in global scope. 
 # Might also need more work on parameter initialisation. 
-# UUID not currently handled, as well so name conflicts galore.
-# And then to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
+# UUID not currently handled, as well so name conflicts are currently a liability.
+# And then need to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
 # And then implement tests with proper output filtering
 
 # Ah, another point that remains to be seen is that those SentinelArrays the TT_cu returns as from the CSV isn't an AbstractVector
 # meaning currently we won't generate models from them unless the conversion is made before that
+
+# And another issue : the first call to the mapping conversion appears to fail with process() not being defined on TT_cu model from the vector
+# More accurately : ERROR: process() is not defined for AbstractTt_CuModel
+# It does NOT happen when I run through it with the debugger, not sure what is going on here
 
 function compare_outputs_modellist_mapping(models, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
@@ -341,12 +345,9 @@ end
 
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-    #st = (TT_cu=cumsum(meteo_day.TT),)
+    st = (TT_cu=cumsum(meteo_day.TT),)
     
     TT_cu_vec = Vector(cumsum(meteo_day.TT))
-
-    resize!(TT_cu_vec, 15)
-    st = (TT_cu = TT_cu_vec,)
 
     rue = 0.3
     models = ModelList(
@@ -356,7 +357,7 @@ end
         status=st,
     )
 
-    resize!(meteo_day, 15)
+
     run!(models,
         meteo_day
         ;
@@ -382,7 +383,7 @@ end
 
     #PlantSimEngine.check_simulation_id(graphsim, 1)
 
-    sim = @enter run!(graphsim,
+    sim = run!(graphsim,
         meteo_day,
         PlantMeteo.Constants(),
         nothing;
@@ -396,7 +397,6 @@ end
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
    
-    st2 = (TT_cu = TT_cu_vec,)
     graphsim2 = modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
     sim2 = run!(graphsim2,
         meteo_day,
