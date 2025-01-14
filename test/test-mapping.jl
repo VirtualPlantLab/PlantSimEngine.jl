@@ -76,7 +76,7 @@ end
 
 # And another issue : the first call to the mapping conversion appears to fail with process() not being defined on TT_cu model from the vector
 # More accurately : ERROR: process() is not defined for AbstractTt_CuModel
-# It does NOT happen when I run through it with the debugger, not sure what is going on here
+# It does NOT happen when I run through it with the debugger, not sure what is going on here, I thought it might be due to the macro needing to be executed
 
 function compare_outputs_modellist_mapping(models, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
@@ -87,6 +87,18 @@ function compare_outputs_modellist_mapping(models, graphsim)
     models_df_sorted = models_df[:, sortperm(names(models_df))]
     graphsim_df_outputs_only_sorted = graphsim_df_outputs_only[:, sortperm(names(graphsim_df_outputs_only))]
     return graphsim_df_outputs_only_sorted == models_df_sorted
+end
+
+# doesn't check for mtg equality
+function compare_outputs_graphsim(graphsim, graphsim2)
+    graphsim_df = outputs(graphsim, DataFrame)
+    #graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
+    graphsim_df_sorted = graphsim_df[:, sortperm(names(graphsim_df))]
+    
+    graphsim2_df = outputs(graphsim2, DataFrame)
+    #graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
+    graphsim2_df_sorted = graphsim2_df[:, sortperm(names(graphsim2_df))]
+    return graphsim_df_sorted == graphsim2_df_sorted
 end
 
 # simple conversion to a mapping, with manually written models
@@ -207,6 +219,11 @@ end
 # or find a way to keep it local
 generated_models = ()
 
+# UUID generation : need a meteo length or not ?
+# Might need to fiddle with timesteps in the future
+
+import SHA: sha1 
+
 # TODO name conflict -> UUID
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
 
@@ -221,15 +238,22 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             # TODO assert length matches with timestep count
             @assert length(value) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
             var_type = eltype(value)
-            process_name = lowercase(string(symbol)) # TODO + ### UUID ###
+            base_name = string(symbol) * bytes2hex(sha1(join(value)))
+            process_name = lowercase(base_name)
          
-            process_decl = "PlantSimEngine.@process \"$process_name\" verbose = false\n\n"
-            eval(Meta.parse(process_decl))
+            #process_decl = "PlantSimEngine.@process \"$process_name\" verbose = false\n\n"
+            #eval(Meta.parse(process_decl))
             
-            var_titlecase::String = titlecase(string(symbol))
+            var_titlecase::String = titlecase(base_name)
             model_name = "My$(var_titlecase)Model"
             process_abstract_name = "Abstract$(var_titlecase)Model"
             var_vector = "$(symbol)_vector"
+
+            abstract_process_decl = "abstract type $process_abstract_name <: PlantSimEngine.AbstractModel end"
+            eval(Meta.parse(abstract_process_decl))
+
+            process_name_decl = "PlantSimEngine.process_(::Type{$process_abstract_name}) = :$process_name"
+            eval(Meta.parse(process_name_decl))
     
             struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::Vector{$var_type} \nend\n\n"
             eval(Meta.parse(struct_decl))
@@ -406,5 +430,6 @@ end
         executor=SequentialEx()
     )
     @test compare_outputs_modellist_mapping(models, graphsim2)
+    @test compare_outputs_graphsim(graphsim, graphsim2)
 
 #end
