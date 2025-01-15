@@ -67,7 +67,7 @@ end
 # Need to place the simple timestep models in PlantSimEngine, and probably provide more complex ones at some point
 # and work out how to reset generated_models which is unfortunately in global scope. 
 # Might also need more work on parameter initialisation. 
-# UUID not currently handled, as well so name conflicts are currently a liability.
+# Variable name conflicts are currently a liability.
 # And then need to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
 # And then implement tests with proper output filtering
 
@@ -92,11 +92,9 @@ end
 # doesn't check for mtg equality
 function compare_outputs_graphsim(graphsim, graphsim2)
     graphsim_df = outputs(graphsim, DataFrame)
-    #graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
     graphsim_df_sorted = graphsim_df[:, sortperm(names(graphsim_df))]
     
     graphsim2_df = outputs(graphsim2, DataFrame)
-    #graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
     graphsim2_df_sorted = graphsim2_df[:, sortperm(names(graphsim2_df))]
     return graphsim_df_sorted == graphsim2_df_sorted
 end
@@ -209,9 +207,39 @@ end
 
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectDependent()
 
-# TODO have a full-fledged multiscale version for PSE internal use, not just in the single-scale modellist to mapping scenario
-function replace_status_vectors_with_models(mapping, meteo)
+# TODO should the new_status be copied ?
+# User specifies at which level they want the basic timestep model to be inserted at
+function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level)
+    
+    mapping = Dict(organ => models for (organ, models) in mapping_with_vectors_in_status)
+    for (organ,models) in mapping
+        for status in models
+            if isa(status, Status)
+                new_status, generated_models = generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
 
+                if length(generated_models) > 0
+                    if organ == timestep_model_organ_level
+                        mapping[organ] = (
+                            models..., 
+                            generated_models..., 
+                            ToyNexttimestepModel(),
+                            MultiScaleModel(
+                            model=ToyCurrenttimestepModel(),
+                            mapping=[PreviousTimeStep(:next_timestep),],
+                            ),
+                            new_status,)
+                    else
+                        mapping[organ] = (
+                            models..., 
+                            generated_models...,                          
+                            new_status,)
+                    end
+                end
+            end
+        end
+    end
+
+    return mapping
 end
 
 # TODO this being in global scope (due to the way eval() works) is awkward
@@ -219,12 +247,10 @@ end
 # or find a way to keep it local
 generated_models = ()
 
-# UUID generation : need a meteo length or not ?
 # Might need to fiddle with timesteps in the future
 
 import SHA: sha1 
 
-# TODO name conflict -> UUID
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
 
     global generated_models = ()
@@ -251,7 +277,7 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
 
             abstract_process_decl = "abstract type $process_abstract_name <: PlantSimEngine.AbstractModel end"
             eval(Meta.parse(abstract_process_decl))
-
+            
             process_name_decl = "PlantSimEngine.process_(::Type{$process_abstract_name}) = :$process_name"
             eval(Meta.parse(process_name_decl))
     
@@ -277,7 +303,7 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
                 eval(Meta.parse(mapping_decl))
             else
             end 
-        
+       
         model_add_decl = "generated_models = (generated_models..., $model_name($var_vector=$value),)"
         eval(Meta.parse(model_add_decl))
         else
@@ -360,10 +386,24 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
     executor=ThreadedEx()
 )=#
 
-    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=check, outputs=Dict(default_scale => all_vars))
-    return sim
+    #sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=check, outputs=Dict(default_scale => all_vars))
+    #return sim
+    return mtg, mapping, Dict(default_scale => all_vars)
 end
 
+function check_statuses_contain_no_remaining_vectors(mapping)
+    for (organ,models) in mapping
+        for status in models
+            if isa(status, Status)
+                for symbol in keys(status)
+                    value = getproperty(status, symbol)
+                    @assert !isa(value, AbstractVector) "Error : Mapping status at $organ level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
+                end
+            end
+        end
+    end
+    return true
+end
 
 #@testset "ModelList and Mapping result consistency" begin
 
@@ -390,22 +430,7 @@ end
     )
 
     nsteps = nrow(meteo_day)
-    graphsim = modellist_to_mapping(models, st, nsteps; outputs=nothing, TT_cu_vec=TT_cu_vec)
-
-    # need to pass parameters from modellist to mapping
-    # status isn't an issue (apart from vectors needing handling),
-    # and models aren't either, but parameters provided to the model objects don't get passed through
-    # so recreating an object with the parameters provided again is a necessity, here's code that tries to get the params and do so
-    # lai = models.models[1]
-    # This works, need to replace the model by a constructor somehow
-    #ToyLAIModel((getproperty(lai,i) for i in fieldnames(typeof(lai)))...)
-    # model_type = typeof(models.models[1])
-    # typeof(models.models[1])((getproperty(model_type,i) for i in fieldnames(model_type))...)
-    # model_type((getproperty(lai,i) for i in fieldnames(typeof(lai)))...)
-
-    # todo multiscale test with vectors provided at different scales
-
-    #PlantSimEngine.check_simulation_id(graphsim, 1)
+    #=graphsim = modellist_to_mapping(models, st, nsteps; outputs=nothing, TT_cu_vec=TT_cu_vec)
 
     sim = run!(graphsim,
         meteo_day,
@@ -416,12 +441,17 @@ end
     )
     sim
 
-    @test compare_outputs_modellist_mapping(models, graphsim)
+    @test compare_outputs_modellist_mapping(models, graphsim)=#
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
    
-    graphsim2 = modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
+    # TODO outputs name conflict if this is just named outputs
+    mtg, mapping, outputs_mapping = modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
+ 
+    @test check_statuses_contain_no_remaining_vectors(mapping)
+    graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+
     sim2 = run!(graphsim2,
         meteo_day,
         PlantMeteo.Constants(),
@@ -433,3 +463,26 @@ end
     @test compare_outputs_graphsim(graphsim, graphsim2)
 
 #end
+
+@testset "check_statuses_contain_no_remaining_vectors behaviour" begin
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+mapping_with_vector = Dict(
+    "Scale" =>
+        (ToyAssimGrowthModel(0.0, 0.0, 0.0),
+        ToyCAllocationModel(),
+        Status( TT_cu=Vector(cumsum(meteo_day.TT))),
+        ),
+    )
+    
+ @test_throws "call the function generate_models_from_status_vectors" check_statuses_contain_no_remaining_vectors(mapping_with_vector)
+
+ mapping_with_empty_status = Dict(
+    "Scale" =>
+        (ToyAssimGrowthModel(0.0, 0.0, 0.0),
+        ToyCAllocationModel(),
+        Status(),
+        ),
+    )
+
+ @test check_statuses_contain_no_remaining_vectors(mapping_with_empty_status)
+end
