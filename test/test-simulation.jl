@@ -36,11 +36,13 @@ end;
 
 
 @testset "Simulation: 1 time-step, 1 Atmosphere" begin
+    
+    status_nt = (var1=15.0, var2=0.3)
     models = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
-        status=(var1=15.0, var2=0.3)
+        status=status_nt
     )
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
@@ -48,6 +50,9 @@ end;
     run!(models, meteo)
     vars = keys(status(models))
     @test [models[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, Weather([meteo]))    
+    @test check_multiscale_simulation_is_equivalent_end(models, mtg, mapping, out, Weather([meteo]))
 end;
 
 @testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
@@ -103,11 +108,14 @@ end;
 end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres" begin
+    
+    status_nt = (var1=[15.0, 16.0], var2=0.3)
+
     models = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
-        status=(var1=[15.0, 16.0], var2=0.3)
+        status=status_nt
     )
 
     meteo = Weather(
@@ -127,6 +135,9 @@ end;
         [5.5, 5.8],
         [0.3, 0.3],
     ]
+
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
+    @test check_multiscale_simulation_is_equivalent_end(models, mtg, mapping, out, meteo)
 end;
 
 

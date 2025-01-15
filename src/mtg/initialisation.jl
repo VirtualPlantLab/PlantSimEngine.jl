@@ -307,6 +307,10 @@ automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
 
+    # Ensure the user called the model generation function to handle vectors passed into a status
+    # before we keep going
+    check_statuses_contain_no_remaining_vectors(mapping)
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
         init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false)); type_promotion=type_promotion, verbose=verbose, check=check)

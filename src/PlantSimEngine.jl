@@ -22,6 +22,9 @@ import MultiScaleTreeGraph: symbol, node_id
 # To compute mean:
 import Statistics
 
+# For avoiding name conflicts when generating models from status vectors
+import SHA: sha1
+
 using PlantMeteo
 
 # UninitializedVar + PreviousTimeStep:
@@ -88,6 +91,9 @@ include("run.jl")
 
 # Fitting
 include("evaluation/fit.jl")
+
+# Utilities for mapping initialisation
+include("mtg/mapping/model_generation_from_status_vectors.jl")
 
 # Examples
 include("examples_import.jl")
