@@ -62,21 +62,22 @@ end
 ###########################
 
 # This approach feels brittle but works. An improvement would be to directly fiddle with the AST, but it's a little more involved
+# Another approach might be to generate a string to be included with include_string, that might avoid awkward global variables and world age problems
+
+# There will still be brittleness given that it's not trivial to handle user/modeler errors : 
+# For instance, providing a vector that is called in a scale mapping is likely to cause things to go badly
 
 # Currently untested in 'real' multi-scale modes, or with complex configs (hard dependencies). 
 # Need to place the simple timestep models in PlantSimEngine, and probably provide more complex ones at some point
-# and work out how to reset generated_models which is unfortunately in global scope. 
-# Might also need more work on parameter initialisation. 
-# Variable name conflicts are currently a liability.
+
+# Variable name conflicts are currently a minor liability with the globals.
+
 # And then need to insert it at the graph sim generation level, and modify tests to consistently do modellist <-> mapping conversions
 # And then implement tests with proper output filtering
 
-# Ah, another point that remains to be seen is that those SentinelArrays the TT_cu returns as from the CSV isn't an AbstractVector
+# Ah, another point that remains to be seen is that those CSV.SentinelArrays.ChainedVector obtained from the meteo file isn't an AbstractVector
 # meaning currently we won't generate models from them unless the conversion is made before that
-
-# And another issue : the first call to the mapping conversion appears to fail with process() not being defined on TT_cu model from the vector
-# More accurately : ERROR: process() is not defined for AbstractTt_CuModel
-# It does NOT happen when I run through it with the debugger, not sure what is going on here, I thought it might be due to the macro needing to be executed
+# So another minor potential improvement would be to return a warning to the user and do the conversion when generating the model
 
 function compare_outputs_modellist_mapping(models, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
@@ -100,7 +101,7 @@ function compare_outputs_graphsim(graphsim, graphsim2)
 end
 
 # simple conversion to a mapping, with manually written models
-function modellist_to_mapping(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing, TT_cu_vec=Vector{Float64}())
+function modellist_to_mapping_manual(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing, TT_cu_vec=Vector{Float64}())
     
     modellist = Base.copy(modellist_original, modellist_original.status)
 
@@ -143,16 +144,6 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status, n
         # TODO sanity check
     end
 
-   #=run!(mtg, mapping,
-    meteo_day,
-    constants=PlantMeteo.Constants(),
-    extra=nothing,
-    nsteps = nsteps,
-    outputs = all_vars,
-    check=true,
-    executor=ThreadedEx()
-)=#
-
     sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=check, outputs=Dict(default_scale => all_vars))
     return sim
 end
@@ -165,7 +156,6 @@ end
 PlantSimEngine.inputs_(::ToyCurrenttimestepModel) = (next_timestep=1,)
 PlantSimEngine.outputs_(m::ToyCurrenttimestepModel) = (current_timestep=1,)
 
-# Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyCurrenttimestepModel, models, status, meteo, constants=nothing, extra=nothing)
     status.current_timestep = status.next_timestep
  end 
@@ -179,7 +169,6 @@ function PlantSimEngine.run!(m::ToyCurrenttimestepModel, models, status, meteo, 
  PlantSimEngine.inputs_(::ToyNexttimestepModel) = (current_timestep=1,)
  PlantSimEngine.outputs_(m::ToyNexttimestepModel) = (next_timestep=1,)
  
- # Implementing the actual algorithm by adding a method to the run! function for our model:
  function PlantSimEngine.run!(m::ToyNexttimestepModel, models, status, meteo, constants=nothing, extra=nothing)
      status.next_timestep = status.current_timestep + 1
   end 
@@ -193,14 +182,12 @@ struct ToyTestDegreeDaysCumulModel <: AbstractDegreedaysModel
     TT_cu_vec::Vector{Float64}
 end
 
-# Defining the inputs and outputs of the model:
 PlantSimEngine.inputs_(::ToyTestDegreeDaysCumulModel) = (current_timestep=1,)
 PlantSimEngine.outputs_(::ToyTestDegreeDaysCumulModel) = (TT_cu=0.0,)
 
 ToyTestDegreeDaysCumulModel(; TT_cu_vec = Vector{Float64}()) = ToyTestDegreeDaysCumulModel(TT_cu_vec)
 
 
-# Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyTestDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
     status.TT_cu = m.TT_cu_vec[status.current_timestep]
 end
@@ -208,8 +195,8 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = PlantSimEngine.IsObjectDependent()
 
 # TODO should the new_status be copied ?
-# User specifies at which level they want the basic timestep model to be inserted at
-function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level)
+# Note : User specifies at which level they want the basic timestep model to be inserted at
+function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)
     
     mapping = Dict(organ => models for (organ, models) in mapping_with_vectors_in_status)
     for (organ,models) in mapping
@@ -242,34 +229,32 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
     return mapping
 end
 
-# TODO this being in global scope (due to the way eval() works) is awkward
-# need to reset it between runs, and/or avoid overwriting it with the same models
-# or find a way to keep it local
-generated_models = ()
-
-# Might need to fiddle with timesteps in the future
 
 import SHA: sha1 
 
-function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ)
-
-    global generated_models = ()
-    global new_status = NamedTuple()
-    #var = keys(st)[1]
-    #var_vals = values(st)[1]
-    #print(typeof(status))
+# Note : eval works in global scope, and state synchronisation doesn't occur until one returns to top-level
+# This is to enable optimisations. See 'world-age problem'. The doc for eval currently isn't detailed enough.
+# Essentially, generating a struct with a process_ method and then immediately creating a simulation graph
+# that calls process_ will fail as it won't yet be defined since state hasn't synchronised. 
+# Returning a new mapping to top-level and *then* creating the graph will work.
+# The fact that eval works in global scope is also why we make use of some global variables here
+function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ, nsteps)
+    
+    # Note : 534f1c161f91bb346feba1a84a55e8251f5ad446 is a prefix to reduce likelihood of global variable name conflicts
+    # it is the hash generated by bytes2hex(sha1("PlantSimEngine_prototype"))
+    global generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = ()
+    global new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = NamedTuple()
+   
     for symbol in keys(status)
-        global value = getproperty(status, symbol)
-        if isa(value, AbstractVector)
-            # TODO assert length matches with timestep count
-            @assert length(value) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
-            var_type = eltype(value)
-            base_name = string(symbol) * bytes2hex(sha1(join(value)))
+        global value_534f1c161f91bb346feba1a84a55e8251f5ad446 = getproperty(status, symbol)
+        if isa(value_534f1c161f91bb346feba1a84a55e8251f5ad446, AbstractVector)
+            @assert length(value_534f1c161f91bb346feba1a84a55e8251f5ad446) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
+            # TODO : Might need to fiddle with timesteps here in the future in case of varying timestep models
+            @assert nsteps == length(value_534f1c161f91bb346feba1a84a55e8251f5ad446) "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector length doesn't match the expected # of timesteps"
+            var_type = eltype(value_534f1c161f91bb346feba1a84a55e8251f5ad446)
+            base_name = string(symbol) * bytes2hex(sha1(join(value_534f1c161f91bb346feba1a84a55e8251f5ad446)))
             process_name = lowercase(base_name)
-         
-            #process_decl = "PlantSimEngine.@process \"$process_name\" verbose = false\n\n"
-            #eval(Meta.parse(process_decl))
-            
+  
             var_titlecase::String = titlecase(base_name)
             model_name = "My$(var_titlecase)Model"
             process_abstract_name = "Abstract$(var_titlecase)Model"
@@ -287,7 +272,7 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(current_timestep=1,)\nend\n\n"
             eval(Meta.parse(inputs_decl))
     
-            default_value = value[1]
+            default_value = value_534f1c161f91bb346feba1a84a55e8251f5ad446[1]
             outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n($symbol=$default_value,)\nend\n\n"
             eval(Meta.parse(outputs_decl))
     
@@ -304,28 +289,26 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             else
             end 
        
-        model_add_decl = "generated_models = (generated_models..., $model_name($var_vector=$value),)"
+        model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., $model_name($var_vector=$value_534f1c161f91bb346feba1a84a55e8251f5ad446),)"
         eval(Meta.parse(model_add_decl))
         else
-            #setproperty!(new_status, symbol, value)
-            new_status_decl = "new_status = Status(; NamedTuple(new_status)..., $symbol=value)"
+            new_status_decl = "new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = Status(; NamedTuple(new_status_534f1c161f91bb346feba1a84a55e8251f5ad446)..., $symbol=$value_534f1c161f91bb346feba1a84a55e8251f5ad446)"
             eval(Meta.parse(new_status_decl))
         end
     end
     
-    @assert length(status) == length(new_status) + length(generated_models) "Error during generation of models from vector values provided at the $organ-level status"
-    return new_status, generated_models
+    @assert length(status) == length(new_status_534f1c161f91bb346feba1a84a55e8251f5ad446) + length(generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446) "Error during generation of models from vector values provided at the $organ-level status"
+    return new_status_534f1c161f91bb346feba1a84a55e8251f5ad446, generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446
 end
 
 
-function modellist_to_mapping_2(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing)
+function modellist_to_mapping(modellist_original::ModelList, modellist_status, nsteps; outputs=nothing)
     
     modellist = Base.copy(modellist_original, modellist_original.status)
 
     default_scale = "Default"
     mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", default_scale, 0, 0),)
 
-    #models = collect(values(object))
     models = modellist.models
 
     mapping_incomplete = Dict(
@@ -342,9 +325,9 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
     timestep_scale = "Default"
     organ = "Default"
  
-    # recovering the status is a bit awkward
+    # todo improve on this
     st = (last(mapping_incomplete["Default"]))
-    new_status, generated_models =  generate_model_from_status_vector_variable(mapping_incomplete, timestep_scale, st, organ)
+    new_status, generated_models =  generate_model_from_status_vector_variable(mapping_incomplete, timestep_scale, st, organ, nsteps)
 
     mapping = Dict(default_scale => (
         models..., generated_models..., 
@@ -376,18 +359,6 @@ function modellist_to_mapping_2(modellist_original::ModelList, modellist_status,
         # TODO sanity check
     end
 
-   #=run!(mtg, mapping,
-    meteo_day,
-    constants=PlantMeteo.Constants(),
-    extra=nothing,
-    nsteps = nsteps,
-    outputs = all_vars,
-    check=true,
-    executor=ThreadedEx()
-)=#
-
-    #sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=check, outputs=Dict(default_scale => all_vars))
-    #return sim
     return mtg, mapping, Dict(default_scale => all_vars)
 end
 
@@ -405,7 +376,7 @@ function check_statuses_contain_no_remaining_vectors(mapping)
     return true
 end
 
-#@testset "ModelList and Mapping result consistency" begin
+@testset "ModelList and Mapping result consistency" begin
 
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
@@ -426,11 +397,11 @@ end
         meteo_day
         ;
         check=true,
-        executor=SequentialEx()
+        executor=ThreadedEx()
     )
 
     nsteps = nrow(meteo_day)
-    #=graphsim = modellist_to_mapping(models, st, nsteps; outputs=nothing, TT_cu_vec=TT_cu_vec)
+    graphsim = modellist_to_mapping_manual(models, st, nsteps; outputs=nothing, TT_cu_vec=TT_cu_vec)
 
     sim = run!(graphsim,
         meteo_day,
@@ -439,15 +410,15 @@ end
         check=true,
         executor=SequentialEx()
     )
-    sim
 
-    @test compare_outputs_modellist_mapping(models, graphsim)=#
+    @test compare_outputs_modellist_mapping(models, graphsim)
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
    
     # TODO outputs name conflict if this is just named outputs
-    mtg, mapping, outputs_mapping = modellist_to_mapping_2(models, st2, nsteps; outputs=nothing)
+    # TODO when outputs filtering is implemented, can test it with this function
+    mtg, mapping, outputs_mapping = modellist_to_mapping(models, st2, nsteps; outputs=nothing)
  
     @test check_statuses_contain_no_remaining_vectors(mapping)
     graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
@@ -462,7 +433,7 @@ end
     @test compare_outputs_modellist_mapping(models, graphsim2)
     @test compare_outputs_graphsim(graphsim, graphsim2)
 
-#end
+end
 
 @testset "check_statuses_contain_no_remaining_vectors behaviour" begin
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -486,3 +457,5 @@ mapping_with_vector = Dict(
 
  @test check_statuses_contain_no_remaining_vectors(mapping_with_empty_status)
 end
+
+#[getproperty(a,i) for i in fieldnames(typeof(a))]
