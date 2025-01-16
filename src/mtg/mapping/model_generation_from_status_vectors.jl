@@ -121,20 +121,20 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             process_name_decl = "PlantSimEngine.process_(::Type{$process_abstract_name}) = :$process_name"
             eval(Meta.parse(process_name_decl))
     
-            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::Vector{$var_type} \nend\n\n"
+            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::Vector{$var_type} \nend\n"
             eval(Meta.parse(struct_decl))
             
-            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(current_timestep=1,)\nend\n\n"
+            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(current_timestep=1,)\nend\n"
             eval(Meta.parse(inputs_decl))
     
             default_value = value_534f1c161f91bb346feba1a84a55e8251f5ad446[1]
-            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n($symbol=$default_value,)\nend\n\n"
+            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n($symbol=$default_value,)\nend\n"
             eval(Meta.parse(outputs_decl))
     
-            constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n\n"
+            constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n"
             eval(Meta.parse(constructor_decl))
     
-            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$symbol = m.$var_vector[status.current_timestep]\nend\n\n"
+            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$symbol = m.$var_vector[status.current_timestep]\nend\n"
             eval(Meta.parse(run_decl))
     
             # add name to vector of models
