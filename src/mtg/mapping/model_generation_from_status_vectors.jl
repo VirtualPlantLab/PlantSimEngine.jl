@@ -49,30 +49,54 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:HelperNextTimestepModel}) = Plan
 # Note : User specifies at which level they want the basic timestep model to be inserted at, as well as the meteo length
 function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)
     
+    (organ, check) = check_statuses_contain_no_remaining_vectors(mapping_with_vectors_in_status)
+        if check
+        @warn "No vectors, or types deriving from AbstractVector found in statuses, returning mapping as is."
+        return mapping_with_vectors_in_status
+    end
+
+    # we are now certain a model will be generated, and that the timestep models need to be inserted
     mapping = Dict(organ => models for (organ, models) in mapping_with_vectors_in_status)
     for (organ,models) in mapping
-        for status in models
-            if isa(status, Status)
-                new_status, generated_models = generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ, nsteps)
+        for status in models           
+            if isa(status, Status)                
+                # Generate models and remove corresponding vectors from status
+                new_status, generated_models = generate_model_from_status_vector_variable(mapping, timestep_model_organ_level, status, organ, nsteps)
 
-                if length(generated_models) > 0
-                    if organ == timestep_model_organ_level
-                        mapping[organ] = (
-                            models..., 
-                            generated_models..., 
-                            HelperNextTimestepModel(),
-                            MultiScaleModel(
-                            model=HelperCurrentTimestepModel(),
-                            mapping=[PreviousTimeStep(:next_timestep),],
-                            ),
-                            new_status,)
-                    else
-                        mapping[organ] = (
-                            models..., 
-                            generated_models...,                          
-                            new_status,)
-                    end
+                # Avoid inserting empty named tuples into the mapping
+                models_and_new_status = [model for model in models if !isa(model, Status)]
+                if length(new_status) != 0
+                    models_and_new_status = [models_and_new_status..., new_status]
                 end
+
+                # The timestep models might be inserted elsewhere in the mapping, handle various cases
+                if length(generated_models) > 0
+                    mapping[organ] = (
+                        generated_models...,                          
+                        models_and_new_status...,)
+                end      
+            end         
+        end
+        
+        # insert timestep models wherever they're required
+        if organ == timestep_model_organ_level
+            # mapping at a given level can be a tuple or a single model
+            if isa(mapping[organ], AbstractModel) || isa(mapping[organ], MultiScaleModel)
+                mapping[organ] = (
+                    HelperNextTimestepModel(),
+                    MultiScaleModel(
+                    model=HelperCurrentTimestepModel(),
+                    mapping=[PreviousTimeStep(:next_timestep),],
+                    ),
+                    mapping[organ], )
+            else
+                mapping[organ] = (
+                HelperNextTimestepModel(),
+                MultiScaleModel(
+                model=HelperCurrentTimestepModel(),
+                mapping=[PreviousTimeStep(:next_timestep),],
+                ),
+                mapping[organ]..., )
             end
         end
     end
@@ -98,7 +122,7 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
     # See the test code in test-mapping.jl : cumsum(meteo_day.TT) returns such a data structure
 
     global generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = ()
-    global new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = NamedTuple()
+    global new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = Status(NamedTuple())
    
     for symbol in keys(status)
         global value_534f1c161f91bb346feba1a84a55e8251f5ad446 = getproperty(status, symbol)
@@ -137,14 +161,13 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
             run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$symbol = m.$var_vector[status.current_timestep]\nend\n"
             eval(Meta.parse(run_decl))
     
-            # add name to vector of models
+            model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., $model_name($var_vector=$value_534f1c161f91bb346feba1a84a55e8251f5ad446),)"
+
+            # if :current_timestep is not in the same scale
             if timestep_scale != organ
-                mapping_decl = "mapping[\"($organ)\"] = MultiScaleModel($process_name($var_vector), mapping=\"($timestep_scale)\" => (:current_timestep,))"
-                eval(Meta.parse(mapping_decl))
-            else
+                model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., MultiScaleModel(model=$model_name($value_534f1c161f91bb346feba1a84a55e8251f5ad446), mapping=[:current_timestep=>\"$timestep_scale\"],),)"
             end 
        
-        model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., $model_name($var_vector=$value_534f1c161f91bb346feba1a84a55e8251f5ad446),)"
         eval(Meta.parse(model_add_decl))
         else
             new_status_decl = "new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = Status(; NamedTuple(new_status_534f1c161f91bb346feba1a84a55e8251f5ad446)..., $symbol=$value_534f1c161f91bb346feba1a84a55e8251f5ad446)"
@@ -231,10 +254,12 @@ function check_statuses_contain_no_remaining_vectors(mapping)
             if isa(status, Status)
                 for symbol in keys(status)
                     value = getproperty(status, symbol)
-                    @assert !isa(value, AbstractVector) "Error : Mapping status at $organ level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
+                    if isa(value, AbstractVector)
+                        return (organ, false)
+                    end
                 end
             end
         end
     end
-    return true
+    return ("", true)
 end

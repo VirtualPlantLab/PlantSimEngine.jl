@@ -77,7 +77,9 @@ end
             ),
         )
         
-     @test_throws "call the function generate_models_from_status_vectors" PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_vector)
+        mtg = import_mtg_example()
+        @test !last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_vector))
+        @test_throws "call the function generate_models_from_status_vectors" PlantSimEngine.GraphSimulation(mtg, mapping_with_vector)
     
      mapping_with_empty_status = Dict(
         "Scale" =>
@@ -87,7 +89,7 @@ end
             ),
         )
     
-     @test PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_empty_status)
+     @test last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_empty_status))
 end
 
 # simple conversion to a mapping, with a manually written model
@@ -200,9 +202,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
     # TODO when outputs filtering is implemented, can test it with this function
     mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(models, st2; nsteps=nsteps, outputs=nothing)
  
-    # This test is now redundant as it is called during GraphSimulation initialisation
-    #@test PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping)
-    graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+   graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
 
     sim2 = run!(graphsim2,
         meteo_day,
@@ -217,3 +217,64 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
 end
 
 #[getproperty(a,i) for i in fieldnames(typeof(a))]
+
+
+@testset "Vector in status in a multiscale context" begin
+    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    TT_v = Vector(meteo_day.TT)
+    TT_cu_vec = Vector(cumsum(meteo_day.TT))
+    nsteps = length(meteo_day.TT)
+
+    mapping_with_vector = Dict(
+    
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                # inputs
+                :carbon_assimilation => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                # outputs
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+        ),
+    ),
+    "Internode" => (
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(TT=TT_v, carbon_biomass=1.0)
+    ),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil",],
+            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+        ),
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(aPPFD=1300.0, carbon_biomass=2.0, TT=10.0), # TODO try calling the generated TT output through a variable mapping
+    ),
+    "Soil" => (
+        ToySoilWaterModel(),
+    ),
+)
+
+out_multiscale = Dict("Plant" => (:Rm_organs,),)
+mtg = import_mtg_example();
+
+mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_with_vector, "Soil", nsteps)
+
+ graph_sim_multiscale = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors, nsteps=nsteps, check=true, outputs=out_multiscale)
+
+    sim_multiscale = run!(graph_sim_multiscale,
+        meteo_day,
+        PlantMeteo.Constants(),
+        nothing;
+        check=true,
+        executor=SequentialEx()
+    )
+end
