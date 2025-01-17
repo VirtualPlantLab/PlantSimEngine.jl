@@ -7,6 +7,8 @@ using MultiScaleTreeGraph
 using PlantMeteo, Statistics
 using Documenter # for doctests
 
+include("helper-functions.jl")
+
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
     Aqua.test_ambiguities([PlantSimEngine])

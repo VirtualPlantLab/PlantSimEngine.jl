@@ -307,6 +307,13 @@ automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
 
+    # Ensure the user called the model generation function to handle vectors passed into a status
+    # before we keep going
+    (organ_with_vector, no_vectors_found) = (check_statuses_contain_no_remaining_vectors(mapping))
+    if !no_vectors_found
+        @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
+    end
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
         init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false)); type_promotion=type_promotion, verbose=verbose, check=check)
