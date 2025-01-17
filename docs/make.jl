@@ -36,6 +36,7 @@ makedocs(;
                 "Multi-scale modelling" => "./model_coupling/multiscale.md",
             ],
             "Modelers" => "./model_coupling/model_coupling_modeler.md",
+            "Tips and Workarounds" => "./model_coupling/tips_and_workarounds.md",
         ],
         "FAQ" => ["./FAQ/translate_a_model.md"],
         "API" => "API.md",
