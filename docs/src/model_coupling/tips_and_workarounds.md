@@ -44,15 +44,18 @@ Due to, uh, implementation quirks, the way to use this is as follows :
 
 Call the function `replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)`on your mapping.
 
-It will parse your mapping, generate custom models to store and feed the vector values each timestep, and return the new mapping you can then use for your simulation. It also slips in a couple of internal models that provide the timestep index to these models (so note that symbols `:current_timestep` and `:next_timestep` will be declared for that mapping). You can decide which scale/organ level you want those models to be in via the `timestep_model_organ_level`parameter. `nsteps`is used as a sanity check, and expects you to provide the amount of simulation timesteps.
+It will parse your mapping, generate custom models to store and feed the vector values each timestep, and return the new mapping you can then use for your simulation. It also slips in a couple of internal models that provide the timestep index to these models (so note that symbols `:current_timestep` and `:next_timestep` will be declared for that mapping). You can decide which scale/organ level you want those models to be in via the `timestep_model_organ_level`parameter. `nsteps` is used as a sanity check, and expects you to provide the amount of simulation timesteps.
 
 !!! note
     Only subtypes of AbstractVector present in statuses will be affected. In some cases, meteo values might need a small conversion. For instance :
-    ```
+    ``` julia
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-    status(TT_cu=cumsum(meteo_day.TT),)```
-
-    cumsum(meteo_day.TT) actually returns a CSV.SentinelArray.ChainedVectors{T, Vector{T}}, which is not a subtype of AbstractVector. 
-    Replacing it with Vector(cumsum(meteo_day.TT)) will provide an adequate type.
+    ```
+    And passing in a value :
+    ``` julia
+    status(TT_cu=cumsum(meteo_day.TT),)
+    ```
+    `cumsum(meteo_day.TT)` actually returns a `CSV.SentinelArray.ChainedVectors{T, Vector{T}}`, which is not a subtype of `AbstractVector`. 
+    Replacing it with `Vector(cumsum(meteo_day.TT))` will provide an adequate type.
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
