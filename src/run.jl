@@ -86,7 +86,7 @@ julia> (models[:var4],models[:var6])
 """
 run!
 
-function run!(
+#=function run!(
     object::C,
     meteo::A,
     constants=PlantMeteo.Constants(),
@@ -96,7 +96,7 @@ function run!(
 ) where {eltype(C)<: ModelList, A<:Atmosphere}
     # TODO iterate over C
     return nothing
-end
+end=#
 # Managing one or several objects, one or several time-steps:
 function run!(
     object::T,
@@ -126,7 +126,7 @@ end=#
 # User entry-point
 function run!(
     object::T,
-    meteo,
+    meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     check=true,
