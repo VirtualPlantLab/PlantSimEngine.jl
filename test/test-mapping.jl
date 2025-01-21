@@ -270,7 +270,7 @@ mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_gen
 
  graph_sim_multiscale = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors, nsteps=nsteps, check=true, outputs=out_multiscale)
 
-    sim_multiscale = run!(graph_sim_multiscale,
+    sim_multiscale = PlantSimEngine.run_graphsim!(graph_sim_multiscale,
         meteo_day,
         PlantMeteo.Constants(),
         nothing;
