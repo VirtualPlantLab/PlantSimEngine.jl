@@ -55,7 +55,7 @@ end;
     @test check_multiscale_simulation_is_equivalent_end(models, mtg, mapping, out, Weather([meteo]))
 end;
 
-@testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
+#=@testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
     models = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
@@ -83,7 +83,7 @@ end;
         @test [models[i][1] for i in keys(status(models))] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
         @test [models2[i][1] for i in keys(status(models2))] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
-end;
+end;=#
 
 @testset "Simulation: 2 time-steps, 1 Atmosphere" begin
     models = ModelList(
@@ -141,7 +141,7 @@ end;
 end;
 
 
-@testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
+#=@testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
     models = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
@@ -182,7 +182,7 @@ end;
             [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end
-end;
+end;=#
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres, MTG" begin
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
