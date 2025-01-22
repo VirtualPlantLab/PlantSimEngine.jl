@@ -364,6 +364,7 @@ function run!(
 end
 
 function run!(
+    ::TreeAlike,
     ::SingletonAlike,
     object::GraphSimulation,
     meteo,
@@ -376,6 +377,7 @@ function run!(
 end
 
 function run!(
+    ::TreeAlike,
     ::TableAlike,
     object::GraphSimulation,
     meteo,
