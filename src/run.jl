@@ -101,6 +101,7 @@ function run!(
     executor=ThreadedEx()
 )
     run!(
+        DataFormat(object),
         DataFormat(meteo),
         object,
         meteo,
@@ -111,8 +112,33 @@ function run!(
     )
 end
 
-# 1- one object, one time-step
+# 1- several objects and several time-steps
 function run!(
+    ::TableAlike,
+    ::TableAlike,
+    object::T,
+    meteo::TimeStepTable{A},
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    check=true,
+    executor=ThreadedEx()
+) where {T<:Union{AbstractArray,AbstractDict},A}
+
+    if executor != SequentialEx()
+         @warn string(
+            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
+        ) maxlog = 1
+    end
+
+    for obj in collect(values(object))
+        run!(obj, meteo, constants, extra, check=check, executor=executor)
+    end
+end
+
+
+# 2- one object, one time-step
+function run!(
+    ::SingletonAlike,
     ::SingletonAlike,
     object,
     meteo=nothing,
@@ -123,9 +149,10 @@ function run!(
     run!(object, Weather[meteo], constants, extra; check)
 end
 
-# 2- one object, one meteo time-step, several status time-steps (rare case but possible)
+# 3- one object, one meteo time-step, several status time-steps (rare case but possible)
 # Also occurs when meteo is nothing
 function run!(
+    ::TableAlike,
     ::SingletonAlike,
     object::T,
     meteo=nothing,
@@ -173,8 +200,9 @@ function run!(
     end
 end
 
-# 3- one object, several meteo time-step, several status time-steps
+# 4- one object, several meteo time-step, several status time-steps
 function run!(
+    ::TableAlike,
     ::TableAlike,
     object::T,
     meteo,
@@ -230,6 +258,49 @@ function run!(
         end
     end
 end
+
+# 5- several objects and one meteo time-step
+function run!(
+    ::TableAlike,
+    ::SingletonAlike,
+    object::T,
+    meteo,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    check=true,
+    executor=ThreadedEx()
+) where {T<:Union{AbstractArray,AbstractDict}}
+
+    dep_graphs = [dep(obj) for obj in collect(values(object))]
+    obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
+
+    # Check if the simulation can be parallelized over objects:
+    if executor != SequentialEx()
+        @warn string(
+            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
+        ) maxlog = 1
+    end
+    # Each object:
+    for (i, obj) in enumerate(collect(values(object)))
+        
+        
+        if check
+            # Check if the meteo data and the status have the same length (or length 1)
+            check_dimensions(obj, meteo)
+
+            if length(dep_graphs[i].not_found) > 0
+                error(
+                    "The following processes are missing to run the ModelList: ",
+                    dep_graphs[i].not_found
+                )
+            end
+        end
+
+        run_node!(obj, dep_graphs[i], 1, status(obj)[1], meteo, constants, extra)
+    end
+end
+
+
 
 # for each dependency node in the graph (always one time-step, one object), actual workhorse:
 function run_node!(
