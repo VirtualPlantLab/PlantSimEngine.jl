@@ -124,31 +124,17 @@ function run!(
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
-    obj_parallelizable = all([object_parallelizable(dep(obj)) for obj in collect(values(object))])
-    # Check if the simulation can be parallelized over objects:
-    if !obj_parallelizable && executor != SequentialEx()
-        is_obj_parallel = Set{AbstractModel}()
-        for obj_par in [which_object_parallelizable(dep(obj)) for obj in collect(values(object))]
-            for mod in obj_par[findall(x -> x.second.second == false, obj_par)]
-                push!(is_obj_parallel, mod.second.first)
-            end
-        end
-
-        mods_not_parallel = join(is_obj_parallel, "; ")
-
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+    if executor != SequentialEx()
+         @warn string(
+            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
         ) maxlog = 1
-        executor_obj = SequentialEx()
-    else
-        executor_obj = executor
     end
 
-    @floop executor_obj for obj in collect(values(object))
+    for obj in collect(values(object))
         run!(obj, meteo, constants, extra, check=check, executor=executor)
     end
 end
+
 
 # 2- one object, one time-step
 function run!(
@@ -160,10 +146,11 @@ function run!(
     extra=nothing;
     check=true
 )
-    run!(object, dep(object), 1, status(object, 1), meteo, constants, extra)
+    run!(object, Weather[meteo], constants, extra; check)
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
+# Also occurs when meteo is nothing
 function run!(
     ::TableAlike,
     ::SingletonAlike,
@@ -199,11 +186,16 @@ function run!(
         # the variables the user provided for all time-steps.
         for (i, row) in enumerate(sim_rows)
             i > 1 && propagate_values!(sim_rows[i-1], row, object.vars_not_propagated)
-            run!(object, dep_graph, i, row, meteo, constants, extra)
-        end
+            roots = collect(dep_graph.roots)
+            for (process, node) in roots
+                run_node!(object, node, i, row, meteo, constants, extra)
+            end        end
     else
         @floop executor for (i, row) in enumerate(sim_rows)
-            run!(object, dep_graph, i, row, meteo, constants, extra)
+            local roots = collect(dep_graph.roots)
+            for (process, node) in roots
+                run_node!(object, node, i, row, meteo, constants, extra)
+            end
         end
     end
 end
@@ -248,14 +240,21 @@ function run!(
         # Not parallelizable over time-steps, it means some values depend on the previous value.
         # In this case we propagate the values of the variables from one time-step to the other, except for 
         # the variables the user provided for all time-steps.
+        roots = collect(dep_graph.roots)
+
         for (i, meteo_i) in enumerate(meteo_rows)
             i > 1 && propagate_values!(object[i-1], object[i], object.vars_not_propagated)
-            run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
+            for (process, node) in roots
+                run_node!(object, node, i, object[i], meteo_i, constants, extra)
+            end
         end
     else
         # Computing time-steps in parallel:
         @floop executor for (i, meteo_i) in enumerate(meteo_rows)
-            run!(object, dep_graph, i, object[i], meteo_i, constants, extra)
+            local roots = collect(dep_graph.roots)
+            for (process, node) in roots
+                run_node!(object, node, i, object[i], meteo_i, constants, extra)
+            end
         end
     end
 end
@@ -276,25 +275,14 @@ function run!(
     obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
 
     # Check if the simulation can be parallelized over objects:
-    if !obj_parallelizable && executor != SequentialEx()
-        is_obj_parallel = Set{AbstractModel}()
-        for graph in dep_graphs
-            obj_par = which_object_parallelizable(graph)
-            for mod in obj_par[findall(x -> x.second.second == false, obj_par)]
-                push!(is_obj_parallel, mod.second.first)
-            end
-        end
-
-        mods_not_parallel = join(is_obj_parallel, "; ")
-
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel over objects: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+    if executor != SequentialEx()
+        @warn string(
+            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
         ) maxlog = 1
-        executor = SequentialEx()
     end
     # Each object:
-    @floop executor for (i, obj) in enumerate(collect(values(object)))
+    for (i, obj) in enumerate(collect(values(object)))
+              
         if check
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(obj, meteo)
@@ -307,13 +295,49 @@ function run!(
             end
         end
 
-        run!(obj, dep_graphs[i], 1, status(obj)[1], meteo, constants, extra)
+        roots_i = collect(dep_graphs[i].roots)
+        for (process_i, node_i) in roots_i
+            run_node!(obj, node_i, 1, status(obj)[1], meteo, constants, extra)
+        end
     end
 end
 
-# 6- Compatibility with MTG:
 
-# 6.1: if we pass an MTG and a mapping, then we use them to compute a GraphSimulation object 
+
+# for each dependency node in the graph (always one time-step, one object), actual workhorse:
+function run_node!(
+    object::T,
+    node::SoftDependencyNode,
+    i, # time-step to index into the dependency node (to know if the model has been called already)
+    st,
+    meteo,
+    constants,
+    extra
+) where {T<:ModelList}
+
+    # Check if all the parents have been called before the child:
+    if !AbstractTrees.isroot(node) && any([p.simulation_id[i] <= node.simulation_id[i] for p in node.parent])
+        # If not, this node should be called via another parent
+        return nothing
+    end
+
+    # Actual call to the model:
+    run!(node.value, object.models, st, meteo, constants, extra)
+    node.simulation_id[i] += 1 # increment the simulation id, to know if the model has been called already
+
+    # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
+    for child in node.children
+        #! check if we can run this safely in a @floop loop. I would say no, 
+        #! because we are running a parallel computation above already, modifying the node.simulation_id,
+        #! which is not thread-safe.
+        run_node!(object, child, i, st, meteo, constants, extra)
+    end
+end
+
+
+# Compatibility with MTG:
+
+# If we pass an MTG and a mapping, then we use them to compute a GraphSimulation object 
 # that we use with the first method in this file.
 function run!(
     object::MultiScaleTreeGraph.Node,
@@ -341,7 +365,6 @@ function run!(
     return sim
 end
 
-# 6.2: if we pass a TreeAlike object (e.g. a GraphSimulation):
 function run!(
     ::TreeAlike,
     ::SingletonAlike,
@@ -352,16 +375,9 @@ function run!(
     check=true,
     executor=ThreadedEx()
 )
-    models = get_models(object)
-
-    # Run the simulation of each soft-coupled model in the dependency graph:
-    # Note: hard-coupled processes handle themselves already
-    @floop executor for (process_key, dependency_node) in collect(dep(object).roots)
-        run!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
-    end
+    run!(object, Weather[meteo], constants, extra, check, executor)
 end
 
-# 6.2 bis, over several time-steps
 function run!(
     ::TreeAlike,
     ::TableAlike,
@@ -379,65 +395,20 @@ function run!(
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
-    # Note: The object is not thread safe here, because we write all meteo time-steps into the same Status (for each node)
-    # This is because the number of nodes is usually higher than the number of cores anyway, so we don't gain much by parallelizing over
-    # meteo time-steps in addition. This way we also reduce the memory footprint that can grow very large if we have many time-steps.
     for (i, meteo_i) in enumerate(Tables.rows(meteo))
-        # In parallel over dependency root, i.e. for independant computations:
-        @floop executor for (process_key, dependency_node) in collect(dep_graph.roots)
+       roots = collect(dep_graph.roots)
+        for (process_key, dependency_node) in roots
             # Note: parallelization over objects is handled by the run! method below
-            run!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
+            run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
         end
         # At the end of the time-step, we save the results of the simulation in the object:
         save_results!(object, i)
     end
 end
 
-#! Actual calls to the model:
-# Running the simulation on the dependency graph (always one time-step, one object):
-function run!(object::T, dep_graph::DependencyGraph{Dict{Symbol,N}}, i, st, meteo, constants, extra; executor=ThreadedEx()) where {
-    T<:ModelList,
-    N<:Union{HardDependencyNode,SoftDependencyNode}
-}
-    # Run the simulation of each soft-coupled model in the dependency graph:
-    # Note: hard-coupled processes handle themselves already
-    @floop executor for (process, node) in collect(dep_graph.roots)
-        run!(object, node, i, st, meteo, constants, extra)
-    end
-end
-
-# for each dependency node in the graph (always one time-step, one object), actual workhorse:
-function run!(
-    object::T,
-    node::SoftDependencyNode,
-    i, # time-step to index into the dependency node (to know if the model has been called already)
-    st,
-    meteo,
-    constants,
-    extra
-) where {T<:ModelList}
-
-    # Check if all the parents have been called before the child:
-    if !AbstractTrees.isroot(node) && any([p.simulation_id[i] <= node.simulation_id[i] for p in node.parent])
-        # If not, this node should be called via another parent
-        return nothing
-    end
-
-    # Actual call to the model:
-    run!(node.value, object.models, st, meteo, constants, extra)
-    node.simulation_id[i] += 1 # increment the simulation id, to know if the model has been called already
-
-    # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
-    for child in node.children
-        #! check if we can run this safely in a @floop loop. I would say no, 
-        #! because we are running a parallel computation above already, modifying the node.simulation_id,
-        #! which is not thread-safe.
-        run!(object, child, i, st, meteo, constants, extra)
-    end
-end
 
 # For a tree-alike object:
-function run!(
+function run_node_multiscale!(
     object::T,
     node::SoftDependencyNode,
     i, # time-step to index into the dependency node (to know if the model has been called already)
@@ -469,7 +440,7 @@ function run!(
         executor = SequentialEx()
     end
 
-    @floop executor for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
+    for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
         # Actual call to the model:
         run!(node.value, models_at_scale, st, meteo, constants, extra)
     end
@@ -481,6 +452,6 @@ function run!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run!(object, child, i, models, meteo, constants, extra, check, executor)
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
     end
 end
