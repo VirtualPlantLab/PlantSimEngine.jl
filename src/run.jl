@@ -282,8 +282,7 @@ function run!(
     end
     # Each object:
     for (i, obj) in enumerate(collect(values(object)))
-        
-        
+              
         if check
             # Check if the meteo data and the status have the same length (or length 1)
             check_dimensions(obj, meteo)
@@ -296,7 +295,10 @@ function run!(
             end
         end
 
-        run_node!(obj, dep_graphs[i], 1, status(obj)[1], meteo, constants, extra)
+        roots_i = collect(dep_graphs[i].roots)
+        for (process_i, node_i) in roots_i
+            run_node!(obj, node_i, 1, status(obj)[1], meteo, constants, extra)
+        end
     end
 end
 
