@@ -22,7 +22,6 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - "1.9"
           - "1"
         os:
           - ubuntu-latest
@@ -38,7 +37,8 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-#TODO handle breaking changes the way downstream tests do ?
+      # TODO handle breaking changes the way downstream tests do ?
+      # NOTE : manifest toml file is removed otherwise git whines about untracked changes when switching branches for the gh-pages commit
       - name: Run benchmarks
         run: |
           cd test/downstream
