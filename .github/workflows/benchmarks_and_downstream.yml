@@ -1,0 +1,63 @@
+name: BenchmarksAndDownstream
+on:
+  push:
+    branches:
+      - main
+    tags: "*"
+  pull_request:
+  workflow_dispatch:
+jobs:
+  test:
+    name: ${{ matrix.package.repo }}/${{ matrix.package.group }}/${{ matrix.julia-version }}
+    runs-on: ${{ matrix.os }}
+    env:
+      GROUP: ${{ matrix.package.group }}
+    strategy:
+      fail-fast: false
+           matrix:
+        version:
+          - "1.9"
+          - "1"
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+        arch:
+          - x64
+        package:
+        - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: ${{ matrix.julia-version }}
+          arch: x64
+#TODO handle breaking changes the way downstream tests do ?
+      - name: Run benchmarks
+        run: |
+          cd test/downstream
+          julia --project --color=yes -e '
+            using Pkg;
+            Pkg.instantiate();
+            include("test-all-benchmarks.jl")'
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Julia benchmark result
+          tool: 'julia'
+          output-file-path: test/downstream/output.json
+          # Use personal access token instead of GITHUB_TOKEN due to https://github.community/t/github-action-not-triggering-gh-pages-upon-push/16096
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Show alert with commit comment on detecting possible performance regression
+          alert-threshold: '130%'
+          comment-on-alert: true
+          fail-on-alert: true
+          alert-comment-cc-users: '@Samuel-AMAP'
+     
+      - uses: julia-actions/julia-processcoverage@v1
+      - uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
+          fail_ci_if_error: false
