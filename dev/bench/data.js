@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1737987224134,
+  "lastUpdate": 1737988132943,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -214,6 +214,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench/PBP",
             "value": 17465041,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "4ebf71e6203f506de18f4112b4c6cc87a0777ba1",
+          "message": "Fix attempt for launching with 4 threads",
+          "timestamp": "2025-01-27T15:21:01+01:00",
+          "tree_id": "7ef09dabb05cf49d8f1387896fe9264bb356569e",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/4ebf71e6203f506de18f4112b4c6cc87a0777ba1"
+        },
+        "date": 1737988131532,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench/PSE",
+            "value": 2676314018,
+            "unit": "ns",
+            "extra": "gctime=338970760.5\nmemory=1573333360\nallocs=33451304\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench/PBP",
+            "value": 20705436,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
