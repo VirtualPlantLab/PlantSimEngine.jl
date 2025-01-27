@@ -36,7 +36,7 @@ function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, mete
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=4)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=5)
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 31) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
+    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=6)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=7)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=8)

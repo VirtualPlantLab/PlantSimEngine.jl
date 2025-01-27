@@ -17,6 +17,11 @@ end
 
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToySleepModel}) = PlantSimEngine.IsTimeStepIndependent()
 
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
+    nrows = nrow(meteo_day)
+    
+    vc = [0 for i in 1:nrows]
+
 models1 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 
@@ -24,11 +29,6 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
     nthr = Threads.nthreads()
     @test nthr == 4
     
-    meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
-    nrows = nrow(meteo_day)
-    
-    vc = [0 for i in 1:nrows]
-
     t_seq = @benchmark run!(models1, meteo_day; executor = SequentialEx())
     #t_seq = run!(models1, meteo_day; executor = SequentialEx())
     min_time_seq = minimum(t_seq).time 
