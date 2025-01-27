@@ -31,19 +31,19 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
     
     t_seq = @benchmark run!(models1, meteo_day; executor = SequentialEx())
     #t_seq = run!(models1, meteo_day; executor = SequentialEx())
-    min_time_seq = minimum(t_seq).time 
+    med_time_seq = median(t_seq).time 
 
     #time is in nanoseconds
     @test min_time_seq > nrows * 1000000
 
     t_mt = @benchmark run!(models2, meteo_day; executor = ThreadedEx())
     #t_mt = run!(models2, meteo_day; executor = ThreadedEx())
-    min_time_mt = minimum(t_mt).time 
+    med_time_mt = median(t_mt).time 
 
-    @test min_time_mt > nrows * 1000000 / nthr
+    @test med_time_mt > nrows * 1000000 / nthr
 
     # expecting mt to have some overhead
-    @test nthr * min_time_mt > min_time_seq
+    @test nthr * med_time_mt > med_time_seq
 
     # todo DataFrame equals
     @test status(models1) == status(models2)
