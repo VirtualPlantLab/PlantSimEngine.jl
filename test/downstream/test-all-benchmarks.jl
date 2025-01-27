@@ -39,4 +39,4 @@ using Dates
 
     tune!(suite)
     results = run(suite, verbose = true)
-    BenchmarkTools.save(dirname(@__FILE__)*"output.json", median(results))
+    BenchmarkTools.save(dirname(@__FILE__)*"/output.json", median(results))
