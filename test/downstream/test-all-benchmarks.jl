@@ -44,7 +44,7 @@ using Dates
     
     # "XPalm benchmark" 
     #include("test-xpalm.jl")
-    #suite["bench"]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
+    #suite[suite_name]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
 
     tune!(suite)
     results = run(suite, verbose = true)

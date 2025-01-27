@@ -34,7 +34,7 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
     med_time_seq = median(t_seq).time 
 
     #time is in nanoseconds
-    @test min_time_seq > nrows * 1000000
+    @test med_time_seq > nrows * 1000000
 
     t_mt = @benchmark run!(models2, meteo_day; executor = ThreadedEx())
     #t_mt = run!(models2, meteo_day; executor = ThreadedEx())
