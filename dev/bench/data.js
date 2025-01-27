@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1737991412701,
+  "lastUpdate": 1737991512898,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -574,6 +574,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench_linux/PBP",
             "value": 18337453,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "38ff559ce9c1312bfbd860c04e97b1d2396b1141",
+          "message": "Add small margin on MT vs ST comparison to avoid false positives on windows CI runners",
+          "timestamp": "2025-01-27T16:16:13+01:00",
+          "tree_id": "0e9b32eab2c7a583ea271e844455a05548933d86",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/38ff559ce9c1312bfbd860c04e97b1d2396b1141"
+        },
+        "date": 1737991506245,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_windows/PSE",
+            "value": 2757946650,
+            "unit": "ns",
+            "extra": "gctime=295770750\nmemory=1565543096\nallocs=33299841\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP",
+            "value": 25164300,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
