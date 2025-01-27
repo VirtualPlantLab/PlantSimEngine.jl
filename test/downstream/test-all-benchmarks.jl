@@ -17,19 +17,28 @@ using PlantSimEngine.Examples
 using BenchmarkTools
 using Dates
 
+    suite_name = "bench_"
+
+    if Sys.iswindows()
+        suite_name = suite_name * "windows"
+    elseif Sys.isapple()
+        suite_name = suite_name * "mac"
+    elseif Sys.islinux()
+        suite_name = suite_name * "linux"
+    end
     suite = BenchmarkGroup()
-    suite["bench"]=BenchmarkGroup(["PSE", "PBP"])#, "XPalm"])
+    suite[suite_name]=BenchmarkGroup(["PSE", "PBP"])#, "XPalm"])
 
     # "PSE benchmark"
     include("test-PSE-benchmark.jl")
-    suite["bench"]["PSE"] = @benchmarkable do_benchmark_on_heavier_mtg()
+    suite[suite_name]["PSE"] = @benchmarkable do_benchmark_on_heavier_mtg()
     
     #BenchmarkTools.save("test/downstream/output.json", median(b_PSE))
 
     #activate_downstream_env()
     # "PBP benchmark"
     include("test-plantbiophysics.jl")
-    suite["bench"]["PBP"] = @benchmarkable benchmark_plantbiophysics()
+    suite[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
     #BenchmarkTools.save("test/downstream/output.json", median(b_PBP))
 
     
