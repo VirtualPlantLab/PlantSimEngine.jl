@@ -17,6 +17,9 @@ end
 
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToySleepModel}) = PlantSimEngine.IsTimeStepIndependent()
 
+models1 = ModelList(process1=ToySleepModel(), status=(a=vc,))
+models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
+
 @testset begin "Check number of threads"
     nthr = Threads.nthreads()
     @test nthr == 4
@@ -25,9 +28,6 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToySleepModel}) = PlantSimEngine
     nrows = nrow(meteo_day)
     
     vc = [0 for i in 1:nrows]
-
-    models1 = ModelList(process1=ToySleepModel(), status=(a=vc,))
-    models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 
     t_seq = @benchmark run!(models1, meteo_day; executor = SequentialEx())
     #t_seq = run!(models1, meteo_day; executor = SequentialEx())
