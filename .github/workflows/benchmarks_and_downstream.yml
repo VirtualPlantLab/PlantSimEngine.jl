@@ -10,11 +10,12 @@ jobs:
   test:
     name: ${{ matrix.package.repo }}/${{ matrix.package.group }}/${{ matrix.julia-version }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     env:
       GROUP: ${{ matrix.package.group }}
     strategy:
       fail-fast: false
-           matrix:
+      matrix:
         version:
           - "1.9"
           - "1"
