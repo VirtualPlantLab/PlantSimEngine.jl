@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1737987063624,
+  "lastUpdate": 1737987137423,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -142,6 +142,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench/PBP",
             "value": 20211543.5,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "09837a16a80413c84de000f427ecacaa0d8356ba",
+          "message": "MT test fix, slightly pertube PSE benchmark",
+          "timestamp": "2025-01-27T15:03:13+01:00",
+          "tree_id": "c570cf0f18c9d69976b332089ed528e67a57e398",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/09837a16a80413c84de000f427ecacaa0d8356ba"
+        },
+        "date": 1737987127976,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench/PSE",
+            "value": 2933490500,
+            "unit": "ns",
+            "extra": "gctime=309091050\nmemory=1566162944\nallocs=33311986\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench/PBP",
+            "value": 27714600,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
