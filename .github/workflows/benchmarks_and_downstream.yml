@@ -4,8 +4,11 @@ on:
     branches:
       - main
     tags: "*"
-  pull_request:
-  workflow_dispatch:
+  permissions:
+  # deployments permission to deploy GitHub pages website
+    deployments: write
+  # contents permission to update benchmark contents in gh-pages branch
+    contents: write
 jobs:
   test:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
@@ -41,6 +44,7 @@ jobs:
             using Pkg;
             Pkg.instantiate();
             include("test-all-benchmarks.jl")'
+          rm Manifest.toml
       - name: Store benchmark result
         uses: benchmark-action/github-action-benchmark@v1
         with:
