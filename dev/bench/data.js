@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1737990280420,
+  "lastUpdate": 1737990838308,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -502,6 +502,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench_windows/PBP",
             "value": 26039100,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "80c3c28075748104bf155c9c55ef610cc2da9a0e",
+          "message": "Fix typos",
+          "timestamp": "2025-01-27T15:55:29+01:00",
+          "tree_id": "013c8d1dbccac875cbbc1a436a516b5e6edc229b",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/80c3c28075748104bf155c9c55ef610cc2da9a0e"
+        },
+        "date": 1737990836119,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_mac/PSE",
+            "value": 25965324958,
+            "unit": "ns",
+            "extra": "gctime=246005248\nmemory=1572121208\nallocs=33427995\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP",
+            "value": 19492958,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
