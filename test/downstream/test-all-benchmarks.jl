@@ -18,7 +18,7 @@ using BenchmarkTools
 using Dates
 
     suite = BenchmarkGroup()
-    suite["bench"]=BenchmarkGroup(["PSE", "PBP", "XPalm"])
+    suite["bench"]=BenchmarkGroup(["PSE", "PBP"])#, "XPalm"])
 
     # "PSE benchmark"
     include("test-PSE-benchmark.jl")
@@ -34,8 +34,8 @@ using Dates
 
     
     # "XPalm benchmark" 
-    include("test-xpalm.jl")
-    suite["bench"]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
+    #include("test-xpalm.jl")
+    #suite["bench"]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
 
     tune!(suite)
     results = run(suite, verbose = true)
