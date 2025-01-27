@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1737988575580,
+  "lastUpdate": 1737989779130,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -322,6 +322,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench/PBP",
             "value": 28099167,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "338cff7a9ca73a51c4cc05de2d042e0b0d2d7c4c",
+          "message": "Attempt to distinguish between OSes for benchmark tracking and avoid confusion between runners with different performance characteristics",
+          "timestamp": "2025-01-27T15:48:51+01:00",
+          "tree_id": "b588c7ced48a1974e8885fbad4d962622fd888c3",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/338cff7a9ca73a51c4cc05de2d042e0b0d2d7c4c"
+        },
+        "date": 1737989778378,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_linux/PSE",
+            "value": 2519401709,
+            "unit": "ns",
+            "extra": "gctime=328620120.5\nmemory=1566074424\nallocs=33309926\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/PBP",
+            "value": 21062392,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
