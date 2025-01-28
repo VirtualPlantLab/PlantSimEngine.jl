@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738059935669,
+  "lastUpdate": 1738060031490,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -466,6 +466,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench_linux/PBP",
             "value": 20928227,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "ef330c52465f7d2f8ea71face76d970d9116bbae",
+          "message": "Restore PSE benchmark to full, expecting email from the GH benchmark tracking action",
+          "timestamp": "2025-01-28T11:18:08+01:00",
+          "tree_id": "4f44a71dfa2eaf8419d0b98a3be3b511c32ba54c",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/ef330c52465f7d2f8ea71face76d970d9116bbae"
+        },
+        "date": 1738060022862,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_windows/PSE",
+            "value": 2874649150,
+            "unit": "ns",
+            "extra": "gctime=310618300\nmemory=1564995472\nallocs=33288547\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP",
+            "value": 26162900,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
