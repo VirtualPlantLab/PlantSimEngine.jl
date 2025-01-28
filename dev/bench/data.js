@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738078199734,
+  "lastUpdate": 1738078648914,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -780,6 +780,54 @@ window.BENCHMARK_DATA = {
             "value": 309267600,
             "unit": "ns",
             "extra": "gctime=63301100\nmemory=552070400\nallocs=9813700\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "0804e741e21279de6946ac60fef037d10f1867f2",
+          "message": "Start Julia with 4 threads in the benchmark GH action",
+          "timestamp": "2025-01-28T16:20:44+01:00",
+          "tree_id": "10b6c57b9afb015dcaff6261629e9d8e3260f17b",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/0804e741e21279de6946ac60fef037d10f1867f2"
+        },
+        "date": 1738078646679,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_mac/PBP_multiple_timesteps_ST",
+            "value": 450819875,
+            "unit": "ns",
+            "extra": "gctime=54804959\nmemory=551696000\nallocs=9810500\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PSE",
+            "value": 24936615458,
+            "unit": "ns",
+            "extra": "gctime=241143377\nmemory=1571879296\nallocs=33424573\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP",
+            "value": 16879542,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP_multiple_timesteps_MT",
+            "value": 495695292,
+            "unit": "ns",
+            "extra": "gctime=160764338\nmemory=552022400\nallocs=9813700\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
         ]
       }
