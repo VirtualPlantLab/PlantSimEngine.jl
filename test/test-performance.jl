@@ -42,9 +42,9 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 
     @test med_time_mt > nrows * 1000000 / nthr
 
-    # Expecting mt to have some overhead, but add a margin regardless as windows CI runners seem inconsistent
-    # Dunno why. Threads sleep/wakeup scheduling overhead ?
-    @test nthr * med_time_mt > med_time_seq *1.1
+    # Threads sleep/wakeup scheduling overhead causing inconsistencies ?
+    # In any case, sometimes MT beats ST on CI runners
+    @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
 
     # todo DataFrame equals
     @test status(models1) == status(models2)
