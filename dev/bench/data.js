@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1738058453596,
+  "lastUpdate": 1738058570805,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -682,6 +682,42 @@ window.BENCHMARK_DATA = {
           {
             "name": "bench_linux/PBP",
             "value": 18879120,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "6babbb60154aa5d31d0f06959327032496ec6612",
+          "message": "Restore PSE benchmark, with a somewhat  faster-running model",
+          "timestamp": "2025-01-28T10:53:36+01:00",
+          "tree_id": "2ce981f3ecfa698add50bc13cfd71356296b60da",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/6babbb60154aa5d31d0f06959327032496ec6612"
+        },
+        "date": 1738058559903,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_windows/PSE",
+            "value": 191197800,
+            "unit": "ns",
+            "extra": "gctime=14230000\nmemory=109151040\nallocs=2177131\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP",
+            "value": 22555400,
             "unit": "ns",
             "extra": "gctime=0\nmemory=6290864\nallocs=101797\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
