@@ -9,6 +9,11 @@ using Documenter # for doctests
 
 include("helper-functions.jl")
 
+# There are 3 kinds of tests : 
+# PSE functionality/feature tests
+# Integration tests (launched in Github Actions, they run PBP and XPalm tests) 
+# Benchmarks both internal and downstream, located in the downstream folder, and run in another Github Action
+
 @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
     Aqua.test_ambiguities([PlantSimEngine])
@@ -61,6 +66,10 @@ include("helper-functions.jl")
 
     @testset "Multiscale corner-cases" begin
         include("test-corner-cases.jl")
+    end
+
+    @testset "Multithreading" begin
+        include("test-performance.jl")
     end
 
     if VERSION >= v"1.10"
