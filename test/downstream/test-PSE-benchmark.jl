@@ -54,8 +54,7 @@ end
 #@check_allocs
 function do_benchmark_on_heavier_mtg()
     mtg = import_mtg_example();
-
-    crash 
+ 
     # Example meteo, 365 timesteps :
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
     
