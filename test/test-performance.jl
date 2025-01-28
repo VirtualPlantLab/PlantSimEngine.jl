@@ -43,8 +43,11 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
     @test med_time_mt > nrows * 1000000 / nthr
 
     # Threads sleep/wakeup scheduling overhead causing inconsistencies ?
-    # In any case, sometimes MT beats ST on CI runners
-    @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
+    # In any case, sometimes MT beats ST on CI runners, and the mac runner seems to return puzzling false positives
+    # Deactivating it on mac for non
+    if !Sys.isapple()
+        @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
+    end
 
     # todo DataFrame equals
     @test status(models1) == status(models2)
