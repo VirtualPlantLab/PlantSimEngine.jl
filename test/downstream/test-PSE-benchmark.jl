@@ -31,7 +31,7 @@ function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, mete
         status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
         add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
+    #=elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
         status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=4)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=5)
@@ -42,7 +42,7 @@ function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, mete
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=8)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=9)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=10)
-        add_organ!(status.node, sim_object, "+", "Leaf", 2, index=11)
+        add_organ!(status.node, sim_object, "+", "Leaf", 2, index=11)=#
 
     end
 
@@ -55,6 +55,7 @@ end
 function do_benchmark_on_heavier_mtg()
     mtg = import_mtg_example();
 
+    crash 
     # Example meteo, 365 timesteps :
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
     
