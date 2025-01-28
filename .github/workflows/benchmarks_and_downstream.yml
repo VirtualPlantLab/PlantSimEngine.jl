@@ -42,7 +42,7 @@ jobs:
       - name: Run benchmarks
         run: |
           cd test/downstream
-          julia --project --color=yes -e '
+          julia --project --threads 4 --color=yes -e '
             using Pkg;
             Pkg.instantiate();
             include("test-all-benchmarks.jl")'
