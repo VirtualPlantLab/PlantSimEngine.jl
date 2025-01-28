@@ -60,7 +60,7 @@ jobs:
           alert-threshold: '130%'
           comment-on-alert: true
           fail-on-alert: true
-          alert-comment-cc-users: '@Samuel-AMAP'
+          alert-comment-cc-users: '@Samuel-AMAP, @VEZY'
      
       - uses: julia-actions/julia-processcoverage@v1
       - uses: codecov/codecov-action@v5
