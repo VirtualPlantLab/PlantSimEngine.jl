@@ -177,20 +177,22 @@ julia> status(m)
 Note that computations will be slower using DataFrame, so if performance is an issue, use
 TimeStepTable instead (or a NamedTuple as shown in the example).
 """
-struct ModelList{M<:NamedTuple,S,V<:Tuple{Vararg{Symbol}}}
+struct ModelList{M<:NamedTuple,S#=,O=#,V<:Tuple{Vararg{Symbol}}}
     models::M
     status::S
+    #outputs::O
     vars_not_propagated::V
 end
 
 function ModelList(models::M, status::S) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}},S}
-    ModelList(models, status, ())
+    ModelList(models, status, ())#outputs, ())
 end
 
 # General interface:
 function ModelList(
     args...;
     status=nothing,
+    #outputs=nothing,
     init_fun::Function=init_fun_default,
     type_promotion::Union{Nothing,Dict}=nothing,
     variables_check::Bool=true,
@@ -229,15 +231,51 @@ function ModelList(
     # Add the missing variables required by the models (set to default value):
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion; init_fun=init_fun, nsteps=nsteps)
 
+    #=user_outputs = outputs # todo : tuple to array
+
+    # todo check outputs are all amongst the variables provided by the user and models
+    f = []
+    
+    for i in 1:length(mods)
+        bb = keys(init_variables(mods[i]))
+        for j in 1:length(bb)
+            push!(f, bb[j])
+        end
+        #f = (f..., bb...)
+    end
+
+    f = unique!(f)
+            
+    # default implicit behaviour, track everything
+    if isnothing(user_outputs)
+        user_outputs = (f...,)
+            #all_vars = merge((keys(init_variables(object.models[i])) for i in 1:length(object.models))...)
+    else
+        unexpected_outputs = setdiff(user_outputs, f)
+        if !isempty(unexpected_outputs)
+            @error "Some output variable(s) requested was not found / were not found amongst the model variables : "
+            for i in 1:length(unexpected_outputs)
+                 @error "$(unexpected_outputs[i])"
+            end
+        end
+    end=#
+
+    # TODO preallocate outputs
+    #Dict(var => [typeof(status[var])[] for n in 1:nsteps] for var in user_outputs)
+
+
     model_list = ModelList(
         mods,
         ts_kwargs,
+        #user_outputs,
         vars_not_propagated
     )
     variables_check && !is_initialized(model_list)
 
     return model_list
 end
+
+outputs(m::ModelList) = m.outputs
 
 parse_models(m) = NamedTuple([process(i) => i for i in m])
 

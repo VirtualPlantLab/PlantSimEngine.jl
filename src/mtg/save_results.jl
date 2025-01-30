@@ -209,3 +209,60 @@ function save_results!(object::GraphSimulation, i)
         end
     end
 end
+
+function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
+    
+    # NOTE : init_variables recreates a DependencyGraph, it's not great
+    # TODO : copy ?
+    out_vars_all = merge(init_variables(m; verbose=false)...)
+
+    out_keys_requested = Symbol[]
+    if !isnothing(outs)
+        out_keys_requested = Symbol[outs...]
+    end
+    out_vars_requested = NamedTuple()
+
+    # default implicit behaviour, track everything
+    if isempty(out_keys_requested)
+        #m.outputs = (keys(copy(status(m)))...)
+        out_vars_requested = out_vars_all
+    else
+        unexpected_outputs = setdiff(out_keys_requested, status_keys(status(m)))
+
+        if !isempty(unexpected_outputs)
+            e = string(
+                "You requested as output ",
+                join(unexpected_outputs, ", "),
+                "which are not found in any model."
+            )
+
+            if check
+                error(e)
+            else
+                @info e
+                [delete!(unexpected_outputs, i) for i in unexpected_outputs]
+            end
+        end    
+        
+        # get the default values from the tuple with all vars obtained from the modellist
+        #[out_vars_requested = (i => out_vars_all[i], out_vars_requested...) for i in out_keys_requested]
+        #for i in out_keys_requested
+        #    merge(out_vars_requested, (i => out_vars_all[i],))
+        #end
+        out_defaults_requested = (out_vars_all[i] for i in out_keys_requested)
+        out_vars_requested = (;zip(out_keys_requested, out_defaults_requested)...)
+    end
+
+    outputs_timestep = fill(out_vars_requested, nsteps)
+    return TimeStepTable([Status(i) for i in outputs_timestep])
+end
+
+function save_results!(m::ModelList, outputs, i)
+    outs = outputs[i]
+    tst = status(m)
+    st_row = tst[1]
+    
+    for var in keys(outs)
+        outs[var] = st_row[var]
+    end
+end

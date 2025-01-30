@@ -97,6 +97,7 @@ function run!(
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )
@@ -107,6 +108,7 @@ function run!(
         meteo,
         constants,
         extra;
+        outputs,
         check,
         executor
     )
@@ -120,6 +122,7 @@ function run!(
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A}
@@ -131,7 +134,8 @@ function run!(
     end
 
     for obj in collect(values(object))
-        run!(obj, meteo, constants, extra, check=check, executor=executor)
+        outputs_obj = run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor)
+        # TODO
     end
 end
 
@@ -144,9 +148,10 @@ function run!(
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true
 )
-    run!(object, Weather[meteo], constants, extra; check)
+    run!(object, Weather[meteo], constants, extra; outputs, check)
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
@@ -158,6 +163,7 @@ function run!(
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
@@ -170,6 +176,9 @@ function run!(
             dep_graph.not_found
         )
     end
+
+    nsteps = length(sim_rows)
+    outputs_preallocated = pre_allocate_outputs(object, outputs, nsteps)
 
     if !timestep_parallelizable(dep_graph)
         if executor != SequentialEx()
@@ -189,7 +198,11 @@ function run!(
             roots = collect(dep_graph.roots)
             for (process, node) in roots
                 run_node!(object, node, i, row, meteo, constants, extra)
-            end        end
+            end      
+            save_results!(object, outputs_preallocated, i)  
+        end
+
+        return outputs_preallocated
     else
         @floop executor for (i, row) in enumerate(sim_rows)
             local roots = collect(dep_graph.roots)
@@ -208,6 +221,7 @@ function run!(
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
@@ -226,7 +240,7 @@ function run!(
         end
     end
 
-    if !timestep_parallelizable(dep_graph)
+    #if !timestep_parallelizable(dep_graph)
         if executor != SequentialEx()
             is_ts_parallel = which_timestep_parallelizable(dep_graph)
             mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
@@ -237,6 +251,9 @@ function run!(
             ) maxlog = 1
         end
 
+        nsteps = length(meteo_rows)
+        outputs_preallocated = pre_allocate_outputs(object, outputs, nsteps)
+        
         # Not parallelizable over time-steps, it means some values depend on the previous value.
         # In this case we propagate the values of the variables from one time-step to the other, except for 
         # the variables the user provided for all time-steps.
@@ -247,8 +264,12 @@ function run!(
             for (process, node) in roots
                 run_node!(object, node, i, object[i], meteo_i, constants, extra)
             end
+            save_results!(object, outputs_preallocated, i)
         end
-    else
+
+        return outputs_preallocated
+   #=else
+        #TODO breakdown outputs and save them
         # Computing time-steps in parallel:
         @floop executor for (i, meteo_i) in enumerate(meteo_rows)
             local roots = collect(dep_graph.roots)
@@ -256,7 +277,7 @@ function run!(
                 run_node!(object, node, i, object[i], meteo_i, constants, extra)
             end
         end
-    end
+    end=#
 end
 
 # 5- several objects and one meteo time-step
@@ -267,6 +288,7 @@ function run!(
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict}}
@@ -298,6 +320,7 @@ function run!(
         roots_i = collect(dep_graphs[i].roots)
         for (process_i, node_i) in roots_i
             run_node!(obj, node_i, 1, status(obj)[1], meteo, constants, extra)
+            # TODO save to outputs
         end
     end
 end
@@ -372,6 +395,7 @@ function run!(
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )
@@ -385,6 +409,7 @@ function run!(
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )

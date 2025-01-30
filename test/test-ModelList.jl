@@ -206,3 +206,21 @@ end
     @test process3.children[1].value == Process5Model()
     @test isa(process3.children[1], PlantSimEngine.SoftDependencyNode)
 end
+
+@testset "ModelList outputs preallocation" begin
+    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
+    leaf = ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        status=vals
+    )
+    
+    outs=(:var3,)
+    out_out =  PlantSimEngine.pre_allocate_outputs(leaf, outs, 1)
+
+    out_out_2 =  run!(leaf, meteo_day; outputs=outs, executor = SequentialEx())
+
+
+    
+end
