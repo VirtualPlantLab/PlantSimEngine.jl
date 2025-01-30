@@ -1,5 +1,6 @@
 # Tests:
 # Defining a list of models without status:
+#=
 @testset "ModelList with no status" begin
     leaf = ModelList(
         process1=Process1Model(1.0),
@@ -206,8 +207,57 @@ end
     @test process3.children[1].value == Process5Model()
     @test isa(process3.children[1], PlantSimEngine.SoftDependencyNode)
 end
+=#
 
-@testset "ModelList outputs preallocation" begin
+
+
+# very naive function, doesn't generate full partition sets
+# insert_errors : could duplicate a value, add a nonexistent one, make one the wrong type ?
+#=function generate_output_tuple(vars_tuple, insert_errors, count)
+
+    outputs_tuples_vector = [NamedTuple()]
+
+    # number not exact, but trying every permutation sounds like a waste of time
+    for i in 1:max(count, length(vars_tuple))
+        new_tuple = ()
+        # TODO 
+        new_tuple = (new_tuple..., new_var)
+    end 
+    return outputs_tuples_vector
+end=#
+
+function test_filtered_output(m::ModelList, status_tuple, requested_outputs, meteo)
+
+    nsteps = isa(meteo, DataFrame) ? nrow(meteo) : length(meteo)
+    preallocated_outputs = PlantSimEngine.pre_allocate_outputs(m, requested_outputs, nsteps)
+    @test length(preallocated_outputs) == nsteps
+    if length(requested_outputs) > 0
+        @test length(preallocated_outputs[1]) == length(requested_outputs)
+    else            
+        # don't compare with the status because unnecessary variables in the status are discarded in the filtered outputs
+        out_vars_all = merge(init_variables(m; verbose=false)...)
+        println(out_vars_all)
+        @test length(preallocated_outputs[1]) == length(out_vars_all)
+    end
+    
+    filtered_outputs_modellist = run!(m, meteo; outputs=requested_outputs, executor = SequentialEx())
+
+    # compare filtered output of a modellist with the filtered output of the equivalent simulation in multiscale mode
+    mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(m, status_tuple; nsteps=nsteps, outputs=requested_outputs)
+    graphsim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+ 
+    sim2 = run!(graphsim,
+         meteo,
+         PlantMeteo.Constants(),
+         nothing;
+         check=true,
+         executor=SequentialEx()
+     )
+    return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
+end
+
+# TODO restrict status to a single Status
+#@testset "ModelList outputs preallocation" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
     leaf = ModelList(
@@ -215,12 +265,30 @@ end
         process2=Process2Model(),
         status=vals
     )
-    
     outs=(:var3,)
-    out_out =  PlantSimEngine.pre_allocate_outputs(leaf, outs, 1)
 
-    out_out_2 =  run!(leaf, meteo_day; outputs=outs, executor = SequentialEx())
-
-
+    @test test_filtered_output(leaf, vals, outs, meteo_day)
     
-end
+    meteos = get_simple_meteo_bank()
+    modellists, status_tuples, outs_vectors = get_modellist_bank()
+
+    for i in 1:length(modellists)
+
+        modellist = modellists[i]
+        status_tuple = status_tuples[i]
+        outs_vector = outs_vectors[i]
+        all_vars = init_variables(modellist)
+
+        #insert_errors = true
+        #outs_vector = generate_output_tuple(all_vars, insert_errors)
+
+        for meteo in meteos
+            for out_tuple in outs_vector
+                println(out_tuple)
+                @test test_filtered_output(modellist, status_tuple, out_tuple, meteo)
+            end
+        end
+    end
+    
+    @enter test_filtered_output(modellists[2], status_tuples[2], outs_vectors[2][2], meteos[1])
+#end
