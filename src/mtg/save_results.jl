@@ -232,8 +232,8 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
         if !isempty(unexpected_outputs)
             e = string(
                 "You requested as output ",
-                join(unexpected_outputs, ", "),
-                "which are not found in any model."
+                join(unexpected_outputs, " ,"),
+                " not found in any model."
             )
 
             if check
