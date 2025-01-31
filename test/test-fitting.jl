@@ -6,7 +6,7 @@
     m = ModelList(Beer(k), status=(LAI=2.0,))
     outputs = run!(m, meteo)
 
-    df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+    df = DataFrame(aPPFD=outputs[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
 
     k_fit = fit(Beer, df).k
     @test k_fit == k

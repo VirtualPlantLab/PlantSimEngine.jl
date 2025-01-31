@@ -1,4 +1,4 @@
-#@testset "Chech status and weather correspond" begin
+@testset "Chech status and weather correspond" begin
     st = Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500)
     tst1 = TimeStepTable([st])
     tst2 = TimeStepTable([st, st])
