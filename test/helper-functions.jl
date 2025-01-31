@@ -1,17 +1,5 @@
 # Simple helper functions that can be used in various tests here and there
 
-
-function compare_outputs_modellist_mapping(models, graphsim)
-    graphsim_df = outputs(graphsim, DataFrame)
-
-    graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
-    models_df = DataFrame(status(models))
-    
-    models_df_sorted = models_df[:, sortperm(names(models_df))]
-    graphsim_df_outputs_only_sorted = graphsim_df_outputs_only[:, sortperm(names(graphsim_df_outputs_only))]
-    return graphsim_df_outputs_only_sorted == models_df_sorted
-end
-
 function compare_outputs_modellist_mapping(filtered_outputs, graphsim)
     graphsim_df = outputs(graphsim, DataFrame)
 
@@ -41,7 +29,7 @@ function check_multiscale_simulation_is_equivalent_begin(models::ModelList, stat
     return mtg, mapping, out
 end
 
-function check_multiscale_simulation_is_equivalent_end(models::ModelList, mtg, mapping, out, meteo)
+function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
     graph_sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=length(meteo), check=true, outputs=out)
 
     sim = run!(graph_sim,
@@ -52,7 +40,7 @@ function check_multiscale_simulation_is_equivalent_end(models::ModelList, mtg, m
         executor=SequentialEx()
     );
 
-    return compare_outputs_modellist_mapping(models, graph_sim)
+    return compare_outputs_modellist_mapping(modellist_outputs, graph_sim)
 end
 
 
@@ -91,7 +79,7 @@ end
 function get_modellist_bank()
     rue = 0.3
 
-    vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
+    vals = (var1=15.0, var2=0.3)#, TT_cu=cumsum(meteo_day.TT))
     vals2 = (TT_cu=cumsum(meteo_day.TT),)
     vals3 = (var1=15.0, var2=0.3)
     
@@ -152,7 +140,7 @@ function get_modellist_bank()
     outputs_tuples_vectors = 
     [
         # this one has one tuple with a duplicate, and one with a nonexistent variable
-        [NamedTuple(), (:var1,), (:var1, :var1), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
+        [(:var1,), (:var1, :var1), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5)], 
 
         [NamedTuple(), (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :PPFD, :biomass, :biomass_increment),], 
@@ -174,4 +162,42 @@ function get_modellist_bank()
     ]
 
     return models, status_tuples, outputs_tuples_vectors
+end
+
+# Split into two parts to ensure eval() syncs and that automatic generation becomes visible for later simulation
+# See world-age problems and comments around modellist_to_mapping if you don't know/remember what that's about
+function test_filtered_output_begin(m::ModelList, status_tuple, requested_outputs, meteo)
+
+    meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_status_length(m.status, meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo_adjusted)
+    preallocated_outputs = PlantSimEngine.pre_allocate_outputs(m, requested_outputs, nsteps)
+    @test length(preallocated_outputs) == nsteps
+    if length(requested_outputs) > 0
+        @test length(preallocated_outputs[1]) == length(requested_outputs)
+    else            
+        # don't compare with the status because unnecessary variables in the status are discarded in the filtered outputs
+        out_vars_all = merge(init_variables(m; verbose=false)...)
+        println(out_vars_all)
+        @test length(preallocated_outputs[1]) == length(out_vars_all)
+    end
+    
+    filtered_outputs_modellist = run!(m, meteo; outputs=requested_outputs, executor = SequentialEx())
+
+    # compare filtered output of a modellist with the filtered output of the equivalent simulation in multiscale mode
+    mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(m, status_tuple; nsteps=nsteps, outputs=requested_outputs)
+    
+    return mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist
+end
+
+function test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filtered_outputs_modellist)
+    graphsim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+ 
+    sim2 = run!(graphsim,
+         meteo,
+         PlantMeteo.Constants(),
+         nothing;
+         check=true,
+         executor=SequentialEx()
+     )
+    return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
 end

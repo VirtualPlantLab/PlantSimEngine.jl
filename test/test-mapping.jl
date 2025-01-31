@@ -175,7 +175,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         status=st,
     )
 
-    run!(models,
+    modellist_outputs = run!(models,
         meteo_day
         ;
         check=true,
@@ -193,7 +193,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         executor=SequentialEx()
     )
 
-    @test compare_outputs_modellist_mapping(models, graphsim)
+    @test compare_outputs_modellist_mapping(modellist_outputs, graphsim)
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
@@ -211,7 +211,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         check=true,
         executor=SequentialEx()
     )
-    @test compare_outputs_modellist_mapping(models, graphsim2)
+    @test compare_outputs_modellist_mapping(modellist_outputs, graphsim2)
     @test compare_outputs_graphsim(graphsim, graphsim2)
 
 end

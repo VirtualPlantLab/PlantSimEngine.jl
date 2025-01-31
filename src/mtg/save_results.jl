@@ -257,12 +257,10 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
     return TimeStepTable([Status(i) for i in outputs_timestep])
 end
 
-function save_results!(m::ModelList, outputs, i)
+function save_results!(status_flattened::Status, outputs, i)
     outs = outputs[i]
-    tst = status(m)
-    st_row = tst[1]
     
     for var in keys(outs)
-        outs[var] = st_row[var]
+        outs[var] = status_flattened[var]
     end
 end

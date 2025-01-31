@@ -3,7 +3,6 @@
     ModelList(models::M, status::S)
     ModelList(;
         status=nothing,
-        init_fun::Function=init_fun_default,
         type_promotion=nothing,
         variables_check=true,
         kwargs...
@@ -23,8 +22,6 @@ type promotion, time steps handling.
 implements `getproperty`.
 - `status`: a structure containing the initializations for the variables of the models. Usually a NamedTuple
 when given as a kwarg, or any structure that implements the Tables interface from `Tables.jl` (*e.g.* DataFrame, see details).
-- `nsteps=nothing`: the number of time steps to pre-allocated. If `nothing`, the number of time steps is deduced from the status (or 1 if no status is given).
-- `init_fun`: a function that initializes the status based on a vector of NamedTuples (see details).
 - `type_promotion`: optional type conversion for the variables with default values.
 `nothing` by default, *i.e.* no conversion. Note that conversion is not applied to the
 variables input by the user as `kwargs` (need to do it manually).
@@ -33,13 +30,6 @@ Should be provided as a Dict with current type as keys and new type as values.
 - `kwargs`: the models, named after the process they simulate.
 
 # Details
-
-The argument `init_fun` is set by default to `init_fun_default` which initializes the status with a `TimeStepTable`
-of `Status` structures.
-
-If you change `init_fun` by another function, make sure the type you are using (*i.e.* in place of `TimeStepTable`) 
-implements the `Tables.jl` interface (*e.g.* DataFrame does). And if you still use `TimeStepTable` but only change
-`Status`, make sure the type you give is indexable using the dot synthax (*e.g.* `x.var`).
 
 If you need to input a custom Type for the status and make your users able to only partially initialize 
 the `status` field in the input, you'll have to implement a method for `add_model_vars!`, a function that 
@@ -179,12 +169,12 @@ TimeStepTable instead (or a NamedTuple as shown in the example).
 """
 struct ModelList{M<:NamedTuple,S#=,O=#,V<:Tuple{Vararg{Symbol}}}
     models::M
-    status::S
+    status::Status{S}
     #outputs::O
     vars_not_propagated::V
 end
 
-function ModelList(models::M, status::S) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}},S}
+function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
     ModelList(models, status, ())#outputs, ())
 end
 
@@ -193,7 +183,6 @@ function ModelList(
     args...;
     status=nothing,
     #outputs=nothing,
-    init_fun::Function=init_fun_default,
     type_promotion::Union{Nothing,Dict}=nothing,
     variables_check::Bool=true,
     nsteps=nothing,
@@ -220,16 +209,16 @@ function ModelList(
     mods = merge(args, kwargs)
 
     # Make a vector of NamedTuples from the input (please implement yours if you need it)
-    ts_kwargs = homogeneous_ts_kwargs(status, nsteps)
+    ts_kwargs = homogeneous_ts_kwargs(status)
 
     # Variables for which a value was given for each time-step by the user:
-    vars_not_propagated = get_vars_not_propagated(status)
+    vector_vars = get_vars_not_propagated(status)
     # Note: that the length was checked in homogeneous_ts_kwargs, so we don't need to check it again here.
     # Note 2: we need to know these variables because they will not be propagated between time-steps, but set at 
     # the given value instead.
 
     # Add the missing variables required by the models (set to default value):
-    ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion; init_fun=init_fun, nsteps=nsteps)
+    ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
 
     #=user_outputs = outputs # todo : tuple to array
 
@@ -268,7 +257,7 @@ function ModelList(
         mods,
         ts_kwargs,
         #user_outputs,
-        vars_not_propagated
+        vector_vars
     )
     variables_check && !is_initialized(model_list)
 
@@ -294,7 +283,7 @@ any Tables.jl-compatible `x` and for NamedTuples.
 
 Careful, the function makes a copy of the input `x` if it does not list all needed variables.
 """
-function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, nsteps=nothing)
+function add_model_vars(x, models, type_promotion)
     ref_vars = merge(init_variables(models; verbose=false)...)
     # If no variable is required, we return the input:
     length(ref_vars) == 0 && return x
@@ -309,29 +298,17 @@ function add_model_vars(x, models, type_promotion; init_fun=init_fun_default, ns
     ref_vars = convert_vars(ref_vars, type_promotion)
 
     # If the user gave an empty status, we initialize all variables to their default values:
-    if x === nothing || (!Tables.istable(x) && length(x) == 0)
-        if nsteps === nothing
-            return init_fun(ref_vars)
-        else
-            return init_fun(fill(ref_vars, nsteps))
-        end
+    if x === nothing
+       return Status(ref_vars)
     end
 
-    if Tables.istable(x)
-        # Making a vars for each ith value in the user vars:
-        x_full = [merge(ref_vars, NamedTuple(Tables.rows(x)[1]))]
-        for r in Tables.rows(x)[2:end]
-            push!(x_full, merge(ref_vars, NamedTuple(r)))
-        end
-    else
-        x_full = merge(ref_vars, NamedTuple(x))
-    end
+    x_full = merge(ref_vars, NamedTuple(x))
 
-    return init_fun(x_full)
+    return Status(x_full)
 end
 
 function status_keys(st)
-    Tables.istable(st) && return Tables.columnnames(st)
+    #Tables.istable(st) && return Tables.columnnames(st)
     return keys(st)
 end
 
@@ -342,7 +319,7 @@ function add_model_vars(x::Nothing, models, type_promotion)
     ref_vars = merge(init_variables(models; verbose=false)...)
     length(ref_vars) == 0 && return x
     # Convert model variables types to the one required by the user:
-    return convert_vars(ref_vars, type_promotion)
+    return Status(convert_vars(ref_vars, type_promotion))
 end
 
 """
@@ -350,7 +327,7 @@ end
 
 By default, the function returns its argument.
 """
-homogeneous_ts_kwargs(kwargs, nsteps) = kwargs
+homogeneous_ts_kwargs(kwargs) = kwargs
 
 """
     kwargs_to_timestep(kwargs::NamedTuple{N,T}) where {N,T}
@@ -365,28 +342,28 @@ It is used to be able to *e.g.* give constant values for all time-steps for one 
 PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 ```
 """
-function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}, nsteps) where {N,T}
+function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
     length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
-    length_vars = [isa(i, RefVector) ? 1 : length(i) for i in vars_vals]
+    #length_vars = [isa(i, RefVector) ? 1 : length(i) for i in vars_vals]
     #Note: length is 1 for RefVector because it is a vector of references to other scales, 
     # not a vector of values
 
     # One of the variable is given as an array, meaning this is actually several
     # time-steps. In this case we make an array of vars.
-    max_length_st = nsteps !== nothing ? nsteps : maximum(length_vars)
+    max_length_st = 1#nsteps !== nothing ? nsteps : maximum(length_vars)
 
-    for i in eachindex(vars_vals)
+    #=for i in eachindex(vars_vals)
         # If the ith vars has length one, repeat its value to match the max time-steps:
         if length_vars[i] == 1
             vars_vals[i] = repeat([vars_vals[i]], max_length_st)
         else
             length_vars[i] != max_length_st && @error "$(keys(kwargs)[i]) should be length $max_length_st or 1"
         end
-    end
+    end=#
 
     # Making a vars for each ith value in the user vars:
-    vars_array = NamedTuple[NamedTuple{keys(kwargs)}(j[i] for j in vars_vals) for i in 1:max_length_st]
+    vars_array = NamedTuple{keys(kwargs)}(j for j in vars_vals)
 
     return vars_array
 end

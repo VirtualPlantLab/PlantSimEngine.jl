@@ -1,6 +1,6 @@
 # Tests:
 # Defining a list of models without status:
-#=
+
 @testset "ModelList with no status" begin
     leaf = ModelList(
         process1=Process1Model(1.0),
@@ -12,7 +12,7 @@
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
     @test to_initialize(leaf) == (process1=(:var1, :var2), process2=(:var1,))
-    @test length(status(leaf)) == 1
+    @test length(status(leaf)) == 5
 
     # Requiring 3 steps for initialization:
     leaf = ModelList(
@@ -21,8 +21,8 @@
         nsteps=3
     )
 
-    @test length(status(leaf)) == 3
-    @test status(leaf, :var1) == [-Inf, -Inf, -Inf]
+    @test length(status(leaf)) == 5
+    @test status(leaf, :var1) == -Inf
 end;
 
 
@@ -84,8 +84,8 @@ end;
         nsteps=3
     )
 
-    @test length(status(leaf)) == 3
-    @test status(leaf, :var1) == [15.0, 15.0, 15.0]
+    @test length(status(leaf)) == 5
+    @test status(leaf, :var1) == 15.0
 end;
 
 @testset "ModelList with fully initialized status" begin
@@ -140,13 +140,13 @@ end;
     # Copy the model list:
     ml2 = copy(models)
 
-    @test DataFrame(status(ml2)) == DataFrame(status(models))
+    @test DataFrame(TimeStepTable([status(ml2)])) == DataFrame(TimeStepTable([status(models)]))
 
     # Copy the model list with new status:
-    tst = TimeStepTable([Status(var1=20.0, var2=0.5)])
-    ml3 = copy(models, tst)
+    st = Status(var1=20.0, var2=0.5)
+    ml3 = copy(models, st)
 
-    @test status(ml3) == tst
+    @test status(ml3) == st
     @test ml3.models == models.models
 
 
@@ -207,7 +207,7 @@ end
     @test process3.children[1].value == Process5Model()
     @test isa(process3.children[1], PlantSimEngine.SoftDependencyNode)
 end
-=#
+
 
 
 
@@ -226,49 +226,21 @@ end
     return outputs_tuples_vector
 end=#
 
-function test_filtered_output(m::ModelList, status_tuple, requested_outputs, meteo)
-
-    nsteps = isa(meteo, DataFrame) ? nrow(meteo) : length(meteo)
-    preallocated_outputs = PlantSimEngine.pre_allocate_outputs(m, requested_outputs, nsteps)
-    @test length(preallocated_outputs) == nsteps
-    if length(requested_outputs) > 0
-        @test length(preallocated_outputs[1]) == length(requested_outputs)
-    else            
-        # don't compare with the status because unnecessary variables in the status are discarded in the filtered outputs
-        out_vars_all = merge(init_variables(m; verbose=false)...)
-        println(out_vars_all)
-        @test length(preallocated_outputs[1]) == length(out_vars_all)
-    end
-    
-    filtered_outputs_modellist = run!(m, meteo; outputs=requested_outputs, executor = SequentialEx())
-
-    # compare filtered output of a modellist with the filtered output of the equivalent simulation in multiscale mode
-    mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(m, status_tuple; nsteps=nsteps, outputs=requested_outputs)
-    graphsim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
- 
-    sim2 = run!(graphsim,
-         meteo,
-         PlantMeteo.Constants(),
-         nothing;
-         check=true,
-         executor=SequentialEx()
-     )
-    return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
-end
 
 # TODO restrict status to a single Status
-#@testset "ModelList outputs preallocation" begin
+@testset "ModelList outputs preallocation" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
-    leaf = ModelList(
+    leaf =  ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=vals
     )
     outs=(:var3,)
 
-    @test test_filtered_output(leaf, vals, outs, meteo_day)
-    
+    mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(leaf, vals, outs, meteo_day)
+    @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+
     meteos = get_simple_meteo_bank()
     modellists, status_tuples, outs_vectors = get_modellist_bank()
 
@@ -285,10 +257,12 @@ end
         for meteo in meteos
             for out_tuple in outs_vector
                 println(out_tuple)
-                @test test_filtered_output(modellist, status_tuple, out_tuple, meteo)
+                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo)
+                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filtered_outputs_modellist)
             end
         end
     end
     
-    @enter test_filtered_output(modellists[2], status_tuples[2], outs_vectors[2][2], meteos[1])
-#end
+    #mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellists[1], status_tuples[1], outs_vectors[1][1], meteos[1])
+    #@test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+end

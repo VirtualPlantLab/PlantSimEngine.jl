@@ -40,7 +40,7 @@ PlantSimEngine.check_dimensions(models, w)
 ERROR: DimensionMismatch: Component status should have the same number of time-steps (2) than weather data (3).
 ```
 """
-check_dimensions(component, weather) = check_dimensions(DataFormat(component), DataFormat(weather), component, weather)
+check_dimensions(component, weather) = check_dimensions(DataFormat(weather), component, weather)
 
 # Here we add methods for applying to a component, an array or a dict of:
 function check_dimensions(component::T, w) where {T<:ModelList}
@@ -62,19 +62,31 @@ function check_dimensions(component::T, weather) where {T<:AbstractDict{N,<:Mode
 end
 
 
-function check_dimensions(::TableAlike, ::TableAlike, st, weather)
-    length(st) > 1 && length(st) != length(Tables.rows(weather)) &&
-        throw(DimensionMismatch("Component status should have the same number of time-steps ($(length(st))) than weather data ($(length(weather)))."))
-    return nothing
-end
+# TODO multi timestep handling
 
 # A Status (one time-step) is always authorized with a Weather (it is recycled).
 # The status is updated at each time-step, but no intermediate saving though!
-function check_dimensions(::SingletonAlike, ::TableAlike, st, weather)
+function check_dimensions(::TableAlike, st::Status, weather)
+    weather_len = get_nsteps(weather)
+
+    for (var, value) in zip(keys(st), st)
+        if length(value) > 1
+            if length(value) != weather_len
+                throw(DimensionMismatch("Component status has a vector variable : $(var) of length $(length(value)) but the weather data expects $(weather_len) timesteps."))
+            end
+        end
+    end
+
     return nothing
 end
 
-function check_dimensions(s, ::SingletonAlike, st, weather)
+function check_dimensions(::SingletonAlike, st::Status, weather)
+    for (var, value) in zip(keys(st), st)
+        if length(value) > 1 
+            throw(DimensionMismatch("Component status has a vector variable : $(var) implying multiple timesteps but weather data only provides a single timestep."))
+        end
+    end
+
     return nothing
 end
 
