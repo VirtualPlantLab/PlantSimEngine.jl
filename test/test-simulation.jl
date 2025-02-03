@@ -75,13 +75,13 @@ end;
     @testset "simulation with an array of objects" begin
         outputs_vector = run!([models, models2], meteo)
         @test [outputs_vector[1][i][1] for i in keys(outputs_vector[1])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
-        @test [outputs_vector[2][1] for i in keys(outputs_vector[2])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
+        @test [outputs_vector[2][i][1] for i in keys(outputs_vector[2])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 
     @testset "simulation with a dict of objects" begin
         outputs_vector = run!(Dict("mod1" => models, "mod2" => models2), meteo)
-        @test [outputs_vector[1][i][1] for i in keys(outputs_vector[1])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
-        @test [outputs_vector[2][i][1] for i in keys(outputs_vector[2])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
+        @test [outputs_vector["mod1"][1][i] for i in keys(outputs_vector["mod1"])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+        @test [outputs_vector["mod2"][1][i] for i in keys(outputs_vector["mod2"])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 end;
 
@@ -141,7 +141,7 @@ end;
 end;
 
 
-#@testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
+@testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
     models = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
@@ -176,10 +176,10 @@ end;
     #TODO
     @testset "simulation with a dict of objects" begin
         outputs_vector = run!(Dict("mod1" => models, "mod2" => models2), meteo)
-        @test [outputs_vector[1][i] for i in keys(outputs_vector[1])] == [
+        @test [[outputs_vector["mod1"][1][i], outputs_vector["mod1"][2][i]] for i in keys(outputs_vector["mod1"])] == [
             [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
-        @test [outputs_vector[2][i] for i in keys(outputs_vector[2])] == [
+        @test [[outputs_vector["mod2"][1][i], outputs_vector["mod2"][2][i]] for i in keys(outputs_vector["mod2"])] == [
             [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end

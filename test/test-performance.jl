@@ -49,6 +49,6 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
         @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
     end
 
-    # todo DataFrame equals
-    @test status(models1) == status(models2)
+    # unsure how to recover outputs in benchmarked expressions to compare them, rerun the functions as a workaround for now
+    @test run!(models1, meteo_day; executor = SequentialEx()) == run!(models2, meteo_day; executor = ThreadedEx())
 end

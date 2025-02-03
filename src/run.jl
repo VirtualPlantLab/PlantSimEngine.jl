@@ -145,11 +145,19 @@ function run!(
         ) maxlog = 1
     end
 
-    outputs_vector = []
-    for obj in collect(values(object))
-        push!(outputs_vector, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
+    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(outputs)}}}
+
+    # Each object:
+    for obj in object
+
+        if isa(object, AbstractArray) 
+            push!(outputs_collection, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
+        else
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, outputs=outputs, check=check, executor=executor)
+        end
+
     end
-    return outputs_vector
+    return outputs_collection
 end
 
 # 3- one object, one meteo time-step, several status time-steps (rare case but possible)
@@ -292,7 +300,7 @@ function run!(
     outputs=nothing,
     check=true,
     executor=ThreadedEx()
-) where {T<:Union{AbstractArray,AbstractDict}}
+) where {T<:Union{AbstractArray, AbstractDict}}
 
     dep_graphs = [dep(obj) for obj in collect(values(object))]
     #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
@@ -303,8 +311,6 @@ function run!(
             "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
         ) maxlog = 1
     end
-
-    outputs_vector = []
 
     # Each object:
     for (i, obj) in enumerate(collect(values(object)))
@@ -320,9 +326,21 @@ function run!(
                 )
             end
         end
-        push!(outputs_vector, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
     end
-    return outputs_vector
+
+    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(outputs)}}}
+
+    # Each object:
+    for obj in object
+
+        if isa(object, AbstractArray) 
+            push!(outputs_collection, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
+        else
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, outputs=outputs, check=check, executor=executor)
+        end
+
+    end
+    return outputs_collection
 end
 
 
