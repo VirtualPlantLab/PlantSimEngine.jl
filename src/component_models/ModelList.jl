@@ -169,12 +169,12 @@ TimeStepTable instead (or a NamedTuple as shown in the example).
 """
 struct ModelList{M<:NamedTuple,S#=,O=#,V<:Tuple{Vararg{Symbol}}}
     models::M
-    status::Status{S}
+    status::S
     #outputs::O
     vars_not_propagated::V
 end
 
-function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
+function ModelList(models::M, status::Status#=, outputs::O=#) where {#=O,=# M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
     ModelList(models, status, ())#outputs, ())
 end
 
@@ -247,16 +247,18 @@ function ModelList(
                  @error "$(unexpected_outputs[i])"
             end
         end
-    end=#
+    end
 
-    # TODO preallocate outputs
-    #Dict(var => [typeof(status[var])[] for n in 1:nsteps] for var in user_outputs)
-
+    # Can't preallocate outputs without knowing which are filtered
+    # And creating a TSTable for all of them doesn't help, as a TST of a subset 
+    # of the outputs is not of the same type and conversion fails
+    status_flattened, vec_vars = flatten_status(deepcopy(ts_kwargs))
+    user_outputs = TimeStepTable([status_flattened])=#
 
     model_list = ModelList(
         mods,
         ts_kwargs,
-        #user_outputs,
+        #init_fun_default(user_outputs),
         vector_vars
     )
     variables_check && !is_initialized(model_list)
@@ -286,11 +288,12 @@ Careful, the function makes a copy of the input `x` if it does not list all need
 function add_model_vars(x, models, type_promotion)
     ref_vars = merge(init_variables(models; verbose=false)...)
     # If no variable is required, we return the input:
-    length(ref_vars) == 0 && return x
+    length(ref_vars) == 0 && return isa(x, Status) ? x : Status(x)
 
     # If the user gave a status, we check if all the variables are already initialized:
     vars_in_x = status_keys(x)
-    all([k in vars_in_x for k in keys(ref_vars)]) && return x # If so, we return the input
+    status_x = 
+    all([k in vars_in_x for k in keys(ref_vars)]) && return isa(x, Status) ? x : Status(x)  # If so, we return the input
 
     # Else, we add the variables by making a new object (carefull, this is a copy so it takes more time):
 
