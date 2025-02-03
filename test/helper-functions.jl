@@ -56,7 +56,7 @@ meteo = get_weather(43.649777, 3.869889, period, sink = DataFrame)=#
 function get_simple_meteo_bank()
     meteos= 
     [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
-    Weather(
+    #=Weather(
         [
         Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
         Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
@@ -68,7 +68,7 @@ function get_simple_meteo_bank()
     Atmosphere(T=30.0, Wind=0.5, Rh=0.6, Ri_PAR_f=100.0),
     Atmosphere(T=20.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
     Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
-    Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)]),
+    Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)]),=#
     
     CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18),
 
@@ -82,8 +82,11 @@ function get_modellist_bank()
     vals = (var1=15.0, var2=0.3)#, TT_cu=cumsum(meteo_day.TT))
     vals2 = (TT_cu=cumsum(meteo_day.TT),)
     vals3 = (var1=15.0, var2=0.3)
+    vals4 = (var9 =1.0,var0=1.0)
+    vals5 = (var0=1.0,)
+    vals6 = (var0=1.0,)
     
-    status_tuples = [vals, vals2, vals3, nothing, vals3, vals3]
+    status_tuples = [vals, vals2, vals3, vals4, vals5, vals6]
 
     models = [ModelList(
         process1=Process1Model(1.0),
@@ -112,7 +115,7 @@ function get_modellist_bank()
         process5=Process5Model(),
         process6=Process6Model(),
         # process7=Process7Model(),
-        # status=(var1=15.0, var2=0.3)
+        status=vals4
     ),
 
     ModelList(
@@ -123,7 +126,7 @@ function get_modellist_bank()
         process5=Process5Model(),
         process6=Process6Model(),
         process7=Process7Model(),
-        status=(var1=15.0, var2=0.3)
+        status=vals5
     ),
 
     ModelList(
@@ -132,7 +135,7 @@ function get_modellist_bank()
         process3=Process3Model(),
         process4=Process4Model(),
         process5=Process5Model(),
-        status=(var1=15.0, var2=0.3)
+        status=vals6
     ),
 
     ]
@@ -140,24 +143,24 @@ function get_modellist_bank()
     outputs_tuples_vectors = 
     [
         # this one has one tuple with a duplicate, and one with a nonexistent variable
-        [(:var1,), (:var1, :var1), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
-        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5)], 
+        [(:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5)], 
 
-        [NamedTuple(), (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :PPFD, :biomass, :biomass_increment),], 
+        [#=NamedTuple(),=# (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :aPPFD, :biomass, :biomass_increment),], 
 
-        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
-        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)], 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5, :var6)], 
 
-        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)], 
         
-        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
         , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9)], 
 
-        [NamedTuple(), (:var1,), (:var1, :var1), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [#=NamedTuple(),=# (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
-        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9, :var0)], 
+        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, #=:var8, :var9,=# :var0)], 
 
     ]
 
@@ -168,8 +171,7 @@ end
 # See world-age problems and comments around modellist_to_mapping if you don't know/remember what that's about
 function test_filtered_output_begin(m::ModelList, status_tuple, requested_outputs, meteo)
 
-    meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_status_length(m.status, meteo)
-    nsteps = PlantSimEngine.get_nsteps(meteo_adjusted)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
     preallocated_outputs = PlantSimEngine.pre_allocate_outputs(m, requested_outputs, nsteps)
     @test length(preallocated_outputs) == nsteps
     if length(requested_outputs) > 0

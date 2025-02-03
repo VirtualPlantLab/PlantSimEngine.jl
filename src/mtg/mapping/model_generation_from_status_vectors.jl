@@ -191,7 +191,19 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
 
     models = modellist.models
 
-    mapping_incomplete = Dict(
+    mapping_incomplete = isnothing(modellist_status) ? 
+    (
+        Dict(
+        default_scale => (
+        models..., 
+        MultiScaleModel(
+        model=HelperCurrentTimestepModel(),
+        mapping=[PreviousTimeStep(:next_timestep),],
+        ),
+        Status((current_timestep=1,next_timestep=1,))
+        ),
+    )) : (
+        Dict(
         default_scale => (
         models..., 
         MultiScaleModel(
@@ -201,7 +213,7 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
         Status((modellist_status..., current_timestep=1,next_timestep=1,))
         ),
     )
-    
+    )
     timestep_scale = "Default"
     organ = "Default"
  

@@ -92,7 +92,7 @@ function adjust_weather_timesteps_to_status_length(st::Status, meteo)
     
     if isnothing(meteo)
         meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], status_timesteps_len))
-    elseif get_nsteps(meteo) == 1
+    elseif get_nsteps(meteo) == 1 && isa(meteo, Atmosphere)
         meteo_adjusted = Weather(repeat([meteo], status_timesteps_len))
     end
 

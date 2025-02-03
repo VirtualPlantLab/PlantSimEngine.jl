@@ -9,9 +9,6 @@ using DataFrames, CSV
 using MultiScaleTreeGraph
 using PlantMeteo, Statistics
 
-# Include the example dummy processes:
-using PlantSimEngine.Examples
-
 using BenchmarkTools
 using Dates
 

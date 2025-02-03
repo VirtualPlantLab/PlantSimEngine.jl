@@ -227,7 +227,7 @@ end
 end=#
 
 
-# TODO restrict status to a single Status
+
 @testset "ModelList outputs preallocation" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
@@ -256,9 +256,9 @@ end=#
 
         for meteo in meteos
             for out_tuple in outs_vector
-                println(out_tuple)
-                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo)
-                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filtered_outputs_modellist)
+                meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_status_length(modellist.status, meteo)                             
+                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo_adjusted)
+                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_adjusted, filtered_outputs_modellist)
             end
         end
     end
