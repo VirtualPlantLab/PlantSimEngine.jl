@@ -77,6 +77,8 @@ function get_simple_meteo_bank()
 end
 
 function get_modellist_bank()
+    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    
     rue = 0.3
 
     vals = (var1=15.0, var2=0.3)#, TT_cu=cumsum(meteo_day.TT))
