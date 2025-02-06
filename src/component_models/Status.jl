@@ -158,6 +158,7 @@ function update_vector_variables(s::Status, sf::Status, vector_variables, i)
     end
 end
 
+# TODO do a bit more and return error if there is a length discrepancy that isn't accounted for by timestep differences
 function get_status_vector_max_length(s::Status)
     max_len = 1
     for (var, value) in zip(keys(s), s)
