@@ -167,22 +167,19 @@ julia> status(m)
 Note that computations will be slower using DataFrame, so if performance is an issue, use
 TimeStepTable instead (or a NamedTuple as shown in the example).
 """
-struct ModelList{M<:NamedTuple,S#=,O=#,V<:Tuple{Vararg{Symbol}}}
+struct ModelList{M<:NamedTuple,S}
     models::M
     status::S
-    #outputs::O
-    vars_not_propagated::V
 end
 
-function ModelList(models::M, status::Status#=, outputs::O=#) where {#=O,=# M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
-    ModelList(models, status, ())#outputs, ())
-end
+#=function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
+    ModelList(models, status)
+end=#
 
 # General interface:
 function ModelList(
     args...;
     status=nothing,
-    #outputs=nothing,
     type_promotion::Union{Nothing,Dict}=nothing,
     variables_check::Bool=true,
     nsteps=nothing,
@@ -210,56 +207,11 @@ function ModelList(
 
     # Make a vector of NamedTuples from the input (please implement yours if you need it)
     ts_kwargs = homogeneous_ts_kwargs(status)
-
-    # Variables for which a value was given for each time-step by the user:
-    vector_vars = get_vars_not_propagated(status)
-    # Note: that the length was checked in homogeneous_ts_kwargs, so we don't need to check it again here.
-    # Note 2: we need to know these variables because they will not be propagated between time-steps, but set at 
-    # the given value instead.
-
-    # Add the missing variables required by the models (set to default value):
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
-
-    #=user_outputs = outputs # todo : tuple to array
-
-    # todo check outputs are all amongst the variables provided by the user and models
-    f = []
-    
-    for i in 1:length(mods)
-        bb = keys(init_variables(mods[i]))
-        for j in 1:length(bb)
-            push!(f, bb[j])
-        end
-        #f = (f..., bb...)
-    end
-
-    f = unique!(f)
-            
-    # default implicit behaviour, track everything
-    if isnothing(user_outputs)
-        user_outputs = (f...,)
-            #all_vars = merge((keys(init_variables(object.models[i])) for i in 1:length(object.models))...)
-    else
-        unexpected_outputs = setdiff(user_outputs, f)
-        if !isempty(unexpected_outputs)
-            @error "Some output variable(s) requested was not found / were not found amongst the model variables : "
-            for i in 1:length(unexpected_outputs)
-                 @error "$(unexpected_outputs[i])"
-            end
-        end
-    end
-
-    # Can't preallocate outputs without knowing which are filtered
-    # And creating a TSTable for all of them doesn't help, as a TST of a subset 
-    # of the outputs is not of the same type and conversion fails
-    status_flattened, vec_vars = flatten_status(deepcopy(ts_kwargs))
-    user_outputs = TimeStepTable([status_flattened])=#
 
     model_list = ModelList(
         mods,
         ts_kwargs,
-        #init_fun_default(user_outputs),
-        vector_vars
     )
     variables_check && !is_initialized(model_list)
 
@@ -270,12 +222,8 @@ outputs(m::ModelList) = m.outputs
 
 parse_models(m) = NamedTuple([process(i) => i for i in m])
 
-init_fun_default(x::Vector{T}) where {T} = TimeStepTable([Status(i) for i in x])
-init_fun_default(x::N) where {N<:NamedTuple} = TimeStepTable([Status(x)])
-init_fun_default(x) = x
-
 """
-    add_model_vars(x, models, type_promotion; init_fun=init_fun_default)
+    add_model_vars(x, models, type_promotion)
 
 Check which variables in `x` are not initialized considering a set of `models` and the variables
 needed for their simulation. If some variables are uninitialized, initialize them to their default values.
@@ -311,7 +259,6 @@ function add_model_vars(x, models, type_promotion)
 end
 
 function status_keys(st)
-    #Tables.istable(st) && return Tables.columnnames(st)
     return keys(st)
 end
 
@@ -348,38 +295,11 @@ PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
     length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
-    #length_vars = [isa(i, RefVector) ? 1 : length(i) for i in vars_vals]
-    #Note: length is 1 for RefVector because it is a vector of references to other scales, 
-    # not a vector of values
-
-    # One of the variable is given as an array, meaning this is actually several
-    # time-steps. In this case we make an array of vars.
-    max_length_st = 1#nsteps !== nothing ? nsteps : maximum(length_vars)
-
-    #=for i in eachindex(vars_vals)
-        # If the ith vars has length one, repeat its value to match the max time-steps:
-        if length_vars[i] == 1
-            vars_vals[i] = repeat([vars_vals[i]], max_length_st)
-        else
-            length_vars[i] != max_length_st && @error "$(keys(kwargs)[i]) should be length $max_length_st or 1"
-        end
-    end=#
-
-    # Making a vars for each ith value in the user vars:
+ 
     vars_array = NamedTuple{keys(kwargs)}(j for j in vars_vals)
 
     return vars_array
 end
-
-
-"""
-    get_vars_not_propagated(status)
-
-Returns all variables that are given for several time-steps in the status.
-"""
-get_vars_not_propagated(status) = (findall(x -> length(x) > 1, status)...,)
-get_vars_not_propagated(df::DataFrames.DataFrame) = (propertynames(df)...,)
-get_vars_not_propagated(::Nothing) = ()
 
 """
     Base.copy(l::ModelList)
@@ -414,7 +334,6 @@ function Base.copy(m::T) where {T<:ModelList}
     ModelList(
         m.models,
         deepcopy(m.status),
-        m.vars_not_propagated
     )
 end
 
@@ -422,7 +341,6 @@ function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
         status,
-        m.vars_not_propagated
     )
 end
 

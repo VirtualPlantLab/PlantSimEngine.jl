@@ -60,23 +60,11 @@ function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelLis
     reduce(vcat, df)
 end
 
-# NB: could use dispatch on concrete types but would enforce specific implementation for each
-
-
 """
-    DataFrame(components::ModelList{T,<:TimeStepTable})
-
-Implementation of `DataFrame` for a `ModelList` model with several time steps.
-"""
-function DataFrames.DataFrame(components::ModelList{T,S,V}) where {T,S<:TimeStepTable,V}
-    DataFrames.DataFrame([(NamedTuple(j)..., timestep=i) for (i, j) in enumerate(status(components))])
-end
-
-"""
-    DataFrame(components::ModelList{T,S,V}) where {T,S<:Status,V}
+    DataFrame(components::ModelList{T,S}) where {T,S<:Status}
 
 Implementation of `DataFrame` for a `ModelList` model with one time step.
 """
-function DataFrames.DataFrame(components::ModelList{T,S,V}) where {T,S<:Status,V}
+function DataFrames.DataFrame(components::ModelList{T,S}) where {T,S<:Status}
     DataFrames.DataFrame([NamedTuple(status(components)[1])])
 end

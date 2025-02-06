@@ -102,10 +102,9 @@ end
 
 # Managing one or several objects, one or several time-steps:
 
-# This is the default function called by the user, which uses traits
+# User entry point, which uses traits
 # to dispatch to the correct method. The traits are defined in table_traits.jl
-# and define either TableAlike or SingletonAlike objects. 
-# Please use these traits to define your own objects.
+# and define either TableAlike, TreeAlike or SingletonAlike objects. 
 function run!(
     object,
     meteo=nothing,
@@ -127,7 +126,7 @@ function run!(
     )
 end
 
-# 1- several objects and several time-steps
+# 1- several ModelList objects and several time-steps
 function run!(
     ::TableAlike,
     object::T,
@@ -160,67 +159,8 @@ function run!(
     return outputs_collection
 end
 
-# 3- one object, one meteo time-step, several status time-steps (rare case but possible)
-# Also occurs when meteo is nothing
-#=function run!(
-    ::SingletonAlike,
-    object::T,
-    meteo=nothing,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    outputs=nothing,
-    check=true,
-    executor=ThreadedEx()
-) where {T<:ModelList}
-sim_rows = Tables.rows(status(object))
-    dep_graph = dep(object, length(sim_rows))
-
-    if check && length(dep_graph.not_found) > 0
-        error(
-            "The following processes are missing to run the ModelList: ",
-            dep_graph.not_found
-        )
-    end
-
-    nsteps = length(sim_rows)
-    outputs_preallocated = pre_allocate_outputs(object, outputs, nsteps)
-    status_flattened, vector_variables = flatten_status(object.status)
-
-    #if !timestep_parallelizable(dep_graph)
-        if executor != SequentialEx()
-            is_ts_parallel = which_timestep_parallelizable(dep_graph)
-            mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
-
-            check && @warn string(
-                "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-                "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-            ) maxlog = 1
-        end
-        # Not parallelizable over time-steps, it means some values depend on the previous value.
-        # In this case we propagate the values of the variables from one time-step to the other, except for 
-        # the variables the user provided for all time-steps.
-        for (i, row) in enumerate(sim_rows)
-            i > 1 && propagate_values!(sim_rows[i-1], row, object.vars_not_propagated)
-            roots = collect(dep_graph.roots)
-            for (process, node) in roots
-                run_node!(object, node, i, row, nothing, constants, extra)
-            end      
-            save_results!(status_flattened, outputs_preallocated, i)  
-            i+1 <= nsteps && update_vector_variables(object.status, status_flattened, vector_variables, i + 1)
-        end
-
-        return outputs_preallocated
-    else
-        @floop executor for (i, row) in enumerate(sim_rows)
-            local roots = collect(dep_graph.roots)
-            for (process, node) in roots
-                run_node!(object, node, i, row, meteo, constants, extra)
-            end
-        end
-    end
-end=#
-
-# 4- one object, several meteo time-step, several status time-steps
+# 2 - one object, one or multiple meteo time-step(s), with vectors provided in the status
+# Meaning a single meteo timestep might be expanded to fit the status vector size
 function run!(
     ::SingletonAlike,
     object::T,
