@@ -241,8 +241,32 @@ end=#
     mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(leaf, vals, outs, meteo_day)
     @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
 
-    meteos = get_simple_meteo_bank()
+    meteos = 
+    [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
+    CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18),
+    ]
     modellists, status_tuples, outs_vectors = get_modellist_bank()
+
+    # remove some of the currently unhandled cases
+    outs_vectors = 
+    [
+        # this one has one tuple with a duplicate, and one with a nonexistent variable
+        [(:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5)], 
+        [#=NamedTuple(),=# (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :aPPFD, :biomass, :biomass_increment),], 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5, :var6)], 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)],     
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
+        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9)], 
+        [#=NamedTuple(),=# (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
+        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, #=:var8, :var9,=# :var0)], 
+    ]
+
+
 
     for i in 1:length(modellists)
 

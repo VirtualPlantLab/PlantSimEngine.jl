@@ -55,8 +55,8 @@ meteo = get_weather(43.649777, 3.869889, period, sink = DataFrame)=#
 
 function get_simple_meteo_bank()
     meteos= 
-    [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
-    #=Weather(
+    [#=nothing,=# Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
+    Weather(
         [
         Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
         Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
@@ -68,7 +68,7 @@ function get_simple_meteo_bank()
     Atmosphere(T=30.0, Wind=0.5, Rh=0.6, Ri_PAR_f=100.0),
     Atmosphere(T=20.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
     Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
-    Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)]),=#
+    Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)]),
     
     CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18),
 
@@ -145,29 +145,132 @@ function get_modellist_bank()
     outputs_tuples_vectors = 
     [
         # this one has one tuple with a duplicate, and one with a nonexistent variable
-        [(:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
+        [NamedTuple(), (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
         #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5)], 
 
-        [#=NamedTuple(),=# (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :aPPFD, :biomass, :biomass_increment),], 
+        [NamedTuple(), (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :aPPFD, :biomass, :biomass_increment),], 
 
-        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5, :var6)], 
 
-        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)], 
         
-        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [NamedTuple(), (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
         , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9)], 
 
-        [#=NamedTuple(),=# (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        [NamedTuple(), (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
         (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
-        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, #=:var8, :var9,=# :var0)], 
+        , #=(:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9, :var0)=#], 
 
     ]
 
     return models, status_tuples, outputs_tuples_vectors
 end
+
+# Could add some mtg variation too
+function get_simple_mapping_bank()
+    mappings = [
+        Dict(
+    "Scene" => ToyDegreeDaysCumulModel(),
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapping=[:TT_cu => "Scene",],),
+        Beer(0.6),
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                :carbon_assimilation => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_allocation => ["Leaf", "Internode"]],),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],),),
+    "Internode" => (
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],),
+        MultiScaleModel(
+            model=ToyInternodeEmergence(TT_emergence=20.0),
+            mapping=[:TT_cu => "Scene"],),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(carbon_biomass=1.0)),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil", :aPPFD => "Plant"],),
+        MultiScaleModel(
+            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            mapping=[:TT => "Scene",],),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+        Status(carbon_biomass=1.0)),
+    "Soil" => (ToySoilWaterModel(),),),
+##########
+    Dict(
+        "Default" => (
+            Process1Model(1.0),
+            Status(var1=15.0, var2=0.3,),),),
+##########
+    Dict(
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                # inputs
+                :carbon_assimilation => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                # outputs
+                :carbon_allocation => ["Leaf", "Internode"]],),
+        MultiScaleModel(
+            model=ToyPlantRmModel(),
+            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],),),
+    "Internode" => (
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+        Status(TT=10.0, carbon_biomass=1.0)),
+    "Leaf" => (
+        MultiScaleModel(
+            model=ToyAssimModel(),
+            mapping=[:soil_water_content => "Soil",],
+            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            ),
+        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        Status(aPPFD=1300.0, TT=10.0, carbon_biomass=1.0),
+        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),),
+    "Soil" => (ToySoilWaterModel(),),),
+##################    
+    ]
+
+out_vars_vectors = [
+    [nothing, 
+    NamedTuple(), 
+    Dict(),
+    Dict("Leaf" => NamedTuple()), 
+    Dict("Leaf" => (:carbon_allocation,),), #incorrect, wrong scale
+    Dict("Leaf" => (:carbon_demand,),), #incorrect, wrong scale 
+    Dict(
+    "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
+    "Internode" => (:carbon_allocation, :TT_cu_emergence),
+    "Plant" => (:carbon_allocation,),
+    "Soil" => (:soil_water_content,),),],
+    #############
+    [nothing, NamedTuple(), Dict("Default" => (:var1,))],
+    #############
+    [
+        nothing, 
+        NamedTuple(),
+        Dict(
+        "Flowers" => (:carbon_assimilation, :carbon_demand), # There are no flowers in this MTG
+        "Leaf" => (:carbon_assimilation, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
+        "Soil" => (:soil_water_content,),
+    ),],
+]
+
+    return mappings, out_vars_vectors
+end
+
 
 # Split into two parts to ensure eval() syncs and that automatic generation becomes visible for later simulation
 # See world-age problems and comments around modellist_to_mapping if you don't know/remember what that's about
