@@ -555,3 +555,47 @@ end
     @test DataFrames.nrow(df) == PlantSimEngine.get_nsteps(meteo)
 
 end
+
+
+############################################
+### #86 : BoundsError with a single model and several Weather timesteps
+############################################
+
+using PlantSimEngine
+PlantSimEngine.@process "toy" verbose = false
+
+"""
+Inputs : a, b, c
+Outputs : d, e
+"""
+
+struct ToyToyModel{T} <: AbstractToyModel 
+    internal_constant::T
+end
+
+function PlantSimEngine.inputs_(::ToyToyModel)
+    (a = -Inf, b = -Inf, c = -Inf)
+end
+
+# note : here, d is set with = further down, but e is set with +=, ie inf + thingy, is this a bug on my end ?
+function PlantSimEngine.outputs_(::ToyToyModel)
+    (d = -Inf, e = -Inf)
+end
+
+function PlantSimEngine.run!(m::ToyToyModel, models, status, meteo, constants=nothing, extra_args=nothing)
+    status.d = m.internal_constant * status.a 
+    status.e += m.internal_constant
+end
+
+
+meteo = Weather([    
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
+        Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
+])
+
+model = ModelList(
+    ToyToyModel(1),
+   status = ( a = 1, b = 0, c = 0),
+    #nsteps = length(meteo)
+)
+sim = run!(model, meteo)
