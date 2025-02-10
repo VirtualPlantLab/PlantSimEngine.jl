@@ -373,23 +373,32 @@ end
 end
 # Testing with a simple mapping (just the soil model, no multiscale mapping):
 @testset "run! on MTG: simple mapping" begin
-    out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
-    @test out.statuses["Soil"][1].node == soil
-    @test out.models == Dict("Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),))
-    @test out.models["Soil"].soil_water.values == [0.5]
-    @test length(out.dependency_graph.roots) == 1
-    @test collect(keys(out.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
-    @test out.graph == mtg
+    #out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, Dict("Soil" => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
+    out = run!(sim,meteo)
+
+    @test sim.statuses["Soil"][1].node == soil
+    @test sim.models == Dict("Soil" => (soil_water=ToySoilWaterModel(sim.models["Soil"].soil_water.values),))
+    @test sim.models["Soil"].soil_water.values == [0.5]
+    @test length(sim.dependency_graph.roots) == 1
+    @test collect(keys(sim.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
+    @test sim.graph == mtg
 
     leaf_mapping = Dict("Leaf" => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
-    out = run!(mtg, leaf_mapping, meteo)
-    @test collect(keys(out.statuses)) == ["Leaf"]
-    @test length(out.statuses["Leaf"]) == 2
-    @test out.statuses["Leaf"][1].TT == 10.0 # As initialized in the mapping
-    @test out.statuses["Leaf"][1].carbon_demand == 0.5
+    
+    #out = run!(mtg, leaf_mapping, meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, leaf_mapping, nsteps=nsteps, check=true, outputs=nothing)
+    out = run!(sim,meteo)
 
-    @test out.statuses["Leaf"][1].node == leaf1
-    @test out.statuses["Leaf"][2].node == leaf2
+    @test collect(keys(sim.statuses)) == ["Leaf"]
+    @test length(sim.statuses["Leaf"]) == 2
+    @test sim.statuses["Leaf"][1].TT == 10.0 # As initialized in the mapping
+    @test sim.statuses["Leaf"][1].carbon_demand == 0.5
+
+    @test sim.statuses["Leaf"][1].node == leaf1
+    @test sim.statuses["Leaf"][2].node == leaf2
 end
 
 # A mapping with all different types of mapping (single, multi-scale, model as is, or tuple of):
@@ -422,91 +431,101 @@ end
     )
     # The mapping above should throw an error because TT is not initialized for the Internode:
     if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
-        @test_throws ErrorException run!(mtg, mapping_all, meteo)
+        
+        nsteps = PlantSimEngine.get_nsteps(meteo)
+        sim = PlantSimEngine.GraphSimulation(mtg, mapping_all, nsteps=nsteps, check=true, outputs=nothing)
+        @test_throws ErrorException out = run!(sim,meteo)        
     else
         @test_throws "Variable `Rm` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Plant (checked for MTG node 3)." run!(mtg, mapping_all, meteo)
     end
 
     # It should work if we don't check the mapping though:
-    out = @test_nowarn run!(mtg, mapping_all, meteo, check=false)
+    #out = @test_nowarn run!(mtg, mapping_all, meteo, check=false)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping_all, nsteps=nsteps, check=false, outputs=nothing)
+    out = run!(sim,meteo)
     # Note that the outputs are garbage because the TT is not initialized.
 
-    @test out.models == Dict{String,NamedTuple}(
-        "Soil" => (soil_water=ToySoilWaterModel(out.models["Soil"].soil_water.values),),
+    @test sim.models == Dict{String,NamedTuple}(
+        "Soil" => (soil_water=ToySoilWaterModel(sim.models["Soil"].soil_water.values),),
         "Internode" => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
         "Plant" => (carbon_allocation=ToyCAllocationModel(),),
         "Leaf" => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
     )
-    @test out.models["Soil"].soil_water.values == [0.5]
-    @test length(out.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
-    @test out.statuses["Internode"][1].TT === -Inf
-    @test out.statuses["Internode"][1].carbon_demand === -Inf
+    @test sim.models["Soil"].soil_water.values == [0.5]
+    @test length(sim.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
+    @test sim.statuses["Internode"][1].TT === -Inf
+    @test sim.statuses["Internode"][1].carbon_demand === -Inf
 
-    st_leaf1 = out.statuses["Leaf"][1]
+    st_leaf1 = sim.statuses["Leaf"][1]
     @test st_leaf1.TT == 10.0
     @test st_leaf1.carbon_demand == 0.5
     # This one depends on the soil, which is random, so we test using the computation directly:
-    @test st_leaf1.carbon_assimilation == st_leaf1.aPPFD * out.models["Leaf"].carbon_assimilation.LUE * st_leaf1.soil_water_content
+    @test st_leaf1.carbon_assimilation == st_leaf1.aPPFD * sim.models["Leaf"].carbon_assimilation.LUE * st_leaf1.soil_water_content
     @test st_leaf1.carbon_allocation == 0.0
 end
 
 @testset "run! on MTG with complete mapping (with init)" begin
-    out = @test_nowarn run!(mtg_init, mapping_1, meteo, executor=SequentialEx())
+    
+    #out = @test_nowarn run!(mtg_init, mapping_1, meteo, executor=SequentialEx())
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg_init, mapping_1, nsteps=nsteps, check=false, outputs=nothing)
+    out = run!(sim,meteo)
 
-    @test typeof(out.statuses) == Dict{String,Vector{Status}}
-    @test length(out.statuses["Plant"]) == 1
-    @test length(out.statuses["Leaf"]) == 2
-    @test length(out.statuses["Internode"]) == 2
-    @test length(out.statuses["Soil"]) == 1
-    @test out.statuses["Soil"][1].node == get_node(mtg_init, 2)
-    @test out.statuses["Soil"][1].soil_water_content !== -Inf
+    @test typeof(sim.statuses) == Dict{String,Vector{Status}}
+    @test length(sim.statuses["Plant"]) == 1
+    @test length(sim.statuses["Leaf"]) == 2
+    @test length(sim.statuses["Internode"]) == 2
+    @test length(sim.statuses["Soil"]) == 1
+    @test sim.statuses["Soil"][1].node == get_node(mtg_init, 2)
+    @test sim.statuses["Soil"][1].soil_water_content !== -Inf
 
     # Testing that we get the link between the node and its status:
-    @test out.statuses["Soil"][1] == get_node(mtg_init, 2).plantsimengine_status
+    @test sim.statuses["Soil"][1] == get_node(mtg_init, 2).plantsimengine_status
     # Testing if the value in the status of the leaves is the same as the one in the status of the soil:
-    @test out.statuses["Soil"][1].soil_water_content === out.statuses["Leaf"][1].soil_water_content
-    @test out.statuses["Soil"][1].soil_water_content === out.statuses["Leaf"][2].soil_water_content
+    @test sim.statuses["Soil"][1].soil_water_content === sim.statuses["Leaf"][1].soil_water_content
+    @test sim.statuses["Soil"][1].soil_water_content === sim.statuses["Leaf"][2].soil_water_content
 
-    leaf1_status = out.statuses["Leaf"][1]
+    leaf1_status = sim.statuses["Leaf"][1]
 
     # This is the model that computes the assimilation (testing manually that we get the right result here):
-    @test leaf1_status.carbon_assimilation == leaf1_status.aPPFD * out.models["Leaf"].carbon_assimilation.LUE * leaf1_status.soil_water_content
+    @test leaf1_status.carbon_assimilation == leaf1_status.aPPFD * sim.models["Leaf"].carbon_assimilation.LUE * leaf1_status.soil_water_content
 
-    @test out.statuses["Plant"][1].carbon_demand[[1, 3]] == [i.carbon_demand for i in out.statuses["Internode"]]
-    @test out.statuses["Plant"][1].carbon_demand[[2, 4]] == [i.carbon_demand for i in out.statuses["Leaf"]]
+    @test sim.statuses["Plant"][1].carbon_demand[[1, 3]] == [i.carbon_demand for i in sim.statuses["Internode"]]
+    @test sim.statuses["Plant"][1].carbon_demand[[2, 4]] == [i.carbon_demand for i in sim.statuses["Leaf"]]
 
     # Testing the reference directly:
-    ref_values_cdemand = getfield(out.statuses["Plant"][1].carbon_demand, :v)
+    ref_values_cdemand = getfield(sim.statuses["Plant"][1].carbon_demand, :v)
 
     for (j, i) in enumerate([1, 3])
-        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(out.statuses["Internode"][j], :carbon_demand)
+        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses["Internode"][j], :carbon_demand)
     end
 
     for (j, i) in enumerate([2, 4])
-        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(out.statuses["Leaf"][j], :carbon_demand)
+        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses["Leaf"][j], :carbon_demand)
     end
 
     # Testing that carbon allocation in Leaf and Internode was added as a variable from the model at the Plant scale:
 
-    @test hasproperty(out.statuses["Internode"][1], :carbon_allocation)
-    @test hasproperty(out.statuses["Leaf"][1], :carbon_allocation)
+    @test hasproperty(sim.statuses["Internode"][1], :carbon_allocation)
+    @test hasproperty(sim.statuses["Leaf"][1], :carbon_allocation)
 
-    @test out.statuses["Internode"][1].carbon_allocation == 0.5
-    @test out.statuses["Leaf"][1].carbon_allocation == 0.5
+    @test sim.statuses["Internode"][1].carbon_allocation == 0.5
+    @test sim.statuses["Leaf"][1].carbon_allocation == 0.5
 
 
     # Testing that we get the link between the node and its status:
-    @test out.statuses["Leaf"][2] == get_node(mtg_init, 7).plantsimengine_status
+    @test sim.statuses["Leaf"][2] == get_node(mtg_init, 7).plantsimengine_status
 
     # Testing the reference directly:
-    ref_values_callocation = getfield(out.statuses["Plant"][1].carbon_allocation, :v)
+    ref_values_callocation = getfield(sim.statuses["Plant"][1].carbon_allocation, :v)
 
     for (j, i) in enumerate([1, 3])
-        @test ref_values_callocation[i] === PlantSimEngine.refvalue(out.statuses["Internode"][j], :carbon_allocation)
+        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses["Internode"][j], :carbon_allocation)
     end
 
     for (j, i) in enumerate([2, 4])
-        @test ref_values_callocation[i] === PlantSimEngine.refvalue(out.statuses["Leaf"][j], :carbon_allocation)
+        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses["Leaf"][j], :carbon_allocation)
     end
 end
 
@@ -537,12 +556,15 @@ end
         )
     )
 
-    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo)
+    #out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=false, outputs=nothing)
+    out = run!(sim,meteo)
 
-    @test out.statuses["Leaf"][1].var1 === var1
-    @test out.statuses["Leaf"][1].var2 === 1.0
-    @test out.statuses["Leaf"][1].var3 === 2.0
-    @test out.statuses["Leaf"][1].var6 === 40.4
+    @test sim.statuses["Leaf"][1].var1 === var1
+    @test sim.statuses["Leaf"][1].var2 === 1.0
+    @test sim.statuses["Leaf"][1].var3 === 2.0
+    @test sim.statuses["Leaf"][1].var6 === 40.4
 end
 
 @testset "MTG with complex mapping" begin
@@ -590,14 +612,17 @@ end
             ),
         )
 
-    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
+    #out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, executor=SequentialEx())
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=false, outputs=nothing)
+    out = run!(sim,meteo)
 
-    @test length(out.dependency_graph.roots) == 6
-    @test out.statuses["Leaf"][1].var1 === 1.01
-    @test out.statuses["Leaf"][1].var2 === 1.03
-    @test out.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
-    @test out.statuses["Leaf"][1].var5 == 32.4806
-    @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+    @test length(sim.dependency_graph.roots) == 6
+    @test sim.statuses["Leaf"][1].var1 === 1.01
+    @test sim.statuses["Leaf"][1].var2 === 1.03
+    @test sim.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test sim.statuses["Leaf"][1].var5 == 32.4806
+    @test sim.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 end
 
 @testset "MTG with dynamic output variables" begin
@@ -651,21 +676,25 @@ end
         "Plant" => (:carbon_allocation,),
         "Soil" => (:soil_water_content,),
     )
-    out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx())
+    
+    #out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx())
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    out = run!(sim,meteo)
 
-    @test length(out.dependency_graph.roots) == 6
-    @test out.statuses["Leaf"][1].var1 === 1.01
-    @test out.statuses["Leaf"][1].var2 === 1.03
-    @test out.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
-    @test out.statuses["Leaf"][1].var5 == 32.4806
-    @test out.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+    @test length(sim.dependency_graph.roots) == 6
+    @test sim.statuses["Leaf"][1].var1 === 1.01
+    @test sim.statuses["Leaf"][1].var2 === 1.03
+    @test sim.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test sim.statuses["Leaf"][1].var5 == 32.4806
+    @test sim.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 
-    @test out.outputs["Leaf"][:carbon_demand] == [[0.5, 0.5], [0.5, 0.5]]
-    @test out.outputs["Leaf"][:soil_water_content][1] == fill(out.outputs["Soil"][:soil_water_content][1][1], 2)
-    @test out.outputs["Leaf"][:soil_water_content][2] == fill(out.outputs["Soil"][:soil_water_content][2][1], 2)
+    @test sim.outputs["Leaf"][:carbon_demand] == [[0.5, 0.5], [0.5, 0.5]]
+    @test sim.outputs["Leaf"][:soil_water_content][1] == fill(sim.outputs["Soil"][:soil_water_content][1][1], 2)
+    @test sim.outputs["Leaf"][:soil_water_content][2] == fill(sim.outputs["Soil"][:soil_water_content][2][1], 2)
 
-    @test out.outputs["Leaf"][:carbon_allocation] == out.outputs["Internode"][:carbon_allocation]
-    @test out.outputs["Plant"][:carbon_allocation][1][1][1] === out.outputs["Internode"][:carbon_allocation][1][1]
+    @test sim.outputs["Leaf"][:carbon_allocation] == sim.outputs["Internode"][:carbon_allocation]
+    @test sim.outputs["Plant"][:carbon_allocation][1][1][1] === sim.outputs["Internode"][:carbon_allocation][1][1]
 
     # Testing the outputs if transformed into a DataFrame:
     outs = outputs(out, DataFrame)

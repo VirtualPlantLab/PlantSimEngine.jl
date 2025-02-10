@@ -111,6 +111,18 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 """
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
     outs_ = Dict{String,Vector{Symbol}}()
+    
+    # default behaviour : track everything
+    if isnothing(outs)
+        for organ in keys(statuses)
+            outs_[organ] = keys(statuses_template[organ])
+        end
+    # No outputs requested by user : just return the timestep and node
+    elseif length(outs) == 0
+        for i in keys(statuses)
+            outs_[i] = []
+        end
+    end
     for i in keys(outs) # i = "Plant"
         @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
         outs_[i] = [outs[i]...]
@@ -201,6 +213,11 @@ from the `status(object)` in the `outputs(object)`.
 """
 function save_results!(object::GraphSimulation, i)
     outs = outputs(object)
+
+    if length(outs) == 0
+        return
+    end
+
     statuses = status(object)
 
     for (organ, vars) in outs
@@ -218,13 +235,15 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
 
     out_keys_requested = Symbol[]
     if !isnothing(outs)
+        if length(outs) == 0 # no outputs desired, for some reason
+            return NamedTuple()
+        end
         out_keys_requested = Symbol[outs...]
     end
     out_vars_requested = NamedTuple()
 
     # default implicit behaviour, track everything
     if isempty(out_keys_requested)
-        #m.outputs = (keys(copy(status(m)))...)
         out_vars_requested = out_vars_all
     else
         unexpected_outputs = setdiff(out_keys_requested, status_keys(status(m)))
@@ -243,12 +262,7 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
                 [delete!(unexpected_outputs, i) for i in unexpected_outputs]
             end
         end    
-        
-        # get the default values from the tuple with all vars obtained from the modellist
-        #[out_vars_requested = (i => out_vars_all[i], out_vars_requested...) for i in out_keys_requested]
-        #for i in out_keys_requested
-        #    merge(out_vars_requested, (i => out_vars_all[i],))
-        #end
+
         out_defaults_requested = (out_vars_all[i] for i in out_keys_requested)
         out_vars_requested = (;zip(out_keys_requested, out_defaults_requested)...)
     end
@@ -258,6 +272,9 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
 end
 
 function save_results!(status_flattened::Status, outputs, i)
+    if length(outputs) == 0 
+        return 
+    end
     outs = outputs[i]
     
     for var in keys(outs)

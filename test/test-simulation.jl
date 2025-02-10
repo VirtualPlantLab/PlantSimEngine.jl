@@ -173,7 +173,6 @@ end;
         ]
     end
 
-    #TODO
     @testset "simulation with a dict of objects" begin
         outputs_vector = run!(Dict("mod1" => models, "mod2" => models2), meteo)
         @test [[outputs_vector["mod1"][1][i], outputs_vector["mod1"][2][i]] for i in keys(outputs_vector["mod1"])] == [
@@ -212,10 +211,85 @@ end;
 
     leaf[:var1] = 15.0
 
-    out = @test_nowarn run!(mtg, mapping, meteo)
+    #out = @test_nowarn run!(mtg, mapping, meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true)
+    out = @test_nowarn run!(sim,meteo)
 
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [out.statuses["Leaf"][1][i] for i in vars] == [
+    @test [sim.statuses["Leaf"][1][i] for i in vars] == [
         22.0, 61.4, 39.4, 15.0, 0.3, 5.5
     ]
 end;
+
+
+@testset "Meteo+ModelList/mapping+outputs combos either valid or different status vector size vs meteo length either run successfully or return a DimensionMisMatch" begin
+    
+    meteos = get_simple_meteo_bank()
+    modellists, status_tuples, outputs_tuples_vectors = get_modellist_bank()
+
+    for i in 1:length(modellists)
+#       i = 3
+        modellist = modellists[i]
+        status_tuple = status_tuples[i]
+        outs_vector = outputs_tuples_vectors[i]
+
+        for j in 1:length(meteos)
+#        j = 1
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+#            k = 7
+                out_tuple = outs_vector[k]                
+                @test try outs_modellist = run!(modellist, meteo; tracked_outputs=out_tuple)
+                    true
+                catch e
+                    print(i," ", j, " ", k)
+                    println()
+                    if isa(e, DimensionMismatch)
+                        true
+                    elseif isa(e, ErrorException)
+                        showerror(stdout, e)
+                        false
+                    else
+                        showerror(stdout, e)
+                        false
+                    end
+                end
+            end
+        end
+    end
+
+    mtgs, mappings, outs_tuples_vectors_mappings = get_simple_mapping_bank()
+
+    for i in 1:length(mappings)
+#        i = 1
+        mapping = mappings[i]
+        outs_vector = outs_tuples_vectors_mappings[i]
+
+        for j in 1:length(meteos)
+#            j = 1
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+#                k = 4
+                out_tuple = outs_vector[k]
+               
+                mtg = deepcopy(mtgs[i])
+                try 
+                    outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple)
+                    @test true                                       
+                catch e
+                    print(i," ", j, " ", k)
+                    println()                    
+                    if isa(e, DimensionMismatch)
+                        @test true
+                    #elseif isa(e, ErrorException)  
+                    else
+                        #@enter outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple) 
+                        showerror(stdout, e)
+                        @test false
+                    end
+                end
+            end
+        end
+    end
+end

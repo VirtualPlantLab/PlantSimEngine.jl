@@ -87,8 +87,14 @@ julia> (models[:var4],models[:var6])
 run!
 
 function adjust_weather_timesteps_to_status_length(st::Status, meteo)
+    # This isn't ideal in terms of codeflow, but check_dimensions will kick in later
+    # And determine whether there is a status vector length discrepancy
     status_timesteps_len = get_status_vector_max_length(st)
     meteo_adjusted = meteo
+
+    if DataFormat(meteo_adjusted) == TableAlike()
+        return Tables.rows(meteo_adjusted)
+    end
 
     if isnothing(meteo)
         meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], status_timesteps_len))
@@ -98,24 +104,19 @@ function adjust_weather_timesteps_to_status_length(st::Status, meteo)
         end
     end
 
-    if DataFormat(meteo_adjusted) == TableAlike()
-        return Tables.rows(meteo_adjusted)
-    end
     return meteo_adjusted
 end
 
 
-# Managing one or several objects, one or several time-steps:
-
-# User entry point, which uses traits
-# to dispatch to the correct method. The traits are defined in table_traits.jl
+# User entry point, which uses traits to dispatch to the correct method. 
+# The traits are defined in table_traits.jl
 # and define either TableAlike, TreeAlike or SingletonAlike objects. 
 function run!(
     object,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )
@@ -125,11 +126,15 @@ function run!(
         meteo,
         constants,
         extra;
-        outputs,
+        tracked_outputs,
         check,
         executor
     )
 end
+
+##########################################################################################
+## ModelList (single-scale) simulations
+##########################################################################################
 
 # 1- several ModelList objects and several time-steps
 function run!(
@@ -138,7 +143,7 @@ function run!(
     meteo::TimeStepTable{A},
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray,AbstractDict},A}
@@ -149,30 +154,30 @@ function run!(
         ) maxlog = 1
     end
 
-    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(outputs)}}}
+    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(tracked_outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(tracked_outputs)}}}
 
     # Each object:
     for obj in object
 
         if isa(object, AbstractArray) 
-            push!(outputs_collection, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, outputs=outputs, check=check, executor=executor)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
         end
 
     end
     return outputs_collection
 end
 
-# 2 - one object, one or multiple meteo time-step(s), with vectors provided in the status
-# Meaning a single meteo timestep might be expanded to fit the status vector size
+# 2 - One object, one or multiple meteo time-step(s), with vectors provided in the status
+# (meaning a single meteo timestep might be expanded to fit the status vector size)
 function run!(
     ::SingletonAlike,
     object::T,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
@@ -205,7 +210,7 @@ function run!(
         ) maxlog = 1
     end
 
-    outputs_preallocated = pre_allocate_outputs(object, outputs, nsteps)
+    outputs_preallocated = pre_allocate_outputs(object, tracked_outputs, nsteps)
     status_flattened, vector_variables = flatten_status(object.status)
 
     # Not parallelizable over time-steps, it means some values depend on the previous value.
@@ -213,12 +218,12 @@ function run!(
     # the variables the user provided for all time-steps.
     roots = collect(dep_graph.roots)
 
-    if nsteps == 1
+    #=if nsteps == 1
         for (process, node) in roots
             run_node!(object, node, 1, status_flattened, meteo_adjusted, constants, extra)
         end        
         save_results!(status_flattened, outputs_preallocated, 1)
-    else
+    else=#
 
         for (i, meteo_i) in enumerate(meteo_adjusted)
             for (process, node) in roots
@@ -227,7 +232,7 @@ function run!(
             save_results!(status_flattened, outputs_preallocated, i)
             i + 1 <= nsteps && update_vector_variables(object.status, status_flattened, vector_variables, i + 1)
         end
-    end
+    #end
     
     return outputs_preallocated
    #=else
@@ -242,14 +247,14 @@ function run!(
     end=#
 end
 
-# 5- several objects and one meteo time-step
+# 3- several objects and one meteo time-step
 function run!(
     ::TableAlike,
     object::T,
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 ) where {T<:Union{AbstractArray, AbstractDict}}
@@ -280,14 +285,14 @@ function run!(
         end
     end
 
-    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(outputs)}}}
+    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(tracked_outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(tracked_outputs)}}}
 
     # Each object:
     for obj in object
         if isa(object, AbstractArray) 
-            push!(outputs_collection, run!(obj, meteo, constants, extra, outputs=outputs, check=check, executor=executor))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, outputs=outputs, check=check, executor=executor)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
         end
 
     end
@@ -296,7 +301,8 @@ end
 
 
 
-# for each dependency node in the graph (always one time-step, one object), actual workhorse:
+# Not exposed to the user : 
+# for each dependency node in the graph (always one time-step, one object), actual workhorse
 function run_node!(
     object::T,
     node::SoftDependencyNode,
@@ -327,10 +333,13 @@ function run_node!(
 end
 
 
-# Compatibility with MTG:
+##########################################################################################
+### Multiscale simulations
+##########################################################################################
 
+# Another user entry point
 # If we pass an MTG and a mapping, then we use them to compute a GraphSimulation object 
-# that we use with the first method in this file.
+# that we then use with the generic run! entry point.
 function run!(
     object::MultiScaleTreeGraph.Node,
     mapping::Dict{String,T} where {T},
@@ -338,7 +347,7 @@ function run!(
     constants=PlantMeteo.Constants(),
     extra=nothing;
     nsteps=nothing,
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )
@@ -349,7 +358,7 @@ function run!(
         meteo_adjusted = Weather([meteo])
     end
 
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=outputs)
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs)
     run!(
         sim,
         meteo_adjusted,
@@ -359,7 +368,7 @@ function run!(
         executor=executor
     )
 
-    return sim
+    return outputs(sim)
 end
 
 function run!(
@@ -368,7 +377,7 @@ function run!(
     meteo,
     constants=PlantMeteo.Constants(),
     extra=nothing;
-    outputs=nothing,
+    tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
 )
@@ -382,16 +391,17 @@ function run!(
     for (i, meteo_i) in enumerate(Tables.rows(meteo))
        roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            # Note: parallelization over objects is handled by the run! method below
             run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
         end
         # At the end of the time-step, we save the results of the simulation in the object:
         save_results!(object, i)
     end
+
+    return outputs(object)
 end
 
 
-# For a tree-alike object:
+# Function that runs on dependency graph nodes, actual workhorse : 
 function run_node_multiscale!(
     object::T,
     node::SoftDependencyNode,
@@ -413,16 +423,6 @@ function run_node_multiscale!(
 
     node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
     models_at_scale = models[node.scale]
-
-    # Check if the simulation can be parallelized over objects:
-    #TODO: move this check up in the call stack so we check only once per time-step
-    if !last(object_parallelizable(node)) && executor != SequentialEx()
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but the model $(node.value) (or its hard dependencies) cannot be run in parallel over objects.",
-            " The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-        ) maxlog = 1
-        executor = SequentialEx()
-    end
 
     for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
         # Actual call to the model:

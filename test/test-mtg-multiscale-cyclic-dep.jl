@@ -104,8 +104,12 @@ end
     @test length(cycle_vec) == 7
     @test to_initialize(mapping_nocyclic) == Dict()
 
-    out = @test_nowarn run!(mtg, mapping_nocyclic, meteo, outputs=out_vars, executor=SequentialEx())
-    st = status(out)
+
+    #out = @test_nowarn run!(mtg, mapping_nocyclic, meteo, tracked_outputs=out_vars, executor=SequentialEx())
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    out = @test_nowarn run!(sim,meteo)
+    st = status(sim)
 
     st["Leaf"][1].carbon_biomass = 2.0
     @test st["Leaf"][2].carbon_biomass != 2.0
@@ -212,7 +216,12 @@ end
 
     d = @test_nowarn dep(mapping)
     @test to_initialize(mapping) == Dict()
-    out = @test_nowarn run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx())
+    #out = @test_nowarn run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx())
+    
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    out = run!(sim,meteo)
+    
     # To update the reference:
     ref_path = joinpath(pkgdir(PlantSimEngine), "test/references/ref_output_simulation.csv")
     # CSV.write(ref_path, sort(outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))

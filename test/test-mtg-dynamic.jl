@@ -69,10 +69,13 @@ out_vars = Dict(
     "Soil" => (:soil_water_content,),
 )
 
-out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx())
+nsteps = PlantSimEngine.get_nsteps(meteo)
+sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+out = run!(sim,meteo)
+#out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx())
 
 @testset "MTG with dynamic growth" begin
-    st = out.statuses
+    st = sim.statuses
     @test length(mtg) == 9
     @test length(st["Scene"]) == length(st["Soil"]) == length(st["Plant"]) == 1
     @test length(st["Internode"]) == length(st["Leaf"]) == 3

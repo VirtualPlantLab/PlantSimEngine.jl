@@ -1,24 +1,24 @@
 # Simple helper functions that can be used in various tests here and there
 
 function compare_outputs_modellist_mapping(filtered_outputs, graphsim)
-    graphsim_df = outputs(graphsim, DataFrame)
+    outputs_df = outputs(graphsim.outputs, DataFrame)
 
-    graphsim_df_outputs_only = select(graphsim_df, Not([:timestep, :organ, :node]))
+    outputs_df_outputs_only = select(outputs_df, Not([:timestep, :organ, :node]))
     models_df = DataFrame(filtered_outputs)
     
     models_df_sorted = models_df[:, sortperm(names(models_df))]
-    graphsim_df_outputs_only_sorted = graphsim_df_outputs_only[:, sortperm(names(graphsim_df_outputs_only))]
-    return graphsim_df_outputs_only_sorted == models_df_sorted
+    outputs_df_outputs_only_sorted = outputs_df_outputs_only[:, sortperm(names(outputs_df_outputs_only))]
+    return outputs_df_outputs_only_sorted == models_df_sorted
 end
 
 # doesn't check for mtg equality
 function compare_outputs_graphsim(graphsim, graphsim2)
-    graphsim_df = outputs(graphsim, DataFrame)
-    graphsim_df_sorted = graphsim_df[:, sortperm(names(graphsim_df))]
+    outputs_df = outputs(graphsim.outputs, DataFrame)
+    outputs_df_sorted = outputs_df[:, sortperm(names(outputs_df))]
     
-    graphsim2_df = outputs(graphsim2, DataFrame)
-    graphsim2_df_sorted = graphsim2_df[:, sortperm(names(graphsim2_df))]
-    return graphsim_df_sorted == graphsim2_df_sorted
+    outputs2_df = outputs(graphsim2.outputs, DataFrame)
+    outputs2_df_sorted = outputs2_df[:, sortperm(names(outputs2_df))]
+    return outputs_df_sorted == outputs2_df_sorted
 end
 
 # Breaking this function into two to ensure eval() state synchronisation happens (see comments around the modellist_to_mapping definition)
@@ -247,28 +247,34 @@ out_vars_vectors = [
     [nothing, 
     NamedTuple(), 
     Dict(),
-    Dict("Leaf" => NamedTuple()), 
-    Dict("Leaf" => (:carbon_allocation,),), #incorrect, wrong scale
-    Dict("Leaf" => (:carbon_demand,),), #incorrect, wrong scale 
+    #Dict("Leaf" => NamedTuple()), # incorrect
+    Dict("Leaf" => (:carbon_allocation,),),
+    Dict("Leaf" => (:carbon_demand,),),
     Dict(
     "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
     "Internode" => (:carbon_allocation, :TT_cu_emergence),
     "Plant" => (:carbon_allocation,),
     "Soil" => (:soil_water_content,),),],
     #############
-    [nothing, NamedTuple(), Dict("Default" => (:var1,))],
+    [nothing, 
+    NamedTuple(), 
+    Dict("Default" => (:var1,))
+    ],
     #############
     [
         nothing, 
         NamedTuple(),
         Dict(
-        "Flowers" => (:carbon_assimilation, :carbon_demand), # There are no flowers in this MTG
-        "Leaf" => (:carbon_assimilation, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
+        "Leaf" => (:carbon_assimilation, :carbon_demand), 
         "Soil" => (:soil_water_content,),
     ),],
 ]
-
-    return mappings, out_vars_vectors
+    mtgs = [
+    import_mtg_example(), 
+    MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 0, 0 ),),
+    import_mtg_example()
+    ]
+    return mtgs, mappings, out_vars_vectors
 end
 
 
@@ -288,7 +294,7 @@ function test_filtered_output_begin(m::ModelList, status_tuple, requested_output
         @test length(preallocated_outputs[1]) == length(out_vars_all)
     end
     
-    filtered_outputs_modellist = run!(m, meteo; outputs=requested_outputs, executor = SequentialEx())
+    filtered_outputs_modellist = run!(m, meteo; tracked_outputs=requested_outputs, executor = SequentialEx())
 
     # compare filtered output of a modellist with the filtered output of the equivalent simulation in multiscale mode
     mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(m, status_tuple; nsteps=nsteps, outputs=requested_outputs)

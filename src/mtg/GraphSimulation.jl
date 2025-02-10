@@ -88,10 +88,9 @@ sim = run!(mtg, mapping, meteo, outputs = Dict(
 outputs(sim, DataFrames)
 ```
 """
-function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
+function outputs(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
 
-    outs = outputs(sim)
 
     variables_names_types = Iterators.flatten(collect(i.first => eltype(i.second[1]) for i in filter(x -> x.first != :node, vars)) for (organs, vars) in outs) |> collect
     variables_names_types_dict = Dict{Symbol,Any}()
@@ -113,6 +112,20 @@ function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
     variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
     var_names_all = keys(variables_names_types)
     t = NamedTuple{var_names_all,Tuple{values(variables_names_types)...}}[]
+    #=size_hint = 0
+    for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
+        var_names = setdiff(collect(keys(vars)), [:node])
+        if length(var_names) == 0
+            continue
+        end
+        steps_iterable = axes(vars[var_names[1]], 1)
+        for timestep in steps_iterable # timestep = 1
+            node_iterable = axes(vars[var_names[1]][timestep], 1)
+            size_hint+=length(node_iterable)
+        end
+    end
+
+    sizehint!(t, size_hint)=#
 
     for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
         var_names = setdiff(collect(keys(vars)), [:node])
@@ -142,10 +155,16 @@ function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
     return sink(t)
 end
 
-function outputs(sim::GraphSimulation, key::Symbol)
-    Tables.columns(outputs(sim, Vector{NamedTuple}))[key]
+function outputs(outs::Dict{String, O} where O, key::Symbol)
+    Tables.columns(outputs(outs, Vector{NamedTuple}))[key]
 end
 
-function outputs(sim::GraphSimulation, i::T) where {T<:Integer}
-    Tables.columns(outputs(sim, Vector{NamedTuple}))[i]
+function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
+    Tables.columns(outputs(outs, Vector{NamedTuple}))[i]
+end
+
+# ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
+function outputs(out::TimeStepTable{T} where T, sink)
+    @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
+    return sink(out)
 end
