@@ -496,3 +496,62 @@ end
   @test model_1.hard_dependency[2].parent == model_1
 
   end
+
+
+
+##########################
+## No outputs when simulating a mapping with one meteo timestep #105
+##########################
+
+@testset "Issue 105 : no outputs when simulating a mapping with one meteo timestep" begin
+
+    using PlantSimEngine, PlantMeteo, DataFrames
+    using PlantSimEngine.Examples
+    mtg = import_mtg_example()
+    m = Dict(
+        "Leaf" => (
+            Process1Model(1.0),
+            Status(var1=10.0, var2=1.0,)
+        )
+    )
+    vars = Dict{String,Any}("Leaf" => (:var1,))
+    out = run!(mtg, m, Atmosphere(T=20.0, Wind=1.0, Rh=0.65), outputs=vars, executor=SequentialEx())
+    df = outputs(out, DataFrame)
+    @test DataFrames.nrow(df) == 2
+end
+
+##########################
+## Multiscale : outputs not saved when dependency graph only has one depth level #111
+##########################
+
+# Probably very similar to #105
+@testset "Issue 111 : Multiscale : outputs not saved when dependency graph only has one depth level" begin
+
+    using Pkg
+    Pkg.develop("PlantSimEngine")
+    using PlantSimEngine
+    using PlantSimEngine.Examples
+    using MultiScaleTreeGraph
+
+    status2 = (var1=15.0, var2=0.3)
+
+    meteo = Weather([
+        Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
+        Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)])
+
+    outs = Dict("Default" => (:var1,))
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 0, 0),)
+
+    mapping = Dict(
+        "Default" => (
+            Process1Model(1.0),
+            Status(var1=15.0, var2=0.3,),
+        ),
+    )
+
+    sim = run!(mtg, mapping, meteo; outputs=outs)
+    using DataFrames
+    df = outputs(sim, DataFrame)
+    @test DataFrames.nrow(df) == PlantSimEngine.get_nsteps(meteo)
+
+end
