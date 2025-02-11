@@ -22,7 +22,7 @@ elseif Sys.islinux()
     suite_name = suite_name * "linux"
 end
 suite = BenchmarkGroup()
-suite[suite_name] = BenchmarkGroup(["PSE", "PBP"])#, "XPalm"])
+suite[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
 
 # "PSE benchmark"
 include("test-PSE-benchmark.jl")
@@ -37,8 +37,8 @@ suite[suite_name]["PBP_multiple_timesteps_MT"] = @benchmarkable benchmark_plantb
 suite[suite_name]["PBP_multiple_timesteps_ST"] = @benchmarkable benchmark_plantbiophysics_multitimestep_ST($leaf, $meteo)
 
 # "XPalm benchmark" 
-#include("test-xpalm.jl")
-#suite[suite_name]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
+include("test-xpalm.jl")
+suite[suite_name]["XPalm"] = @benchmarkable xpalm_default_param_run() seconds = 120
 
 tune!(suite)
 results = run(suite, verbose=true)
