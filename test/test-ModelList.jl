@@ -278,9 +278,13 @@ end=#
         #insert_errors = true
         #outs_vector = generate_output_tuple(all_vars, insert_errors)
 
-        for meteo in meteos
-            for out_tuple in outs_vector
-                meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_status_length(modellist.status, meteo)                             
+        for j in 1:length(meteos)
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+                out_tuple  = outs_vector[k]
+                #print(i, " ", j, " ", k)
+                meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_given_length(
+                    PlantSimEngine.get_status_vector_max_length(modellist.status) , meteo)                             
                 mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo_adjusted)
                 @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_adjusted, filtered_outputs_modellist)
             end

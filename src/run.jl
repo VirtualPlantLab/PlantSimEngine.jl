@@ -86,10 +86,12 @@ julia> (models[:var4],models[:var6])
 """
 run!
 
-function adjust_weather_timesteps_to_status_length(st::Status, meteo)
+
+
+function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     # This isn't ideal in terms of codeflow, but check_dimensions will kick in later
     # And determine whether there is a status vector length discrepancy
-    status_timesteps_len = get_status_vector_max_length(st)
+     
     meteo_adjusted = meteo
 
     if DataFormat(meteo_adjusted) == TableAlike()
@@ -97,10 +99,10 @@ function adjust_weather_timesteps_to_status_length(st::Status, meteo)
     end
 
     if isnothing(meteo)
-        meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], status_timesteps_len))
-    elseif get_nsteps(meteo) == 1
+        meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], desired_length))
+    elseif get_nsteps(meteo) == 1 && desired_length > 1
         if isa(meteo, Atmosphere)
-            meteo_adjusted = Weather(repeat([meteo], status_timesteps_len))
+            meteo_adjusted = Weather(repeat([meteo], desired_length))
         end
     end
 
@@ -182,7 +184,7 @@ function run!(
     executor=ThreadedEx()
 ) where {T<:ModelList}
     
-    meteo_adjusted = adjust_weather_timesteps_to_status_length(object.status, meteo)
+    meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
 
     dep_graph = dep(object, nsteps)
@@ -199,15 +201,17 @@ function run!(
         end
     end
 
-    #if !timestep_parallelizable(dep_graph)
-        if executor != SequentialEx()
-        is_ts_parallel = which_timestep_parallelizable(dep_graph)
-        mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
+    
+    if executor != SequentialEx()
+        if !timestep_parallelizable(dep_graph)
+            is_ts_parallel = which_timestep_parallelizable(dep_graph)
+            mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
 
-        check && @warn string(
-            "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
-            "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
-        ) maxlog = 1
+            check && @warn string(
+                "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
+                "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
+            ) maxlog = 1
+        end
     end
 
     outputs_preallocated = pre_allocate_outputs(object, tracked_outputs, nsteps)
@@ -218,12 +222,13 @@ function run!(
     # the variables the user provided for all time-steps.
     roots = collect(dep_graph.roots)
 
-    #=if nsteps == 1
+    # this bit is necessary for DataFrameRow meteos, see XPalm tests
+    if nsteps == 1
         for (process, node) in roots
             run_node!(object, node, 1, status_flattened, meteo_adjusted, constants, extra)
         end        
         save_results!(status_flattened, outputs_preallocated, 1)
-    else=#
+    else
 
         for (i, meteo_i) in enumerate(meteo_adjusted)
             for (process, node) in roots
@@ -232,7 +237,7 @@ function run!(
             save_results!(status_flattened, outputs_preallocated, i)
             i + 1 <= nsteps && update_vector_variables(object.status, status_flattened, vector_variables, i + 1)
         end
-    #end
+    end
     
     return outputs_preallocated
    #=else
@@ -352,12 +357,10 @@ function run!(
     executor=ThreadedEx()
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
+    meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
 
-    meteo_adjusted = meteo
-    if nsteps == 1
-        meteo_adjusted = Weather([meteo])
-    end
-
+    # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
+    # otherwise there might be vector length conflicts with timesteps
     sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs)
     run!(
         sim,
@@ -388,13 +391,24 @@ function run!(
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
-    for (i, meteo_i) in enumerate(Tables.rows(meteo))
-       roots = collect(dep_graph.roots)
+    nsteps = get_nsteps(meteo)
+
+    # if this function is called directly with an atmosphere, don't use the Rows interface
+    if nsteps == 1
+        roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
         end
-        # At the end of the time-step, we save the results of the simulation in the object:
-        save_results!(object, i)
+        save_results!(object, 1)
+    else
+        for (i, meteo_i) in enumerate(Tables.rows(meteo))
+            roots = collect(dep_graph.roots)
+            for (process_key, dependency_node) in roots
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
+            end
+            # At the end of the time-step, we save the results of the simulation in the object:
+            save_results!(object, i)
+        end
     end
 
     return outputs(object)

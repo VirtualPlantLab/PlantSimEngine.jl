@@ -30,7 +30,7 @@ function check_multiscale_simulation_is_equivalent_begin(models::ModelList, stat
 end
 
 function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
-    graph_sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=length(meteo), check=true, outputs=out)
+    graph_sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=PlantSimEngine.get_nsteps(meteo), check=true, outputs=out)
 
     sim = run!(graph_sim,
         meteo,

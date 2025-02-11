@@ -118,5 +118,5 @@ function do_benchmark_on_heavier_mtg()
         "Soil" => (:soil_water_content,),
     )
     
-    out = run!(mtg, mapping, meteo_day, outputs=out_vars, executor=SequentialEx());
+    out = run!(mtg, mapping, meteo_day, tracked_outputs=out_vars, executor=SequentialEx());
 end

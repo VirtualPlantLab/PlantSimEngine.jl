@@ -51,8 +51,8 @@ end;
     vars = keys(modellist_outputs)
     @test [modellist_outputs[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
 
-    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, Weather([meteo]))    
-    @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, Weather([meteo]))
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
+    @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
 end;
 
 @testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
