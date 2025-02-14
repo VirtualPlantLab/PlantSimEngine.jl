@@ -26,9 +26,16 @@ One current limitation of `PlantSimEngine` that can be occasionally awkward is t
 
 The reason being that it is usually impossible to automatically determine how the coupling is supposed to work out, when other dependencies latch onto such a model. The user would have to explicitely declare some order of simulation between several models, and some amount of programmer work would also be necessary to implement that extra API feature into `PlantSimEngine`.
 
-We haven't found an approach that was fully satisfactory from both a code simplicity and an API convenience POV. Especially when prototyping and adding in new models, as that might require redeclaring the simulation order for those specific variables. Ideas that came to mind felt like they might constrain the codebase for a more complex API, without enough benefit to justify it.
+We haven't found an approach that was fully satisfactory from both a code simplicity and an API convenience POV. Especially when prototyping and adding in new models, as that might require redeclaring the simulation order for those specific variables.
 
-The current workaround, while a little annoying, is very simple : *rename one of the variables*. It is not ideal, of course, as it means you might not be able to use a predefined model 'out of the box', but it does not have any of the tradeoffs and constrained mentioned above.
+There are two workarounds : 
+
+One awkward approach is to rename one of the variables. It is not ideal, of course, as it means you might not be able to use a predefined model 'out of the box', but it does not have any of the tradeoffs and constrained mentioned above.
+
+In many other situations one can work with what PlantSimEngine already provides.
+
+For example, one model in [XPalm.jl](TODO) handles leaf pruning, affecting biomass. A straightforward implementation would be to have a `leaf_biomass` variable as both input and output. The workaround is to instead output a variable `leaf_biomass_pruning_loss` and to have that as input in the next timestep to compute the new leaf biomass.
+TODO example
 
 ## Passing in a vector in a mapping status at a specific scale
 
@@ -56,3 +63,7 @@ It will parse your mapping, generate custom models to store and feed the vector 
     Replacing it with Vector(cumsum(meteo_day.TT)) will provide an adequate type.
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
+
+TODO examples of other ad hoc models
+TODO state machines ?
+TODO workaround status initialisation bug ?

@@ -1,0 +1,92 @@
+# Key Concepts
+
+You'll find a brief description of some of the main concepts and terminology related to and used in PlantSimEngine. 
+
+## Crop models
+
+## FSPM
+
+## PlantSimEngine terminology
+
+### Processes
+
+A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
+
+## Models
+
+Models are then implemented for a particular process. 
+
+There may be different models that can be used for the same process ; for instance, there are multiple hypotheses and ways of modeling photosynthesis, with different granularity and accuracy. A simple photosynthesis model might apply a simple formula and apply it to the total leaf surface, a more complex one might calculate interception and light extinction. 
+
+The companion package PlantBiophysics.jl provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example 
+script in this package too at [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl).
+
+Models can also be used for ad hoc computations that aren't directly tied to a specific literature-defined physiological process. In PlantSimEngine, everything is a model. There are many instances where a custom model might be practical to aggregate some computations or handle other information. To illustrate, XPalm, the Oil Palm model has a few models that handle the state of different organs, and a mdoel to handle leaf pruning, which you can find [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl).
+
+To prepare a simulation, you declare a ModelList with whatever models you wish to make use of. TODO example For multi-scale simulations, a more involved mapping is required, see below. TODO
+
+### Variables, inputs, outputs, and simple model coupling
+
+A model used in a simulation requires some input data and parameters, and will compute some other data which may be used by other models. 
+Depending on what models are combined in a simulation, some variables may be inputs of some models, outputs of other models, only be part of intermediary computations, or be a user input to the whole simulation.
+
+TODO exemple avec 2-3 modèles
+
+TODO image de graphe illustrant un couplage
+
+### Dependency graphs
+
+Coupling models together in this fashion creates what is known as a Directed Acyclic Graph or DAG. The order in which models are run is determined by the ordering of these models in that graph.
+
+TODO image
+
+PlantSimEngine creates this DAG under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them.
+
+### 'Hard' dependencies
+
+### Process and Model implementation ? TODO
+
+### Weather data
+
+To run a simulation, we usually need the climatic/meteorological conditions measured close to the object or component.
+
+Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.TimeStepTable).
+
+The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed, m s⁻¹). 
+
+In the example below, we also pass in the -optional- incoming photosynthetically active radiation flux (`Ri_PAR_f`, W m⁻²). We can declare such conditions like so:
+
+```@example usepkg
+using PlantMeteo
+meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
+```
+
+More details are available from the [package documentation](https://vezy.github.io/PlantMeteo.jl/stable). If you do not wish to make use of this package, you can alternately provide your own data, as long as it respects the [Tables.jl interface](https://tables.juliadata.org/stable/#Implementing-the-Interface-(i.e.-becoming-a-Tables.jl-source)).
+
+If you wish to make use of more fine-grained weather data, it will likely require more advanced model creation and MTG manipulation, and more involved work on the modeling side. TODO
+
+### Organ/Scale
+
+Plants have different organs with distinct physiological properties and processes. When doing more fine-grained simulations of plant growth, many models will be tied to a particular organ of a plant. Models handling flowering state or root water absorption are such examples. Others, such as carbon allocation and demand, might be reused in slightly different ways for multiple organs of the plant.
+
+PlantSimEngine documentation tends to use the terms "organ" and "scale" mostly interchangeably. "Scale" is a bit more general and accurate, since some models might not operate at a specific organ level, but (for example) at the scene level, so a "Scene" scale might be present in the MTG, and in the user-provided data.
+
+### Mapping, multiscale simulations
+
+When running multi-scale simulations which contain models operating at different organ levels for the plant, extra information needs to be provided by the user to run models. Since some models are reused at different organ levels, it is necessary to indicate which organ level a model operates at.
+
+This is why multi-scale simulations make use of a 'mapping' : the ModelList in the single-scale examples does not have a way to tie models to plant organs,and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, e.g. if an input variable comes from another scale TODO example, it is required to indicate which scale it is mapped from.
+
+### Multi-scale Tree Graphs
+
+Multi-scale Tree Graphs (MTG) are a data structure used to represent plants. A more detailed introduction to the format and its attributes can be found [in the MultiScaleTreeGraph.jl package documentation](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/).
+
+Multi-scale simulations can operate on MTG objects ; new nodes are added corresponding to new organs created during the plant's growth.
+
+Another companion package, [PlantGeom.jl](https://github.com/VEZY/PlantGeom.jl), can also create MTG objects from .opf files (corresponding to the [Open Plant Format](https://amap-dev.cirad.fr/projects/xplo/wiki/The_opf_format_(*opf)), an alternate means of describing plants computationally).
+
+TODO example ?
+TODO image ?
+TODO lien avec AMAP ?
+
+### State machines
