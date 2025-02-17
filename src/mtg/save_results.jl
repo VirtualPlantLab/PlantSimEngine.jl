@@ -115,19 +115,19 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     # default behaviour : track everything
     if isnothing(outs)
         for organ in keys(statuses)
-            outs_[organ] = keys(statuses_template[organ])
+            outs_[organ] = [keys(statuses_template[organ])...]
         end
-    # No outputs requested by user : just return the timestep and node
+        # No outputs requested by user : just return the timestep and node
     elseif length(outs) == 0
         for i in keys(statuses)
             outs_[i] = []
         end
+    else
+        for i in keys(outs) # i = "Plant"
+            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
+            outs_[i] = [outs[i]...]
+        end
     end
-    for i in keys(outs) # i = "Plant"
-        @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
-        outs_[i] = [outs[i]...]
-    end
-
     statuses_ = copy(statuses_template)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -202,7 +202,6 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     # without the reference types, e.g. RefVector{Float64} becomes Vector{Float64}.
 end
 
-pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, ::Nothing, nsteps; type_promotion=nothing, check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
 
 """
     save_results!(object::GraphSimulation, i)
