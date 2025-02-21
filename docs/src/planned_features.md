@@ -30,6 +30,4 @@ iteratively build and validate mappings and modellists ?
 documenting FP errors, more examples for fitting/type conversion/error propagation
 Improve multiscale dependency API ?
 
-other packages ?
-
-TODO credits ?
+other package planned features ?

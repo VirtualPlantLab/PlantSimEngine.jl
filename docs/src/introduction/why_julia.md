@@ -1,4 +1,6 @@
-PlantSimEngine is implemented in Julia. It arose from a particular combination of [needs and requirements](TODO), a combination which Julia seemed to fill adequately.
+# The choice of using Julia
+
+PlantSimEngine is implemented in Julia. It arose from a particular combination of [needs and requirements](why_plantsimengine.md), a combination which Julia seemed to fill adequately.
 
 Other modelling frameworks, FSPMs and crop models are -often- written in combinations of Java, C++, Python, or Fortran. Given that it isn't the language many researchers (and developers !) are most familiar with, this page provides a short explanation of the reasoning behind that language choice. It might not have been the only possible valid choice, of course.
 
@@ -24,7 +26,7 @@ Julia, with its 'Just-ahead-of-time' compilation model and its flexibility allow
 
 ### Flexibility, ease of use
 
-PlantSimEngine was also developed with a few goals in mind, one of them being to make hypothesis testing quite easy. It is currently difficult to validate FSPM, crop model or ecophysiological hypotheses because TODO
+PlantSimEngine was also developed with a few goals in mind, one of them being to make hypothesis testing quite easy. It is currently difficult to validate FSPM, crop model or ecophysiological hypotheses TODO
 
 Similarly, when developing a full-featured FSPM, there might be a need to test different models for a specific process, or to switch a model for a more complex one. API and language ease of use is as much of a factor as automated model coupling in keeping these changes smooth.
 

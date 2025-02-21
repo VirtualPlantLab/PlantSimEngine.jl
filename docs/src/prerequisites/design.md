@@ -237,4 +237,4 @@ DataFrame(leaf)
 
 A model can work either independently or in conjunction with other models. For example a stomatal conductance model is often associated with a photosynthesis model, *i.e.* it is called from the photosynthesis model.
 
-`PlantSimEngine.jl` is designed to make model coupling painless for modelers and users. Please see [Model coupling for users](@ref) and [Model coupling for modelers](@ref) for more details.
+`PlantSimEngine.jl` is designed to make model coupling painless for modelers and users. Please see [Standard model coupling](@ref) and [Coupling more complex models](@ref) for more details, or Multiscale coupling considerations TODO for multi-scale specific coupling considerations.

@@ -12,11 +12,11 @@ You'll find a brief description of some of the main concepts and terminology rel
 
 A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
 
-TODO link
+See [Implementing a new process](@ref) for a brief explanation on how to declare a new process.
 
 ## Models
 
-Models are then implemented for a particular process. TODO link
+Models are then implemented for a particular process. 
 
 There may be different models that can be used for the same process ; for instance, there are multiple hypotheses and ways of modeling photosynthesis, with different granularity and accuracy. A simple photosynthesis model might apply a simple formula and apply it to the total leaf surface, a more complex one might calculate interception and light extinction. 
 
@@ -44,7 +44,7 @@ TODO image
 
 PlantSimEngine creates this DAG under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them.
 
-### "Hard" and "Soft" dependencies
+### ["Hard" and "Soft" dependencies](@id hard_dependency_def)
 
 Linking models by finding which output variables are used as input of another model handles many of the coupling situations that can occur (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? If they need to iterate on some computation and pass variables back and forth ? 
 
@@ -77,7 +77,7 @@ meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 
 More details are available from the [package documentation](https://vezy.github.io/PlantMeteo.jl/stable). If you do not wish to make use of this package, you can alternately provide your own data, as long as it respects the [Tables.jl interface](https://tables.juliadata.org/stable/#Implementing-the-Interface-(i.e.-becoming-a-Tables.jl-source)).
 
-If you wish to make use of more fine-grained weather data, it will likely require more advanced model creation and MTG manipulation, and more involved work on the modeling side. TODO
+If you wish to make use of more fine-grained weather data, it will likely require more advanced model creation and MTG manipulation, and more involved work on the modeling side.∂
 
 ### Organ/Scale
 
@@ -93,7 +93,9 @@ For example, a model of photosynthesis at the leaf scale can be combined with a 
 
 When running multi-scale simulations which contain models operating at different organ levels for the plant, extra information needs to be provided by the user to run models. Since some models are reused at different organ levels, it is necessary to indicate which organ level a model operates at.
 
-This is why multi-scale simulations make use of a 'mapping' : the ModelList in the single-scale examples does not have a way to tie models to plant organs,and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, e.g. if an input variable comes from another scale TODO example, it is required to indicate which scale it is mapped from.
+This is why multi-scale simulations make use of a 'mapping' : the ModelList in the single-scale examples does not have a way to tie models to plant organs,and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, e.g. if an input variable comes from another scale, it is required to indicate which scale it is mapped from.
+
+TODO
 
 ### Multi-scale Tree Graphs
 

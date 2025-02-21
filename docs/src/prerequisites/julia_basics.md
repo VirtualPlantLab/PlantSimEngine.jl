@@ -1,6 +1,6 @@
 # Getting started with Julia
 
-PlantSimEngine (as well as its related packages) is written in Julia. The reasons why Julia was chosen are briefly discussed here TODO 
+PlantSimEngine (as well as its related packages) is written in Julia. The reasons why Julia was chosen are briefly discussed here : [The choice of using Julia](@ref).
 
 Julia is a language that is gaining traction, but it isn't the most widely used in research and data science. 
 

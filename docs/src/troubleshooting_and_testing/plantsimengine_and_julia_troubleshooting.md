@@ -6,6 +6,11 @@ To help people newer to Julia with troubleshooting, here are a few common 'easy-
 
 They are listed by 'nature of error', rather than by error message, so you may need to search the page to find your specific error.
 
+If you need more help to decode Julia errors, you can find help on the [Julia Discourse forums](https://discourse.julialang.org).
+If you need some advice on the FSPM side, the research community has [its own discourse forum](https://fspm.discourse.group).
+
+If the issue seems PlantSimEngine-related, or you have questions regarding modeling or have suggestions, you can also [file an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) on Github.
+
 ## Tips and workflow
 
 Some errors are very specific as to their cause, and the PlantSimEngine errors tend to be explicit about which parameter / variable / organ is causing the error, helping narrow down its origin.
@@ -29,9 +34,6 @@ If you wish to search for a specific error in the current page, copy the part of
 ```julia
 ERROR: MethodError: no method matching
 ```
-
-TODO forum, github
-TODO
 
 ## Common Julia errors
 

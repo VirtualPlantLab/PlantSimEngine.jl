@@ -10,8 +10,8 @@ In XPalm, weather data for most models is provided daily, meaning biomass calcul
 
 Many models are considered to be steady-state over that timeframe, but not all : the leaf pruning model pertubes the plant in a non-steady state fashion, for example. Models that require computations over several iterations to stabilise (often part of hard dependencies) might also have a timestep unrelated to the weather data.
 
-NOTE : TODO
-Implicitely, this means any vector variables given as input to the simulation must be consistent with the number of weather timesteps. Providing one weather value but a larger vector variable is an exception : the weather data is replicated over each timestep. (This may be subject to change in the future when support for different timesteps in a single simulation is implemented)
+!!! note
+    Implicitely, this means any vector variables given as input to the simulation must be consistent with the number of weather timesteps. Providing one weather value but a larger vector variable is an exception : the weather data is replicated over each timestep. (This may be subject to change in the future when support for different timesteps in a single simulation is implemented)
 
 ## Weather data must be interpolated prior to simulation
 
@@ -55,7 +55,7 @@ Model renaming and duplicating works around this assumption. It may change once 
 
 This rule avoids potential ambiguity which could then cause both problems in terms of model ordering during the simulation, as well as incorrectly coupling models with the wrong variable.
 
-A workaround for some situations is described here TODO
+A workaround for some of the situations where this occurs is described here : [Having a variable simultaneously as input and output of a model](@ref)
 
 ## TODO Organs missing in the MTG but declared in the mapping ?
 

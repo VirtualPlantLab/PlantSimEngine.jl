@@ -1,3 +1,4 @@
+# Visualizing outputs
 TODO example environment ?
 
 ## Output structure
@@ -62,7 +63,8 @@ lines!(ax2, model[:TT_cu], model[:aPPFD], color=:firebrick1)
 fig
 ```
 
-![LAI Growth and light interception](examples/LAI_growth2.png)
+TODO
+! LAI Growth and light interception ../examples/LAI_growth2.png
 
 ## TimeStepTables and DataFrames
 

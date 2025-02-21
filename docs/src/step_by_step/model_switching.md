@@ -70,7 +70,7 @@ output_initial = run!(models, meteo_day)
 
 Now what if we want to switch the model that computes growth ? We can do this by simply replacing the model in the `ModelList`, and PlantSimEngine will automatically update the dependency graph, and adapt the simulation to the new model.
 
-Let's switch `ToyRUEGrowthModel` by `ToyAssimGrowthModel`:
+Let's switch `ToyRUEGrowthModel` with `ToyAssimGrowthModel`:
 
 ```@example usepkg
 models2 = ModelList(
@@ -97,5 +97,5 @@ And that's it! We can switch between models without changing the code, and witho
     This was a very standard but easy example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will tell you that this kind of model is required for the simulation.
 
 !!! note
-    In our example we replaced a soft-dependency model, but the same principle applies to hard-dependency models. Hard and Soft dependencies are concepts explained in TODO
+    In our example we replaced a soft-dependency model, but the same principle applies to hard-dependency models. Hard and Soft dependencies are concepts explained [here](@ref hard_dependency_def) TODO remove this note ?
 

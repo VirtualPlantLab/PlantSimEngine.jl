@@ -1,5 +1,17 @@
-# Simple Model coupling
+# Standard model coupling
 
+```@setup usepkg
+using PlantSimEngine
+using PlantSimEngine.Examples
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+models = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2),
+    status=(TT_cu=cumsum(meteo_day.TT),),
+)
+nothing
+```
 ## ModelList
 
 The `ModelList` is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
@@ -90,7 +102,7 @@ And there you have it. The light interception model made its computations using 
 
 Of course, one can keep adding models. Here's an example ModelList with another model, `ToyRUEGrowthModel`, which computes the carbon biomass increment caused by photosynthesis.
 
-```@example usepkg
+```julia
 models = ModelList(
     ToyLAIModel(),
     Beer(0.5),
@@ -100,6 +112,3 @@ models = ModelList(
 
 nothing # hide
 ```
-
-!!! note
-    You'll notice a warning returned by `run!` here. If you read its content, you'll see it says that `ToyRUEGrowthModel` does not allow for parallel computations over time-steps. This is because it uses values from the previous time-steps in its computations. By default, `run!` makes the simulations in parallel, so to avoid the warning, you must explicitly tell it to use a sequential execution instead. To do so, you can use the `executor=SequentialEx()` keyword argument.

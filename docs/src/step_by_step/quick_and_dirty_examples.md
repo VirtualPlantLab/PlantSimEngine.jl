@@ -2,16 +2,16 @@
 
 This page is meant for people who have set up their environment and just want to copy-paste an example or two, see what the REPL returns and start tinkering. 
 
-If you are less comfortable with Julia, or need to set up an environment first, see this section TODO.
-If you wish for a more detailed rundown of the examples, you can instead have a look at the step by step section, which will go into more detail. TODO
+If you are less comfortable with Julia, or need to set up an environment first, see this page : [Getting started with Julia](@ref).
+If you wish for a more detailed rundown of the examples, you can instead have a look at the [step by step][#step_by_step] section, which will go into more detail.
 
-These examples are all for single-scale simulations. For multi-scale modelling and examples, refer to this section TODO
+These examples are all for single-scale simulations. For multi-scale modelling tutorials and examples, refer to [this section][#multiscale]
 
-You can find the implementaiton for these example models, as well as other toy models in TODO
+You can find the implementation for these example models, as well as other toy models [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
 
 ## Example with a single light interception model and a single weather timestep
 
-```@setup usepkg
+```julia
 using PlantSimEngine, PlantMeteo
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
@@ -23,7 +23,7 @@ out = run!(leaf, meteo)
 
 The weather data in this example contains data over 365 days, meaning the simulation will have as many timesteps.
 
-```@setup usepkg
+```julia
 using PlantSimEngine
 using PlantMeteo, CSV
 
@@ -43,7 +43,7 @@ outputs_coupled = run!(models, meteo_day)
 ## Coupling the light interception model with a Leaf Area Index model
 
 
-```@setup usepkg
+```julia
 using PlantSimEngine
 using PlantMeteo, CSV
 

@@ -58,7 +58,7 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeSt
 
 And that is all you need to get going, for this simple example with a single parameter and no interdependencies. 
 
-The `@process` macro does a few things under the hood described [here](TODO)
+The `@process` macro does some boilerplate work described [here](@ref under_the_hood)
 
 If you have more than one parameter, then type conversion utility functions might also be interesting to implement. See here TODO
 If you need to deal with more complex couplings, the hard dependency section will detail
@@ -86,7 +86,7 @@ In those files, you'll see that in order to implement a new model you'll need to
 - the actual model, developed as a method for the process it simulates
 - some helper functions used by the package and/or the users
 
-If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implement a new process](@ref)).
+If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implementing a new process](@ref)).
 
 In this page, we'll just implement a model for a process that already exists: the light interception. This process is defined in `PlantBiophysics.jl`, and also made available as an example model from the `Examples` sub-module. You can access the script from here: [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/Beer.jl).
 
@@ -109,7 +109,7 @@ We declare the light interception process at l.7 using [`@process`](@ref):
 @process "light_interception" verbose = false
 ```
 
-See [Implement a new process](@ref) for more details on how that works and how to use the process.
+See [Implementing a new process](@ref) for more details on how that works and how to use the process.
 
 ### The structure
 
@@ -226,22 +226,6 @@ end
 
 Note that both functions end with an "\_". This is because these functions are internal, they will not be called by the users directly. Users will use [`inputs`](@ref) and [`outputs`](@ref) instead, which call `inputs_` and `outputs_`, but stripping out the default values.
 
-### Dependencies
-
-If your model explicitly calls another model, you need to tell PlantSimEngine about it. This is called a hard dependency, in opposition to a soft dependency, which is when your model uses a variable from another model, but does not call it explicitly.
-
-To do so, we can add a method to the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run.
-
-Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
-
-```julia
-PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
-```
-
-Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
-
-You can read more about dependencies in [Model coupling for modelers](@ref) and [Model coupling for users](@ref).
-
 ### The utility functions
 
 Before running a simulation, you can do a little bit more for your implementation (optional).
@@ -325,3 +309,20 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeSt
     A model is parallelizable over objects if it does not call another model directly inside its code. Similarly, a model is parallelizable over time-steps if it does not get values from other time-steps directly inside its code. In practice, most of the models are parallelizable one way or another, but it is safer to assume they are not.
 
 OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue.
+
+
+### Dependencies
+
+If your model explicitly calls another model, you need to tell PlantSimEngine about it. This is called a hard dependency, in opposition to a soft dependency, which is when your model uses a variable from another model, but does not call it explicitly.
+
+To do so, we can add a method to the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run.
+
+Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
+
+```julia
+PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
+```
+
+Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
+
+You can read more about hard dependencies in [Coupling more complex models](@ref).

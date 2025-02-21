@@ -34,8 +34,7 @@ One awkward approach is to rename one of the variables. It is not ideal, of cour
 
 In many other situations one can work with what PlantSimEngine already provides.
 
-For example, one model in [XPalm.jl](TODO) handles leaf pruning, affecting biomass. A straightforward implementation would be to have a `leaf_biomass` variable as both input and output. The workaround is to instead output a variable `leaf_biomass_pruning_loss` and to have that as input in the next timestep to compute the new leaf biomass.
-TODO example
+For example, one model in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl) handles leaf pruning, affecting biomass. A straightforward implementation would be to have a `leaf_biomass` variable as both input and output. The workaround is to instead output a variable `leaf_biomass_pruning_loss` and to have that as input in the next timestep to compute the new leaf biomass.
 
 ## Passing in a vector in a mapping status at a specific scale
 

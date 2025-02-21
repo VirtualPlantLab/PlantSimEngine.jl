@@ -4,11 +4,11 @@ TODO change Toy To Example ?
 
 This section iteratively walks you through building a multi-scale simulation. 
 
-The actual plant being simulated, as well as some of the ad hoc processes, mostly have no physical meaning and are very much ad hoc (which is why they aren't part of the TODO examples folder). Similarly, some of the parameter values are pulled out of thin air, and have no ties to research papers or data.
+The actual plant being simulated, as well as some of the ad hoc processes, mostly have no physical meaning and are very much ad hoc (which is why most of them aren't standalone in the examples folder). Similarly, some of the parameter values are pulled out of thin air, and have no ties to research papers or data.
 
 The main purpose here is to showcase PlantSimEngine's multi-scale features and how to structure your models, not accuracy, realism or performance.
 
-You can find the full script for this simulation in TODO
+You can find the full script for this simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
 
 ## A basic growing plant
 
@@ -24,7 +24,7 @@ We'll make the assumption the internodes make use of carbon from a common pool. 
 
 One way of modeling this approach translates into several scales and models : 
 
-- Scene scale, for thermal time. The `ToyDegreeDaysCumulModel()` from the examples folder provides thermal time from temperature data *TODO
+- Scene scale, for thermal time. The `ToyDegreeDaysCumulModel()` [from the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl) provides thermal time from temperature data 
 - Plant scale, where we'll define the carbon pool
 - Internode scale, which draws from the pool to create new organs
 - Leaf scale, which captures carbon
@@ -92,7 +92,7 @@ end
 
 ### Organ creation
 
-This model is a modified version of the `ToyInternodeEmergence()` model found in the examples folder TODO. An internode produces two leaves and a new internode.
+This model is a modified version of the `ToyInternodeEmergence()` model found [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyInternodeEmergence.jl). An internode produces two leaves and a new internode.
 
 Let's first define a helper function that iterates across a Multiscale Tree Graph and returns the number of leaves :
 

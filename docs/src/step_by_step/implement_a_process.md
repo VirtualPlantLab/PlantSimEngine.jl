@@ -1,4 +1,4 @@
-# Implement a new process
+# Implementing a new process
 
 ```@setup usepkg
 using PlantSimEngine
@@ -30,11 +30,11 @@ And that's it! Note that the function guides you in the steps you can make after
 
 ## Implement a new model for the process
 
-Once process implementation is done, you can write a corresponding model implementation. The corresponding tutorial page can be found [here](TODO)
+Once process implementation is done, you can write a corresponding model implementation. A tutorial page showcasing a light interception model implementation can be found [here](@ref model_implementation_page)
 
 A full model implementation for this process is available in the example script [ToyAssimGrowthModel.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyAssimGrowthModel.jl).
 
-## Under the hood
+## [Under the hood](@id under_the_hood)
 
 The `@process` macro is just a shorthand reducing boilerplate.
 

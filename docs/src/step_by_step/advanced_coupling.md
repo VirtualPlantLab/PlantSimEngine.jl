@@ -16,7 +16,7 @@ m = ModelList(
 )
 ```
 
-When two or more models have a two-way interdependency (rather than variables flowing out only one-way from one model into the next), we describe it as a [hard dependency](TODO).
+When two or more models have a two-way interdependency (rather than variables flowing out only one-way from one model into the next), we describe it as a [hard dependency](@ref hard_dependency_def).
 
 This kind of interdependency requires a little more work from the user/modeler for PlantSimEngine to be able to automatically create the dependency graph.
 
