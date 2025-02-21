@@ -8,7 +8,62 @@ struct Beer{T} <: AbstractLight_InterceptionModel
 end
 ```
 
-## Introduction
+You'll probably want to move beyond simple usage at some point and implement your own models.
+
+## Quick version
+
+Declare a new process : 
+
+```julia
+@process "light_interception" verbose = false
+```
+
+Declare your model struct, and its parameters : 
+
+```@example usepkg
+struct Beer{T} <: AbstractLight_InterceptionModel
+    k::T
+end
+```
+
+Declare the `inputs_` and `outputs_` methods for that model (note the '_', these methods are distinct from `inputs` and `outputs`)
+
+```@example usepkg
+function PlantSimEngine.inputs_(::Beer)
+    (LAI=-Inf,)
+end
+
+function PlantSimEngine.outputs_(::Beer)
+    (aPPFD=-Inf,)
+end
+```
+
+Write the `run!` function that operates on a single timestep : 
+
+```@example usepkg
+function run!(::Beer, models, status, meteo, constants, extras)
+    status.PPFD =
+        meteo.Ri_PAR_f *
+        exp(-models.light_interception.k * status.LAI) *
+        constants.J_to_umol
+end
+```
+
+Determine if parallelization is possible, and which traits to declare :
+
+```@example usepkg
+PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
+```
+
+And that is all you need to get going, for this simple example with a single parameter and no interdependencies. 
+
+The `@process` macro does a few things under the hood described [here](TODO)
+
+If you have more than one parameter, then type conversion utility functions might also be interesting to implement. See here TODO
+If you need to deal with more complex couplings, the hard dependency section will detail
+
+## Detailed version
 
 `PlantSimEngine.jl` was designed to make new model implementation very simple. So let's learn about how to implement your own model with a simple example: implementing a new light interception model.
 

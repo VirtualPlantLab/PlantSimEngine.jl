@@ -17,7 +17,7 @@ model = ModelList(
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
-run!(model)
+out = run!(model)
 
 # Define the list of models for coupling:
 model2 = ModelList(
@@ -25,7 +25,7 @@ model2 = ModelList(
     Beer(0.6),
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
-run!(model2, meteo_day)
+out2 = run!(model2, meteo_day)
 
 ```
 
@@ -96,9 +96,7 @@ model = ModelList(
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
-run!(model) # run the model
-
-status(model) # extract the status, i.e. the output of the model
+out = run!(model) # run the model and extract its outputs
 ```
 
 > **Note**  
@@ -135,9 +133,7 @@ model2 = ModelList(
 )
 
 # Run the simulation:
-run!(model2, meteo_day)
-
-status(model2)
+out2 = run!(model2, meteo_day)
 ```
 
 The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
@@ -263,7 +259,7 @@ out_vars = Dict(
     "Soil" => (:soil_water_content,),
 )
 
-out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
+out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx());
 nothing # hide
 ```
 

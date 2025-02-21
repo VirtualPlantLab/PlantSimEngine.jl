@@ -64,7 +64,7 @@ The model can be implemented using `PlantSimEngine` as follows:
 
 #### Define a process
 
-If the process of LAI dynamic is not implement yet, we can define it like so:
+If the process of LAI dynamic is not implemented yet, we can define it like so:
 
 ```julia
 @process LAI_Dynamic

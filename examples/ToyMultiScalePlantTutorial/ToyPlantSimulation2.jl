@@ -16,30 +16,31 @@ function get_roots_count(node::MultiScaleTreeGraph.Node)
     return length(MultiScaleTreeGraph.traverse(root, x->x, symbol="Root"))
 end
 
-function get_leaves_total_surface(node::MultiScaleTreeGraph.Node, leaf_surface)
+function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
     nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
-    return leaf_surface*nleaves
+    return nleaves
 end
 
 PlantSimEngine.@process "organ_emergence" verbose = false
 
-struct ToyInternodeEmergence <: AbstractOrgan_EmergenceModel
+struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel
     TT_emergence::Float64
     carbon_internode_creation_cost::Float64
+    leaf_surface_area::Float64
     leaves_max_surface_area::Float64
     water_leaf_threshold::Float64
 end
 
-ToyInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaves_max_surface_area=100.0,
-water_leaf_threshold=30.0) = ToyInternodeEmergence(TT_emergence, carbon_internode_creation_cost, leaves_max_surface_area, water_leaf_threshold)
+ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0,leaves_max_surface_area=100.0,
+water_leaf_threshold=30.0) = ToyCustomInternodeEmergence(TT_emergence, carbon_internode_creation_cost, leaf_surface_area, leaves_max_surface_area, water_leaf_threshold)
 
-PlantSimEngine.inputs_(m::ToyInternodeEmergence) = (TT_cu=0.0,water_stock=0.0, carbon_stock=0.0)
-PlantSimEngine.outputs_(m::ToyInternodeEmergence) = (TT_cu_emergence=0.0, carbon_organ_creation_consumed=0.0)
+PlantSimEngine.inputs_(m::ToyCustomInternodeEmergence) = (TT_cu=0.0,water_stock=0.0, carbon_stock=0.0)
+PlantSimEngine.outputs_(m::ToyCustomInternodeEmergence) = (TT_cu_emergence=0.0, carbon_organ_creation_consumed=0.0)
 
-function PlantSimEngine.run!(m::ToyInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
+function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
 
-    leaves_surface_area = get_leaves_total_surface(status.node, 3.0)
+    leaves_surface_area = m.leaf_surface_area * get_n_leaves(status.node)
     status.carbon_organ_creation_consumed = 0.0
 
     if leaves_surface_area > m.leaves_max_surface_area
@@ -192,7 +193,7 @@ mapping = Dict(
     ),
 "Internode" => (        
         MultiScaleModel(
-            model=ToyInternodeEmergence(),#TT_emergence=20.0),
+            model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapping=[:TT_cu => "Scene",
             PreviousTimeStep(:water_stock)=>"Plant",
             PreviousTimeStep(:carbon_stock)=>"Plant"],
@@ -232,7 +233,7 @@ mapping = Dict(
 
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     
-    outputs = run!(mtg, mapping, meteo_day)
+    outs = run!(mtg, mapping, meteo_day)
     mtg
 
 

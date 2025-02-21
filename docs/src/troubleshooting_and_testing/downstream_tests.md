@@ -1,4 +1,4 @@
-## Downstream tests
+# Automated tests : downstream dependency checking
 
 PlantSimEngine is open sourced on Github [](TODO), and so are its other companion packages, PlantGeom, PlantMeteo, PlantBioPhysics, MultiScaleTreeGraph, and XPalm.
 

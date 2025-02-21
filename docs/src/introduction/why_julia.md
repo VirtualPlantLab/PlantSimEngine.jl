@@ -10,7 +10,7 @@ It was therefore originally a means to an end, and not a product in itself.
 
 TODO
 
-## PlantSimEngine's Constraints
+## PlantSimEngine's constraints
 
 ### Performance
 

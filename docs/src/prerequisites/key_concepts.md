@@ -12,9 +12,11 @@ You'll find a brief description of some of the main concepts and terminology rel
 
 A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
 
+TODO link
+
 ## Models
 
-Models are then implemented for a particular process. 
+Models are then implemented for a particular process. TODO link
 
 There may be different models that can be used for the same process ; for instance, there are multiple hypotheses and ways of modeling photosynthesis, with different granularity and accuracy. A simple photosynthesis model might apply a simple formula and apply it to the total leaf surface, a more complex one might calculate interception and light extinction. 
 
@@ -36,15 +38,27 @@ TODO image de graphe illustrant un couplage
 
 ### Dependency graphs
 
-Coupling models together in this fashion creates what is known as a Directed Acyclic Graph or DAG. The order in which models are run is determined by the ordering of these models in that graph.
+Coupling models together in this fashion creates what is known as a Directed Acyclic Graph or DAG, a type of dependency graph. The order in which models are run is determined by the ordering of these models in that graph.
 
 TODO image
 
 PlantSimEngine creates this DAG under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them.
 
-### 'Hard' dependencies
+### "Hard" and "Soft" dependencies
 
-### Process and Model implementation ? TODO
+Linking models by finding which output variables are used as input of another model handles many of the coupling situations that can occur (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? If they need to iterate on some computation and pass variables back and forth ? 
+
+Model couplings that cause simulation to flow both ways break the 'acyclic' assumption of the dependency graph.
+
+PlantSimEngine handles this internally by not having those "heavily-coupled" models -called "hard dependencies" from now on- be part of the main dependency graph. Instead, they are made to be children nodes of the parent/ancestor model, which handles them internally, so they aren't tied to other nodes of the dependency graph. The resulting higher-level graph therefore only links models without any two-way interdependencies, and remains a directed graph, enabling a cohesive simulation order. The simpler couplings in that top-level graph are called "soft dependencies".
+
+This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
+
+You can find an example TODO
+
+This makes them slightly more complex to develop and validate, and less versatile than other models. Occasional refactoring may be necessary to handle a hard dependency creeping up when adding new models to a simulation.
+
+Note that hard dependencies can also have their own hard dependencies, and some complex couplings are therefore possible. A hard dependency model can have another hard dependency model as a parent.
 
 ### Weather data
 
@@ -71,7 +85,11 @@ Plants have different organs with distinct physiological properties and processe
 
 PlantSimEngine documentation tends to use the terms "organ" and "scale" mostly interchangeably. "Scale" is a bit more general and accurate, since some models might not operate at a specific organ level, but (for example) at the scene level, so a "Scene" scale might be present in the MTG, and in the user-provided data.
 
-### Mapping, multiscale simulations
+### Multiscale modeling
+
+Multi-scale modeling is the process of simulating a system at multiple levels of detail simultaneously. For example, some models can run at the organ scale while others run at the plot scale. Each model can access variables at its scale and other scales if needed, allowing for a more comprehensive system representation. It can also help identify emergent properties that are not apparent at a single level of detail. 
+
+For example, a model of photosynthesis at the leaf scale can be combined with a model of carbon allocation at the plant scale to simulate the growth and development of the plant. Another example is a combination of models to simulate the energy balance of a forest. To simulate it, you need a model for each organ type of the plant, another for the soil, and finally, one at the plot scale, integrating all others.
 
 When running multi-scale simulations which contain models operating at different organ levels for the plant, extra information needs to be provided by the user to run models. Since some models are reused at different organ levels, it is necessary to indicate which organ level a model operates at.
 
@@ -89,4 +107,10 @@ TODO example ?
 TODO image ?
 TODO lien avec AMAP ?
 
+TODO scale, symbol terminology ambiguity
+
 ### State machines
+
+
+
+TODO differences mono/multiscale ?

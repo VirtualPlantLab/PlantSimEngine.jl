@@ -16,7 +16,7 @@ end
 
 ## Introduction
 
-### Why reducing the degrees of freedom
+### Why reduce the degrees of freedom
 
 Reducing the degrees of freedom in a model, by forcing certain variables to measurements, can be useful for several reasons:
 
@@ -78,9 +78,7 @@ m2 = ModelList(
     status=(var0 = 0.5, var9 = 10.0),
 )
 
-run!(m2, meteo)
-
-status(m2)
+out = run!(m2, meteo)
 ```
 
 And that's it ! The models that depend on `var9` will now use the measured value of `var9` instead of the one computed by `Process7Model`.
@@ -116,9 +114,7 @@ m3 = ModelList(
     status = (var0=0.5,var3 = 10.0)
 )
 
-run!(m3, meteo)
-
-status(m3)
+out = run!(m3, meteo)
 ```
 
 !!! note

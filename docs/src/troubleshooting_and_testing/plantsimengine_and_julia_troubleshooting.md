@@ -1,6 +1,6 @@
-# Troubleshooting error messages (both PlantSimEngine and Julia)
+# Troubleshooting error messages
 
-PlantSimEngine attempts to be as comfortable and easy to use as possible for the user, and many kinds of user error will be caught and explanations provided to resolve them, but there are still many blind spots, as well as syntax errors that will often generate a Julia error (which can be unintuitive to decrypt) rather than a PlantSimEngine error.
+PlantSimEngine attempts to be as comfortable and easy to use as possible for the user, and many kinds of user error will be caught and explanations provided to resolve them, but there are still blind spots, as well as syntax errors that will often generate a Julia error (which can be less intuitive to decrypt) rather than a PlantSimEngine error.
 
 To help people newer to Julia with troubleshooting, here are a few common 'easy-to-make' mistakes with the current API that might not be obvious to interpret, and pointers on how to fix them.
 
@@ -133,6 +133,31 @@ Closest candidates are:
 ```
 
 The message 'got unsupported keyword argument "model"' can be misleading, as in the error in this case is not that a kwarg is *unsupported*, but rather that a keyword argument is *missing*.
+
+### MultiScaleModel : variable not defined in Module
+
+A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :
+
+```julia
+mapping = Dict("Scale" =>
+MultiScaleModel(
+    model = ToyModel(),
+    mapping = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
+),
+...
+),
+```
+
+Here's the correct version : 
+```julia
+mapping = Dict("Scale" =>
+MultiScaleModel(
+    model = ToyModel(),
+    mapping = [:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
+),
+...
+),
+```
 
 ### Kwarg and arg parameter issues when calling run!
 

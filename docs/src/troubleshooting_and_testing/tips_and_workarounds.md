@@ -16,7 +16,7 @@ It is possible to make use of the value of a variable in the past simulation tim
 
 However, it is not possible to go beyond that through the mapping API. Something like `PreviousTimeStep(PreviousTimeStep(PreviousTimeStep(:carbon_biomass)))` is not supported. Don't do that.
 
-One way to access prior variable states is simply to write an ad hoc model that stores a few values into an array or however many variables you might need, which you can then feed into other models that might need it.
+One way to access prior variable states is simply to write an ad hoc model that stores a few values into an array or however many variables you might need, which you can then update every timestep and feed into other models that might need it.
 
 ## Having a variable simultaneously as input and output of a model 
 
@@ -67,3 +67,7 @@ This feature is likely to break in simulations that make use of planned future f
 TODO examples of other ad hoc models
 TODO state machines ?
 TODO workaround status initialisation bug ?
+
+## Cyclic dependencies in single-scale simulations
+
+Cyclic dependencies can happen in single-scale simulations, but the PreviousTimestep feature currently isn't available. Hard dependencies are one way to deal with them, creating a multi-scale simulation with a single effective scale is also an option.

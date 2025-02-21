@@ -82,13 +82,7 @@ fieldnames(Beer)
 
 Variables are either input or outputs (*i.e.* computed) of models. Variables and their values are stored in the [`ModelList`](@ref) structure, and are initialized automatically or manually.
 
-Hence, [`ModelList`](@ref) objects stores two fields:
-
-```@example usepkg
-fieldnames(ModelList)
-```
-
-The first field is a list of models associated to the processes they simulate. The second, `:status`, is used to hold all inputs and outputs of our models, called variables. For example the `Beer` model needs the leaf area index (`LAI`, m² m⁻²) to run.
+For example, the `Beer` model needs the leaf area index (`LAI`, m² m⁻²) to run.
 
 We can see which variables are needed as inputs using [`inputs`](@ref):
 
@@ -168,9 +162,9 @@ More details are available from the [package documentation](https://vezy.github.
 
 ### Simulation of processes
 
-Making a simulation is rather simple, we simply use [`run!`](@ref) on the `ModelList`:
+Making a simulation is rather simple, we simply call the [`run!`](@ref) method on the `ModelList`. If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as a parameter as well.
 
-The call to [`run!`](@ref) is the same whatever the models you choose for simulating the processes. This is some magic allowed by `PlantSimEngine.jl`! Here is an example:
+Here is an example:
 
 ```julia
 run!(model_list, meteo)
@@ -194,13 +188,13 @@ meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 
 leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 
-run!(leaf, meteo)
+outputs_example = run!(leaf, meteo)
 
-leaf[:aPPFD]
+outputs_example[:aPPFD]
 ```
 
 ### Outputs
-
+TODO
 The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract the simulation outputs of a model list using the [`status`](@ref) function.
 
 The status is usually stored in a `TimeStepTable` structure from `PlantMeteo.jl`, which is a fast DataFrame-alike structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.

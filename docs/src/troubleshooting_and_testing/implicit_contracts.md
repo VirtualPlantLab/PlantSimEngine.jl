@@ -63,3 +63,5 @@ A workaround for some situations is described here TODO
 TODO 
 
 ## Diffusion systems ?
+
+## TODO simulation order, node order, etc.
