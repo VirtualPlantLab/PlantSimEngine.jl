@@ -165,7 +165,7 @@ function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
 end
 
 # ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
-function outputs(out::TimeStepTable{T} where T, sink)
+function convert_outputs(out::TimeStepTable{T} where T, sink)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
     return sink(out)
 end
