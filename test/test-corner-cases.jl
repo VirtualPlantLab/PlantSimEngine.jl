@@ -533,8 +533,6 @@ end
 # Probably very similar to #105
 @testset "Issue 111 : Multiscale : outputs not saved when dependency graph only has one depth level" begin
 
-    using Pkg
-    Pkg.develop("PlantSimEngine")
     using PlantSimEngine
     using PlantSimEngine.Examples
     using MultiScaleTreeGraph
