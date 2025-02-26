@@ -44,10 +44,12 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 
     # Threads sleep/wakeup scheduling overhead causing inconsistencies ?
     # In any case, sometimes MT beats ST on CI runners, and the mac runner seems to return puzzling false positives
-    # Deactivating it on mac for non
-    if !Sys.isapple()
-        @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
-    end
+    # Deactivating it for now
+    # TODO there is a thread discussing unreliability of the sleep() function, need to check it
+
+    #if !Sys.isapple()
+    #    @test abs(nthr * med_time_mt - med_time_seq) < 0.2 * med_time_seq
+    #end
 
     # unsure how to recover outputs in benchmarked expressions to compare them, rerun the functions as a workaround for now
     @test run!(models1, meteo_day; executor = SequentialEx()) == run!(models2, meteo_day; executor = ThreadedEx())
