@@ -69,7 +69,9 @@ makedocs(;
         "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
         ],
 
-        "API" => "API.md",
+        "API" => [
+            "Public API" => "./API/API_public.md",
+            "Internal API" => "./API/API_private.md",],
         "Credits" => "credits.md",
         "Planned features" => "planned_features.md",
         #"developer section ?"

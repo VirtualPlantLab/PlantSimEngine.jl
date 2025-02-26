@@ -150,7 +150,7 @@ end
 
 Parameterized types are very useful because they let the user choose the type of the parameters, and potentially dispatch on them.
 
-But why not forcing the type such as the following:
+But why not force the type ? Such as in the following example :
 
 ```julia
 struct YourStruct <: AbstractLight_InterceptionModel
