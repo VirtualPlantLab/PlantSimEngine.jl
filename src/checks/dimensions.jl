@@ -37,7 +37,7 @@ w = Weather([
 PlantSimEngine.check_dimensions(models, w)
 
 # output
-ERROR: DimensionMismatch: Component status should have the same number of time-steps (2) than weather data (3).
+ERROR: DimensionMismatch: Component status has a vector variable : var1 implying multiple timesteps but weather data only provides a single timestep.
 ```
 """
 check_dimensions(component, weather) = check_dimensions(DataFormat(weather), component, weather)

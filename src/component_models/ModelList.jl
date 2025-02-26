@@ -61,7 +61,7 @@ julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(),
 
 ```jldoctest 1
 julia> typeof(models)
-ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, TimeStepTable{Status{(:var5, :var4, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}, Tuple{}}
+ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, Status{(:var5, :var4, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}
 ```
 
 No variables were given as keyword arguments, that means that the status of the ModelList is not
@@ -87,11 +87,18 @@ julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
 ```jldoctest 1
-julia> run!(models,meteo)
+julia> outputs_sim = run!(models,meteo)
+TimeStepTable{Status{(:var5, :var4, :var6, ...}(1 x 6):
+╭─────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────╮
+│ Row │    var5 │    var4 │    var6 │    var1 │    var3 │    var2 │
+│     │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │
+├─────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────────┤
+│   1 │ 36.0139 │    22.0 │ 58.0139 │    15.0 │     5.5 │     0.3 │
+╰─────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────╯
 ```
 
 ```jldoctest 1
-julia> models[:var6]
+julia> outputs_sim[:var6]
 1-element Vector{Float64}:
  58.0138985
 ```
@@ -136,36 +143,6 @@ julia> [typeof(models[i][1]) for i in keys(status(models))]
  Float32
  Float32
 ```
-
-We can also use DataFrame as the status type:
-
-```jldoctest 1
-julia> using DataFrames;
-```
-
-```jldoctest 1
-julia> df = DataFrame(:var1 => [13.747, 13.8], :var2 => [1.0, 1.0]);
-```
-
-```jldoctest 1
-julia> m = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=df, init_fun=x -> DataFrame(x));
-```
-
-Note that we use `init_fun` to force the status into a `DataFrame`, otherwise it would
-be automatically converted into a `TimeStepTable{Status}`.
-
-```jldoctest 1
-julia> status(m)
-2×6 DataFrame
- Row │ var5     var4     var6     var1     var3     var2    
-     │ Float64  Float64  Float64  Float64  Float64  Float64 
-─────┼──────────────────────────────────────────────────────
-   1 │    -Inf     -Inf     -Inf   13.747     -Inf      1.0
-   2 │    -Inf     -Inf     -Inf   13.8       -Inf      1.0
-```
-
-Note that computations will be slower using DataFrame, so if performance is an issue, use
-TimeStepTable instead (or a NamedTuple as shown in the example).
 """
 struct ModelList{M<:NamedTuple,S}
     models::M

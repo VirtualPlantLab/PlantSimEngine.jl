@@ -3,6 +3,8 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
+using CSV
+using DataFrames
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 models = ModelList(
     ToyLAIModel(),

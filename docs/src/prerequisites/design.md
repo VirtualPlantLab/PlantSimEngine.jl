@@ -195,43 +195,37 @@ outputs_example[:aPPFD]
 
 ### Outputs
 TODO
-The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract the simulation outputs of a model list using the [`status`](@ref) function.
+The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the last timestep of a simulation using the [`status`](@ref) function.
 
-The status is usually stored in a `TimeStepTable` structure from `PlantMeteo.jl`, which is a fast DataFrame-alike structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
+The actual full output data is returned by the `run!` function. Data is usually stored in a `TimeStepTable` structure from `PlantMeteo.jl`, which is a fast DataFrame-alike structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
 
-Let's look at the status of our previous simulated leaf:
+Let's look at the outputs of our previous simulated leaf:
 
 ```@setup usepkg
-status(leaf)
+outputs_example
 ```
 
-We can extract the value of one variable using the `status` function, *e.g.* for the intercepted light:
+We can extract the value of one variable by indexing into it, *e.g.* for the intercepted light:
 
 ```@example usepkg
-status(leaf, :aPPFD)
+outputs_example[:aPPFD]
 ```
 
 Or similarly using the dot syntax:
 
 ```@example usepkg
-leaf.status.aPPFD
-```
-
-Or much simpler (and recommended), by indexing directly into the model list:
-
-```@example usepkg
-leaf[:aPPFD]
+outputs_example.aPPFD
 ```
 
 Another simple way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:
 
 ```@example usepkg
 using DataFrames
-DataFrame(leaf)
+outputs(outputs_example, DataFrame)
 ```
 
 !!! note
-    The output from `DataFrame` is adapted to the kind of simulation you did: one row per time-step, and per component models if you simulated several.
+    The output from this conversion function is adapted to the kind of simulation you did: one row per time-step, and per component models if you simulated several.
 
 ## Model coupling
 

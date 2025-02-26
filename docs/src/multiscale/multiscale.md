@@ -195,7 +195,7 @@ outs = Dict(
 )
 ```
 
-These variables will be available in the `outputs` field of the simulation object, with a value for each time step. 
+These variables will be available in the output returned by `run!`, with a value for each time step. 
 
 ### Meteorological data
 
@@ -215,34 +215,18 @@ meteo = Weather(
 Let's make a simulation using the graph and outputs we just defined:
 
 ```@example usepkg
-sim = run!(mtg, mapping, meteo, outputs = outs);
+outputs_sim = run!(mtg, mapping, meteo, tracked_outputs = outs);
 nothing # hide
 ```
 
-And that's it! 
-
-We can now access the outputs for each scale as a dictionary of vectors of values per variable and scale like this:
-
-```@example usepkg
-outputs(sim);
-nothing # hide
-```
+And that's it! We can now access the outputs for each scale as a dictionary of vectors of values per variable and scale.
 
 Or as a `DataFrame` using the `DataFrames` package:
 
 ```@example usepkg
 using DataFrames
-outputs(sim, DataFrame)
+outputs(outputs_sim, DataFrame)
 ```
-
-The values for the last time-step of the simulation are also available from the statuses:
-
-```@example usepkg
-status(sim);
-nothing # hide
-```
-
-This is a dictionary with the scale as the key and a vector of `Status` as values, one per node of that scale. So, in this example, the `"Leaf"` scale has two nodes, so the value is a vector of two `Status` objects, and the `"Soil"` scale has only one node, so the value is a vector of one `Status` object.
 
 ### Wrapping up
 

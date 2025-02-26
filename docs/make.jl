@@ -1,5 +1,5 @@
-using Pkg
-Pkg.develop("PlantSimEngine")
+#using Pkg
+#Pkg.develop("PlantSimEngine")
 using PlantSimEngine
 using PlantMeteo
 using DataFrames, CSV
@@ -36,7 +36,7 @@ makedocs(;
             "Julia language basics" => "./prerequisites/julia_basics.md",
             "Design" =>"./prerequisites/design.md", # Rework with key concepts
         ],
-        "Step by step" => [
+        "Step by step - Single Scale simulations" => [
         #"First Simulation" => ",
         "Coupling" => "./step_by_step/simple_model_coupling.md",
         "Model Switching" => "./step_by_step/model_switching.md",
@@ -53,7 +53,7 @@ makedocs(;
             "Input types" => "./working_with_data/inputs.md",
             "Visualizing outputs" => "./working_with_data/visualising_outputs.md"
         ],
-        "Multiscale" => [
+        "Moving to multiscale" => [
             "Detailed example" => "./multiscale/multiscale.md",
             "Handling cyclic dependencies" => "./multiscale/multiscale_cyclic.md",
             "Multiscale coupling considerations" => "./multiscale/multiscale_coupling.md", # TODO expand upon this

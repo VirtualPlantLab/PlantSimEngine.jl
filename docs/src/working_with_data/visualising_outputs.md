@@ -1,3 +1,25 @@
+```@setup usepkg
+# ] add PlantSimEngine, DataFrames, CSV
+using PlantSimEngine, PlantMeteo, DataFrames, CSV
+
+# Include the model definition from the examples folder:
+using PlantSimEngine.Examples
+
+# Import the example meteorological data:
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+# Define the list of models for coupling:
+model = ModelList(
+    ToyLAIModel(),
+    Beer(0.6),
+    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+)
+
+# Run the simulation:
+sim_outputs = run!(model, meteo_day)
+
+```
+
 # Visualizing outputs
 TODO example environment ?
 
@@ -76,7 +98,7 @@ Another simple way to get the results is to transform the outputs into a `DataFr
 
 ```@example usepkg
 using DataFrames
-outputs(sim_outputs, DataFrames)
+PlantSimEngine.outputs(sim_outputs, DataFrame)
 ```
 
 TODO other examples ?

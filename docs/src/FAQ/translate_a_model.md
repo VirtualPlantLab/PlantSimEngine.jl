@@ -153,7 +153,7 @@ m = ModelList(
     status = (TT_cu = cumsum(meteo_day.TT),),
 )
 
-run!(m)
+outputs_sim = run!(m)
 
-lines(m[:TT_cu], m[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
+lines(outputs_sim[:TT_cu], outputs_sim[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
 ```

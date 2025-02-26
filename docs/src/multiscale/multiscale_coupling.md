@@ -1,13 +1,59 @@
 
 # Handling dependencies in a multiscale context
 
- If a model requires some input variable that is computed at another scale, providing the appropriate mapping will resolve name conflicts and enable proper use of that variable and there will be no extra steps for the user or the modeler.
+## Scalar and vector variable mappings
 
- In the case of a hard dependency that operates at a different scale from its parent, the same principle applies and there are also no extra steps on the user-side. 
+In the detailed example discussed previously (TODO), there were several instances of mapping a variable from one scale to another. Here's a relevant exerpt from the mapping : 
+
+```julia
+"Plant" => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapping=[
+                :TT_cu => "Scene",
+            ],
+        ),
+        ...
+        MultiScaleModel(
+            model=ToyCAllocationModel(),
+            mapping=[
+                :carbon_assimilation => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_allocation => ["Leaf", "Internode"]
+            ],
+        ),
+        ...
+    ),
+```
+
+For flexibility reasons, instead of explicitely linking most models from different scales together, one only declares which variables are meant to be taken from another scale (or more accurately, a model at a different scale outputting those variables). This keeps the convenience of switching models while making few changes to the mapping. 
+
+However, PlantSimEngine cannot infer which scales have multiple instances, and which are single-instance, as the scale names are user-defined.
+
+In the above example, there is only one scene at the "Scene", and one plant at the "Plant" scale, meaning the `TT_cu` variable mapped between the two has a one-to-one scalar-to-scalar correspondance.
+
+On the other hand, the `carbon_assimilation` variable is computed for **every** leaf, of which there could be hundreds, or thousands, giving a scalar-to-vector correspondance. The carbon assimilation model runs many times every timestep, whereas the carbon allocation model only runs once per timestep. There may be initially be only a single leaf, though, meaning PlantSimEngine cannot currently guess from the initial configuration that there might be multiple leaves created during the simulation.
+
+Hence the difference in mapping declaration :  `TT_cu`is declared as a scalar correspondence : 
+```julia
+:TT_cu => "Scene",
+```
+whereas `carbon_assimilation` (and other variables) will be declared as a vector correspondence :
+```julia
+:carbon_assimilation => ["Leaf"],
+```
+
+Note that there may be instances where you might wish to write your own model to aggregate a variable from a multi-instance scale.
+
+## Hard dependencies between models at different scale levels
+
+ If a model requires some input variable that is computed at another scale, then providing the appropriate mapping for that variable will resolve name conflicts and enable that model to run with no further steps for the user or the modeler when the coupling is a 'soft dependency'.
+
+ In the case of a hard dependency that operates at the same scale as its parent, declaring the hard dependency is exactly the same as in single-scale simulations and there are also no new extra steps on the user-side. 
  
- On the other hand, modelers need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate at a different organ level from their parent : 
+ On the other hand, modelers do need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate at a different organ level from their parent : 
 
- The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the dependency graph.
+ The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the top-level dependency graph.
  Therefore only the owning model of that dependency is visible in the graph, and its hard dependency nodes are internal.
  
  When the caller (or any downstream model that requires some variables from the hard dependency) operates at the same scale, variables are easily accessible, and no mapping is required. 

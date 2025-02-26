@@ -108,7 +108,7 @@ Of course you can plot the outputs quite easily:
 # ] add CairoMakie
 using CairoMakie
 
-lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
+lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
 ```
 
 ### Model coupling
@@ -155,17 +155,17 @@ The `ModelList` couples the models by automatically computing the dependency gra
 ╰────────────────────────────────────────────────────────────────╯
 ```
 
-We can plot the results by indexing the model with the variable name (e.g. `model2[:LAI]`):
+We can plot the results by indexing the outputs with the variable name (e.g. `out2[:LAI]`):
 
 ```@example readme
 using CairoMakie
 
 fig = Figure(resolution=(800, 600))
 ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
-lines!(ax, model2[:TT_cu], model2[:LAI], color=:mediumseagreen)
+lines!(ax, out2[:TT_cu], out2[:LAI], color=:mediumseagreen)
 
 ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, model2[:TT_cu], model2[:aPPFD], color=:firebrick1)
+lines!(ax2, out2[:TT_cu], out2[:aPPFD], color=:firebrick1)
 
 fig
 ```

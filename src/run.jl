@@ -74,13 +74,13 @@ julia> meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0);
 Run the simulation:
 
 ```jldoctest run
-julia> run!(models, meteo);
+julia> outputs_sim = run!(models, meteo);
 ```
 
 Get the results:
 
 ```jldoctest run
-julia> (models[:var4],models[:var6])
+julia> (outputs_sim[:var4],outputs_sim[:var6])
 ([12.0], [41.95])
 ```
 """
