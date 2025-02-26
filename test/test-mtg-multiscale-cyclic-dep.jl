@@ -224,7 +224,7 @@ end
     
     # To update the reference:
     ref_path = joinpath(pkgdir(PlantSimEngine), "test/references/ref_output_simulation.csv")
-    # CSV.write(ref_path, sort(outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
+    # CSV.write(ref_path, sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
     ref_df = CSV.read(ref_path, DataFrame)
-    @test isequal(sort(outputs(out, DataFrame, no_value=missing), [:timestep, :node]), ref_df)
+    @test isequal(sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), ref_df)
 end

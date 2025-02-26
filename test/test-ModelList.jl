@@ -294,3 +294,27 @@ end=#
     #mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellists[1], status_tuples[1], outs_vectors[1][1], meteos[1])
     #@test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
 end
+
+
+PlantSimEngine.@process "modellist_cycle" verbose = false
+
+struct Reeb{T} <: AbstractModellist_CycleModel
+    k::T
+end
+
+function PlantSimEngine.run!(::Reeb, models, status, meteo, constants, extra=nothing)
+    status.LAI =
+        status.aPPFD + 0.4*k
+end
+
+function PlantSimEngine.inputs_(::Reeb)
+    (aPPFD=-Inf,)
+end
+
+function PlantSimEngine.outputs_(::Reeb)
+    (LAI=-Inf,)
+end
+
+@testset "ModelList simple cyclic dependency detection" begin
+    @test_throws "Cyclic" m = ModelList(Beer(0.5), Reeb(0.5))
+end

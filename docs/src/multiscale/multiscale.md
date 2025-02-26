@@ -225,7 +225,7 @@ Or as a `DataFrame` using the `DataFrames` package:
 
 ```@example usepkg
 using DataFrames
-outputs(outputs_sim, DataFrame)
+convert_outputs(outputs_sim, DataFrame)
 ```
 
 ### Wrapping up

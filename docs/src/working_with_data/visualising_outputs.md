@@ -98,7 +98,7 @@ Another simple way to get the results is to transform the outputs into a `DataFr
 
 ```@example usepkg
 using DataFrames
-PlantSimEngine.outputs(sim_outputs, DataFrame)
+PlantSimEngine.convert_outputs(sim_outputs, DataFrame)
 ```
 
 TODO other examples ?

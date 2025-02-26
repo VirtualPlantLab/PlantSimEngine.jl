@@ -1,7 +1,7 @@
 # Simple helper functions that can be used in various tests here and there
 
 function compare_outputs_modellist_mapping(filtered_outputs, graphsim)
-    outputs_df = outputs(graphsim.outputs, DataFrame)
+    outputs_df = convert_outputs(graphsim.outputs, DataFrame)
 
     outputs_df_outputs_only = select(outputs_df, Not([:timestep, :organ, :node]))
     models_df = DataFrame(filtered_outputs)
@@ -13,10 +13,10 @@ end
 
 # doesn't check for mtg equality
 function compare_outputs_graphsim(graphsim, graphsim2)
-    outputs_df = outputs(graphsim.outputs, DataFrame)
+    outputs_df = convert_outputs(graphsim.outputs, DataFrame)
     outputs_df_sorted = outputs_df[:, sortperm(names(outputs_df))]
     
-    outputs2_df = outputs(graphsim2.outputs, DataFrame)
+    outputs2_df = convert_outputs(graphsim2.outputs, DataFrame)
     outputs2_df_sorted = outputs2_df[:, sortperm(names(outputs2_df))]
     return outputs_df_sorted == outputs2_df_sorted
 end

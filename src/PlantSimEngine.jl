@@ -107,7 +107,7 @@ export init_status!
 export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
-export inputs, outputs, variables
+export inputs, outputs, variables, convert_outputs
 export run!
 export fit
 

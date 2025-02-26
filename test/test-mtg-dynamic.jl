@@ -82,7 +82,7 @@ out = run!(sim,meteo)
     @test st["Internode"][1].TT_cu_emergence == 0.0
     @test st["Internode"][end].TT_cu_emergence == 25.0
 
-    out_df = outputs(out, DataFrame)
+    out_df = convert_outputs(out, DataFrame)
     @test unique(out_df[:, :organ]) |> sort == ["Internode", "Leaf", "Plant", "Soil"]
     @test filter(row -> row.organ == "Internode", out_df)[:, :TT_cu_emergence] == [0.0, 0.0, 0.0, 0.0, 25.0]
     @test filter(row -> row.organ == "Leaf", out_df)[:, :carbon_demand] == [0.5, 0.5, 0.75, 0.75, 0.75]

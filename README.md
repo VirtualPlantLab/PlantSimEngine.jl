@@ -287,7 +287,7 @@ We can then extract the outputs in a `DataFrame` and sort them:
 
 ```@example readme
 using DataFrames
-df_out = outputs(out, DataFrame)
+df_out = convert_outputs(out, DataFrame)
 sort!(df_out, [:timestep, :node])
 ```
 

@@ -221,7 +221,7 @@ Another simple way to get the results is to transform the outputs into a `DataFr
 
 ```@example usepkg
 using DataFrames
-outputs(outputs_example, DataFrame)
+convert_outputs(outputs_example, DataFrame)
 ```
 
 !!! note

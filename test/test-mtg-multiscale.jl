@@ -697,7 +697,7 @@ end
     @test sim.outputs["Plant"][:carbon_allocation][1][1][1] === sim.outputs["Internode"][:carbon_allocation][1][1]
 
     # Testing the outputs if transformed into a DataFrame:
-    outs = outputs(out, DataFrame)
+    outs = convert_outputs(out, DataFrame)
 
     @test isa(outs, DataFrame)
     @test size(outs) == (12, 7)
