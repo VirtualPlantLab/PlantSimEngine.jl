@@ -19,9 +19,7 @@ makedocs(;
         edit_link="main",
         assets=String[],
         size_threshold=300000
-    ),
-
-    pages=[
+    ), pages=[
         "Home" => "index.md",
         "Introduction" => [
             #"Organization of the documentation ?"
@@ -34,16 +32,16 @@ makedocs(;
             "Key Concepts" => "./prerequisites/key_concepts.md", # Key concepts vs terminology ?
             #"Setup" ?",
             "Julia language basics" => "./prerequisites/julia_basics.md",
-            "Design" =>"./prerequisites/design.md", # Rework with key concepts
+            "Design" => "./prerequisites/design.md", # Rework with key concepts
         ],
         "Step by step - Single Scale simulations" => [
-        #"First Simulation" => ",
-        "Coupling" => "./step_by_step/simple_model_coupling.md",
-        "Model Switching" => "./step_by_step/model_switching.md",
-        "Processes" => "./step_by_step/implement_a_process.md",
-        "Implementing a model" => "./step_by_step/implement_a_model.md",
-        "Parallelization" => "./step_by_step/parallelization.md",
-        "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md"
+            #"First Simulation" => ",
+            "Coupling" => "./step_by_step/simple_model_coupling.md",
+            "Model Switching" => "./step_by_step/model_switching.md",
+            "Processes" => "./step_by_step/implement_a_process.md",
+            "Implementing a model" => "./step_by_step/implement_a_model.md",
+            "Parallelization" => "./step_by_step/parallelization.md",
+            "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md"
         ],
         "Execution" => "model_execution.md",
         "Working with data" => [
@@ -61,15 +59,11 @@ makedocs(;
                 "A rudimentary plant simulation" => "./multiscale/multiscale_example_1.md",
                 "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
             ],
-        ],
-
-        "Troubleshooting and testing" => [
-        "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
-        "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
-        "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
-        ],
-
-        "API" => [
+        ], "Troubleshooting and testing" => [
+            "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
+            "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
+            "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
+        ], "API" => [
             "Public API" => "./API/API_public.md",
             "Internal API" => "./API/API_private.md",],
         "Credits" => "credits.md",
@@ -80,5 +74,6 @@ makedocs(;
 
 deploydocs(;
     repo="github.com/VirtualPlantLab/PlantSimEngine.jl.git",
-    devbranch="main"
+    devbranch="main",
+    push_preview=true, # Visit https://VirtualPlantLab.github.io/PlantSimEngine.jl/previews/PR128 to visualize the preview of the PR #128
 )
