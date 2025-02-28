@@ -31,3 +31,14 @@ To do so, you need to implement the following methods for your structure that de
 
 !!! compat
     `PlantMeteo.rownumber` is temporary. It soon will be replaced by `DataAPI.rownumber` instead, which will be also used by *e.g.* DataFrames.jl. See [this Pull Request](https://github.com/JuliaData/DataAPI.jl/issues/60).
+
+## Working with weather data
+
+Here's a quick example showcasing how to export the example weather data to your own file :
+
+```julia 
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+PlantMeteo.write_weather("examples/meteo_day.csv", meteo_day, duration = Dates.Day)
+```
+
+If you wish to filter weather data, reshape it, adjust it, write it, you'll find some more examples in PlantMeteo's [API reference](https://palmstudio.github.io/PlantMeteo.jl/stable/API/).  

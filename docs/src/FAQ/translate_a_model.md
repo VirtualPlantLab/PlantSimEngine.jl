@@ -16,8 +16,6 @@ function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decs
 end
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-# Note: meteo_day is defined below if you want to reproduce it, then use this to write it:
-# PlantMeteo.write_weather("examples/meteo_day.csv", meteo_day, duration = Dates.Day)
 ```
 
 If you already have a model, you can easily use `PlantSimEngine` to couple it with other models with minor adjustments.

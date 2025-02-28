@@ -220,6 +220,8 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 outs = run!(mtg, mapping, meteo_day)
 ```
 
-And that's it ! We now have a plant with two different growth directions. Roots are added at the beginning, until water is considered abundant enough.
+And that's it ! 
 
-Of course, there are several design issues with this implementation. It is as utterly unrealistic as the previous one, and doesn't even consume water. 
+...Or is it ?
+
+If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren't quite right. If you wish to know more, onwards to the next chapter : TODO

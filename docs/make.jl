@@ -58,6 +58,7 @@ makedocs(;
             "Building a simple plant" => [
                 "A rudimentary plant simulation" => "./multiscale/multiscale_example_1.md",
                 "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
+                "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md", # TODO illustrate outputs filtering to find the bug
             ],
         ], "Troubleshooting and testing" => [
             "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",

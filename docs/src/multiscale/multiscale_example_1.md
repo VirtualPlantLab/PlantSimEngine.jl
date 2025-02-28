@@ -173,7 +173,7 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
 end
 ```
 
-## Updated mapping
+### Updated mapping
 
 We can now define the final mapping for this simulation. 
 
@@ -249,14 +249,14 @@ And we're good to go !
 outs = run!(mtg, mapping, meteo_day)
 ```
 
-And that's it. If you query or display the MTG after simulation, you'll see it expanded and grew multiple internodes and leaves :
+If you query or display the MTG after simulation, you'll see it expanded and grew multiple internodes and leaves :
 
 ```julia
 mtg
 get_n_leaves(mtg)
 ```
 
-Feel free to tinker with the parameters and see when things break down, to get a feel for the simulation.
+And that's it ! Feel free to tinker with the parameters and see when things break down, to get a feel for the simulation.
 
 Of course, this is a very crude and unrealistic simulation, with many dubious assumptions and parameters. But significantly more complex modelling is possible using the same approach : XPalm runs using a few dozen models spread out over nine scales.
 
