@@ -147,6 +147,7 @@ julia> [typeof(models[i][1]) for i in keys(status(models))]
 struct ModelList{M<:NamedTuple,S}
     models::M
     status::S
+    type_promotion::Union{Nothing, Dict}
 end
 
 #=function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
@@ -189,6 +190,7 @@ function ModelList(
     model_list = ModelList(
         mods,
         ts_kwargs,
+        type_promotion
     )
     variables_check && !is_initialized(model_list)
 
@@ -311,6 +313,7 @@ function Base.copy(m::T) where {T<:ModelList}
     ModelList(
         m.models,
         deepcopy(m.status),
+        deepcopy(m.type_promotion)
     )
 end
 
@@ -318,6 +321,7 @@ function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
         status,
+        deepcopy(m.type_promotion)
     )
 end
 

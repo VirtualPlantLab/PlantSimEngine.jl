@@ -230,7 +230,10 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
     
     # NOTE : init_variables recreates a DependencyGraph, it's not great
     # TODO : copy ?
-    out_vars_all = merge(init_variables(m; verbose=false)...)
+    out_vars_pre_type_promotion = merge(init_variables(m; verbose=false)...)
+    
+    # bit hacky, could be cleaned up
+    out_vars_all = convert_vars(out_vars_pre_type_promotion, m.type_promotion)
 
     out_keys_requested = Symbol[]
     if !isnothing(outs)
