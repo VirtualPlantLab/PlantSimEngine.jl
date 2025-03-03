@@ -8,6 +8,11 @@ You'll find a brief description of some of the main concepts and terminology rel
 
 ## PlantSimEngine terminology
 
+This section provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see [First Simulation]TODO
+
+!!! Note
+    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for Multi-scale tree graphs than the rest of PlantSimEngine. Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
+
 ### Processes
 
 A process in this package defines a biological or physical phenomena. Think of any process happening in a system, such as light interception, photosynthesis, water, carbon and energy fluxes, growth, yield or even electricity produced by solar panels.
@@ -64,7 +69,9 @@ Note that hard dependencies can also have their own hard dependencies, and some 
 
 To run a simulation, we usually need the climatic/meteorological conditions measured close to the object or component.
 
-Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.TimeStepTable).
+Users are strongly encouraged to use [`PlantMeteo.jl`](https://github.com/PalmStudio/PlantMeteo.jl), the companion package that helps manage such data, with default pre-computations and structures for efficient computations. We will make constant use of it throughout the documentation, and recommend working with it. 
+
+The most basic data structure from this package is a type called [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere), which defines steady-state atmospheric conditions, *i.e.* the conditions are considered at equilibrium. Another structure is available to define different consecutive time-steps: [`TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.TimeStepTable).
 
 The mandatory variables to provide for an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) are: `T` (air temperature in °C), `Rh` (relative humidity, 0-1) and `Wind` (the wind speed, m s⁻¹). 
 
@@ -96,6 +103,11 @@ When running multi-scale simulations which contain models operating at different
 This is why multi-scale simulations make use of a 'mapping' : the ModelList in the single-scale examples does not have a way to tie models to plant organs,and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, e.g. if an input variable comes from another scale, it is required to indicate which scale it is mapped from.
 
 TODO
+
+!!! Note
+    When you encounter the terms "Single-scale simulations", or "ModelList simulations", they will refer to simulations that are "not multi-scale". A multi-scale simulation makes use of a mapping between different organ/scale levels. A single-scale simulation has no such mapping, and uses the simpler ModelList interface. 
+
+    You can implement a mapping that only makes use of a single scale level, of course, making it a "single-scale multi-scale simulation", but unless otherwise specified, single-scale, and the whole section dedicated to single-scale simulations, refer to simulations with ModelList objects, and no mapping.
 
 ### Multi-scale Tree Graphs
 

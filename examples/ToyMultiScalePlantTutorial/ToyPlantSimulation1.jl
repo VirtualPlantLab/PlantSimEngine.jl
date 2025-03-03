@@ -101,7 +101,7 @@ mapping = Dict(
 "Plant" => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
-        mapping=[
+        mapped_variables=[
             :carbon_captured=>["Leaf"],
             :carbon_organ_creation_consumed=>["Internode"]
         ],
@@ -111,7 +111,7 @@ mapping = Dict(
 "Internode" => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapping=[:TT_cu => "Scene",
+            mapped_variables=[:TT_cu => "Scene",
             PreviousTimeStep(:carbon_stock)=>"Plant"],
         ),        
         Status(carbon_organ_creation_consumed=0.0),

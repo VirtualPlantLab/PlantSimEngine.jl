@@ -14,14 +14,14 @@ For example the following mapping will raise an error:
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
-                mapping=[
+                mapped_variables=[
                     :carbon_demand => ["Leaf", "Internode"],
                     :carbon_allocation => ["Leaf", "Internode"]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6),
         ),
@@ -83,7 +83,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
                 ),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
                 ),
                 Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6, carbon_assimilation=5.0),
             ),
@@ -91,7 +91,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-                    mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
+                    mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
                 ),
                 Status(TT=10.0, carbon_biomass=1.0),
             ),
@@ -99,7 +99,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-                    mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (second break)
+                    mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (second break)
                 ),
                 ToyCBiomassModel(1.2),
                 Status(TT=10.0),

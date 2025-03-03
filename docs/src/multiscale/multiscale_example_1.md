@@ -182,7 +182,7 @@ The organ creation model at the "Internode" scale needs the carbon stock from th
 The resource storing model at the "Plant" scale needs the carbon captured by **every** leaf, and the carbon consumed by **every** internode that created new organs this timestep. This requires mapping vector variables :
 
 ```julia
- mapping=[
+ mapped_variables=[
             :carbon_captured=>["Leaf"],
             :carbon_organ_creation_consumed=>["Internode"]
         ],
@@ -190,7 +190,7 @@ The resource storing model at the "Plant" scale needs the carbon captured by **e
 as opposed to the single-valued carbon stock mapped variable : 
 
 ```julia
- mapping=[:TT_cu => "Scene",
+ mapped_variables=[:TT_cu => "Scene",
             PreviousTimeStep(:carbon_stock)=>"Plant"],
 ```
 
@@ -202,7 +202,7 @@ mapping = Dict(
 "Plant" => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
-        mapping=[
+        mapped_variables=[
             :carbon_captured=>["Leaf"],
             :carbon_organ_creation_consumed=>["Internode"]
         ],
@@ -212,7 +212,7 @@ mapping = Dict(
 "Internode" => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapping=[:TT_cu => "Scene",
+            mapped_variables=[:TT_cu => "Scene",
             PreviousTimeStep(:carbon_stock)=>"Plant"],
         ),        
         Status(carbon_organ_creation_consumed=0.0),

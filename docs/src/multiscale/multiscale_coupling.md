@@ -9,14 +9,14 @@ In the detailed example discussed previously (TODO), there were several instance
 "Plant" => (
         MultiScaleModel(
             model=ToyLAIModel(),
-            mapping=[
+            mapped_variables=[
                 :TT_cu => "Scene",
             ],
         ),
         ...
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
                 :carbon_allocation => ["Leaf", "Internode"]
@@ -86,7 +86,7 @@ mapping = Dict(
     "Male" =>
     MultiScaleModel(
         model=XPalm.InitiationAgeFromPlantAge(),
-        mapping=[:plant_age => "Plant",],
+        mapped_variables=[:plant_age => "Plant",],
     ),
     ...
     XPalm.MaleFinalPotentialBiomass(

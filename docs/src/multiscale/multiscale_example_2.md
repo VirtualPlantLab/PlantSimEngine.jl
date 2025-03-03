@@ -163,7 +163,7 @@ mapping = Dict(
 "Plant" => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
-        mapping=[
+        mapped_variables=[
             :carbon_captured=>["Leaf"],
             :water_absorbed=>["Root"],
             :carbon_root_creation_consumed=>["Root"],
@@ -176,7 +176,7 @@ mapping = Dict(
 "Internode" => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapping=[:TT_cu => "Scene",
+            mapped_variables=[:TT_cu => "Scene",
             PreviousTimeStep(:water_stock)=>"Plant",
             PreviousTimeStep(:carbon_stock)=>"Plant"],
         ),        
@@ -184,7 +184,7 @@ mapping = Dict(
     ),
 "Root" => ( MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
-            mapping=[PreviousTimeStep(:carbon_stock)=>"Plant",
+            mapped_variables=[PreviousTimeStep(:carbon_stock)=>"Plant",
             PreviousTimeStep(:water_stock)=>"Plant"],
         ),       
             ToyWaterAbsorptionModel(),

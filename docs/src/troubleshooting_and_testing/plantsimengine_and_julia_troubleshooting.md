@@ -92,12 +92,12 @@ The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` 
 
 ### Forgetting a kwarg when declaring a MultiScaleModel
 
-A MultiScaleModel requires two kwargs, model and mapping : 
+A MultiScaleModel requires two kwargs, model and mapped_variables : 
 
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
-        mapping=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => "Scene",],
     )
 ```
 
@@ -106,19 +106,19 @@ Forgetting 'model=' :
 ```julia
 models = MultiScaleModel(
         ToyLAIModel(),
-        mapping=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => "Scene",],
     )
-ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapping::Vector{Pair{Symbol, String}})
+ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
     
 Closest candidates are:
-    MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "mapping"
+    MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "mapped_variables"
     @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:188
-    MultiScaleModel(; model, mapping)
+    MultiScaleModel(; model, mapped_variables)
     @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191
 ```
 
-Forgetting 'mapping=' :
+Forgetting 'mapped_variables=' :
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
@@ -144,7 +144,7 @@ A possible cause for this error is that a variable was declared instead of a sym
 mapping = Dict("Scale" =>
 MultiScaleModel(
     model = ToyModel(),
-    mapping = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
+    mapped_variables = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
 ),
 ...
 ),
@@ -155,7 +155,7 @@ Here's the correct version :
 mapping = Dict("Scale" =>
 MultiScaleModel(
     model = ToyModel(),
-    mapping = [:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
+    mapped_variables=[:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
 ),
 ...
 ),
@@ -289,7 +289,7 @@ If there is a need to collect variables at two different scales, and one scale i
 "E2" => (
         MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
-        mapping = [:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,], 
+        mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,], 
         ),
     ),
 # No E3 in the mapping !

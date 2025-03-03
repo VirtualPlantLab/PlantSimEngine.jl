@@ -113,7 +113,7 @@ end
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
 function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
-    full_vars_mapping = Dict(first(mod) => Dict(get_mapping(last(mod))) for mod in mapping)
+    full_vars_mapping = Dict(first(mod) => Dict(get_mapped_variables(last(mod))) for mod in mapping)
     soft_dep_graphs = Dict{String,Any}()
     not_found = Dict{Symbol,DataType}()
 

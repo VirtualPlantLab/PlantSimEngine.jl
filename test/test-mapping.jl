@@ -2,7 +2,7 @@ mapping = Dict(
     "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 # inputs
                 :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
@@ -12,7 +12,7 @@ mapping = Dict(
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
@@ -23,7 +23,7 @@ mapping = Dict(
     "Leaf" => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
+            mapped_variables=[:soil_water_content => "Soil",],
             # Notice we provide "Soil", not ["Soil"], so a single value is expected here
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
@@ -111,7 +111,7 @@ function modellist_to_mapping_manual(modellist_original::ModelList, modellist_st
         PlantSimEngine.HelperNextTimestepModel(),
         MultiScaleModel(
         model=PlantSimEngine.HelperCurrentTimestepModel(),
-        mapping=[PreviousTimeStep(:next_timestep),],
+        mapped_variables=[PreviousTimeStep(:next_timestep),],
         ),
         Status(current_timestep=1,next_timestep=1)
         ),
@@ -230,7 +230,7 @@ end
     "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 # inputs
                 :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
@@ -240,7 +240,7 @@ end
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
@@ -251,7 +251,7 @@ end
     "Leaf" => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
+            mapped_variables=[:soil_water_content => "Soil",],
             # Notice we provide "Soil", not ["Soil"], so a single value is expected here
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
@@ -286,7 +286,7 @@ mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_gen
     mapping_with_two_vectors = Dict("Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
-                mapping=[
+                mapped_variables=[
                     # inputs
                     :carbon_assimilation => ["Leaf"],
                     :carbon_demand => ["Leaf", "Internode"],
@@ -296,7 +296,7 @@ mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_gen
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
             ),
         ),
         "Internode" => (
@@ -307,7 +307,7 @@ mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_gen
         "Leaf" => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapping=[:soil_water_content => "Soil",],
+                mapped_variables=[:soil_water_content => "Soil",],
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),

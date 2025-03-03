@@ -176,11 +176,11 @@ end
             Msg3LvlScaleAmontModel(),
             MultiScaleModel(
                 model=Msg3LvlScaleAvalModel(),
-                mapping=[:e3 => "E3" => :e3, :b2 => "E2" => :b2, :g2 => "E2" => :g2],
+                mapped_variables=[:e3 => "E3" => :e3, :b2 => "E2" => :b2, :g2 => "E2" => :g2],
             ),
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle1Model(),
-                mapping=[:e2 => "E2" => :e2, :f2 => "E2" => :f2,],
+                mapped_variables=[:e2 => "E2" => :e2, :f2 => "E2" => :f2,],
             ), Status(a=1.0,)# y = 1.0, z = 1.0)
         ),
         "E2" => (
@@ -188,14 +188,14 @@ end
             Msg3LvlScaleAval2Model(),
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle2Model(),
-                mapping=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,],
+                mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,],
             ),
             Status(a2=1.0, i2=1.0,)
         ),
         "E3" => (
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle3Model(),
-                mapping=[:c => "E1" => :c,],
+                mapped_variables=[:c => "E1" => :c,],
             ),
         ),
     )
@@ -336,7 +336,7 @@ end
         "E1" => (HardDepSameScaleEchelle1Model(),
             MultiScaleModel(
                 model=HardDepSameScaleEchelle1bisModel(),
-                mapping=[:e3 => "E3" => :e3],
+                mapped_variables=[:e3 => "E3" => :e3],
             ),
             Status(a=1.0),),
         "E3" => (
@@ -463,7 +463,7 @@ end
         "E3" => (
             MultiScaleModel(
                 model=SingleModelScale3(),
-                mapping=[:out1 => "E1" => :out1, :out2 => "E2" => :out2,],
+                mapped_variables=[:out1 => "E1" => :out1, :out2 => "E2" => :out2,],
             ),
             Status(in=1.0, in3=1.0,),
         ),
