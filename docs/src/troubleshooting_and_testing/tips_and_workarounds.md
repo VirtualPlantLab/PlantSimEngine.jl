@@ -38,7 +38,7 @@ For example, one model in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl/blob
 
 TODO use toy plant as example
 
-## Passing in a vector in a mapping status at a specific scale
+## Multiscale : passing in a vector in a mapping status at a specific scale
 
 You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the `status` component of a `ModelList` in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 
@@ -52,7 +52,7 @@ Due to, uh, implementation quirks, the way to use this is as follows :
 
 Call the function `replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)`on your mapping.
 
-It will parse your mapping, generate custom models to store and feed the vector values each timestep, and return the new mapping you can then use for your simulation. It also slips in a couple of internal models that provide the timestep index to these models (so note that symbols `:current_timestep` and `:next_timestep` will be declared for that mapping). You can decide which scale/organ level you want those models to be in via the `timestep_model_organ_level`parameter. `nsteps`is used as a sanity check, and expects you to provide the amount of simulation timesteps.
+It will parse your mapping, generate custom models to store and feed the vector values each timestep, and return the new mapping you can then use for your simulation. It also slips in a couple of internal models that provide the timestep index to these models (so note that symbols `:current_timestep` and `:next_timestep` will be declared for that mapping). You can decide which scale/organ level you want those models to be in via the `timestep_model_organ_level`parameter. `nsteps` is used as a sanity check, and expects you to provide the amount of simulation timesteps.
 
 !!! note
     Only subtypes of AbstractVector present in statuses will be affected. In some cases, meteo values might need a small conversion. For instance :

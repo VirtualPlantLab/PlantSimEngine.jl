@@ -47,20 +47,20 @@ Note that there may be instances where you might wish to write your own model to
 
 ## Hard dependencies between models at different scale levels
 
- If a model requires some input variable that is computed at another scale, then providing the appropriate mapping for that variable will resolve name conflicts and enable that model to run with no further steps for the user or the modeler when the coupling is a 'soft dependency'.
+If a model requires some input variable that is computed at another scale, then providing the appropriate mapping for that variable will resolve name conflicts and enable that model to run with no further steps for the user or the modeler when the coupling is a 'soft dependency'.
 
- In the case of a hard dependency that operates at the same scale as its parent, declaring the hard dependency is exactly the same as in single-scale simulations and there are also no new extra steps on the user-side. 
+In the case of a hard dependency that operates at the same scale as its parent, declaring the hard dependency is exactly the same as in single-scale simulations and there are also no new extra steps on the user-side. 
  
- On the other hand, modelers do need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate at a different organ level from their parent : 
+On the other hand, modelers do need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate at a different organ level from their parent : 
 
- The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the top-level dependency graph.
+The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the top-level dependency graph.
  Therefore only the owning model of that dependency is visible in the graph, and its hard dependency nodes are internal.
  
- When the caller (or any downstream model that requires some variables from the hard dependency) operates at the same scale, variables are easily accessible, and no mapping is required. 
+When the caller (or any downstream model that requires some variables from the hard dependency) operates at the same scale, variables are easily accessible, and no mapping is required. 
 
- If an inner model operates at a different scale/organ level, a modeler must declare hard dependencies with their respective organ level, similarly to the way the user provides a mapping. 
+If an inner model operates at a different scale/organ level, a modeler must declare hard dependencies with their respective organ level, similarly to the way the user provides a mapping. 
 
- Conceptually :
+Conceptually :
 
 ```julia
  PlantSimEngine.dep(m::ParentModel) = (
@@ -68,7 +68,9 @@ Note that there may be instances where you might wish to write your own model to
 )
 ```
 
- Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an oil palm model developed on top of PlantSimEngine. 
+TODO example discussed in toy plant
+
+Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an oil palm model developed on top of PlantSimEngine. 
  Organs are produced at the phytomer scale, but need to run an age model and a biomass model at the reproductive organs' scales.
 
 ```julia

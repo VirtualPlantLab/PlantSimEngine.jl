@@ -2,11 +2,11 @@
 
 ## Planned major features
 
-## Varying timesteps
+### Varying timesteps
 
 Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap.
 
-## Multi-plant/Multi-species simulations
+### Multi-plant/Multi-species simulations
 
 A goal for PlantSimEngine down the line is to be able to simulate complex scenes with data comprising several plants, possibly of different species, for agroforestry purposes.
 

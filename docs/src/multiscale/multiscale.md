@@ -1,12 +1,6 @@
 # Multi-scale modeling
 
-## Moving to multi-scale
-
-PlantSimEngine provides a framework for multi-scale modeling to seamlessly integrate models at different scales, keeping all nice functionalities provided at one scale. A nice feature is that many models do not need to be aware of the scale at which they are running, nor about the scales at which their inputs are computed, or outputs will be given, which means those models can be reused at different scales or in single-scale simulations.
-
-PlantSimEngine automatically computes the dependency graph between mono and multi-scale models, considering every combination of models at any scale, to determine the order of model execution. This means that the user does not need to worry about the order of model execution and can focus on the model definition and the mapping between models and scales.
-
-Using PlantSimEngine for multi-scale modeling is relatively easy and mostly follows the same rules as mono-scale models. Let's dive into the details with a short tutorial.
+Let's look at a more advanced multi-scale example in detail. This page mostly focuses on the mapping.
 
 ## Simple mapping between models and scales
 

@@ -90,7 +90,7 @@ TODO
 
 ## TimeStepTables and DataFrames
 
-The output data is usually stored in a `TimeStepTable` structure defined in `PlantMeteo.jl`, which is a fast DataFrame-alike structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. Weather data is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
+The output data is usually stored in a `TimeStepTable` structure defined in `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. Weather data is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
 
 TODO example extracting specific variables
 
