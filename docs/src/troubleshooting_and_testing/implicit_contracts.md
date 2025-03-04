@@ -10,7 +10,7 @@ In XPalm, weather data for most models is provided daily, meaning biomass calcul
 
 Many models are considered to be steady-state over that timeframe, but not all : the leaf pruning model pertubes the plant in a non-steady state fashion, for example. Models that require computations over several iterations to stabilise (often part of hard dependencies) might also have a timestep unrelated to the weather data.
 
-!!! note
+!!! Note
     Implicitely, this means any vector variables given as input to the simulation must be consistent with the number of weather timesteps. Providing one weather value but a larger vector variable is an exception : the weather data is replicated over each timestep. (This may be subject to change in the future when support for different timesteps in a single simulation is implemented)
 
 ## Weather data must be interpolated prior to simulation
@@ -43,11 +43,11 @@ There may be new parallelisation features for multi-plant simulations further do
 
 The final dependency graph is comprised only of soft dependency nodes, and is guaranteed to contain no cycles. Hard dependencies are handled internally by their soft dependency ancestor. To avoid any ambiguity in terms of processing order, only one soft dependency node can 'own' a hard dependency And similarly, nested hard dependencies only have a single soft dependency ancestor.
 
-This is not solely an implementation detail of PlantSimEngine's internal mechanisms ; if your simulation requires complex coupling, you might need to carefully consider how to manage your hard dependencies, or insert an extra intermediate model to simplify thigns.
+This is not solely an implementation detail of PlantSimEngine's internal mechanisms ; if your simulation requires complex coupling, you might need to carefully consider how to manage your hard dependencies, or insert an extra intermediate model to simplify things.
 
 ## A model can only be used once per scale
 
-Similarly, both for graph creation non-ambiguity (and for simulation cohesion), PlantSimEngine currently assumes a model describing a process only occurs once per scale.
+Similarly, to avoid depedency graph ambiguity (and for simulation cohesion), PlantSimEngine currently assumes a model describing a process only occurs once per scale.
 
 Model renaming and duplicating works around this assumption. It may change once multi-plant/multi-species features are implemented.
 
@@ -65,3 +65,13 @@ TODO
 ## Diffusion systems ?
 
 ## TODO simulation order, node order, etc.
+
+## Simulation order instability when adding models
+
+An important aspect to bear in mind is that PlantSimEngine automatically determines an order in which models are run from the dependency graph it generates by coupling models together. 
+
+This order of simulation depends on the way the models link together. If you replace a model by a new set of models, or pass in new variables that create new links between models, you may change the simulation order.
+
+When iterating and slowly making a simulation more physiologically realistic and complex, it is therefore fully possible that the order in which two models are run is flipped by a user change. 
+
+This design choice implementation -a concession made for ease of use and flexibility when developing a simulation- means that until your set of models is fully stabilized and you know which variables are `PreviousTimestep` and what order models run in, as you expand and change the set you might see differences of execution of one timestep for some models. It isn't a conceptual problem as most models are steady-state, and simulation order is stable for a given set of models, but it does mean PlantSimEngine will be less conveient for some types of simulation.

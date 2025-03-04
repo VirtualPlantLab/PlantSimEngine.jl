@@ -40,7 +40,7 @@ models = ModelList(
 outputs_coupled = run!(models, meteo_day)
 ```
 
-## Coupling the light interception model with a Leaf Area Index model
+## Coupling the light interception and Leaf Area Index models with a biomass increment model
 
 
 ```julia

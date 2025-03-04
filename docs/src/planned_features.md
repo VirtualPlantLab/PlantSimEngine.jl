@@ -1,33 +1,54 @@
-Roadmap
+# Roadmap
 
-more examples ?
-reworked mapping API, and other API changes
+## Planned major features
 
-Handling varying timesteps
-CI/downstream
-multi-species
+## Varying timesteps
 
-better tracking of memory usage and type stability
+Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap.
 
-meteo required variables checking
+## Multi-plant/Multi-species simulations
 
-avoid printing the whole shebang by default
+A goal for PlantSimEngine down the line is to be able to simulate complex scenes with data comprising several plants, possibly of different species, for agroforestry purposes.
 
-Better dependency graph visualisation
-Improving user errors
-MTG couple of new features #106, other bugs
-other bugs
-cyclic management for modellists
-dependency graph traversal
+Its current state doesn't enable practical declaration of several plant species, or multiple plants relying on similar subsets of models with partially different models or parameters. 
 
-run! unrolling
-Improved parallelisation ?
+## Minor features
 
-state machine checker
-graph fuzzing
+- Implement a trait or a prepass that checks whether weather data is needed, and if so, if it is properly provided to a simulation
+- Better dependency graph visualization and information printing
 
-iteratively build and validate mappings and modellists ?
-documenting FP errors, more examples for fitting/type conversion/error propagation
-Improve multiscale dependency API ?
+## Minor planned improvements and QOL features
 
-other package planned features ?
+- A reworked and more consistent mapping API, and multiscale dependency declaration
+- Improved user errors
+- More examples
+- Better dependency graph traversal functions
+- Ensure cyclic dependency checking and PreviousTimestep is active for ModelLists
+
+## Improvements on the testing side
+
+- Better tracking of memory usage and type stability
+- Working CI/Downstream tests
+- state machine checker, validating output invariants
+- graph fuzzing for improved corner-case testing
+
+## Possible features (likely not a priority)
+
+- API enabling iterative builds and validation of mappings and modellists
+- Improved parallelisation 
+- Reintroduce multi-object parallelisation in single-scale
+
+## Other minor points
+
+- Documenting floating-point accumulation errors
+- More examples for fitting/type conversion/error propagation
+- MTG couple of new features #106 
+- Other minor bugs
+- Unrolling the run! function
+
+## Other
+
+The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
+
+TODO
+Detail other related packages' roadmaps ?

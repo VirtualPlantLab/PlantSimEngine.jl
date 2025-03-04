@@ -11,7 +11,7 @@ You'll find a brief description of some of the main concepts and terminology rel
 This section provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see [First Simulation]TODO
 
 !!! Note
-    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for Multi-scale tree graphs than the rest of PlantSimEngine. Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
+    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale tree graphs](TODO) than the rest of PlantSimEngine(TODO). Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
 
 ### Processes
 
@@ -25,8 +25,7 @@ Models are then implemented for a particular process.
 
 There may be different models that can be used for the same process ; for instance, there are multiple hypotheses and ways of modeling photosynthesis, with different granularity and accuracy. A simple photosynthesis model might apply a simple formula and apply it to the total leaf surface, a more complex one might calculate interception and light extinction. 
 
-The companion package PlantBiophysics.jl provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example 
-script in this package too at [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl).
+The companion package PlantBiophysics.jl provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example script in this package too at [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl).
 
 Models can also be used for ad hoc computations that aren't directly tied to a specific literature-defined physiological process. In PlantSimEngine, everything is a model. There are many instances where a custom model might be practical to aggregate some computations or handle other information. To illustrate, XPalm, the Oil Palm model has a few models that handle the state of different organs, and a mdoel to handle leaf pruning, which you can find [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl).
 
@@ -91,6 +90,16 @@ If you wish to make use of more fine-grained weather data, it will likely requir
 Plants have different organs with distinct physiological properties and processes. When doing more fine-grained simulations of plant growth, many models will be tied to a particular organ of a plant. Models handling flowering state or root water absorption are such examples. Others, such as carbon allocation and demand, might be reused in slightly different ways for multiple organs of the plant.
 
 PlantSimEngine documentation tends to use the terms "organ" and "scale" mostly interchangeably. "Scale" is a bit more general and accurate, since some models might not operate at a specific organ level, but (for example) at the scene level, so a "Scene" scale might be present in the MTG, and in the user-provided data.
+
+When working with multi-scale data, the scale will often need to be specified to map variables, or to indicate at what scale level models work out. You will see some code resembling this :
+
+```julia
+"Root" => (RootGrowthModel(), OrganAgeModel()),
+"Leaf" => (LightInterceptionModel(), OrganAgeModel()),
+"Plant" => (TotalBiomassModel(),),
+```
+
+This example excerpt links specific models to a specific scale. Note that one model is reused at two different scales, and note that "Plant" isn't an actual organ, hence the preferred usage of the term "scale".
 
 ### Multiscale modeling
 

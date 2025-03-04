@@ -14,6 +14,7 @@ If you wish to compare Julia to a specific language, [this page](https://docs.ju
 
 You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/)
 
+## Troubleshooting
 
 ### Installing Julia
 
