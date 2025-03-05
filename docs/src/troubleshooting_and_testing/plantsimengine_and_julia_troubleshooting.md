@@ -90,7 +90,11 @@ It is sometimes properly detected and explained on PlantSimEngine's side (when p
 
 The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` or `(,)`an error returned respectively by PlantSimEngine or Julia will be returned.
 
-### Forgetting a kwarg when declaring a MultiScaleModel
+## PlantSimEngine user errors
+
+Most of these occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
+
+### MultiScaleModel : forgetting a kwarg in the declaration
 
 A MultiScaleModel requires two kwargs, model and mapped_variables : 
 
@@ -286,13 +290,14 @@ TODO
 If there is a need to collect variables at two different scales, and one scale is completely absent from the mapping, the error currently occurs on the Julia side :
 
 ```julia
+# No models at the E3 scale in the mapping !
+
 "E2" => (
         MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
         mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,], 
         ),
     ),
-# No E3 in the mapping !
 
 Exception has occurred: KeyError
 *
@@ -327,7 +332,7 @@ often indicate a likely syntax error somewhere in the mapping definition.
 
 ### Empty status vectors in multi-scale simulations
 
-Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
+This situation won't trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
 
 Here's an example taken from TODO, removing the "Plant" node in the dummy MTG. Only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
 

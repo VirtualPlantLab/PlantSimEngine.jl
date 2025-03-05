@@ -40,13 +40,15 @@ Its current state doesn't enable practical declaration of several plant species,
 
 ## Other minor points
 
-- Documenting floating-point accumulation errors
+- Examples/solutions for floating-point accumulation errors
 - More examples for fitting/type conversion/error propagation
 - MTG couple of new features #106 
 - Other minor bugs
 - Unrolling the run! function
 
 ## Other
+
+- Reproducing another FSPM?
 
 The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
 

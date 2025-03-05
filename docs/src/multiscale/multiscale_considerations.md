@@ -62,3 +62,13 @@ Multi-scale simulations, especially for plants which have thousands of leaves, i
 ```julia
 TODO
 ```
+
+## The run! function's signature
+
+The `run!` function differs slightly from its single-scale version. The current structure (excluding a couple of advanced/deprecated kwargs) is the following:
+
+```julia
+run!(mtg, mapping, meteo, constants, extra; nsteps, tracked_outputs)
+```
+
+Instead of a `ModelList`, it takes an MTG and a mapping. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 

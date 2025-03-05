@@ -201,13 +201,3 @@ is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) ==
 There is a model able to provide Thermal Time based on weather temperature data, `ToyDegreeDaysCumulModel`, which can also be found in the examples folder. 
 
 We didn't make use of it here for learning purposes. It also computes a thermal time based on default parameters that don't correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. 
-
-## The run! function's signature in multi-scale simulations
-
-The `run!` function differs slightly from its single-scale version, as indicated earlier.
-
-```julia
-run!(mtg, mapping, meteo, constants, extra; nsteps, tracked_outputs)
-```
-
-Instead of a `ModelList`, it takes an MTG and a mapping. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 
