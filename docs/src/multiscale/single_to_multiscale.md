@@ -1,46 +1,12 @@
-# Moving to multi-scale simulations
-
-PlantSimEngine provides a framework for multi-scale modeling to integrate and couple models at different scales, retaining functionalities provided in single-scale simulations. ('Multi-scale' and 'single-scale' terminology is defined [here](TODO))
-
-`ModelList` structures don't have a concept of a "scale", so are insufficient when it comes to using models which work at different plant organ levels. A similar but slightly different API is provided for multi-scale simulations.
-
-This section showcases how to take a single-scale `ModelList` simulation, and convert it into an equivalent multi-scale simulation (with only one provided scale in practice). This eases the transition for future full-fledged multi-scale simulation which might have multiple plant organs and operate at several scales. 
-
-There is a more detailed discussion of mappings and scales [here](TODO). You can also find a three-part tutorial implementing an example multi-scale toy plant [here](TODO)
-
-## Multi-scale considerations
-
-Declaring and running a multi-scale simulation follows the same general workflow as the single-scale version. 
-
-Multi-scale simulations do have some differences : they require a Multi-scale Tree Graph (MTG) and the ModelList is replaced by a slightly more complex model mapping.
-
-The model dependency graph will still be computed automatically, meaning users don't need to specify the order of model execution once the extra code to declare the models is written.
-
-Multi-scale simulations also tend to require more extra ad hoc models to prepare some variables for some models.
-
-### Multi-scale tree graphs
-
-A multi-scale simulation is implicitely expected to operate on a plant-like object. Functional-Structural Plant Models are often about simulationg plant growth.
-
-A multi-scale tree graph (MTG) object see TODO is therefore required to run a multi-scale simulations. It can be a dummy MTG if the simulation doesn't actually affect it, but is nevertheless a required argument to the multi-scale `run` function.
-
-### Mappings
-
-Some models are tied to a specific plant organ. 
-
-For instance, a model computing a leaf's surface area depending on its age would operate at the "leaf" scale, and be called **for every leaf** at every timestep. On the other hand, a model computing the plant's total leaf area only needs to be run once per timestep, and can be run at the "Plant" scale.
-
-When users define which models they use, PlantSimEngine cannot determine in advance which scale level they operate at. This is because the plant organs in an MTG do not have standardized names, and also because some plant organs might not be part of the initial MTG, so parsing it isn't enough to infer what scales are used.
-
-The user therefore needs to indicate the simulation's different scales and related models.
-
-A mapping links models to the scale at which they operate, and is implemented as a Julia `Dict`, tying a scale, such as "Leaf" to models operating at that scale, such as "LeafSurfaceAreaModel". 
-
-Multi-scale models can be similar models to the ones found in earlier sections, or, if they need to make use of variables at other scales, may need to be wrapped as part of a `MultiScaleModel` object. Many models are not tied to a particular scale, which means those models can be reused at different scales or in single-scale simulations.
-
-## Correspondence between single and multi-scale simulations
+# Converting a single-scale simulation to multi-scale
 
 A single-scale simulation can be turned into a 'pseudo-multi-scale' simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.
+
+This section showcases the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.
+
+The full script for this section can be found in TODO
+
+# Converting the ModelList to a multi-scale mapping
 
 For example, let's consider the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed [here](Further coupling) : 
 
@@ -91,21 +57,61 @@ out_multiscale = run!(mtg, mapping, meteo_day)
 
 (Some of the optional arguments also change slightly)
 
-Unfortunately, there is one caveat. Passing in a vector through the `Status` is possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is less user-friendly.
+Unfortunately, there is one caveat. Passing in a vector through the `Status` is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is less user-friendly.
 
 If you are keen on going down that path, you can find a detailed example here TODO, but we don't recommend it for beginners.
 
-What we'll do instead, is use a ready-made model to provide the thermal time per timestep as a variable, instead of as a single vector in the `Status`.
+What we'll do instead, is write our own model provide the thermal time per timestep as a variable, instead of as a single vector in the `Status`.
 
-Our pseudo-multiscale first approach will therefore turn into a genuine multi-scale simulation.
+Our 'pseudo-multiscale' first approach will therefore turn into a genuine multi-scale simulation.
 
 ## Adding a second scale
 
-Let's have a model provide the thermal time to our Leaf Area Index model, instead of initializing it through the `Status`. 
+Let's have a model provide the Cumulated Thermal Time to our Leaf Area Index model, instead of initializing it through the `Status`. 
 
-There is a model for this purpose, `ToyDegreeDaysCumulModel`, which can also be found in the examples folder.TODO. 
+Let's instead implement our own `ToyTT_cuModel`.
 
-This model doesn't represent a physiological process of the plant, rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we'll call "Scene". 
+### TT_cu model implementation
+
+This model doesn't require any outside data or input variables, it only operates on the weather data and outputs our desired TT_cu. The implementation doesn't require any advanced coupling and is very straightforward.
+
+```julia
+PlantSimEngine.@process "tt_cu" verbose = false
+
+struct ToyTt_CuModel <: AbstractTt_CuModel
+end
+
+function PlantSimEngine.run!(::ToyTt_CuModel, models, status, meteo, constants, extra=nothing)
+    status.TT_cu +=
+        meteo.TT
+end
+
+function PlantSimEngine.inputs_(::ToyTt_CuModel)
+    NamedTuple() # No input variables
+end
+
+function PlantSimEngine.outputs_(::ToyTt_CuModel)
+    (TT_cu=-Inf,)
+end
+```
+
+!!! note
+    The only accessible variables in the `run!` function via the status are the ones that are local to the "Scene" scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a `MultiScaleModel`, or sometimes a more complex coupling is necessary.
+
+### Linking the new TT_cu model to a scale in the mapping
+
+We now have our model implementation. How does it fit into our mapping ?
+
+Our new model doesn't really relate to a specific organ of our plant. In fact, this model doesn't represent a physiological process of the plant, but rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we'll call "Scene". This makes sense.
+
+Note that we now need to add a "Scene" node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it. See []TODO
+
+```julia
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+```
+
+### Mapping between scales : the MultiScaleModel wrapper
 
 The cumulated thermal time (`:TT_cu`) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the "Scene" scale level. 
 
@@ -141,20 +147,53 @@ mapping_multiscale = Dict(
 )
 ```
 
-We can then run the multiscale simulation, with a similar dummy MTG :
+We can then run the multiscale simulation, with our two-node MTG :
 
 ```julia
-# We didn't use the previous mtg, but it is good practice to avoid unnecessarily mixing data between simulations
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-out_multiscale = run!(mtg, mapping_multiscale, meteo_day)
+out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
-TODO The output structure, like the mapping, is a Julia Dict structure indexed by scale.
+### Comparing outputs between single- and multi-scale
 
-#We can compare the biomass_increment with the equivalent ModelList output, and check results are identical :
-#TODO slight result discrepancy
+The outputs structures are slightly different : multi-scale outputs are indexed by scale, and a variable has a value for every node of the scale it operates at (for instance, there would be a "leaf_surface" value for every leaf in a plant), stored in an array.
 
-```julia 
-out_dataframe_multiscale = collect(Base.Iterators.flatten(out_multiscale["Plant"][:biomass_increment]))
-out_singlescale.biomass_increment
+In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.
+
+We can access the output variables at the "Scene" scale by indexing our outputs:
+
+```julia
+outputs_multiscale["Scene"]
 ```
+and then the computed `:TT_cu`:
+```julia
+outputs_multiscale["Scene"][:TT_cu]
+```
+
+As you can see, it is a `Vector{Vector{T}}`, whereas our single-scale output is a `Vector{T}`:
+```julia
+outputs_singlescale.TT_cu
+```
+
+To compare them value-by-value, we can flatten the multiscale Vector and then do a piecewise approximate equality test :
+```julia
+computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
+
+for i in 1:length(computed_TT_cu_multiscale)
+    if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
+        println(i)
+    end
+end
+```
+or equivalently, with broadcasting, we can write :
+```julia
+is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) == 1
+```
+
+!!! note
+    You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail [here]TODO.
+
+## ToyDegreeDaysCumulModel
+
+There is a model able to provide Thermal Time based on weather temperature data, `ToyDegreeDaysCumulModel`, which can also be found in the examples folder. 
+
+We didn't make use of it here for learning purposes. It also computes a thermal time based on default parameters that don't correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. 

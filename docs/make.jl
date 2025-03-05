@@ -52,6 +52,7 @@ makedocs(;
             "Visualizing outputs" => "./working_with_data/visualising_outputs.md"
         ],
         "Moving to multiscale" => [
+            "Multiscale considerations" => "./multiscale/multiscale_considerations.md",
             "Converting a simulation to multi-scale" => "./multiscale/single_to_multiscale.md",
             "Detailed example" => "./multiscale/multiscale.md",
             "Handling cyclic dependencies" => "./multiscale/multiscale_cyclic.md",

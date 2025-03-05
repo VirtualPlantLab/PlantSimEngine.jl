@@ -1,6 +1,6 @@
 # Multi-scale modeling
 
-Let's look at a more advanced multi-scale example in detail. This page mostly focuses on the mapping.
+Let's look at a more advanced multi-scale example in detail. This page mostly focuses on mapping subtleties.
 
 ## Simple mapping between models and scales
 

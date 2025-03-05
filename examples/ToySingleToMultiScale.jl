@@ -13,7 +13,10 @@ using MultiScaleTreeGraph
 # Weather data for all simulations
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-# Single-scale simulation
+##############################
+### Single-scale simulation
+##############################
+
 models_singlescale = ModelList(
     ToyLAIModel(),
     Beer(0.5),
@@ -23,7 +26,9 @@ models_singlescale = ModelList(
 
 out_singlescale = run!(models_singlescale, meteo_day)
 
-# Direct translation of the single-scale simulation
+##############################
+#### Direct translation of the single-scale simulation
+##############################
 mapping_pseudo_multiscale = Dict(
 "Plant" => (
    ToyLAIModel(),
@@ -58,12 +63,37 @@ mapping_pseudo_multiscale_adjusted = Dict("Plant" => (
 out_pseudo_multiscale = run!(mtg, mapping_pseudo_multiscale_adjusted, meteo_day)
 =#
 
+##############################
+#### Ad Hoc Cumulated Thermal Time Model
+##############################
 
+PlantSimEngine.@process "tt_cu" verbose = false
 
-# Actual multiscale version of the single-scale simulation
+struct ToyTt_CuModel <: AbstractTt_CuModel
+end
+
+function PlantSimEngine.run!(::ToyTt_CuModel, models, status, meteo, constants, extra=nothing)
+    status.TT_cu +=
+        meteo.TT
+end
+
+function PlantSimEngine.inputs_(::ToyTt_CuModel)
+    NamedTuple()
+end
+
+function PlantSimEngine.outputs_(::ToyTt_CuModel)
+    (TT_cu=-Inf,)
+end
+
+##############################
+#### Actual multiscale version of the single-scale simulation
+##############################
 
 mapping_multiscale = Dict(
-    "Scene" => ToyDegreeDaysCumulModel(),
+    "Scene" => (
+        ToyTt_CuModel(),
+        Status(TT_cu=0.0),
+    ),
     "Plant" => (
         MultiScaleModel(
             model=ToyLAIModel(),
@@ -77,9 +107,29 @@ mapping_multiscale = Dict(
 )
 
 # The previous mtg wasn't affected, but it is good practice to avoid unnecessarily mixing data between simulations
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-out_multiscale = run!(mtg, mapping_multiscale, meteo_day)
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+
+##############################
+#### Output comparison
+##############################
+
+computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
+
+is_approx_equal_1 = true
+
+for i in 1:length(computed_TT_cu_multiscale)
+    if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
+        is_approx_equal_1 = false
+        break
+    end
+end
+
+is_approx_equal_1
+
+is_approx_equal_2 = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) == 1
 
 
-#out_dataframe_multiscale = collect(Base.Iterators.flatten(out_multiscale["Plant"][:TT_cu]))
-#out_singlescale.TT_cu
+# Note : it is also possible to get the weather data length via PlantSimEngine.get_nsteps(meteo_day)
+# instead of checking for array length

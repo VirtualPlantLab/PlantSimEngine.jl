@@ -2,25 +2,32 @@
 
 TODO change Toy To Example ?
 
-This section iteratively walks you through building a multi-scale simulation. 
+This three-part section walks you through building a multi-scale simulation from scratch. It is meant as an illustration of the iterative process you might go through when building and slowly tuning a Functional-Structural Plant Model, where previous multi-scale examples focused more on the API syntax.
 
-The actual plant being simulated, as well as some of the ad hoc processes, mostly have no physical meaning and are very much ad hoc (which is why most of them aren't standalone in the examples folder). Similarly, some of the parameter values are pulled out of thin air, and have no ties to research papers or data.
+You can find the full script for the first part's toy simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
+
+## Disclaimer
+
+The actual plant being created, as well as some of the custom models, have no real physical meaning and are very much ad hoc (which is why most of them aren't standalone in the examples folder). Similarly, some of the parameter values are pulled out of thin air, and have no ties to research papers or data.
 
 The main purpose here is to showcase PlantSimEngine's multi-scale features and how to structure your models, not accuracy, realism or performance.
 
-You can find the full script for this simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
-
 ## A basic growing plant
 
-At minimul, to simulate some kind of fake growth, we need :
+At minimum, to simulate some kind of fake growth, we need :
 
-- A MultiScale Tree Graph representing the plant
+- A Multi-scale Tree Graph representing the plant
 - Some way of adding organs to the plant
-- Some kind of temporality to this dynamic
+- Some kind of temporality to spread this growth over multiple timesteps
 
 Let's have some concept of 'leaves' that capture the (carbon) resource necessary for organ growth, and let's have the organ emergence happen at the 'internode' level, to illustrate multiple organs with different behavior.
 
-We'll make the assumption the internodes make use of carbon from a common pool. We'll also make use of thermal time as a growth delay factor.
+We'll make the assumption that the internodes make use of carbon from a common pool. We'll also make use of thermal time as a growth delay factor.
+
+To sum up : 
+- MTG with growing internodes and leaves
+- Individual leaves capture carbon fed into a common pool
+- Internodes take from that pool to create new organs, with a thermal time constraint.
 
 One way of modeling this approach translates into several scales and models : 
 
@@ -48,7 +55,7 @@ Some of the models will need to gather variables from scales other than their ow
 
 ### Carbon Capture
 
-Let's start with the simplest model. Leaves continuously capture some constant amount of carbon every timestep. No inputs are required.
+Let's start with the simplest model. Our fake leaves will continuously capture some constant amount of carbon every timestep. No inputs or parameters are required.
 
 ```julia
 PlantSimEngine.@process "leaf_carbon_capture" verbose = false
