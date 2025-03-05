@@ -19,6 +19,8 @@ models = ModelList(
     ToyRUEGrowthModel(0.2),
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
+
+out_singlescale = run!(models_singlescale, meteo_day)
 ```
 
 Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that "plant" scale, so there is no need to map any variable to other scales.
@@ -43,9 +45,9 @@ None of these models operate on a multi-scale tree graph, either. There is no co
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 ```
 
-## Running the multi-scale simulation
+## Running the multi-scale simulation ?
 
-We now have **almost** what we need to run the multiscale simulation.
+We now have **almost** everything we need to run the multiscale simulation.
 
 This first conversion step can be a starting point for a more elaborate multi-scale simulation. 
 
@@ -57,7 +59,7 @@ out_multiscale = run!(mtg, mapping, meteo_day)
 
 (Some of the optional arguments also change slightly)
 
-Unfortunately, there is one caveat. Passing in a vector through the `Status` is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is less user-friendly.
+Unfortunately, there is one caveat. Passing in a vector through the `Status` field is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is experimental and less user-friendly.
 
 If you are keen on going down that path, you can find a detailed example here TODO, but we don't recommend it for beginners.
 
@@ -119,7 +121,7 @@ This is done by wrapping our `ToyLAIModel` in a dedicated structure called a `Mu
 
 There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the "Scene" to the "Plant" scale.
 
-This gives us the following declaration : 
+This gives us the following declaration with the `MultiScaleModel` wrapper for our LAI model: 
 
 ```julia
 MultiScaleModel(
@@ -133,7 +135,7 @@ and the new mapping with two scales :
 
 ```julia
 mapping_multiscale = Dict(
-    "Scene" => ToyDegreeDaysCumulModel(),
+    "Scene" => ToyTt_CuModel(),
     "Plant" => (
         MultiScaleModel(
             model=ToyLAIModel(),
@@ -146,6 +148,8 @@ mapping_multiscale = Dict(
     ),
 )
 ```
+
+### Running the multi-scale simulation
 
 We can then run the multiscale simulation, with our two-node MTG :
 
@@ -197,3 +201,13 @@ is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) ==
 There is a model able to provide Thermal Time based on weather temperature data, `ToyDegreeDaysCumulModel`, which can also be found in the examples folder. 
 
 We didn't make use of it here for learning purposes. It also computes a thermal time based on default parameters that don't correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. 
+
+## The run! function's signature in multi-scale simulations
+
+The `run!` function differs slightly from its single-scale version, as indicated earlier.
+
+```julia
+run!(mtg, mapping, meteo, constants, extra; nsteps, tracked_outputs)
+```
+
+Instead of a `ModelList`, it takes an MTG and a mapping. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 

@@ -325,3 +325,50 @@ Closest candidates are:
 ```
 often indicate a likely syntax error somewhere in the mapping definition.
 
+### Empty status vectors in multi-scale simulations
+
+Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
+
+Here's an example taken from TODO, removing the "Plant" node in the dummy MTG. Only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
+
+```julia
+PlantSimEngine.@process "tt_cu" verbose = false
+
+struct ToyTt_CuModel <: AbstractTt_CuModel end
+
+function PlantSimEngine.run!(::ToyTt_CuModel, models, status, meteo, constants, extra=nothing)
+    status.TT_cu +=
+        meteo.TT
+end
+
+function PlantSimEngine.inputs_(::ToyTt_CuModel)
+    NamedTuple() # No input variables
+end
+
+function PlantSimEngine.outputs_(::ToyTt_CuModel)
+    (TT_cu=-Inf,)
+end
+
+mapping_multiscale = Dict(
+    "Scene" => ToyTt_CuModel(),
+    "Plant" => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapped_variables=[
+                :TT_cu => "Scene",
+            ],
+        ),
+        Beer(0.5),
+        ToyRUEGrowthModel(0.2),
+    ),
+)
+
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
+#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+
+out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+
+out_multiscale["Plant"][:LAI]
+```
+
+In the above code, uncommenting the second line will add a "Plant" node to the MTG, and the simulation will then behave as intuitively expected.

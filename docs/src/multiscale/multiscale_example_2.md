@@ -102,7 +102,7 @@ end
 
 ### Internode creation
 
-The minor chagne is that new organs are now created only if the water stock is above a given threshold.
+The minor change is that new organs are now created only if the water stock is above a given threshold.
 
 ```julia
 struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel

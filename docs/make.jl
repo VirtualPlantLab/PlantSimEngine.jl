@@ -54,7 +54,7 @@ makedocs(;
         "Moving to multiscale" => [
             "Multiscale considerations" => "./multiscale/multiscale_considerations.md",
             "Converting a simulation to multi-scale" => "./multiscale/single_to_multiscale.md",
-            "Detailed example" => "./multiscale/multiscale.md",
+            "More variable mapping examples" => "./multiscale/multiscale.md",
             "Handling cyclic dependencies" => "./multiscale/multiscale_cyclic.md",
             "Multiscale coupling considerations" => "./multiscale/multiscale_coupling.md",
             "Building a simple plant" => [
