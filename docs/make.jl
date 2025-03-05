@@ -49,7 +49,8 @@ makedocs(;
             "Reducing DoF" => "./working_with_data/reducing_dof.md",
             "Fitting" => "./working_with_data/fitting.md",
             "Input types" => "./working_with_data/inputs.md",
-            "Visualizing outputs" => "./working_with_data/visualising_outputs.md"
+            "Visualizing outputs" => "./working_with_data/visualising_outputs.md",
+            "Floating-point considerations" => "./working_with_data/floating_point_accumulation_error.md",
         ],
         "Moving to multiscale" => [
             "Multiscale considerations" => "./multiscale/multiscale_considerations.md",
@@ -66,10 +67,12 @@ makedocs(;
             "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
             "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
             "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
+            "Implicit contracts" => "./troubleshooting_and_testing/implicit_contracts.md",
         ], "API" => [
             "Public API" => "./API/API_public.md",
             "Internal API" => "./API/API_private.md",],
         "Credits" => "credits.md",
+        "Improving our documentation" => "documentation_improvement.md",
         "Planned features" => "planned_features.md",
         #"developer section ?"
     ]
