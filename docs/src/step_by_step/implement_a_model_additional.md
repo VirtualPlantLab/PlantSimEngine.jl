@@ -2,7 +2,7 @@
 
 ## Parametric types
 
-In [Implementing a new model](@ref), the Beer model's structure was declared with a parametric type.
+In Implementing a model(TODO ref), the Beer model's structure was declared with a parametric type.
 
 ```julia
 struct Beer{T} <: AbstractLight_InterceptionModel
@@ -76,7 +76,7 @@ Beer(;k) = Beer(k)
 
 The `;` syntax indicates that subsequent arguments are provided as keyword arguments, so now we can call `Beer` like this:
 
-```@example usepkg
+```julia
 Beer(k = 0.7)
 ```
 
@@ -86,7 +86,7 @@ This helps readability when there are a lot of parameters and some have default 
 
 The last optional utility function to implement is a method for the `eltype` function:
 
-```@example usepkg
+```julia
 Base.eltype(x::Beer{T}) where {T} = T
 ```
 

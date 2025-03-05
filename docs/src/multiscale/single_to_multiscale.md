@@ -8,7 +8,7 @@ The full script for this section can be found in TODO
 
 # Converting the ModelList to a multi-scale mapping
 
-For example, let's consider the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed [here](Further coupling) : 
+For example, let's consider the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed here(TODO ref Further coupling) : 
 
 ```julia
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -194,7 +194,7 @@ is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) ==
 ```
 
 !!! note
-    You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail [here]TODO.
+    You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail here TODO.
 
 ## ToyDegreeDaysCumulModel
 

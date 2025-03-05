@@ -11,7 +11,7 @@ You'll find a brief description of some of the main concepts and terminology rel
 This section provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see [First Simulation]TODO
 
 !!! Note
-    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale tree graphs](TODO) than the rest of PlantSimEngine(TODO). Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
+    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for Multi-scale tree graphs(TODO) than the rest of PlantSimEngine(TODO). Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
 
 ### Processes
 
