@@ -4,4 +4,4 @@ One goal for PlantSimEngine is to ensure testing ecophysiological hypotheses, or
 
 Good documentation is essential for that purpose.
 
-If parts of the documentation are unclear to you, you are very welcome to send a PR, an email, or a message (either on Github or on Discourse : TODO) so that we can improve upon it.
+If parts of the documentation are unclear to you, you are very welcome to send a PR, an email, or a message (either [on Github](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or [on the FSPM Discourse](https://fspm.discourse.group/latest)) so that we can improve upon it.

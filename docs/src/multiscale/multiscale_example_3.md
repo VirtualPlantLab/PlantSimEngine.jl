@@ -33,11 +33,11 @@ Indeed, if both the root and leaf water thresholds are met, and there is enough 
 
 This occurs because carbon_stock is only computed once, and won't update until the next timestep.
 
-What we can do to avoid that problem in our specific case (for other situations TODO), is to couple the root growth model and the internode emission model, and pass the carbon_root_creation_consumed so that internode emission can take it into account. Or we could have an intermediate model recompute the new stock to pass along to the internode emission model. 
+To avoid that problem in our specific case, we can couple the root growth model and the internode emission model, and pass the carbon_root_creation_consumed so that internode emission can take it into account. Or we could have an intermediate model recompute the new stock to pass along to the internode emission model. 
 
-We'll go for the first option.
+There is a section in the 'Tips and workarounds' page discussing this situation and other potential solutions: [Having a variable simultaneously as input and output of a model](@ref).
 
-TODO previous timestep ?
+We'll go for the first option and couple the root growth and internode emission model.
 
 ### Internode emission adjustments
 
@@ -53,9 +53,39 @@ The only change required for our internode emission model is to take into accoun
     end
 ```
 
-### Root growth decision model with a hard dependency
+### A multi-scale hard dependency appears
 
 Our root growth decision model inherits some of the responsibility from last chapter's root growth model, so inputs, parameters and condition checks will be similar. We'll let the root growth model keep the length check and only focus on resources.
+
+Since the decision model is now directly responsible for calling the actual root growth model, we need to declare that it requires a root growth model as a hard dependency and cannot be run standalone. TODO see. 
+
+This hard dependency is in fact multiscale, since both models operate at different scales, "Plant" and "Root". To specify which scale the hard dependency comes from, the declaration additionally requires mapping the scale, compared to the single-scale equivalent:
+
+```julia
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
+```
+
+The `status` argument `run!` function of the root growth decision model only contains variables from the "Plant" scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the `status` at the "Root" scale. It is accessible from the `extra` argument in `run!`'s signature. 
+
+In multi-scale simulations, this `extra` argument implicitely contains an object storing the simulation state. It contains the statuses at various scales, and all the models indexed per scale and process name.
+
+Access to the "Root" status within the root growth decision model `run!` function is done like so:
+
+```julia
+status_Root= extra_args.statuses["Root"][1]
+```
+
+It is then possible to call the root growth model from the parent's `run!` function:
+
+```julia
+PlantSimEngine.run!(extra.models["Root"].root_growth, models, status_Root, meteo, constants, extra)
+```
+
+Which will enable writing the rest of the `run!` function.
+
+### Root growth decision model implementation
+
+With that new coupling consideration properly handled, we can complete the full model implementation:
 
 ```julia
 PlantSimEngine.@process "root_growth_decision" verbose = false
@@ -72,20 +102,23 @@ PlantSimEngine.outputs_(::ToyRootGrowthDecisionModel) = NamedTuple()
 
 PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
 
+# "status" is at the "Plant" scale
 function PlantSimEngine.run!(m::ToyRootGrowthDecisionModel, models, status, meteo, constants=nothing, extra=nothing)
 
     if status.water_stock < m.water_threshold && status.carbon_stock > m.carbon_root_creation_cost
+        # Obtain "status" at "Root" scale
         status_Root= extra_args.statuses["Root"][1]
+        # Call the hard dependency model directly with its status
         PlantSimEngine.run!(extra.models["Root"].root_growth, models, status_Root, meteo, constants, extra)
     end
 end
 ```
 
-Note the hard dependency declaration, and the direct call to the root growth `run!` function. The root growth model will output the `carbon_root_creation_consumed` computation, but it'll still be exposed to downstream models despite the root growth model being an 'hidden' model since it's a hard dependency.
+The root growth model will output the `carbon_root_creation_consumed` computation, but it'll still be exposed to downstream models despite the root growth model being a 'hidden' model in the dependency graph due to its hard dependency nature.
 
 ### Root growth
 
-This version is a simplifed version of last chapter's.
+This iteration turns into a simplifed version of last chapter's.
 
 ```julia
 PlantSimEngine.@process "root_growth" verbose = false

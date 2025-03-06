@@ -260,16 +260,16 @@ PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 However, the model provided in the examples, Process2Model is absent from the mapping :
 
 ```julia
-    simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    mapping = Dict(
-        "Leaf" => (
-            Process3Model(),
-            Status(var5=15.0,)
-        )
+simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))    
+mapping = Dict(
+    "Leaf" => (
+        Process3Model(),
+        Status(var5=15.0,)
     )
-    outs = Dict(
-        "Leaf" => (:var5,),
-    )
+)
+outs = Dict(
+    "Leaf" => (:var5,),
+)
 run!(simple_mtg, mapping, meteo_day, tracked_outputs=outs)
 
 ERROR: type NamedTuple has no field process2
@@ -278,7 +278,7 @@ Stacktrace:
    @ Base ./Base.jl:49
  [2] run!(::Process3Model, models::@NamedTuple{…}, status::Status{…}, meteo::DataFrameRow{…}, constants::Constants{…}, extra::PlantSimEngine.GraphSimulation{…})
  ...
- ```
+```
 
 The fix is to add Process2Model() -or an other model for the same process- to the mapping.
 
@@ -334,7 +334,7 @@ often indicate a likely syntax error somewhere in the mapping definition.
 
 This situation won't trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
 
-Here's an example taken from TODO, removing the "Plant" node in the dummy MTG. Only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
+Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the "Plant" node in the dummy MTG passed into the `run!`function. Without that "Plant" node, only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
 
 ```julia
 PlantSimEngine.@process "tt_cu" verbose = false

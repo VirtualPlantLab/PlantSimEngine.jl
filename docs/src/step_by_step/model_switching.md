@@ -59,9 +59,6 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 nothing # hide
 ```
 
-!!! tip
-    For meteorology data details, you can check the code presented [in this section in the FAQ](@ref defining_the_meteo)
-
 We can now run the simulation:
 
 ```@example usepkg

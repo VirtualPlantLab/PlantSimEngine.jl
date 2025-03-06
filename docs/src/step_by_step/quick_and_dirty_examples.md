@@ -7,7 +7,7 @@ If you wish for a more detailed rundown of the examples, you can instead have a 
 
 These examples are all for single-scale simulations. For multi-scale modelling tutorials and examples, refer to [this section][#multiscale]
 
-You can find the implementation for these example models, as well as other toy models [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
+You can find the implementation for all the example models, as well as other toy models [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
 
 ## Example with a single light interception model and a single weather timestep
 

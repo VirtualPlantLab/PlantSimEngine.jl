@@ -2,13 +2,13 @@
 
 A single-scale simulation can be turned into a 'pseudo-multi-scale' simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.
 
-This section showcases the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.
+This page showcases how to do the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.
 
-The full script for this section can be found in TODO
+The full script for the example can be found in [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl]
 
 # Converting the ModelList to a multi-scale mapping
 
-For example, let's consider the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed here(TODO ref Further coupling) : 
+For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Example model switching](@ref) subsection: 
 
 ```julia
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -61,7 +61,7 @@ out_multiscale = run!(mtg, mapping, meteo_day)
 
 Unfortunately, there is one caveat. Passing in a vector through the `Status` field is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is experimental and less user-friendly.
 
-If you are keen on going down that path, you can find a detailed example here TODO, but we don't recommend it for beginners.
+If you are keen on going down that path, you can find a detailed example [here](@ref multiscale_vector), but we don't recommend it for beginners.
 
 What we'll do instead, is write our own model provide the thermal time per timestep as a variable, instead of as a single vector in the `Status`.
 

@@ -8,7 +8,7 @@ struct Beer{T} <: AbstractLight_InterceptionModel
 end
 ```
 
-For your own simulations, you might want to move beyond simple usage at some point and implement your own models. In this section, we'll go through the required steps for writing a new model. The detailed version is tailored for people less familiar with programming.
+For your own simulations, you might want to move beyond simple usage at some point and implement your own models. In this page, we'll go through the required steps for writing a new model. The detailed version is tailored for people less familiar with programming.
 
 ## Quick version
 
@@ -60,8 +60,8 @@ And that is all you need to get going, for this example with a single parameter 
 
 The `@process` macro does some boilerplate work described [here](@ref under_the_hood)
 
-If you have more than one parameter, then type conversion utility functions might also be interesting to implement. See here TODO
-If you need to deal with more complex couplings, the hard dependency section will detail TODO
+Some extra utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
+If your custom model needs to handle more complex couplings than the simple input/output described in this example, check out the [Coupling more complex models](@ref) page.
 
 ## Detailed version
 

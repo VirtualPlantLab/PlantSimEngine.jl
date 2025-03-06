@@ -1,8 +1,8 @@
 # Multi-scale variable mapping
 
-The previous section showed how to convert a single-scale simulation to multi-scale.
+The previous page showed how to convert a single-scale simulation to multi-scale.
 
-This section provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the examples folder []TODO
+This page provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the examples folder []TODO
 
 ## Starting with a single-model mapping
 
@@ -136,9 +136,8 @@ mapping = Dict(
 nothing # hide
 ```
 
-This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example. 
+This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Example model switching](@ref) subsection.
 
-TODO link
 ```julia
 models2 = ModelList(
     ToyLAIModel(),

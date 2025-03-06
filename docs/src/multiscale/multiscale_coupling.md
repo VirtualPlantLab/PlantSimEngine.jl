@@ -3,7 +3,7 @@
 
 ## Scalar and vector variable mappings
 
-In the detailed example discussed previously (TODO), there were several instances of mapping a variable from one scale to another. Here's a relevant exerpt from the mapping : 
+In the detailed example discussed previously [Multi-scale variable mapping](@ref), there were several instances of mapping a variable from one scale to another, which we'll briefly describe again to help transition to the next and more advanced subsection. Here's a relevant exerpt from the mapping : 
 
 ```julia
 "Plant" => (
@@ -49,16 +49,15 @@ Note that there may be instances where you might wish to write your own model to
 
 If a model requires some input variable that is computed at another scale, then providing the appropriate mapping for that variable will resolve name conflicts and enable that model to run with no further steps for the user or the modeler when the coupling is a 'soft dependency'.
 
-In the case of a hard dependency that operates at the same scale as its parent, declaring the hard dependency is exactly the same as in single-scale simulations and there are also no new extra steps on the user-side. 
- 
-On the other hand, modelers do need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate at a different organ level from their parent : 
+In the case of a hard dependency that operates **at the same scale as its parent**, declaring the hard dependency is exactly the same as in single-scale simulations and there are also no new extra steps on the user-side:
 
-The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the top-level dependency graph.
- Therefore only the owning model of that dependency is visible in the graph, and its hard dependency nodes are internal.
+- The parent model directly handles the call to its hard dependency model(s), meaning they are not explicitely managed by the top-level dependency graph.
+- This means only the owning model of that dependency is visible in the graph, and its hard dependency nodes are internal.
+- When the caller (or any downstream model that requires some variables from the hard dependency model) operates at the same scale, variables are easily accessible, and no mapping is required. 
  
-When the caller (or any downstream model that requires some variables from the hard dependency) operates at the same scale, variables are easily accessible, and no mapping is required. 
+On the other hand, modelers do need to bear in mind a couple of subtleties when developing models that possess hard dependencies that operate **at a different organ level from their parent**: 
 
-If an inner model operates at a different scale/organ level, a modeler must declare hard dependencies with their respective organ level, similarly to the way the user provides a mapping. 
+If an model needs to be directly called by a parent but operates at a different scale/organ level, a modeler must declare hard dependencies with their respective organ level, similarly to the way the user provides a mapping. 
 
 Conceptually :
 
@@ -68,7 +67,11 @@ Conceptually :
 )
 ```
 
+### An example from the toy plant simulation tutorial
+
 TODO example discussed in toy plant
+
+### An example from XPalm.jl
 
 Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an oil palm model developed on top of PlantSimEngine. 
  Organs are produced at the phytomer scale, but need to run an age model and a biomass model at the reproductive organs' scales.
@@ -108,10 +111,14 @@ function ReproductiveOrganEmission(mtg::MultiScaleTreeGraph.Node; phytomer_symbo
 end
 ```
 
+## Implementation details: accessing a hard dependency's variables from a different scale
+
 But how does a model M calling a hard dependency H provide H's variables when calling H's `run!` function ? The status the user provides M operates at M's organ level, so if used to call H's run! function any required variable for H will be missing.    
 
 PlantSimEngine provides what are called Status Templates in the simulation graph. Each organ level has its own Status template listing the available variables at that scale.
 So when a model M calls a hard dependency H's `run!` function, any required variables can be accessed through the status template of H's organ level.
+
+### XPalm.jl example to illustrate
 
 Using the same example in XPalm : 
 

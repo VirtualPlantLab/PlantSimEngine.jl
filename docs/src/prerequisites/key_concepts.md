@@ -8,10 +8,10 @@ You'll find a brief description of some of the main concepts and terminology rel
 
 ## PlantSimEngine terminology
 
-This section provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see [First Simulation]TODO
+This page provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see the [Detailed walkthrough of a simple simulation](@ref)
 
 !!! Note
-    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for Multi-scale tree graphs(TODO) than the rest of PlantSimEngine(TODO). Make sure to double-check this section, and relevant examples if you encounter issues relating to these terms.
+    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale Tree Graphs](@ref) than the rest of PlantSimEngine (see [Organ/Scale](@ref) further down). Make sure to double-check those subsections, and relevant examples if you encounter issues relating to these terms.
 
 ### Processes
 
@@ -116,7 +116,7 @@ TODO
 !!! Note
     When you encounter the terms "Single-scale simulations", or "ModelList simulations", they will refer to simulations that are "not multi-scale". A multi-scale simulation makes use of a mapping between different organ/scale levels. A single-scale simulation has no such mapping, and uses the simpler ModelList interface. 
 
-    You can implement a mapping that only makes use of a single scale level, of course, making it a "single-scale multi-scale simulation", but unless otherwise specified, single-scale, and the whole section dedicated to single-scale simulations, refer to simulations with ModelList objects, and no mapping.
+    You can implement a mapping that only makes use of a single scale level, of course, making it a "single-scale multi-scale simulation", but **unless otherwise specified, single-scale, and the whole section dedicated to single-scale simulations, refer to simulations with ModelList objects, and no mapping**.
 
 ### Multi-scale Tree Graphs
 

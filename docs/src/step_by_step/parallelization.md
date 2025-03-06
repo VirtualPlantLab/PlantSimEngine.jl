@@ -1,7 +1,7 @@
 ## Parallel execution
 
 !!! note
-    This section is likely to change and become outdated. In any case, parallel execution only currently applies to single-scale simulations (multi-scale simulations' changing MTGs and extra complexity don't allow for straightforward parallelisation)
+    This page is likely to change and become outdated. In any case, parallel execution only currently applies to single-scale simulations (multi-scale simulations' changing MTGs and extra complexity don't allow for straightforward parallelisation)
 
 ### FLoops
 

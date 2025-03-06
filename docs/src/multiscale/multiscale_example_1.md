@@ -2,7 +2,7 @@
 
 TODO change Toy To Example ?
 
-This three-part section walks you through building a multi-scale simulation from scratch. It is meant as an illustration of the iterative process you might go through when building and slowly tuning a Functional-Structural Plant Model, where previous multi-scale examples focused more on the API syntax.
+This three-part subsection walks you through building a multi-scale simulation from scratch. It is meant as an illustration of the iterative process you might go through when building and slowly tuning a Functional-Structural Plant Model, where previous multi-scale examples focused more on the API syntax.
 
 You can find the full script for the first part's toy simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
 

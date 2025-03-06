@@ -6,11 +6,11 @@ Julia is a language that is gaining traction, but it isn't the most widely used 
 
 Many elements will be familiar to those with an R, Python or Matlab background, but there are some noteworthy differences, and if you are new to the language, there will be a few hurdles you might have to overcome to be comfortable using the language.
 
-This section is here to help you with that, and provides a short introduction to the parts of Julia that are most relevant regarding usage of PlantSimEngine.
+This page is here to help you with that, and provides a short introduction to the parts of Julia that are most relevant regarding usage of PlantSimEngine.
 
 It is not meant as a full-fledged Julia tutorial. If you are completely new to programming, you may wish to check some other resources first, such as ones found [here](https://docs.julialang.org/en/v1/manual/getting-started/).
 
-If you wish to compare Julia to a specific language, [this page](https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-Python) will provide you with a quick overview of the differences.
+If you wish to compare Julia to a specific language, [the noteworthy differences section](https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-Python) will provide you with a quick overview of the differences.
 
 You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/)
 

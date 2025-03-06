@@ -38,7 +38,9 @@ For example, one model in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl/blob
 
 TODO use toy plant as example
 
-## Multiscale : passing in a vector in a mapping status at a specific scale
+## [Multiscale : passing in a vector in a mapping status at a specific scale](@id multiscale_vector)
+
+TODO example from single to multiscale
 
 You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the `status` component of a `ModelList` in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 

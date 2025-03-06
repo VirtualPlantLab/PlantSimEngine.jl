@@ -1,6 +1,6 @@
 # Detailed walkthrough of a simple simulation
 
-This section walks you through the ins and outs of a basic simulation, mostly aimed at people who have less experience programming, to showcase the various concepts presented earlier and requirements for a simulation in context.
+This page walks you through the ins and outs of a basic simulation, mostly aimed at people who have less experience programming, to showcase the various concepts presented earlier and requirements for a simulation in context.
 
 The full example discussed in this page can be found further down(TODO ref Example simulation).
 
@@ -167,7 +167,7 @@ run!(model_list, meteo)
 
 The first argument is the model list (see [`ModelList`](@ref)), and the second defines the micro-climatic conditions.
 
-The `ModelList` should already be initialized for the given process before calling the function. Refer to the earlier section [Variables (inputs, outputs)](@ref) for more details.
+The `ModelList` should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
 
 ### Example simulation
 
