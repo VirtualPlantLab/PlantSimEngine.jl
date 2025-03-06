@@ -97,9 +97,9 @@ With that new coupling consideration properly handled, we can complete the full 
 ```julia
 PlantSimEngine.@process "root_growth_decision" verbose = false
 
-struct ToyRootGrowthDecisionModel <: AbstractRoot_Growth_DecisionModel
-    water_threshold::Float64
-    carbon_root_creation_cost::Float64
+struct ToyRootGrowthDecisionModel{T} <: AbstractRoot_Growth_DecisionModel
+    water_threshold::T
+    carbon_root_creation_cost::T
 end
 
 PlantSimEngine.inputs_(::ToyRootGrowthDecisionModel) = 
@@ -211,9 +211,35 @@ Fortunately, the logic here is quite straightforward. We can't be computing our 
 
 The solution is hopefully quite intuitive : when we compute resource stocks, we should be computing it using the previous timestep's values. Then root creation happens (or doesn't), and the computed `carbon_root_creation_consumed` corresponds to the current timestep value. We could also do the same for water to be consistent.
 
+### Updated mapping
+
+The relevant part of the mapping that needs to be updated is the following:
+
+```julia
+mapping = Dict(
+...
+"Plant" => (
+    MultiScaleModel(
+        model=ToyStockComputationModel(),          
+        mapped_variables=[
+            :carbon_captured=>["Leaf"],
+            :water_absorbed=>["Root"],
+            PreviousTimeStep(:carbon_root_creation_consumed)=>"Root",
+            PreviousTimeStep(:carbon_organ_creation_consumed)=>["Internode"],
+        ],
+        ),
+        ToyRootGrowthDecisionModel(10.0, 50.0),
+        Status(water_stock = 0.0, carbon_stock = 0.0)
+    ),
+...
+)
+```
+
 ## Final words
 
-The full script for this simulation can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation3.jl), in the ToyMultiScalePlantModel subfolder of the examples folder.
+And you're now ready to run the simulation.
+
+The full script can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation3.jl), in the ToyMultiScalePlantModel subfolder of the examples folder.
 
 We now have a plant with two different growth directions. Roots are added at the beginning, until water is considered abundant enough.
 

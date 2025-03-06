@@ -12,11 +12,11 @@ end
 
 PlantSimEngine.@process "organ_emergence" verbose = false
 
-struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel
-    TT_emergence::Float64
-    carbon_internode_creation_cost::Float64
-    leaf_surface_area::Float64
-    leaves_max_surface_area::Float64
+struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
+    TT_emergence::T
+    carbon_internode_creation_cost::T
+    leaf_surface_area::T
+    leaves_max_surface_area::T
 end
 
 ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0, leaves_max_surface_area=100.0) = ToyCustomInternodeEmergence(TT_emergence, carbon_internode_creation_cost, leaf_surface_area, leaves_max_surface_area)
@@ -26,7 +26,7 @@ PlantSimEngine.outputs_(m::ToyCustomInternodeEmergence) = (TT_cu_emergence=0.0, 
 
 function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
 
-    leaves_surface_area = m.leaf_surface * get_n_leaves(status.node)
+    leaves_surface_area = m.leaf_surface_area * get_n_leaves(status.node)
     status.carbon_organ_creation_consumed = 0.0
 
     if leaves_surface_area > m.leaves_max_surface_area
@@ -138,11 +138,3 @@ mapping = Dict(
     mtg
 
     length(MultiScaleTreeGraph.traverse(mtg,x->x, symbol="Leaf"))
-
-    for i in 1:365
-        for j in 1:length(outs["Plant"][:carbon_organ_creation_consumed][i])
-        if outs["Plant"][:carbon_organ_creation_consumed][i][1][j] != 0.0
-            println(i)
-        end
-        end
-    end

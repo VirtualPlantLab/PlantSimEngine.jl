@@ -24,9 +24,11 @@ If your weather data isn't adjusted to conform to a regular timestep, you will n
 
 ## No cyclic dependencies in the simplified dependency graph
 
-This has been explained elsewhere TODO  : the dependency graph is comprised of soft and hard dependency nodes, and the final version only links soft dependency nodes and is guaranteed to contain no cycles.
+The model dependency graph used for running the simulation is comprised of soft and hard dependency nodes, and the final version only links soft dependency nodes together, and is expected to contain no cycles.
 
 Any user model coupling which causes a cyclic dependency to occur will require some extra tinkering to run : either design models differently, create a hard dependency with some of the problematic models, or break the cycle by having a variable take the previous timestep's value as input.
+
+See [Dependency graphs](@ref) and the following subsections for more discussion related to dependency graph constraints.
 
 Note : Only the previous timestep is accessible in PlantSimEngine without any kind of dedicated model. How to create a model to store more past timesteps of a specific variable is described in the [Tips and workarounds](@ref) page: [Making use of past states in multi-scale simulations](@ref)
 

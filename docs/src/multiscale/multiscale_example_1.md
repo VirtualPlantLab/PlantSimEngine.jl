@@ -125,14 +125,16 @@ We'll also add a couple of other parameters, which could go elsewhere :
 ```julia
 PlantSimEngine.@process "organ_emergence" verbose = false
 
-struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel
-    TT_emergence::Float64
-    carbon_internode_creation_cost::Float64
-    leaf_surface_area::Float64
-    leaves_max_surface_area::Float64
+struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
+    TT_emergence::T
+    carbon_internode_creation_cost::T
+    leaf_surface_area::T
+    leaves_max_surface_area::T
 end
-
 ```
+
+!!! note 
+    We make use of parametric types instead of the intuitive Float64 for flexibility. See [Parametric types](@ref) for a more in-depth explanation
 
 And give them some default values : 
 
@@ -157,7 +159,7 @@ and then updates the MTG.
 ```julia
 function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
 
-    leaves_surface_area = m.leaf_surface * get_n_leaves(status.node)
+    leaves_surface_area = m.leaf_surface_area * get_n_leaves(status.node)
     status.carbon_organ_creation_consumed = 0.0
 
     if leaves_surface_area > m.leaves_max_surface_area

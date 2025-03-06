@@ -54,9 +54,9 @@ end
 
 PlantSimEngine.@process "root_growth" verbose = false
 
-struct ToyRootGrowthModel <: AbstractRoot_GrowthModel
-    water_threshold::Float64
-    carbon_root_creation_cost::Float64
+struct ToyRootGrowthModel{T} <: AbstractRoot_GrowthModel
+    water_threshold::T
+    carbon_root_creation_cost::T
     root_max_len::Int
 end
 
@@ -110,12 +110,12 @@ end
 The minor change is that new organs are now created only if the water stock is above a given threshold.
 
 ```julia
-struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel
-    TT_emergence::Float64
-    carbon_internode_creation_cost::Float64
-    leaf_surface_area::Float64
-    leaves_max_surface_area::Float64
-    water_leaf_threshold::Float64
+struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
+    TT_emergence::T
+    carbon_internode_creation_cost::T
+    leaf_surface_area::T
+    leaves_max_surface_area::T
+    water_leaf_threshold::T
 end
 
 ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0,leaves_max_surface_area=100.0,
@@ -223,6 +223,7 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     
 outs = run!(mtg, mapping, meteo_day)
+mtg
 ```
 
 And that's it ! 

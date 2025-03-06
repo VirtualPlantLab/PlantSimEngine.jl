@@ -24,12 +24,12 @@ end
 
 PlantSimEngine.@process "organ_emergence" verbose = false
 
-struct ToyCustomInternodeEmergence <: AbstractOrgan_EmergenceModel
-    TT_emergence::Float64
-    carbon_internode_creation_cost::Float64
-    leaf_surface_area::Float64
-    leaves_max_surface_area::Float64
-    water_leaf_threshold::Float64
+struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
+    TT_emergence::T
+    carbon_internode_creation_cost::T
+    leaf_surface_area::T
+    leaves_max_surface_area::T
+    water_leaf_threshold::T
 end
 
 ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0,leaves_max_surface_area=100.0,
@@ -98,9 +98,9 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyWaterAbsorptionModel}) = PlantS
 
 PlantSimEngine.@process "root_growth" verbose = false
 
-struct ToyRootGrowthModel <: AbstractRoot_GrowthModel
-    water_threshold::Float64
-    carbon_root_creation_cost::Float64
+struct ToyRootGrowthModel{T} <: AbstractRoot_GrowthModel
+    water_threshold::T
+    carbon_root_creation_cost::T
     root_max_len::Int
 end
 
@@ -212,7 +212,7 @@ mapping = Dict(
 )
 
     mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
-#MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
+
     plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
     
     internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
@@ -224,12 +224,9 @@ mapping = Dict(
     MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 
     plant_root_start = MultiScaleTreeGraph.Node(
-        #MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(plant)), 
         plant, 
         MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3), 
-        #Dict{String, Any}("Root_len"=> 1)
     )
-    #plant_root_start[:Root_len]=1
 
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     
