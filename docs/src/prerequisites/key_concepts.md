@@ -4,7 +4,7 @@ You'll find a brief description of some of the main concepts and terminology rel
 
 ```@contents
 Pages = ["key_concepts.md"]
-Depth = 3
+Depth = 4
 ```
 
 ## Crop models
@@ -16,7 +16,7 @@ Depth = 3
 This page provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see the [Detailed walkthrough of a simple simulation](@ref)
 
 !!! Note
-    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale Tree Graphs](@ref) than the rest of PlantSimEngine (see [Organ/Scale](@ref) further down). Make sure to double-check those subsections, and relevant examples if you encounter issues relating to these terms.
+    Some terminology unfortunately has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale Tree Graphs](@ref) than the rest of PlantSimEngine (see [Scale/symbol terminology ambiguity](@ref) further down). Make sure to double-check those subsections, and relevant examples if you encounter issues relating to these terms.
 
 ### Processes
 
@@ -135,6 +135,18 @@ TODO example ?
 TODO image ?
 TODO lien avec AMAP ?
 
-TODO scale, symbol terminology ambiguity
+#### Scale/symbol terminology ambiguity
+
+Multi-scale tree graphs have different terminology (see [Organ/Scale](@ref)):
+
+- a symbol corresponds to a PlantSimEngine scale, eg "Plant", "Root", and has nothing to do with the Julia programming language's definition of symbol (eg `:var`)
+- Scales are integers passed to the Node constructor describing the level of description of the tree graph object. They don't always have a one-to-one correspondence to a multi-scale simulation's scales, but are similar.
+
+You can find a brief description of the MTG concepts [here](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/#Node-MTG-and-attributes).
+
+Other words are unfortunately reused in various contexts with different meanings: tree/leaf/root have a different meaning when talking about computer science data structure (eg, graphs, dependency graphs and trees).
+
+!!! note
+    In the majority of cases, you can assume the tree-related terminology refers to the biological terms, and that "organ" refer to plant organs, and "single-scale", "multi-scale" and "scale" to PlantSimEngine's concept of scales described in [Organ/Scale](@ref). MTG objects are mostly manipulated no a per-node basis, unless a model makes use of functions relating to MTG traversal, in which case you may expect computer science terminology.
 
 ### State machines

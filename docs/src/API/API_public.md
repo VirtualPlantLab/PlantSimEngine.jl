@@ -3,8 +3,7 @@
 ## Index
 
 ```@index
-Modules = [PlantSimEngine]
-Private = false
+Pages = ["API_public.md"]
 ```
 
 ## API documentation

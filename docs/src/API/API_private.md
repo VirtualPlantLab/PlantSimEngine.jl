@@ -6,9 +6,7 @@ Private functions, types or constants from `PlantSimEngine`. These are not expor
 ## Index
 
 ```@index
-Modules = [PlantSimEngine]
-Public = false
-Private = true
+Pages = ["API_private.md"]
 ```
 
 ## API documentation

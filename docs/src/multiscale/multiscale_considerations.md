@@ -37,7 +37,7 @@ A multi-scale tree graph (MTG) object (see the [Multi-scale Tree Graphs](@ref) s
 All the multi-scale examples make use of the companion package [MultiScaleTreeGraph.jl](https://github.com/VEZY/MultiScaleTreeGraph.jl), which we therefore recommend for running your own multi-scale simulations.
 
 !!! note 
-    Multi-scale Tree Graphs make use of conflicting terminology with PlantSimEngine's concepts, which is discussed in [Organ/Scale](@ref). If you are new to the concepts, make sure to read that section and keep note of it.
+    Multi-scale Tree Graphs make use of conflicting terminology with PlantSimEngine's concepts, which is discussed in [Scale/symbol terminology ambiguity](@ref). If you are new to the concepts, make sure to read that section and keep note of it.
 
 ## Models run once per organ instance, not once per organ level
 
