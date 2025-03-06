@@ -4,6 +4,11 @@ There are two major issues hinted at in last chapter's implementation, which we'
 
 You can find the full script for this simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation3.jl) subfolder of the examples folder.
 
+```@contents
+Pages = ["multiscale_example_3.md"]
+Depth = 3
+```
+
 ## Delaying organ maturity
 
 There is one quirk you may have noticed when inspecting the data : when a root expands, the new root is immediately active, and some models may act on it immediately... including the root growth model. Meaning this new root may also sprout another root in the same timestep, and so on.

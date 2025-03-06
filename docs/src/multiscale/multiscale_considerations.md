@@ -1,5 +1,10 @@
 # Multi-scale considerations
 
+```@contents
+Pages = ["multiscale_considerations.md"]
+Depth = 3
+```
+
 This page briefly details the subtle ways in which multi-scale simulations differ from prior single-scale simulations. The next few pages will showcase some of these subtleties with examples.
 
 Declaring and running a multi-scale simulation follows the same general workflow as the single-scale version, but multi-scale simulations do have some differences : 
@@ -13,7 +18,9 @@ The simulation dependency graph will still be computed automatically and handle 
 
 Multi-scale simulations also tend to require more extra ad hoc models to prepare some variables for some models.
 
-Other pages in this section describe :
+## Related pages
+
+Other pages in the multiscale section describe :
 
 - How to write a direct conversion of a single-scale ModelList simulation to a multi-scale simulation and add a second scale to it: [Converting a single-scale simulation to multi-scale](@ref), 
 - A more complex multi-scale version of the single-scale simulation showcasing different variable mappings between scales: [Multi-scale variable mapping](@ref), 

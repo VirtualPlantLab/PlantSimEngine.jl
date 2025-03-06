@@ -6,6 +6,11 @@ This page showcases how to do the conversion, and then adds a model at a new sca
 
 The full script for the example can be found in [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl]
 
+```@contents
+Pages = ["single_to_multiscale.md"]
+Depth = 3
+```
+
 # Converting the ModelList to a multi-scale mapping
 
 For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Example model switching](@ref) subsection: 

@@ -6,6 +6,11 @@ This three-part subsection walks you through building a multi-scale simulation f
 
 You can find the full script for the first part's toy simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
 
+```@contents
+Pages = ["multiscale_example_1.md"]
+Depth = 3
+```
+
 ## Disclaimer
 
 The actual plant being created, as well as some of the custom models, have no real physical meaning and are very much ad hoc (which is why most of them aren't standalone in the examples folder). Similarly, some of the parameter values are pulled out of thin air, and have no ties to research papers or data.

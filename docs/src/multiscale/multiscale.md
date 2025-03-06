@@ -4,6 +4,11 @@ The previous page showed how to convert a single-scale simulation to multi-scale
 
 This page provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
 
+```@contents
+Pages = ["multiscale.md"]
+Depth = 3
+```
+
 ## Starting with a single-model mapping
 
 Let's import the `PlantSimEngine` package and all the example models we will use in this tutorial:

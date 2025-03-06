@@ -12,6 +12,11 @@ leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 out_sim = run!(leaf, meteo)
 ```
 
+```@contents
+Pages = ["detailed_first_example.md"]
+Depth = 3
+```
+
 ## Definitions
 
 ### Processes

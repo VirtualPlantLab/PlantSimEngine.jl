@@ -10,6 +10,11 @@ There are also a couple of features that are quick hacks or that are meant for q
 
 We'll list a few of them here, and will likely add some entry in the future listing some built-in limitations or implicit expectations of the package.
 
+```@contents
+Pages = ["tips_and_workarounds.md"]
+Depth = 2
+```
+
 ## Making use of past states in multi-scale simulations
 
 It is possible to make use of the value of a variable in the past simulation timestep via the `PreviousTimeStep` mechanism in the mapping API (In fact, as mentioned elsewhere, it is the default way to break undesirable cyclic dependencies that can come up when coupling models, see : [Avoiding cyclic dependencies](@ref)).
@@ -67,7 +72,6 @@ It will parse your mapping, generate custom models to store and feed the vector 
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
 
-TODO examples of other ad hoc models
 TODO state machines ?
 TODO workaround status initialisation bug ?
 

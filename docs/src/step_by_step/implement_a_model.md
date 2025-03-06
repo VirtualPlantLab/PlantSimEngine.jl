@@ -90,8 +90,6 @@ If you have a look at example models, you'll see that in order to implement a ne
 - the actual model, developed as a method for the process it simulates
 - some helper functions used by the package and/or the users
 
-TODO If you create your own process, the function will print a short tutorial on how to do all that, adapted to the process you just created (see [Implementing a new process](@ref)).
-
 ## Example: the Beer-Lambert model
 
 ### The process

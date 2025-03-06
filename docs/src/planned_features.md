@@ -48,7 +48,8 @@ Its current state doesn't enable practical declaration of several plant species,
 
 ## Other
 
-- Reproducing another FSPM?
+- Reproducing another FSPM ?
+- Diffusion model example ?
 
 The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
 

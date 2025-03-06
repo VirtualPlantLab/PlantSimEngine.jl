@@ -1,6 +1,11 @@
 
 # Handling dependencies in a multiscale context
 
+```@contents
+Pages = ["multiscale_coupling.md"]
+Depth = 3
+```
+
 ## Scalar and vector variable mappings
 
 In the detailed example discussed previously [Multi-scale variable mapping](@ref), there were several instances of mapping a variable from one scale to another, which we'll briefly describe again to help transition to the next and more advanced subsection. Here's a relevant exerpt from the mapping : 
