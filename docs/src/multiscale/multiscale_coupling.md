@@ -1,6 +1,11 @@
 
 # Handling dependencies in a multiscale context
 
+```@contents
+Pages = ["multiscale_coupling.md"]
+Depth = 3
+```
+
 ## Scalar and vector variable mappings
 
 In the detailed example discussed previously [Multi-scale variable mapping](@ref), there were several instances of mapping a variable from one scale to another, which we'll briefly describe again to help transition to the next and more advanced subsection. Here's a relevant exerpt from the mapping : 
@@ -69,7 +74,7 @@ Conceptually :
 
 ### An example from the toy plant simulation tutorial
 
-TODO example discussed in toy plant
+You can find an example of a hard dependency discussed in the [A multi-scale hard dependency appears](@ref) subsection of the third part of toy plant tutorial.
 
 ### An example from XPalm.jl
 
@@ -113,7 +118,7 @@ end
 
 ## Implementation details: accessing a hard dependency's variables from a different scale
 
-But how does a model M calling a hard dependency H provide H's variables when calling H's `run!` function ? The status the user provides M operates at M's organ level, so if used to call H's run! function any required variable for H will be missing.    
+But how does a model M calling a hard dependency H provide H's variables when calling H's `run!` function ? The `status` argument the user provides M operates at M's organ level, so if used to call H's run! function any required variable for H will be missing.    
 
 PlantSimEngine provides what are called Status Templates in the simulation graph. Each organ level has its own Status template listing the available variables at that scale.
 So when a model M calls a hard dependency H's `run!` function, any required variables can be accessed through the status template of H's organ level.

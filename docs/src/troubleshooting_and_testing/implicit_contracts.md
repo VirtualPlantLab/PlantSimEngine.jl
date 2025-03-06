@@ -1,6 +1,11 @@
-This page details some of the assumptions, coupling constraints and inner workings of PlantSimEngine which may be particular relevant when implementing new models.
+This page summarizes some of the assumptions, coupling constraints and inner workings of PlantSimEngine which may be particular relevant when implementing new models.
 
-TODO est-ce le meilleur endroit ?
+If you are unsure of an implementation subtlety, check this page out to see whether it answers your question.
+
+```@contents
+Pages = ["implicit_contracts.md"]
+Depth = 2
+```
 
 ## Weather data provides the simulation timestep, but models can veer away from it
 
@@ -23,7 +28,7 @@ This has been explained elsewhere TODO  : the dependency graph is comprised of s
 
 Any user model coupling which causes a cyclic dependency to occur will require some extra tinkering to run : either design models differently, create a hard dependency with some of the problematic models, or break the cycle by having a variable take the previous timestep's value as input.
 
-Note : Only the previous timestep is accessible in PlantSimEngine without any kind of dedicated model. How to create a model to store more past timesteps of a specific variable is described here TODO
+Note : Only the previous timestep is accessible in PlantSimEngine without any kind of dedicated model. How to create a model to store more past timesteps of a specific variable is described in the [Tips and workarounds](@ref) page: [Making use of past states in multi-scale simulations](@ref)
 
 ## Hard dependencies need to be declared in the model definition
 
@@ -61,8 +66,6 @@ A workaround for some of the situations where this occurs is described here : [H
 
 ## Status template intialisation order 
 TODO 
-
-## Diffusion systems ?
 
 ## TODO simulation order, node order, etc.
 

@@ -11,6 +11,11 @@ If you need some advice on the FSPM side, the research community has [its own di
 
 If the issue seems PlantSimEngine-related, or you have questions regarding modeling or have suggestions, you can also [file an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) on Github.
 
+```@contents
+Pages = ["plantsimengine_and_julia_troubleshooting.md"]
+Depth = 3
+```
+
 ## Tips and workflow
 
 Some errors are very specific as to their cause, and the PlantSimEngine errors tend to be explicit about which parameter / variable / organ is causing the error, helping narrow down its origin.

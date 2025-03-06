@@ -59,6 +59,6 @@ While not encouraged, if you have a valid reason to force the coupling with a pa
 PlantSimEngine.dep(::Process2Model) = (process1=Process1Model,)
 ```
 
-## 
+## Examples in the wild
 
-There are examples in PlantBioPhysics of such models TODO. 
+You can find a typical example in a companion package: [PlantBioPhysics.jl](). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function.

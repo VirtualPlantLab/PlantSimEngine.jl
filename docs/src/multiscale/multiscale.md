@@ -2,7 +2,12 @@
 
 The previous page showed how to convert a single-scale simulation to multi-scale.
 
-This page provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the examples folder []TODO
+This page provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
+
+```@contents
+Pages = ["multiscale.md"]
+Depth = 3
+```
 
 ## Starting with a single-model mapping
 
@@ -13,8 +18,8 @@ using PlantSimEngine
 using PlantSimEngine.Examples # Import some example models
 ```
 
-Let's create a simple mapping with only one initial model, the carbon assimilation process `ToyAssimModel`. 
-It was previously used in a single-scale simulation TODO, but we will have it be used in a more fine-grained manner and operate on leaves in this example.
+Let's create a simple mapping with only one initial model, the carbon assimilation process `ToyAssimModel`, which will operate on leaves.
+It resembles the `ToyAssimGrowth` model used in the single-scale simulation [Example model switching](@ref) subsection.
 
 Our mapping between scale and model is therefore:
 

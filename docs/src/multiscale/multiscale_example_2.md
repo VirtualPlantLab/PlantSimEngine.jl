@@ -4,6 +4,11 @@ Let's build on the previous example and add some other organ growth, as well as 
 
 You can find the full script for this simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation2.jl) subfolder of the examples folder.
 
+```@contents
+Pages = ["multiscale_example_2.md"]
+Depth = 3
+```
+
 ## Adding roots to our plant
 
 We'll add a root that extracts water and adds it to the stock. Initial water stocks are low, so root growth is prioritized, then the plant also grows leaves and a new internode like it did before. Roots only grow up to a certain point, and don't branch.
@@ -224,4 +229,4 @@ And that's it !
 
 ...Or is it ?
 
-If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren't quite right. If you wish to know more, onwards to the next chapter : TODO
+If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren't quite right. If you wish to know more, onwards to the next chapter: [Fixing bugs in the plant simulation](@ref)

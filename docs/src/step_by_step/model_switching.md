@@ -91,8 +91,8 @@ output_updated = run!(models2, meteo_day)
 And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪
 
 !!! note
-    This was a very standard but easy example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will tell you that this kind of model is required for the simulation.
+    This was a very standard but easy example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will tell you that what kind of model is required for the simulation.
 
 !!! note
-    In our example we replaced a soft-dependency model, but the same principle applies to hard-dependency models. Hard and Soft dependencies are concepts explained [here](@ref hard_dependency_def) TODO remove this note ?
+    In our example we replaced what we call a [soft-dependency coupling](@ref hard_dependency_def), but the same principle applies to [hard-dependencies](@ref hard_dependency_def). Hard and Soft dependencies are concepts related to model coupling, and are discussed in more detail in [Standard model coupling](@ref) and [Coupling more complex models](@ref).
 
