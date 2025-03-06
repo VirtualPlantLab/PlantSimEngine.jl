@@ -1,16 +1,18 @@
 # The choice of using Julia
 
-PlantSimEngine is implemented in Julia. It arose from a particular combination of [needs and requirements](why_plantsimengine.md), a combination which Julia seemed to fill adequately.
+PlantSimEngine is implemented in Julia. It arose from a particular combination of [needs and requirements](why_plantsimengine.md) that Julia addresses effectively.
 
-Other modelling frameworks, FSPMs and crop models are -often- written in combinations of Java, C++, Python, or Fortran. Given that it isn't the language many researchers (and developers !) are most familiar with, this page provides a short explanation of the reasoning behind that language choice. It might not have been the only possible valid choice, of course.
+Other modelling frameworks, FSPMs and crop models are -often- written in combinations of Java, C++, Python, or Fortran. Given that Julia isn't the language many researchers (and developers!) are most familiar with yet, this page provides a short explanation of the reasoning behind that language choice.
 
-## A researcher-developer tool
+## From research to real-world applications
 
-PlantSimEngine is a goal oriented framework. Its features arose -and continue to evolve- out of necessity for more and more complex simulations. It wasn't a pre-designed piece of software.
+PlantSimEngine was originally a goal-oriented framework. Its features arose -and continue to evolve- out of necessity for more and more complex simulation setups.
 
-It was therefore originally a means to an end, and not a product in itself.
+While PlantSimEngine primarily helps researchers prototype and test their models efficiently, we consistently work with the vision of making it suitable for real-world applications. Our goal is to build a bridge between academic plant modeling and practical field applications. Ideally, researchers should be able to develop and refine their models in a comfortable environment, and these models could eventually be deployed in production environments.
 
-PlantSimEngine is designed to balance scientific rigor with developer productivity. Researchers need to focus primarily on the scientific aspects of their models while still creating efficient, maintainable code. Julia provides an ideal environment where researchers can express complex mathematical concepts directly in code without sacrificing performance.
+This vision of dual-purpose functionality drives our focus on performance optimization. We aspire for the models you develop to be useful beyond academic papers, potentially serving reliably in production environments where efficiency and accuracy are crucial. Julia's strong performance characteristics support this vision in ways other languages would struggle to match.
+
+PlantSimEngine aims to balance scientific rigor with developer productivity, with the long-term goal of ensuring that models can be deployed at scale. Julia provides an environment where researchers can express complex mathematical concepts directly in code with good performance potential, creating a pathway for these models to potentially reach practical implementation.
 
 ## PlantSimEngine's constraints
 
@@ -20,9 +22,9 @@ While computers have gained several orders of magnitude of power and memory over
 
 Simulating multiple processes with user-provided variables over many plants with tens of thousands of leaves requires a lot of computation. Using a higher-level language such as Python or R would not lead to adequate simulation times.
 
-In fact, part of the initial motivation to commit to Julia happened after porting an ecophysiological simulation from R to Julia and getting an order of magnitude difference in performance 'out-of-the-box'.
+In fact, part of the initial motivation to commit to Julia happened after porting [a model](https://github.com/VEZY/DynACof.jl) from R to Julia and getting several orders of magnitude difference in performance 'out-of-the-box'. Seeing computations that previously took minutes suddenly completing in seconds was quite convincing (see also [this benchmark](https://vezy.github.io/PlantBiophysics-paper/notebooks_performance_Fig5_PlantBiophysics_performance/) showing a difference of 5 orders of magnitude).
 
-Julia, with its 'Just-ahead-of-time' compilation model and its flexibility allowing to do some lower-level optimisation, doesn't suffer from the limitations one would encounter by using only Python or R.
+Julia, with its well-designed 'Just-ahead-of-time' compilation model and its flexibility allowing to do some lower-level optimisation, doesn't suffer from the limitations one would encounter by using only Python or R.
 
 ### Flexibility, ease of use
 
@@ -54,13 +56,13 @@ Combining two different languages requires a lot of language expertise, with con
 
 Speed of iteration is also lost whenever performance is a concern, which happens often in our context. However modular and easy-to-use a language like Python might be, whenever it's time to switch to a low-level language, development speed will slow down.
 
-Julia, while likely being a little harder to learn than Python, and require extra knowledge to properly make use of its flexibility and performance capabilities, leads to a significantly smoother development experience.
+Julia effectively solves this problem. While it might be a little harder to learn than Python, and require extra knowledge to properly make use of its flexibility and performance capabilities, it leads to a smoother development experience.
 
-Everything can be done using Julia exclusively, so there is no need to learn two languages. No need to interface between them. Iteration speed doesn't suddenly grind to a halt if a low-level implementation is needed. A competent researcher-developer might have less need of engineering resources, while still being able to work a lot on modeling and the actual plant side of things.
+Everything can be done using Julia exclusively, so there is no need to learn two languages. No need to interface between them. Iteration speed doesn't suddenly grind to a halt if a low-level implementation is needed. A competent researcher-developer can move seamlessly from prototype to production, while still being able to focus on modeling and the actual plant side of things.
 
 TODO image ML
 
-It seems we aren't the only ones to feel Julia is the right tool for our job for those reasons. Indeed, other niches where Julia seems to thrive tend to be other computationally heavy areas with much active research, such as ML and climate modeling.
+It seems we aren't the only ones to find Julia a good tool for our job. Other niches where Julia is gaining traction tend to be other computationally heavy areas with much active research, such as machine learning and climate modeling - areas where this balance of expressivity and performance is equally valuable.
 
 ### A good balance in terms of accessibility
 
@@ -68,7 +70,7 @@ Another argument in favour of Julia is that one of the aims for PlantSimEngine i
 
 Many researchers are not developers by trade or heart, and a Java-only or C++-only implementation, on top of the earlier points, would not be accessible enough and would not gain much traction.
 
-Julia, while less ubiquitous than other languages in research circles, resembles Python and R and is more beginner-friendly than Java or C++. It is easier for a Python user to learn to use a simple Julia package than a C++ one. 
+Julia, while less ubiquitous than other languages in research circles, resembles Python and R and is more beginner-friendly than Java or C++. It is easier for a Python user to learn to use a simple Julia package than a C++ one.
 
 Users will also find it easier to quickly implement new models without the potential hurdle of a low-level implementation, or some language interfacing also being required. The prototyping phase doesn't require a subsequent performance tuning phase.
 
@@ -86,6 +88,6 @@ The cost for switching may not be worth it in many other circumstances. However,
 
 ## Conclusion
 
-For PlantSimEngine's specific requirements—balancing performance with flexibility, enabling rapid iteration while maintaining computational efficiency, and providing an accessible interface for researchers—Julia represents an optimal choice. The language allows us to build an ecosystem where plant modeling can advance through collaborative, efficient, and scientifically rigorous development.
+For PlantSimEngine's specific requirements—balancing performance with flexibility, enabling rapid iteration while maintaining computational efficiency, and providing an accessible interface for both researchers and field practitioners—Julia represents a suitable choice. The language allows us to build an ecosystem where plant modeling can advance through collaborative, efficient, and scientifically rigorous development while delivering real-world value through production deployments.
 
-While no language solution is perfect, Julia's unique combination of features makes it particularly well-suited to the challenges of modern plant modeling and simulation.
+While no language solution is perfect, Julia's combination of features makes it well-suited to the challenges of modern plant modeling and simulation, both in research and practical applications. We're optimistic about the possibilities it offers for the future of plant modeling.
