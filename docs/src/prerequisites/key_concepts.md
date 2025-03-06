@@ -58,11 +58,11 @@ PlantSimEngine handles this internally by not having those "heavily-coupled" mod
 
 This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
 
-You can find an example TODO
+You can find a typical example in a companion package: [PlantBioPhysics.jl](). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function.
 
-This makes them slightly more complex to develop and validate, and less versatile than other models. Occasional refactoring may be necessary to handle a hard dependency creeping up when adding new models to a simulation.
+This reliance on another process makes these models slightly more complex to develop and validate, and less versatile than simpler models. Occasional refactoring may be necessary to handle a hard dependency creeping up when adding new models to a simulation.
 
-Note that hard dependencies can also have their own hard dependencies, and some complex couplings are therefore possible. A hard dependency model can have another hard dependency model as a parent.
+Note that hard dependencies can also have their own hard dependencies, and some complex couplings can happen. A hard dependency model can have another hard dependency model as a parent.
 
 ### Weather data
 
@@ -103,7 +103,7 @@ This example excerpt links specific models to a specific scale. Note that one mo
 
 ### Multiscale modeling
 
-Multi-scale modeling is the process of simulating a system at multiple levels of detail simultaneously. For example, some models can run at the organ scale while others run at the plot scale. Each model can access variables at its scale and other scales if needed, allowing for a more comprehensive system representation. It can also help identify emergent properties that are not apparent at a single level of detail. 
+Multi-scale modeling is the process of simulating a system at multiple levels of detail simultaneously. Some models might run at the organ scale while others run at the plot scale. Each model can access variables at its scale and other scales if needed, allowing for a more comprehensive system representation. It can also help identify emergent properties that are not apparent at a single level of detail. 
 
 For example, a model of photosynthesis at the leaf scale can be combined with a model of carbon allocation at the plant scale to simulate the growth and development of the plant. Another example is a combination of models to simulate the energy balance of a forest. To simulate it, you need a model for each organ type of the plant, another for the soil, and finally, one at the plot scale, integrating all others.
 
@@ -111,7 +111,7 @@ When running multi-scale simulations which contain models operating at different
 
 This is why multi-scale simulations make use of a 'mapping' : the ModelList in the single-scale examples does not have a way to tie models to plant organs,and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, e.g. if an input variable comes from another scale, it is required to indicate which scale it is mapped from.
 
-TODO
+You can read more about some practical differences as a user between single- and multi-scale simulations here: [Multi-scale considerations](@ref).
 
 !!! Note
     When you encounter the terms "Single-scale simulations", or "ModelList simulations", they will refer to simulations that are "not multi-scale". A multi-scale simulation makes use of a mapping between different organ/scale levels. A single-scale simulation has no such mapping, and uses the simpler ModelList interface. 
@@ -133,7 +133,3 @@ TODO lien avec AMAP ?
 TODO scale, symbol terminology ambiguity
 
 ### State machines
-
-
-
-TODO differences mono/multiscale ?

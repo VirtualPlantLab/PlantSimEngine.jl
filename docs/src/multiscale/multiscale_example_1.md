@@ -77,9 +77,7 @@ end
 
 ### Resource storage
 
-The model storing resources for the whole plant needs a couple of inputs : the amount of carbon captured by the leaves, as well as the amount consumed by the creation of new organs. It outputs the current stock.
-
-TODO
+The model storing resources for the whole plant needs a couple of inputs: the amount of carbon captured by the leaves, as well as the amount consumed by the creation of new organs. It outputs the current stock.
 
 ```julia
 PlantSimEngine.@process "resource_stock_computation" verbose = false
@@ -267,3 +265,4 @@ And that's it ! Feel free to tinker with the parameters and see when things brea
 
 Of course, this is a very crude and unrealistic simulation, with many dubious assumptions and parameters. But significantly more complex modelling is possible using the same approach : XPalm runs using a few dozen models spread out over nine scales.
 
+This is a three-part tutorial and continues in the [Expanding on the multiscale simulation](@ref) page.

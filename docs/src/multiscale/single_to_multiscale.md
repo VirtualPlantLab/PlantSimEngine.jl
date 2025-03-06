@@ -106,10 +106,10 @@ We now have our model implementation. How does it fit into our mapping ?
 
 Our new model doesn't really relate to a specific organ of our plant. In fact, this model doesn't represent a physiological process of the plant, but rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we'll call "Scene". This makes sense.
 
-Note that we now need to add a "Scene" node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it. See []TODO
+Note that we now need to add a "Scene" node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it and "Plant" nodes will only call models at the "Plant" scale. See [Empty status vectors in multi-scale simulations](@ref) for more details.
 
 ```julia
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 0, 0),)
     plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
 ```
 
@@ -194,7 +194,7 @@ is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) ==
 ```
 
 !!! note
-    You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail here TODO.
+    You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in [Floating-point considerations](@ref).
 
 ## ToyDegreeDaysCumulModel
 

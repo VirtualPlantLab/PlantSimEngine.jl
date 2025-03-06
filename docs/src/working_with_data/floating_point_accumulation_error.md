@@ -2,7 +2,7 @@
 
 ## Investigating a discrepancy
 
-In TODO page, a single-scale simulation was converted to an equivalent multiscale simulation, and outputs were compared. One detail that was glossed over, but worth bearing in mind when launching simulations is related to floating-point approximations.
+In the [Converting a single-scale simulation to multi-scale](@ref) page, a single-scale simulation was converted to an equivalent multiscale simulation, and outputs were compared. One detail that was glossed over, but important to bear in mind as a PlantSimEngine user is related to floating-point approximations.
 
 Single-scale simulation: 
 
@@ -94,7 +94,7 @@ The divergence isn't huge, but in other situations or over more timesteps it cou
 
 ## Floating-point summation
 
-The reason values aren't identical, is due to the fact that many numbers do not have an exact floating point representation. A classical example is 0.3 : 
+The reason values aren't identical, is due to the fact that many numbers do not have an exact floating point representation. A classical example is the fact that [0.1 + 0.2 != 0.3](https://blog.reverberate.org/2016/02/06/floating-point-demystified-part2.html) : 
 
 ```julia
 0.1 + 0.2 - 0.3
@@ -109,4 +109,17 @@ In our simple example, using Float64 values, the difference wasn't significant e
 
 Depending on what value is being computed and the mathematical operations used, changes may range from applying a simple scale to a range of values, to significant refactoring.
 
-TODO links
+
+## Other links related to floating-point numerical concerns
+
+Note that many of the examples in these blogposts discuss Float32 accuracy. Float64 values have several extra precision bits to work.
+
+A series of blog posts on floating-point accuracy : https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+Floating-Point Visually Explained : https://fabiensanglard.net/floating_point_visually_explained/
+Examples of floating point problems: https://jvns.ca/blog/2023/01/13/examples-of-floating-point-problems/
+
+Relating specifically to floating-point sums:
+
+Pairwise summation: https://en.wikipedia.org/wiki/Pairwise_summation
+Kahan summation: https://en.wikipedia.org/wiki/Kahan_summation_algorithm
+Taming Floating-Point Sums : https://orlp.net/blog/taming-float-sums/

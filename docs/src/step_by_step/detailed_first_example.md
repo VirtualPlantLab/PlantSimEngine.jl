@@ -2,8 +2,7 @@
 
 This page walks you through the ins and outs of a basic simulation, mostly aimed at people who have less experience programming, to showcase the various concepts presented earlier and requirements for a simulation in context.
 
-The full example discussed in this page can be found further down(TODO ref Example simulation).
-
+A working trimmed-down script can be found further down in the [Example simulation](@ref), and other subsections in this page will detail setup and helper functions, and querying outputs.
 
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
@@ -214,8 +213,8 @@ Or similarly using the dot syntax:
 outputs_example.aPPFD
 ```
 
-You can then print the outputs, convert them to another format, or visualize them, using other Julia packages.
-TODO
+You can then print the outputs, convert them to another format, or visualize them, using other Julia packages. You can read more on how to do that in the [Visualizing outputs](@ref) page.
+
 Another convenient way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:
 
 ```@example usepkg
@@ -227,4 +226,4 @@ convert_outputs(outputs_example, DataFrame)
 
 A model can work either independently or in conjunction with other models. For example a stomatal conductance model is often associated with a photosynthesis model, *i.e.* it is called from the photosynthesis model.
 
-`PlantSimEngine.jl` is designed to make model coupling painless for modelers and users. Please see [Standard model coupling](@ref) and [Coupling more complex models](@ref) for more details, or Multiscale coupling considerations TODO for multi-scale specific coupling considerations.
+`PlantSimEngine.jl` is designed to make model coupling painless for modelers and users. Please see [Standard model coupling](@ref) and [Coupling more complex models](@ref) for more details, or [Handling dependencies in a multiscale context](@ref) for multi-scale specific coupling considerations.

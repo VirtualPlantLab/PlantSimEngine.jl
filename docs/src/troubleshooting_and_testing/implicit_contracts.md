@@ -23,7 +23,7 @@ This has been explained elsewhere TODO  : the dependency graph is comprised of s
 
 Any user model coupling which causes a cyclic dependency to occur will require some extra tinkering to run : either design models differently, create a hard dependency with some of the problematic models, or break the cycle by having a variable take the previous timestep's value as input.
 
-Note : Only the previous timestep is accessible in PlantSimEngine without any kind of dedicated model. How to create a model to store more past timesteps of a specific variable is described here TODO
+Note : Only the previous timestep is accessible in PlantSimEngine without any kind of dedicated model. How to create a model to store more past timesteps of a specific variable is described in the [Tips and workarounds](@ref) page: [Making use of past states in multi-scale simulations](@ref)
 
 ## Hard dependencies need to be declared in the model definition
 

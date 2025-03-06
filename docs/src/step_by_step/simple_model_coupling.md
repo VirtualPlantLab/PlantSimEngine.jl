@@ -43,6 +43,8 @@ Suppose we want our `ToyLAIModel()` to compute the `LAI` for the light intercept
 
 We can couple the two models by having them be part of a single `ModelList`. The `LAI` variable will then be a coupled output-input and no longer will need to be declared.
 
+This is an instance of what we call a ["soft dependency" coupling](@ref hard_dependency_def): a model depends on another model's outputs for its inputs.
+
 Here's a first attempt : 
 
 ```julia

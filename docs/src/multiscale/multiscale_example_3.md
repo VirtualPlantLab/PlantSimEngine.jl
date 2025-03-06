@@ -10,10 +10,12 @@ There is one quirk you may have noticed when inspecting the data : when a root e
 
 This is an implementation decision in PlantSimEngine. By default, new organs are active, and models can affect them as soon as they are created. 
 
-The internode growth also depends on a threshold thermal time value, so doesn't immediately expand within a single timestep. XPalm's organ emission models TODO also 
+The internode growth depends on a threshold thermal time value, which accumulates over several timesteps, so even though new internodes are immediately active, they can't themselves grow new organs within the same timestep. 
+
+This quirk is also avoided in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package using PlantSimEngine: some organs make use of state machines, and are considered "immature" when they are created. Immature organs cannot grow new organs until some conditions are met for their state to change. There are also other conditions governing organ emergence, such as specific threshold values relating to Thermal Time (see [here](https://github.com/PalmStudio/XPalm.jl/blob/433e1c47c743e7a53e764672818a43ed8feb10c6/src/plant/phytomer/leaves/phyllochron.jl#L46) for an example).
 
 !!! Note
-    This may be subject to change in future versions of PlantSimEngine. Also note that the way the dependency graph is structured determines the order in which models run. Meaning that which models are run before or after organ creation might change with new additions and updates to your mapping. Some models might run "one timestep later".
+    This implementation decision for new organs to be immediately active may be subject to change in future versions of PlantSimEngine. Also note that the way the dependency graph is structured determines the order in which models run. Meaning that which models are run before or after organ creation might change with new additions and updates to your mapping. Some models might run "one timestep later", see [Simulation order instability when adding models](@ref) for more details.
 
 How do we avoid this extreme instant growth ? We can, of course, add some thermal time constraint. We could arbitrarily tinker with water resources. 
 
@@ -21,21 +23,19 @@ We can otherwise add a simple state machine variable to our root and internodes 
 
 In fact, we could change the scale at which the check is made to extend the root, and have another model call this one directly. This enables running this model only for the end root when those occasional timesteps when root growth is possible, instead of at every timestep for every root node.
 
-You can find several similar patterns in XPalm TODO.
-
-## Fixing resource computation
+## Fixing resource computation: a root growth decision model
 
 Another problem you may have noticed, is that the water and carbon stock are computed by aggregating photosynthesis over leaves and absorption over roots... But they aren't always properly decremented when consumed !
 
-If the end root grows, it outputs a carbon_root_creation_consumed value, but under certain conditions, we might also create other roots and internodes even when there shouldn't be enough carbon left for them. 
+If the end root grows, it outputs a `carbon_root_creation_consumed` value, but under certain conditions, we might also create other roots and internodes even when there shouldn't be enough carbon left for them. 
 
 Indeed, if both the root and leaf water thresholds are met, and there is enough carbon for a single root or internode but not for both, and the root model runs before the internode model, both will use the carbon_stock variable prior to organ emission. The internode emission model won't account for the root carbon consumption.
 
-This occurs because carbon_stock is only computed once, and won't update until the next timestep.
+This occurs because `carbon_stock` is only computed once, and won't update until the next timestep.
 
-To avoid that problem in our specific case, we can couple the root growth model and the internode emission model, and pass the carbon_root_creation_consumed so that internode emission can take it into account. Or we could have an intermediate model recompute the new stock to pass along to the internode emission model. 
+To avoid that problem in our specific case, we can couple the root growth model and the internode emission model, and pass the `carbon_root_creation_consumed` variable to the internode emission model so that it can use an updated carbon stock. Or we could have an intermediate model recompute the new stock to pass along to the internode emission model. 
 
-There is a section in the 'Tips and workarounds' page discussing this situation and other potential solutions: [Having a variable simultaneously as input and output of a model](@ref).
+There is a section in the [Tips and workarounds] page discussing this situation and other potential solutions: [Having a variable simultaneously as input and output of a model](@ref).
 
 We'll go for the first option and couple the root growth and internode emission model.
 
@@ -57,9 +57,11 @@ The only change required for our internode emission model is to take into accoun
 
 Our root growth decision model inherits some of the responsibility from last chapter's root growth model, so inputs, parameters and condition checks will be similar. We'll let the root growth model keep the length check and only focus on resources.
 
-Since the decision model is now directly responsible for calling the actual root growth model, we need to declare that it requires a root growth model as a hard dependency and cannot be run standalone. TODO see. 
+Since the decision model is now directly responsible for calling the actual root growth model, we need to declare that it requires a root growth model as a hard dependency and cannot be run standalone. 
 
-This hard dependency is in fact multiscale, since both models operate at different scales, "Plant" and "Root". To specify which scale the hard dependency comes from, the declaration additionally requires mapping the scale, compared to the single-scale equivalent:
+This hard dependency is in fact multiscale, since both models operate at different scales, "Plant" and "Root". You can read more about multi-scale hard dependencies in the [Handling dependencies in a multiscale context](@ref) page.
+
+Compared to the single-scale equivalent, the multi-scale declaration additionally requires mapping the scale:
 
 ```julia
 PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
@@ -116,6 +118,8 @@ end
 
 The root growth model will output the `carbon_root_creation_consumed` computation, but it'll still be exposed to downstream models despite the root growth model being a 'hidden' model in the dependency graph due to its hard dependency nature.
 
+With this new coupling, we will only be creating at most a single new root per timestep, as the root growth decision will only be called once per timestep. 
+
 ### Root growth
 
 This iteration turns into a simplifed version of last chapter's.
@@ -146,8 +150,6 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
     end
 end
 ```
-
-TODO state machine
 
 ### Mapping adjustments
 

@@ -224,4 +224,4 @@ And that's it !
 
 ...Or is it ?
 
-If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren't quite right. If you wish to know more, onwards to the next chapter : TODO
+If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren't quite right. If you wish to know more, onwards to the next chapter: [Fixing bugs in the plant simulation](@ref)

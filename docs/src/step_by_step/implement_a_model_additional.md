@@ -2,7 +2,7 @@
 
 ## Parametric types
 
-In Implementing a model(TODO ref), the Beer model's structure was declared with a parametric type.
+In [Implementing a model](@ref model_implementation_page), the Beer model's structure was declared with a parametric type.
 
 ```julia
 struct Beer{T} <: AbstractLight_InterceptionModel

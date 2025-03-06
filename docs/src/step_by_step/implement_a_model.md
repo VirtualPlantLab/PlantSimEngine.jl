@@ -127,7 +127,7 @@ We can therefore infer from the declaration that `Beer` is a model to simulate t
 
 Then come the parameters names, and their types. 
 
-### Parametric types
+### User types and parametric types
 
 There is a little Julia specificity here, to enable the user to pass their own types to the simulation.
 
@@ -145,7 +145,7 @@ struct CustomModel{T,S} <: AbstractLight_InterceptionModel
 end
 ```
 
-Parameterized types are practical because they let the user choose the type of the parameters, and potentially change them at runtime. For example a user could use the `Particles` type from [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for automatic uncertainty propagation throughout the simulation. We refer you to [this page]TODO for more information on parametric types.
+Parameterized types are practical because they let the user choose the type of the parameters, and potentially change them at runtime. For example a user could use the `Particles` type from [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for automatic uncertainty propagation throughout the simulation. We refer you to the [Parametric types](@ref) subsection of the [Model implementation additional notes](@ref) page for more information on parametric types.
 
 ### Inputs and outputs
 
