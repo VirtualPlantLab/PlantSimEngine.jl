@@ -21,9 +21,9 @@ end
 
 PlantSimEngine.@process &quot;root_growth&quot; verbose = false
 
-struct ToyRootGrowthModel &lt;: AbstractRoot_GrowthModel
-    water_threshold::Float64
-    carbon_root_creation_cost::Float64
+struct ToyRootGrowthModel{T} &lt;: AbstractRoot_GrowthModel
+    water_threshold::T
+    carbon_root_creation_cost::T
     root_max_len::Int
 end
 
@@ -59,12 +59,12 @@ PlantSimEngine.outputs_(::ToyStockComputationModel) = (water_stock=-Inf,carbon_s
 function PlantSimEngine.run!(m::ToyStockComputationModel, models, status, meteo, constants=nothing, extra=nothing)
     status.water_stock += sum(status.water_absorbed)
     status.carbon_stock += sum(status.carbon_captured) - sum(status.carbon_organ_creation_consumed) - sum(status.carbon_root_creation_consumed)
-end</code></pre><h3 id="Internode-creation"><a class="docs-heading-anchor" href="#Internode-creation">Internode creation</a><a id="Internode-creation-1"></a><a class="docs-heading-anchor-permalink" href="#Internode-creation" title="Permalink"></a></h3><p>The minor change is that new organs are now created only if the water stock is above a given threshold.</p><pre><code class="language-julia hljs">struct ToyCustomInternodeEmergence &lt;: AbstractOrgan_EmergenceModel
-    TT_emergence::Float64
-    carbon_internode_creation_cost::Float64
-    leaf_surface_area::Float64
-    leaves_max_surface_area::Float64
-    water_leaf_threshold::Float64
+end</code></pre><h3 id="Internode-creation"><a class="docs-heading-anchor" href="#Internode-creation">Internode creation</a><a id="Internode-creation-1"></a><a class="docs-heading-anchor-permalink" href="#Internode-creation" title="Permalink"></a></h3><p>The minor change is that new organs are now created only if the water stock is above a given threshold.</p><pre><code class="language-julia hljs">struct ToyCustomInternodeEmergence{T} &lt;: AbstractOrgan_EmergenceModel
+    TT_emergence::T
+    carbon_internode_creation_cost::T
+    leaf_surface_area::T
+    leaves_max_surface_area::T
+    water_leaf_threshold::T
 end
 
 ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0,leaves_max_surface_area=100.0,
@@ -154,4 +154,5 @@ end</code></pre><h2 id="Updating-the-mapping"><a class="docs-heading-anchor" hre
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), DataFrame, header=18)
     
-outs = run!(mtg, mapping, meteo_day)</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.8.1 on <span class="colophon-date" title="Thursday 6 March 2025 15:26">Thursday 6 March 2025</span>. Using Julia version 1.11.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+outs = run!(mtg, mapping, meteo_day)
+mtg</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.8.1 on <span class="colophon-date" title="Thursday 6 March 2025 16:28">Thursday 6 March 2025</span>. Using Julia version 1.11.3.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
