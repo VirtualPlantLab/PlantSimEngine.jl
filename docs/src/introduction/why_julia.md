@@ -2,7 +2,7 @@
 
 PlantSimEngine is implemented in Julia. It arose from a particular combination of [needs and requirements](why_plantsimengine.md) that Julia addresses effectively.
 
-Other modelling frameworks, FSPMs and crop models are -often- written in combinations of Java, C++, Python, or Fortran. Given that Julia isn't the language many researchers (and developers!) are most familiar with yet, this page provides a short explanation of the reasoning behind that language choice.
+Other modelling frameworks, FSPMs and crop models are -often- written in combinations of Java, C++, Python, or Fortran. Given that Julia isn't the language many researchers (and developers!) are most familiar with yet, this page provides a short explanation of the reasoning behind that language choice. Another nice resource is [this discourse post](https://fspm.discourse.group/t/why-is-julia-meant-for-fspm/175) by Alejandro Morales Sierra, the creator and maintainer of Virtual Plant Lab.
 
 ## From research to real-world applications
 
