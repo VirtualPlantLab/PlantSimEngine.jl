@@ -45,21 +45,29 @@ Depth = 5
 
 ## Overview
 
-`PlantSimEngine` is a comprehensive package for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale. At its core, PlantSimEngine is designed with a strong emphasis on performance and efficiency.
+`PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
 
-The package defines a framework for declaring processes and implementing associated models for their simulation. 
+**Why choose PlantSimEngine?**
 
-It focuses on key aspects of simulation and modeling such as: 
+- Simplicity: Write less code, focus on your model's logic, and let the framework handle the rest.
+- Modularity: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
+- Standardisation: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
+- Optimised Performance: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia’s high-performance capabilities.
 
-- Easy definition of new processes, such as light interception, photosynthesis, growth, soil water transfer...
-- Fast, interactive prototyping of models, with constraints to help users avoid errors, but sensible defaults to avoid over-complicating the model writing process
-- No hassle, the package manages automatically input and output variables, time-steps, objects, soft and hard coupling of models with a dependency graph
-- Switch between models without changing any code, with a simple syntax to define the model to use for a given process
-- Reduce the degrees of freedom by fixing variables, passing measurements, or using a simpler model for a given process
-- 🚀(very) fast computation 🚀, think of 100th of nanoseconds for one model, two coupled models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)), or the full energy balance of a leaf using [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) that uses PlantSimEngine
-- Out of the box Sequential, Parallel (Multi-threaded) or Distributed (Multi-Process) computations over objects, time-steps and independent processes (thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/))
-- Easily scalable, with methods for computing over objects, time-steps and even [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl)
-- Composable, allowing the use of any types as inputs such as [Unitful](https://github.com/PainterQubits/Unitful.jl) to propagate units, or [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) to propagate measurement error
+## Batteries included
+
+- Automated management of inputs, outputs, time-steps, objects, and dependency resolution.
+- Iterative model development: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- Control your Degrees of Freedom: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- Flexible Model Switching: Switch between models without changing model's code, using a simple syntax to specify the model for a given process and scale.
+- Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
+- Parallelize and Distribute Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
+- Scale: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
+- Compose: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
+
+## Ask Questions
+
+If you have any questions or feedback, [open an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
 
 ## Installation
 
@@ -79,7 +87,7 @@ using PlantSimEngine
 
 The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
 
-### Simple example 
+### Simple example
 
 Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
 
@@ -170,7 +178,7 @@ lines!(ax2, out2[:TT_cu], out2[:aPPFD], color=:firebrick1)
 fig
 ```
 
-### Multiscale modelling 
+### Multiscale modelling
 
 > See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
 
@@ -282,8 +290,8 @@ Take a look at these projects that use PlantSimEngine:
 - [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
 - [XPalm](https://github.com/PalmStudio/XPalm.jl)
 
-## Make it yours 
+## Make it yours
 
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license. 
+The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.
 
 If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃
