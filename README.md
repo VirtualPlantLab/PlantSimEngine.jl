@@ -9,31 +9,27 @@
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
-
 ## Overview
 
-`PlantSimEngine` is a modelling framework for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency.
+`PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
 
-**Key Features:**
+**Why choose PlantSimEngine?**
 
-- Process Definition: Easily define new processes such as light interception, photosynthesis, growth, soil water transfer, and more.
-- Interactive Prototyping: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
-- Control Degrees of Freedom: Fix variables, pass measurements, or use simpler models for specific processes to reduce complexity.
-- Automatic Management: The package automatically manages input and output variables, time-steps, objects, and the coupling of models using a dependency graph.
-- Flexible Model Switching: Switch between models without changing any code, using a simple syntax to specify the model for a given process.
-- Integrated Data Use: Force variables to take measured values instead of model predictions, reducing degrees of freedom during model development and increasing accuracy during production mode.
-- High-Performance Computation: Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
-- Parallel and Distributed Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
-- Scalability: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
-- Composability: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for propagating measurement error.
+- Simplicity: Write less code, focus on your model's logic, and let the framework handle the rest.
+- Modularity: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
+- Standardisation: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
+- Optimised Performance: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia’s high-performance capabilities.
 
-**Benefits:**
+## Batteries included
 
-Improved Accuracy and Reliability:
-
-- Enhance the accuracy of plant growth and yield predictions by integrating detailed physiological processes and environmental interactions.
-- Reduced Modeling Time: Streamline the modeling process with automated management and fast prototyping capabilities.
-- Collaborative Research: Facilitate collaborative research efforts with flexible and composable modeling tools.
+- Automated management of inputs, outputs, time-steps, objects, and dependency resolution.
+- Iterative model development: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- Control your Degrees of Freedom: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- Flexible Model Switching: Switch between models without changing model's code, using a simple syntax to specify the model for a given process and scale.
+- Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
+- Parallelize and Distribute Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
+- Scale: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
+- Compose: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
 
 ## Ask Questions
 
@@ -57,7 +53,7 @@ using PlantSimEngine
 
 The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
 
-### Simple example 
+### Simple example
 
 Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
 
@@ -193,13 +189,13 @@ fig
 
 ![LAI Growth and light interception](examples/LAI_growth2.png)
 
-### Multiscale modelling 
+### Multiscale modelling
 
-> See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
+> See the Multi-scale modeling section of the docs for more details.
 
 The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
 
-```@example readme
+```julia
 mapping = Dict(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
@@ -254,13 +250,13 @@ mapping = Dict(
 
 We can import an example plant from the package:
 
-```@example readme
+```julia
 mtg = import_mtg_example()
 ```
 
 Make a fake meteorological data:
 
-```@example readme
+```julia
 meteo = Weather(
     [
     Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
@@ -271,7 +267,7 @@ meteo = Weather(
 
 And run the simulation:
 
-```@example readme
+```julia
 out_vars = Dict(
     "Scene" => (:TT_cu,),
     "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
@@ -285,7 +281,7 @@ out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
 
 We can then extract the outputs in a `DataFrame` and sort them:
 
-```@example readme
+```julia
 using DataFrames
 df_out = convert_outputs(out, DataFrame)
 sort!(df_out, [:timestep, :node])
@@ -310,7 +306,6 @@ sort!(df_out, [:timestep, :node])
 | 2                       | Internode             | 8                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
 | 2                       | Leaf                  | 9                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
 
-
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
 
 ![Plant growth simulation](docs/src/www/image.png)
@@ -322,8 +317,8 @@ Take a look at these projects that use PlantSimEngine:
 - [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
 - [XPalm](https://github.com/PalmStudio/XPalm.jl)
 
-## Make it yours 
+## Make it yours
 
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license. 
+The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.
 
 If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃 Make sure to read the community guidelines before in case you're not familiar with such things.
