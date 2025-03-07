@@ -1,7 +1,5 @@
 # Writing a multiscale simulation
 
-TODO change Toy To Example ?
-
 This three-part subsection walks you through building a multi-scale simulation from scratch. It is meant as an illustration of the iterative process you might go through when building and slowly tuning a Functional-Structural Plant Model, where previous multi-scale examples focused more on the API syntax.
 
 You can find the full script for the first part's toy simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation1.jl) subfolder of the examples folder.
@@ -206,7 +204,7 @@ as opposed to the single-valued carbon stock mapped variable :
             PreviousTimeStep(:carbon_stock)=>"Plant"],
 ```
 
-And of course, some variables need to be initialized in the status
+And of course, some variables need to be initialized in the status:
 
 ```julia
 mapping = Dict(
@@ -232,6 +230,10 @@ mapping = Dict(
 "Leaf" => ToyLeafCarbonCaptureModel(),
 )
 ```
+
+!!! note
+    This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function `to_initialize`(@ref) and check the PlantSimEngine user errors.
+
 ### Running a simulation 
 
 We only need an MTG, and some weather data, and then we'll be set. Let's create a simple MTG : 

@@ -3,7 +3,7 @@
 This page is meant for people who have set up their environment and just want to copy-paste an example or two, see what the REPL returns and start tinkering. 
 
 If you are less comfortable with Julia, or need to set up an environment first, see this page : [Getting started with Julia](@ref).
-If you wish for a more detailed rundown of the examples, you can instead have a look at the [step by step][#step_by_step] section, which will go into more detail.
+If you wish for a more detailed rundown of the examples, you can instead have a look at the [step by step](#step_by_step) section, which will go into more detail.
 
 These examples are all for single-scale simulations. For multi-scale modelling tutorials and examples, refer to [this section][#multiscale]
 
