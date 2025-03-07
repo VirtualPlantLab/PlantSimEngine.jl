@@ -4,41 +4,45 @@ PlantSimEngine was developed to address fundamental limitations in existing plan
 
 ## The Current Landscape of Plant Modeling
 
-Plant modeling has evolved significantly over the years, but many existing tools face persistent challenges that limit their accessibility and efficiency. These tools generally fall into three categories:
+Plant modeling has evolved significantly over the years, with different tools making different design tradeoffs to address specific research needs. These tools generally fall into three categories, each with their own strengths and limitations:
 
 ### Monolithic Systems
 
-Systems like APSIM[^1], GroIMP[^2], AMAPStudio[^3], Helios[^4], and CPlantBox[^5] often present significant barriers to entry and adaptation. These include:
+Systems like APSIM[^1], GroIMP[^2], AMAPStudio[^3], Helios[^4], and CPlantBox[^5] offer comprehensive functionality but present certain tradeoffs:
 
-Large, complex codebases that are difficult to navigate and modify, especially for scientists without extensive programming expertise. Researchers often spend more time understanding the implementation than developing the science behind their models.
+These systems provide robust, well-tested frameworks with established scientific validity, but their large, complex codebases can be challenging to navigate and modify without extensive programming expertise.
 
-The rigid structure of these systems can limit the integration of new scientific ideas or methodologies, as they typically follow predefined frameworks that may not accommodate novel approaches.
+Their comprehensive architecture offers a wealth of integrated features but may require adaptation when implementing novel approaches that don't align with their predefined frameworks.
 
-Many of these systems struggle with seamless multi-scale simulations and model coupling, making it challenging to represent the complex interactions between different processes in the soil-plant-atmosphere continuum.
+They excel at specific types of simulations but may require additional engineering effort for seamless multi-scale simulations and model coupling across the soil-plant-atmosphere continuum.
+
+These platforms typically require dedicated engineering resources for maintenance and extension, with research teams often needing specialized technical staff to implement new models.
 
 ### Distributed Systems
 
-Platforms like OpenAlea[^6] and Crops in Silico[^7] have attempted to address some limitations of monolithic systems, but introduce their own challenges:
+Platforms like OpenAlea[^6] and Crops in Silico[^7] offer different advantages and tradeoffs:
 
-These systems typically use accessible interfaces (often in Python) that prioritize ease of use but suffer from computational inefficiency, making large-scale simulations time-consuming.
+These systems provide accessible interfaces (often in Python) that prioritize ease of use and flexibility, making them approachable for many researchers, though they may require performance optimization for large-scale simulations.
 
-While their computational backends may be optimized for performance, extending or modifying them typically requires proficiency in multiple programming languages, creating a barrier for many researchers.
+Their modular nature facilitates component reuse and integration, while sometimes requiring proficiency in multiple programming languages for extending computational backends.
 
-The iteration cycle between design, implementation, and performance tuning is often slow, hindering rapid hypothesis testing and prototyping that is essential in research contexts.
+They support diverse modeling paradigms but may involve a longer iteration cycle between design, implementation, and performance tuning compared to more specialized tools.
+
+While offering flexibility, implementing complex models often requires significant developer time, especially when optimizing performance using lower-level languages.
 
 ### Architecture-Focused Tools
 
-Tools like AMAPSim[^8] excel in specific aspects but have limitations in broader applications:
+Tools like AMAPSim[^8] make specific design choices that benefit certain applications:
 
-These systems often prioritize structural modeling of plants over functional and environmental processes, limiting their utility for integrated studies of plant physiology and environmental responses.
+These systems excel in their focused domains (such as structural modeling of plants) while requiring integration with other tools for comprehensive studies of plant physiology and environmental responses.
 
-Implementation in languages like C++ or Java optimizes performance but can deter potential users who lack expertise in these languages, especially researchers with backgrounds in plant science rather than computer science.
+Their implementation in languages like C++ or Java delivers excellent performance but represents a tradeoff in terms of accessibility for researchers without expertise in these languages.
 
-The design of these tools often makes them less suitable for rapid hypothesis testing and model prototyping, key activities in exploratory research.
+They provide sophisticated functionality in their target domains but may require additional work for rapid hypothesis testing and model prototyping across diverse aspects of plant science.
 
 ## The PlantSimEngine Solution
 
-PlantSimEngine brings together innovative ideas to overcome these limitations, offering a unique combination of features:
+PlantSimEngine brings together innovative ideas to address these various tradeoffs, offering a unique combination of features:
 
 ### Automatic Model Coupling
 
@@ -60,6 +64,16 @@ PlantSimEngine brings together innovative ideas to overcome these limitations, o
 
 **Computational Efficiency:** Julia's just-ahead-of-time compilation and native support for parallelism ensure that optimizations made during prototyping directly transfer to larger-scale applications, eliminating the need for reimplementation in a different language for performance gains.
 
+### Developer Efficiency
+
+**Reduced Implementation Time:** PlantSimEngine leverages Julia's dynamic language features while maintaining the performance of statically-compiled languages. This significantly reduces the time researchers spend implementing and optimizing models.
+
+**Modular Building Blocks:** The component-based architecture allows models to be built as unit components that can be stacked like building blocks to create complex systems. This modularity dramatically increases code reuse and reduces redundant implementation efforts.
+
+**No Engineering Overhead:** Unlike monolithic systems that require dedicated engineering teams or distributed platforms that need backend optimization, PlantSimEngine enables domain scientists to independently develop high-performance models without specialized programming expertise.
+
+**Rapid Prototyping to Production:** The same code used for quick prototyping can transition directly to production-scale simulations without rewriting, eliminating the traditional gap between exploratory research and application.
+
 ## Key Innovations
 
 PlantSimEngine's approach to plant modeling represents a paradigm shift in how scientists can build and use models:
@@ -74,13 +88,13 @@ PlantSimEngine's approach to plant modeling represents a paradigm shift in how s
 
 - **User-Centric Design:** Emphasizing usability ensures that researchers with varied programming backgrounds can effectively engage with the system.
 
-By addressing the key limitations of existing plant modeling tools, PlantSimEngine enables researchers to focus more on scientific questions and less on technical implementation details, accelerating the pace of discovery in plant science, agronomy, and related fields.
+By offering solutions to the various tradeoffs present in existing modeling approaches, PlantSimEngine enables researchers to focus more on scientific questions and less on technical implementation details, accelerating the pace of discovery in plant science, agronomy, and related fields.
 
 [^1]: Holzworth, D. P. et al. APSIM – Evolution towards a new generation of agricultural systems simulation. Environmental Modelling & Software 62, 327-350 (2014).
 
 [^2]: Hemmerling, R., Kniemeyer, O., Lanwert, D., Kurth, W. & Buck-Sorlin, G. The rule-based language XL and the modelling environment GroIMP illustrated with simulated tree competition. Funct. Plant Biol. 35, 739 (2008).
 
-[^3]: Griffon, S., and de Coligny, F. « AMAPstudio: An editing and simulation software suite for plants architecture modelling ». Ecological Modelling 290 (2014): 3‑10. https://doi.org/10.1016/j.ecolmodel.2013.10.037.
+[^3]: Griffon, S., and de Coligny, F. AMAPstudio: An editing and simulation software suite for plants architecture modelling. Ecological Modelling 290 (2014): 3‑10. <https://doi.org/10.1016/j.ecolmodel.2013.10.037>.
 
 [^4]: Bailey, R. Spatial Modeling Environment for Enhancing Conifer Crown Management. Front. For. Glob. Change 3, 106 (2020).
 
@@ -88,6 +102,6 @@ By addressing the key limitations of existing plant modeling tools, PlantSimEngi
 
 [^6]: Pradal, C. et al. OpenAlea: A visual programming and component-based software platform for plant modeling. Funct. Plant Biol. 35, 751-760 (2008).
 
-[^7]: Marshall-Colon, A. et al. Crops In Silico: Generating Virtual Crops Using an Integrative and Multi-Scale Modeling Platform. Frontiers in Plant Science 8 (2017). https://doi.org/10.3389/fpls.2017.00786.
+[^7]: Marshall-Colon, A. et al. Crops In Silico: Generating Virtual Crops Using an Integrative and Multi-Scale Modeling Platform. Frontiers in Plant Science 8 (2017). <https://doi.org/10.3389/fpls.2017.00786>.
 
 [^8]: Barczi, J.-F., Rey, H., Caraglio, Y., Reffye, P. de, Barthélémy, D., Dong, Q. X., & Fourcaud, T. AmapSim: A Structural Whole-plant Simulator Based on Botanical Knowledge and Designed to Host External Functional Models. Annals of botany, 101(8), 1125-1138 (2008).
