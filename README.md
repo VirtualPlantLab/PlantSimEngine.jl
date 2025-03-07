@@ -9,27 +9,54 @@
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
+- [PlantSimEngine](#plantsimengine)
+  - [Overview](#overview)
+  - [Unique Features](#unique-features)
+    - [Automatic Model Coupling](#automatic-model-coupling)
+    - [Flexibility with Precision Control](#flexibility-with-precision-control)
+  - [Batteries included](#batteries-included)
+  - [Ask Questions](#ask-questions)
+  - [Installation](#installation)
+  - [Example usage](#example-usage)
+    - [Simple example](#simple-example)
+    - [Model coupling](#model-coupling)
+    - [Multiscale modelling](#multiscale-modelling)
+  - [Projects that use PlantSimEngine](#projects-that-use-plantsimengine)
+  - [Performance](#performance)
+  - [Make it yours](#make-it-yours)
+
 ## Overview
 
 `PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
 
 **Why choose PlantSimEngine?**
 
-- Simplicity: Write less code, focus on your model's logic, and let the framework handle the rest.
-- Modularity: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
-- Standardisation: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
-- Optimised Performance: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia’s high-performance capabilities.
+- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
+- **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
+- **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
+- **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
+
+## Unique Features
+
+### Automatic Model Coupling
+
+**Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
+
+**Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
+
+### Flexibility with Precision Control
+
+**Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
 
 ## Batteries included
 
-- Automated management of inputs, outputs, time-steps, objects, and dependency resolution.
-- Iterative model development: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
-- Control your Degrees of Freedom: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
-- Flexible Model Switching: Switch between models without changing model's code, using a simple syntax to specify the model for a given process and scale.
-- Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
-- Parallelize and Distribute Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
-- Scale: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
-- Compose: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
+- **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
+- **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
+- **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
+- **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
+- **Compose Freely**: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
 
 ## Ask Questions
 
@@ -314,8 +341,14 @@ An example output of a multiscale simulation is shown in the documentation of Pl
 
 Take a look at these projects that use PlantSimEngine:
 
-- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
-- [XPalm](https://github.com/PalmStudio/XPalm.jl)
+- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) - For the simulation of biophysical processes for plants such as photosynthesis, conductance, energy fluxes, and temperature
+- [XPalm](https://github.com/PalmStudio/XPalm.jl) - An experimental crop model for oil palm
+
+## Performance
+
+PlantSimEngine delivers impressive performance for plant modeling tasks. On an M1 MacBook Pro, a toy model for leaf area over a year at daily time-scale took only 260 μs to perform (about 688 ns per day), and 275 μs (756 ns per day) when coupled to a light interception model. These benchmarks demonstrate performance on par with compiled languages like Fortran or C, far outpacing typical interpreted language implementations.
+
+For example, PlantBiophysics.jl, which implements ecophysiological models using PlantSimEngine, has been measured to run up to 38,000 times faster than equivalent implementations in other scientific computing languages.
 
 ## Make it yours
 
