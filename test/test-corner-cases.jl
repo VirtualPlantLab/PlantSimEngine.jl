@@ -345,6 +345,8 @@ end
         ),
     )
 
+    @test to_initialize(mapping) == Dict()
+
     outs = Dict(
         "E1" => (:e1, :f1, :e2, :f2),
         "E3" => (:e3,)
@@ -469,6 +471,8 @@ end
         ),
     )
 
+    @test to_initialize(mapping) == Dict()
+
     outs = Dict(
         "E1" => (:out, :out1),
         "E2" => (:out, :out2),
@@ -520,6 +524,9 @@ end
             Status(var1=10.0, var2=1.0,)
         )
     )
+
+    @test to_initialize(m) == Dict()
+
     vars = Dict{String,Any}("Leaf" => (:var1,))
     out = run!(mtg, m, Atmosphere(T=20.0, Wind=1.0, Rh=0.65), tracked_outputs=vars, executor=SequentialEx())
     df = convert_outputs(out, DataFrame)
@@ -552,6 +559,7 @@ end
             Status(var1=15.0, var2=0.3,),
         ),
     )
+    @test to_initialize(mapping) == Dict()
 
     sim = run!(mtg, mapping, meteo; tracked_outputs=outs)
     using DataFrames
@@ -601,7 +609,9 @@ end
         ToyToyModel(1),
         status=(a=1, b=0, c=0),
         #nsteps = length(meteo)
-    )
+    )    
+    @test to_initialize(model) == NamedTuple()
+
     sim = run!(model, meteo)
     @test DataFrames.nrow(sim) == PlantSimEngine.get_nsteps(meteo)
 end

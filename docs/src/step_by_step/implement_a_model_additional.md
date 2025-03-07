@@ -85,7 +85,7 @@ The `;` syntax indicates that subsequent arguments are provided as keyword argum
 Beer(k = 0.7)
 ```
 
-This helps readability when there are a lot of parameters and some have default values, but again.
+This helps readability when there are a lot of parameters and some have default values.
 
 ### eltype
 

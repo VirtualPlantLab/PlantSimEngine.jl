@@ -34,7 +34,9 @@ The companion package PlantBiophysics.jl provides the [`Beer`](https://vezy.gith
 
 Models can also be used for ad hoc computations that aren't directly tied to a specific literature-defined physiological process. In PlantSimEngine, everything is a model. There are many instances where a custom model might be practical to aggregate some computations or handle other information. To illustrate, XPalm, the Oil Palm model has a few models that handle the state of different organs, and a mdoel to handle leaf pruning, which you can find [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl).
 
-To prepare a simulation, you declare a ModelList with whatever models you wish to make use of. TODO example For multi-scale simulations, a more involved mapping is required, see below. TODO
+To prepare a simulation, you declare a ModelList with whatever models you wish to make use of and initialize necessary parameters: see the [step_by_step](#step_by_step) section to learn how to use them in practice.
+
+For multi-scale simulations, models need to be tied to a particular scale when used. See the [Multiscale modeling](@ref) section below, or the [Multi-scale considerations](@ref) page for a more detailed description of multi-scale peculiarities.
 
 ### Variables, inputs, outputs, and simple model coupling
 
