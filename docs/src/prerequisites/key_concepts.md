@@ -127,14 +127,19 @@ You can read more about some practical differences as a user between single- and
 
 ### Multi-scale Tree Graphs
 
+![Grassy plant and equivalent MTG](../www/Grassy_plant_MTG_vertical.svg)
+
 Multi-scale Tree Graphs (MTG) are a data structure used to represent plants. A more detailed introduction to the format and its attributes can be found [in the MultiScaleTreeGraph.jl package documentation](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/).
 
 Multi-scale simulations can operate on MTG objects ; new nodes are added corresponding to new organs created during the plant's growth.
 
-Another companion package, [PlantGeom.jl](https://github.com/VEZY/PlantGeom.jl), can also create MTG objects from .opf files (corresponding to the [Open Plant Format](https://amap-dev.cirad.fr/projects/xplo/wiki/The_opf_format_(*opf)), an alternate means of describing plants computationally).
+You can see a basic display of an MTG by simply typing its name in the REPL.
 
-TODO example ?
-TODO image ?
+![example display of an MTG in PlantSimEngine](../www/MTG_output.png)
+
+!!! note
+    Another companion package, [PlantGeom.jl](https://github.com/VEZY/PlantGeom.jl), can also create MTG objects from .opf files (corresponding to the [Open Plant Format](https://amap-dev.cirad.fr/projects/xplo/wiki/The_opf_format_(*opf)), an alternate means of describing plants computationally).
+
 TODO lien avec AMAP ?
 
 #### Scale/symbol terminology ambiguity
@@ -144,6 +149,8 @@ Multi-scale tree graphs have different terminology (see [Organ/Scale](@ref)):
 - a symbol corresponds to a PlantSimEngine scale, eg "Plant", "Root", and has nothing to do with the Julia programming language's definition of symbol (eg `:var`)
 - Scales are integers passed to the Node constructor describing the level of description of the tree graph object. They don't always have a one-to-one correspondence to a multi-scale simulation's scales, but are similar.
 
+[!Three scale levels on an MTG, which differ from typical PlantSimEngine concept of scale](../www/Grassy_plant_scales.svg)
+
 You can find a brief description of the MTG concepts [here](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/#Node-MTG-and-attributes).
 
 Other words are unfortunately reused in various contexts with different meanings: tree/leaf/root have a different meaning when talking about computer science data structure (eg, graphs, dependency graphs and trees).
@@ -152,3 +159,4 @@ Other words are unfortunately reused in various contexts with different meanings
     In the majority of cases, you can assume the tree-related terminology refers to the biological terms, and that "organ" refer to plant organs, and "single-scale", "multi-scale" and "scale" to PlantSimEngine's concept of scales described in [Organ/Scale](@ref). MTG objects are mostly manipulated no a per-node basis, unless a model makes use of functions relating to MTG traversal, in which case you may expect computer science terminology.
 
 ### State machines
+TODO ?
