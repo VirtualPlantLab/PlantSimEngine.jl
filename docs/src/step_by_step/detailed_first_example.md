@@ -218,7 +218,7 @@ Or similarly using the dot syntax:
 outputs_example.aPPFD
 ```
 
-You can then print the outputs, convert them to another format, or visualize them, using other Julia packages. You can read more on how to do that in the [Visualizing outputs](@ref) page.
+You can then print the outputs, convert them to another format, or visualize them, using other Julia packages. You can read more on how to do that in the [Visualizing outputs and data](@ref) page.
 
 Another convenient way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:
 

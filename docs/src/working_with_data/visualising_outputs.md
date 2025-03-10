@@ -20,7 +20,7 @@ sim_outputs = run!(model, meteo_day)
 
 ```
 
-# Visualizing outputs
+# Visualizing outputs and data
 
 ## Output structure
 
@@ -68,7 +68,9 @@ TimeStepTable{Status{(:TT_cu, :LAI...}(365 x 3):
                                  360 rows omitted
 ```
 
-And using CairoMakie, one can plot out selected variables :
+## Plotting outputs
+
+Using CairoMakie, one can plot out selected variables :
 
 !!! note
     You will need to add CairoMakie to your environment through Pkg mode first.
@@ -93,8 +95,6 @@ fig
 
 The output data is usually stored in a `TimeStepTable` structure defined in `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. Weather data is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
 
-TODO example extracting specific variables
-
 Another simple way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:
 
 ```@example usepkg
@@ -102,4 +102,10 @@ using DataFrames
 PlantSimEngine.convert_outputs(sim_outputs, DataFrame)
 ```
 
-TODO other examples ?
+It is also possible to create DataFrames from specific variables:
+
+```julia
+df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+```
+
+Which can also be useful for [Parameter fitting ](@ref).

@@ -43,8 +43,10 @@ For multi-scale simulations, models need to be tied to a particular scale when u
 A model used in a simulation requires some input data and parameters, and will compute some other data which may be used by other models. 
 Depending on what models are combined in a simulation, some variables may be inputs of some models, outputs of other models, only be part of intermediary computations, or be a user input to the whole simulation.
 
-[!Model coupling example](../www/GUID-12E2DDAD-7B20-4FE2-AA36-7FAC950382A6-low.png)
-Model coupling example: each "node" is equivalent to a distinct PlantSimEngine model, "compute()" is equivalent to the model's "run!" function. Source: https://help.autodesk.com/view/MAYAUL/2016/ENU/?guid=__files_GUID_A9070270_9B5D_4511_8012_BC948149884D_htm
+Here's a conceptual model coupling example; each "node" is equivalent to a distinct PlantSimEngine model, "compute()" is equivalent to the model's "run!" function:
+
+![Model coupling example](../www/GUID-12E2DDAD-7B20-4FE2-AA36-7FAC950382A6-low.png)
+(Source: https://help.autodesk.com/view/MAYAUL/2016/ENU/?guid=__files_GUID_A9070270_9B5D_4511_8012_BC948149884D_htm)
 
 ### Dependency graphs
 
@@ -59,7 +61,7 @@ PlantSimEngine creates this Directed Acyclic Graph under the hood by plugging th
 
 Linking models by setting output variables from one model as input of another model handles many typical couplings (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? What if they need to iterate on some computation and pass variables back and forth ? 
 
-You can find a typical example in a companion package: [PlantBioPhysics.jl](). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function. 
+You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function. 
 
 See the illustration below of the way these models are interdependent:
 
@@ -71,9 +73,9 @@ Model couplings that cause simulation to flow both ways break the 'acyclic' assu
 PlantSimEngine handles this internally by not having those "heavily-coupled" models -called "hard dependencies" from now on- be part of the main dependency graph. Instead, they are made to be children nodes of the parent/ancestor model, which handles them internally, so they aren't tied to other nodes of the dependency graph. The resulting higher-level graph therefore only links models without any two-way interdependencies, and remains a directed graph, enabling a cohesive simulation order. The simpler couplings in that top-level graph are called "soft dependencies".
 
 ![Hard dependency coupling visualization in PlantSimEngine](../www/PBP_dependency_graph.png)
-How PlantSimEngine links these models under the hood. The red models ("hard dependencies") are not exposed in the final dependency graph, which only contains the blue "soft dependencies", and has no cycles.
+The above coupling, handled by PlantSimEngine
 
-TODO discuss visualization
+How PlantSimEngine links these models under the hood. The red models ("hard dependencies") are not exposed in the final dependency graph, which only contains the blue "soft dependencies", and has no cycles.
 
 This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
 
@@ -160,7 +162,7 @@ Multi-scale tree graphs have different terminology (see [Organ/Scale](@ref)):
 - a symbol corresponds to a PlantSimEngine scale, eg "Plant", "Root", and has nothing to do with the Julia programming language's definition of symbol (eg `:var`)
 - Scales are integers passed to the Node constructor describing the level of description of the tree graph object. They don't always have a one-to-one correspondence to a multi-scale simulation's scales, but are similar.
 
-[!Three scale levels on an MTG, which differ from typical PlantSimEngine concept of scale](../www/Grassy_plant_scales.svg)
+![Three scale levels on an MTG, which differ from typical PlantSimEngine concept of scale](../www/Grassy_plant_scales.svg)
 
 You can find a brief description of the MTG concepts [here](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/#Node-MTG-and-attributes).
 
