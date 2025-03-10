@@ -24,7 +24,7 @@ A process in this package defines a biological or physical phenomena. Think of a
 
 See [Implementing a new process](@ref) for a brief explanation on how to declare a new process.
 
-## Models
+### Models
 
 Models are then implemented for a particular process. 
 
@@ -38,34 +38,44 @@ To prepare a simulation, you declare a ModelList with whatever models you wish t
 
 For multi-scale simulations, models need to be tied to a particular scale when used. See the [Multiscale modeling](@ref) section below, or the [Multi-scale considerations](@ref) page for a more detailed description of multi-scale peculiarities.
 
-### Variables, inputs, outputs, and simple model coupling
+### Variables, inputs, outputs, and model coupling
 
 A model used in a simulation requires some input data and parameters, and will compute some other data which may be used by other models. 
 Depending on what models are combined in a simulation, some variables may be inputs of some models, outputs of other models, only be part of intermediary computations, or be a user input to the whole simulation.
 
-TODO exemple avec 2-3 modèles
-
-TODO image de graphe illustrant un couplage
+[!Model coupling example](../www/GUID-12E2DDAD-7B20-4FE2-AA36-7FAC950382A6-low.png)
+Model coupling example: each "node" is equivalent to a distinct PlantSimEngine model, "compute()" is equivalent to the model's "run!" function. Source: https://help.autodesk.com/view/MAYAUL/2016/ENU/?guid=__files_GUID_A9070270_9B5D_4511_8012_BC948149884D_htm
 
 ### Dependency graphs
 
-Coupling models together in this fashion creates what is known as a Directed Acyclic Graph or DAG, a type of dependency graph. The order in which models are run is determined by the ordering of these models in that graph.
+Coupling models together in this fashion creates what is known as a [Directed Acyclic Graph](https://en.wikipedia.org/wiki/Directed_acyclic_graph) or DAG, a type of [dependency graph](https://en.wikipedia.org/wiki/Dependency_graph). The order in which models are run is determined by the ordering of these models in that graph.
 
-TODO image
+![Example DAG](../www/dags_acyclic_vs_cyclic-d1a669bf1b8b6bfa8ac3041788e81171.png)
+A simple Directed Acyclic Graph, note the required absence of cycles. Source: https://www.astronomer.io/docs/learn/dags/ 
 
-PlantSimEngine creates this DAG under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them.
+PlantSimEngine creates this Directed Acyclic Graph under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them, as long as the model coupling has no cyclic dependency.
 
 ### ["Hard" and "Soft" dependencies](@id hard_dependency_def)
 
-Linking models by finding which output variables are used as input of another model handles many of the coupling situations that can occur (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? If they need to iterate on some computation and pass variables back and forth ? 
+Linking models by setting output variables from one model as input of another model handles many typical couplings (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? What if they need to iterate on some computation and pass variables back and forth ? 
+
+You can find a typical example in a companion package: [PlantBioPhysics.jl](). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function. 
+
+See the illustration below of the way these models are interdependent:
+
+![Example of a coupling with cycles](../www/ecophysio_coupling_diagram.png)
+Example of a coupling with a cycle. Source: TODO
 
 Model couplings that cause simulation to flow both ways break the 'acyclic' assumption of the dependency graph.
 
 PlantSimEngine handles this internally by not having those "heavily-coupled" models -called "hard dependencies" from now on- be part of the main dependency graph. Instead, they are made to be children nodes of the parent/ancestor model, which handles them internally, so they aren't tied to other nodes of the dependency graph. The resulting higher-level graph therefore only links models without any two-way interdependencies, and remains a directed graph, enabling a cohesive simulation order. The simpler couplings in that top-level graph are called "soft dependencies".
 
-This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
+![Hard dependency coupling visualization in PlantSimEngine](../www/PBP_dependency_graph.png)
+How PlantSimEngine links these models under the hood. The red models ("hard dependencies") are not exposed in the final dependency graph, which only contains the blue "soft dependencies", and has no cycles.
 
-You can find a typical example in a companion package: [PlantBioPhysics.jl](). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function.
+TODO discuss visualization
+
+This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
 
 This reliance on another process makes these models slightly more complex to develop and validate, and less versatile than simpler models. Occasional refactoring may be necessary to handle a hard dependency creeping up when adding new models to a simulation.
 
@@ -128,12 +138,13 @@ You can read more about some practical differences as a user between single- and
 ### Multi-scale Tree Graphs
 
 ![Grassy plant and equivalent MTG](../www/Grassy_plant_MTG_vertical.svg)
+A Grassy plant and its equivalent MTG
 
 Multi-scale Tree Graphs (MTG) are a data structure used to represent plants. A more detailed introduction to the format and its attributes can be found [in the MultiScaleTreeGraph.jl package documentation](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/).
 
 Multi-scale simulations can operate on MTG objects ; new nodes are added corresponding to new organs created during the plant's growth.
 
-You can see a basic display of an MTG by simply typing its name in the REPL.
+You can see a basic display of an MTG by simply typing its name in the REPL:
 
 ![example display of an MTG in PlantSimEngine](../www/MTG_output.png)
 

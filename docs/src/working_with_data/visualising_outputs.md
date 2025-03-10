@@ -87,8 +87,7 @@ lines!(ax2, model[:TT_cu], model[:aPPFD], color=:firebrick1)
 fig
 ```
 
-TODO
-! LAI Growth and light interception ../examples/LAI_growth2.png
+![LAI Growth and light interception](../www/LAI_growth2.png)
 
 ## TimeStepTables and DataFrames
 
