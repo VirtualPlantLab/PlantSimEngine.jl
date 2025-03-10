@@ -60,7 +60,7 @@ Julia effectively solves this problem. While it might be a little harder to lear
 
 Everything can be done using Julia exclusively, so there is no need to learn two languages. No need to interface between them. Iteration speed doesn't suddenly grind to a halt if a low-level implementation is needed. A competent researcher-developer can move seamlessly from prototype to production, while still being able to focus on modeling and the actual plant side of things.
 
-TODO image ML
+![Language usage comparison for different ML packages (source: https://pde-on-gpu.vaw.ethz.ch/lecture1/)](l1_flux-vs-tensorflow.png)
 
 It seems we aren't the only ones to find Julia a good tool for our job. Other niches where Julia is gaining traction tend to be other computationally heavy areas with much active research, such as machine learning and climate modeling - areas where this balance of expressivity and performance is equally valuable.
 
