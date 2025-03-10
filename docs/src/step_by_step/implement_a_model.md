@@ -205,9 +205,8 @@ To use this model, users will have to make sure that the variables for that mode
 
 Model parameters are available from the `ModelList` that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
 
-TODO
 !!! warning
-    You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`
+    You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`. The troubleshooting subsection [Implementing a model: forgetting to import or prefix functions](@ref) showcases output errors that can occur when you forget to prefix.
 
 ### Parallelization traits
 

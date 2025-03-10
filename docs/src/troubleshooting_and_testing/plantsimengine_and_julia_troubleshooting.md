@@ -97,7 +97,76 @@ The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` 
 
 ## PlantSimEngine user errors
 
-Most of these occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
+Most of the following errors occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
+
+### Implementing a model: forgetting to import or prefix functions
+
+When implementing a model, you need to make sure that your implementation is correctly recognised as extending `PlantSimEngine` methods and types, and not writing new independent ones.
+
+In the following working toy model implementation, note that the `inputs_`, `outputs_` and `run!` function are all prefixed with the module name. If there were hard dependencies to manage, the `dep` function would also be identically prefixed.
+
+```julia
+using PlantSimEngine
+@process "toy" verbose = false
+
+struct ToyToyModel{T} <: AbstractToyModel 
+    internal_constant::T
+end
+
+function PlantSimEngine.inputs_(::ToyToyModel)
+    (a = -Inf, b = -Inf, c = -Inf)
+end
+
+function PlantSimEngine.outputs_(::ToyToyModel)
+    (d = -Inf, e = -Inf)
+end
+
+
+function PlantSimEngine.run!(m::ToyToyModel, models, status, meteo, constants=nothing, extra_args=nothing)
+    status.d = m.internal_constant * status.a 
+    status.e += m.internal_constant
+end
+
+meteo = Weather([
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
+        Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
+])
+
+model = ModelList(
+    ToyToyModel(1),
+   status = ( a = 1, b = 0, c = 0),
+)
+to_initialize(model) 
+sim = PlantSimEngine.run!(model, meteo)
+```
+
+If you declare these functions without importing them first, or prefixing them with the module name, they will be considered to be part of your current environment, and won't be extending PlantSimEngine methods, which means PlantSimEngine will not be able to properly make use of your functions, and simulations are likely to error, or run incorrectly.
+
+Forgetting to prefix the `run!` function definition gives the following error : 
+```julia
+ERROR: MethodError: no method matching run!(::ModelList{@NamedTuple{…}, Status{…}}, ::TimeStepTable{Atmosphere{…}})
+The function `run!` exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  run!(::ToyToyModel, ::Any, ::Any, ::Any, ::Any, ::Any)
+   @ Main ~/path/to/file.jl:20
+```
+
+Forgetting to prefix the `inputs_`or `outputs_` functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your ModelList or mapping's corresponding Status.
+
+In cases where they do throw an error, you may get the following kind of output:
+```julia
+ERROR: type NamedTuple has no field d
+Stacktrace:
+ [1] setproperty!(mnt::Status{(:a, :b, :c), Tuple{…}}, s::Symbol, x::Int64)
+   @ PlantSimEngine ~/path/to/package/PlantSimEngine/src/component_models/Status.jl:100
+ [2] run!(m::ToyToyModel{…}, models::@NamedTuple{…}, status::Status{…}, meteo::PlantMeteo.TimeStepRow{…}, constants::Constants{…}, extra_args::Nothing)
+ ...
+```
+
+!!! note
+    There may be more we can do on our end in the future to make the issue more obvious, but in the meantime it is safest to consistently prefix the methods you need to declare and call with `PlantSimEngine.`, or to explicitely import the functions you wish to extend, *e.g.*: `import PlantSimEngine: inputs_, outputs_`.
 
 ### MultiScaleModel : forgetting a kwarg in the declaration
 
@@ -287,8 +356,51 @@ Stacktrace:
 
 The fix is to add Process2Model() -or an other model for the same process- to the mapping.
 
-### Status kwargs ?
-TODO
+### Status API ambiguity
+
+One current problem with PlantSimEngine's API is that declaring a simulation's Status or Statuses differs between single- and multi-scale.
+
+Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the `ModelList` status was declared like this:
+
+```julia
+model = ModelList(
+    ToyToyModel(1),
+   status = ( a = 1, b = 0, c = 0),
+)
+```
+If instead you replace `status = ...`with the multi-scale declaration: `Status(...)`, you will get the following error:
+
+```julia
+ERROR: MethodError: no method matching process(::Status{(:a, :b, :c), Tuple{Base.RefValue{Int64}, Base.RefValue{Int64}, Base.RefValue{Int64}}})
+The function `process` exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  process(::Pair{Symbol, A}) where A<:AbstractModel
+   @ PlantSimEngine ~/path/to/pkg/PlantSimEngine/src/Abstract_model_structs.jl:16
+  process(::A) where A<:AbstractModel
+   @ PlantSimEngine ~/path/to/pkg/PlantSimEngine/src/Abstract_model_structs.jl:13
+
+Stacktrace:
+ [1] (::PlantSimEngine.var"#5#6")(i::Status{(:a, :b, :c), Tuple{Base.RefValue{…}, Base.RefValue{…}, Base.RefValue{…}}})
+   @ PlantSimEngine ./none:0
+ [2] iterate
+```
+
+If you do the opposite in a multi-scale simulation by replacing the necessary `Status(...)` with `status = ...`, you may get an `ERROR: syntax: invalid named tuple element` error. Here's some output when tinkering with the Toy Plant tutorial's mapping:
+
+```julia
+ERROR: syntax: invalid named tuple element "MultiScaleModel(...)" around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+Stacktrace:
+ [1] top-level scope
+   @ ~/path/to/pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+```
+or 
+```julia
+ERROR: syntax: invalid named tuple element "ToyRootGrowthModel(50, 10)" around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+Stacktrace:
+ [1] top-level scope
+   @ ~/path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+```
 
 ## Forgetting to declare a scale in the mapping but having variables point to it
 

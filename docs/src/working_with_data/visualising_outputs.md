@@ -21,7 +21,6 @@ sim_outputs = run!(model, meteo_day)
 ```
 
 # Visualizing outputs
-TODO example environment ?
 
 ## Output structure
 
@@ -70,6 +69,9 @@ TimeStepTable{Status{(:TT_cu, :LAI...}(365 x 3):
 ```
 
 And using CairoMakie, one can plot out selected variables :
+
+!!! note
+    You will need to add CairoMakie to your environment through Pkg mode first.
 
 ```julia
 # Plot the results:

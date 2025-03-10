@@ -45,9 +45,12 @@ To add type promotion to `Beer2` we would do:
 
 ```julia
 function Beer2(k,x)
-    Beer2(promote(k,x))
+    Beer2(promote(k,x)...)
 end
 ```
+
+!!! note
+    `promote` returns a NamedTuple, which needs to be splatted for the constructor, see the [Julia docs](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion) for a more in-depth explanation, or our [Getting started with Julia](@ref) page for some links to other references discussing Julia concepts used in PlantSimEngine.
 
 This would allow users to instantiate the model parameters using different types of inputs. For example users may write the following:
 

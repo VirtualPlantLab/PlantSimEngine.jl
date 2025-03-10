@@ -70,3 +70,6 @@ For example :
 ### Function arguments and kwargs
 
 ### NamedTuples
+
+## "less essential"
+### Type promotion and splatting

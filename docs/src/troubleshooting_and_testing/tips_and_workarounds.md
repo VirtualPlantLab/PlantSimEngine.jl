@@ -35,13 +35,15 @@ We haven't found an approach that was fully satisfactory from both a code simpli
 
 There are two workarounds : 
 
-One awkward approach is to rename one of the variables. It is not ideal, of course, as it means you might not be able to use a predefined model 'out of the box', but it does not have any of the tradeoffs and constrained mentioned above.
+- One possibly awkward approach is to rename one of the variables. It is not ideal, of course, as it means you might not be able to use a predefined model 'out of the box', but it does not have any of the tradeoffs and constraints mentioned above.
 
-In many other situations one can work with what PlantSimEngine already provides.
+- In many other situations one can work with what PlantSimEngine already provides.
 
 For example, one model in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl) handles leaf pruning, affecting biomass. A straightforward implementation would be to have a `leaf_biomass` variable as both input and output. The workaround is to instead output a variable `leaf_biomass_pruning_loss` and to have that as input in the next timestep to compute the new leaf biomass.
 
-TODO use toy plant as example
+[Part 3](../multiscale/multiscale_example_3.md) of the Toy Plant tutorial does something similar for its carbon stock. The `carbon_stock` variable indicates how much carbon is available for root and internode growth, but instead of updating it and passing it along after the root growth decision model decided whether or not roots should be added, that model computes a `carbon_stock_updated_after_roots` which is then used by the internode growth model. 
+
+This change in design avoids model order ambiguity and also improves readability, and makes sense in terms of PlantSimEngine's philosophy.
 
 ## [Multiscale : passing in a vector in a mapping status at a specific scale](@id multiscale_vector)
 
