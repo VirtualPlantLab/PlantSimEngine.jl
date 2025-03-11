@@ -354,7 +354,7 @@ Stacktrace:
  ...
 ```
 
-The fix is to add Process2Model() -or an other model for the same process- to the mapping.
+The fix is to add Process2Model() -or another model for the same process- to the mapping.
 
 ### Status API ambiguity
 

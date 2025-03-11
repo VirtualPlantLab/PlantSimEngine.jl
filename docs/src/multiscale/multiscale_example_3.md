@@ -1,5 +1,7 @@
 # Fixing bugs in the plant simulation
 
+TODO setup
+
 There are two major issues hinted at in last chapter's implementation, which we'll discuss and resolve here.
 
 You can find the full script for this simulation in the [ToyMultiScalePlantModel](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyMultiScalePlantModel/ToyPlantSimulation3.jl) subfolder of the examples folder.

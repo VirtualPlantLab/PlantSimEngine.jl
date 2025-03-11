@@ -18,7 +18,7 @@ makedocs(;
         canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
         assets=String[],
-        size_threshold=300000
+        size_threshold=500000
     ), pages=[
         "Home" => "index.md",
         "Introduction" => [
@@ -49,7 +49,7 @@ makedocs(;
             "Reducing DoF" => "./working_with_data/reducing_dof.md",
             "Fitting" => "./working_with_data/fitting.md",
             "Input types" => "./working_with_data/inputs.md",
-            "Visualizing outputs" => "./working_with_data/visualising_outputs.md",
+            "Visualizing outputs and data" => "./working_with_data/visualising_outputs.md",
             "Floating-point considerations" => "./working_with_data/floating_point_accumulation_error.md",
         ],
         "Moving to multiscale" => [

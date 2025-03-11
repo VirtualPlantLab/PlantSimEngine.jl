@@ -15,6 +15,18 @@ The actual plant being created, as well as some of the custom models, have no re
 
 The main purpose here is to showcase PlantSimEngine's multi-scale features and how to structure your models, not accuracy, realism or performance.
 
+## Initial setup
+
+We'll need to make use of a few packages, as usual, after adding them to our Julia environment:
+
+```@example usepkg
+using PlantSimEngine
+using PlantSimEngine.Examples # to import the ToyDegreeDaysCumulModel model
+using PlantMeteo
+using MultiScaleTreeGraph # multi-scale
+using CSV, DataFrames # used to import the example weather data
+```
+
 ## A basic growing plant
 
 At minimum, to simulate some kind of fake growth, we need :
@@ -60,7 +72,7 @@ Some of the models will need to gather variables from scales other than their ow
 
 Let's start with the simplest model. Our fake leaves will continuously capture some constant amount of carbon every timestep. No inputs or parameters are required.
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "leaf_carbon_capture" verbose = false
 
 struct ToyLeafCarbonCaptureModel<: AbstractLeaf_Carbon_CaptureModel end
@@ -82,7 +94,7 @@ end
 
 The model storing resources for the whole plant needs a couple of inputs: the amount of carbon captured by the leaves, as well as the amount consumed by the creation of new organs. It outputs the current stock.
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "resource_stock_computation" verbose = false
 
 struct ToyStockComputationModel <: AbstractResource_Stock_ComputationModel
@@ -104,7 +116,7 @@ This model is a modified version of the `ToyInternodeEmergence()` model found [i
 
 Let's first define a helper function that iterates across a Multiscale Tree Graph and returns the number of leaves :
 
-```julia
+```@example usepkg
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
     nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
@@ -120,7 +132,7 @@ We'll also add a couple of other parameters, which could go elsewhere :
 - the surface area of a leaf (no variation, no growth stages)
 - the max leaf surface area beyond which organ creation stops
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "organ_emergence" verbose = false
 
 struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
@@ -136,13 +148,13 @@ end
 
 And give them some default values : 
 
-```julia
+```@example usepkg
 ToyCustomInternodeEmergence(;TT_emergence=300.0, carbon_internode_creation_cost=200.0, leaf_surface_area=3.0, leaves_max_surface_area=100.0) = ToyCustomInternodeEmergence(TT_emergence, carbon_internode_creation_cost, leaf_surface_area, leaves_max_surface_area)
 ```
 
 Our internode model requires thermal time, and the amount of available carbon, and outputs the amount of carbon consumed, as well as the last thermal time where emergence happened (this is useful when new organs can be produced multiple times, which won't be the case here).
 
-```julia
+```@example usepkg
 PlantSimEngine.inputs_(m::ToyCustomInternodeEmergence) = (TT_cu=0.0, carbon_stock=0.0)
 PlantSimEngine.outputs_(m::ToyCustomInternodeEmergence) = (TT_cu_emergence=0.0, carbon_organ_creation_consumed=0.0)
 ```
@@ -154,7 +166,7 @@ Finally, the `run!` function checks that conditions are met for new organ creati
 
 and then updates the MTG.
 
-```julia
+```@example usepkg
 function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, meteo, constants=nothing, sim_object=nothing)
 
     leaves_surface_area = m.leaf_surface_area * get_n_leaves(status.node)
@@ -206,7 +218,7 @@ as opposed to the single-valued carbon stock mapped variable :
 
 And of course, some variables need to be initialized in the status:
 
-```julia
+```@example usepkg
 mapping = Dict(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
@@ -238,7 +250,7 @@ mapping = Dict(
 
 We only need an MTG, and some weather data, and then we'll be set. Let's create a simple MTG : 
 
-```julia
+```@example usepkg
  mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
     plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
     
@@ -253,19 +265,19 @@ We only need an MTG, and some weather data, and then we'll be set. Let's create 
 
 Import some weather data : 
 
-```julia
+```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 ```
 
 And we're good to go ! 
 
-```julia
+```@example usepkg
 outs = run!(mtg, mapping, meteo_day)
 ```
 
 If you query or display the MTG after simulation, you'll see it expanded and grew multiple internodes and leaves :
 
-```julia
+```@example usepkg
 mtg
 get_n_leaves(mtg)
 ```

@@ -172,4 +172,12 @@ Other words are unfortunately reused in various contexts with different meanings
     In the majority of cases, you can assume the tree-related terminology refers to the biological terms, and that "organ" refer to plant organs, and "single-scale", "multi-scale" and "scale" to PlantSimEngine's concept of scales described in [Organ/Scale](@ref). MTG objects are mostly manipulated no a per-node basis, unless a model makes use of functions relating to MTG traversal, in which case you may expect computer science terminology.
 
 ### State machines
-TODO ?
+
+A state machine is a computational concept used to model mechanisms and devices, which may be of interest for your simulations.
+
+![State machine image](../www/Turnstile_state_machine_colored.svg.png)
+A simple state machine. See the [wikipedia page](https://en.wikipedia.org/wiki/Finite-state_machine) for more examples.
+
+State machines can be useful to model organ state: some organs in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package modelling the oil palm using PlantSimEngine, have a `state` variable behaving like a state machine, indicating whether an organ is mature, pruned, flowering, etc.
+
+You can find a model affecting the `state` variable of some organs depending on their age and thermal time

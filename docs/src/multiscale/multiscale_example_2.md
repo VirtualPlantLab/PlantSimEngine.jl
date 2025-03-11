@@ -9,11 +9,45 @@ Pages = ["multiscale_example_2.md"]
 Depth = 3
 ```
 
+## Setup
+
+Once again, with a properly set-up Julia environment:
+
+```@example usepkg
+using PlantSimEngine
+using PlantSimEngine.Examples
+using PlantMeteo
+using MultiScaleTreeGraph
+using CSV, DataFrames
+
+PlantSimEngine.@process "leaf_carbon_capture" verbose = false
+
+struct ToyLeafCarbonCaptureModel<: AbstractLeaf_Carbon_CaptureModel end
+
+function PlantSimEngine.inputs_(::ToyLeafCarbonCaptureModel)
+    NamedTuple() # No inputs
+end
+
+function PlantSimEngine.outputs_(::ToyLeafCarbonCaptureModel)
+    (carbon_captured=0.0,)
+end
+
+function PlantSimEngine.run!(::ToyLeafCarbonCaptureModel, models, status, meteo, constants, extra)   
+    status.carbon_captured = 40
+end
+
+function get_n_leaves(node::MultiScaleTreeGraph.Node)
+    root = MultiScaleTreeGraph.get_root(node)
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    return nleaves
+end
+```
+
 ## Adding roots to our plant
 
 We'll add a root that extracts water and adds it to the stock. Initial water stocks are low, so root growth is prioritized, then the plant also grows leaves and a new internode like it did before. Roots only grow up to a certain point, and don't branch.
 
-This leads to adding a new scale, "Root" to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged.
+This leads to adding a new scale, "Root" to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged, and so is the `get_n_leaves` helper function.
 
 ## Root models
 
@@ -21,7 +55,7 @@ This leads to adding a new scale, "Root" to the mapping, as well as two more mod
 
 Let's implement a very fake model of root water absorption. It'll capture the amount of precipitation in the weather data multiplied by some assimilation factor.
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "water_absorption" verbose = false
 
 struct ToyWaterAbsorptionModel <: AbstractWater_AbsorptionModel
@@ -41,7 +75,7 @@ The root growth model is similar to the internode growth one : it checks for a w
 
 It also makes use of a couple of helper functions to find the end root and compute root length : 
 
-```julia
+```@example usepkg
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
     return MultiScaleTreeGraph.traverse(root, x->x, symbol="Root", filter_fun = MultiScaleTreeGraph.isleaf)
@@ -88,7 +122,7 @@ end
 
 Water absorbed must now be accumulated, and root carbon creation costs taken into account.
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "resource_stock_computation" verbose = false
 
 struct ToyStockComputationModel <: AbstractResource_Stock_ComputationModel
@@ -109,7 +143,7 @@ end
 
 The minor change is that new organs are now created only if the water stock is above a given threshold.
 
-```julia
+```@example usepkg
 struct ToyCustomInternodeEmergence{T} <: AbstractOrgan_EmergenceModel
     TT_emergence::T
     carbon_internode_creation_cost::T
@@ -162,7 +196,7 @@ end
 The resource storage and internode emergence models now need a couple of extra water-related mapped variables. 
 The "Root" organ is added to the mapping with its own models. New parameters need to be initialized.
 
-```julia
+```@example usepkg
 mapping = Dict(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
@@ -203,7 +237,7 @@ mapping = Dict(
 
 Running this new simulation is almost the same as before. The weather data is unchanged, but a new "Root" node was added to the MTG.
 
-```julia
+```@example usepkg
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
     plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
     
