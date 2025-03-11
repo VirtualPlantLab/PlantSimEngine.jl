@@ -27,7 +27,7 @@ One of the main objective of PlantSimEngine is allowing users to switch between 
 
 The package was designed around this idea to make easy changes easy and efficient. Switch models in the `ModelList`, and call the `run!` function again. No other changes are required if no new variables are introduced.
 
-## Example model switching
+## A first simulation as a starting point
 
 Let's create a `ModelList` with several models from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder:
 
@@ -65,6 +65,8 @@ We can now run the simulation:
 output_initial = run!(models, meteo_day)
 ```
 
+## Switching one model in the simulation
+
 Now what if we want to switch the model that computes growth ? We can do this by simply replacing the model in the `ModelList`, and PlantSimEngine will automatically update the dependency graph, and adapt the simulation to the new model.
 
 Let's switch `ToyRUEGrowthModel` with `ToyAssimGrowthModel`:
@@ -91,7 +93,7 @@ output_updated = run!(models2, meteo_day)
 And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪
 
 !!! note
-    This was a very standard but easy example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will tell you that what kind of model is required for the simulation.
+    This was a very standard but straightforward example. Sometimes other models will require to add other models to the `ModelList`. For example `ToyAssimGrowthModel` could have required a maintenance respiration model. In this case `PlantSimEngine` will indicate what kind of model is required for the simulation.
 
 !!! note
     In our example we replaced what we call a [soft-dependency coupling](@ref hard_dependency_def), but the same principle applies to [hard-dependencies](@ref hard_dependency_def). Hard and Soft dependencies are concepts related to model coupling, and are discussed in more detail in [Standard model coupling](@ref) and [Coupling more complex models](@ref).

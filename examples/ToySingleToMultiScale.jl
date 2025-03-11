@@ -24,7 +24,7 @@ models_singlescale = ModelList(
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
-out_singlescale = run!(models_singlescale, meteo_day)
+outputs_singlescale = run!(models_singlescale, meteo_day)
 
 ##############################
 #### Direct translation of the single-scale simulation
@@ -89,7 +89,7 @@ mapping_multiscale = Dict(
 # We now need two nodes for our MTG
 mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
     plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+    outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
 ##############################
 #### Output comparison
@@ -108,8 +108,13 @@ end
 
 is_approx_equal_1
 
-is_approx_equal_2 = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) == 1
+is_approx_equal_2 = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1
 
 
 # Note : it is also possible to get the weather data length via PlantSimEngine.get_nsteps(meteo_day)
 # instead of checking for array length
+
+is_perfectly_equal = length(unique(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)) == 1
+
+(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)[104]
+(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)[105]

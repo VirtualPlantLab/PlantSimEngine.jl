@@ -19,7 +19,7 @@ using PlantSimEngine.Examples # Import some example models
 ```
 
 Let's create a simple mapping with only one initial model, the carbon assimilation process `ToyAssimModel`, which will operate on leaves.
-It resembles the `ToyAssimGrowth` model used in the single-scale simulation [Example model switching](@ref) subsection.
+It resembles the `ToyAssimGrowth` model used in the single-scale simulation [Model switching](@ref) subsection.
 
 Our mapping between scale and model is therefore:
 
@@ -141,7 +141,7 @@ mapping = Dict(
 nothing # hide
 ```
 
-This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Example model switching](@ref) subsection.
+This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Model switching](@ref) subsection.
 
 ```julia
 models2 = ModelList(

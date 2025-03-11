@@ -16,7 +16,7 @@ Depth = 2
 
 ## Example with a single light interception model and a single weather timestep
 
-```julia
+```@example usepkg
 using PlantSimEngine, PlantMeteo
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
@@ -28,9 +28,9 @@ out = run!(leaf, meteo)
 
 The weather data in this example contains data over 365 days, meaning the simulation will have as many timesteps.
 
-```julia
+```@example usepkg
 using PlantSimEngine
-using PlantMeteo, CSV
+using PlantMeteo, CSV, DataFrames
 
 using PlantSimEngine.Examples
 
@@ -48,9 +48,9 @@ outputs_coupled = run!(models, meteo_day)
 ## Coupling the light interception and Leaf Area Index models with a biomass increment model
 
 
-```julia
+```@example usepkg
 using PlantSimEngine
-using PlantMeteo, CSV
+using PlantMeteo, CSV, DataFrames
 
 using PlantSimEngine.Examples
 
@@ -74,6 +74,7 @@ You can have a look at its documentation [here](https://vezy.github.io/PlantBiop
 
 Several example simulations are provided there. Here's one taken from [this page](https://vezy.github.io/PlantBiophysics.jl/stable/simulation/first_simulation/) : 
 
+TODO
 ```julia
 using PlantBiophysics, PlantSimEngine
 

@@ -22,16 +22,16 @@ If one looks at prior examples, the Modellists so far have only contained a sing
 
 Example models are all taken from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder.
 
-Here's a first `ModelList` declaration with a light interception model, requiring input Leaf Area Index : 
+Here's a first `ModelList` declaration with a light interception model, requiring input Leaf Area Index (LAI): 
 
 ```julia
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+modellist_coupling_part_1 = ModelList(Beer(0.5), status = (LAI = 2.0,))
 ```
 
 Here's a second one with a Leaf Area Index model, with some example Cumulated Thermal Time as input. (This TT_cu is usually computed from weather data):
 
 ```julia
-model = ModelList(
+modellist_coupling_part_2 = ModelList(
     ToyLAIModel(),
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
@@ -41,13 +41,13 @@ model = ModelList(
 
 Suppose we want our `ToyLAIModel()` to compute the `LAI` for the light interception model. 
 
-We can couple the two models by having them be part of a single `ModelList`. The `LAI` variable will then be a coupled output-input and no longer will need to be declared.
+We can couple the two models by having them be part of a single `ModelList`. The `LAI` variable will then be a coupled output computed by the `ToyLAIModel`, then used as input by `Beer`. It will no longer need to be declared as part of the `status`.
 
 This is an instance of what we call a ["soft dependency" coupling](@ref hard_dependency_def): a model depends on another model's outputs for its inputs.
 
 Here's a first attempt : 
 
-```julia
+```@example usepkg
 using PlantSimEngine
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
@@ -58,8 +58,9 @@ models = ModelList(
     Beer(0.5),
     status=(TT_cu=1.0:2000.0,),
 )
-
+try #hide
 run!(models)
+catch err; showerror(stderr, err); end  #hide
 ```
 
 Oops, we get an error related to the weather data : 
@@ -76,7 +77,7 @@ Stacktrace:
 
 The `Beer()` model requires a specific meteorological parameter. Let's fix that by importing the example weather data :
 
-```julia
+```@example usepkg
 using PlantSimEngine
 
 # PlantMeteo and CSV packages are now used

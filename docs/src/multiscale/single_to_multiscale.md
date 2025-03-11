@@ -1,6 +1,22 @@
 # Converting a single-scale simulation to multi-scale
-
-TODO setup
+```@meta
+CurrentModule = PlantSimEngine
+```
+```@setup usepkg
+using PlantMeteo
+using PlantSimEngine
+using PlantSimEngine.Examples
+using CSV
+using DataFrames
+using MultiScaleTreeGraph
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+models_singlescale = ModelList(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2),
+    status=(TT_cu=cumsum(meteo_day.TT),),
+)
+```
 
 A single-scale simulation can be turned into a 'pseudo-multi-scale' simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.
 
@@ -15,19 +31,24 @@ Depth = 3
 
 # Converting the ModelList to a multi-scale mapping
 
-For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Example model switching](@ref) subsection: 
+For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
 
 ```@example usepkg
+using PlantMeteo
+using PlantSimEngine
+using PlantSimEngine.Examples
+using CSV
+
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models = ModelList(
+models_singlescale = ModelList(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
-out_singlescale = run!(models_singlescale, meteo_day)
+outputs_singlescale = run!(models_singlescale, meteo_day)
 ```
 
 Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that "plant" scale, so there is no need to map any variable to other scales.
@@ -46,11 +67,16 @@ mapping = Dict(
 ```
 Note the slight difference in syntax for the `Status`. This is due to an implementation quirk (sorry).
 
-None of these models operate on a multi-scale tree graph, either. There is no concept of organ creation or growth. We still need to provide a multi-scale tree graph to a multi-scale simulation, so we can -for now- declare a very simple MTG, with a single node :
+None of these models operate on a multi-scale tree graph, either. There is no concept of organ creation or growth. We still need to provide a multi-scale tree graph to a multi-scale simulation, so we can -for now- declare a very simple MTG, with a single node:
 
 ```@example usepkg
+using MultiScaleTreeGraph
+
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 ```
+
+!!! note
+    You will need to add the MultiScaleTreeGraph package to your environment. TODO
 
 ## Running the multi-scale simulation ?
 
@@ -60,7 +86,7 @@ This first conversion step can be a starting point for a more elaborate multi-sc
 
 The signature of the `run!` function in multi-scale differs slightly from the ModelList version : 
 
-```@example usepkg
+```julia
 out_multiscale = run!(mtg, mapping, meteo_day)
 ```
 
@@ -136,7 +162,7 @@ MultiScaleModel(
             mapped_variables=[
                 :TT_cu => "Scene",
             ],
-        ),
+        )
 ```
 and the new mapping with two scales :
 
@@ -161,7 +187,7 @@ mapping_multiscale = Dict(
 We can then run the multiscale simulation, with our two-node MTG :
 
 ```@example usepkg
-out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
 ### Comparing outputs between single- and multi-scale
@@ -197,7 +223,7 @@ end
 ```
 or equivalently, with broadcasting, we can write :
 ```@example usepkg
-is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) == 1
+is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1
 ```
 
 !!! note
