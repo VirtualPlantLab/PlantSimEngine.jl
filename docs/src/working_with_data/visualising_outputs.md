@@ -49,23 +49,7 @@ models = ModelList(
 sim_outputs = run!(models, meteo_day)
 ```
 
-The output data is displayed as :
-
-```
-TimeStepTable{Status{(:TT_cu, :LAI...}(365 x 3):
-╭─────┬────────────────┬────────────┬───────────╮
-│ Row │ TT_cu │        LAI │     aPPFD │
-│     │        Float64 │    Float64 │   Float64 │
-├─────┼────────────────┼────────────┼───────────┤
-│   1 │            0.0 │ 0.00554988 │ 0.0476221 │
-│   2 │            0.0 │ 0.00554988 │ 0.0260688 │
-│   3 │            0.0 │ 0.00554988 │ 0.0377774 │
-│   4 │            0.0 │ 0.00554988 │ 0.0468871 │
-│   5 │            0.0 │ 0.00554988 │ 0.0545266 │
-│  ⋮  │       ⋮        │     ⋮      │     ⋮     │
-╰─────┴────────────────┴────────────┴───────────╯
-                                 360 rows omitted
-```
+The output data is displayed as a by default as a `TimeStepTable`. It is also possible to filter which variables are kept via the optional `tracked_outputs` keyword argument.
 
 ## Plotting outputs
 
@@ -87,8 +71,6 @@ lines!(ax2, sim_outputs[:TT_cu], sim_outputs[:aPPFD], color=:firebrick1)
 
 fig
 ```
-
-![LAI Growth and light interception](../www/LAI_growth2.png)
 
 ## TimeStepTables and DataFrames
 

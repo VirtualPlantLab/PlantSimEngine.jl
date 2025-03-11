@@ -58,9 +58,12 @@ models = ModelList(
     Beer(0.5),
     status=(TT_cu=1.0:2000.0,),
 )
+struct UnexpectedSuccess <: Exception end #hack to enable checking an error without failing docbuild #hide
+# see https://github.com/JuliaDocs/Documenter.jl/issues/1420 #hide
 try #hide
 run!(models)
-catch err; showerror(stderr, err); end  #hide
+throw(UnexpectedSuccess()) #hide
+catch err; err isa UnexpectedSuccess ? rethrow(err) : showerror(stderr, err); end  #hide
 ```
 
 Oops, we get an error related to the weather data : 

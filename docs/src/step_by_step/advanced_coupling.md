@@ -28,7 +28,7 @@ Let's go through the example processes and models from a script provided by the 
 
 In this script, we declare seven processes and seven models, one for each process. The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`...
 
-When run, `Process2Model` calls another process's `run!` function which requires defining that process as a hard-dependency of `Process2Model` :
+When run, `Process2Model` calls another process's `run!` function explicitely, which requires defining that process as a hard-dependency of `Process2Model` :
 
 ```julia
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, extra)
@@ -40,7 +40,7 @@ function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, 
 end
 ```
 
-We see that coupling a model (`Process2Model`) to another process (`process1`) is done by calling the `run!` function again. The `run!` function is called with the same arguments as the `run!` function of the model that calls it, except that we pass the process we want to simulate as the first argument.
+`Process2Model` is coupled to another process (`process1`), and calls its model's `run` function. The `run!` function is called with the same arguments as the `run!` function of the model that calls it, except that we pass the process we want to simulate as the first argument.
 
 !!! note
     We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the `ModelList`.

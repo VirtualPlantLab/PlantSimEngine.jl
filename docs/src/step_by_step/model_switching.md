@@ -84,7 +84,7 @@ nothing # hide
 
 `ToyAssimGrowthModel` is a little bit more complex than `ToyRUEGrowthModel`, as it also computes the maintenance and growth respiration of the plant, so it has more parameters (we use the default values here). 
 
-We can run a new simulation and see that the simultion's results are different from the previous simulation:
+We can run a new simulation and see that the simulation's results are different from the previous simulation:
 
 ```@example usepkg
 output_updated = run!(models2, meteo_day)

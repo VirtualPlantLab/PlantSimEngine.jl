@@ -76,7 +76,11 @@ It will parse your mapping, generate custom models to store and feed the vector 
 Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale
 ](@ref):
 
+
 ```julia
+using PlantSimEngine
+using PlantSimEngine.Examples
+using PlantMeteo, CSV, DataFrames
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 # Direct translation of the single-scale simulation
@@ -92,7 +96,7 @@ mapping_pseudo_multiscale = Dict(
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
-out_pseudo_multiscale_error = run!(mtg, mapping_pseudo_multiscale, meteo_day)
+#out_pseudo_multiscale_error = run!(mtg, mapping_pseudo_multiscale, meteo_day)
 
 mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, "Plant", PlantSimEngine.get_nsteps(meteo_day))
 
