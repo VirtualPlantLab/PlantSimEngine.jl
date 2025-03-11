@@ -1,5 +1,7 @@
 # Converting a single-scale simulation to multi-scale
 
+TODO setup
+
 A single-scale simulation can be turned into a 'pseudo-multi-scale' simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.
 
 This page showcases how to do the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.
@@ -15,7 +17,7 @@ Depth = 3
 
 For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Example model switching](@ref) subsection: 
 
-```julia
+```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 models = ModelList(
@@ -32,7 +34,7 @@ Those models all operate on a simplified model of a single plant, without any or
 
 We can therefore convert this into the following mapping : 
 
-```julia 
+```@example usepkg 
 mapping = Dict(
 "Plant" => (
    ToyLAIModel(),
@@ -46,7 +48,7 @@ Note the slight difference in syntax for the `Status`. This is due to an impleme
 
 None of these models operate on a multi-scale tree graph, either. There is no concept of organ creation or growth. We still need to provide a multi-scale tree graph to a multi-scale simulation, so we can -for now- declare a very simple MTG, with a single node :
 
-```julia
+```@example usepkg
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 ```
 
@@ -58,7 +60,7 @@ This first conversion step can be a starting point for a more elaborate multi-sc
 
 The signature of the `run!` function in multi-scale differs slightly from the ModelList version : 
 
-```julia
+```@example usepkg
 out_multiscale = run!(mtg, mapping, meteo_day)
 ```
 
@@ -82,7 +84,7 @@ Let's instead implement our own `ToyTT_cuModel`.
 
 This model doesn't require any outside data or input variables, it only operates on the weather data and outputs our desired TT_cu. The implementation doesn't require any advanced coupling and is very straightforward.
 
-```julia
+```@example usepkg
 PlantSimEngine.@process "tt_cu" verbose = false
 
 struct ToyTt_CuModel <: AbstractTt_CuModel
@@ -113,7 +115,7 @@ Our new model doesn't really relate to a specific organ of our plant. In fact, t
 
 Note that we now need to add a "Scene" node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it and "Plant" nodes will only call models at the "Plant" scale. See [Empty status vectors in multi-scale simulations](@ref) for more details.
 
-```julia
+```@example usepkg
 mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 0, 0),)
     plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
 ```
@@ -128,7 +130,7 @@ There can be different kinds of variable mapping with slightly different syntax,
 
 This gives us the following declaration with the `MultiScaleModel` wrapper for our LAI model: 
 
-```julia
+```@example usepkg
 MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
@@ -138,7 +140,7 @@ MultiScaleModel(
 ```
 and the new mapping with two scales :
 
-```julia
+```@example usepkg
 mapping_multiscale = Dict(
     "Scene" => ToyTt_CuModel(),
     "Plant" => (
@@ -158,7 +160,7 @@ mapping_multiscale = Dict(
 
 We can then run the multiscale simulation, with our two-node MTG :
 
-```julia
+```@example usepkg
 out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
@@ -170,21 +172,21 @@ In our simple example, we only have one MTG scene node and one plant node, so th
 
 We can access the output variables at the "Scene" scale by indexing our outputs:
 
-```julia
+```@example usepkg
 outputs_multiscale["Scene"]
 ```
 and then the computed `:TT_cu`:
-```julia
+```@example usepkg
 outputs_multiscale["Scene"][:TT_cu]
 ```
 
 As you can see, it is a `Vector{Vector{T}}`, whereas our single-scale output is a `Vector{T}`:
-```julia
+```@example usepkg
 outputs_singlescale.TT_cu
 ```
 
 To compare them value-by-value, we can flatten the multiscale Vector and then do a piecewise approximate equality test :
-```julia
+```@example usepkg
 computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
 
 for i in 1:length(computed_TT_cu_multiscale)
@@ -194,7 +196,7 @@ for i in 1:length(computed_TT_cu_multiscale)
 end
 ```
 or equivalently, with broadcasting, we can write :
-```julia
+```@example usepkg
 is_approx_equal = length(unique(multiscale_TT_cu .≈ out_singlescale.TT_cu)) == 1
 ```
 
