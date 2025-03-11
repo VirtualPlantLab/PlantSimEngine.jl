@@ -81,7 +81,7 @@ run!(mtg, mapping, meteo, constants, extra; nsteps, tracked_outputs)
 
 Instead of a `ModelList`, it takes an MTG and a mapping. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 
 
-## Outputs
+## Multi-scale output data structure
 
 The output structure, like the mapping, is a Julia `Dict` structure indexed by scale. In each scale, another `Dict` maps variables to their values per timestep, per node. This makes the structure a little bulkier and a little more verbose to inspect than in single-scale, but the general usage is similar. Multiscale Tree Graph nodes are also added to the output data, as a `:node` entry.
 
