@@ -39,29 +39,9 @@ mapping_pseudo_multiscale = Dict(
 )
 
 mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
-#plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
 out_pseudo_multiscale = run!(mtg, mapping_pseudo_multiscale, meteo_day)
-
-
-# TODO This seems to have a bug, generates an error
-mapping_2 = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, "Plant", PlantSimEngine.get_nsteps(meteo_day))
-#=new_status, generated_models = PlantSimEngine.generate_model_from_status_vector_variable(mapping_pseudo_multiscale, "Plant",  Status(TT_cu=cumsum(meteo_day.TT)), "Plant", PlantSimEngine.get_nsteps(meteo_day))
-mapping_pseudo_multiscale_adjusted = Dict("Plant" => (
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2), generated_models..., 
-    PlantSimEngine.HelperNextTimestepModel(),
-    MultiScaleModel(
-        model=PlantSimEngine.HelperCurrentTimestepModel(),
-        mapped_variables=[PreviousTimeStep(:next_timestep),],
-        ),
-        new_status,
-),
-)
-out_pseudo_multiscale = run!(mtg, mapping_pseudo_multiscale_adjusted, meteo_day)
-=#
 
 ##############################
 #### Ad Hoc Cumulated Thermal Time Model
@@ -106,7 +86,7 @@ mapping_multiscale = Dict(
     ),
 )
 
-# The previous mtg wasn't affected, but it is good practice to avoid unnecessarily mixing data between simulations
+# We now need two nodes for our MTG
 mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
     plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
 out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)

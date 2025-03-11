@@ -47,8 +47,9 @@ This change in design avoids model order ambiguity and also improves readability
 
 ## [Multiscale : passing in a vector in a mapping status at a specific scale](@id multiscale_vector)
 
-TODO example from single to multiscale
-
+!!! note
+    This section is a little more advanced and not recommended for beginners
+    
 You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the `status` component of a `ModelList` in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 
 This is practical for simple simulations, or when quickly prototyping, to avoid having to write a model specifically for it. Whatever models make use of that variable are provided with one element corresponding to the current timestep every iteration.
@@ -63,7 +64,7 @@ Call the function `replace_mapping_status_vectors_with_generated_models(mapping_
 
 It will parse your mapping, generate custom models to store and feed the vector values each timestep, and return the new mapping you can then use for your simulation. It also slips in a couple of internal models that provide the timestep index to these models (so note that symbols `:current_timestep` and `:next_timestep` will be declared for that mapping). You can decide which scale/organ level you want those models to be in via the `timestep_model_organ_level`parameter. `nsteps` is used as a sanity check, and expects you to provide the amount of simulation timesteps.
 
-!!! note
+!!! warning
     Only subtypes of AbstractVector present in statuses will be affected. In some cases, meteo values might need a small conversion. For instance :
     ```
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -71,6 +72,34 @@ It will parse your mapping, generate custom models to store and feed the vector 
 
     cumsum(meteo_day.TT) actually returns a CSV.SentinelArray.ChainedVectors{T, Vector{T}}, which is not a subtype of AbstractVector. 
     Replacing it with Vector(cumsum(meteo_day.TT)) will provide an adequate type.
+
+Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale
+](@ref):
+
+```julia
+meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+# Direct translation of the single-scale simulation
+mapping_pseudo_multiscale = Dict(
+"Plant" => (
+   ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2),
+    Status(TT_cu=cumsum(meteo_day.TT),)
+    ),
+)
+
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
+
+# will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
+out_pseudo_multiscale_error = run!(mtg, mapping_pseudo_multiscale, meteo_day)
+
+mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, "Plant", PlantSimEngine.get_nsteps(meteo_day))
+
+out_pseudo_multiscale_successful = run!(mtg, mapping_pseudo_multiscale_adjusted, meteo_day)
+
+```
+
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
 

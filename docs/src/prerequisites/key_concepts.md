@@ -46,14 +46,14 @@ Depending on what models are combined in a simulation, some variables may be inp
 Here's a conceptual model coupling example; each "node" is equivalent to a distinct PlantSimEngine model, "compute()" is equivalent to the model's "run!" function:
 
 ![Model coupling example](../www/GUID-12E2DDAD-7B20-4FE2-AA36-7FAC950382A6-low.png)
-(Source: https://help.autodesk.com/view/MAYAUL/2016/ENU/?guid=__files_GUID_A9070270_9B5D_4511_8012_BC948149884D_htm)
+(Source: [Autodesk](https://help.autodesk.com/view/MAYAUL/2016/ENU/?guid=__files_GUID_A9070270_9B5D_4511_8012_BC948149884D_htm"))
 
 ### Dependency graphs
 
 Coupling models together in this fashion creates what is known as a [Directed Acyclic Graph](https://en.wikipedia.org/wiki/Directed_acyclic_graph) or DAG, a type of [dependency graph](https://en.wikipedia.org/wiki/Dependency_graph). The order in which models are run is determined by the ordering of these models in that graph.
 
 ![Example DAG](../www/dags_acyclic_vs_cyclic-d1a669bf1b8b6bfa8ac3041788e81171.png)
-A simple Directed Acyclic Graph, note the required absence of cycles. Source: https://www.astronomer.io/docs/learn/dags/ 
+A simple Directed Acyclic Graph, note the required absence of cycles. Source: [Astronomer](https://www.astronomer.io/docs/learn/dags/)
 
 PlantSimEngine creates this Directed Acyclic Graph under the hood by plugging the right variables in the right models. Users therefore only need to declare models, they do not need write the code to connect them as PlantSimEngine does that work for them, as long as the model coupling has no cyclic dependency.
 
