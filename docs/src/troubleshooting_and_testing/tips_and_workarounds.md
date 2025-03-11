@@ -107,7 +107,6 @@ out_pseudo_multiscale_successful = run!(mtg, mapping_pseudo_multiscale_adjusted,
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
 
-TODO state machines ?
 TODO workaround status initialisation bug ?
 
 ## Cyclic dependencies in single-scale simulations

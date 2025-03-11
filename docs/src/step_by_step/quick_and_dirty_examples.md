@@ -74,7 +74,6 @@ You can have a look at its documentation [here](https://vezy.github.io/PlantBiop
 
 Several example simulations are provided there. Here's one taken from [this page](https://vezy.github.io/PlantBiophysics.jl/stable/simulation/first_simulation/) : 
 
-TODO
 ```julia
 using PlantBiophysics, PlantSimEngine
 

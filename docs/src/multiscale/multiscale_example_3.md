@@ -248,24 +248,30 @@ You can notice this by looking at the simulation's state after the first timeste
 
 ```@example usepkg
 outs = run!(mtg, mapping, first(meteo_day, 2))
-outs["Root"][:node]
+nodes_per_timestep = outs["Root"][:node]
+root_lengths_per_timestep = [length(nodes_per_timestep[i]) for i in 1:length(nodes_per_timestep)]
+
 ```
 
-Yeah, our root immediately grew to full length.
+Our root grew to full length within one timestep. Oops.
 
-This is an implementation decision in PlantSimEngine. By default, new organs are active, and models can affect them as soon as they are created. 
+This is an implementation decision in PlantSimEngine. **By default, newly created organs are active**, and models can affect them **as soon as they are created**.
 
-The internode growth depends on a threshold thermal time value, which accumulates over several timesteps, so even though new internodes are immediately active, they can't themselves grow new organs within the same timestep. 
+In our case, internode growth depends on a threshold thermal time value, which accumulates over several timesteps, so even though new internodes are immediately active, they can't themselves grow new organs within the same timestep. But as we've just showcased, we have a root problem.
 
-This quirk is also avoided in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package using PlantSimEngine: some organs make use of state machines, and are considered "immature" when they are created. Immature organs cannot grow new organs until some conditions are met for their state to change. There are also other conditions governing organ emergence, such as specific threshold values relating to Thermal Time (see [here](https://github.com/PalmStudio/XPalm.jl/blob/433e1c47c743e7a53e764672818a43ed8feb10c6/src/plant/phytomer/leaves/phyllochron.jl#L46) for an example).
+This quirk is also handled in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package using PlantSimEngine: some organs make use of state machines, and are considered "immature" when they are created. Immature organs cannot grow new organs until some conditions are met for their state to change. There are also other conditions governing organ emergence, such as specific threshold values relating to Thermal Time (see [here](https://github.com/PalmStudio/XPalm.jl/blob/433e1c47c743e7a53e764672818a43ed8feb10c6/src/plant/phytomer/leaves/phyllochron.jl#L46) for an example).
 
-!!! Note
+!!! note
     This implementation decision for new organs to be immediately active may be subject to change in future versions of PlantSimEngine. Also note that the way the dependency graph is structured determines the order in which models run. Meaning that which models are run before or after organ creation might change with new additions and updates to your mapping. Some models might run "one timestep later", see [Simulation order instability when adding models](@ref) for more details.
+
+!!! note
+    MTG node output data has a couple of subtleties, see [Multi-scale output data structure](@ref) for more details
+
 ### Delaying organ maturity
 
 How do we avoid this extreme instant growth ? We can, of course, add some thermal time constraint. We could arbitrarily tinker with water resources. 
 
-We can otherwise add a simple state machine variable to our root and internodes in the MTG, indicating a newly added organ is immature and cannot grow on the same timestep. Since our root doesn't branch, we can simply keep track of a single state variable.
+We can otherwise add a simple state machine variable to our root and internodes in the MTG, indicating a newly added organ is immature and cannot grow on the same timestep. Since our root doesn't branch, we can simply keep track of a single state variable. See the [State machines](@ref) section for some examples.
 
 In fact, we could change the scale at which the check is made to extend the root, and have another model call this one directly. This enables running this model only for the end root when those occasional timesteps when root growth is possible, instead of at every timestep for every root node.
 
