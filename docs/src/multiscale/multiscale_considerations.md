@@ -83,7 +83,43 @@ Instead of a `ModelList`, it takes an MTG and a mapping. The optional `meteo` an
 
 ## Outputs
 
-The output structure, like the mapping, is a Julia `Dict` structure indexed by scale. TODO node
+The output structure, like the mapping, is a Julia `Dict` structure indexed by scale. In each scale, another `Dict` maps variables to their values per timestep, per node. This makes the structure a little bulkier and a little more verbose to inspect than in single-scale, but the general usage is similar. Multiscale Tree Graph nodes are also added to the output data, as a `:node` entry.
+
+To illustrate, here's an example output from part 3 of the Toy plant tutorial, zeroing in on a variable at the "Root" scale: [Fixing bugs in the plant simulation](@ref):
+
+```julia
+julia> outs
+
+Dict{String, Dict{Symbol, Vector}} with 5 entries:
+  "Internode" => Dict(:carbon_root_creation_consumed=>[[50.0, 50.0], [50.0, 50.0], [50.0, 50.0], [50.0, 50.0], [50.0, …
+  "Root"      => Dict(:carbon_root_creation_consumed=>[[50.0, 50.0], [50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50.0], [50…
+  "Scene"     => Dict(:TT_cu=>[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]  …  [2099.61], [20…
+  "Plant"     => Dict(:carbon_root_creation_consumed=>[[50.0], [50.0], [50.0], [50.0], [50.0], [50.0], [50.0], [50.0],…
+  "Leaf"      => Dict(:node=>Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[+ 4: Leaf…
+
+julia> outs["Root"]
+Dict{Symbol, Vector} with 4 entries:
+  :carbon_root_creation_consumed => [[50.0, 50.0], [50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50…
+  :node                          => Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[+ 9: Root…
+  :water_absorbed                => [[0.5, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0], [1.1, 1.1, 1.1, 1.1, 0.0], [0.…
+  :root_water_assimilation       => [[1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0], [1.…
+
+julia> outs["Root"][:carbon_root_creation_consumed]
+365-element Vector{Vector{Float64}}:
+ [50.0, 50.0] # timestep 1: two root nodes
+ [50.0, 50.0, 50.0]
+ [50.0, 50.0, 50.0, 50.0]
+ [50.0, 50.0, 50.0, 50.0, 50.0]
+ [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
+ [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0] # timestep 6: 7 root nodes
+ ⋮
+```
+
+As more roots get added in this simulation, the vectors expand to list the values of all the nodes for every variable for every timestep.
+
+!!! warning
+    Currently, the `:node` entry only shallow copies nodes. The `:node` values at each scale for every timestep actually reflect the final state of the node, meaning attribute values may not correspond to the value at that timestep. You may need to output these values via a dedicated model to keep track of them properly.
+    Also note that there currently is no way of removing nodes. Nodes corresponding to organs considered to be pruned/dead/aborted are still present in the output data structure.
 
 Multi-scale simulations, especially for plants which have thousands of leaves, internodes, root branches, buds and fruits, may compute huge amounts of data. Just like in single-scale simulations, it is possible to keep only variables whose values you want to track for every timestep, and filter the rest out, using the `tracked_outputs` keyword argument for the `run!` function. 
 
