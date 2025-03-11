@@ -229,8 +229,7 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeSt
 !!! note
     A model is parallelizable over objects if it does not call another model directly inside its code. Similarly, a model is parallelizable over time-steps if it does not get values from other time-steps directly inside its code. In practice, most of the models are parallelizable one way or another, but it is safer to assume they are not.
 
-OK that's it! Now we have a full new model implementation for the light interception process! I hope it was clear and you understood everything. If you think some sections could be improved, you can make a PR on this doc, or open an issue.
-
+OK that's it! We now a full new model implementation for the light interception process! Other models might be more complex in terms of what computations they do, or how they couple with other models, but the approach remains the same.
 
 ### Dependencies
 

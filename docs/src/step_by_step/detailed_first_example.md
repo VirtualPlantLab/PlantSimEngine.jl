@@ -168,7 +168,7 @@ More details are available from the [package documentation](https://vezy.github.
 
 To run a simulation, you can call the [`run!`](@ref) method on the `ModelList`. If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
 
-Here is an example:
+Your call to the function would then look like this:
 
 ```julia
 run!(model_list, meteo)

@@ -170,9 +170,21 @@ The above mapping showcases the different ways to define how the variables are m
 
 - At the "Plant" scale, the TT_cu variable is mapped as a scalar from the "Scene" scale. There is only a single "Scene" node in the MTG, and only a single "TT_cu" value per timestep for the simulation.
 
+```julia
+:carbon_allocation => ["Leaf"]
+```
+
 - On the other hand, we have `:carbon_allocation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. The `carbon_assimilation` variable is mapped as a vector: there are multiple "Leaf" nodes, but only one "Plant" node, which aggregrates the value over every single leaf. This gives us a 'many-to-one' vector mapping, and in the `run!` functions for models at that scale `carbon_allocation` will be available in the `status` as a vector.
 
+```julia
+:carbon_allocation => ["Leaf", "Internode"]
+```
+
 - A third type of the mapping would be `:carbon_allocation => ["Leaf", "Internode"]`, which provides values for a variable from several other scales simultaneously. In this case, the values are also available as a vector in the `carbon_assimilation` variable of the `status` inside the model, sorted in the same order as nodes are traversed in the graph.
+
+```julia
+:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]
+```
 
 - Finally, to map to a specific variable name at the target scale, *e.g.* `:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]`. This syntax is useful when the variable name is different between scales, and we want to map to a specific variable name at the target scale. In this example, the variable `Rm_organs` at plant scale takes its values (is mapped) from the variable `Rm` at the `"Leaf"` and `"Internode"` scales.
 
