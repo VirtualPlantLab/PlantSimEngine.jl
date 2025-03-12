@@ -279,7 +279,7 @@ If you query or display the MTG after simulation, you'll see it expanded and gre
 
 ```@example usepkg
 mtg
-get_n_leaves(mtg)
+#get_n_leaves(mtg)
 ```
 
 And that's it ! Feel free to tinker with the parameters and see when things break down, to get a feel for the simulation.

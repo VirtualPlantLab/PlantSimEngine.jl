@@ -1,5 +1,5 @@
-#using Pkg
-#Pkg.develop("PlantSimEngine")
+using Pkg
+Pkg.develop("PlantSimEngine")
 using PlantSimEngine
 using PlantMeteo
 using DataFrames, CSV
@@ -71,6 +71,7 @@ makedocs(;
             "Implicit contracts" => "./troubleshooting_and_testing/implicit_contracts.md",
         ], "API" => [
             "Public API" => "./API/API_public.md",
+            "Example models" => "./API/API_examples.md",
             "Internal API" => "./API/API_private.md",],
         "Credits" => "credits.md",
         "Improving our documentation" => "documentation_improvement.md",
