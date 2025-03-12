@@ -29,6 +29,7 @@ makedocs(;
             #"Feature list ? Companion packages ?"
         ],
         "Prerequisites" => [
+            "Installing and running PlantSimEngine" => "./prerequisites/installing_plantsimengine.md",
             "Key Concepts" => "./prerequisites/key_concepts.md", # Key concepts vs terminology ?
             #"Setup" ?",
             "Julia language basics" => "./prerequisites/julia_basics.md",
@@ -74,7 +75,7 @@ makedocs(;
         "Credits" => "credits.md",
         "Improving our documentation" => "documentation_improvement.md",
         "Planned features" => "planned_features.md",
-        #"developer section ?"
+        #"developer section TODO"
     ]
 )
 # move repeated examples listing to a specific page ?

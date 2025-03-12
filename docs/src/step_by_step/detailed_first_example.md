@@ -4,6 +4,8 @@ This page walks you through the ins and outs of a basic simulation, mostly aimed
 
 A working trimmed-down script can be found further down in the [Example simulation](@ref), and other subsections in this page will detail setup and helper functions, and querying outputs.
 
+If you simply wish to copy-paste examples and tinker with them, you can find a few examples on the [Quick examples](@ref) page.
+
 ```@setup usepkg
 using PlantSimEngine, PlantMeteo
 using PlantSimEngine.Examples

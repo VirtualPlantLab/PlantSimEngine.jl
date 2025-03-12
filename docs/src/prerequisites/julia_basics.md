@@ -6,70 +6,53 @@ Julia is a language that is gaining traction, but it isn't the most widely used 
 
 Many elements will be familiar to those with an R, Python or Matlab background, but there are some noteworthy differences, and if you are new to the language, there will be a few hurdles you might have to overcome to be comfortable using the language.
 
-This page is here to help you with that, and provides a short introduction to the parts of Julia that are most relevant regarding usage of PlantSimEngine.
+This page is here to list to the parts of Julia that are most relevant regarding usage of PlantSimEngine, and point to resources that can help you grasp those basics.
 
-It is not meant as a full-fledged Julia tutorial. If you are completely new to programming, you may wish to check some other resources first, such as ones found [here](https://docs.julialang.org/en/v1/manual/getting-started/).
+## New to programming
 
-If you wish to compare Julia to a specific language, [the noteworthy differences section](https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-Python) will provide you with a quick overview of the differences.
+It is not meant as a full-fledged from-scratch Julia tutorial. If you are completely new to programming, you may wish to check some other resources first, such as ones found [here](https://docs.julialang.org/en/v1/manual/getting-started/). The video course [Julia Programming for Nervous Beginners](https://www.youtube.com/playlist?list=PLP8iPy9hna6Qpx0MgGyElJ5qFlaIXYf1R) is tailored for people with no programming experience.
 
-You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/)
+## Installing packages and setting up and environment
+
+For PlantSimEngine, you can check our documentation page on the topic: [Installing and running PlantSimEngine](@ref)
+
+## Cheatsheets
+
+You can also find a few cheatsheets [here](https://palmstudio.github.io/Biophysics_database_palm/cheatsheets/) as well as a [short introductory notebook](https://palmstudio.github.io/Biophysics_database_palm/basic_syntax/) along with its [install instructions](https://palmstudio.github.io/Biophysics_database_palm/installation/).
 
 ## Troubleshooting
 
-### Installing Julia
+There is a documentation page showcasing some of the common errors than can occur when using PlantSimEngine, which may be worth checking if you are encountering issues: [Troubleshooting error messages](@ref).
 
-### Installing PlantSimEngine and its dependencies
+For more Julia learning-related difficulties, you will find quick responses on the Discourse forum: [https://discourse.julialang.org](https://discourse.julialang.org).
 
-### Julia environments
+### Noteworthy differences with other languages: 
 
-### Running an environment
+If you wish to compare Julia to a specific language, [the noteworthy differences section](https://docs.julialang.org/en/v1/manual/noteworthy-differences/#Noteworthy-differences-from-Python) will provide you with a quick overview of the differences.
 
-Once your environment is set up, you can launch a command prompt and type 'julia'. This will launch Julia, and you should see
-julia> 
-in the command prompt.
+(Array indexing starts at 1, for example)
 
-You can always type '?' from there to enter help mode, and type the name of a function or language feature you wish to know more about.
+## Essential Julia concepts for PlantSimEngine
 
-You can find out which directory you are in by typing pwd() in a Julia session.
+Here's a list of the main aspects of the Julia language required (beyond package management) to understand how to use PlantSimEngine to its potential:
 
-Handling environments and dependencies is done in Julia through a specific Package called Pkg, which comes with the base install. You can either call Pkg features the same way you would for another package, or enter Pkg mode by typing ']', which will change the display from 
-julia> to something like (@v1.11) pkg>, indicating your current environment (in this case, the default julia environment, which we don't recommend bloating).
+Standard notions and constructs:
 
-Once in Pkg mode, you can choose to create an environment by typing 'activate path/to/environemnt'. 
+- Standard concepts of a variable, arrays, functions, function arguments
+- The typing system and custom types
+- Dictionaries and NamedTuple objects are used throughout the codebase
 
-You can then add packages that have been added to Julia's online global registry by typing add packagename and you can remove them by typing remove packagename. Typing status or st will indicate what your current environment is comprised of. To update packages in need of updating (a '^' symbol will display next to their name), type update or up.
+The Julia manual goes more in-depth than lighter introductions to some of these topics, so might be more useful as a reference than a starting point. You might find other guides or courses, such as https://scls.gitbooks.io/ljthw/content/_chapters/07-ex4.html, or the first section in https://julia.quantecon.org/intro.html, chapters 0-4 and 7 of the [Learn Julia the Hard Way draft](https://scls.gitbooks.io/ljthw/content/) or the interactive [Mathigon course](https://mathigon.org/course/programming-in-julia/introduction).
 
-If you are editing/developing a package or using one locally, typing develop path/to/package source/ (or dev path/to/package/source) will cause your environment to use that version instead of the registered one.
+Also of importance:
 
-Typing instantiate will download all the packages declared in the manifest file (if it exists) of an environment.
+- [Keyword arguments](https://docs.julialang.org/en/v1/manual/functions/#Keyword-Arguments) (kwargs) are present in many API functions
+- [Type promotion](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion), [splatting](https://docs.julialang.org/en/v1/base/base/#...), [broadcasting](https://docs.julialang.org/en/v1/manual/functions/#man-vectorized), and [comprehensions](https://docs.julialang.org/en/v1/manual/arrays/#man-comprehensions) are also very useful (but not compulsory to get started)
 
-For instance, PlantSimEngine has a test folder used in development. If you wanted to run tests, you would type
-']'
-'activate ../path/to/PlantSimEngine/test'
-'instantiate'
-and then you would be ready to go.
+Many of these are also briefly presented in [this Julia Data Science](https://juliadatascience.io/julia_basics) guide, which also happens to focus on the DataFrames.jl package.
 
- 
+Understanding more about methods, parametric types and the typing system is usually worthwhile, when working with Julia packages.
 
-### Variables, functions and arrays -> See the palmstudio basic syntax page, or the diff eq notebook ?
+TODO point to Rémi's videos ? Other videos ?
+TODO extra concepts useful for developers ?
 
-### Really noteworthy differences : 
-- Array indexing starts at 1.
-
-### Typing
-
-### Custom types
-
-### Dictionaries
-
-PlantSimEngine makes use of dictionaries to declare and store data, indexed by scale/organ.
-For example : 
-
-### Functions 
-
-### Function arguments and kwargs
-
-### NamedTuples
-
-## "less essential"
-### Type promotion and splatting
