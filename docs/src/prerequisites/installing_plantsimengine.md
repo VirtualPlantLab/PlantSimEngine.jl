@@ -1,4 +1,4 @@
-## Installing and running PlantSimEngine
+# Installing and running PlantSimEngine
 
 ## Installing Julia
 

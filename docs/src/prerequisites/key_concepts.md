@@ -180,4 +180,4 @@ A simple state machine. See the [wikipedia page](https://en.wikipedia.org/wiki/F
 
 State machines can be useful to model organ state: some organs in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package modelling the oil palm using PlantSimEngine, have a `state` variable behaving like a state machine, indicating whether an organ is mature, pruned, flowering, etc.
 
-You can find a model affecting the `state` variable of some organs depending on their age and thermal time
+You can find a model affecting the `state` variable of some organs depending on their age and thermal time TODO

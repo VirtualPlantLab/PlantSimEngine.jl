@@ -66,8 +66,7 @@ A workaround for some of the situations where this occurs is described here : [H
 
 ## TODO Organs missing in the MTG but declared in the mapping ?
 
-## Status template intialisation order 
-TODO 
+## Status template intialisation order TODO 
 
 ## TODO simulation order, node order, etc.
 

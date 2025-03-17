@@ -1,5 +1,5 @@
-#using Pkg
-#Pkg.develop("PlantSimEngine")
+using Pkg
+Pkg.develop("PlantSimEngine")
 using PlantSimEngine
 using PlantMeteo
 using DataFrames, CSV
@@ -64,6 +64,7 @@ makedocs(;
                 "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
                 "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md", # TODO illustrate outputs filtering to find the bug
             ],
+            "Visualizing our toy plant with PlantGeom"=> "./multiscale/multiscale_example_4.md",
         ], "Troubleshooting and testing" => [
             "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
             "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
