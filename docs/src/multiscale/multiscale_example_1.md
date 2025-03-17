@@ -267,6 +267,7 @@ Import some weather data :
 
 ```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+nothing # hide
 ```
 
 And we're good to go ! 

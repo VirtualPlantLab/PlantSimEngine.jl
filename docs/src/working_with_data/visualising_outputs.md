@@ -84,7 +84,8 @@ Another simple way to get the results is to transform the outputs into a `DataFr
 
 ```@example usepkg
 using DataFrames
-PlantSimEngine.convert_outputs(sim_outputs, DataFrame)
+sim_outputs_df = PlantSimEngine.convert_outputs(sim_outputs, DataFrame)
+sim_outputs_df[1, 2, 3, 363, 364, 365]
 ```
 
 It is also possible to create DataFrames from specific variables:

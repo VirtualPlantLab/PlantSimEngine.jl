@@ -126,7 +126,7 @@ function PlantSimEngine.inputs_(::ToyTt_CuModel)
 end
 
 function PlantSimEngine.outputs_(::ToyTt_CuModel)
-    (TT_cu=-Inf,)
+    (TT_cu=0.0,)
 end
 ```
 
