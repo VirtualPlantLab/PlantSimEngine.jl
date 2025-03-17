@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Converting a simulation to multi-scale · PlantSimEngine.jl</title><meta name="title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta property="og:title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta property="twitter:title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Introduction</span><ul><li><a class="tocitem" href="../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../../introduction/why_julia/">Why Julia ?</a></li></ul></li><li><span class="tocitem">Prerequisites</span><ul><li><a class="tocitem" href="../../prerequisites/installing_plantsimengine/">Installing and running PlantSimEngine</a></li><li><a class="tocitem" href="../../prerequisites/key_concepts/">Key Concepts</a></li><li><a class="tocitem" href="../../prerequisites/julia_basics/">Julia language basics</a></li></ul></li><li><span class="tocitem">Step by step - Single-scale simulations</span><ul><li><a class="tocitem" href="../../step_by_step/detailed_first_example/">Detailed first simulation</a></li><li><a class="tocitem" href="../../step_by_step/simple_model_coupling/">Coupling</a></li><li><a class="tocitem" href="../../step_by_step/model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../step_by_step/quick_and_dirty_examples/">Quick examples</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_process/">Implementing a process</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model/">Implementing a model</a></li><li><a class="tocitem" href="../../step_by_step/parallelization/">Parallelization</a></li><li><a class="tocitem" href="../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model_additional/">Implementing a model : additional notes</a></li></ul></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><span class="tocitem">Working with data</span><ul><li><a class="tocitem" href="../../working_with_data/reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../working_with_data/fitting/">Fitting</a></li><li><a class="tocitem" href="../../working_with_data/inputs/">Input types</a></li><li><a class="tocitem" href="../../working_with_data/visualising_outputs/">Visualizing outputs and data</a></li><li><a class="tocitem" href="../../working_with_data/floating_point_accumulation_error/">Floating-point considerations</a></li></ul></li><li><span class="tocitem">Moving to multiscale</span><ul><li><a class="tocitem" href="../multiscale_considerations/">Multiscale considerations</a></li><li class="is-active"><a class="tocitem" href>Converting a simulation to multi-scale</a><ul class="internal"><li class="toplevel"><a class="tocitem" href="#Converting-the-ModelList-to-a-multi-scale-mapping"><span>Converting the ModelList to a multi-scale mapping</span></a></li><li><a class="tocitem" href="#Running-the-multi-scale-simulation-?"><span>Running the multi-scale simulation ?</span></a></li><li><a class="tocitem" href="#Adding-a-second-scale"><span>Adding a second scale</span></a></li><li><a class="tocitem" href="#ToyDegreeDaysCumulModel"><span>ToyDegreeDaysCumulModel</span></a></li></ul></li><li><a class="tocitem" href="../multiscale/">More variable mapping examples</a></li><li><a class="tocitem" href="../multiscale_cyclic/">Handling cyclic dependencies</a></li><li><a class="tocitem" href="../multiscale_coupling/">Multiscale coupling considerations</a></li><li><input class="collapse-toggle" id="menuitem-7-6" type="checkbox"/><label class="tocitem" for="menuitem-7-6"><span class="docs-label">Building a simple plant</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../multiscale_example_1/">A rudimentary plant simulation</a></li><li><a class="tocitem" href="../multiscale_example_2/">Expanding the plant simulation</a></li><li><a class="tocitem" href="../multiscale_example_3/">Fixing bugs in the plant simulation</a></li></ul></li></ul></li><li><span class="tocitem">Troubleshooting and testing</span><ul><li><a class="tocitem" href="../../troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/">Troubleshooting</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/downstream_tests/">Automated testing</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/tips_and_workarounds/">Tips and Workarounds</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/implicit_contracts/">Implicit contracts</a></li></ul></li><li><span class="tocitem">API</span><ul><li><a class="tocitem" href="../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../API/API_examples/">Example models</a></li><li><a class="tocitem" href="../../API/API_private/">Internal API</a></li></ul></li><li><a class="tocitem" href="../../credits/">Credits</a></li><li><a class="tocitem" href="../../documentation_improvement/">Improving our documentation</a></li><li><a class="tocitem" href="../../planned_features/">Planned features</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Moving to multiscale</a></li><li class="is-active"><a href>Converting a simulation to multi-scale</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Converting a simulation to multi-scale</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/multiscale/single_to_multiscale.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Converting-a-single-scale-simulation-to-multi-scale"><a class="docs-heading-anchor" href="#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a><a id="Converting-a-single-scale-simulation-to-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Converting-a-single-scale-simulation-to-multi-scale" title="Permalink"></a></h1><p>A single-scale simulation can be turned into a &#39;pseudo-multi-scale&#39; simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.</p><p>This page showcases how to do the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.</p><p>The full script for the example can be found in [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl]</p><ul><li><a href="#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a></li><li><a href="#Converting-the-ModelList-to-a-multi-scale-mapping">Converting the ModelList to a multi-scale mapping</a></li><li class="no-marker"><ul><li><a href="#Running-the-multi-scale-simulation-?">Running the multi-scale simulation ?</a></li><li><a href="#Adding-a-second-scale">Adding a second scale</a></li><li class="no-marker"><ul><li><a href="#TT_cu-model-implementation">TT_cu model implementation</a></li><li><a href="#Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping">Linking the new TT_cu model to a scale in the mapping</a></li><li><a href="#Mapping-between-scales-:-the-MultiScaleModel-wrapper">Mapping between scales : the MultiScaleModel wrapper</a></li><li><a href="#Running-the-multi-scale-simulation">Running the multi-scale simulation</a></li><li><a href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a></li></ul></li><li><a href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a></li></ul></li></ul><h1 id="Converting-the-ModelList-to-a-multi-scale-mapping"><a class="docs-heading-anchor" href="#Converting-the-ModelList-to-a-multi-scale-mapping">Converting the ModelList to a multi-scale mapping</a><a id="Converting-the-ModelList-to-a-multi-scale-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Converting-the-ModelList-to-a-multi-scale-mapping" title="Permalink"></a></h1><p>For example, let&#39;s return to the <code>ModelList</code> coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the <a href="../../step_by_step/model_switching/#Model-switching">Model switching</a> subsection: </p><pre><code class="language-julia hljs">using PlantMeteo
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Converting a simulation to multi-scale · PlantSimEngine.jl</title><meta name="title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta property="og:title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta property="twitter:title" content="Converting a simulation to multi-scale · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multiscale/single_to_multiscale/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Introduction</span><ul><li><a class="tocitem" href="../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../../introduction/why_julia/">Why Julia ?</a></li></ul></li><li><span class="tocitem">Prerequisites</span><ul><li><a class="tocitem" href="../../prerequisites/installing_plantsimengine/">Installing and running PlantSimEngine</a></li><li><a class="tocitem" href="../../prerequisites/key_concepts/">Key Concepts</a></li><li><a class="tocitem" href="../../prerequisites/julia_basics/">Julia language basics</a></li></ul></li><li><span class="tocitem">Step by step - Single-scale simulations</span><ul><li><a class="tocitem" href="../../step_by_step/detailed_first_example/">Detailed first simulation</a></li><li><a class="tocitem" href="../../step_by_step/simple_model_coupling/">Coupling</a></li><li><a class="tocitem" href="../../step_by_step/model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../step_by_step/quick_and_dirty_examples/">Quick examples</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_process/">Implementing a process</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model/">Implementing a model</a></li><li><a class="tocitem" href="../../step_by_step/parallelization/">Parallelization</a></li><li><a class="tocitem" href="../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model_additional/">Implementing a model : additional notes</a></li></ul></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><span class="tocitem">Working with data</span><ul><li><a class="tocitem" href="../../working_with_data/reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../working_with_data/fitting/">Fitting</a></li><li><a class="tocitem" href="../../working_with_data/inputs/">Input types</a></li><li><a class="tocitem" href="../../working_with_data/visualising_outputs/">Visualizing outputs and data</a></li><li><a class="tocitem" href="../../working_with_data/floating_point_accumulation_error/">Floating-point considerations</a></li></ul></li><li><span class="tocitem">Moving to multiscale</span><ul><li><a class="tocitem" href="../multiscale_considerations/">Multiscale considerations</a></li><li class="is-active"><a class="tocitem" href>Converting a simulation to multi-scale</a><ul class="internal"><li class="toplevel"><a class="tocitem" href="#Converting-the-ModelList-to-a-multi-scale-mapping"><span>Converting the ModelList to a multi-scale mapping</span></a></li><li><a class="tocitem" href="#Running-the-multi-scale-simulation-?"><span>Running the multi-scale simulation ?</span></a></li><li><a class="tocitem" href="#Adding-a-second-scale"><span>Adding a second scale</span></a></li><li><a class="tocitem" href="#ToyDegreeDaysCumulModel"><span>ToyDegreeDaysCumulModel</span></a></li></ul></li><li><a class="tocitem" href="../multiscale/">More variable mapping examples</a></li><li><a class="tocitem" href="../multiscale_cyclic/">Handling cyclic dependencies</a></li><li><a class="tocitem" href="../multiscale_coupling/">Multiscale coupling considerations</a></li><li><input class="collapse-toggle" id="menuitem-7-6" type="checkbox"/><label class="tocitem" for="menuitem-7-6"><span class="docs-label">Building a simple plant</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../multiscale_example_1/">A rudimentary plant simulation</a></li><li><a class="tocitem" href="../multiscale_example_2/">Expanding the plant simulation</a></li><li><a class="tocitem" href="../multiscale_example_3/">Fixing bugs in the plant simulation</a></li></ul></li><li><a class="tocitem" href="../multiscale_example_4/">Visualizing our toy plant with PlantGeom</a></li></ul></li><li><span class="tocitem">Troubleshooting and testing</span><ul><li><a class="tocitem" href="../../troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/">Troubleshooting</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/downstream_tests/">Automated testing</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/tips_and_workarounds/">Tips and Workarounds</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/implicit_contracts/">Implicit contracts</a></li></ul></li><li><span class="tocitem">API</span><ul><li><a class="tocitem" href="../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../API/API_examples/">Example models</a></li><li><a class="tocitem" href="../../API/API_private/">Internal API</a></li></ul></li><li><a class="tocitem" href="../../credits/">Credits</a></li><li><a class="tocitem" href="../../documentation_improvement/">Improving our documentation</a></li><li><a class="tocitem" href="../../planned_features/">Planned features</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Moving to multiscale</a></li><li class="is-active"><a href>Converting a simulation to multi-scale</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Converting a simulation to multi-scale</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/multiscale/single_to_multiscale.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Converting-a-single-scale-simulation-to-multi-scale"><a class="docs-heading-anchor" href="#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a><a id="Converting-a-single-scale-simulation-to-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Converting-a-single-scale-simulation-to-multi-scale" title="Permalink"></a></h1><p>A single-scale simulation can be turned into a &#39;pseudo-multi-scale&#39; simulation by providing a simple multi-scale tree graph, and declaring a mapping linking all models to a unique scale level.</p><p>This page showcases how to do the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.</p><p>The full script for the example can be found in [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl]</p><ul><li><a href="#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a></li><li><a href="#Converting-the-ModelList-to-a-multi-scale-mapping">Converting the ModelList to a multi-scale mapping</a></li><li class="no-marker"><ul><li><a href="#Running-the-multi-scale-simulation-?">Running the multi-scale simulation ?</a></li><li><a href="#Adding-a-second-scale">Adding a second scale</a></li><li class="no-marker"><ul><li><a href="#TT_cu-model-implementation">TT_cu model implementation</a></li><li><a href="#Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping">Linking the new TT_cu model to a scale in the mapping</a></li><li><a href="#Mapping-between-scales-:-the-MultiScaleModel-wrapper">Mapping between scales : the MultiScaleModel wrapper</a></li><li><a href="#Running-the-multi-scale-simulation">Running the multi-scale simulation</a></li><li><a href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a></li></ul></li><li><a href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a></li></ul></li></ul><h1 id="Converting-the-ModelList-to-a-multi-scale-mapping"><a class="docs-heading-anchor" href="#Converting-the-ModelList-to-a-multi-scale-mapping">Converting the ModelList to a multi-scale mapping</a><a id="Converting-the-ModelList-to-a-multi-scale-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Converting-the-ModelList-to-a-multi-scale-mapping" title="Permalink"></a></h1><p>For example, let&#39;s return to the <code>ModelList</code> coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the <a href="../../step_by_step/model_switching/#Model-switching">Model switching</a> subsection: </p><pre><code class="language-julia hljs">using PlantMeteo
 using PlantSimEngine
 using PlantSimEngine.Examples
 using CSV
@@ -62,7 +62,7 @@ function PlantSimEngine.inputs_(::ToyTt_CuModel)
 end
 
 function PlantSimEngine.outputs_(::ToyTt_CuModel)
-    (TT_cu=-Inf,)
+    (TT_cu=0.0,)
 end</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>The only accessible variables in the <code>run!</code> function via the status are the ones that are local to the &quot;Scene&quot; scale. This isn&#39;t explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a <code>MultiScaleModel</code>, or sometimes a more complex coupling is necessary.</p></div></div><h3 id="Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping"><a class="docs-heading-anchor" href="#Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping">Linking the new TT_cu model to a scale in the mapping</a><a id="Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Linking-the-new-TT_cu-model-to-a-scale-in-the-mapping" title="Permalink"></a></h3><p>We now have our model implementation. How does it fit into our mapping ?</p><p>Our new model doesn&#39;t really relate to a specific organ of our plant. In fact, this model doesn&#39;t represent a physiological process of the plant, but rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we&#39;ll call &quot;Scene&quot;. This makes sense.</p><p>Note that we now need to add a &quot;Scene&quot; node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it and &quot;Plant&quot; nodes will only call models at the &quot;Plant&quot; scale. See <a href="../../troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/#Empty-status-vectors-in-multi-scale-simulations">Empty status vectors in multi-scale simulations</a> for more details.</p><pre><code class="language-julia hljs">mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Scene&quot;, 0, 0),)
     plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Plant&quot;, 1, 1))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">+ 2: Plant
 </code></pre><h3 id="Mapping-between-scales-:-the-MultiScaleModel-wrapper"><a class="docs-heading-anchor" href="#Mapping-between-scales-:-the-MultiScaleModel-wrapper">Mapping between scales : the MultiScaleModel wrapper</a><a id="Mapping-between-scales-:-the-MultiScaleModel-wrapper-1"></a><a class="docs-heading-anchor-permalink" href="#Mapping-between-scales-:-the-MultiScaleModel-wrapper" title="Permalink"></a></h3><p>The cumulated thermal time (<code>:TT_cu</code>) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the &quot;Scene&quot; scale level. </p><p>This is done by wrapping our <code>ToyLAIModel</code> in a dedicated structure called a <code>MultiScaleModel</code>. A <code>MultiScaleModel</code> requires two keyword arguments : <code>model</code>, indicating the model for which some variables are mapped, and <code>mapped_variables</code>, indicating which scale link to which variables, and potentially renaming them.</p><p>There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the &quot;Scene&quot; to the &quot;Plant&quot; scale.</p><p>This gives us the following declaration with the <code>MultiScaleModel</code> wrapper for our LAI model: </p><pre><code class="language-julia hljs">MultiScaleModel(
@@ -85,30 +85,30 @@ end</code></pre><div class="admonition is-info"><header class="admonition-header
 )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Any} with 2 entries:
   &quot;Scene&quot; =&gt; ToyTt_CuModel()
   &quot;Plant&quot; =&gt; (MultiScaleModel{ToyLAIModel, Vector{Pair{Union{Symbol, PreviousTi…</code></pre><h3 id="Running-the-multi-scale-simulation"><a class="docs-heading-anchor" href="#Running-the-multi-scale-simulation">Running the multi-scale simulation</a><a id="Running-the-multi-scale-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-multi-scale-simulation" title="Permalink"></a></h3><p>We can then run the multiscale simulation, with our two-node MTG :</p><pre><code class="language-julia hljs">outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Dict{Symbol, Vector}} with 2 entries:
-  &quot;Scene&quot; =&gt; Dict(:TT_cu=&gt;[[-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-In…
-  &quot;Plant&quot; =&gt; Dict(:TT_cu=&gt;[[-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-In…</code></pre><h3 id="Comparing-outputs-between-single-and-multi-scale"><a class="docs-heading-anchor" href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a><a id="Comparing-outputs-between-single-and-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Comparing-outputs-between-single-and-multi-scale" title="Permalink"></a></h3><p>The outputs structures are slightly different : multi-scale outputs are indexed by scale, and a variable has a value for every node of the scale it operates at (for instance, there would be a &quot;leaf_surface&quot; value for every leaf in a plant), stored in an array.</p><p>In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.</p><p>We can access the output variables at the &quot;Scene&quot; scale by indexing our outputs:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{Symbol, Vector} with 2 entries:
-  :TT_cu =&gt; [[-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-Inf], [-…
+  &quot;Scene&quot; =&gt; Dict(:TT_cu=&gt;[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…
+  &quot;Plant&quot; =&gt; Dict(:TT_cu=&gt;[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…</code></pre><h3 id="Comparing-outputs-between-single-and-multi-scale"><a class="docs-heading-anchor" href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a><a id="Comparing-outputs-between-single-and-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Comparing-outputs-between-single-and-multi-scale" title="Permalink"></a></h3><p>The outputs structures are slightly different : multi-scale outputs are indexed by scale, and a variable has a value for every node of the scale it operates at (for instance, there would be a &quot;leaf_surface&quot; value for every leaf in a plant), stored in an array.</p><p>In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.</p><p>We can access the output variables at the &quot;Scene&quot; scale by indexing our outputs:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{Symbol, Vector} with 2 entries:
+  :TT_cu =&gt; [[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…
   :node  =&gt; Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[/ 1: Scene…</code></pre><p>and then the computed <code>:TT_cu</code>:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;][:TT_cu]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Vector{Float64}}:
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
+ [0.0]
  ⋮
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]
- [-Inf]</code></pre><p>As you can see, it is a <code>Vector{Vector{T}}</code>, whereas our single-scale output is a <code>Vector{T}</code>:</p><pre><code class="language-julia hljs">outputs_singlescale.TT_cu</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
+ [2177.904166666665]
+ [2178.4249999999984]
+ [2179.729166666665]
+ [2180.4749999999985]
+ [2181.1458333333317]
+ [2183.941666666665]
+ [2189.2666666666646]
+ [2192.895833333331]
+ [2193.8166666666643]</code></pre><p>As you can see, it is a <code>Vector{Vector{T}}</code>, whereas our single-scale output is a <code>Vector{T}</code>:</p><pre><code class="language-julia hljs">outputs_singlescale.TT_cu</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
     0.0
     0.0
     0.0
@@ -134,368 +134,4 @@ for i in 1:length(computed_TT_cu_multiscale)
     if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
         println(i)
     end
-end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
-24
-25
-26
-27
-28
-29
-30
-31
-32
-33
-34
-35
-36
-37
-38
-39
-40
-41
-42
-43
-44
-45
-46
-47
-48
-49
-50
-51
-52
-53
-54
-55
-56
-57
-58
-59
-60
-61
-62
-63
-64
-65
-66
-67
-68
-69
-70
-71
-72
-73
-74
-75
-76
-77
-78
-79
-80
-81
-82
-83
-84
-85
-86
-87
-88
-89
-90
-91
-92
-93
-94
-95
-96
-97
-98
-99
-100
-101
-102
-103
-104
-105
-106
-107
-108
-109
-110
-111
-112
-113
-114
-115
-116
-117
-118
-119
-120
-121
-122
-123
-124
-125
-126
-127
-128
-129
-130
-131
-132
-133
-134
-135
-136
-137
-138
-139
-140
-141
-142
-143
-144
-145
-146
-147
-148
-149
-150
-151
-152
-153
-154
-155
-156
-157
-158
-159
-160
-161
-162
-163
-164
-165
-166
-167
-168
-169
-170
-171
-172
-173
-174
-175
-176
-177
-178
-179
-180
-181
-182
-183
-184
-185
-186
-187
-188
-189
-190
-191
-192
-193
-194
-195
-196
-197
-198
-199
-200
-201
-202
-203
-204
-205
-206
-207
-208
-209
-210
-211
-212
-213
-214
-215
-216
-217
-218
-219
-220
-221
-222
-223
-224
-225
-226
-227
-228
-229
-230
-231
-232
-233
-234
-235
-236
-237
-238
-239
-240
-241
-242
-243
-244
-245
-246
-247
-248
-249
-250
-251
-252
-253
-254
-255
-256
-257
-258
-259
-260
-261
-262
-263
-264
-265
-266
-267
-268
-269
-270
-271
-272
-273
-274
-275
-276
-277
-278
-279
-280
-281
-282
-283
-284
-285
-286
-287
-288
-289
-290
-291
-292
-293
-294
-295
-296
-297
-298
-299
-300
-301
-302
-303
-304
-305
-306
-307
-308
-309
-310
-311
-312
-313
-314
-315
-316
-317
-318
-319
-320
-321
-322
-323
-324
-325
-326
-327
-328
-329
-330
-331
-332
-333
-334
-335
-336
-337
-338
-339
-340
-341
-342
-343
-344
-345
-346
-347
-348
-349
-350
-351
-352
-353
-354
-355
-356
-357
-358
-359
-360
-361
-362
-363
-364
-365</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <code>ToyDegreeDaysCumulModel</code>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.8.1 on <span class="colophon-date" title="Wednesday 12 March 2025 10:08">Wednesday 12 March 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <code>ToyDegreeDaysCumulModel</code>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.9.0 on <span class="colophon-date" title="Monday 17 March 2025 13:37">Monday 17 March 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
