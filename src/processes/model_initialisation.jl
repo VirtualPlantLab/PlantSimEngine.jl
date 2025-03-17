@@ -104,14 +104,11 @@ function to_initialize(m::DependencyGraph)
     return needed_variables_process
 end
 
-"""
-    to_initialize(m::AbstractDependencyNode)
 
-Return the variables that must be initialized providing a set of models and processes. The
-function just returns the inputs and outputs of each model, with their default values.
-To take into account model coupling, use the function at an upper-level instead, *i.e.* 
-`to_initialize(m::ModelList)` or `to_initialize(m::DependencyGraph)`.
-"""
+#Return the variables that must be initialized providing a set of models and processes. The
+#function just returns the inputs and outputs of each model, with their default values.
+#To take into account model coupling, use the function at an upper-level instead, *i.e.* 
+# `to_initialize(m::ModelList)` or `to_initialize(m::DependencyGraph)`.
 function to_initialize(m::AbstractDependencyNode)
     return (inputs=inputs_(m.value), outputs=outputs_(m.value))
 end
