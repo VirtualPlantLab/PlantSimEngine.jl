@@ -5,7 +5,7 @@ Pages = ["installing_plantsimengine.md"]
 Depth = 3
 ```
 
-This page is meant to help along people newer to Julia. If you are quite accustomed to Julia, installing PlantSimEngine should be par for the course, and you can [move on to the next section](#step_by_step), or read about PlantSimEngine's [Key concepts](@ref).
+This page is meant to help along people newer to Julia. If you are quite accustomed to Julia, installing PlantSimEngine should be par for the course, and you can [move on to the next section](#step_by_step), or read about PlantSimEngine's [Key Concepts](@ref).
 
 ## Installing Julia
 
@@ -74,5 +74,5 @@ out_sim = run!(leaf, meteo)
 
 ## Environements in VSCode
 
-There is detailed documentation explaining how to make use of Julia with VSCode with one section indicating how to handle environments in VSCode: [https://www.julia-vscode.org/docs/stable/userguide/env/](@ref)
+There is detailed documentation explaining how to make use of Julia with VSCode with one section indicating how to handle environments in VSCode: [https://www.julia-vscode.org/docs/stable/userguide/env/](https://www.julia-vscode.org/docs/stable/userguide/env/)
  
