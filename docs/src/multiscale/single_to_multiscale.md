@@ -22,7 +22,7 @@ A single-scale simulation can be turned into a 'pseudo-multi-scale' simulation b
 
 This page showcases how to do the conversion, and then adds a model at a new scale to make the simulation genuinely multi-scale.
 
-The full script for the example can be found in [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl]
+The full script for the example can be found in the examples folder, [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToySingleToMultiScale.jl)
 
 ```@contents
 Pages = ["single_to_multiscale.md"]
@@ -156,7 +156,7 @@ This is done by wrapping our ToyLAIModel in a dedicated structure called a [`Mul
 
 There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the "Scene" to the "Plant" scale.
 
-This gives us the following declaration with the [`MultiScaleModel` wrapper for our LAI model: 
+This gives us the following declaration with the [`MultiScaleModel`](@ref) wrapper for our LAI model: 
 
 ```@example usepkg
 MultiScaleModel(
@@ -166,7 +166,7 @@ MultiScaleModel(
             ],
         )
 ```
-and the new mapping with two scales :
+and the new mapping with two scales:
 
 ```@example usepkg
 mapping_multiscale = Dict(

@@ -123,9 +123,9 @@ But how does a model M calling a hard dependency H provide H's variables when ca
 PlantSimEngine provides what are called Status Templates in the simulation graph. Each organ level has its own Status template listing the available variables at that scale.
 So when a model M calls a hard dependency H's [`run!`](@ref) function, any required variables can be accessed through the status template of H's organ level.
 
-### XPalm.jl example to illustrate
+### Back to the XPalm example
 
-Using the same example in XPalm : 
+Using the same example in XPalm, the oil palm FSPM: 
 
 ```julia
 # Note that the function's 'status' parameter does NOT contain the variables required by the hard dependencies as the calling model's organ level is "Phytomer", not "Male" or "Female"

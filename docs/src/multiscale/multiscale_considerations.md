@@ -34,10 +34,10 @@ Functional-Structural Plant Models are often about simulating plant growth. A mu
 
 A multi-scale tree graph (MTG) object (see the [Multi-scale Tree Graphs](@ref) subsection for a quick description) is therefore required to run a multi-scale simulations. It can be a dummy MTG if the simulation doesn't actually affect it, but is nevertheless a required argument to the multi-scale [`run!`](@ref) function.
 
-All the multi-scale examples make use of the companion package [MultiScaleTreeGraph.jl](https://github.com/VEZY/MultiScaleTreeGraph.jl), which we therefore recommend for running your own multi-scale simulations.
+All the multi-scale examples make use of the companion package [MultiScaleTreeGraph.jl](https://github.com/VEZY/MultiScaleTreeGraph.jl), which we therefore recommend for running your own multi-scale simulations. Visualizing a Multi-scale Tree Graph can be done using [PlantGeom](https://github.com/VEZY/PlantGeom.jl).
 
 !!! note 
-    Multi-scale Tree Graphs make use of conflicting terminology with PlantSimEngine's concepts, which is discussed in [Scale/symbol terminology ambiguity](@ref). If you are new to the concepts, make sure to read that section and keep note of it.
+    Multi-scale Tree Graphs make use of conflicting terminology with PlantSimEngine's concepts, which is discussed in [Scale/symbol terminology ambiguity](@ref). If you are new to those concepts, make sure to read that section and keep note of it.
 
 ## Models run once per organ instance, not once per organ level
 

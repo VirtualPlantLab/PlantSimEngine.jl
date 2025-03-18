@@ -14,7 +14,8 @@ It is not meant as a full-fledged from-scratch Julia tutorial. If you are comple
 
 ## Installing packages and setting up and environment
 
-For PlantSimEngine, you can check our documentation page on the topic: [Installing and running PlantSimEngine](@ref)
+For PlantSimEngine, you can check our documentation page on the topic: 
+[Installing and running PlantSimEngine](@ref)
 
 ## Cheatsheets
 
@@ -42,12 +43,12 @@ Standard notions and constructs:
 - The typing system and custom types
 - Dictionaries and NamedTuple objects are used throughout the codebase
 
-The Julia manual goes more in-depth than lighter introductions to some of these topics, so might be more useful as a reference than a starting point. You might find other guides or courses, such as https://scls.gitbooks.io/ljthw/content/_chapters/07-ex4.html, or the first section in https://julia.quantecon.org/intro.html, chapters 0-4 and 7 of the [Learn Julia the Hard Way draft](https://scls.gitbooks.io/ljthw/content/) or the interactive [Mathigon course](https://mathigon.org/course/programming-in-julia/introduction).
+The Julia manual goes more in-depth than lighter introductions to some of these topics, so might be more useful as a reference than a starting point. You might find other guides or courses, such as the first section in [https://julia.quantecon.org/intro.html](https://julia.quantecon.org/intro.html), chapters 0-4 and 7 of the [Learn Julia the Hard Way](https://scls.gitbooks.io/ljthw/content/) draft or the interactive [Mathigon course](https://mathigon.org/course/programming-in-julia/introduction).
 
 Also of importance:
 
 - [Keyword arguments](https://docs.julialang.org/en/v1/manual/functions/#Keyword-Arguments) (kwargs) are present in many API functions
-- [Type promotion](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion), [splatting](https://docs.julialang.org/en/v1/base/base/#...), [broadcasting](https://docs.julialang.org/en/v1/manual/functions/#man-vectorized), and [comprehensions](https://docs.julialang.org/en/v1/manual/arrays/#man-comprehensions) are also very useful (but not compulsory to get started)
+- [Type promotion](https://docs.julialang.org/en/v1/manual/conversion-and-promotion/#Promotion), [splatting](https://docs.julialang.org/en/v1/base/base/#...), [broadcasting](https://docs.julialang.org/en/v1/manual/functions/#man-vectorized), and [comprehensions](https://docs.julialang.org/en/v1/manual/arrays/#man-comprehensions) are also very useful, but not compulsory to get started
 
 Many of these are also briefly presented in [this Julia Data Science](https://juliadatascience.io/julia_basics) guide, which also happens to focus on the DataFrames.jl package.
 

@@ -72,7 +72,7 @@ leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
 out_sim = run!(leaf, meteo)
 ```
 
-## Environements in VSCode
+## Environments in VSCode
 
 There is detailed documentation explaining how to make use of Julia with VSCode with one section indicating how to handle environments in VSCode: [https://www.julia-vscode.org/docs/stable/userguide/env/](https://www.julia-vscode.org/docs/stable/userguide/env/)
  

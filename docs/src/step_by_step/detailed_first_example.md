@@ -44,15 +44,15 @@ Models can use several types of entries:
 - Constants
 - Extras
 
-Parameters are constant values that are used by the model to compute its outputs, and are exclusive to that model. 
+**Parameters** are constant values that are used by the model to compute its outputs, and are exclusive to that model. 
 
-Meteorological information contains values that are provided by the user and are used as inputs to the model. It is defined for one time-step, and `PlantSimEngine.jl` takes care of applying the model to each time-steps given by the user. 
+**Meteorological information** contains values that are provided by the user and are used as inputs to the model. It is defined for one time-step, and `PlantSimEngine.jl` takes care of applying the model to each time-steps given by the user. 
 
-Variables are either used or computed by the model and can optionally be initialized before the simulation. They can be part of multiple models, computed by one and then used as an input by another. They can also be a global simulation output, or be provided at the start of a simulation by the user. 
+**Variables** are either used or computed by the model and can optionally be initialized before the simulation. They can be part of multiple models, computed by one and then used as an input by another. They can also be a global simulation output, or be provided at the start of a simulation by the user. 
 
-Constants are constant values, usually common between models, *e.g.* the universal gas constant. 
+**Constants** are constant values, usually common between models, *e.g.* the universal gas constant. 
 
-And extras are just extra values that can be used by a model.
+And **extras** are just extra values that can be used by a model, or serves as a placeholder for internal data.
 
 Users declare a set of models used for simulation, as well as the necessary parameters for each model, and whatever variables need to be initialized. This is done using a [`ModelList`](@ref) structure. 
 
@@ -64,7 +64,7 @@ Importing the package:
 using PlantSimEngine
 ```
 
-Import the examples defined in the `Examples` sub-module (`light_interception` and `Beer`):
+Import the examples defined in the [`Examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples) sub-module (`light_interception` and `Beer`):
 
 ```julia
 using PlantSimEngine.Examples
@@ -172,7 +172,7 @@ More details are available from the [package documentation](https://vezy.github.
 
 ### Simulation of processes
 
-To run a simulation, you can call the [`run!`](@ref) method on the `ModelList`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
+To run a simulation, you can call the [`run!`](@ref) method on the [`ModelList`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
 
 Your call to the function would then look like this:
 
@@ -205,7 +205,7 @@ outputs_example[:aPPFD]
 
 ### Outputs
 
-The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
+The [`status`](@ref) field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
 
 The actual full output data is returned by the [`run!`](@ref) function. Data is usually stored in a [`TimeStepTable`](@ref) structure from `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a [`TimeStepTable`](@ref) but with each time step being an `Atmosphere`.
 

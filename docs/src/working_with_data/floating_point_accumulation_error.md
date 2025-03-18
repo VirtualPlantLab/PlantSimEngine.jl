@@ -19,7 +19,7 @@ out_singlescale = run!(models, meteo_day)
 
 In the [Converting a single-scale simulation to multi-scale](@ref) page, a single-scale simulation was converted to an equivalent multiscale simulation, and outputs were compared. One detail that was glossed over, but important to bear in mind as a PlantSimEngine user is related to floating-point approximations.
 
-### Single-scale simulation: 
+### Single-scale simulation
 
 ```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -34,7 +34,7 @@ models_singlescale = ModelList(
 outputs_singlescale = run!(models_singlescale, meteo_day)
 ```
 
-### Multi-scale equivalent: 
+### Multi-scale equivalent 
 
 ```@example usepkg
 PlantSimEngine.@process "tt_cu" verbose = false
@@ -74,7 +74,7 @@ mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plan
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
-### Output comparison:
+### Output comparison
 
 ```@setup usepkg
 mapping_multiscale = Dict(
@@ -138,7 +138,6 @@ The reason values aren't identical, is due to the fact that many numbers do not 
 ```@example usepkg
 println(0.1 + 0.2 - 0.3)
 ```
-5.551115123125783e-17
 
 When summing many numbers, depnding on the order in which they are summed, floating-point approximation errors may aggregate more or less quickly. 
 
@@ -153,12 +152,12 @@ Depending on what value is being computed and the mathematical operations used, 
 
 Note that many of the examples in these blogposts discuss Float32 accuracy. Float64 values have several extra precision bits to work.
 
-A series of blog posts on floating-point accuracy : https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
-Floating-Point Visually Explained : https://fabiensanglard.net/floating_point_visually_explained/
-Examples of floating point problems: https://jvns.ca/blog/2023/01/13/examples-of-floating-point-problems/
+A series of blog posts on floating-point accuracy: [https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/](https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/)
+Floating-Point Visually Explained : [https://fabiensanglard.net/floating_point_visually_explained/](https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/)
+Examples of floating point problems: [https://jvns.ca/blog/2023/01/13/examples-of-floating-point-problems/](https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/)
 
 Relating specifically to floating-point sums:
 
-Pairwise summation: https://en.wikipedia.org/wiki/Pairwise_summation
-Kahan summation: https://en.wikipedia.org/wiki/Kahan_summation_algorithm
-Taming Floating-Point Sums : https://orlp.net/blog/taming-float-sums/
+Pairwise summation: [https://en.wikipedia.org/wiki/Pairwise_summation](https://en.wikipedia.org/wiki/Pairwise_summation)
+Kahan summation: [https://en.wikipedia.org/wiki/Kahan_summation_algorithm](https://en.wikipedia.org/wiki/Kahan_summation_algorithm)
+Taming Floating-Point Sums: [https://orlp.net/blog/taming-float-sums/](https://orlp.net/blog/taming-float-sums/)

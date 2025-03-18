@@ -66,6 +66,7 @@ You can find a typical example in a companion package: [PlantBioPhysics.jl](http
 See the illustration below of the way these models are interdependent:
 
 ![Example of a coupling with cycles](../www/ecophysio_coupling_diagram.png)
+
 Example of a coupling with a cycle. Source: TODO
 
 Model couplings that cause simulation to flow both ways break the 'acyclic' assumption of the dependency graph.
@@ -73,7 +74,7 @@ Model couplings that cause simulation to flow both ways break the 'acyclic' assu
 PlantSimEngine handles this internally by not having those "heavily-coupled" models -called "hard dependencies" from now on- be part of the main dependency graph. Instead, they are made to be children nodes of the parent/ancestor model, which handles them internally, so they aren't tied to other nodes of the dependency graph. The resulting higher-level graph therefore only links models without any two-way interdependencies, and remains a directed graph, enabling a cohesive simulation order. The simpler couplings in that top-level graph are called "soft dependencies".
 
 ![Hard dependency coupling visualization in PlantSimEngine](../www/PBP_dependency_graph.png)
-The above coupling, handled by PlantSimEngine
+The previous coupling, handled by PlantSimEngine
 
 How PlantSimEngine links these models under the hood. The red models ("hard dependencies") are not exposed in the final dependency graph, which only contains the blue "soft dependencies", and has no cycles.
 
@@ -132,14 +133,14 @@ This is why multi-scale simulations make use of a 'mapping' : the ModelList in t
 
 You can read more about some practical differences as a user between single- and multi-scale simulations here: [Multi-scale considerations](@ref).
 
-!!! Note
+!!! note
     When you encounter the terms "Single-scale simulations", or "ModelList simulations", they will refer to simulations that are "not multi-scale". A multi-scale simulation makes use of a mapping between different organ/scale levels. A single-scale simulation has no such mapping, and uses the simpler ModelList interface. 
-
     You can implement a mapping that only makes use of a single scale level, of course, making it a "single-scale multi-scale simulation", but **unless otherwise specified, single-scale, and the whole section dedicated to single-scale simulations, refer to simulations with ModelList objects, and no mapping**.
 
 ### Multi-scale Tree Graphs
 
 ![Grassy plant and equivalent MTG](../www/Grassy_plant_MTG_vertical.svg)
+
 A Grassy plant and its equivalent MTG
 
 Multi-scale Tree Graphs (MTG) are a data structure used to represent plants. A more detailed introduction to the format and its attributes can be found [in the MultiScaleTreeGraph.jl package documentation](https://vezy.github.io/MultiScaleTreeGraph.jl/stable/the_mtg/mtg_concept/).
@@ -180,4 +181,4 @@ A simple state machine. See the [wikipedia page](https://en.wikipedia.org/wiki/F
 
 State machines can be useful to model organ state: some organs in [XPalm.jl](https://github.com/PalmStudio/XPalm.jl), a package modelling the oil palm using PlantSimEngine, have a `state` variable behaving like a state machine, indicating whether an organ is mature, pruned, flowering, etc.
 
-You can find an example model (amongst other such models) affecting the `state` variable of some organs depending on their age and thermal time in the XPalm oil palm FSPM [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/phytomer/state.jl)
+You can find an example model (amongst other such models) affecting the `state` variable of some organs depending on their age and thermal time in the XPalm oil palm FSPM [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/phytomer/state.jl).

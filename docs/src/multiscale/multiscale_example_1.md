@@ -39,21 +39,21 @@ Let's have some concept of 'leaves' that capture the (carbon) resource necessary
 
 We'll make the assumption that the internodes make use of carbon from a common pool. We'll also make use of thermal time as a growth delay factor.
 
-To sum up : 
-- MTG with growing internodes and leaves
-- Individual leaves capture carbon fed into a common pool
-- Internodes take from that pool to create new organs, with a thermal time constraint.
+To sum up, we have: 
+- a MTG with growing internodes and leaves
+- Individual leaves that capture carbon fed into a common pool
+- Internodes which take from that pool to create new organs, with a thermal time constraint.
 
-One way of modeling this approach translates into several scales and models : 
+One way of modeling this approach translates into several scales and models: 
 
-- Scene scale, for thermal time. The [`ToyDegreeDaysCumulModel`](@ref) from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl) provides thermal time from temperature data 
-- Plant scale, where we'll define the carbon pool
-- Internode scale, which draws from the pool to create new organs
-- Leaf scale, which captures carbon
+- a Scene scale, for thermal time. The [`ToyDegreeDaysCumulModel`](@ref) from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl) provides thermal time from temperature data 
+- a Plant scale, where we'll define the carbon pool
+- an Internode scale, which draws from the pool to create new organs
+- a Leaf scale, which captures carbon
 
-Let's also add a very artificial limiting factor : if the total leaf surface area is above a threshold no new organs are created.
+Let's also add a very artificial limiting factor: if the total leaf surface area is above a threshold no new organs are created.
 
-We can expect the simulation mapping to look like a more complex version of the following : 
+We can expect the simulation mapping to look like a more complex version of the following: 
 
 ```julia
 mapping = Dict(

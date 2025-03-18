@@ -71,15 +71,15 @@ throw(UnexpectedSuccess()) #hide
 catch err; err isa UnexpectedSuccess ? rethrow(err) : showerror(stderr, err); end  #hide
 ```
 
-Oops, we get an error related to the weather data : 
+Oops, we get an error related to the weather data, with the detailed output being: 
 
 ```julia
 ERROR: type NamedTuple has no field Ri_PAR_f
 Stacktrace:
   [1] getindex(mnt::Atmosphere{(), Tuple{}}, i::Symbol)
-    @ PlantMeteo ~/Documents/CIRAD/dev/PlantMeteo/src/structs/atmosphere.jl:147
+    @ PlantMeteo ~/Path/to/PlantMeteo/src/structs/atmosphere.jl:147
   [2] getcolumn(row::PlantMeteo.TimeStepRow{Atmosphere{(), Tuple{}}}, nm::Symbol)
-    @ PlantMeteo ~/Documents/CIRAD/dev/PlantMeteo/src/structs/TimeStepTable.jl:205
+    @ PlantMeteo ~/Path/to/PlantMeteo/src/structs/TimeStepTable.jl:205
     ...
 ```
 
