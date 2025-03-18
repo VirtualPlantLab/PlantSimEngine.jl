@@ -19,6 +19,10 @@ Pages = ["detailed_first_example.md"]
 Depth = 3
 ```
 
+## Setting up your environment
+
+For every script in this documentation, you will always need a working Julia environment with PlantSimengine added to it, and usually several other companion packages. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
+
 ## Definitions
 
 ### Processes

@@ -14,6 +14,11 @@ Pages = ["quick_and_dirty_examples.md"]
 Depth = 2
 ```
 
+## Environment
+
+These examples assume you have a working Julia environment with PlantSimengine added to it, as well as the other packages used in these examples. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
+
+
 ## Example with a single light interception model and a single weather timestep
 
 ```@example usepkg

@@ -29,7 +29,7 @@ The package was designed around this idea to make easy changes easy and efficien
 
 ## A first simulation as a starting point
 
-Let's create a [`ModelList`](@ref) with several models from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder:
+With a working environment, let's create a [`ModelList`](@ref) with several models from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder:
 
 Importing the models from the scripts:
 

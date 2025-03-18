@@ -14,6 +14,11 @@ models = ModelList(
 )
 nothing
 ```
+
+## Setting up your environment
+
+Again, make sure you have a working Julia environment with PlantSimengine added to it, and the other recommended companion packages. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
+
 ## ModelList
 
 The [`ModelList`](@ref) is a container that holds a list of models, their parameter values, and the status of the variables associated to them.

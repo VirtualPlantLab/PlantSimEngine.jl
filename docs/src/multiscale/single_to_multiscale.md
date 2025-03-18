@@ -67,6 +67,8 @@ mapping = Dict(
 ```
 Note the slight difference in syntax for the [`Status`](@ref). This is due to an implementation quirk (sorry).
 
+## Adding a new package for our plant graph
+
 None of these models operate on a multi-scale tree graph, either. There is no concept of organ creation or growth. We still need to provide a multi-scale tree graph to a multi-scale simulation, so we can -for now- declare a very simple MTG, with a single node:
 
 ```@example usepkg
@@ -76,7 +78,7 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 ```
 
 !!! note
-    You will need to add the `MultiScaleTreeGraph` package to your environment. See [Installing and running PlantSimEngine](@ref) if you are not yet comfortable with Julia.
+    You will need to add the `MultiScaleTreeGraph` package to your environment. See [Installing and running PlantSimEngine](@ref) if you are not yet comfortable with Julia or need a refresher.
 
 ## Running the multi-scale simulation ?
 
