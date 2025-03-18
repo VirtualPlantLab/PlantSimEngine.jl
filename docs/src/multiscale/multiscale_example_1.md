@@ -46,7 +46,7 @@ To sum up :
 
 One way of modeling this approach translates into several scales and models : 
 
-- Scene scale, for thermal time. The `ToyDegreeDaysCumulModel()` [from the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl) provides thermal time from temperature data 
+- Scene scale, for thermal time. The [`ToyDegreeDaysCumulModel`](@ref) from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl) provides thermal time from temperature data 
 - Plant scale, where we'll define the carbon pool
 - Internode scale, which draws from the pool to create new organs
 - Leaf scale, which captures carbon
@@ -112,7 +112,7 @@ end
 
 ### Organ creation
 
-This model is a modified version of the `ToyInternodeEmergence()` model found [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyInternodeEmergence.jl). An internode produces two leaves and a new internode.
+This model is a modified version of the ToyInternodeEmergence model found [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyInternodeEmergence.jl). An internode produces two leaves and a new internode.
 
 Let's first define a helper function that iterates across a Multiscale Tree Graph and returns the number of leaves :
 
@@ -158,7 +158,7 @@ Our internode model requires thermal time, and the amount of available carbon, a
 PlantSimEngine.inputs_(m::ToyCustomInternodeEmergence) = (TT_cu=0.0, carbon_stock=0.0)
 PlantSimEngine.outputs_(m::ToyCustomInternodeEmergence) = (TT_cu_emergence=0.0, carbon_organ_creation_consumed=0.0)
 ```
-Finally, the `run!` function checks that conditions are met for new organ creation :
+Finally, the [`run!`](@ref) function checks that conditions are met for new organ creation :
 - thermal time threshold exceeded
 - total leaf surface area not above limit
 - carbon available
@@ -244,7 +244,7 @@ mapping = Dict(
 ```
 
 !!! note
-    This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function `to_initialize`(@ref) and check the PlantSimEngine user errors.
+    This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function [`to_initialize`](@ref) and check the PlantSimEngine user errors.
 
 ### Running a simulation 
 

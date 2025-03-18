@@ -16,7 +16,7 @@ That means that you can provide any compatible executor to the `executor` argume
 !!! note
     A model is executable in parallel over time-steps if it does not uses or set values from other time-steps, and over objects if it does not uses or set values from other objects.
 
-You can define a model as executable in parallel by defining the traits for time-steps and objects. For example, the `ToyLAIModel` model from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples) can be run in parallel over time-steps and objects, so it defines the following traits:
+You can define a model as executable in parallel by defining the traits for time-steps and objects. For example, the ToyLAIModel model from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples) can be run in parallel over time-steps and objects, so it defines the following traits:
 
 ```julia
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsTimeStepIndependent()

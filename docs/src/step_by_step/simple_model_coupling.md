@@ -16,13 +16,13 @@ nothing
 ```
 ## ModelList
 
-The `ModelList` is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
+The [`ModelList`](@ref) is a container that holds a list of models, their parameter values, and the status of the variables associated to them.
 
-If one looks at prior examples, the Modellists so far have only contained a single model, whose input variables are initialised in the Modellist `status` keyword argument. 
+If one looks at prior examples, the Modellists so far have only contained a single model, whose input variables are initialised in the Modellist [`status`](@ref) keyword argument. 
 
 Example models are all taken from the example scripts in the [`examples`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/) folder.
 
-Here's a first `ModelList` declaration with a light interception model, requiring input Leaf Area Index (LAI): 
+Here's a first [`ModelList`](@ref) declaration with a light interception model, requiring input Leaf Area Index (LAI): 
 
 ```julia
 modellist_coupling_part_1 = ModelList(Beer(0.5), status = (LAI = 2.0,))
@@ -39,9 +39,9 @@ modellist_coupling_part_2 = ModelList(
 
 ## Combining models
 
-Suppose we want our `ToyLAIModel()` to compute the `LAI` for the light interception model. 
+Suppose we want our ToyLAIModel to compute the `LAI` for the light interception model. 
 
-We can couple the two models by having them be part of a single `ModelList`. The `LAI` variable will then be a coupled output computed by the `ToyLAIModel`, then used as input by `Beer`. It will no longer need to be declared as part of the `status`.
+We can couple the two models by having them be part of a single [`ModelList`](@ref). The `LAI` variable will then be a coupled output  computed by the ToyLAIModel, then used as input by `Beer`. It will no longer need to be declared as part of the [`status` .
 
 This is an instance of what we call a ["soft dependency" coupling](@ref hard_dependency_def): a model depends on another model's outputs for its inputs.
 
@@ -78,7 +78,7 @@ Stacktrace:
     ...
 ```
 
-The `Beer()` model requires a specific meteorological parameter. Let's fix that by importing the example weather data :
+The `Beer` model requires a specific meteorological parameter. Let's fix that by importing the example weather data :
 
 ```@example usepkg
 using PlantSimEngine
@@ -104,11 +104,11 @@ outputs_coupled = run!(models, meteo_day)
 
 ```
 
-And there you have it. The light interception model made its computations using the Leaf Area Index computed by `ToyLAIModel`.
+And there you have it. The light interception model made its computations using the Leaf Area Index computed by ToyLAIModel.
 
 ## Further coupling
 
-Of course, one can keep adding models. Here's an example ModelList with another model, `ToyRUEGrowthModel`, which computes the carbon biomass increment caused by photosynthesis.
+Of course, one can keep adding models. Here's an example ModelList with another model, ToyRUEGrowthModel, which computes the carbon biomass increment caused by photosynthesis.
 
 ```julia
 models = ModelList(

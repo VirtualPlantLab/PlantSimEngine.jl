@@ -22,13 +22,13 @@ This kind of interdependency requires a little more work from the user/modeler f
 
 ## Declaring hard dependencies
 
-A model that explicitly and directly calls another process in its `run!` function is part of a hard dependency, or a hard-coupled model. 
+A model that explicitly and directly calls another process in its [`run!`](@ref) function is part of a hard dependency, or a hard-coupled model. 
 
 Let's go through the example processes and models from a script provided by the package here [examples/dummy.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/dummy.jl)
 
 In this script, we declare seven processes and seven models, one for each process. The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`...
 
-When run, `Process2Model` calls another process's `run!` function explicitely, which requires defining that process as a hard-dependency of `Process2Model` :
+When run, `Process2Model` calls another process's [`run!`](@ref) function explicitely, which requires defining that process as a hard-dependency of `Process2Model` :
 
 ```julia
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, extra)
@@ -40,10 +40,10 @@ function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, 
 end
 ```
 
-`Process2Model` is coupled to another process (`process1`), and calls its model's `run` function. The `run!` function is called with the same arguments as the `run!` function of the model that calls it, except that we pass the process we want to simulate as the first argument.
+`Process2Model` is coupled to another process (`process1`), and calls its model's `run` function. The [`run!`](@ref) function is called with the same arguments as the [`run!`](@ref) function of the model that calls it, except that we pass the process we want to simulate as the first argument.
 
 !!! note
-    We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the `ModelList`.
+    We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the [`ModelList`](@ref).
 
 A hard-dependency must always be declared to PlantSimEngine. This is done by adding a method to the `dep` function when implementing the model. For example, the hard-dependency to `process1` into `Process2Model` is declared as follows:
 
@@ -61,4 +61,4 @@ PlantSimEngine.dep(::Process2Model) = (process1=Process1Model,)
 
 ## Examples in the wild
 
-You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function.
+You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its [`run!`](@ref) function.

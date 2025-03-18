@@ -100,7 +100,7 @@ and which are computed outputs of the model using [`outputs`](@ref):
 outputs(Beer(0.5))
 ```
 
-The [`ModelList`](@ref) structure will keep track of every variable's current state when running the simulation, storing them in a field called `status`. We can inspect that field with the `status` function and see that in our example it has two variables: `LAI` and `PPFD`. The first is an input, the second an output (*i.e.* it is computed by the model).
+The [`ModelList`](@ref) structure will keep track of every variable's current state when running the simulation, storing them in a field called `status`. We can inspect that field with the [`status`](@ref) function and see that in our example it has two variables: `LAI` and `PPFD`. The first is an input, the second an output (*i.e.* it is computed by the model).
 
 ```@example usepkg
 m = ModelList(Beer(0.5))
@@ -120,10 +120,10 @@ Their values are uninitialized though (hence the warnings):
 (m[:LAI], m[:aPPFD])
 ```
 
-Uninitialized variables are initialized to the value given in the `inputs` or `outputs` methods in the model's implementation code, which is usually equal to `typemin()`, *e.g.* `-Inf` for `Float64`.
+Uninitialized variables are initialized to the value given in the [`inputs`](@ref) or [`outputs`](@ref) methods in the model's implementation code, which is usually equal to `typemin()`, *e.g.* `-Inf` for `Float64`.
 
 !!! tip
-    Prefer using `to_initialize` rather than `inputs` to check which variables should be initialized. `inputs` returns every variable that is needed by the model to run, but in multi-model simulations, some of them may already be computed by other models and not require initialization. `to_initialize` returns **only** the variables that are needed by the model to run and that are not initialized in the `ModelList`.
+    Prefer using [`to_initialize`](@ref) rather than [`inputs`](@ref) to check which variables should be initialized. [`inputs`](@ref) returns every variable that is needed by the model to run, but in multi-model simulations, some of them may already be computed by other models and not require initialization. [`to_initialize`](@ref) returns **only** the variables that are needed by the model to run and that are not initialized in the [`ModelList`](@ref).
 
 We can initialize the required variables by providing their starting values to the status when declaring the `ModelList`:
 
@@ -145,7 +145,7 @@ We can check if a component is correctly initialized using [`is_initialized`](@r
 is_initialized(m)
 ```
 
-Some variables are inputs of models, but outputs of other models. When we couple models, `to_initialize` only requests the variables that are not computed by other models.
+Some variables are inputs of models, but outputs of other models. When we couple models, [`to_initialize`](@ref) only requests the variables that are not computed by other models.
 
 ## Climate forcing
 
@@ -168,7 +168,7 @@ More details are available from the [package documentation](https://vezy.github.
 
 ### Simulation of processes
 
-To run a simulation, you can call the [`run!`](@ref) method on the `ModelList`. If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
+To run a simulation, you can call the [`run!`](@ref) method on the `ModelList`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
 
 Your call to the function would then look like this:
 
@@ -178,7 +178,7 @@ run!(model_list, meteo)
 
 The first argument is the model list (see [`ModelList`](@ref)), and the second defines the micro-climatic conditions.
 
-The `ModelList` should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
+The [`ModelList`](@ref) should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
 
 ### Example simulation
 
@@ -203,9 +203,9 @@ outputs_example[:aPPFD]
 
 The `status` field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
 
-The actual full output data is returned by the `run!` function. Data is usually stored in a `TimeStepTable` structure from `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a `TimeStepTable` but with each time step being an `Atmosphere`.
+The actual full output data is returned by the [`run!`](@ref) function. Data is usually stored in a [`TimeStepTable`](@ref) structure from `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a [`TimeStepTable`](@ref) but with each time step being an `Atmosphere`.
 
-In our example, the simulation was only provided one weather timestep, so the outputs returned by `run!` and the ModelList's `status` field are identical.
+In our example, the simulation was only provided one weather timestep, so the outputs returned by [`run!`](@ref) and the ModelList's [`status`](@ref) field are identical.
 
 Let's look at the outputs structure of our previous simulated leaf:
 
@@ -227,7 +227,7 @@ outputs_example.aPPFD
 
 You can then print the outputs, convert them to another format, or visualize them, using other Julia packages. You can read more on how to do that in the [Visualizing outputs and data](@ref) page.
 
-Another convenient way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the `TimeStepTable` implements the Tables.jl interface:
+Another convenient way to get the results is to transform the outputs into a `DataFrame`. Which is very easy because the [`TimeStepTable`](@ref) implements the Tables.jl interface:
 
 ```@example usepkg
 using DataFrames

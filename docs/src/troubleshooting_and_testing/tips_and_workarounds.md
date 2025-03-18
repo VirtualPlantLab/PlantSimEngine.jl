@@ -17,7 +17,7 @@ Depth = 2
 
 ## Making use of past states in multi-scale simulations
 
-It is possible to make use of the value of a variable in the past simulation timestep via the `PreviousTimeStep` mechanism in the mapping API (In fact, as mentioned elsewhere, it is the default way to break undesirable cyclic dependencies that can come up when coupling models, see : [Avoiding cyclic dependencies](@ref)).
+It is possible to make use of the value of a variable in the past simulation timestep via the [`PreviousTimeStep`](@ref) mechanism in the mapping API (In fact, as mentioned elsewhere, it is the default way to break undesirable cyclic dependencies that can come up when coupling models, see : [Avoiding cyclic dependencies](@ref)).
 
 However, it is not possible to go beyond that through the mapping API. Something like `PreviousTimeStep(PreviousTimeStep(PreviousTimeStep(:carbon_biomass)))` is not supported. Don't do that.
 
@@ -50,7 +50,7 @@ This change in design avoids model order ambiguity and also improves readability
 !!! note
     This section is a little more advanced and not recommended for beginners
     
-You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the `status` component of a `ModelList` in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
+You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelList`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 
 This is practical for simple simulations, or when quickly prototyping, to avoid having to write a model specifically for it. Whatever models make use of that variable are provided with one element corresponding to the current timestep every iteration.
 

@@ -85,7 +85,7 @@ And that's it ! The models that depend on `var9` will now use the measured value
 
 ### Hard-coupled models
 
-It is a bit more complicated to reduce the degrees of freedom in a model that is hard-coupled to another model, because it calls the `run!` method of the other model.
+It is a bit more complicated to reduce the degrees of freedom in a model that is hard-coupled to another model, because it calls the [`run!`](@ref) method of the other model.
 
 In this case, we need to replace the old model with a new model that forces the value of the variable to the measurement. This is done by giving the measurements as inputs of the new model, and returning nothing so the value is unchanged. 
 

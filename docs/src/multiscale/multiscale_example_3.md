@@ -295,7 +295,7 @@ We'll go for the first option and couple the root growth and internode emission 
 
 ### Internode emission adjustments
 
-The only change required for our internode emission model is to take into account `carbon_root_creation_consumed` as a new input, map that variable from the "Root" scale in our mapping, and compute the adjusted carbon stock. Here's the relevant excerpt in the `run!` function.
+The only change required for our internode emission model is to take into account `carbon_root_creation_consumed` as a new input, map that variable from the "Root" scale in our mapping, and compute the adjusted carbon stock. Here's the relevant excerpt in the [`run!`](@ref) function.
 
 ```julia
  # take into account that the stock may already be depleted 
@@ -321,23 +321,23 @@ Compared to the single-scale equivalent, the multi-scale declaration additionall
 PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
 ```
 
-The `status` argument `run!` function of the root growth decision model only contains variables from the "Plant" scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the `status` at the "Root" scale. It is accessible from the `extra` argument in `run!`'s signature. 
+The `status` argument [`run!`](@ref) function of the root growth decision model only contains variables from the "Plant" scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the [`status`](@ref) at the "Root" scale. It is accessible from the `extra` argument in [`run!`](@ref)'s signature. 
 
 In multi-scale simulations, this `extra` argument implicitely contains an object storing the simulation state. It contains the statuses at various scales, and all the models indexed per scale and process name.
 
-Access to the "Root" status within the root growth decision model `run!` function is done like so:
+Access to the "Root" status within the root growth decision model [`run!`](@ref) function is done like so:
 
 ```julia
 status_Root= extra_args.statuses["Root"][1]
 ```
 
-It is then possible to call the root growth model from the parent's `run!` function:
+It is then possible to call the root growth model from the parent's [`run!`](@ref) function:
 
 ```julia
 PlantSimEngine.run!(extra.models["Root"].root_growth, models, status_Root, meteo, constants, extra)
 ```
 
-Which will enable writing the rest of the `run!` function.
+Which will enable writing the rest of the [`run!`](@ref) function.
 
 ### Root growth decision model implementation
 

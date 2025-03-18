@@ -53,5 +53,4 @@ Its current state doesn't enable practical declaration of several plant species,
 
 The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
 
-TODO
-Detail other related packages' roadmaps ?
+TODO Detail other related packages' roadmaps (mostly stuff like PlantGeom's mtg reference mesh linking) ? PBP updates ?

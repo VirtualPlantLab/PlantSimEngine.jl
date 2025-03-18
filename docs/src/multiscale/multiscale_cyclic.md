@@ -108,8 +108,8 @@ We can fix our previous mapping by computing the organs respiration using the ca
     nothing # hide
     ```
 
-The `ToyMaintenanceRespirationModel` models are now defined as `MultiScaleModel`, and the `carbon_biomass` variable is wrapped in a `PreviousTimeStep` structure. This structure tells PlantSimEngine to take the value of the variable from the previous time step, breaking the cyclic dependency.
+The `ToyMaintenanceRespirationModel` models are now defined as [`MultiScaleModel`](@ref), and the `carbon_biomass` variable is wrapped in a `PreviousTimeStep` structure. This structure tells PlantSimEngine to take the value of the variable from the previous time step, breaking the cyclic dependency.
 
 !!! note
-    `PreviousTimeStep` tells PlantSimEngine to take the value of the previous time step for the variable it wraps, or the value at initialization for the first time step. The value at initialization is the one provided by default in the models inputs, but is usually provided in the `Status` structure to override this default.
-    A `PreviousTimeStep` is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `PreviousTimeStep(:carbon_biomass) => "Leaf"`.
+    [`PreviousTimeStep`](@ref) tells PlantSimEngine to take the value of the previous time step for the variable it wraps, or the value at initialization for the first time step. The value at initialization is the one provided by default in the models inputs, but is usually provided in the [`Status`](@ref) structure to override this default.
+    A [`PreviousTimeStep`](@ref) is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `PreviousTimeStep(:carbon_biomass) => "Leaf"`.

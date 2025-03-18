@@ -18,8 +18,8 @@ using PlantSimEngine
 using PlantSimEngine.Examples # Import some example models
 ```
 
-Let's create a simple mapping with only one initial model, the carbon assimilation process `ToyAssimModel`, which will operate on leaves.
-It resembles the `ToyAssimGrowth` model used in the single-scale simulation [Model switching](@ref) subsection.
+Let's create a simple mapping with only one initial model, the carbon assimilation process ToyAssimModel, which will operate on leaves.
+It resembles the ToyAssimGrowth model used in the single-scale simulation [Model switching](@ref) subsection.
 
 Our mapping between scale and model is therefore:
 
@@ -33,9 +33,9 @@ Just like in single-scale simulations, we can call `to_initialize` to check whet
 to_initialize(mapping)
 ```
 
-In this example, the `ToyAssimModel` needs `:aPPFD` and `:soil_water_content` as inputs, which aren't initialised in our mapping.
+In this example, the ToyAssimModel needs `:aPPFD` and `:soil_water_content` as inputs, which aren't initialised in our mapping.
 
-The initialization values for the variables can be passed along via a `Status` object:
+The initialization values for the variables can be passed along via a [`Status`](@ref) object:
 
 ```@example usepkg
 mapping = Dict(
@@ -46,7 +46,7 @@ mapping = Dict(
 )
 ```
 
-If we call `to_initialize` on this new mapping, it returns an empty dictionary, meaning the mapping is valid, and we can start the simulation:
+If we call [`to_initialize`](@ref) on this new mapping, it returns an empty dictionary, meaning the mapping is valid, and we can start the simulation:
 
 ```@example usepkg
 to_initialize(mapping)
@@ -58,7 +58,7 @@ The `soil_water_content` variable was provided via the mapping. No model affects
 
 It also makes sense to have that model operate at a different scale than the "Leaf" scale. There is a dummy soil model called `ToySoilModel` in the examples folder. Let's put it at a new "Soil" scale level.
 
-`ToyAssimModel` is now makes use of the `soil_water_content` variable from the `"Soil"` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the "Soil" to the "Leaf" scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
+ToyAssimModel is now makes use of the `soil_water_content` variable from the `"Soil"` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the "Soil" to the "Leaf" scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
 
 ```@example usepkg
 mapping = Dict(
@@ -78,7 +78,7 @@ In this example, we map the `soil_water_content` variable at scale "Leaf" to the
 
 The variable `aPPFD` is still provided in the `Status` type as a constant value.
 
-We can check again if the mapping is valid by calling `to_initialize`:
+We can check again if the mapping is valid by calling [`to_initialize`](@ref):
 
 ```@example usepkg
 to_initialize(mapping)
@@ -154,11 +154,11 @@ models2 = ModelList(
 
 The multi-scale models simulate carbon capture via photosynthesis and carbon allocation for the plant organs' maintenance respiration and development.
 
-The LAI and photosynthesis models are the same as in the ModelList example. The `ToyDegreeDaysModel` provides the Cumulative Thermal Time to the plant. 
+The LAI and photosynthesis models are the same as in the ModelList example. The [`ToyDegreeDaysCumulModel`](@ref) provides the Cumulative Thermal Time to the plant. 
 
 The newly introduced models have the following dynamic : 
 
-Carbon allocation is determined (`ToyCAllocationModel`) for the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (`ToyCDemandModel`). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`), which is needed to calculate the assimilation at the `"Leaf"` scale (`ToyAssimModel`). Also note that maintenance respiration at computed at the `"Leaf"` and `"Internode"` scales (`ToyMaintenanceRespirationModel`), and aggregated to compute the total maintenance respiration at the `"Plant"` scale (`ToyPlantRmModel`). 
+Carbon allocation is determined (ToyCAllocationModel) for the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (ToyCDemandModel). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`](@ref)), which is needed to calculate the assimilation at the `"Leaf"` scale (ToyAssimModel). Also note that maintenance respiration at computed at the `"Leaf"` and `"Internode"` scales (ToyMaintenanceRespirationModel), and aggregated to compute the total maintenance respiration at the `"Plant"` scale (ToyPlantRmModel). 
 
 ## Different possible variable mappings
 
@@ -174,13 +174,13 @@ The above mapping showcases the different ways to define how the variables are m
 :carbon_allocation => ["Leaf"]
 ```
 
-- On the other hand, we have `:carbon_allocation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. The `carbon_assimilation` variable is mapped as a vector: there are multiple "Leaf" nodes, but only one "Plant" node, which aggregrates the value over every single leaf. This gives us a 'many-to-one' vector mapping, and in the `run!` functions for models at that scale `carbon_allocation` will be available in the `status` as a vector.
+- On the other hand, we have `:carbon_allocation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. The `carbon_assimilation` variable is mapped as a vector: there are multiple "Leaf" nodes, but only one "Plant" node, which aggregrates the value over every single leaf. This gives us a 'many-to-one' vector mapping, and in the [`run!`](@ref) functions for models at that scale `carbon_allocation` will be available in the `status` as a vector.
 
 ```julia
 :carbon_allocation => ["Leaf", "Internode"]
 ```
 
-- A third type of the mapping would be `:carbon_allocation => ["Leaf", "Internode"]`, which provides values for a variable from several other scales simultaneously. In this case, the values are also available as a vector in the `carbon_assimilation` variable of the `status` inside the model, sorted in the same order as nodes are traversed in the graph.
+- A third type of the mapping would be `:carbon_allocation => ["Leaf", "Internode"]`, which provides values for a variable from several other scales simultaneously. In this case, the values are also available as a vector in the `carbon_assimilation` variable of the [`status`](@ref) inside the model, sorted in the same order as nodes are traversed in the graph.
 
 ```julia
 :Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]
@@ -219,9 +219,9 @@ outs = Dict(
 )
 ```
 
-This dictionary can be passed to the simulation via the optional `tracked_outputs` keyword argument to the `run!` function (see the next part). If no dictionary is provided, every variable will be tracked.
+This dictionary can be passed to the simulation via the optional `tracked_outputs` keyword argument to the [`run!`](@ref) function (see the next part). If no dictionary is provided, every variable will be tracked.
 
-These variables will be available in the output returned by `run!`, with a value for each time step. The corresponding timestep and node in the MTG are also returned. 
+These variables will be available in the output returned by [`run!`](@ref), with a value for each time step. The corresponding timestep and node in the MTG are also returned. 
 
 ### Meteorological data
 
@@ -247,7 +247,7 @@ nothing # hide
 
 And that's it! We can now access the outputs for each scale as a dictionary of vectors of values per variable and scale.
 
-Or as a `DataFrame` using the `DataFrames` package:
+Or as a `DataFrame` using the [`DataFrames`](https://dataframes.juliadata.org) package:
 
 ```@example usepkg
 using DataFrames

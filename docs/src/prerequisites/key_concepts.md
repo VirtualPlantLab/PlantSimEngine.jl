@@ -61,7 +61,7 @@ PlantSimEngine creates this Directed Acyclic Graph under the hood by plugging th
 
 Linking models by setting output variables from one model as input of another model handles many typical couplings (with more situations occurring with multi-scale models and variables), but what if two models are interdependent ? What if they need to iterate on some computation and pass variables back and forth ? 
 
-You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its `run!` function. 
+You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its [`run!`](@ref) function. 
 
 See the illustration below of the way these models are interdependent:
 
@@ -77,7 +77,7 @@ The above coupling, handled by PlantSimEngine
 
 How PlantSimEngine links these models under the hood. The red models ("hard dependencies") are not exposed in the final dependency graph, which only contains the blue "soft dependencies", and has no cycles.
 
-This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's `run!` function explicitely in its own `run!` function. Hard dependency models therefore must have only one parent model. 
+This approach does have implications when developing interdependent models : hard dependencies need to be made explicit, and the ancestor needs to call the hard dependency model's [`run!`](@ref) function explicitely in its own [`run!`](@ref) function. Hard dependency models therefore must have only one parent model. 
 
 This reliance on another process makes these models slightly more complex to develop and validate, and less versatile than simpler models. Occasional refactoring may be necessary to handle a hard dependency creeping up when adding new models to a simulation.
 

@@ -38,7 +38,7 @@ function PlantSimEngine.outputs_(::Beer)
 end
 ```
 
-Write the `run!` function that operates on a single timestep : 
+Write the [`run!`](@ref) function that operates on a single timestep : 
 
 ```@example usepkg
 function run!(::Beer, models, status, meteo, constants, extras)
@@ -58,7 +58,7 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeSt
 
 And that is all you need to get going, for this example with a single parameter and no interdependencies. 
 
-The `@process` macro does some boilerplate work described [here](@ref under_the_hood)
+The [`@process`](@ref) macro does some boilerplate work described [here](@ref under_the_hood)
 
 Some extra utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
 If your custom model needs to handle more complex couplings than the simple input/output described in this example, check out the [Coupling more complex models](@ref) page.
@@ -107,7 +107,7 @@ See [Implementing a new process](@ref) for more details on how that works and ho
 To implement a model, the first thing to do is to define a structure. The purpose of this structure is two-fold:
 
 - hold the parameter values
-- dispatch to the right `run!` method when calling it
+- dispatch to the right [`run!`](@ref) method when calling it
 
 The structure of the model (or type) is defined as follows:
 
@@ -170,22 +170,22 @@ These functions are internal, and end with an "\_". Users instead use [`inputs`]
 
 ### The run! method
 
-When running a simulation with `run!`, each model is run in turn at every timestep, following whatever order was deduced from the ModelList definition and Status. Each model also has its [`run!`](@ref) method for that purpose that update the simulation's current state, with a slightly different signature. The function takes six arguments:
+When running a simulation with [`run!`](@ref), each model is run in turn at every timestep, following whatever order was deduced from the ModelList definition and Status. Each model also has its [`run!`](@ref) method for that purpose that update the simulation's current state, with a slightly different signature. The function takes six arguments:
 
 ```julia
 function run!(::Beer, models, status, meteo, constants, extras)
 ```
 
 - the model's type
-- models: a `ModelList` object, which contains all the models of the simulation
-- status: a `Status` object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
+- models: a [`ModelList`](@ref) object, which contains all the models of the simulation
+- status: a [`Status`](@ref) object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
 - meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
 - constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant, unit-conversion constants...)
 - extras: any other object you want to pass to your model, mostly for advanced usage, not detailed here
 
-A typical `run!` function can therefore make use of simulation constants, input/output variables accessible through the `Status` object, or weather data. 
+A typical [`run!`](@ref) function can therefore make use of simulation constants, input/output variables accessible through the [`Status`](@ref object, or weather data. 
 
-Here is the `run!` implementation of the light interception for a `ModelList` component models. Note that the input and output variable are accessed through the `status` argument :
+Here is the [`run!`](@ref) implementation of the light interception for a [`ModelList`](@ref) component models. Note that the input and output variable are accessed through the [`status`](@ref) argument :
 
 ```@example usepkg
 function run!(::Beer, models, status, meteo, constants, extras)
@@ -198,12 +198,12 @@ end
 
 ### Additional notes
 
-To use this model, users will have to make sure that the variables for that model are defined in the `Status` object, the meteorology, and the `Constants` object.
+To use this model, users will have to make sure that the variables for that model are defined in the [`Status`](@ref) object, the meteorology, and the `Constants` object.
 
 !!! Note
-    `Status` objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.
+    [`Status`](@ref) objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.
 
-Model parameters are available from the `ModelList` that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
+Model parameters are available from the [`ModelList`](@ref) that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
 
 !!! warning
     You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`. The troubleshooting subsection [Implementing a model: forgetting to import or prefix functions](@ref) showcases output errors that can occur when you forget to prefix.
@@ -235,7 +235,7 @@ OK that's it! We now a full new model implementation for the light interception 
 
 If your model explicitly calls another model, you need to tell PlantSimEngine about it. This is called a hard dependency, in opposition to a soft dependency, which is when your model uses a variable from another model, but does not call it explicitly.
 
-To do so, we can add a method to the `dep` function that tells PlantSimEngine which processes (and models) are needed for the model to run.
+To do so, we can add a method to the [`dep`](@ref) function that tells PlantSimEngine which processes (and models) are needed for the model to run.
 
 Our example model does not call another model, so we don't need to implement it. But we can look at *e.g.* the implementation for [`Fvcb`](https://github.com/VEZY/PlantBiophysics.jl/blob/d1d5addccbab45688a6c3797e650a640209b8359/src/processes/photosynthesis/FvCB.jl#L83) in `PlantBiophysics.jl` to see how it works:
 

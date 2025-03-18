@@ -27,7 +27,7 @@ a = 1
 run!(a, simple_mtg, mapping, meteo_day, a)
 
 ERROR: MethodError: no method matching run!(::Int64, ::Node{NodeMTG, Dict{…}}, ::Dict{String, Tuple{…}}, ::DataFrame, ::Int64)
-The function `run!` exists, but no method is defined for this combination of argument types.
+The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
 
 Closest candidates are:
   run!(::ToyPlantLeafSurfaceModel, ::Any, ::Any, ::Any, ::Any, ::Any)
@@ -103,7 +103,7 @@ Most of the following errors occur exclusively in multi-scale simulations, which
 
 When implementing a model, you need to make sure that your implementation is correctly recognised as extending `PlantSimEngine` methods and types, and not writing new independent ones.
 
-In the following working toy model implementation, note that the `inputs_`, `outputs_` and `run!` function are all prefixed with the module name. If there were hard dependencies to manage, the `dep` function would also be identically prefixed.
+In the following working toy model implementation, note that the `inputs_`, `outputs_` and [`run!`](@ref) function are all prefixed with the module name. If there were hard dependencies to manage, the [`dep`](@ref) function would also be identically prefixed.
 
 ```julia
 using PlantSimEngine
@@ -143,10 +143,10 @@ sim = PlantSimEngine.run!(model, meteo)
 
 If you declare these functions without importing them first, or prefixing them with the module name, they will be considered to be part of your current environment, and won't be extending PlantSimEngine methods, which means PlantSimEngine will not be able to properly make use of your functions, and simulations are likely to error, or run incorrectly.
 
-Forgetting to prefix the `run!` function definition gives the following error : 
+Forgetting to prefix the [`run!`](@ref) function definition gives the following error : 
 ```julia
 ERROR: MethodError: no method matching run!(::ModelList{@NamedTuple{…}, Status{…}}, ::TimeStepTable{Atmosphere{…}})
-The function `run!` exists, but no method is defined for this combination of argument types.
+The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
 
 Closest candidates are:
   run!(::ToyToyModel, ::Any, ::Any, ::Any, ::Any, ::Any)
@@ -451,7 +451,7 @@ often indicate a likely syntax error somewhere in the mapping definition.
 
 This situation won't trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
 
-Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the "Plant" node in the dummy MTG passed into the `run!`function. Without that "Plant" node, only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
+Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the "Plant" node in the dummy MTG passed into the [`run!`](@ref)function. Without that "Plant" node, only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
 
 ```julia
 PlantSimEngine.@process "tt_cu" verbose = false

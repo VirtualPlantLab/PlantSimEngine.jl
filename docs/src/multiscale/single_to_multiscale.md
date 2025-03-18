@@ -31,7 +31,7 @@ Depth = 3
 
 # Converting the ModelList to a multi-scale mapping
 
-For example, let's return to the `ModelList` coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
+For example, let's return to the [`ModelList`](@ref) coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
 
 ```@example usepkg
 using PlantMeteo
@@ -65,7 +65,7 @@ mapping = Dict(
     ),
 )
 ```
-Note the slight difference in syntax for the `Status`. This is due to an implementation quirk (sorry).
+Note the slight difference in syntax for the [`Status`](@ref). This is due to an implementation quirk (sorry).
 
 None of these models operate on a multi-scale tree graph, either. There is no concept of organ creation or growth. We still need to provide a multi-scale tree graph to a multi-scale simulation, so we can -for now- declare a very simple MTG, with a single node:
 
@@ -76,7 +76,7 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 ```
 
 !!! note
-    You will need to add the MultiScaleTreeGraph package to your environment. TODO
+    You will need to add the `MultiScaleTreeGraph` package to your environment. See [Installing and running PlantSimEngine](@ref) if you are not yet comfortable with Julia.
 
 ## Running the multi-scale simulation ?
 
@@ -84,7 +84,7 @@ We now have **almost** everything we need to run the multiscale simulation.
 
 This first conversion step can be a starting point for a more elaborate multi-scale simulation. 
 
-The signature of the `run!` function in multi-scale differs slightly from the ModelList version : 
+The signature of the [`run!`](@ref) function in multi-scale differs slightly from the ModelList version : 
 
 ```julia
 out_multiscale = run!(mtg, mapping, meteo_day)
@@ -92,17 +92,17 @@ out_multiscale = run!(mtg, mapping, meteo_day)
 
 (Some of the optional arguments also change slightly)
 
-Unfortunately, there is one caveat. Passing in a vector through the `Status` field is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is experimental and less user-friendly.
+Unfortunately, there is one caveat. Passing in a vector through the [`Status`](@ref) field is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is experimental and less user-friendly.
 
 If you are keen on going down that path, you can find a detailed example [here](@ref multiscale_vector), but we don't recommend it for beginners.
 
-What we'll do instead, is write our own model provide the thermal time per timestep as a variable, instead of as a single vector in the `Status`.
+What we'll do instead, is write our own model provide the thermal time per timestep as a variable, instead of as a single vector in the [`Status`](@ref).
 
 Our 'pseudo-multiscale' first approach will therefore turn into a genuine multi-scale simulation.
 
 ## Adding a second scale
 
-Let's have a model provide the Cumulated Thermal Time to our Leaf Area Index model, instead of initializing it through the `Status`. 
+Let's have a model provide the Cumulated Thermal Time to our Leaf Area Index model, instead of initializing it through the [`Status`](@ref). 
 
 Let's instead implement our own `ToyTT_cuModel`.
 
@@ -131,7 +131,7 @@ end
 ```
 
 !!! note
-    The only accessible variables in the `run!` function via the status are the ones that are local to the "Scene" scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a `MultiScaleModel`, or sometimes a more complex coupling is necessary.
+    The only accessible variables in the [`run!`](@ref) function via the status are the ones that are local to the "Scene" scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a [`MultiScaleModel`](@ref), or sometimes a more complex coupling is necessary.
 
 ### Linking the new TT_cu model to a scale in the mapping
 
@@ -150,11 +150,11 @@ mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scen
 
 The cumulated thermal time (`:TT_cu`) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the "Scene" scale level. 
 
-This is done by wrapping our `ToyLAIModel` in a dedicated structure called a `MultiScaleModel`. A `MultiScaleModel` requires two keyword arguments : `model`, indicating the model for which some variables are mapped, and `mapped_variables`, indicating which scale link to which variables, and potentially renaming them.
+This is done by wrapping our ToyLAIModel in a dedicated structure called a [`MultiScaleModel`](@ref). A [`MultiScaleModel`](@ref) requires two keyword arguments : `model`, indicating the model for which some variables are mapped, and `mapped_variables`, indicating which scale link to which variables, and potentially renaming them.
 
 There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the "Scene" to the "Plant" scale.
 
-This gives us the following declaration with the `MultiScaleModel` wrapper for our LAI model: 
+This gives us the following declaration with the [`MultiScaleModel` wrapper for our LAI model: 
 
 ```@example usepkg
 MultiScaleModel(
@@ -231,6 +231,6 @@ is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlesca
 
 ## ToyDegreeDaysCumulModel
 
-There is a model able to provide Thermal Time based on weather temperature data, `ToyDegreeDaysCumulModel`, which can also be found in the examples folder. 
+There is a model able to provide Thermal Time based on weather temperature data, [`ToyDegreeDaysCumulModel`](@ref), which can also be found in the examples folder. 
 
 We didn't make use of it here for learning purposes. It also computes a thermal time based on default parameters that don't correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. 

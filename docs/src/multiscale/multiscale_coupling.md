@@ -118,10 +118,10 @@ end
 
 ## Implementation details: accessing a hard dependency's variables from a different scale
 
-But how does a model M calling a hard dependency H provide H's variables when calling H's `run!` function ? The `status` argument the user provides M operates at M's organ level, so if used to call H's run! function any required variable for H will be missing.    
+But how does a model M calling a hard dependency H provide H's variables when calling H's [`run!`](@ref) function ? The [`status`](@ref) argument the user provides M operates at M's organ level, so if used to call H's run! function any required variable for H will be missing.    
 
 PlantSimEngine provides what are called Status Templates in the simulation graph. Each organ level has its own Status template listing the available variables at that scale.
-So when a model M calls a hard dependency H's `run!` function, any required variables can be accessed through the status template of H's organ level.
+So when a model M calls a hard dependency H's [`run!`](@ref) function, any required variables can be accessed through the status template of H's organ level.
 
 ### XPalm.jl example to illustrate
 
