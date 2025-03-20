@@ -202,7 +202,7 @@ function run!(
     end
 
     
-    if executor != SequentialEx()
+    if executor != SequentialEx() && nsteps > 1
         if !timestep_parallelizable(dep_graph)
             is_ts_parallel = which_timestep_parallelizable(dep_graph)
             mods_not_parallel = join([i.second.first for i in is_ts_parallel[findall(x -> x.second.second == false, is_ts_parallel)]], "; ")
@@ -211,6 +211,27 @@ function run!(
                 "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
                 "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
             ) maxlog = 1
+        else           
+            outputs_preallocated_mt = pre_allocate_outputs(object, tracked_outputs, nsteps)
+            local vars = length(outputs_preallocated_mt) > 0 ? keys(outputs_preallocated_mt[1]) : NamedTuple()
+            status_flattened_template, vector_variables_mt = flatten_status(object.status)
+
+            # Computing time-steps in parallel:
+            @floop executor for i in 1:nsteps                
+                @init begin 
+                    status_flattened = deepcopy(status_flattened_template)
+                    roots = collect(dep_graph.roots)
+                end
+                meteo_i = meteo_adjusted[i]
+                update_vector_variables(object.status, status_flattened, vector_variables_mt, i)
+                for (process, node) in roots
+                    run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
+                end
+                for var in vars
+                    outputs_preallocated_mt[i][var] = status_flattened[var]
+                end
+            end
+            return outputs_preallocated_mt
         end
     end
 
@@ -240,16 +261,6 @@ function run!(
     end
     
     return outputs_preallocated
-   #=else
-        #TODO breakdown outputs and save them
-        # Computing time-steps in parallel:
-        @floop executor for (i, meteo_i) in enumerate(meteo_rows)
-            local roots = collect(dep_graph.roots)
-            for (process, node) in roots
-                run_node!(object, node, i, object[i], meteo_i, constants, extra)
-            end
-        end
-    end=#
 end
 
 # 3- several objects and one meteo time-step

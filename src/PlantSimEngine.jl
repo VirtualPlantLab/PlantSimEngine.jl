@@ -13,7 +13,7 @@ import Term
 import Markdown
 
 # For multi-threading:
-import FLoops: @floop, ThreadedEx, SequentialEx, DistributedEx
+import FLoops: @floop, @init, ThreadedEx, SequentialEx, DistributedEx
 
 # For MTG compatibility:
 import MultiScaleTreeGraph

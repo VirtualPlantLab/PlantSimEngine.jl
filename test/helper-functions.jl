@@ -21,6 +21,14 @@ function compare_outputs_graphsim(graphsim, graphsim2)
     return outputs_df_sorted == outputs2_df_sorted
 end
 
+function compare_outputs_modellists(filtered_outputs_1, filtered_outputs_2)
+    models_df_1 = DataFrame(filtered_outputs_1)    
+    models_df_sorted_1 = models_df_1[:, sortperm(names(models_df_1))]
+    models_df_2 = DataFrame(filtered_outputs_2)    
+    models_df_sorted_2 = models_df_2[:, sortperm(names(models_df_2))]
+    return models_df_sorted_2 == models_df_sorted_1
+end
+
 # Breaking this function into two to ensure eval() state synchronisation happens (see comments around the modellist_to_mapping definition)
 # Naming could be better
 function check_multiscale_simulation_is_equivalent_begin(models::ModelList, status, meteo)
@@ -43,6 +51,13 @@ function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, m
     return compare_outputs_modellist_mapping(modellist_outputs, graph_sim)
 end
 
+# Quick and naive first version. Doesn't check if everything is timestep parallelizable, doesn't check for nthreads etc.
+function run_single_and_multi_thread_modellist(modellist, tracked_outputs, meteo)
+    out_seq = run!(modellist, meteo; tracked_outputs = tracked_outputs, executor = SequentialEx())
+    modellist_mt = copy(modellist)
+    out_mt = run!(modellist_mt, meteo; tracked_outputs = tracked_outputs, executor = ThreadedEx())
+    return out_seq, out_mt
+end
 
 # Could make use of PlantMeteo's online meteo data recovery feature for more numerous examples
 # or the random meteo generation used for the PBP benchmark
