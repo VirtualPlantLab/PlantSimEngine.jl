@@ -76,6 +76,7 @@ makedocs(;
             "Internal API" => "./API/API_private.md",],
         "Credits" => "credits.md",
         "Improving our documentation" => "documentation_improvement.md",
+        "Developer guidelines" => "developers.md",
         "Planned features" => "planned_features.md",
         #"developer section TODO"
     ]
