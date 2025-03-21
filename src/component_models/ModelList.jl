@@ -231,13 +231,25 @@ function add_model_vars(x, models, type_promotion)
     if x === nothing
        return Status(ref_vars)
     end
+    
+    if Tables.istable(x)
+        # This situation only occurs if the user provided a table instead of a status
+        # Meaning we have a status of vector values, all initialized up to a certain point
+        # Unsure this is desirable, as that means run! does nothing or overwrites everything
+        # Anyway, we wish to create a NamedTuple() of Vectors here
+        x_full = (;zip(propertynames(x), Tables.columns(x))...)
+        x_full = merge(ref_vars, x_full)
 
-    x_full = merge(ref_vars, NamedTuple(x))
+    else
+        x_full = merge(ref_vars, NamedTuple(x))
+    end
+    #x_full = merge(ref_vars, NamedTuple(x))
 
     return Status(x_full)
 end
 
 function status_keys(st)
+    Tables.istable(st) && return Tables.columnnames(st)
     return keys(st)
 end
 
