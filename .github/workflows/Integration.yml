@@ -32,7 +32,7 @@ jobs:
         arch:
           - x64
         package:
-        - {user: PalmStudio, repo: XPalm.jl, branch: 'Synching-with-PSE's-outputs-renaming%2C-modellist-status-changes'}
+        - {user: PalmStudio, repo: XPalm.jl, branch: Synching-with-PSE's-outputs-renaming%2C-modellist-status-changes}
         - {user: VEZY, repo: PlantBioPhysics.jl, branch: ModelList-outputs-filtering-changes}
     steps:
       - uses: actions/checkout@v4
