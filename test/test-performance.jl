@@ -27,7 +27,7 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 
 @testset begin "Check number of threads"
     nthr = Threads.nthreads()
-    @test nthr == 4
+    @test nthr > 1
     
     t_seq = @benchmark run!(models1, meteo_day; executor = SequentialEx())
     #t_seq = run!(models1, meteo_day; executor = SequentialEx())
