@@ -326,7 +326,8 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
-    outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
+    outputs = pre_allocate_outputs_2(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
+    outputs_index = Dict{String, Int}(s => 0 for s in keys(outputs))
     return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep(mapping, verbose=verbose), models, outputs)
 end

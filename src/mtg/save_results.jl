@@ -203,6 +203,155 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
 end
 
 
+function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
+    outs_ = Dict{String,Vector{Symbol}}()
+    
+    # default behaviour : track everything
+    if isnothing(outs)
+        for organ in keys(statuses)
+            outs_[organ] = [keys(statuses_template[organ])...]
+        end
+        # No outputs requested by user : just return the timestep and node
+    elseif length(outs) == 0
+        for i in keys(statuses)
+            outs_[i] = []
+        end
+    else
+        for i in keys(outs) # i = "Plant"
+            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
+            outs_[i] = [outs[i]...]
+        end
+    end
+    statuses_ = copy(statuses_template)
+    # Checking that organs in outputs exist in the mtg (in the statuses):
+    if !all(i in keys(statuses) for i in keys(outs_))
+        not_in_statuses = setdiff(keys(outs_), keys(statuses))
+        e = string(
+            "You requested outputs for organs ",
+            join(keys(outs_), ", "),
+            ", but organs ",
+            join(not_in_statuses, ", "),
+            " have no models."
+        )
+
+        if check
+            error(e)
+        else
+            @info e
+            [delete!(outs_, i) for i in not_in_statuses]
+        end
+    end
+
+    # Checking that variables in outputs exist in the statuses, and adding the :node variable:
+    for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
+        if length(statuses[organ]) == 0
+            # The organ is not found in the mtg, we return an info and get along (it might be created during the simulation):
+            check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG at this point."
+        end
+        if !all(i in collect(keys(statuses_[organ])) for i in vars)
+            not_in_statuses = (setdiff(vars, keys(statuses_[organ]))...,)
+            plural = length(not_in_statuses) == 1 ? "" : "s"
+            e = string(
+                "You requested outputs for variable", plural, " ",
+                join(not_in_statuses, ", "),
+                " in organ $organ, but ",
+                length(not_in_statuses) == 1 ? "it has no model." : "they have no models."
+            )
+            if check
+                error(e)
+            else
+                @info e
+                existing_vars_requested = setdiff(outs_[organ], not_in_statuses)
+                if length(existing_vars_requested) == 0
+                    # None of the variables requested by the user exist at this scale for this set of models
+                    delete!(outs_, organ)
+                else
+                    # Some still exist, we only use the ones that do:
+                    outs_[organ] = [existing_vars_requested...]
+                end
+            end
+        end
+
+        if :node ∉ outs_[organ]
+            push!(outs_[organ], :node)
+        end
+    end
+
+    node_types = []
+    for o in keys(statuses)
+        if length(statuses[o]) > 0
+            push!(node_types, typeof(statuses[o][1].node))
+        end
+    end
+
+    node_type = unique(node_types)
+    @assert length(node_type) == 1 "All plant graph nodes should have the same type, found $(unique(node_type))."
+    node_type = only(node_type)
+
+    preallocated_outputs = Dict{String, TimeStepTable}()
+
+    types = Vector{DataType}()
+    for organ in keys(outs_)
+        
+        types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
+        values = [status_from_template(statuses_template[organ])[var] for var in outs[organ]]
+
+        push!(types, node_type)
+
+        # contains :node
+        symbols_tuple = (outs_[organ]...,)
+        values_tuple = (values..., MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Uninitialized", 0, 0),))
+        named_tuple = NamedTuple{symbols_tuple,Tuple{types...,}}
+    
+        #data = fill(Status(;zip(symbols_tuple, values_tuple)...), nsteps) #Vector{named_tuple}()
+        data = Status{named_tuple}[]
+        sizehint!(data, nsteps)
+
+        # create one dummy element otherwise can't recover the NamedTuple keys
+        push!(data, Status(;zip(symbols_tuple, values_tuple)))
+        preallocated_outputs[organ] = TimeStepTable(data)
+        # remove that dummy element without
+        empty!(preallocated_outputs[organ].ts)
+    end
+
+    return preallocated_outputs
+end
+
+# TODO better sizehint estimation to reduce reallocations
+function save_results_2!(object::GraphSimulation, i)
+    outs = outputs(object)
+
+    if length(outs) == 0
+        return
+    end
+
+    statuses = status(object)
+
+    for organ in keys(outs)
+
+        if length(outs[organ]) == 0
+            continue
+        end
+
+        #named_tuple_type = eltype(outs[organ])
+        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ])) #Vector{named_tuple_type}(undef, length(statuses[organ]))
+        data = fill(get_index_raw(outs[organ],1), length(statuses[organ]))
+        timestep_filtered_outputs = TimeStepTable(data)
+        
+        for (i,status) in enumerate(statuses[organ])
+            for var in keys(outs[organ])
+                timestep_filtered_outputs[i][var] = status[var]
+            end
+        end
+
+        append!(outs[organ], timestep_filtered_outputs)
+    end
+end
+
+function Base.append!(ts::TimeStepTable, x::TimeStepTable)
+    append!(getfield(ts, :ts), getfield(x, :ts))
+end
+
 """
     save_results!(object::GraphSimulation, i)
 
