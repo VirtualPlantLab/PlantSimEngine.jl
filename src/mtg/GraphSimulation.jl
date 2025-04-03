@@ -114,20 +114,6 @@ function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, n
     variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
     var_names_all = keys(variables_names_types)
     t = NamedTuple{var_names_all,Tuple{values(variables_names_types)...}}[]
-    #=size_hint = 0
-    for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
-        var_names = setdiff(collect(keys(vars)), [:node])
-        if length(var_names) == 0
-            continue
-        end
-        steps_iterable = axes(vars[var_names[1]], 1)
-        for timestep in steps_iterable # timestep = 1
-            node_iterable = axes(vars[var_names[1]][timestep], 1)
-            size_hint+=length(node_iterable)
-        end
-    end
-
-    sizehint!(t, size_hint)=#
 
     for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
         var_names = setdiff(collect(keys(vars)), [:node])
@@ -169,4 +155,12 @@ end
 function convert_outputs(out::TimeStepTable{T} where T, sink)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
     return sink(out)
+end
+
+function convert_outputs_2(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
+    ret = Dict{String, sink}()
+    for (organ, vector_named_tuple) in outs
+        ret[organ] = sink(vector_named_tuple)
+    end
+    return ret
 end

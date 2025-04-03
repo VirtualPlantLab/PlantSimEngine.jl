@@ -288,7 +288,7 @@ function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_
     @assert length(node_type) == 1 "All plant graph nodes should have the same type, found $(unique(node_type))."
     node_type = only(node_type)
 
-    preallocated_outputs = Dict{String, TimeStepTable}()
+    preallocated_outputs = Dict{String, Vector}()
 
     types = Vector{DataType}()
     for organ in keys(outs_)
@@ -304,14 +304,16 @@ function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_
         named_tuple = NamedTuple{symbols_tuple,Tuple{types...,}}
     
         #data = fill(Status(;zip(symbols_tuple, values_tuple)...), nsteps) #Vector{named_tuple}()
-        data = Status{named_tuple}[]
-        sizehint!(data, nsteps)
+        dummy_status = #=Status=#(;zip(symbols_tuple, values_tuple)...)
+        data = typeof(dummy_status)[]
+        resize!(data, nsteps)
+        #sizehint!(data, nsteps)
 
         # create one dummy element otherwise can't recover the NamedTuple keys
-        push!(data, Status(;zip(symbols_tuple, values_tuple)))
-        preallocated_outputs[organ] = TimeStepTable(data)
+        data[1] = dummy_status
+        preallocated_outputs[organ] = data #TimeStepTable(data)
         # remove that dummy element without
-        empty!(preallocated_outputs[organ].ts)
+        #empty!(getfield(preallocated_outputs[organ], :ts))
     end
 
     return preallocated_outputs
@@ -326,30 +328,38 @@ function save_results_2!(object::GraphSimulation, i)
     end
 
     statuses = status(object)
-
+    indexes = object.outputs_index
     for organ in keys(outs)
 
         if length(outs[organ]) == 0
             continue
         end
 
-        #named_tuple_type = eltype(outs[organ])
-        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ])) #Vector{named_tuple_type}(undef, length(statuses[organ]))
-        data = fill(get_index_raw(outs[organ],1), length(statuses[organ]))
-        timestep_filtered_outputs = TimeStepTable(data)
-        
-        for (i,status) in enumerate(statuses[organ])
-            for var in keys(outs[organ])
-                timestep_filtered_outputs[i][var] = status[var]
-            end
+        index = indexes[organ]
+
+        # this can be made much more conservative with the right heuristic, or with user hints
+        len = length(outs[organ])
+        if length(statuses[organ]) + index > len
+            resize!(outs[organ], 2*index)
         end
 
-        append!(outs[organ], timestep_filtered_outputs)
-    end
-end
+        tracked_outputs = keys(outs[organ][1])
 
-function Base.append!(ts::TimeStepTable, x::TimeStepTable)
-    append!(getfield(ts, :ts), getfield(x, :ts))
+        #named_tuple_type = eltype(outs[organ])
+        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ])) #Vector{named_tuple_type}(undef, length(statuses[organ]))
+        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ]))
+        #timestep_filtered_outputs = TimeStepTable(data)
+        
+        for (i,status) in enumerate(statuses[organ])
+            #for var in keys(outs[organ])
+                #timestep_filtered_outputs[i][var] = status[var]
+                outs[organ][index] = (;zip(tracked_outputs, [status[var] for var in tracked_outputs])...)
+            #end
+            index += 1
+        end
+        indexes[organ] = index
+        #append!(outs[organ], timestep_filtered_outputs)
+    end
 end
 
 """
