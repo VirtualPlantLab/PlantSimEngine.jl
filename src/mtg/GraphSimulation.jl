@@ -25,7 +25,7 @@ struct GraphSimulation{T,S,U,O,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
     outputs::Dict{String,O}
-    outputs_index::Dict{String, Int}
+    #outputs_index::Dict{String, Int}
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
