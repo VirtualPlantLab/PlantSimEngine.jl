@@ -689,26 +689,33 @@ end
     @test sim.statuses["Leaf"][1].var5 == 32.4806
     @test sim.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 
-    @test sim.outputs["Leaf"][:carbon_demand] == [[0.5, 0.5], [0.5, 0.5]]
-    @test sim.outputs["Leaf"][:soil_water_content][1] == fill(sim.outputs["Soil"][:soil_water_content][1][1], 2)
-    @test sim.outputs["Leaf"][:soil_water_content][2] == fill(sim.outputs["Soil"][:soil_water_content][2][1], 2)
+    @test unique([sim.outputs["Leaf"][i][:carbon_demand] == 0.5 for i in 1:4]) == [1]
+    @test sim.outputs["Leaf"][1][:soil_water_content] == sim.outputs["Soil"][1][:soil_water_content]
+    @test sim.outputs["Leaf"][2][:soil_water_content] == sim.outputs["Soil"][2][:soil_water_content]
 
-    @test sim.outputs["Leaf"][:carbon_allocation] == sim.outputs["Internode"][:carbon_allocation]
-    @test sim.outputs["Plant"][:carbon_allocation][1][1][1] === sim.outputs["Internode"][:carbon_allocation][1][1]
+    @test all([sim.outputs["Leaf"][i][:carbon_allocation] == sim.outputs["Internode"][i][:carbon_allocation] for i in 1:4])==1
+    @test sim.outputs["Plant"][1][:carbon_allocation][1] === sim.outputs["Internode"][1][:carbon_allocation]
 
     # Testing the outputs if transformed into a DataFrame:
-    outs = convert_outputs(out, DataFrame)
+    outs_df_dict = PlantSimEngine.convert_outputs_2(out, DataFrame)
 
-    @test isa(outs, DataFrame)
-    @test size(outs) == (12, 7)
+    @test isa(outs_df_dict, Dict{String, DataFrame})
+    @test size(outs_df_dict["Leaf"]) == (6, 6)
+    @test size(outs_df_dict["Internode"]) == (6, 3)
+    @test size(outs_df_dict["Soil"]) == (2, 3)
+    @test size(outs_df_dict["Plant"]) == (2, 2)
 
-    @test unique(outs.timestep) == [1, 2]
-    @test sort(unique(outs.organ)) == sort(collect(keys(out_vars)))
-    @test length(filter(x -> x !== nothing, outs.carbon_assimilation)) == length(filter(x -> x, traverse(mtg, node -> MultiScaleTreeGraph.scale(node) == 2)))
-    # a = status(out, TimeStepTable{Status})
-    A = outputs(out, :carbon_assimilation)
-    @test A == outs.carbon_assimilation
+    @test sort(collect(keys(outs_df_dict))) == sort(collect(keys(out_vars)))
+    for organ in keys(outs_df_dict)
+        @test unique(outs_df_dict[organ][!, :timestep]) == [1, 2]    
+    end
+    # output structure change makes this test obsolete without any trivial equivalent
+    #@test length(filter(x -> x !== nothing, outs.carbon_assimilation)) == length(filter(x -> x, traverse(mtg, node -> MultiScaleTreeGraph.scale(node) == 2)))
+    
+    # TODO, find some equivalent with new output structure
+    #A = outputs(out, :carbon_assimilation)
+    #@test A == outs.carbon_assimilation
 
-    A2 = outputs(out, 5)
-    @test A == A2
+    #A2 = outputs(out, 5)
+    #@test A == A2
 end

@@ -529,8 +529,9 @@ end
 
     vars = Dict{String,Any}("Leaf" => (:var1,))
     out = run!(mtg, m, Atmosphere(T=20.0, Wind=1.0, Rh=0.65), tracked_outputs=vars, executor=SequentialEx())
-    df = convert_outputs(out, DataFrame)
-    @test DataFrames.nrow(df) == 2
+    df_dict = PlantSimEngine.convert_outputs_2(out, DataFrame)
+    @test DataFrames.nrow(df_dict["Leaf"]) == 2
+    @test DataFrames.ncol(df_dict["Leaf"]) == 3
 end
 
 ##########################
@@ -563,9 +564,8 @@ end
 
     sim = run!(mtg, mapping, meteo; tracked_outputs=outs)
     using DataFrames
-    df = convert_outputs(sim, DataFrame)
-    @test DataFrames.nrow(df) == PlantSimEngine.get_nsteps(meteo)
-
+    df_dict = PlantSimEngine.convert_outputs_2(sim, DataFrame)
+    @test DataFrames.nrow(df_dict["Default"]) == PlantSimEngine.get_nsteps(meteo)
 end
 
 
