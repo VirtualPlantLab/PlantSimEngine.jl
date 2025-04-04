@@ -222,6 +222,20 @@ function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_
             outs_[i] = [outs[i]...]
         end
     end
+
+    len = Dict{String, Int}()
+    for (organ, vals) in outs_
+        len[organ] = length(outs_[organ])
+        unique!(outs_[organ])
+    end
+
+
+    for (organ, vals) in outs_
+        if length(outs_[organ]) != len[organ]
+            @info "One or more requested output variable duplicated at scale $organ, removed it"
+        end
+    end
+
     statuses_ = copy(statuses_template)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -293,27 +307,26 @@ function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_
     types = Vector{DataType}()
     for organ in keys(outs_)
         
-        types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
-        values = [status_from_template(statuses_template[organ])[var] for var in outs[organ]]
+        outs_no_node = filter(x -> x != :node, outs_[organ])
 
-        push!(types, node_type)
+        #types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
+        values = [status_from_template(statuses_template[organ])[var] for var in outs_no_node]
+
+        #push!(types, node_type)
 
         # contains :node
-        symbols_tuple = (outs_[organ]...,)
-        values_tuple = (values..., MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Uninitialized", 0, 0),))
-        named_tuple = NamedTuple{symbols_tuple,Tuple{types...,}}
+        symbols_tuple = (:timestep, :node, outs_no_node...,)
+        values_tuple = (1, MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Uninitialized", 0, 0),), values...,)
+        #named_tuple = NamedTuple{symbols_tuple,Tuple{Int, types...,}}
     
-        #data = fill(Status(;zip(symbols_tuple, values_tuple)...), nsteps) #Vector{named_tuple}()
-        dummy_status = #=Status=#(;zip(symbols_tuple, values_tuple)...)
+        dummy_status = (;zip(symbols_tuple, values_tuple)...)
         data = typeof(dummy_status)[]
         resize!(data, nsteps)
-        #sizehint!(data, nsteps)
 
-        # create one dummy element otherwise can't recover the NamedTuple keys
+        # Create one dummy element otherwise when saving the results it's a pain to recover the NamedTuple type from an empty array 
+        # There's probably a better way to do this, but it'll do for now
         data[1] = dummy_status
-        preallocated_outputs[organ] = data #TimeStepTable(data)
-        # remove that dummy element without
-        #empty!(getfield(preallocated_outputs[organ], :ts))
+        preallocated_outputs[organ] = data
     end
 
     return preallocated_outputs
@@ -339,26 +352,18 @@ function save_results_2!(object::GraphSimulation, i)
 
         # this can be made much more conservative with the right heuristic, or with user hints
         len = length(outs[organ])
-        if length(statuses[organ]) + index > len
-            resize!(outs[organ], 2*index)
+        if length(statuses[organ]) + index > len            
+            min_required = max(length(statuses[organ]) + index - len, index)
+            resize!(outs[organ], 2*min_required)
         end
 
-        tracked_outputs = keys(outs[organ][1])
+        tracked_outputs = filter(i -> i != :timestep, keys(outs[organ][1]))
 
-        #named_tuple_type = eltype(outs[organ])
-        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ])) #Vector{named_tuple_type}(undef, length(statuses[organ]))
-        #data = fill(get_index_raw(outs[organ],1), length(statuses[organ]))
-        #timestep_filtered_outputs = TimeStepTable(data)
-        
-        for (i,status) in enumerate(statuses[organ])
-            #for var in keys(outs[organ])
-                #timestep_filtered_outputs[i][var] = status[var]
-                outs[organ][index] = (;zip(tracked_outputs, [status[var] for var in tracked_outputs])...)
-            #end
+        for status in statuses[organ] 
+            outs[organ][index] = (;timestep=i,zip(tracked_outputs, [status[var] for var in tracked_outputs])...)
             index += 1
         end
         indexes[organ] = index
-        #append!(outs[organ], timestep_filtered_outputs)
     end
 end
 
