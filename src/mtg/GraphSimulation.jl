@@ -143,12 +143,13 @@ function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, n
     return sink(t)
 end
 
+# TODO adapt these to new output structure or remove them
 function outputs(outs::Dict{String, O} where O, key::Symbol)
-    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
+    Tables.columns(convert_outputs_2(outs, Vector{NamedTuple}))[key]
 end
 
 function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
-    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
+    Tables.columns(convert_outputs_2(outs, Vector{NamedTuple}))[i]
 end
 
 # ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
@@ -160,7 +161,31 @@ end
 function convert_outputs_2(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
     ret = Dict{String, sink}()
     for (organ, vector_named_tuple) in outs
-        ret[organ] = sink(vector_named_tuple)
+        # remove RefVector variables
+        refv = ()
+        if length(vector_named_tuple) > 0
+            for (var, val) in pairs(vector_named_tuple[1])
+                if !refvectors && isa(val, RefVector)
+                    refv = (refv..., var)
+                end
+                if var == :node
+                    refv = (refv..., var)
+                end
+            end
+        end
+
+        # Another, probably better way would be to just create the DataFrame and then remove the RefVector columns, hmm
+        # Get the new NamedTuple type
+        refv_nt = NamedTuple{refv}
+        # replace the MTG node var with the id (MTG nodes aren't CSV-friendly)
+        filtered_named_tuple = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple[1].node),Base.structdiff(vector_named_tuple[1], refv_nt)...)
+        filtered_vector_named_tuple = Vector{typeof(filtered_named_tuple)}(undef, length(vector_named_tuple))
+
+        for i in 1:length(vector_named_tuple)
+            filtered_vector_named_tuple[i] = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple[i].node), Base.structdiff(vector_named_tuple[i], refv_nt)...)
+        end
+
+        ret[organ] = sink(filtered_vector_named_tuple)
     end
     return ret
 end
