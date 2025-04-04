@@ -83,39 +83,65 @@ Instead of a [`ModelList`](@ref), it takes an MTG and a mapping. The optional `m
 
 ## Multi-scale output data structure
 
-The output structure, like the mapping, is a Julia `Dict` structure indexed by scale. In each scale, another `Dict` maps variables to their values per timestep, per node. This makes the structure a little bulkier and a little more verbose to inspect than in single-scale, but the general usage is similar. Multiscale Tree Graph nodes are also added to the output data, as a `:node` entry.
+
+The output structure, like the mapping, is a Julia `Dict` structure indexed by the scale name. Values are a per-scale `Vector{NamedTuple}` which lists the requested variables for every node at that scale, for every timestep in the simulation. Timestep and Multiscale Tree Graph nodes are also added to the output data, as a `:timestep`and a `:node` entry. 
+
+This dictionary structure makes the outputs as-is a little more verbose to inspect than in single-scale, but the general usage is similar, and it is both compact, and fast to convert to a `Dict{String, DataFrame}` which can make queries easier. 
+
+!!! note
+  Some of the mapped variables -those that map from scalar to vector- will not be added to the outputs to save some memory and space since they are redundant.
+
 
 To illustrate, here's an example output from part 3 of the Toy plant tutorial, zeroing in on a variable at the "Root" scale: [Fixing bugs in the plant simulation](@ref):
 
 ```julia
 julia> outs
 
-Dict{String, Dict{Symbol, Vector}} with 5 entries:
-  "Internode" => Dict(:carbon_root_creation_consumed=>[[50.0, 50.0], [50.0, 50.0], [50.0, 50.0], [50.0, 50.0], [50.0, …
-  "Root"      => Dict(:carbon_root_creation_consumed=>[[50.0, 50.0], [50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50.0], [50…
-  "Scene"     => Dict(:TT_cu=>[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0]  …  [2099.61], [20…
-  "Plant"     => Dict(:carbon_root_creation_consumed=>[[50.0], [50.0], [50.0], [50.0], [50.0], [50.0], [50.0], [50.0],…
-  "Leaf"      => Dict(:node=>Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[+ 4: Leaf…
+Dict{String, Vector} with 5 entries:
+  "Internode" => @NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, carbon_root_creation_consumed::Float64, TT_cu::Float64, carbon_…
+  "Root"      => @NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, carbon_root_creation_consumed::Float64, water_absorbed::Float64…
+  "Scene"     => @NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, TT_cu::Float64, TT::Float64}[(timestep = 1, node = / 1: Scene…
+  "Plant"     => @NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, carbon_root_creation_consumed::Float64, carbon_stock::Float64, …
+  "Leaf"      => @NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, carbon_captured::Float64}[(timestep = 1, node = + 4: Leaf…
 
 julia> outs["Root"]
-Dict{Symbol, Vector} with 4 entries:
-  :carbon_root_creation_consumed => [[50.0, 50.0], [50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50.0], [50.0, 50.0, 50.0, 50…
-  :node                          => Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[+ 9: Root…
-  :water_absorbed                => [[0.5, 0.0], [1.0, 1.0, 0.0], [0.0, 0.0, 0.0, 0.0], [1.1, 1.1, 1.1, 1.1, 0.0], [0.…
-  :root_water_assimilation       => [[1.0, 1.0], [1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0], [1.0, 1.0, 1.0, 1.0, 1.0], [1.…
-
-julia> outs["Root"][:carbon_root_creation_consumed]
-365-element Vector{Vector{Float64}}:
- [50.0, 50.0] # timestep 1: two root nodes
- [50.0, 50.0, 50.0]
- [50.0, 50.0, 50.0, 50.0]
- [50.0, 50.0, 50.0, 50.0, 50.0]
- [50.0, 50.0, 50.0, 50.0, 50.0, 50.0]
- [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 50.0] # timestep 6: 7 root nodes
+3257-element Vector{@NamedTuple{timestep::Int64, node::Node{NodeMTG, Dict{Symbol, Any}}, carbon_root_creation_consumed::Float64, water_absorbed::Float64, root_water_assimilation::Float64}}:
+ (timestep = 1, node = + 9: Root
+└─ < 10: Root
+   └─ < 11: Root
+      └─ < 12: Root
+         └─ < 13: Root
+            └─ < 14: Root
+               └─ < 15: Root
+                  └─ < 16: Root
+                     └─ < 17: Root
+, carbon_root_creation_consumed = 50.0, water_absorbed = 0.5, root_water_assimilation = 1.0)
  ⋮
 ```
 
-As more roots get added in this simulation, the vectors expand to list the values of all the nodes for every variable for every timestep.
+Values are more complex to query than in a single-scale simulation since the indexing isn't straightforward to map to a timestep:
+
+```julia
+julia> [Pair(outs["Root"][i][:timestep], outs["Root"][i][:carbon_root_creation_consumed]) for i in 1:length(outs["Root"])]
+3257-element Vector{Pair{Int64, Float64}}:
+   1 => 50.0
+   1 => 50.0
+   2 => 50.0
+   2 => 50.0
+   2 => 50.0
+     ⋮
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+ 365 => 50.0
+```
+
+Converting to a dictionary of DataFrame objects can make such queries easier to write.
 
 !!! warning
     Currently, the `:node` entry only shallow copies nodes. The `:node` values at each scale for every timestep actually reflect the final state of the node, meaning attribute values may not correspond to the value at that timestep. You may need to output these values via a dedicated model to keep track of them properly.
