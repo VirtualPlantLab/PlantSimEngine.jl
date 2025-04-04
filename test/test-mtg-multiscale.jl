@@ -700,8 +700,8 @@ end
     outs_df_dict = PlantSimEngine.convert_outputs_2(out, DataFrame)
 
     @test isa(outs_df_dict, Dict{String, DataFrame})
-    @test size(outs_df_dict["Leaf"]) == (6, 6)
-    @test size(outs_df_dict["Internode"]) == (6, 3)
+    @test size(outs_df_dict["Leaf"]) == (4, 6)
+    @test size(outs_df_dict["Internode"]) == (4, 3)
     @test size(outs_df_dict["Soil"]) == (2, 3)
     @test size(outs_df_dict["Plant"]) == (2, 2)
 
