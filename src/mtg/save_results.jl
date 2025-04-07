@@ -316,7 +316,7 @@ function pre_allocate_outputs_2(statuses, statuses_template, reverse_multiscale_
 
         # contains :node
         symbols_tuple = (:timestep, :node, outs_no_node...,)
-        values_tuple = (1, MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Uninitialized", 0, 0),), values...,)
+        values_tuple = (1, MultiScaleTreeGraph.Node((node_type.parameters[1])("/", "Uninitialized", 0, 0),), values...,)
         #named_tuple = NamedTuple{symbols_tuple,Tuple{Int, types...,}}
     
         dummy_status = (;zip(symbols_tuple, values_tuple)...)
