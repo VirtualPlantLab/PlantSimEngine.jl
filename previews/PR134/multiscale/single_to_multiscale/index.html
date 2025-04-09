@@ -84,31 +84,67 @@ end</code></pre><div class="admonition is-info"><header class="admonition-header
     ),
 )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Any} with 2 entries:
   &quot;Scene&quot; =&gt; ToyTt_CuModel()
-  &quot;Plant&quot; =&gt; (MultiScaleModel{ToyLAIModel, Vector{Pair{Union{Symbol, PreviousTi…</code></pre><h3 id="Running-the-multi-scale-simulation"><a class="docs-heading-anchor" href="#Running-the-multi-scale-simulation">Running the multi-scale simulation</a><a id="Running-the-multi-scale-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-multi-scale-simulation" title="Permalink"></a></h3><p>We can then run the multiscale simulation, with our two-node MTG :</p><pre><code class="language-julia hljs">outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Dict{Symbol, Vector}} with 2 entries:
-  &quot;Scene&quot; =&gt; Dict(:TT_cu=&gt;[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…
-  &quot;Plant&quot; =&gt; Dict(:TT_cu=&gt;[[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…</code></pre><h3 id="Comparing-outputs-between-single-and-multi-scale"><a class="docs-heading-anchor" href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a><a id="Comparing-outputs-between-single-and-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Comparing-outputs-between-single-and-multi-scale" title="Permalink"></a></h3><p>The outputs structures are slightly different : multi-scale outputs are indexed by scale, and a variable has a value for every node of the scale it operates at (for instance, there would be a &quot;leaf_surface&quot; value for every leaf in a plant), stored in an array.</p><p>In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.</p><p>We can access the output variables at the &quot;Scene&quot; scale by indexing our outputs:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{Symbol, Vector} with 2 entries:
-  :TT_cu =&gt; [[0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.0], [0.…
-  :node  =&gt; Vector{Node{NodeMTG, Dict{Symbol, Any}}}[[/ 1: Scene…</code></pre><p>and then the computed <code>:TT_cu</code>:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;][:TT_cu]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Vector{Float64}}:
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
- [0.0]
+  &quot;Plant&quot; =&gt; (MultiScaleModel{ToyLAIModel, Vector{Pair{Union{Symbol, PreviousTi…</code></pre><h3 id="Running-the-multi-scale-simulation"><a class="docs-heading-anchor" href="#Running-the-multi-scale-simulation">Running the multi-scale simulation</a><a id="Running-the-multi-scale-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-multi-scale-simulation" title="Permalink"></a></h3><p>We can then run the multiscale simulation, with our two-node MTG :</p><pre><code class="language-julia hljs">outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Vector} with 2 entries:
+  &quot;Scene&quot; =&gt; Status{(:timestep, :node, :TT_cu), Tuple{RefValue{Int64}, RefValue…
+  &quot;Plant&quot; =&gt; Status{(:timestep, :node, :TT_cu, :biomass_increment, :aPPFD, :LAI…</code></pre><h3 id="Comparing-outputs-between-single-and-multi-scale"><a class="docs-heading-anchor" href="#Comparing-outputs-between-single-and-multi-scale">Comparing outputs between single- and multi-scale</a><a id="Comparing-outputs-between-single-and-multi-scale-1"></a><a class="docs-heading-anchor-permalink" href="#Comparing-outputs-between-single-and-multi-scale" title="Permalink"></a></h3><p>The outputs structures are slightly different : multi-scale outputs are indexed by scale, and a variable has a value for every node of the scale it operates at (for instance, there would be a &quot;leaf_surface&quot; value for every leaf in a plant), stored in an array.</p><p>In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.</p><p>We can access the output variables at the &quot;Scene&quot; scale by indexing our outputs:</p><pre><code class="language-julia hljs">outputs_multiscale[&quot;Scene&quot;]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Status{(:timestep, :node, :TT_cu), Tuple{Base.RefValue{Int64}, Base.RefValue{MultiScaleTreeGraph.Node{MultiScaleTreeGraph.NodeMTG, Dict{Symbol, Any}}}, Base.RefValue{Float64}}}}:
+ Status(timestep = 1, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 2, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 3, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 4, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 5, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 6, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 7, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 8, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 9, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
+ Status(timestep = 10, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 0.0)
  ⋮
- [2177.904166666665]
- [2178.4249999999984]
- [2179.729166666665]
- [2180.4749999999985]
- [2181.1458333333317]
- [2183.941666666665]
- [2189.2666666666646]
- [2192.895833333331]
- [2193.8166666666643]</code></pre><p>As you can see, it is a <code>Vector{Vector{T}}</code>, whereas our single-scale output is a <code>Vector{T}</code>:</p><pre><code class="language-julia hljs">outputs_singlescale.TT_cu</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
+ Status(timestep = 357, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2177.904166666665)
+ Status(timestep = 358, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2178.4249999999984)
+ Status(timestep = 359, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2179.729166666665)
+ Status(timestep = 360, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2180.4749999999985)
+ Status(timestep = 361, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2181.1458333333317)
+ Status(timestep = 362, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2183.941666666665)
+ Status(timestep = 363, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2189.2666666666646)
+ Status(timestep = 364, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2192.895833333331)
+ Status(timestep = 365, node = / 1: Scene
+└─ + 2: Plant
+, TT_cu = 2193.8166666666643)</code></pre><p>We have a <code>Vector{NamedTuple}</code>structure. Our single-scale output is a <code>Vector{T}</code>:</p><pre><code class="language-julia hljs">outputs_singlescale.TT_cu</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
     0.0
     0.0
     0.0
@@ -128,10 +164,28 @@ end</code></pre><div class="admonition is-info"><header class="admonition-header
  2183.941666666666
  2189.2666666666664
  2192.895833333333
- 2193.816666666666</code></pre><p>To compare them value-by-value, we can flatten the multiscale Vector and then do a piecewise approximate equality test :</p><pre><code class="language-julia hljs">computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale[&quot;Scene&quot;][:TT_cu]))
-
-for i in 1:length(computed_TT_cu_multiscale)
+ 2193.816666666666</code></pre><p>Let&#39;s extract the multi-scale <code>:TT_cu</code>:</p><pre><code class="language-julia hljs">computed_TT_cu_multiscale = [outputs_multiscale[&quot;Scene&quot;][i].TT_cu for i in 1:length(outputs_multiscale[&quot;Scene&quot;])]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    ⋮
+ 2177.904166666665
+ 2178.4249999999984
+ 2179.729166666665
+ 2180.4749999999985
+ 2181.1458333333317
+ 2183.941666666665
+ 2189.2666666666646
+ 2192.895833333331
+ 2193.8166666666643</code></pre><p>We can now compare them value-by-value and do a piecewise approximate equality test :</p><pre><code class="language-julia hljs">for i in 1:length(computed_TT_cu_multiscale)
     if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
         println(i)
     end
-end</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <a href="#ToyDegreeDaysCumulModel"><code>ToyDegreeDaysCumulModel</code></a>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.10.1 on <span class="colophon-date" title="Thursday 3 April 2025 13:31">Thursday 3 April 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><div class="admonition is-info"><header class="admonition-header">Note</header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <a href="#ToyDegreeDaysCumulModel"><code>ToyDegreeDaysCumulModel</code></a>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.10.1 on <span class="colophon-date" title="Wednesday 9 April 2025 14:45">Wednesday 9 April 2025</span>. Using Julia version 1.11.4.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
