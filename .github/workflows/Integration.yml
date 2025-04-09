@@ -32,8 +32,8 @@ jobs:
         arch:
           - x64
         package:
-        - {user: PalmStudio, repo: XPalm.jl, branch: PSE-multiscale-outputs-structure-changes}
-        - {user: VEZY, repo: PlantBioPhysics.jl, branch: PSE-multiscale-outputs-structure-changes}
+        - {user: PalmStudio, repo: XPalm.jl, branch: PSE-multiscale-outputs-structure-change}
+        - {user: VEZY, repo: PlantBioPhysics.jl, branch: PSE-multiscale-outputs-structure-change}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
