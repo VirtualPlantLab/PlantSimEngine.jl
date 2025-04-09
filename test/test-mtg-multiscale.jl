@@ -213,8 +213,10 @@ end
     outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, nsteps, check=false)
 
     @test outs_ == Dict(
-        "Soil" => Dict(:node => [[], []], :soil_water_content => [[], []]),
-        "Leaf" => Dict(:carbon_assimilation => [[], []], :node => [[], []], :carbon_demand => [[], []])
+        "Soil" => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0)), soil_water_content = -Inf), 
+        Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), soil_water_content = -Inf)],
+        "Leaf" => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf),
+         Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf)]
     )
 end
 
@@ -697,7 +699,7 @@ end
     @test sim.outputs["Plant"][1][:carbon_allocation][1] === sim.outputs["Internode"][1][:carbon_allocation]
 
     # Testing the outputs if transformed into a DataFrame:
-    outs_df_dict = PlantSimEngine.convert_outputs_2(out, DataFrame)
+    outs_df_dict = convert_outputs(out, DataFrame)
 
     @test isa(outs_df_dict, Dict{String, DataFrame})
     @test size(outs_df_dict["Leaf"]) == (4, 6)

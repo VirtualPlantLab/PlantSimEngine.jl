@@ -229,7 +229,7 @@ end
     
     @test sort(unique(ref_df.organ)) == sort(collect(keys(out)))
     
-    out_df_dict = PlantSimEngine.convert_outputs_2(out, DataFrame, no_value=missing)
+    out_df_dict = convert_outputs(out, DataFrame, no_value=missing)
 
     for organ in keys(out)        
         reduced_ref_df = ref_df[(ref_df.organ .== organ), Not(:organ)]

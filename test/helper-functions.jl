@@ -1,7 +1,7 @@
 # Simple helper functions that can be used in various tests here and there
 
 function compare_outputs_modellist_mapping(filtered_outputs, graphsim)    
-    outputs_df_dict = PlantSimEngine.convert_outputs_2(graphsim.outputs, DataFrame)
+    outputs_df_dict = convert_outputs(graphsim.outputs, DataFrame)
     @assert length(outputs_df_dict) == 1
 
     outputs_df = last(first(outputs_df_dict))
@@ -25,8 +25,8 @@ end
 
 # doesn't check for mtg equality
 function compare_outputs_graphsim(graphsim, graphsim2)
-    outputs_df_dict = PlantSimEngine.convert_outputs_2(graphsim.outputs, DataFrame)
-    outputs2_df_dict = PlantSimEngine.convert_outputs_2(graphsim2.outputs, DataFrame)
+    outputs_df_dict = convert_outputs(graphsim.outputs, DataFrame)
+    outputs2_df_dict = convert_outputs(graphsim2.outputs, DataFrame)
 
     if length(outputs_df_dict) != length(outputs2_df_dict)
         return false

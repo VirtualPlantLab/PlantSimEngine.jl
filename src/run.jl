@@ -410,8 +410,7 @@ function run!(
         for (process_key, dependency_node) in roots
             run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
         end
-        save_results_2!(object, 1)
-        #save_results!(object, 1)
+        save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
@@ -419,11 +418,12 @@ function run!(
                 run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
             end
             # At the end of the time-step, we save the results of the simulation in the object:
-            save_results_2!(object, i)
-            #save_results!(object, i)
+            save_results!(object, i)
         end
     end
 
+    # save_results! resizes the outputs melodramatically because the total # of nodes at a given scale can't always be known
+    # if models create organs, so shrink it down to the final size here
     for (organ, index) in object.outputs_index
         resize!(outputs(object)[organ], index - 1)
     end
