@@ -4,8 +4,9 @@ on:
     branches:
       - main
       - Outputs-filtering2
+      - PSE-multiscale-outputs-structure-change
     tags: "*"
-    workflow-dispatch:
+  workflow-dispatch:
 permissions:
   # deployments permission to deploy GitHub pages website
     deployments: write
