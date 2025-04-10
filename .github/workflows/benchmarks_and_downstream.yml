@@ -6,7 +6,7 @@ on:
       - Outputs-filtering2
       - PSE-multiscale-outputs-structure-change
     tags: "*"
-  workflow-dispatch:
+  workflow_dispatch:
 permissions:
   # deployments permission to deploy GitHub pages website
     deployments: write
