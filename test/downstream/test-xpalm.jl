@@ -15,7 +15,7 @@ using XPalm
 using BenchmarkTools
 
 function xpalm_default_param_create()
-    meteo = CSV.read("../XPalm/0-data/meteo.csv", DataFrame)
+    meteo = CSV.read("../../XPalm.jl/0-data/meteo.csv", DataFrame)
     #meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
     m = Weather(meteo)
 
