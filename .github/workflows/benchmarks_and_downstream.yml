@@ -18,8 +18,6 @@ jobs:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    env:
-      GROUP: ${{ matrix.package.group }}
     strategy:
       fail-fast: false
       matrix:
@@ -32,13 +30,21 @@ jobs:
         arch:
           - x64
         package:
-        - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
+        - {user: PalmStudio, repo: XPalm.jl, branch: PSE-multiscale-outputs-structure-change}
+        - {user: VEZY, repo: PlantBioPhysics.jl, branch: PSE-multiscale-outputs-structure-change}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Clone Downstream
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.package.user }}/${{ matrix.package.repo }}
+          ref: ${{matrix.package.branch}}
+          path: downstream
       # TODO handle breaking changes the way downstream tests do ?
       # NOTE : manifest toml file is removed otherwise git whines about untracked changes when switching branches for the gh-pages commit
       - name: Run benchmarks
