@@ -6,3 +6,4 @@
 docs/Manifest.toml
 test/Manifest.toml
 docs/build/
+test/downstream/Manifest.toml
