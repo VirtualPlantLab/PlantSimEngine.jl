@@ -22,16 +22,12 @@ makedocs(;
     ), pages=[
         "Home" => "index.md",
         "Introduction" => [
-            #"Organization of the documentation ?"
             "Why PlantSimEngine ?" => "./introduction/why_plantsimengine.md",
             "Why Julia ?" => "./introduction/why_julia.md",
-            #"Overview ?"
-            #"Feature list ? Companion packages ?"
         ],
         "Prerequisites" => [
             "Installing and running PlantSimEngine" => "./prerequisites/installing_plantsimengine.md",
-            "Key Concepts" => "./prerequisites/key_concepts.md", # Key concepts vs terminology ?
-            #"Setup" ?",
+            "Key Concepts" => "./prerequisites/key_concepts.md",
             "Julia language basics" => "./prerequisites/julia_basics.md",
         ],
         "Step by step - Single-scale simulations" => [
@@ -62,7 +58,7 @@ makedocs(;
             "Building a simple plant" => [
                 "A rudimentary plant simulation" => "./multiscale/multiscale_example_1.md",
                 "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
-                "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md", # TODO illustrate outputs filtering to find the bug
+                "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md",
             ],
             "Visualizing our toy plant with PlantGeom"=> "./multiscale/multiscale_example_4.md",
         ], "Troubleshooting and testing" => [
@@ -74,14 +70,11 @@ makedocs(;
             "Public API" => "./API/API_public.md",
             "Example models" => "./API/API_examples.md",
             "Internal API" => "./API/API_private.md",],
-        "Credits" => "credits.md",
         "Improving our documentation" => "documentation_improvement.md",
         "Developer guidelines" => "developers.md",
         "Planned features" => "planned_features.md",
-        #"developer section TODO"
     ]
 )
-# move repeated examples listing to a specific page ?
 
 deploydocs(;
     repo="github.com/VirtualPlantLab/PlantSimEngine.jl.git",
