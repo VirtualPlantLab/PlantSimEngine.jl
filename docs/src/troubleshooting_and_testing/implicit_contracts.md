@@ -64,12 +64,6 @@ This rule avoids potential ambiguity which could then cause both problems in ter
 
 A workaround for some of the situations where this occurs is described here : [Having a variable simultaneously as input and output of a model](@ref)
 
-## TODO Organs missing in the MTG but declared in the mapping ?
-
-## Status template intialisation order TODO 
-
-## TODO simulation order, node order, etc.
-
 ## Simulation order instability when adding models
 
 An important aspect to bear in mind is that PlantSimEngine automatically determines an order in which models are run from the dependency graph it generates by coupling models together. 

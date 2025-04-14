@@ -53,7 +53,3 @@ Also of importance:
 Many of these are also briefly presented in [this Julia Data Science](https://juliadatascience.io/julia_basics) guide, which also happens to focus on the DataFrames.jl package.
 
 Understanding more about methods, parametric types and the typing system is usually worthwhile, when working with Julia packages.
-
-TODO point to Rémi's videos ? Other videos ?
-TODO extra concepts useful for developers ?
-

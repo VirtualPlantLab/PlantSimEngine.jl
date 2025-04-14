@@ -122,4 +122,4 @@ Not all combinations of weather data structure/weather dataset size/status sizes
 
 They were briefly mentioned earlier in the page, but the test banks to increase the number of combinations tested for in terms of weather data, modellists/mappings and tracked outputs, could definitely be improved upon.
 
-TODO extra section on memory allocations, type stability etc.
+Some additional work and tests regarding tracking memory allocations, type stability etc. would also be worth implementing/documenting.

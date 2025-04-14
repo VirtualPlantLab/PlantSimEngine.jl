@@ -107,8 +107,6 @@ out_pseudo_multiscale_successful = run!(mtg, mapping_pseudo_multiscale_adjusted,
 
 This feature is likely to break in simulations that make use of planned future features (such as mixing models with different timesteps), without guarantee of a fix on a short notice. Again, bear in mind it is mostly a convenient shortcut for prototyping, when doing multi-scale simulations.
 
-TODO workaround status initialisation bug ?
-
 ## Cyclic dependencies in single-scale simulations
 
 Cyclic dependencies can happen in single-scale simulations, but the PreviousTimestep feature currently isn't available. Hard dependencies are one way to deal with them, creating a multi-scale simulation with a single effective scale is also an option.
