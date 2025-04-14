@@ -13,7 +13,7 @@ Depth = 4
 
 ## PlantSimEngine terminology
 
-This page provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see the [Detailed walkthrough of a simple simulation](@ref)
+This page provides a general description of the concepts and terminology used in PlantSimEngine. For a more implementation-guided description of the design and some of the terms presented here, see the [Detailed walkthrough of a simple simulation](@ref detailed-walkthrough-of-a-simple-simulation)
 
 !!! Note
     Some terminology has different meanings in different contexts. This is particularly true of the terms organ, scale and symbol, which have a different meaning for [Multi-scale Tree Graphs](@ref) than the rest of PlantSimEngine (see [Scale/symbol terminology ambiguity](@ref) further down). Make sure to double-check those subsections, and relevant examples if you encounter issues relating to these terms.
@@ -35,7 +35,7 @@ There may be different models that can be used for the same process; for instanc
 
 Models can also be used for ad hoc computations that aren't directly tied to a specific literature-defined physiological process. In PlantSimEngine, everything is a model. There are many instances where a custom model might be practical to aggregate some computations or handle other information. To illustrate, XPalm, the Oil Palm model, has a few models that handle the state of different organs, and a model to handle leaf pruning, which you can find [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl).
 
-To prepare a simulation, you declare a ModelList with whatever models you wish to make use of and initialize necessary parameters: see the [step_by_step](@ref detailed-walkthrough-of-a-simple-simulation) section to learn how to use them in practice.
+To prepare a simulation, you declare a ModelList with whatever models you wish to make use of and initialize necessary parameters: see the [step by step](@ref detailed-walkthrough-of-a-simple-simulation) section to learn how to use them in practice.
 
 For multi-scale simulations, models need to be tied to a particular scale when used. See the [Multiscale modeling](@ref) section below, or the [Multi-scale considerations](@ref) page for a more detailed description of multi-scale peculiarities.
 
