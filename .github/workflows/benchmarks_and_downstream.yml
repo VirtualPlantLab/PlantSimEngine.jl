@@ -3,7 +3,7 @@ on:
   push:
     branches:
       - main
-      - Outputs-filtering2
+      - benchmarks-github-action
     tags: "*"
     workflow-dispatch:
 permissions:
