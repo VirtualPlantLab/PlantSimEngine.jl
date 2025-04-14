@@ -9,31 +9,54 @@
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
+- [PlantSimEngine](#plantsimengine)
+  - [Overview](#overview)
+  - [Unique Features](#unique-features)
+    - [Automatic Model Coupling](#automatic-model-coupling)
+    - [Flexibility with Precision Control](#flexibility-with-precision-control)
+  - [Batteries included](#batteries-included)
+  - [Ask Questions](#ask-questions)
+  - [Installation](#installation)
+  - [Example usage](#example-usage)
+    - [Simple example](#simple-example)
+    - [Model coupling](#model-coupling)
+    - [Multiscale modelling](#multiscale-modelling)
+  - [Projects that use PlantSimEngine](#projects-that-use-plantsimengine)
+  - [Performance](#performance)
+  - [Make it yours](#make-it-yours)
 
 ## Overview
 
-`PlantSimEngine` is a modelling framework for simulating and modelling plants, soil and atmosphere. It provides tools to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency.
+`PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
 
-**Key Features:**
+**Why choose PlantSimEngine?**
 
-- Process Definition: Easily define new processes such as light interception, photosynthesis, growth, soil water transfer, and more.
-- Interactive Prototyping: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
-- Control Degrees of Freedom: Fix variables, pass measurements, or use simpler models for specific processes to reduce complexity.
-- Automatic Management: The package automatically manages input and output variables, time-steps, objects, and the coupling of models using a dependency graph.
-- Flexible Model Switching: Switch between models without changing any code, using a simple syntax to specify the model for a given process.
-- Integrated Data Use: Force variables to take measured values instead of model predictions, reducing degrees of freedom during model development and increasing accuracy during production mode.
-- High-Performance Computation: Achieve high-speed computations, with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
-- Parallel and Distributed Computing: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
-- Scalability: Scale easily with methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
-- Composability: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for propagating measurement error.
+- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
+- **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
+- **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
+- **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
 
-**Benefits:**
+## Unique Features
 
-Improved Accuracy and Reliability:
+### Automatic Model Coupling
 
-- Enhance the accuracy of plant growth and yield predictions by integrating detailed physiological processes and environmental interactions.
-- Reduced Modeling Time: Streamline the modeling process with automated management and fast prototyping capabilities.
-- Collaborative Research: Facilitate collaborative research efforts with flexible and composable modeling tools.
+**Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
+
+**Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
+
+### Flexibility with Precision Control
+
+**Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
+
+## Batteries included
+
+- **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
+- **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
+- **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
+- **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
+- **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
+- **Compose Freely**: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
 
 ## Ask Questions
 
@@ -57,7 +80,7 @@ using PlantSimEngine
 
 The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
 
-### Simple example 
+### Simple example
 
 Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
 
@@ -193,47 +216,47 @@ fig
 
 ![LAI Growth and light interception](examples/LAI_growth2.png)
 
-### Multiscale modelling 
+### Multiscale modelling
 
-> See the [Multi-scale modeling](#multi-scale-modeling) section for more details.
+> See the Multi-scale modeling section of the docs for more details.
 
 The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
 
-```@example readme
+```julia
 mapping = Dict(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(
             model=ToyLAIModel(),
-            mapping=[
+            mapped_variables=[
                 :TT_cu => "Scene",
             ],
         ),
         Beer(0.6),
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil"],
+            mapped_variables=[:soil_water_content => "Soil"],
         ),
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 :carbon_demand => ["Leaf", "Internode"],
                 :carbon_allocation => ["Leaf", "Internode"]
             ],
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapping=[:TT => "Scene",],
+            mapped_variables=[:TT => "Scene",],
         ),
         MultiScaleModel(
             model=ToyInternodeEmergence(TT_emergence=20.0),
-            mapping=[:TT_cu => "Scene"],
+            mapped_variables=[:TT_cu => "Scene"],
         ),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(carbon_biomass=1.0)
@@ -241,7 +264,7 @@ mapping = Dict(
     "Leaf" => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapping=[:TT => "Scene",],
+            mapped_variables=[:TT => "Scene",],
         ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
         Status(carbon_biomass=1.0)
@@ -254,13 +277,13 @@ mapping = Dict(
 
 We can import an example plant from the package:
 
-```@example readme
+```julia
 mtg = import_mtg_example()
 ```
 
 Make a fake meteorological data:
 
-```@example readme
+```julia
 meteo = Weather(
     [
     Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
@@ -271,7 +294,7 @@ meteo = Weather(
 
 And run the simulation:
 
-```@example readme
+```julia
 out_vars = Dict(
     "Scene" => (:TT_cu,),
     "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
@@ -285,9 +308,9 @@ out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
 
 We can then extract the outputs in a `DataFrame` and sort them:
 
-```@example readme
+```julia
 using DataFrames
-df_out = outputs(out, DataFrame)
+df_out = convert_outputs(out, DataFrame)
 sort!(df_out, [:timestep, :node])
 ```
 
@@ -310,7 +333,6 @@ sort!(df_out, [:timestep, :node])
 | 2                       | Internode             | 8                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
 | 2                       | Leaf                  | 9                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
 
-
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
 
 ![Plant growth simulation](docs/src/www/image.png)
@@ -319,11 +341,17 @@ An example output of a multiscale simulation is shown in the documentation of Pl
 
 Take a look at these projects that use PlantSimEngine:
 
-- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl)
-- [XPalm](https://github.com/PalmStudio/XPalm.jl)
+- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) - For the simulation of biophysical processes for plants such as photosynthesis, conductance, energy fluxes, and temperature
+- [XPalm](https://github.com/PalmStudio/XPalm.jl) - An experimental crop model for oil palm
 
-## Make it yours 
+## Performance
 
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license. 
+PlantSimEngine delivers impressive performance for plant modeling tasks. On an M1 MacBook Pro, a toy model for leaf area over a year at daily time-scale took only 260 μs to perform (about 688 ns per day), and 275 μs (756 ns per day) when coupled to a light interception model. These benchmarks demonstrate performance on par with compiled languages like Fortran or C, far outpacing typical interpreted language implementations.
+
+For example, PlantBiophysics.jl, which implements ecophysiological models using PlantSimEngine, has been measured to run up to 38,000 times faster than equivalent implementations in other scientific computing languages.
+
+## Make it yours
+
+The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.
 
 If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃 Make sure to read the community guidelines before in case you're not familiar with such things.

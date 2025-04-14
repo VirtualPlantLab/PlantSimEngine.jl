@@ -1,5 +1,5 @@
 """
-    MultiScaleModel(model, mapping)
+    MultiScaleModel(model, mapped_variables)
 
 A structure to make a model multi-scale. It defines a mapping between the variables of a 
 model and the nodes symbols from which the values are taken from.
@@ -7,9 +7,9 @@ model and the nodes symbols from which the values are taken from.
 # Arguments
 
 - `model<:AbstractModel`: the model to make multi-scale
-- `mapping<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
+- `mapped_variables<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
 
-The mapping can be of the form:
+The mapped_variables argument can be of the form:
 
 1. `[:variable_name => "Plant"]`: We take one value from the Plant node
 2. `[:variable_name => ["Leaf"]]`: We take a vector of values from the Leaf nodes
@@ -74,25 +74,25 @@ We can make it multi-scale by defining a mapping between the variables of the mo
 For example, if the `carbon_allocation` comes from the `Leaf` and `Internode` nodes, we can define the mapping as follows:
 
 ```jldoctest mylabel
-julia> mapping = [:carbon_allocation => ["Leaf", "Internode"]]
+julia> mapped_variables=[:carbon_allocation => ["Leaf", "Internode"]]
 1-element Vector{Pair{Symbol, Vector{String}}}:
  :carbon_allocation => ["Leaf", "Internode"]
 ```
 
-The mapping is a vector of pairs of symbols and strings or vectors of strings. In this case, we have only one pair to define the mapping
+The mapped_variables argument is a vector of pairs of symbols and strings or vectors of strings. In this case, we have only one pair to define the mapping
 between the `carbon_allocation` variable and the `Leaf` and `Internode` nodes.
 
-We can now make the model multi-scale by passing the model and the mapping to the `MultiScaleModel` constructor :
+We can now make the model multi-scale by passing the model and the mapped variables to the `MultiScaleModel` constructor :
 
 ```jldoctest mylabel
-julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapping)
+julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapped_variables)
 MultiScaleModel{ToyCAllocationModel, Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}}(ToyCAllocationModel(), Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}[:carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]])
 ```
 
-We can access the mapping and the model:
+We can access the mapped variables and the model:
 
 ```jldoctest mylabel
-julia> PlantSimEngine.mapping_(multiscale_model)
+julia> PlantSimEngine.mapped_variables_(multiscale_model)
 1-element Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}:
  :carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]
 ```
@@ -104,12 +104,12 @@ ToyCAllocationModel()
 """
 struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}}
     model::T
-    mapping::V
+    mapped_variables::V
 
-    function MultiScaleModel{T}(model::T, mapping) where {T<:AbstractModel}
+    function MultiScaleModel{T}(model::T, mapped_variables) where {T<:AbstractModel}
         # Check that the variables in the mapping are variables of the model:
         model_variables = keys(variables(model))
-        for i in mapping
+        for i in mapped_variables
             # If the var is a PreviousTimeStep, we take the variable name, else take the first element of the pair:
             var = isa(i, PreviousTimeStep) ? i.variable : first(i)
 
@@ -133,7 +133,7 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
 
         process_ = process(model)
         unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
-        for i in mapping
+        for i in mapped_variables
             push!(unfolded_mapping, _get_var(isa(i, PreviousTimeStep) ? i : Pair(i.first, i.second), process_))
             # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
         end
@@ -185,16 +185,16 @@ end
 
 
 
-function MultiScaleModel(model::T, mapping) where {T<:AbstractModel}
-    MultiScaleModel{T}(model, mapping)
+function MultiScaleModel(model::T, mapped_variables) where {T<:AbstractModel}
+    MultiScaleModel{T}(model, mapped_variables)
 end
-MultiScaleModel(; model, mapping) = MultiScaleModel(model, mapping)
+MultiScaleModel(; model, mapped_variables) = MultiScaleModel(model, mapped_variables)
 
-mapping_(m::MultiScaleModel) = m.mapping
+mapped_variables_(m::MultiScaleModel) = m.mapped_variables
 model_(m::MultiScaleModel) = m.model
 inputs_(m::MultiScaleModel) = inputs_(m.model)
 outputs_(m::MultiScaleModel) = outputs_(m.model)
 get_models(m::MultiScaleModel) = [model_(m)] # Get the models of a MultiScaleModel:
 # Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.
 get_status(m::MultiScaleModel) = nothing
-get_mapping(m::MultiScaleModel{T,S}) where {T,S} = mapping_(m)
+get_mapped_variables(m::MultiScaleModel{T,S}) where {T,S} = mapped_variables_(m)

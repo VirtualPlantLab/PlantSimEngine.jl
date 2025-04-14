@@ -38,7 +38,7 @@ julia> mapping = Dict( \
     "Plant" =>  ( \
         MultiScaleModel(  \
             model=ToyCAllocationModel(), \
-            mapping=[ \
+            mapped_variables=[ \
                 :carbon_assimilation => ["Leaf"], \
                 :carbon_demand => ["Leaf", "Internode"], \
                 :carbon_allocation => ["Leaf", "Internode"] \
@@ -46,7 +46,7 @@ julia> mapping = Dict( \
         ), 
         MultiScaleModel(  \
             model=ToyPlantRmModel(), \
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],] \
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],] \
         ), \
     ),\
     "Internode" => ( \
@@ -57,7 +57,7 @@ julia> mapping = Dict( \
     "Leaf" => ( \
         MultiScaleModel( \
             model=ToyAssimModel(), \
-            mapping=[:soil_water_content => "Soil",], \
+            mapped_variables=[:soil_water_content => "Soil",], \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
@@ -111,11 +111,23 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 """
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
     outs_ = Dict{String,Vector{Symbol}}()
-    for i in keys(outs) # i = "Plant"
-        @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
-        outs_[i] = [outs[i]...]
+    
+    # default behaviour : track everything
+    if isnothing(outs)
+        for organ in keys(statuses)
+            outs_[organ] = [keys(statuses_template[organ])...]
+        end
+        # No outputs requested by user : just return the timestep and node
+    elseif length(outs) == 0
+        for i in keys(statuses)
+            outs_[i] = []
+        end
+    else
+        for i in keys(outs) # i = "Plant"
+            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
+            outs_[i] = [outs[i]...]
+        end
     end
-
     statuses_ = copy(statuses_template)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -190,7 +202,6 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     # without the reference types, e.g. RefVector{Float64} becomes Vector{Float64}.
 end
 
-pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, ::Nothing, nsteps; type_promotion=nothing, check=true) = Dict{String,Tuple{Symbol,Vararg{Symbol}}}()
 
 """
     save_results!(object::GraphSimulation, i)
@@ -201,11 +212,74 @@ from the `status(object)` in the `outputs(object)`.
 """
 function save_results!(object::GraphSimulation, i)
     outs = outputs(object)
+
+    if length(outs) == 0
+        return
+    end
+
     statuses = status(object)
 
     for (organ, vars) in outs
         for (var, values) in vars
             values[i] = [status[var] for status in statuses[organ]]
         end
+    end
+end
+
+function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
+    
+    # NOTE : init_variables recreates a DependencyGraph, it's not great
+    # TODO : copy ?
+    out_vars_pre_type_promotion = merge(init_variables(m; verbose=false)...)
+    
+    # bit hacky, could be cleaned up
+    out_vars_all = convert_vars(out_vars_pre_type_promotion, m.type_promotion)
+
+    out_keys_requested = Symbol[]
+    if !isnothing(outs)
+        if length(outs) == 0 # no outputs desired, for some reason
+            return NamedTuple()
+        end
+        out_keys_requested = Symbol[outs...]
+    end
+    out_vars_requested = NamedTuple()
+
+    # default implicit behaviour, track everything
+    if isempty(out_keys_requested)
+        out_vars_requested = out_vars_all
+    else
+        unexpected_outputs = setdiff(out_keys_requested, status_keys(status(m)))
+
+        if !isempty(unexpected_outputs)
+            e = string(
+                "You requested as output ",
+                join(unexpected_outputs, " ,"),
+                " not found in any model."
+            )
+
+            if check
+                error(e)
+            else
+                @info e
+                [delete!(unexpected_outputs, i) for i in unexpected_outputs]
+            end
+        end    
+
+        out_defaults_requested = (out_vars_all[i] for i in out_keys_requested)
+        out_vars_requested = (;zip(out_keys_requested, out_defaults_requested)...)
+    end
+
+    outputs_timestep = fill(out_vars_requested, nsteps)
+    return TimeStepTable([Status(i) for i in outputs_timestep])
+end
+
+function save_results!(status_flattened::Status, outputs, i)
+    if length(outputs) == 0 
+        return 
+    end
+    outs = outputs[i]
+    
+    for var in keys(outs)
+        outs[var] = status_flattened[var]
     end
 end

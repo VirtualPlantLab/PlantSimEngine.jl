@@ -25,4 +25,4 @@ model_(m::AbstractModel) = m
 get_models(m::AbstractModel) = [model_(m)] # Get the models of an AbstractModel
 # Note: it is returning a vector of models, because in this case the user provided a single model instead of a vector of.
 get_status(m::AbstractModel) = nothing
-get_mapping(m::AbstractModel) = Pair{Symbol,String}[]
+get_mapped_variables(m::AbstractModel) = Pair{Symbol,String}[]

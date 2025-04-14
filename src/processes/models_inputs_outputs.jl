@@ -140,12 +140,6 @@ function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
     length((ms...,)) > 0 ? merge(variables(m), variables(ms...)) : merge(inputs_(m), outputs_(m))
 end
 
-"""
-    variables(m::AbstractDependencyNode)
-
-Returns a tuple with the name of the inputs and outputs variables needed by a model in 
-a dependency graph.
-"""
 function variables(m::SoftDependencyNode)
     self_variables = (inputs=inputs_(m.value), outputs=outputs_(m.value))
     # hard_dep_vars = map(variables, m.hard_dependencies)

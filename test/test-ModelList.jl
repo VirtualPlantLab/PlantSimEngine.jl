@@ -1,5 +1,6 @@
 # Tests:
 # Defining a list of models without status:
+
 @testset "ModelList with no status" begin
     leaf = ModelList(
         process1=Process1Model(1.0),
@@ -11,7 +12,7 @@
     @test all(getproperty(leaf.status, i)[1] == getproperty(st, i) for i in keys(st))
     @test !is_initialized(leaf)
     @test to_initialize(leaf) == (process1=(:var1, :var2), process2=(:var1,))
-    @test length(status(leaf)) == 1
+    @test length(status(leaf)) == 5
 
     # Requiring 3 steps for initialization:
     leaf = ModelList(
@@ -20,8 +21,8 @@
         nsteps=3
     )
 
-    @test length(status(leaf)) == 3
-    @test status(leaf, :var1) == [-Inf, -Inf, -Inf]
+    @test length(status(leaf)) == 5
+    @test status(leaf, :var1) == -Inf
 end;
 
 
@@ -83,8 +84,8 @@ end;
         nsteps=3
     )
 
-    @test length(status(leaf)) == 3
-    @test status(leaf, :var1) == [15.0, 15.0, 15.0]
+    @test length(status(leaf)) == 5
+    @test status(leaf, :var1) == 15.0
 end;
 
 @testset "ModelList with fully initialized status" begin
@@ -139,13 +140,13 @@ end;
     # Copy the model list:
     ml2 = copy(models)
 
-    @test DataFrame(status(ml2)) == DataFrame(status(models))
+    @test DataFrame(TimeStepTable([status(ml2)])) == DataFrame(TimeStepTable([status(models)]))
 
     # Copy the model list with new status:
-    tst = TimeStepTable([Status(var1=20.0, var2=0.5)])
-    ml3 = copy(models, tst)
+    st = Status(var1=20.0, var2=0.5)
+    ml3 = copy(models, st)
 
-    @test status(ml3) == tst
+    @test status(ml3) == st
     @test ml3.models == models.models
 
 
@@ -205,4 +206,116 @@ end
 
     @test process3.children[1].value == Process5Model()
     @test isa(process3.children[1], PlantSimEngine.SoftDependencyNode)
+end
+
+
+
+
+# very naive function, doesn't generate full partition sets
+# insert_errors : could duplicate a value, add a nonexistent one, make one the wrong type ?
+#=function generate_output_tuple(vars_tuple, insert_errors, count)
+
+    outputs_tuples_vector = [NamedTuple()]
+
+    # number not exact, but trying every permutation sounds like a waste of time
+    for i in 1:max(count, length(vars_tuple))
+        new_tuple = ()
+        # TODO 
+        new_tuple = (new_tuple..., new_var)
+    end 
+    return outputs_tuples_vector
+end=#
+
+
+
+@testset "ModelList outputs preallocation" begin
+    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
+    leaf =  ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        status=vals
+    )
+    outs=(:var3,)
+
+    mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(leaf, vals, outs, meteo_day)
+    @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+
+    meteos = 
+    [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
+    CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18),
+    ]
+    modellists, status_tuples, outs_vectors = get_modellist_bank()
+
+    # remove some of the currently unhandled cases
+    outs_vectors = 
+    [
+        # this one has one tuple with a duplicate, and one with a nonexistent variable
+        [(:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5)], 
+        [#=NamedTuple(),=# (:TT_cu,), (:TT_cu,:LAI) , (:biomass,:LAI), (:TT_cu, :LAI, :aPPFD, :biomass, :biomass_increment),], 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        #=(:var2, :var7, :var3, :var1),=# (:var1, :var2, :var3, :var4, :var5, :var6)], 
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)],     
+        [#=NamedTuple(),=# (:var1,), (:var1, :var4), (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
+        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, :var8, :var9)], 
+        [#=NamedTuple(),=# (:var1,), #=(:var1, :var1),=# (:var1, :var2), (:var1, :var3), (:var1, :var4, :var6, :var5), 
+        (:var2, :var7, :var3, :var1), (:var1, :var2, :var3, :var4, :var5, :var6)
+        , (:var1, :var2, :var3, :var4, :var5, :var6, :var7, #=:var8, :var9,=# :var0)], 
+    ]
+
+
+
+    for i in 1:length(modellists)
+
+        modellist = modellists[i]
+        status_tuple = status_tuples[i]
+        outs_vector = outs_vectors[i]
+        all_vars = init_variables(modellist)
+
+        #insert_errors = true
+        #outs_vector = generate_output_tuple(all_vars, insert_errors)
+
+        for j in 1:length(meteos)
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+                out_tuple  = outs_vector[k]
+                #print(i, " ", j, " ", k)
+                meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_given_length(
+                    PlantSimEngine.get_status_vector_max_length(modellist.status) , meteo)                             
+                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo_adjusted)
+                @test to_initialize(mapping) == Dict()
+                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_adjusted, filtered_outputs_modellist)
+            end
+        end
+    end
+    
+    #mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellists[1], status_tuples[1], outs_vectors[1][1], meteos[1])
+    #@test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+end
+
+
+PlantSimEngine.@process "modellist_cycle" verbose = false
+
+struct Reeb{T} <: AbstractModellist_CycleModel
+    k::T
+end
+
+function PlantSimEngine.run!(::Reeb, models, status, meteo, constants, extra=nothing)
+    status.LAI =
+        status.aPPFD + 0.4*k
+end
+
+function PlantSimEngine.inputs_(::Reeb)
+    (aPPFD=-Inf,)
+end
+
+function PlantSimEngine.outputs_(::Reeb)
+    (LAI=-Inf,)
+end
+
+@testset "ModelList simple cyclic dependency detection" begin
+    @test_throws "Cyclic" m = ModelList(Beer(0.5), Reeb(0.5))
 end

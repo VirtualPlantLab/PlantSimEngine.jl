@@ -26,7 +26,7 @@ If we just give a MultiScaleModel, we get its model as a one-element vector:
 ```jldoctest mylabel
 julia> models = MultiScaleModel( \
             model=ToyCAllocationModel(), \
-            mapping=[ \
+            mapped_variables=[ \
                 :carbon_assimilation => ["Leaf"], \
                 :carbon_demand => ["Leaf", "Internode"], \
                 :carbon_allocation => ["Leaf", "Internode"] \
@@ -46,7 +46,7 @@ If we give a tuple of models, we get each model in a vector:
 julia> models2 = (  \
         MultiScaleModel( \
             model=ToyAssimModel(), \
-            mapping=[:soil_water_content => "Soil",], \
+            mapped_variables=[:soil_water_content => "Soil",], \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         Status(aPPFD=1300.0, TT=10.0), \
@@ -90,7 +90,7 @@ function get_status(m)
 end
 
 """
-    get_mapping(m)
+    get_mapped_variables(m)
 
 Get the mapping of a dictionary of model mapping.
 
@@ -104,8 +104,8 @@ Returns a vector of pairs of symbols and strings or vectors of strings
 
 See [`get_models`](@ref) for examples.
 """
-function get_mapping(m)
-    mod_mapping = [mapping_(i) for i in m if isa(i, MultiScaleModel)]
+function get_mapped_variables(m)
+    mod_mapping = [mapped_variables_(i) for i in m if isa(i, MultiScaleModel)]
     if length(mod_mapping) == 0
         return Pair{Symbol,String}[]
     end

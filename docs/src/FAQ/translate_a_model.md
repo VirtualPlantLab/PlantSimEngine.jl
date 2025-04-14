@@ -16,8 +16,6 @@ function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decs
 end
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-# Note: meteo_day is defined below if you want to reproduce it, then use this to write it:
-# PlantMeteo.write_weather("examples/meteo_day.csv", meteo_day, duration = Dates.Day)
 ```
 
 If you already have a model, you can easily use `PlantSimEngine` to couple it with other models with minor adjustments.
@@ -64,7 +62,7 @@ The model can be implemented using `PlantSimEngine` as follows:
 
 #### Define a process
 
-If the process of LAI dynamic is not implement yet, we can define it like so:
+If the process of LAI dynamic is not implemented yet, we can define it like so:
 
 ```julia
 @process LAI_Dynamic
@@ -153,7 +151,7 @@ m = ModelList(
     status = (TT_cu = cumsum(meteo_day.TT),),
 )
 
-run!(m)
+outputs_sim = run!(m)
 
-lines(m[:TT_cu], m[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
+lines(outputs_sim[:TT_cu], outputs_sim[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Days since sowing"))
 ```

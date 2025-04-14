@@ -19,14 +19,14 @@ out_vars = Dict(
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
-                mapping=[
+                mapped_variables=[
                     :carbon_demand => ["Leaf", "Internode"],
                     :carbon_allocation => ["Leaf", "Internode"]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6),
         ),
@@ -61,14 +61,14 @@ end
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
-                mapping=[
+                mapped_variables=[
                     :carbon_demand => ["Leaf", "Internode"],
                     :carbon_allocation => ["Leaf", "Internode"]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6, carbon_assimilation=5.0),
         ),
@@ -76,7 +76,7 @@ end
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-                mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
+                mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
             ),
             Status(TT=10.0, carbon_biomass=1.0),
         ),
@@ -84,7 +84,7 @@ end
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-                mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (second break)
+                mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (second break)
             ),
             ToyCBiomassModel(1.2),
             Status(TT=10.0),
@@ -104,8 +104,12 @@ end
     @test length(cycle_vec) == 7
     @test to_initialize(mapping_nocyclic) == Dict()
 
-    out = @test_nowarn run!(mtg, mapping_nocyclic, meteo, outputs=out_vars, executor=SequentialEx())
-    st = status(out)
+
+    #out = @test_nowarn run!(mtg, mapping_nocyclic, meteo, tracked_outputs=out_vars, executor=SequentialEx())
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    out = @test_nowarn run!(sim,meteo)
+    st = status(sim)
 
     st["Leaf"][1].carbon_biomass = 2.0
     @test st["Leaf"][2].carbon_biomass != 2.0
@@ -117,7 +121,7 @@ end
             ToyDegreeDaysCumulModel(),
             MultiScaleModel(
                 model=ToyLAIfromLeafAreaModel(1.0),
-                mapping=[
+                mapped_variables=[
                     :plant_surfaces => ["Plant" => :surface],
                 ],
             ),
@@ -126,7 +130,7 @@ end
         "Plant" => (
             MultiScaleModel(
                 model=ToyPlantLeafSurfaceModel(),
-                mapping=[PreviousTimeStep(:leaf_surfaces) => ["Leaf" => :surface],],
+                mapped_variables=[PreviousTimeStep(:leaf_surfaces) => ["Leaf" => :surface],],
                 #! We use PreviousTimeStep to break the cyclic dependency between the LAI and the leaf surface 
                 # that is computed as one of the latest sub-models. Now the LAI used for light interception
                 # will be the one from the previous time-step, and at the end of the time-step we will update
@@ -134,41 +138,41 @@ end
             ),
             MultiScaleModel(
                 model=ToyLightPartitioningModel(),
-                mapping=[
+                mapped_variables=[
                     :aPPFD_larger_scale => "Scene" => :aPPFD,
                     :total_surface => "Scene"
                 ],
             ),
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapping=[
+                mapped_variables=[
                     :soil_water_content => "Soil",
                 ],
             ),
             MultiScaleModel(
                 model=ToyCAllocationModel(),
-                mapping=[
+                mapped_variables=[
                     :carbon_demand => ["Leaf", "Internode"],
                     :carbon_allocation => ["Leaf", "Internode"]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
             ),
         ),
         "Internode" => (
             MultiScaleModel(
                 model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                mapping=[:TT => "Scene",],
+                mapped_variables=[:TT => "Scene",],
             ),
             MultiScaleModel(
                 model=ToyInternodeEmergence(TT_emergence=20.0),
-                mapping=[:TT_cu => "Scene"],
+                mapped_variables=[:TT_cu => "Scene"],
             ),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-                mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
+                mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
             ),
             ToyCBiomassModel(1.1),
             Status(carbon_biomass=0.0)
@@ -176,11 +180,11 @@ end
         "Leaf" => (
             MultiScaleModel(
                 model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                mapping=[:TT => "Scene",],
+                mapped_variables=[:TT => "Scene",],
             ),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-                mapping=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
+                mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
             ),
             ToyCBiomassModel(1.2),
             ToyLeafSurfaceModel(0.1),
@@ -212,10 +216,15 @@ end
 
     d = @test_nowarn dep(mapping)
     @test to_initialize(mapping) == Dict()
-    out = @test_nowarn run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx())
+    #out = @test_nowarn run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx())
+    
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    out = run!(sim,meteo)
+    
     # To update the reference:
     ref_path = joinpath(pkgdir(PlantSimEngine), "test/references/ref_output_simulation.csv")
-    # CSV.write(ref_path, sort(outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
+    # CSV.write(ref_path, sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
     ref_df = CSV.read(ref_path, DataFrame)
-    @test isequal(sort(outputs(out, DataFrame, no_value=missing), [:timestep, :node]), ref_df)
+    @test isequal(sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), ref_df)
 end

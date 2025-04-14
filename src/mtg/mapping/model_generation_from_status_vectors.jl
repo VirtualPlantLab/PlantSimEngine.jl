@@ -86,7 +86,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
                     HelperNextTimestepModel(),
                     MultiScaleModel(
                     model=HelperCurrentTimestepModel(),
-                    mapping=[PreviousTimeStep(:next_timestep),],
+                    mapped_variables=[PreviousTimeStep(:next_timestep),],
                     ),
                     mapping[organ], )
             else
@@ -94,7 +94,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
                 HelperNextTimestepModel(),
                 MultiScaleModel(
                 model=HelperCurrentTimestepModel(),
-                mapping=[PreviousTimeStep(:next_timestep),],
+                mapped_variables=[PreviousTimeStep(:next_timestep),],
                 ),
                 mapping[organ]..., )
             end
@@ -165,7 +165,7 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
 
             # if :current_timestep is not in the same scale
             if timestep_scale != organ
-                model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., MultiScaleModel(model=$model_name($value_534f1c161f91bb346feba1a84a55e8251f5ad446), mapping=[:current_timestep=>\"$timestep_scale\"],),)"
+                model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., MultiScaleModel(model=$model_name($value_534f1c161f91bb346feba1a84a55e8251f5ad446), mapped_variables=[:current_timestep=>\"$timestep_scale\"],),)"
             end 
        
         eval(Meta.parse(model_add_decl))
@@ -191,17 +191,29 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
 
     models = modellist.models
 
-    mapping_incomplete = Dict(
+    mapping_incomplete = isnothing(modellist_status) ? 
+    (
+        Dict(
         default_scale => (
         models..., 
         MultiScaleModel(
         model=HelperCurrentTimestepModel(),
-        mapping=[PreviousTimeStep(:next_timestep),],
+        mapped_variables=[PreviousTimeStep(:next_timestep),],
+        ),
+        Status((current_timestep=1,next_timestep=1,))
+        ),
+    )) : (
+        Dict(
+        default_scale => (
+        models..., 
+        MultiScaleModel(
+        model=HelperCurrentTimestepModel(),
+        mapped_variables=[PreviousTimeStep(:next_timestep),],
         ),
         Status((modellist_status..., current_timestep=1,next_timestep=1,))
         ),
     )
-    
+    )
     timestep_scale = "Default"
     organ = "Default"
  
@@ -214,7 +226,7 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
         HelperNextTimestepModel(),
         MultiScaleModel(
             model=HelperCurrentTimestepModel(),
-            mapping=[PreviousTimeStep(:next_timestep),],
+            mapped_variables=[PreviousTimeStep(:next_timestep),],
             ),
             new_status,
     ),

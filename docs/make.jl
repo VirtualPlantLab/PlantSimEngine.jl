@@ -1,3 +1,5 @@
+#using Pkg
+#Pkg.develop("PlantSimEngine")
 using PlantSimEngine
 using PlantMeteo
 using DataFrames, CSV
@@ -16,34 +18,66 @@ makedocs(;
         canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
         assets=String[],
-        size_threshold=300000
-    ),
-    pages=[
+        size_threshold=500000
+    ), pages=[
         "Home" => "index.md",
-        "Design" => "design.md",
-        "Model Switching" => "model_switching.md",
-        "Reducing DoF" => "reducing_dof.md",
+        "Introduction" => [
+            "Why PlantSimEngine ?" => "./introduction/why_plantsimengine.md",
+            "Why Julia ?" => "./introduction/why_julia.md",
+        ],
+        "Prerequisites" => [
+            "Installing and running PlantSimEngine" => "./prerequisites/installing_plantsimengine.md",
+            "Key Concepts" => "./prerequisites/key_concepts.md",
+            "Julia language basics" => "./prerequisites/julia_basics.md",
+        ],
+        "Step by step - Single-scale simulations" => [
+            "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
+            "Coupling" => "./step_by_step/simple_model_coupling.md",
+            "Model Switching" => "./step_by_step/model_switching.md",
+            "Quick examples" => "./step_by_step/quick_and_dirty_examples.md",
+            "Implementing a process" => "./step_by_step/implement_a_process.md",
+            "Implementing a model" => "./step_by_step/implement_a_model.md",
+            "Parallelization" => "./step_by_step/parallelization.md",
+            "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
+            "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",           
+        ],
         "Execution" => "model_execution.md",
-        "Fitting" => "fitting.md",
-        "Extending" => [
-            "Processes" => "./extending/implement_a_process.md",
-            "Models" => "./extending/implement_a_model.md",
-            "Input types" => "./extending/inputs.md",
+        "Working with data" => [
+            "Reducing DoF" => "./working_with_data/reducing_dof.md",
+            "Fitting" => "./working_with_data/fitting.md",
+            "Input types" => "./working_with_data/inputs.md",
+            "Visualizing outputs and data" => "./working_with_data/visualising_outputs.md",
+            "Floating-point considerations" => "./working_with_data/floating_point_accumulation_error.md",
         ],
-        "Coupling" => [
-            "Users" => [
-                "Simple case" => "./model_coupling/model_coupling_user.md",
-                "Multi-scale modelling" => "./model_coupling/multiscale.md",
+        "Moving to multiscale" => [
+            "Multiscale considerations" => "./multiscale/multiscale_considerations.md",
+            "Converting a simulation to multi-scale" => "./multiscale/single_to_multiscale.md",
+            "More variable mapping examples" => "./multiscale/multiscale.md",
+            "Handling cyclic dependencies" => "./multiscale/multiscale_cyclic.md",
+            "Multiscale coupling considerations" => "./multiscale/multiscale_coupling.md",
+            "Building a simple plant" => [
+                "A rudimentary plant simulation" => "./multiscale/multiscale_example_1.md",
+                "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
+                "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md",
             ],
-            "Modelers" => "./model_coupling/model_coupling_modeler.md",
-            "Tips and Workarounds" => "./model_coupling/tips_and_workarounds.md",
-        ],
-        "FAQ" => ["./FAQ/translate_a_model.md"],
-        "API" => "API.md",
+            "Visualizing our toy plant with PlantGeom"=> "./multiscale/multiscale_example_4.md",
+        ], "Troubleshooting and testing" => [
+            "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
+            "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
+            "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
+            "Implicit contracts" => "./troubleshooting_and_testing/implicit_contracts.md",
+        ], "API" => [
+            "Public API" => "./API/API_public.md",
+            "Example models" => "./API/API_examples.md",
+            "Internal API" => "./API/API_private.md",],
+        "Improving our documentation" => "documentation_improvement.md",
+        "Developer guidelines" => "developers.md",
+        "Planned features" => "planned_features.md",
     ]
 )
 
 deploydocs(;
     repo="github.com/VirtualPlantLab/PlantSimEngine.jl.git",
-    devbranch="main"
+    devbranch="main",
+    push_preview=true, # Visit https://VirtualPlantLab.github.io/PlantSimEngine.jl/previews/PR128 to visualize the preview of the PR #128
 )

@@ -34,7 +34,7 @@ julia> mapping = Dict( \
             "Plant" => \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
-                    mapping=[ \
+                    mapped_variables=[ \
                         :carbon_assimilation => ["Leaf"], \
                         :carbon_demand => ["Leaf", "Internode"], \
                         :carbon_allocation => ["Leaf", "Internode"] \
@@ -44,7 +44,7 @@ julia> mapping = Dict( \
             "Leaf" => ( \
                 MultiScaleModel( \
                     model=ToyAssimModel(), \
-                    mapping=[:soil_water_content => "Soil",], \
+                    mapped_variables=[:soil_water_content => "Soil",], \
                 ), \
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
                 Status(aPPFD=1300.0, TT=10.0), \

@@ -2,7 +2,7 @@ mapping = Dict(
     "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 # inputs
                 :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
@@ -12,7 +12,7 @@ mapping = Dict(
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
@@ -23,7 +23,7 @@ mapping = Dict(
     "Leaf" => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
+            mapped_variables=[:soil_water_content => "Soil",],
             # Notice we provide "Soil", not ["Soil"], so a single value is expected here
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
@@ -111,7 +111,7 @@ function modellist_to_mapping_manual(modellist_original::ModelList, modellist_st
         PlantSimEngine.HelperNextTimestepModel(),
         MultiScaleModel(
         model=PlantSimEngine.HelperCurrentTimestepModel(),
-        mapping=[PreviousTimeStep(:next_timestep),],
+        mapped_variables=[PreviousTimeStep(:next_timestep),],
         ),
         Status(current_timestep=1,next_timestep=1)
         ),
@@ -175,7 +175,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         status=st,
     )
 
-    run!(models,
+    modellist_outputs = run!(models,
         meteo_day
         ;
         check=true,
@@ -193,16 +193,16 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         executor=SequentialEx()
     )
 
-    @test compare_outputs_modellist_mapping(models, graphsim)
+    @test compare_outputs_modellist_mapping(modellist_outputs, graphsim)
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
    
-    # TODO outputs name conflict if this is just named outputs
-    # TODO when outputs filtering is implemented, can test it with this function
     mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(models, st2; nsteps=nsteps, outputs=nothing)
  
-   graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+    @test to_initialize(mapping) == Dict()
+
+    graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
 
     sim2 = run!(graphsim2,
         meteo_day,
@@ -211,7 +211,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
         check=true,
         executor=SequentialEx()
     )
-    @test compare_outputs_modellist_mapping(models, graphsim2)
+    @test compare_outputs_modellist_mapping(modellist_outputs, graphsim2)
     @test compare_outputs_graphsim(graphsim, graphsim2)
 
 end
@@ -230,7 +230,7 @@ end
     "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
-            mapping=[
+            mapped_variables=[
                 # inputs
                 :carbon_assimilation => ["Leaf"],
                 :carbon_demand => ["Leaf", "Internode"],
@@ -240,7 +240,7 @@ end
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapping=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
         ),
     ),
     "Internode" => (
@@ -251,7 +251,7 @@ end
     "Leaf" => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapping=[:soil_water_content => "Soil",],
+            mapped_variables=[:soil_water_content => "Soil",],
             # Notice we provide "Soil", not ["Soil"], so a single value is expected here
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
@@ -268,6 +268,8 @@ mtg = import_mtg_example();
 
 mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_with_vector, "Soil", nsteps)
 
+@test to_initialize(mapping_without_vectors) == Dict()
+
  graph_sim_multiscale = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors, nsteps=nsteps, check=true, outputs=out_multiscale)
 
     sim_multiscale = run!(graph_sim_multiscale,
@@ -277,4 +279,60 @@ mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_gen
         check=true,
         executor=SequentialEx()
     )
+
+    #replace a value with a constant vector and ensure no changes happen in the simulation 
+    carbon_biomass_vec = Vector{Float64}(undef, nsteps)
+    for i in nsteps
+        carbon_biomass_vec[i] = 2.0
+    end
+    mapping_with_two_vectors = Dict("Plant" => (
+            MultiScaleModel(
+                model=ToyCAllocationModel(),
+                mapped_variables=[
+                    # inputs
+                    :carbon_assimilation => ["Leaf"],
+                    :carbon_demand => ["Leaf", "Internode"],
+                    # outputs
+                    :carbon_allocation => ["Leaf", "Internode"]
+                ],
+            ),
+            MultiScaleModel(
+                model=ToyPlantRmModel(),
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            ),
+        ),
+        "Internode" => (
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+            Status(TT=TT_v, carbon_biomass=1.0)
+        ),
+        "Leaf" => (
+            MultiScaleModel(
+                model=ToyAssimModel(),
+                mapped_variables=[:soil_water_content => "Soil",],
+            ),
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+            Status(aPPFD=1300.0, carbon_biomass=carbon_biomass_vec, TT=10.0), # Replaced with vector here
+        ),
+        "Soil" => (
+            ToySoilWaterModel(),
+        ),
+    )
+
+    mtg = import_mtg_example()
+    mapping_without_vectors_2 = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_with_two_vectors, "Soil", nsteps)
+    graph_sim_multiscale_2 = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors_2, nsteps=nsteps, check=true, outputs=out_multiscale)
+
+    @test to_initialize(mapping_without_vectors_2) == Dict()
+
+    sim_multiscale_2 = run!(graph_sim_multiscale_2,
+        meteo_day,
+        PlantMeteo.Constants(),
+        nothing;
+        check=true,
+        executor=SequentialEx()
+    )
+
+    @test compare_outputs_graphsim(graph_sim_multiscale, graph_sim_multiscale_2)
 end

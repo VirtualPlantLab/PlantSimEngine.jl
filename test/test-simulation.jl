@@ -28,10 +28,10 @@ end;
         Process1Model(1.0),
         status=(var1=15.0, var2=0.3)
     )
-    run!(models)
+    outputs = run!(models)
 
-    vars = keys(status(models))
-    @test [models[i][1] for i in vars] == [15.0, 0.3, 5.5]
+    vars = keys(outputs)
+    @test [outputs[i][1] for i in vars] == [15.0, 0.3, 5.5]
 end;
 
 
@@ -47,12 +47,12 @@ end;
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    run!(models, meteo)
-    vars = keys(status(models))
-    @test [models[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+    modellist_outputs = run!(models, meteo)
+    vars = keys(modellist_outputs)
+    @test [modellist_outputs[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
 
-    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, Weather([meteo]))    
-    @test check_multiscale_simulation_is_equivalent_end(models, mtg, mapping, out, Weather([meteo]))
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
+    @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
 end;
 
 @testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
@@ -73,15 +73,15 @@ end;
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
     @testset "simulation with an array of objects" begin
-        run!([models, models2], meteo)
-        @test [models[i][1] for i in keys(status(models))] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
-        @test [models2[i][1] for i in keys(status(models2))] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
+        outputs_vector = run!([models, models2], meteo)
+        @test [outputs_vector[1][i][1] for i in keys(outputs_vector[1])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+        @test [outputs_vector[2][i][1] for i in keys(outputs_vector[2])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 
     @testset "simulation with a dict of objects" begin
-        run!(Dict("mod1" => models, "mod2" => models2), meteo)
-        @test [models[i][1] for i in keys(status(models))] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
-        @test [models2[i][1] for i in keys(status(models2))] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
+        outputs_vector = run!(Dict("mod1" => models, "mod2" => models2), meteo)
+        @test [outputs_vector["mod1"][1][i] for i in keys(outputs_vector["mod1"])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
+        @test [outputs_vector["mod2"][1][i] for i in keys(outputs_vector["mod2"])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 end;
 
@@ -95,9 +95,9 @@ end;
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    run!(models, meteo)
-    vars = keys(status(models))
-    @test [models[i] for i in vars] == [
+    outputs = run!(models, meteo)
+    vars = keys(outputs)
+    @test [outputs[i] for i in vars] == [
         [34.95, 35.550000000000004],
         [22.0, 23.2],
         [56.95, 58.75],
@@ -125,9 +125,9 @@ end;
     ]
     )
 
-    run!(models, meteo)
-    vars = keys(status(models))
-    @test [models[i] for i in vars] == [
+    modellist_outputs = run!(models, meteo)
+    vars = keys(modellist_outputs)
+    @test [modellist_outputs[i] for i in vars] == [
         [34.95, 40.0],
         [22.0, 23.2],
         [56.95, 63.2],
@@ -137,7 +137,7 @@ end;
     ]
 
     mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
-    @test check_multiscale_simulation_is_equivalent_end(models, mtg, mapping, out, meteo)
+    @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
 end;
 
 
@@ -164,21 +164,21 @@ end;
     )
 
     @testset "simulation with an array of objects" begin
-        run!([models, models2], meteo)
-        @test [models[i] for i in keys(status(models))] == [
+        outputs_vector = run!([models, models2], meteo)
+        @test [outputs_vector[1][i] for i in keys(outputs_vector[1])] == [
             [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
-        @test [models2[i] for i in keys(status(models2))] == [
+        @test [outputs_vector[2][i] for i in keys(outputs_vector[2])] == [
             [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end
 
     @testset "simulation with a dict of objects" begin
-        run!(Dict("mod1" => models, "mod2" => models2), meteo)
-        @test [models[i] for i in keys(status(models))] == [
+        outputs_vector = run!(Dict("mod1" => models, "mod2" => models2), meteo)
+        @test [[outputs_vector["mod1"][1][i], outputs_vector["mod1"][2][i]] for i in keys(outputs_vector["mod1"])] == [
             [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
-        @test [models2[i] for i in keys(status(models2))] == [
+        @test [[outputs_vector["mod2"][1][i], outputs_vector["mod2"][2][i]] for i in keys(outputs_vector["mod2"])] == [
             [36.95, 42.0], [26.0, 27.2], [62.95, 69.2], [15.0, 16.0], [6.5, 6.8], [0.3, 0.3]
         ]
     end
@@ -211,10 +211,85 @@ end;
 
     leaf[:var1] = 15.0
 
-    out = @test_nowarn run!(mtg, mapping, meteo)
+    #out = @test_nowarn run!(mtg, mapping, meteo)
+    nsteps = PlantSimEngine.get_nsteps(meteo)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true)
+    out = @test_nowarn run!(sim,meteo)
 
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [out.statuses["Leaf"][1][i] for i in vars] == [
+    @test [sim.statuses["Leaf"][1][i] for i in vars] == [
         22.0, 61.4, 39.4, 15.0, 0.3, 5.5
     ]
 end;
+
+
+@testset "Meteo+ModelList/mapping+outputs combos either valid or different status vector size vs meteo length either run successfully or return a DimensionMisMatch" begin
+    
+    meteos = get_simple_meteo_bank()
+    modellists, status_tuples, outputs_tuples_vectors = get_modellist_bank()
+
+    for i in 1:length(modellists)
+#       i = 3
+        modellist = modellists[i]
+        status_tuple = status_tuples[i]
+        outs_vector = outputs_tuples_vectors[i]
+
+        for j in 1:length(meteos)
+#        j = 1
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+#            k = 7
+                out_tuple = outs_vector[k]                
+                @test try outs_modellist = run!(modellist, meteo; tracked_outputs=out_tuple)
+                    true
+                catch e
+                    print(i," ", j, " ", k)
+                    println()
+                    if isa(e, DimensionMismatch)
+                        true
+                    elseif isa(e, ErrorException)
+                        showerror(stdout, e)
+                        false
+                    else
+                        showerror(stdout, e)
+                        false
+                    end
+                end
+            end
+        end
+    end
+
+    mtgs, mappings, outs_tuples_vectors_mappings = get_simple_mapping_bank()
+
+    for i in 1:length(mappings)
+#        i = 1
+        mapping = mappings[i]
+        outs_vector = outs_tuples_vectors_mappings[i]
+
+        for j in 1:length(meteos)
+#            j = 1
+            meteo = meteos[j]
+            for k in 1:length(outs_vector)
+#                k = 4
+                out_tuple = outs_vector[k]
+               
+                mtg = deepcopy(mtgs[i])
+                try 
+                    outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple)
+                    @test true                                       
+                catch e
+                    print(i," ", j, " ", k)
+                    println()                    
+                    if isa(e, DimensionMismatch)
+                        @test true
+                    #elseif isa(e, ErrorException)  
+                    else
+                        #@enter outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple) 
+                        showerror(stdout, e)
+                        @test false
+                    end
+                end
+            end
+        end
+    end
+end

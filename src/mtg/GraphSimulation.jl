@@ -40,18 +40,19 @@ get_models(g::GraphSimulation) = g.models
 outputs(g::GraphSimulation) = g.outputs
 
 """
-    outputs(sim::GraphSimulation, sink)
+    convert_outputs(sim_outputs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
+    convert_outputs(sim_outputs::TimeStepTable{T} where T, sink)
 
-Get the outputs from a simulation made on a plant graph.
+Convert the outputs returned by a simulation made on a plant graph into another format.
 
 # Details
 
-The first method returns a vector of `NamedTuple`, the second formats it 
-sing the sink function, for exemple a `DataFrame`.
+The first method operates on the outputs of a multiscale simulation, the second one on those of a typical single-scale simulation. 
+The sink function determines the format used, for exemple a `DataFrame`.
 
 # Arguments
 
-- `sim::GraphSimulation`: the simulation object, typically returned by `run!`.
+- `sim_outputs : the outputs of a prior simulation, typically returned by `run!`.
 - `sink`: a sink compatible with the Tables.jl interface (*e.g.* a `DataFrame`)
 - `refvectors`: if `false` (default), the function will remove the RefVector values, otherwise it will keep them
 - `no_value`: the value to replace `nothing` values. Default is `nothing`. Usually used to replace `nothing` values 
@@ -76,7 +77,7 @@ mtg = import_mtg_example();
 ```
 
 ```@example
-sim = run!(mtg, mapping, meteo, outputs = Dict(
+out = run!(mtg, mapping, meteo, tracked_outputs = Dict(
     "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
     "Internode" => (:carbon_allocation,),
     "Plant" => (:carbon_allocation,),
@@ -85,13 +86,12 @@ sim = run!(mtg, mapping, meteo, outputs = Dict(
 ```
 
 ```@example
-outputs(sim, DataFrames)
+convert_outputs(out, DataFrames)
 ```
 """
-function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
+function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
 
-    outs = outputs(sim)
 
     variables_names_types = Iterators.flatten(collect(i.first => eltype(i.second[1]) for i in filter(x -> x.first != :node, vars)) for (organs, vars) in outs) |> collect
     variables_names_types_dict = Dict{Symbol,Any}()
@@ -113,6 +113,20 @@ function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
     variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
     var_names_all = keys(variables_names_types)
     t = NamedTuple{var_names_all,Tuple{values(variables_names_types)...}}[]
+    #=size_hint = 0
+    for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
+        var_names = setdiff(collect(keys(vars)), [:node])
+        if length(var_names) == 0
+            continue
+        end
+        steps_iterable = axes(vars[var_names[1]], 1)
+        for timestep in steps_iterable # timestep = 1
+            node_iterable = axes(vars[var_names[1]][timestep], 1)
+            size_hint+=length(node_iterable)
+        end
+    end
+
+    sizehint!(t, size_hint)=#
 
     for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
         var_names = setdiff(collect(keys(vars)), [:node])
@@ -142,10 +156,16 @@ function outputs(sim::GraphSimulation, sink; refvectors=false, no_value=nothing)
     return sink(t)
 end
 
-function outputs(sim::GraphSimulation, key::Symbol)
-    Tables.columns(outputs(sim, Vector{NamedTuple}))[key]
+function outputs(outs::Dict{String, O} where O, key::Symbol)
+    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
 end
 
-function outputs(sim::GraphSimulation, i::T) where {T<:Integer}
-    Tables.columns(outputs(sim, Vector{NamedTuple}))[i]
+function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
+    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
+end
+
+# ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
+function convert_outputs(out::TimeStepTable{T} where T, sink)
+    @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
+    return sink(out)
 end

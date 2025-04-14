@@ -1,5 +1,7 @@
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
+# Note (smack) : The first test's behaviour is weird to me, because there is an [Info :] that correctly indicates
+# :LAI is not initialised, yet @test_nowarn doesn't capture it. I'm not sure what the intended test was, between 'Info' and 'Warn'
 @testset "ToyLAIModel" begin
     @test_nowarn ModelList(ToyLAIModel())
     @test_nowarn ModelList(ToyLAIModel(), status=(TT_cu=10,))
@@ -13,11 +15,11 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
         status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
-    @test_nowarn run!(m)
+    outputs = @test_nowarn run!(m)
 
     @test m[:TT_cu] == cumsum(meteo_day.TT)
-    @test m[:LAI][begin] ≈ 0.00554987593080316
-    @test m[:LAI][end] ≈ 0.0
+    @test outputs[:LAI][begin] ≈ 0.00554987593080316
+    @test outputs[:LAI][end] ≈ 0.0
 end
 
 @testset "ToyLAIModel+Beer" begin
@@ -27,10 +29,10 @@ end
         status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
-    run!(models, meteo_day)
+    outputs = run!(models, meteo_day)
 
-    @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
-    @test mean(models.status[:LAI]) ≈ 1.098492557536525
+    @test mean(outputs[:aPPFD]) ≈ 9.511021781482347
+    @test mean(outputs[:LAI]) ≈ 1.098492557536525
 end
 
 
@@ -45,8 +47,8 @@ end
         status=(aPPFD=30.0,),
     )
 
-    run!(model, executor=SequentialEx())
-    @test model.status[:biomass] ≈ rue * model.status[:aPPFD]
+    outputs = run!(model, executor=SequentialEx())
+    @test outputs[:biomass][1] ≈ rue * model.status[:aPPFD]
 
     # Several time steps:
     model = ModelList(
@@ -54,8 +56,8 @@ end
         status=(aPPFD=[10.0, 30.0, 25.0],),
     )
 
-    run!(model, executor=SequentialEx())
-    @test model.status[:biomass] ≈ cumsum(rue * model.status[:aPPFD])
+    outputs = run!(model, executor=SequentialEx())
+    @test outputs[:biomass] ≈ cumsum(rue * model.status[:aPPFD])
 end
 
 @testset "ToyAssimGrowthModel" begin
@@ -73,8 +75,8 @@ end
 
     @test to_initialize(model) == NamedTuple()
 
-    run!(model)
-    @test model.status[:biomass] ≈ [4.5]
+    outputs = run!(model)
+    @test outputs[:biomass] ≈ [4.5]
 
     # Several time steps:
     model = ModelList(
@@ -82,9 +84,9 @@ end
         status=(aPPFD=[10.0, 30.0, 25.0],),
     )
 
-    run!(model)
-    @test model.status[:biomass] ≈ cumsum(model.status[:biomass_increment])
-    @test model.status[:biomass_increment] ≈ [0.8333333333333334, 4.5, 3.5833333333333335]
+    outputs = run!(model)
+    @test outputs[:biomass] ≈ cumsum(outputs[:biomass_increment])
+    @test outputs[:biomass_increment] ≈ [0.8333333333333334, 4.5, 3.5833333333333335]
 end
 
 @testset "ToyLAIModel+Beer+ToyRUEGrowthModel" begin
@@ -100,9 +102,9 @@ end
     @test_logs (:warn, r"A parallel executor was provided") run!(models, meteo_day)
 
     # If we provide a serial executor, it works without a warning:
-    @test_nowarn run!(models, meteo_day, executor=SequentialEx())
+    outputs = @test_nowarn run!(models, meteo_day, executor=SequentialEx())
 
-    @test mean(models.status[:aPPFD]) ≈ 9.511021781482347
-    @test mean(models.status[:LAI]) ≈ 1.098492557536525
-    @test models.status[:biomass][end] ≈ 1041.4687939085675 rtol = 1e-4
+    @test mean(outputs[:aPPFD]) ≈ 9.511021781482347
+    @test mean(outputs[:LAI]) ≈ 1.098492557536525
+    @test outputs[:biomass][end] ≈ 1041.4687939085675 rtol = 1e-4
 end

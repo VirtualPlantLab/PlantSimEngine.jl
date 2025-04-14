@@ -14,7 +14,7 @@ using Dates
 using XPalm
 using BenchmarkTools
 
-function xpalm_default_param_run()
+function xpalm_default_param_create()
     meteo = CSV.read("../XPalm.jl/0-data/Meteo_Nigeria_PR.txt", DataFrame)
     meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
     m = Weather(meteo)
@@ -32,9 +32,21 @@ function xpalm_default_param_run()
     )
 
     # Example 1: Run the model with the default parameters (but output as a DataFrame):
-    #df = xpalm(m; vars=out_vars, sink=DataFrame)
-    df = XPalm.xpalm(m, DataFrame; vars=out_vars)
+    palm = Palm(initiation_age=0, parameters=default_parameters())
+    models = model_mapping(palm)
+    return palm, models, out_vars, meteo
 end
+
+function xpalm_default_param_run(palm, models, meteo, out_vars)
+    sim_outputs = PlantSimEngine.run!(palm.mtg, models, meteo, tracked_outputs=out_vars, executor=PlantSimEngine.SequentialEx(), check=false)
+    return sim_outputs
+end
+
+function xpalm_default_param_convert_outputs(sim_outputs)
+    df = PlantSimEngine.convert_outputs(out, DataFrame, no_value=missing)
+    return df
+end
+
 
 #=@testset "XPalm simple test" begin
     # default number of seconds is 5

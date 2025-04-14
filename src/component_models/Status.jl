@@ -133,46 +133,38 @@ function Base.:(==)(s1::Status, s2::Status)
 end
 
 
-"""
-    propagate_values!(status1::Dict, status2::Dict, vars_not_propagated::Set)
-
-Propagates the values of all variables in `status1` to `status2`, except for vars in `vars_not_propagated`.
-
-# Arguments
-
-- `status1::Dict`: A dictionary containing the current values of variables.
-- `status2::Dict`: A dictionary to which the values of variables will be propagated.
-- `vars_not_propagated::Set`: A set of variables whose values should not be propagated.
-
-# Examples
-
-```jldoctest st1
-julia> status1 = Status(var1 = 15.0, var2 = 0.3);
-```
-
-```jldoctest st1
-julia> status2 = Status(var1 = 16.0, var2 = -Inf);
-```
-
-```jldoctest st1
-julia> vars_not_propagated = (:var1,);
-
-```jldoctest st1
-julia> PlantSimEngine.propagate_values!(status1, status2, vars_not_propagated);
-```
-
-```jldoctest st1
-julia> status2.var2 == status1.var2
-true
-```
-
-```jldoctest st1
-julia> status2.var1 == status1.var1
-false
-```
-"""
-function propagate_values!(status1, status2, vars_not_propagated)
-    for var in setdiff(keys(status1), vars_not_propagated)
-        status2[var] = status1[var]
+# Returns a status with all vector variables replaced with their first value (ie a Status ready for simulation)
+# also returns a tuple of symbols corresponding to the vector variables
+function flatten_status(s::Status)
+    status_values_flattened = NamedTuple()
+    vector_variables = NamedTuple()
+    
+    for (var, value) in zip(keys(s), s)
+        if length(value) > 1
+            vector_variables = (vector_variables..., var)
+            status_values_flattened = (status_values_flattened..., value[1])
+        else
+            status_values_flattened = (status_values_flattened..., value)
+        end
     end
+
+    return Status(;zip(keys(s), status_values_flattened)...), vector_variables
+end
+
+# Update to the next timestep the variables that were passed in as vectors by the user
+function update_vector_variables(s::Status, sf::Status, vector_variables, i)
+    for vec in vector_variables
+        sf[vec] = s[vec][i]
+    end
+end
+
+# TODO do a bit more and return error if there is a length discrepancy that isn't accounted for by timestep differences
+function get_status_vector_max_length(s::Status)
+    max_len = 1
+    for (var, value) in zip(keys(s), s)
+        if length(value) > 1
+            max_len = length(value)
+        end
+    end
+    return max_len
 end
