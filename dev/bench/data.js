@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1745846282119,
+  "lastUpdate": 1745853613155,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -342,6 +342,72 @@ window.BENCHMARK_DATA = {
             "value": 6211147083,
             "unit": "ns",
             "extra": "gctime=501065834\nmemory=3024681776\nallocs=58183309\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "3f12ebaae3888d0e4edd98d9e6d995e0f9c8f2c4",
+          "message": "Fix another merge conflict error causing the XPalm test to break again",
+          "timestamp": "2025-04-28T16:56:26+02:00",
+          "tree_id": "b7777d2b33ca938b72b5b3d5c606e4b7a9cbcb07",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/3f12ebaae3888d0e4edd98d9e6d995e0f9c8f2c4"
+        },
+        "date": 1745853611880,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_linux/XPalm_setup",
+            "value": 10657896,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9304912\nallocs=164508\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/PBP_multiple_timesteps_ST",
+            "value": 580203804,
+            "unit": "ns",
+            "extra": "gctime=101658955\nmemory=644612000\nallocs=10022000\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/XPalm_run",
+            "value": 116582876966.5,
+            "unit": "ns",
+            "extra": "gctime=30886403382.5\nmemory=82452689720\nallocs=1555065814\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/PSE",
+            "value": 4197174949,
+            "unit": "ns",
+            "extra": "gctime=710226185\nmemory=2469829400\nallocs=49554696\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/PBP",
+            "value": 26928987,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9567672\nallocs=159097\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/PBP_multiple_timesteps_MT",
+            "value": 392004920,
+            "unit": "ns",
+            "extra": "gctime=133152550\nmemory=1166249600\nallocs=10372900\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_linux/XPalm_convert_outputs",
+            "value": 751901910,
+            "unit": "ns",
+            "extra": "gctime=83232469\nmemory=444846696\nallocs=6661000\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
         ]
       }
