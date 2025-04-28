@@ -43,7 +43,7 @@ function xpalm_default_param_run(palm, models, out_vars, meteo)
 end
 
 function xpalm_default_param_convert_outputs(sim_outputs)
-    df = PlantSimEngine.convert_outputs(out, DataFrame, no_value=missing)
+    df = PlantSimEngine.convert_outputs(sim_outputs, DataFrame, no_value=missing)
     return df
 end
 
