@@ -4,13 +4,13 @@
 
 ### Varying timesteps
 
-Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap.
+Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap, and is planned as the next milestone.
 
 ### Multi-plant/Multi-species simulations
 
 A goal for PlantSimEngine down the line is to be able to simulate complex scenes with data comprising several plants, possibly of different species, for agroforestry purposes.
 
-Its current state doesn't enable practical declaration of several plant species, or multiple plants relying on similar subsets of models with partially different models or parameters. 
+Its current state doesn't enable practical declaration of several plant species, or multiple plants relying on similar subsets of models with partially different models or parameters.
 
 ## Minor features
 
@@ -34,23 +34,22 @@ Its current state doesn't enable practical declaration of several plant species,
 
 ## Possible features (likely not a priority)
 
-- API enabling iterative builds and validation of mappings and modellists
-- Improved parallelisation 
+- API enabling iterative builds and validation of mappings and ModelLists
+- Build step for the models, *i.e.* a function that would write a mapping or ModelList into a Julia script for validation, improved readability and (maybe) performance (no need to traverse the dependency graph anymore).
+- Improved parallelisation
 - Reintroduce multi-object parallelisation in single-scale
 
 ## Other minor points
 
 - Examples/solutions for floating-point accumulation errors
 - More examples for fitting/type conversion/error propagation
-- MTG couple of new features #106 
+- MTG couple of new features #106
 - Other minor bugs
 - Unrolling the run! function
 
 ## Other
 
-- Reproducing another FSPM ?
-- Diffusion model example ?
+- Reproducing another FSPM?
+- Diffusion model example?
 
 The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
-
-TODO Detail other related packages' roadmaps (mostly stuff like PlantGeom's mtg reference mesh linking) ? PBP updates ?

@@ -2,9 +2,8 @@ name: Benchmarks
 on:
   push:
     branches:
-      - main
-      - Outputs-filtering2
-      - PSE-multiscale-outputs-structure-change
+      - dev
+      - benchmarks-github-action
     tags: "*"
   pull_request:
   workflow_dispatch:
@@ -30,8 +29,8 @@ jobs:
         arch:
           - x64
         package:
-        - {user: PalmStudio, repo: XPalm.jl, branch: PSE-multiscale-outputs-structure-change}
-        - {user: VEZY, repo: PlantBioPhysics.jl, branch: PSE-multiscale-outputs-structure-change}
+       # the group setting is unused atm
+        - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
@@ -51,8 +50,7 @@ jobs:
         run: |
           cd test/downstream
           julia --project --threads 4 --color=yes -e '
-            using Pkg;
-            Pkg.instantiate();
+            using Pkg;            
             include("test-all-benchmarks.jl")'
           rm Manifest.toml
       - name: Store benchmark result

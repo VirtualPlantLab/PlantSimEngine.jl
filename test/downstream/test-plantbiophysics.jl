@@ -2,6 +2,10 @@
 #using Pkg
 #Pkg.develop("PlantSimEngine")
 #using PlantSimEngine
+
+using Pkg
+#Pkg.add(url="https://github.com/VEZY/PlantBiophysics.jl#dev")
+#Pkg.instantiate()
 using Statistics
 #using DataFrames
 #using CSV

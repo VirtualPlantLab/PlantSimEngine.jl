@@ -3,9 +3,8 @@
 #using PlantSimEngine
 
 using Pkg
-#Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#PSE-multiscale-outputs-structure-changes")
-#Pkg.develop("XPalm")
-
+#Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
+#Pkg.instantiate()
 using Test
 using PlantMeteo#, MultiScaleTreeGraph
 #using CairoMakie, AlgebraOfGraphics
@@ -37,7 +36,7 @@ function xpalm_default_param_create()
     return palm, models, out_vars, meteo
 end
 
-function xpalm_default_param_run(palm, models, meteo, out_vars)
+function xpalm_default_param_run(palm, models, out_vars, meteo)
     sim_outputs = PlantSimEngine.run!(palm.mtg, models, meteo, tracked_outputs=out_vars, executor=PlantSimEngine.SequentialEx(), check=false)
     return sim_outputs
 end
