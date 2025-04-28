@@ -4,8 +4,8 @@
 
 # no release of XPalm yet, so can't just add it to the .toml
 using Pkg
-Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
-Pkg.instantiate()
+#Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
+#Pkg.instantiate()
 using Test
 using PlantMeteo#, MultiScaleTreeGraph
 #using CairoMakie, AlgebraOfGraphics
