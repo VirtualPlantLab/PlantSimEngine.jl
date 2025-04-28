@@ -37,13 +37,6 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
-      - uses: julia-actions/julia-buildpkg@v1
-      - name: Clone Downstream
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ matrix.package.user }}/${{ matrix.package.repo }}
-          ref: ${{matrix.package.branch}}
-          path: downstream
       # TODO handle breaking changes the way downstream tests do ?
       # NOTE : manifest toml file is removed otherwise git whines about untracked changes when switching branches for the gh-pages commit
       - name: Run benchmarks
