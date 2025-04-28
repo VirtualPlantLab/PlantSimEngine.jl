@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1745846139346,
+  "lastUpdate": 1745846282119,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -276,6 +276,72 @@ window.BENCHMARK_DATA = {
             "value": 7310247100,
             "unit": "ns",
             "extra": "gctime=418168100\nmemory=3024477690\nallocs=58183309\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "committer": {
+            "email": "samuel.mackeown@cirad.fr",
+            "name": "Samuel-AMAP",
+            "username": "Samuel-amap"
+          },
+          "distinct": true,
+          "id": "a64421992f2210fbd6355b65f2d5eb85f1ef9a07",
+          "message": "Fix typo in the xpalm test (addressed in a PR, but unmerged)",
+          "timestamp": "2025-04-28T14:47:26+02:00",
+          "tree_id": "f0dd646b16804fcc02c6528937fbc2c1df9e9bbf",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/commit/a64421992f2210fbd6355b65f2d5eb85f1ef9a07"
+        },
+        "date": 1745846278976,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_mac/XPalm_setup",
+            "value": 13778208,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9330336\nallocs=164512\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP_multiple_timesteps_ST",
+            "value": 690948271,
+            "unit": "ns",
+            "extra": "gctime=84255229.5\nmemory=648446400\nallocs=10022000\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/XPalm_run",
+            "value": 116625543625,
+            "unit": "ns",
+            "extra": "gctime=18003737767.5\nmemory=109498911264\nallocs=2123364877\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PSE",
+            "value": 22137911458,
+            "unit": "ns",
+            "extra": "gctime=216822168\nmemory=1589892392\nallocs=33476222\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP",
+            "value": 18630458.5,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9567728\nallocs=159097\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/PBP_multiple_timesteps_MT",
+            "value": 572364333,
+            "unit": "ns",
+            "extra": "gctime=263211957\nmemory=1230262400\nallocs=10372900\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_mac/XPalm_convert_outputs",
+            "value": 6211147083,
+            "unit": "ns",
+            "extra": "gctime=501065834\nmemory=3024681776\nallocs=58183309\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
         ]
       }
