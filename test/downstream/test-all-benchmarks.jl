@@ -1,6 +1,7 @@
 using Pkg
 Pkg.activate(dirname(@__FILE__))
-Pkg.develop(PackageSpec(path=dirname(dirname(@__DIR__))))
+#Pkg.develop(PackageSpec(path=dirname(dirname(@__DIR__))))
+Pkg.resolve()
 Pkg.instantiate()
 
 using PlantSimEngine
