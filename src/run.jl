@@ -422,6 +422,12 @@ function run!(
         end
     end
 
+    # save_results! resizes the outputs melodramatically because the total # of nodes at a given scale can't always be known
+    # if models create organs, so shrink it down to the final size here
+    for (organ, index) in object.outputs_index
+        resize!(outputs(object)[organ], index - 1)
+    end
+
     return outputs(object)
 end
 

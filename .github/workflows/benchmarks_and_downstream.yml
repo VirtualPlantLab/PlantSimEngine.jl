@@ -1,11 +1,12 @@
-name: BenchmarksAndDownstream
+name: Benchmarks
 on:
   push:
     branches:
       - dev
       - benchmarks-github-action
     tags: "*"
-    workflow-dispatch:
+  pull_request:
+  workflow_dispatch:
 permissions:
   # deployments permission to deploy GitHub pages website
     deployments: write
@@ -16,8 +17,6 @@ jobs:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    env:
-      GROUP: ${{ matrix.package.group }}
     strategy:
       fail-fast: false
       matrix:
@@ -30,7 +29,7 @@ jobs:
         arch:
           - x64
         package:
-        # the group setting is unused atm
+       # the group setting is unused atm
         - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +37,13 @@ jobs:
         with:
           version: ${{ matrix.version }}
           arch: ${{ matrix.arch }}
+      - uses: julia-actions/julia-buildpkg@v1
+      - name: Clone Downstream
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ matrix.package.user }}/${{ matrix.package.repo }}
+          ref: ${{matrix.package.branch}}
+          path: downstream
       # TODO handle breaking changes the way downstream tests do ?
       # NOTE : manifest toml file is removed otherwise git whines about untracked changes when switching branches for the gh-pages commit
       - name: Run benchmarks

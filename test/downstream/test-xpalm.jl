@@ -2,7 +2,6 @@
 #Pkg.develop("PlantSimEngine")
 #using PlantSimEngine
 
-# no release of XPalm yet, so can't just add it to the .toml
 using Pkg
 #Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
 #Pkg.instantiate()
@@ -21,7 +20,7 @@ function xpalm_default_param_create()
 
     out_vars = Dict{String,Any}(
         "Scene" => (:lai,),
-        # "Scene" => (:lai, :scene_leaf_area, :aPPFD, :TEff),
+        # "Scene" => (:LAI, :scene_leaf_area, :aPPFD, :TEff),
         # "Plant" => (:plant_age, :ftsw, :newPhytomerEmergence, :aPPFD, :plant_leaf_area, :carbon_assimilation, :carbon_offer_after_rm, :Rm, :TT_since_init, :TEff, :phytomer_count, :newPhytomerEmergence),
         "Leaf" => (:Rm, :potential_area, :TT_since_init, :TEff, :A, :carbon_demand, :carbon_allocation,),
         # "Leaf" => (:Rm, :potential_area),

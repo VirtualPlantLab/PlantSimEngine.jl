@@ -245,11 +245,11 @@ outputs_sim = run!(mtg, mapping, meteo, tracked_outputs = outs);
 nothing # hide
 ```
 
-And that's it! We can now access the outputs for each scale as a dictionary of vectors of values per variable and scale.
+And that's it! We can now access the outputs for each scale as a dictionary of vectors of NamedTuple objects.
 
-Or as a `DataFrame` using the [`DataFrames`](https://dataframes.juliadata.org) package:
+Or as a `DataFrame` dictionary using the [`DataFrames`](https://dataframes.juliadata.org) package:
 
 ```@example usepkg
 using DataFrames
-convert_outputs(outputs_sim, DataFrame)
+df_dict = convert_outputs(outputs_sim, DataFrame)
 ```

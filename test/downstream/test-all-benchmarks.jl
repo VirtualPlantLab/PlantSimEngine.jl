@@ -44,9 +44,9 @@ include("test-xpalm.jl")
 suite[suite_name]["XPalm_setup"] = @benchmarkable xpalm_default_param_create() seconds = 120
 
 palm, models, out_vars, meteo = xpalm_default_param_create()
-sim_outputs = xpalm_default_param_run(palm, models, out_vars, meteo)
+sim_outputs = xpalm_default_param_run(palm, models, meteo, out_vars)
 
-suite[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run($palm, $models, $out_vars, $meteo) seconds = 120
+suite[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run($palm, $models, $meteo, $out_vars) seconds = 120
 suite[suite_name]["XPalm_convert_outputs"] = @benchmarkable xpalm_default_param_convert_outputs($sim_outputs) seconds = 120
 
 tune!(suite)

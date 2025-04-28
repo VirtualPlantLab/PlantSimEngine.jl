@@ -25,6 +25,7 @@ struct GraphSimulation{T,S,U,O,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
     outputs::Dict{String,O}
+    outputs_index::Dict{String, Int}
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
@@ -89,73 +90,45 @@ out = run!(mtg, mapping, meteo, tracked_outputs = Dict(
 convert_outputs(out, DataFrames)
 ```
 """
+# Another, possibly better way would be to just create the DataFrame directly from the outputs 
+# and then remove the RefVector columns and replace the node one, hmm
 function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
-    @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
-
-
-    variables_names_types = Iterators.flatten(collect(i.first => eltype(i.second[1]) for i in filter(x -> x.first != :node, vars)) for (organs, vars) in outs) |> collect
-    variables_names_types_dict = Dict{Symbol,Any}()
-
-    for (k, v) in variables_names_types
-        if !haskey(variables_names_types_dict, k)
-            variables_names_types_dict[k] = Union{typeof(no_value),v}
-        else
-            if !refvectors && v <: RefVector && !(variables_names_types_dict[k] <: Union{typeof(no_value),RefVector})
-                continue
-            end
-            variables_names_types_dict[k] = Union{variables_names_types_dict[k],v}
-        end
-    end
-
-    # If we have a variable that is only RefVector, we remove it from the variables_names_types:    
-    !refvectors && filter!(x -> !(last(x) <: Union{typeof(no_value),RefVector}), variables_names_types_dict)
-
-    variables_names_types = (timestep=Int, organ=String, node=Int, NamedTuple(variables_names_types_dict)...)
-    var_names_all = keys(variables_names_types)
-    t = NamedTuple{var_names_all,Tuple{values(variables_names_types)...}}[]
-    #=size_hint = 0
-    for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
-        var_names = setdiff(collect(keys(vars)), [:node])
-        if length(var_names) == 0
-            continue
-        end
-        steps_iterable = axes(vars[var_names[1]], 1)
-        for timestep in steps_iterable # timestep = 1
-            node_iterable = axes(vars[var_names[1]][timestep], 1)
-            size_hint+=length(node_iterable)
-        end
-    end
-
-    sizehint!(t, size_hint)=#
-
-    for (organ, vars) in outs # organ = "Leaf"; vars = outs[organ]
-        var_names = setdiff(collect(keys(vars)), [:node])
-        if length(var_names) == 0
-            continue
-        end
-        steps_iterable = axes(vars[var_names[1]], 1)
-        for timestep in steps_iterable # timestep = 1
-            node_iterable = axes(vars[var_names[1]][timestep], 1)
-            for node in node_iterable # node = 1
-                vals = Dict(zip(var_names, [something(vars[v][timestep][node], no_value) for v in var_names]))
-                # Remove RefVector values:
-                !refvectors && filter!(x -> !isa(x.second, RefVector), vals)
-                vars_values = (; timestep=timestep, organ=organ, node=MultiScaleTreeGraph.node_id(vars[:node][timestep][node]), vals...)
-                vars_no_values = setdiff(var_names_all, keys(vars_values))
-                if length(vars_no_values) > 0
-                    vars_values = (; vars_values..., zip(vars_no_values, [no_value for v in vars_no_values])...)
+    ret = Dict{String, sink}()
+    for (organ, status_vector) in outs
+        # remove RefVector variables
+        refv = ()
+        if length(status_vector) > 0
+            for (var, val) in pairs(status_vector[1])
+                if !refvectors && isa(val, RefVector)
+                    refv = (refv..., var)
                 end
-                push!(
-                    t,
-                    NamedTuple{var_names_all}(vars_values)
-                )
+                if var == :node
+                    refv = (refv..., var)
+                end
             end
         end
-    end
+       
+        # Get the new NamedTuple type
+        refv_nt = NamedTuple{refv}
 
-    return sink(t)
+        # Piddle around with the first element to get the final type to be able to allocate the exact vector size with a definite element type
+        vector_named_tuple_1 = NamedTuple(status_vector[1])
+
+        # replace the MTG node var with the id (MTG nodes aren't CSV-friendly)
+        filtered_named_tuple = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple_1.node),Base.structdiff(vector_named_tuple_1, refv_nt)...)
+        filtered_vector_named_tuple = Vector{typeof(filtered_named_tuple)}(undef, length(status_vector))
+
+        for i in 1:length(status_vector)
+            vector_named_tuple_i = NamedTuple(status_vector[i])
+            filtered_vector_named_tuple[i] = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple_i.node), Base.structdiff(vector_named_tuple_i, refv_nt)...)
+        end
+
+        ret[organ] = sink(filtered_vector_named_tuple)
+    end
+    return ret
 end
 
+# TODO adapt these to new output structure or remove them
 function outputs(outs::Dict{String, O} where O, key::Symbol)
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
 end
