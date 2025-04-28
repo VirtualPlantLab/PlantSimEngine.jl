@@ -44,8 +44,7 @@ jobs:
         run: |
           cd test/downstream
           julia --project --threads 4 --color=yes -e '
-            using Pkg;
-            Pkg.instantiate();
+            using Pkg;            
             include("test-all-benchmarks.jl")'
           rm Manifest.toml
       - name: Store benchmark result
