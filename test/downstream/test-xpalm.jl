@@ -4,7 +4,7 @@
 
 # no release of XPalm yet, so can't just add it to the .toml
 using Pkg
-Pkg.add(url="https://github.com/PalmStudio/XPalm.jl")
+Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
 
 using Test
 using PlantMeteo#, MultiScaleTreeGraph
@@ -15,8 +15,8 @@ using XPalm
 using BenchmarkTools
 
 function xpalm_default_param_create()
-    meteo = CSV.read("../XPalm.jl/0-data/Meteo_Nigeria_PR.txt", DataFrame)
-    meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
+    meteo = CSV.read(joinpath(dirname(dirname(pathof(XPalm))),"0-data","meteo.csv"), DataFrame)
+    #meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
     m = Weather(meteo)
 
     out_vars = Dict{String,Any}(
@@ -32,12 +32,12 @@ function xpalm_default_param_create()
     )
 
     # Example 1: Run the model with the default parameters (but output as a DataFrame):
-    palm = Palm(initiation_age=0, parameters=default_parameters())
-    models = model_mapping(palm)
+    palm = XPalm.Palm(initiation_age=0, parameters=XPalm.default_parameters())
+    models = XPalm.model_mapping(palm)
     return palm, models, out_vars, meteo
 end
 
-function xpalm_default_param_run(palm, models, meteo, out_vars)
+function xpalm_default_param_run(palm, models, out_vars, meteo)
     sim_outputs = PlantSimEngine.run!(palm.mtg, models, meteo, tracked_outputs=out_vars, executor=PlantSimEngine.SequentialEx(), check=false)
     return sim_outputs
 end

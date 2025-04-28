@@ -2,7 +2,7 @@ name: BenchmarksAndDownstream
 on:
   push:
     branches:
-      - main
+      - dev
       - benchmarks-github-action
     tags: "*"
     workflow-dispatch:
@@ -30,6 +30,7 @@ jobs:
         arch:
           - x64
         package:
+        # the group setting is unused atm
         - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
     steps:
       - uses: actions/checkout@v4
