@@ -1,8 +1,8 @@
 using Pkg
 Pkg.activate(dirname(@__FILE__))
 Pkg.develop(PackageSpec(path=dirname(dirname(@__DIR__))))
-Pkg.add(url="https://github.com/VEZY/PlantBiophysics.jl#dev")
-Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
+Pkg.add(url="https://github.com/VEZY/PlantBiophysics.jl", rev="dev")
+Pkg.add(url="https://github.com/PalmStudio/XPalm.jl", rev="dev")
 Pkg.resolve()
 Pkg.instantiate()
 
