@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1748377350858,
+  "lastUpdate": 1748377887458,
   "repoUrl": "https://github.com/VirtualPlantLab/PlantSimEngine.jl",
   "entries": {
     "Julia benchmark result": [
@@ -866,6 +866,68 @@ window.BENCHMARK_DATA = {
             "value": 865883429,
             "unit": "ns",
             "extra": "gctime=102210559\nmemory=469637776\nallocs=6661017\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "name": "VirtualPlantLab",
+            "username": "VirtualPlantLab"
+          },
+          "committer": {
+            "name": "VirtualPlantLab",
+            "username": "VirtualPlantLab"
+          },
+          "id": "05ef744c8502bffb6a3922ab42bcb0678955c0d5",
+          "message": "Dev",
+          "timestamp": "2025-05-23T13:15:16Z",
+          "url": "https://github.com/VirtualPlantLab/PlantSimEngine.jl/pull/137/commits/05ef744c8502bffb6a3922ab42bcb0678955c0d5"
+        },
+        "date": 1748377877263,
+        "tool": "julia",
+        "benches": [
+          {
+            "name": "bench_windows/XPalm_setup",
+            "value": 11915400,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9310979\nallocs=164619\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP_multiple_timesteps_ST",
+            "value": 565383800,
+            "unit": "ns",
+            "extra": "gctime=85485200\nmemory=644849796\nallocs=10022000\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/XPalm_run",
+            "value": 126824932900,
+            "unit": "ns",
+            "extra": "gctime=27929530900\nmemory=83962867138\nallocs=1588973499\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PSE",
+            "value": 4953849500,
+            "unit": "ns",
+            "extra": "gctime=850274300\nmemory=2478403795\nallocs=49718922\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP",
+            "value": 32487100,
+            "unit": "ns",
+            "extra": "gctime=0\nmemory=9567671\nallocs=159097\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/PBP_multiple_timesteps_MT",
+            "value": 578887800,
+            "unit": "ns",
+            "extra": "gctime=222937100\nmemory=1170200832\nallocs=10372900\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":5,\"overhead\":0,\"memory_tolerance\":0.01}"
+          },
+          {
+            "name": "bench_windows/XPalm_convert_outputs",
+            "value": 808584500,
+            "unit": "ns",
+            "extra": "gctime=63581000\nmemory=469637918\nallocs=6661017\nparams={\"gctrial\":true,\"time_tolerance\":0.05,\"evals_set\":false,\"samples\":10000,\"evals\":1,\"gcsample\":false,\"seconds\":120,\"overhead\":0,\"memory_tolerance\":0.01}"
           }
         ]
       }
