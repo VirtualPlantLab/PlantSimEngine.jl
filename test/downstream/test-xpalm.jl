@@ -14,7 +14,7 @@ using XPalm
 using BenchmarkTools
 
 function xpalm_default_param_create()
-    meteo = CSV.read(joinpath(dirname(dirname(pathof(XPalm))),"0-data","meteo.csv"), DataFrame)
+    meteo = CSV.read(joinpath(dirname(dirname(pathof(XPalm))), "0-data", "meteo.csv"), DataFrame)
     #meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
     m = Weather(meteo)
 
@@ -22,7 +22,7 @@ function xpalm_default_param_create()
         "Scene" => (:lai,),
         # "Scene" => (:LAI, :scene_leaf_area, :aPPFD, :TEff),
         # "Plant" => (:plant_age, :ftsw, :newPhytomerEmergence, :aPPFD, :plant_leaf_area, :carbon_assimilation, :carbon_offer_after_rm, :Rm, :TT_since_init, :TEff, :phytomer_count, :newPhytomerEmergence),
-        "Leaf" => (:Rm, :potential_area, :TT_since_init, :TEff, :A, :carbon_demand, :carbon_allocation,),
+        "Leaf" => (:Rm, :potential_area, :TT_since_init, :TEff, :biomass, :carbon_demand, :carbon_allocation,),
         # "Leaf" => (:Rm, :potential_area),
         # "Internode" => (:Rm, :carbon_allocation, :carbon_demand),
         "Male" => (:Rm,),
@@ -50,7 +50,7 @@ end
 #=@testset "XPalm simple test" begin
     # default number of seconds is 5
     b_XP = @benchmark xpalm_default_param_run() seconds = 120
-    
+
     #N = length(b_XP.times)
 
     @test mean(b_XP.times*1e-9) > 10
