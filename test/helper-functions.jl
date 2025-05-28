@@ -1,9 +1,11 @@
 # Simple helper functions that can be used in various tests here and there
 
-function compare_outputs_modellist_mapping(filtered_outputs, graphsim)
-    outputs_df = convert_outputs(graphsim.outputs, DataFrame)
+function compare_outputs_modellist_mapping(filtered_outputs, graphsim)    
+    outputs_df_dict = convert_outputs(graphsim.outputs, DataFrame)
+    @assert length(outputs_df_dict) == 1
 
-    outputs_df_outputs_only = select(outputs_df, Not([:timestep, :organ, :node]))
+    outputs_df = last(first(outputs_df_dict))
+    outputs_df_outputs_only = select(outputs_df, Not([:timestep#=, :organ=#, :node]))
     models_df = DataFrame(filtered_outputs)
     
     models_df_sorted = models_df[:, sortperm(names(models_df))]
@@ -12,13 +14,34 @@ function compare_outputs_modellist_mapping(filtered_outputs, graphsim)
 end
 
 # doesn't check for mtg equality
-function compare_outputs_graphsim(graphsim, graphsim2)
+function compare_outputs_graphsim_old(graphsim, graphsim2)
     outputs_df = convert_outputs(graphsim.outputs, DataFrame)
     outputs_df_sorted = outputs_df[:, sortperm(names(outputs_df))]
     
     outputs2_df = convert_outputs(graphsim2.outputs, DataFrame)
     outputs2_df_sorted = outputs2_df[:, sortperm(names(outputs2_df))]
     return outputs_df_sorted == outputs2_df_sorted
+end
+
+# doesn't check for mtg equality
+function compare_outputs_graphsim(graphsim, graphsim2)
+    outputs_df_dict = convert_outputs(graphsim.outputs, DataFrame)
+    outputs2_df_dict = convert_outputs(graphsim2.outputs, DataFrame)
+
+    if length(outputs_df_dict) != length(outputs2_df_dict)
+        return false
+    end
+
+    for (organ, vals) in outputs2_df_dict
+        outputs_df_sorted = outputs_df_dict[organ][:, sortperm(names(outputs_df_dict[organ]))]
+        outputs2_df_sorted = outputs2_df_dict[organ][:, sortperm(names(outputs2_df_dict[organ]))]
+
+        if outputs_df_sorted != outputs2_df_sorted
+            return false
+        end
+    end
+    
+    return true
 end
 
 function compare_outputs_modellists(filtered_outputs_1, filtered_outputs_2)

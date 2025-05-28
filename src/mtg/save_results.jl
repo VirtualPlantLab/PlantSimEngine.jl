@@ -109,6 +109,7 @@ julia> collect(keys(preallocated_vars["Leaf"]))
  :carbon_demand
 ```
 """
+
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
     outs_ = Dict{String,Vector{Symbol}}()
     
@@ -128,6 +129,20 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
             outs_[i] = [outs[i]...]
         end
     end
+
+    len = Dict{String, Int}()
+    for (organ, vals) in outs_
+        len[organ] = length(outs_[organ])
+        unique!(outs_[organ])
+    end
+
+
+    for (organ, vals) in outs_
+        if length(outs_[organ]) != len[organ]
+            @info "One or more requested output variable duplicated at scale $organ, removed it"
+        end
+    end
+
     statuses_ = copy(statuses_template)
     # Checking that organs in outputs exist in the mtg (in the statuses):
     if !all(i in keys(statuses) for i in keys(outs_))
@@ -183,8 +198,6 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
         end
     end
 
-    outs_tuple = Dict(i => Tuple(x for x in outs_[i]) for i in keys(outs_))
-
     node_types = []
     for o in keys(statuses)
         if length(statuses[o]) > 0
@@ -196,10 +209,39 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     @assert length(node_type) == 1 "All plant graph nodes should have the same type, found $(unique(node_type))."
     node_type = only(node_type)
 
-    # Making the pre-allocated outputs:
-    return Dict(organ => Dict(var => [var == :node ? node_type[] : typeof(status_from_template(statuses_template[organ])[var])[] for n in 1:nsteps] for var in vars) for (organ, vars) in outs_tuple)
-    # Note: we use the type of the variable from the status template for each organ to pre-allocate the outputs. We transform the status template into a status to get the types of the variables
-    # without the reference types, e.g. RefVector{Float64} becomes Vector{Float64}.
+    # I don't know if this function barrier is necessary
+    preallocated_outputs = Dict{String, Vector}()
+    complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
+    return preallocated_outputs
+end
+
+function complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
+    types = Vector{DataType}()
+    for organ in keys(outs_)
+        
+        outs_no_node = filter(x -> x != :node, outs_[organ])
+
+        #types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
+        values = [status_from_template(statuses_template[organ])[var] for var in outs_no_node]
+
+        #push!(types, node_type)
+
+        # contains :node
+        symbols_tuple = (:timestep, :node, outs_no_node...,)
+        # using node_type.parameters[1] is clunky, but covers both NodeMTG and AbstractNodeMTG types
+        values_tuple = (1, MultiScaleTreeGraph.Node((node_type.parameters[1])("/", "Uninitialized", 0, 0),), values...,)
+    
+        # Dummy value to make accessing the type easier 
+        # (empty arrays don't have references to an instance, so their types can't be inspected and manipulated as easily)
+        dummy_status = (;zip(symbols_tuple, values_tuple)...)
+        data = typeof(Status(dummy_status))[]
+        resize!(data, nsteps)
+        
+        for ii in 1:nsteps 
+            data[ii] = Status(dummy_status)
+        end
+        preallocated_outputs[organ] = data
+    end
 end
 
 
@@ -218,13 +260,62 @@ function save_results!(object::GraphSimulation, i)
     end
 
     statuses = status(object)
+    indexes = object.outputs_index
+    for organ in keys(outs)
 
-    for (organ, vars) in outs
-        for (var, values) in vars
-            values[i] = [status[var] for status in statuses[organ]]
+        if length(outs[organ]) == 0
+            continue
         end
+
+        index = indexes[organ]
+
+        # Samuel : Simple resizing heuristic
+        # This can be made much more conservative with the right heuristic, or with user hints
+        # The array filling bit of code is clunky, but building NamedTuples on the fly was tanking performance
+        # And it wasn't straightforward to avoid Status Ref reallocations causing performance issues
+        # I then tried various approaches with Status, resizing, using fill, deepcopying, ...
+        # I may have gotten a little confused while fighting the type system
+        # So there may be possible simplifications (maybe no need for a function barrier, perhaps the resizing could be made a one-liner...)
+        # But this should work without causing visible performance regressions on XPalm
+        len = length(outs[organ])
+        if length(statuses[organ]) + index - 1 > len            
+            min_required = max(length(statuses[organ]) + index - len, index)
+            
+            extra_length = 2*min_required - len
+            data = eltype(outs[organ])[]
+            resize!(data, extra_length)
+            dummy_value = NamedTuple(outs[organ][1])
+            # TODO set timestep to 0 for clarity ?
+            
+            # Using fill! caused Ref issues, so call a Status constructor here instead of passing a prebuilt value
+            # This will avoid having all array entries point to the same ref but keep construction cost at a minimum
+            for new_entry in 1:extra_length
+                data[new_entry] = Status(dummy_value)
+            end
+
+            outs[organ] = cat(outs[organ], data, dims=1)           
+            #println("len : ", len, " statuses #", length(statuses[organ]), " index ", index)
+            #println("min_required : ", min_required, " extra_length ", extra_length, " new len ", length(outs[organ]))
+        end
+
+        tracked_outputs = filter(i -> i != :timestep, keys(outs[organ][1]))
+
+        indexes[organ] = copy_tracked_outputs_into_vector!(outs[organ], i, statuses[organ], tracked_outputs, indexes[organ])
     end
 end
+
+function copy_tracked_outputs_into_vector!(outs_organ, i, statuses_organ, tracked_outputs, index)
+    j = index
+    for status in statuses_organ
+        outs_organ[j].timestep = i
+        for var in tracked_outputs
+            outs_organ[j][var] = status[var]
+        end
+        j += 1
+    end
+    return j
+end
+
 
 function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
     

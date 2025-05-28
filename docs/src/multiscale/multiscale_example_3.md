@@ -244,13 +244,19 @@ Depth = 3
 
 There is one quirk you may have noticed when inspecting the data : when a root expands, the new root is immediately active, and some models may act on it immediately... including the root growth model. Meaning this new root may also sprout another root in the same timestep, and so on.
 
-You can notice this by looking at the simulation's state after the first timestep:
+You can notice this by looking at the simulation's state during the first two timesteps:
 
 ```@example usepkg
 outs = run!(mtg, mapping, first(meteo_day, 2))
-nodes_per_timestep = outs["Root"][:node]
-root_lengths_per_timestep = [length(nodes_per_timestep[i]) for i in 1:length(nodes_per_timestep)]
 
+root_nodes_per_timestep = [0, 0]
+for i in 1:length(outs["Root"])
+    if outs["Root"][i].timestep < 3
+        root_nodes_per_timestep[outs["Root"][i].timestep] += 1    
+    end
+end
+
+root_nodes_per_timestep
 ```
 
 Our root grew to full length within one timestep. Oops.

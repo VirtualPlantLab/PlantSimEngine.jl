@@ -203,20 +203,18 @@ We can access the output variables at the "Scene" scale by indexing our outputs:
 ```@example usepkg
 outputs_multiscale["Scene"]
 ```
-and then the computed `:TT_cu`:
-```@example usepkg
-outputs_multiscale["Scene"][:TT_cu]
-```
-
-As you can see, it is a `Vector{Vector{T}}`, whereas our single-scale output is a `Vector{T}`:
+We have a `Vector{NamedTuple}`structure. Our single-scale output is a `Vector{T}`:
 ```@example usepkg
 outputs_singlescale.TT_cu
 ```
 
-To compare them value-by-value, we can flatten the multiscale Vector and then do a piecewise approximate equality test :
+ Let's extract the multi-scale `:TT_cu`:
 ```@example usepkg
-computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
+computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+```
 
+We can now compare them value-by-value and do a piecewise approximate equality test :
+```@example usepkg
 for i in 1:length(computed_TT_cu_multiscale)
     if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
         println(i)

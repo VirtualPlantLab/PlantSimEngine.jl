@@ -291,12 +291,12 @@ out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx(
 nothing # hide
 ```
 
-We can then extract the outputs in a `DataFrame` and sort them:
+We can then extract the outputs and convert them to a `DataFrame` for each scale and sort them:
 
 ```@example readme
 using DataFrames
-df_out = convert_outputs(out, DataFrame)
-sort!(df_out, [:timestep, :node])
+df_dict = convert_outputs(out, DataFrame)
+sort!(df_dict["Leaf"], [:timestep, :node])
 ```
 
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:

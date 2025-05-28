@@ -226,5 +226,16 @@ end
     ref_path = joinpath(pkgdir(PlantSimEngine), "test/references/ref_output_simulation.csv")
     # CSV.write(ref_path, sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
     ref_df = CSV.read(ref_path, DataFrame)
-    @test isequal(sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), ref_df)
+    
+    @test sort(unique(ref_df.organ)) == sort(collect(keys(out)))
+    
+    out_df_dict = convert_outputs(out, DataFrame, no_value=missing)
+
+    for organ in keys(out)        
+        reduced_ref_df = ref_df[(ref_df.organ .== organ), Not(:organ)]
+        reduced_ref_df_no_missing = reduced_ref_df[:, any.(!ismissing, eachcol(reduced_ref_df))]
+        sorted_reduced_ref_df_no_missing = select(reduced_ref_df_no_missing, sort(propertynames(reduced_ref_df_no_missing)))
+        sorted_out_df_dict_organ = select(out_df_dict[organ], sort(propertynames(out_df_dict[organ])))
+        @test sorted_reduced_ref_df_no_missing == sorted_out_df_dict_organ
+    end
 end

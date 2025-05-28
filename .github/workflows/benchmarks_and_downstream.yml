@@ -1,11 +1,12 @@
-name: BenchmarksAndDownstream
+name: Benchmarks
 on:
   push:
     branches:
-      - main
+      - dev
       - benchmarks-github-action
     tags: "*"
-    workflow-dispatch:
+  pull_request:
+  workflow_dispatch:
 permissions:
   # deployments permission to deploy GitHub pages website
     deployments: write
@@ -16,8 +17,6 @@ jobs:
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    env:
-      GROUP: ${{ matrix.package.group }}
     strategy:
       fail-fast: false
       matrix:
@@ -30,6 +29,7 @@ jobs:
         arch:
           - x64
         package:
+       # the group setting is unused atm
         - {user: VEZY, repo: PlantSimEngine.jl, group: Downstream}
     steps:
       - uses: actions/checkout@v4
@@ -43,8 +43,7 @@ jobs:
         run: |
           cd test/downstream
           julia --project --threads 4 --color=yes -e '
-            using Pkg;
-            Pkg.instantiate();
+            using Pkg;            
             include("test-all-benchmarks.jl")'
           rm Manifest.toml
       - name: Store benchmark result
