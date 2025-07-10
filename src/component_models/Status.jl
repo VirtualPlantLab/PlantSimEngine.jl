@@ -17,18 +17,18 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest st1
-julia> st = PlantSimEngine.Status(Rₛ=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500.0);
+julia> st = PlantSimEngine.Status(Ra_SW_f=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500.0);
 ```
 
 All these indexing methods are valid:
 
 ```jldoctest st1
-julia> st[:Rₛ]
+julia> st[:Ra_SW_f]
 13.747
 ```
 
 ```jldoctest st1
-julia> st.Rₛ
+julia> st.Ra_SW_f
 13.747
 ```
 
@@ -40,12 +40,12 @@ julia> st[1]
 Setting a Status variable is very easy:
 
 ```jldoctest st1
-julia> st[:Rₛ] = 20.0
+julia> st[:Ra_SW_f] = 20.0
 20.0
 ```
 
 ```jldoctest st1
-julia> st.Rₛ = 21.0
+julia> st.Ra_SW_f = 21.0
 21.0
 ```
     
@@ -127,9 +127,9 @@ function Base.indexed_iterate(mnt::Status, i::Int, state=1)
 end
 
 function Base.:(==)(s1::Status, s2::Status)
-    return (length(s1) == length(s2)) && 
-    (propertynames(s1) == propertynames(s2)) && 
-    (values(s1) == values(s2))
+    return (length(s1) == length(s2)) &&
+           (propertynames(s1) == propertynames(s2)) &&
+           (values(s1) == values(s2))
 end
 
 
@@ -138,7 +138,7 @@ end
 function flatten_status(s::Status)
     status_values_flattened = NamedTuple()
     vector_variables = NamedTuple()
-    
+
     for (var, value) in zip(keys(s), s)
         if length(value) > 1
             vector_variables = (vector_variables..., var)
@@ -148,7 +148,7 @@ function flatten_status(s::Status)
         end
     end
 
-    return Status(;zip(keys(s), status_values_flattened)...), vector_variables
+    return Status(; zip(keys(s), status_values_flattened)...), vector_variables
 end
 
 # Update to the next timestep the variables that were passed in as vectors by the user

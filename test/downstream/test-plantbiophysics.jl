@@ -23,7 +23,7 @@ function benchmark_plantbiophysics()
     N = 100 # Number of timesteps simulated for each microbenchmark step
 
     length_range = 10000
-    Rs = range(10, 500, length=length_range)
+    Ra_SW_f = range(10, 500, length=length_range)
     Ta = range(18, 40, length=length_range)
     Wind = range(0.5, 20, length=length_range)
     P = range(90, 101, length=length_range)
@@ -37,7 +37,7 @@ function benchmark_plantbiophysics()
     TPU = range(5.0, 20.0, length=length_range)
     g0 = range(0.001, 2.0, length=length_range)
     g1 = range(0.5, 15.0, length=length_range)
-    vars = hcat([Ta, Wind, P, Rh, Ca, Jmax, Vmax, Rd, Rs, skyF, d, TPU, g0, g1])
+    vars = hcat([Ta, Wind, P, Rh, Ca, Jmax, Vmax, Rd, Ra_SW_f, skyF, d, TPU, g0, g1])
 
     set = [rand.(vars) for i = 1:N]
     set = reshape(vcat(set...), (length(set[1]), length(set)))'
@@ -50,7 +50,7 @@ function benchmark_plantbiophysics()
         "JMaxRef",
         "VcMaxRef",
         "RdRef",
-        "Rs",
+        "Ra_SW_f",
         "sky_fraction",
         "d",
         "TPURef",
@@ -59,9 +59,7 @@ function benchmark_plantbiophysics()
     ]
     set = DataFrame(set, name)
     @. set[!, :vpd] = e_sat(set.T) - vapor_pressure(set.T, set.Rh)
-    @. set[!, :PPFD] = set.Rs * 0.48 * 4.57
-    set
-
+    @. set[!, :aPPFD] = set.Ra_SW_f * 0.48 * 4.57
 
     constants = Constants()
     #time_PB = Vector{Float64}(undef, N*microbenchmark_steps)
@@ -76,9 +74,9 @@ function benchmark_plantbiophysics()
             ),
             stomatal_conductance=Medlyn(set.g0[i], set.g1[i]),
             status=(
-                Rₛ=set.Rs[i],
+                Ra_SW_f=set.Ra_SW_f[i],
                 sky_fraction=set.sky_fraction[i],
-                PPFD=set.PPFD[i],
+                aPPFD=set.aPPFD[i],
                 d=set.d[i],
             ),
         )
@@ -86,7 +84,7 @@ function benchmark_plantbiophysics()
         meteo = Atmosphere(T=set.T[i], Wind=set.Wind[i], P=set.P[i], Rh=set.Rh[i], Cₐ=set.Ca[i])
         #st = PlantMeteo.row_struct(leaf.status[1])
         #b_PB = @benchmark run!($leaf, $meteo, $constants, nothing; executor = ThreadedEx()) evals = microbenchmark_evals samples = microbenchmark_steps
-        run!(leaf, meteo, constants, nothing; executor = ThreadedEx())
+        run!(leaf, meteo, constants, nothing; executor=ThreadedEx())
 
         # transform in seconds        
         #=for j in 1:microbenchmark_steps
@@ -102,7 +100,7 @@ function setup_benchmark_plantbiophysics_multitimestep()
     N = 100 # Number of timesteps simulated for each microbenchmark step
 
     length_range = 10000
-    Rs = range(10, 500, length=length_range)
+    Ra_SW_f = range(10, 500, length=length_range)
     Ta = range(18, 40, length=length_range)
     Wind = range(0.5, 20, length=length_range)
     P = range(90, 101, length=length_range)
@@ -116,7 +114,7 @@ function setup_benchmark_plantbiophysics_multitimestep()
     TPU = range(5.0, 20.0, length=length_range)
     g0 = range(0.001, 2.0, length=length_range)
     g1 = range(0.5, 15.0, length=length_range)
-    vars = hcat([Ta, Wind, P, Rh, Ca, Jmax, Vmax, Rd, Rs, skyF, d, TPU, g0, g1])
+    vars = hcat([Ta, Wind, P, Rh, Ca, Jmax, Vmax, Rd, Ra_SW_f, skyF, d, TPU, g0, g1])
 
     set = [rand.(vars) for i = 1:N]
     set = reshape(vcat(set...), (length(set[1]), length(set)))'
@@ -129,7 +127,7 @@ function setup_benchmark_plantbiophysics_multitimestep()
         "JMaxRef",
         "VcMaxRef",
         "RdRef",
-        "Rs",
+        "Ra_SW_f",
         "sky_fraction",
         "d",
         "TPURef",
@@ -138,11 +136,10 @@ function setup_benchmark_plantbiophysics_multitimestep()
     ]
     set = DataFrame(set, name)
     @. set[!, :vpd] = e_sat(set.T) - vapor_pressure(set.T, set.Rh)
-    @. set[!, :PPFD] = set.Rs * 0.48 * 4.57
+    @. set[!, :aPPFD] = set.Ra_SW_f * 0.48 * 4.57
 
     leaf = Vector{ModelList}(undef, N)
     for i = 1:N
-
         leaf[i] = ModelList(
             energy_balance=Monteith(),
             photosynthesis=Fvcb(
@@ -153,9 +150,9 @@ function setup_benchmark_plantbiophysics_multitimestep()
             ),
             stomatal_conductance=Medlyn(set.g0[i], set.g1[i]),
             status=(
-                Rₛ=set.Rs,
+                Ra_SW_f=set.Ra_SW_f,
                 sky_fraction=set.sky_fraction,
-                PPFD=set.PPFD,
+                aPPFD=set.aPPFD,
                 d=set.d,
             ),
         )
@@ -163,7 +160,7 @@ function setup_benchmark_plantbiophysics_multitimestep()
 
     atm = Vector{Atmosphere}(undef, N)
     for i in 1:N
-        atm[i]= Atmosphere(T=set.T[i], Wind=set.Wind[i], P=set.P[i], Rh=set.Rh[i], Cₐ=set.Ca[i])
+        atm[i] = Atmosphere(T=set.T[i], Wind=set.Wind[i], P=set.P[i], Rh=set.Rh[i], Cₐ=set.Ca[i])
     end
     meteo = Weather(atm)
 
@@ -173,13 +170,13 @@ end
 function benchmark_plantbiophysics_multitimestep_MT(leaf, meteo)
     N = length(meteo)
     for i in 1:N
-        run!(leaf[i], meteo, Constants(), nothing; executor = ThreadedEx())
+        run!(leaf[i], meteo, Constants(), nothing; executor=ThreadedEx())
     end
 end
 
 function benchmark_plantbiophysics_multitimestep_ST(leaf, meteo)
     N = length(meteo)
     for i in 1:N
-        run!(leaf[i], meteo, Constants(), nothing; executor = SequentialEx())
+        run!(leaf[i], meteo, Constants(), nothing; executor=SequentialEx())
     end
 end

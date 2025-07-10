@@ -15,14 +15,14 @@ this:
 
 ```julia
 function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
-    k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.PPFD ./ J_to_umol)) ./ df.LAI)
+    k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.aPPFD ./ J_to_umol)) ./ df.LAI)
     return (k=k,)
 end
 ```
 
 The function should return the optimized parameters as a `NamedTuple` of the form `(parameter_name=parameter_value,)`.
 
-Here is an example usage with the `Beer` model, where we fit the `k` parameter from "measurements" of `PPFD`, `LAI` 
+Here is an example usage with the `Beer` model, where we fit the `k` parameter from "measurements" of `aPPFD`, `LAI` 
 and `Ri_PAR_f`. 
 
 ```julia
@@ -36,8 +36,8 @@ df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[
 fit(Beer, df)
 ```
 
-Note that this is a dummy example to show that the fitting method works, as we simulate the PPFD 
-using the Beer-Lambert law with a value of `k=0.6`, and then use the simulated PPFD to fit the `k`
+Note that this is a dummy example to show that the fitting method works, as we simulate the aPPFD 
+using the Beer-Lambert law with a value of `k=0.6`, and then use the simulated aPPFD to fit the `k`
 parameter again, which gives the same value as the one used on the simulation.
 """
 function fit end

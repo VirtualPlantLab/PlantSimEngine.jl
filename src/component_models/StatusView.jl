@@ -18,7 +18,7 @@ julia> ref_data = [13.747, 1.0, 0.03, 1500.0];
 Making a view of the reference data:
 
 ```jldoctest st1
-ref_data_view = NamedTuple{(:Rₛ, :sky_fraction, :d, :aPPFD)}(ntuple(i->view(ref_data, i), 4))
+ref_data_view = NamedTuple{(:Ra_SW_f, :sky_fraction, :d, :aPPFD)}(ntuple(i->view(ref_data, i), 4))
 ```
 
 Making the StatusView:
@@ -30,12 +30,12 @@ julia> st = PlantSimEngine.StatusView(ref_data_view);
 All these indexing methods are valid:
 
 ```jldoctest st1
-julia> st[:Rₛ]
+julia> st[:Ra_SW_f]
 13.747
 ```
 
 ```jldoctest st1
-julia> st.Rₛ
+julia> st.Ra_SW_f
 13.747
 ```
 
@@ -47,12 +47,12 @@ julia> st[1]
 Setting a StatusView variable is very easy:
 
 ```jldoctest st1
-julia> st[:Rₛ] = 20.0
+julia> st[:Ra_SW_f] = 20.0
 20.0
 ```
 
 ```jldoctest st1
-julia> st.Rₛ = 21.0
+julia> st.Ra_SW_f = 21.0
 21.0
 ```
     
