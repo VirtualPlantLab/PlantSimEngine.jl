@@ -316,18 +316,9 @@ function copy_tracked_outputs_into_vector!(outs_organ, i, statuses_organ, tracke
     return j
 end
 
-
-function pre_allocate_outputs(m::ModelList, outs, nsteps; check=true)
-    pre_allocate_outputs(dep(m; verbose=false), outs, nsteps; m.type_promotion, check=true)
-end
-
-function pre_allocate_outputs(d::DependencyGraph, outs, nsteps; type_promotion=nothing, check=true)
-    # NOTE : init_variables recreates a DependencyGraph, it's not great
-    # TODO : copy ?
-    out_vars_pre_type_promotion = merge(init_variables(d)...)
-
-    # bit hacky, could be cleaned up
-    out_vars_all = convert_vars(out_vars_pre_type_promotion, type_promotion)
+function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
+    st, = flatten_status(status(m))
+    out_vars_all = convert_vars(st, type_promotion)
 
     out_keys_requested = Symbol[]
     if !isnothing(outs)
@@ -340,9 +331,11 @@ function pre_allocate_outputs(d::DependencyGraph, outs, nsteps; type_promotion=n
 
     # default implicit behaviour, track everything
     if isempty(out_keys_requested)
-        out_vars_requested = out_vars_all
+        # We already have the status here, just repeating its value:
+        @show out_vars_all
+        return TimeStepTable(fill(out_vars_all, nsteps))
     else
-        unexpected_outputs = setdiff(out_keys_requested, status_keys(status(m)))
+        unexpected_outputs = setdiff(out_keys_requested, keys(st))
 
         if !isempty(unexpected_outputs)
             e = string(
