@@ -223,7 +223,7 @@ function run!(
                     roots = collect(dep_graph.roots)
                 end
                 meteo_i = meteo_adjusted[i]
-                update_vector_variables(object.status, status_flattened, vector_variables_mt, i)
+                set_variables_at_timestep!(status_flattened, status(object), vector_variables_mt, i)
                 for (process, node) in roots
                     run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
                 end
@@ -256,7 +256,7 @@ function run!(
                 run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
             end
             save_results!(status_flattened, outputs_preallocated, i)
-            i + 1 <= nsteps && update_vector_variables(object.status, status_flattened, vector_variables, i + 1)
+            i + 1 <= nsteps && set_variables_at_timestep!(status_flattened, status(object), vector_variables, i + 1)
         end
     end
 

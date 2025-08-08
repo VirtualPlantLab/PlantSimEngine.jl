@@ -144,10 +144,19 @@ function flatten_status(s::Status{T}) where {T}
     end
 end
 
-# Update to the next timestep the variables that were passed in as vectors by the user
-function update_vector_variables(s::Status, sf::Status, vector_variables, i)
-    for vec in vector_variables
-        sf[vec] = s[vec][i]
+"""
+    set_variables_at_timestep!(status_timestep::Status, user_status::Status, variables_to_update, timestep)
+
+Update `status_timestep` to the current values at the `timestep` for all `variables_to_update` in the status provided by the user (`user_status`).
+The variables to update are given in `variables_to_update`, which is a vector of symbols.
+
+`status_timestep` is a status representing a single time-step. `user_status` is the status provided that gives values for variables that are not computed by any model.
+It may give constant values or vectors of values, in which case the `timestep` is used to select the value to use for the current time step.
+
+"""
+function set_variables_at_timestep!(status_timestep::Status, user_status::Status, variables_to_update, timestep)
+    for vec in variables_to_update
+        status_timestep[vec] = user_status[vec][timestep]
     end
 end
 
