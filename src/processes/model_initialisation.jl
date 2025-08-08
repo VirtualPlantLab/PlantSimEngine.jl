@@ -245,7 +245,7 @@ function init_variables(model::T; verbose::Bool=true) where {T<:AbstractModel}
 end
 
 function init_variables(m::ModelList; verbose::Bool=true)
-    init_variables(dep(m; verbose=verbose))
+    init_variables(dep(m))
 end
 
 function init_variables(m::DependencyGraph)

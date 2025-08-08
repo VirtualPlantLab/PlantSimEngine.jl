@@ -18,7 +18,6 @@
     leaf = ModelList(
         process1=Process1Model(1.0),
         process2=Process2Model(),
-        nsteps=3
     )
 
     @test length(status(leaf)) == 5
@@ -81,7 +80,6 @@ end;
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=15.0,),
-        nsteps=3
     )
 
     @test length(status(leaf)) == 5
@@ -123,8 +121,7 @@ end;
     inits = init_variables(leaf)
     sorted_vars = sort([keys(inits.process3)...])
 
-    @test [getfield(inits.process3, i) for i in sorted_vars] ==
-          fill(-Inf, 3)
+    @test [getfield(inits.process3, i) for i in sorted_vars] == fill(-Inf, 3)
 end;
 
 @testset "Copy a ModelList" begin

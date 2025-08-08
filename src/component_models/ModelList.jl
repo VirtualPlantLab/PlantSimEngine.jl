@@ -328,7 +328,8 @@ function Base.copy(m::T) where {T<:ModelList}
     ModelList(
         m.models,
         deepcopy(m.status),
-        deepcopy(m.type_promotion)
+        deepcopy(m.type_promotion),
+        deepcopy(m.dependency_graph)
     )
 end
 
@@ -336,7 +337,8 @@ function Base.copy(m::T, status) where {T<:ModelList}
     ModelList(
         m.models,
         status,
-        deepcopy(m.type_promotion)
+        deepcopy(m.type_promotion),
+        deepcopy(m.dependency_graph)
     )
 end
 
@@ -468,7 +470,7 @@ function convert_vars!(mapped_vars::Dict{String,Dict{Symbol,Any}}, type_promotio
 end
 
 function Base.show(io::IO, ::MIME"text/plain", t::ModelList)
-    print(io, dep(t, verbose=false))
+    print(io, dep(t))
     print(io, status(t))
 end
 
