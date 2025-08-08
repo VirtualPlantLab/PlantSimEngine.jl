@@ -355,7 +355,7 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
         out_vars_requested = (; zip(out_keys_requested, out_defaults_requested)...)
     end
 
-    return TimeStepTable([Status(out_vars_requested) for i in 1:nsteps])
+    return TimeStepTable([Status(out_vars_requested) for i in Base.OneTo(nsteps)])
 end
 
 function save_results!(status_flattened::Status, outputs, i)
