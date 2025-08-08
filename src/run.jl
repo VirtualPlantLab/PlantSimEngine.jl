@@ -212,7 +212,7 @@ function run!(
                 "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
             ) maxlog = 1
         else
-            outputs_preallocated_mt = pre_allocate_outputs(dep_graph, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
+            outputs_preallocated_mt = pre_allocate_outputs(object, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
             local vars = length(outputs_preallocated_mt) > 0 ? keys(outputs_preallocated_mt[1]) : NamedTuple()
             status_flattened_template, vector_variables_mt = flatten_status(object.status)
 
@@ -235,8 +235,8 @@ function run!(
         end
     end
 
-    outputs_preallocated = pre_allocate_outputs(dep_graph, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
-    status_flattened, vector_variables = flatten_status(object.status)
+    outputs_preallocated = pre_allocate_outputs(object, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
+    status_flattened, vector_variables = flatten_status(status(object))
 
     # Not parallelizable over time-steps, it means some values depend on the previous value.
     # In this case we propagate the values of the variables from one time-step to the other, except for 
