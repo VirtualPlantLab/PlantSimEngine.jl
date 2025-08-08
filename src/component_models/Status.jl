@@ -135,20 +135,13 @@ end
 
 # Returns a status with all vector variables replaced with their first value (ie a Status ready for simulation)
 # also returns a tuple of symbols corresponding to the vector variables
-function flatten_status(s::Status)
-    status_values_flattened = NamedTuple()
-    vector_variables = NamedTuple()
-
-    for (var, value) in zip(keys(s), s)
-        if length(value) > 1
-            vector_variables = (vector_variables..., var)
-            status_values_flattened = (status_values_flattened..., value[1])
-        else
-            status_values_flattened = (status_values_flattened..., value)
-        end
+function flatten_status(s::Status{T}) where {T}
+    n_vars_several_values = findall(x -> length(x) > 1, s)
+    if length(n_vars_several_values) == 0
+        return s, n_vars_several_values
+    else
+        return Status{keys(s)}(first.(values(s))), n_vars_several_values
     end
-
-    return Status(; zip(keys(s), status_values_flattened)...), vector_variables
 end
 
 # Update to the next timestep the variables that were passed in as vectors by the user
