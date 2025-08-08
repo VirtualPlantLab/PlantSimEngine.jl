@@ -147,7 +147,8 @@ julia> [typeof(models[i][1]) for i in keys(status(models))]
 struct ModelList{M<:NamedTuple,S}
     models::M
     status::S
-    type_promotion::Union{Nothing, Dict}
+    type_promotion::Union{Nothing,Dict}
+    dependency_graph::DependencyGraph
 end
 
 #=function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
@@ -160,7 +161,6 @@ function ModelList(
     status=nothing,
     type_promotion::Union{Nothing,Dict}=nothing,
     variables_check::Bool=true,
-    nsteps=nothing,
     kwargs...
 )
 
@@ -187,10 +187,13 @@ function ModelList(
     ts_kwargs = homogeneous_ts_kwargs(status)
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
 
+
+
     model_list = ModelList(
         mods,
         ts_kwargs,
-        type_promotion
+        type_promotion,
+        dep(; verbose=true, mods...)
     )
     variables_check && !is_initialized(model_list)
 
@@ -219,8 +222,8 @@ function add_model_vars(x, models, type_promotion)
 
     # If the user gave a status, we check if all the variables are already initialized:
     vars_in_x = status_keys(x)
-    status_x = 
-    all([k in vars_in_x for k in keys(ref_vars)]) && return isa(x, Status) ? x : Status(x)  # If so, we return the input
+    status_x =
+        all([k in vars_in_x for k in keys(ref_vars)]) && return isa(x, Status) ? x : Status(x)  # If so, we return the input
 
     # Else, we add the variables by making a new object (carefull, this is a copy so it takes more time):
 
@@ -229,15 +232,15 @@ function add_model_vars(x, models, type_promotion)
 
     # If the user gave an empty status, we initialize all variables to their default values:
     if x === nothing
-       return Status(ref_vars)
+        return Status(ref_vars)
     end
-    
+
     if Tables.istable(x)
         # This situation only occurs if the user provided a table instead of a status
         # Meaning we have a status of vector values, all initialized up to a certain point
         # Unsure this is desirable, as that means run! does nothing or overwrites everything
         # Anyway, we wish to create a NamedTuple() of Vectors here
-        x_full = (;zip(propertynames(x), Tables.columns(x))...)
+        x_full = (; zip(propertynames(x), Tables.columns(x))...)
         x_full = merge(ref_vars, x_full)
 
     else
@@ -286,7 +289,7 @@ PlantSimEngine.homogeneous_ts_kwargs((Tₗ=[25.0, 26.0], aPPFD=1000.0))
 function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
     length(kwargs) == 0 && return kwargs
     vars_vals = collect(Any, values(kwargs))
- 
+
     vars_array = NamedTuple{keys(kwargs)}(j for j in vars_vals)
 
     return vars_array
