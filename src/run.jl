@@ -187,7 +187,7 @@ function run!(
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
 
-    dep_graph = dep(object, nsteps)
+    dep_graph = dep!(object, nsteps)
 
     if check
         # Check if the meteo data and the status have the same length (or length 1)

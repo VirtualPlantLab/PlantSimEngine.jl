@@ -1,8 +1,9 @@
 dep(::T, nsteps=1) where {T<:AbstractModel} = NamedTuple()
 
 """
-    dep(m::ModelList, nsteps=1; verbose::Bool=true)
+    dep(m::ModelList)
     dep(mapping::Dict{String,T}; verbose=true)
+    dep!(m::ModelList, nsteps=1)
 
 Get the model dependency graph given a ModelList or a multiscale model mapping. If one graph is returned, 
 then all models are coupled. If several graphs are returned, then only the models inside each graph are coupled, and
@@ -34,7 +35,12 @@ to other scales if needed. Then we transform all these nodes into soft dependenc
 Then we traverse all these and we set nodes that need outputs from other nodes as inputs as children/parents.
 If a node has no dependency, it is set as a root node and pushed into a new Dict (independant_process_root). This Dict is the returned dependency graph. And 
 it presents root nodes as independent starting points for the sub-graphs, which are the models that are coupled together. We can then traverse each of 
-these graphs independently to retrieve the models that are coupled together, in the right order of execution.
+these graphs independently to r
+
+# Notes
+
+The difference between `dep(m::ModelList)` and `dep!(m::ModelList, nsteps)` is that the first one returns the dependency graph found in the model list, while the 
+second one returns the dependency graph with the specified number of steps, modifying the simulation IDs of each node in the graph (`simulation_id=fill(0, nsteps)`).
 
 # Examples
 
@@ -75,8 +81,18 @@ function dep(nsteps=1; verbose::Bool=true, vars...)
     return deps
 end
 
-function dep(m::ModelList, nsteps=1; verbose::Bool=true)
-    dep(nsteps; verbose=verbose, m.models...)
+function dep(m::ModelList)
+    m.dependency_graph
+end
+
+function dep!(m::ModelList, nsteps=1)
+    traverse_dependency_graph!(m.dependency_graph; visit_hard_dep=false) do node
+        if length(node.simulation_id) != nsteps
+            node.simulation_id = fill(0, nsteps)
+        end
+    end
+
+    return m.dependency_graph
 end
 
 
