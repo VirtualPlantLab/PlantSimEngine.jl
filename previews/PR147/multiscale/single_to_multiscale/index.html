@@ -14,28 +14,28 @@ models_singlescale = ModelList(
 )
 
 outputs_singlescale = run!(models_singlescale, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">TimeStepTable{Status{(:TT_cu, :LAI, :aPPFD,...}(365 x 5):
-<span class="sgr31">╭─────┬─────────┬─────────┬─────────┬─────────┬───────────────────╮</span>
-<span class="sgr31">│</span><span class="sgr1"> Row </span><span class="sgr31">│</span><span class="sgr1">   TT_cu </span><span class="sgr31">│</span><span class="sgr1">     LAI </span><span class="sgr31">│</span><span class="sgr1">   aPPFD </span><span class="sgr31">│</span><span class="sgr1"> biomass </span><span class="sgr31">│</span><span class="sgr1"> biomass_increment </span><span class="sgr31">│</span>
-<span class="sgr31">│</span>     <span class="sgr31">│</span><span class="sgr90"> Float64 </span><span class="sgr31">│</span><span class="sgr90"> Float64 </span><span class="sgr31">│</span><span class="sgr90"> Float64 </span><span class="sgr31">│</span><span class="sgr90"> Float64 </span><span class="sgr31">│</span><span class="sgr90">           Float64 </span><span class="sgr31">│</span>
-<span class="sgr31">├─────┼─────────┼─────────┼─────────┼─────────┼───────────────────┤</span>
-<span class="sgr31">│</span>   1 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   2 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   3 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   4 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   5 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   6 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   7 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   8 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   9 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  10 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  11 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  12 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  13 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  14 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  15 <span class="sgr31">│</span> 2193.82 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span>     0.0 <span class="sgr31">│</span> 694.305 <span class="sgr31">│</span>               0.0 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  ⋮  <span class="sgr31">│</span>    ⋮    <span class="sgr31">│</span>    ⋮    <span class="sgr31">│</span>    ⋮    <span class="sgr31">│</span>    ⋮    <span class="sgr31">│</span>         ⋮         <span class="sgr31">│</span>
-<span class="sgr31">╰─────┴─────────┴─────────┴─────────┴─────────┴───────────────────╯</span>
-<span class="sgr36">                                                   350 rows omitted</span>
+<span class="sgr31">╭─────┬──────────┬────────────┬───────────┬────────────┬───────────────────╮</span>
+<span class="sgr31">│</span><span class="sgr1"> Row </span><span class="sgr31">│</span><span class="sgr1">    TT_cu </span><span class="sgr31">│</span><span class="sgr1">        LAI </span><span class="sgr31">│</span><span class="sgr1">     aPPFD </span><span class="sgr31">│</span><span class="sgr1">    biomass </span><span class="sgr31">│</span><span class="sgr1"> biomass_increment </span><span class="sgr31">│</span>
+<span class="sgr31">│</span>     <span class="sgr31">│</span><span class="sgr90">  Float64 </span><span class="sgr31">│</span><span class="sgr90">    Float64 </span><span class="sgr31">│</span><span class="sgr90">   Float64 </span><span class="sgr31">│</span><span class="sgr90">    Float64 </span><span class="sgr31">│</span><span class="sgr90">           Float64 </span><span class="sgr31">│</span>
+<span class="sgr31">├─────┼──────────┼────────────┼───────────┼────────────┼───────────────────┤</span>
+<span class="sgr31">│</span>   1 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0396961 <span class="sgr31">│</span> 0.00793922 <span class="sgr31">│</span>        0.00793922 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   2 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span>   0.02173 <span class="sgr31">│</span>  0.0122852 <span class="sgr31">│</span>          0.004346 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   3 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0314899 <span class="sgr31">│</span>  0.0185832 <span class="sgr31">│</span>        0.00629798 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   4 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0390834 <span class="sgr31">│</span>  0.0263999 <span class="sgr31">│</span>        0.00781668 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   5 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0454514 <span class="sgr31">│</span>  0.0354902 <span class="sgr31">│</span>        0.00909028 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   6 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0472677 <span class="sgr31">│</span>  0.0449437 <span class="sgr31">│</span>        0.00945354 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   7 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span>   0.04346 <span class="sgr31">│</span>  0.0536357 <span class="sgr31">│</span>        0.00869201 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   8 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0469832 <span class="sgr31">│</span>  0.0630324 <span class="sgr31">│</span>        0.00939665 <span class="sgr31">│</span>
+<span class="sgr31">│</span>   9 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0291703 <span class="sgr31">│</span>  0.0688664 <span class="sgr31">│</span>        0.00583406 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  10 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0140052 <span class="sgr31">│</span>  0.0716675 <span class="sgr31">│</span>        0.00280105 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  11 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0505283 <span class="sgr31">│</span>  0.0817731 <span class="sgr31">│</span>         0.0101057 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  12 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0405277 <span class="sgr31">│</span>  0.0898787 <span class="sgr31">│</span>        0.00810554 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  13 <span class="sgr31">│</span>   0.5625 <span class="sgr31">│</span> 0.00557831 <span class="sgr31">│</span> 0.0297814 <span class="sgr31">│</span>   0.095835 <span class="sgr31">│</span>        0.00595629 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  14 <span class="sgr31">│</span> 0.945833 <span class="sgr31">│</span> 0.00559777 <span class="sgr31">│</span> 0.0433269 <span class="sgr31">│</span>     0.1045 <span class="sgr31">│</span>        0.00866538 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  15 <span class="sgr31">│</span> 0.979167 <span class="sgr31">│</span> 0.00559946 <span class="sgr31">│</span> 0.0470271 <span class="sgr31">│</span>   0.113906 <span class="sgr31">│</span>        0.00940542 <span class="sgr31">│</span>
+<span class="sgr31">│</span>  ⋮  <span class="sgr31">│</span>    ⋮     <span class="sgr31">│</span>     ⋮      <span class="sgr31">│</span>     ⋮     <span class="sgr31">│</span>     ⋮      <span class="sgr31">│</span>         ⋮         <span class="sgr31">│</span>
+<span class="sgr31">╰─────┴──────────┴────────────┴───────────┴────────────┴───────────────────╯</span>
+<span class="sgr36">                                                            350 rows omitted</span>
 </code></pre><p>Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the &#39;whole plant&#39; scale. Their variables also operate at that &quot;plant&quot; scale, so there is no need to map any variable to other scales.</p><p>We can therefore convert this into the following mapping : </p><pre><code class="language-julia hljs">mapping = Dict(
 &quot;Plant&quot; =&gt; (
    ToyLAIModel(),
@@ -145,25 +145,25 @@ end</code></pre><div class="admonition is-info" id="Note-459eb2bfa9807029"><head
  Status(timestep = 365, node = / 1: Scene
 └─ + 2: Plant
 , TT_cu = 2193.8166666666643)</code></pre><p>We have a <code>Vector{NamedTuple}</code>structure. Our single-scale output is a <code>Vector{T}</code>:</p><pre><code class="language-julia hljs">outputs_singlescale.TT_cu</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
+    0.0
     ⋮
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
- 2193.816666666666
+ 2177.9041666666662
+ 2178.4249999999997
+ 2179.729166666666
+ 2180.4749999999995
+ 2181.145833333333
+ 2183.941666666666
+ 2189.2666666666664
+ 2192.895833333333
  2193.816666666666</code></pre><p>Let&#39;s extract the multi-scale <code>:TT_cu</code>:</p><pre><code class="language-julia hljs">computed_TT_cu_multiscale = [outputs_multiscale[&quot;Scene&quot;][i].TT_cu for i in 1:length(outputs_multiscale[&quot;Scene&quot;])]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">365-element Vector{Float64}:
     0.0
     0.0
@@ -188,367 +188,4 @@ end</code></pre><div class="admonition is-info" id="Note-459eb2bfa9807029"><head
     if !(computed_TT_cu_multiscale[i] ≈ outputs_singlescale.TT_cu[i])
         println(i)
     end
-end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">1
-2
-3
-4
-5
-6
-7
-8
-9
-10
-11
-12
-13
-14
-15
-16
-17
-18
-19
-20
-21
-22
-23
-24
-25
-26
-27
-28
-29
-30
-31
-32
-33
-34
-35
-36
-37
-38
-39
-40
-41
-42
-43
-44
-45
-46
-47
-48
-49
-50
-51
-52
-53
-54
-55
-56
-57
-58
-59
-60
-61
-62
-63
-64
-65
-66
-67
-68
-69
-70
-71
-72
-73
-74
-75
-76
-77
-78
-79
-80
-81
-82
-83
-84
-85
-86
-87
-88
-89
-90
-91
-92
-93
-94
-95
-96
-97
-98
-99
-100
-101
-102
-103
-104
-105
-106
-107
-108
-109
-110
-111
-112
-113
-114
-115
-116
-117
-118
-119
-120
-121
-122
-123
-124
-125
-126
-127
-128
-129
-130
-131
-132
-133
-134
-135
-136
-137
-138
-139
-140
-141
-142
-143
-144
-145
-146
-147
-148
-149
-150
-151
-152
-153
-154
-155
-156
-157
-158
-159
-160
-161
-162
-163
-164
-165
-166
-167
-168
-169
-170
-171
-172
-173
-174
-175
-176
-177
-178
-179
-180
-181
-182
-183
-184
-185
-186
-187
-188
-189
-190
-191
-192
-193
-194
-195
-196
-197
-198
-199
-200
-201
-202
-203
-204
-205
-206
-207
-208
-209
-210
-211
-212
-213
-214
-215
-216
-217
-218
-219
-220
-221
-222
-223
-224
-225
-226
-227
-228
-229
-230
-231
-232
-233
-234
-235
-236
-237
-238
-239
-240
-241
-242
-243
-244
-245
-246
-247
-248
-249
-250
-251
-252
-253
-254
-255
-256
-257
-258
-259
-260
-261
-262
-263
-264
-265
-266
-267
-268
-269
-270
-271
-272
-273
-274
-275
-276
-277
-278
-279
-280
-281
-282
-283
-284
-285
-286
-287
-288
-289
-290
-291
-292
-293
-294
-295
-296
-297
-298
-299
-300
-301
-302
-303
-304
-305
-306
-307
-308
-309
-310
-311
-312
-313
-314
-315
-316
-317
-318
-319
-320
-321
-322
-323
-324
-325
-326
-327
-328
-329
-330
-331
-332
-333
-334
-335
-336
-337
-338
-339
-340
-341
-342
-343
-344
-345
-346
-347
-348
-349
-350
-351
-352
-353
-354
-355
-356
-357
-358
-359
-360
-361
-362
-363
-364</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">false</code></pre><div class="admonition is-info" id="Note-6a4a553fc542d0e0"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-6a4a553fc542d0e0" title="Permalink"></a></header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <a href="#ToyDegreeDaysCumulModel"><code>ToyDegreeDaysCumulModel</code></a>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Friday 8 August 2025 15:04">Friday 8 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+end</code></pre><p>or equivalently, with broadcasting, we can write :</p><pre><code class="language-julia hljs">is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">true</code></pre><div class="admonition is-info" id="Note-6a4a553fc542d0e0"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-6a4a553fc542d0e0" title="Permalink"></a></header><div class="admonition-body"><p>You may be wondering why we check for approximate equality rather than strict equality. The reason for that is due to floating-point accumulation errors, which are discussed in more detail in <a href="../../working_with_data/floating_point_accumulation_error/#Floating-point-considerations">Floating-point considerations</a>.</p></div></div><h2 id="ToyDegreeDaysCumulModel"><a class="docs-heading-anchor" href="#ToyDegreeDaysCumulModel">ToyDegreeDaysCumulModel</a><a id="ToyDegreeDaysCumulModel-1"></a><a class="docs-heading-anchor-permalink" href="#ToyDegreeDaysCumulModel" title="Permalink"></a></h2><p>There is a model able to provide Thermal Time based on weather temperature data, <a href="#ToyDegreeDaysCumulModel"><code>ToyDegreeDaysCumulModel</code></a>, which can also be found in the examples folder. </p><p>We didn&#39;t make use of it here for learning purposes. It also computes a thermal time based on default parameters that don&#39;t correspond to the thermal time in the example weather data, so results differ from the thermal time already present in the weather data without tinkering with the parameters. </p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_considerations/">« Multiscale considerations</a><a class="docs-footer-nextpage" href="../multiscale/">More variable mapping examples »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Friday 8 August 2025 15:51">Friday 8 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
