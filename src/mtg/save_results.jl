@@ -332,8 +332,7 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
     # default implicit behaviour, track everything
     if isempty(out_keys_requested)
         # We already have the status here, just repeating its value:
-        @show out_vars_all
-        return TimeStepTable(fill(out_vars_all, nsteps))
+        outputs_timestep = fill(NamedTuple(out_vars_all), nsteps)
     else
         unexpected_outputs = setdiff(out_keys_requested, keys(st))
 
@@ -354,9 +353,9 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
 
         out_defaults_requested = (out_vars_all[i] for i in out_keys_requested)
         out_vars_requested = (; zip(out_keys_requested, out_defaults_requested)...)
+        outputs_timestep = fill(out_vars_requested, nsteps)
     end
 
-    outputs_timestep = fill(out_vars_requested, nsteps)
     return TimeStepTable([Status(i) for i in outputs_timestep])
 end
 
