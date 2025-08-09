@@ -91,7 +91,7 @@ run!
 function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     # This isn't ideal in terms of codeflow, but check_dimensions will kick in later
     # And determine whether there is a status vector length discrepancy
-     
+
     meteo_adjusted = meteo
 
     if DataFormat(meteo_adjusted) == TableAlike()
@@ -151,7 +151,7 @@ function run!(
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
     if executor != SequentialEx()
-         @warn string(
+        @warn string(
             "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
         ) maxlog = 1
     end
@@ -161,7 +161,7 @@ function run!(
     # Each object:
     for obj in object
 
-        if isa(object, AbstractArray) 
+        if isa(object, AbstractArray)
             push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
             outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
@@ -183,11 +183,11 @@ function run!(
     check=true,
     executor=ThreadedEx()
 ) where {T<:ModelList}
-    
+
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
 
-    dep_graph = dep(object, nsteps)
+    dep_graph = dep!(object, nsteps)
 
     if check
         # Check if the meteo data and the status have the same length (or length 1)
@@ -201,7 +201,7 @@ function run!(
         end
     end
 
-    
+
     if executor != SequentialEx() && nsteps > 1
         if !timestep_parallelizable(dep_graph)
             is_ts_parallel = which_timestep_parallelizable(dep_graph)
@@ -211,19 +211,19 @@ function run!(
                 "A parallel executor was provided (`executor=$(executor)`) but some models cannot be run in parallel: $mods_not_parallel. ",
                 "The simulation will be run sequentially. Use `executor=SequentialEx()` to remove this warning."
             ) maxlog = 1
-        else           
-            outputs_preallocated_mt = pre_allocate_outputs(object, tracked_outputs, nsteps)
+        else
+            outputs_preallocated_mt = pre_allocate_outputs(object, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
             local vars = length(outputs_preallocated_mt) > 0 ? keys(outputs_preallocated_mt[1]) : NamedTuple()
             status_flattened_template, vector_variables_mt = flatten_status(object.status)
 
             # Computing time-steps in parallel:
-            @floop executor for i in 1:nsteps                
-                @init begin 
+            @floop executor for i in 1:nsteps
+                @init begin
                     status_flattened = deepcopy(status_flattened_template)
                     roots = collect(dep_graph.roots)
                 end
                 meteo_i = meteo_adjusted[i]
-                update_vector_variables(object.status, status_flattened, vector_variables_mt, i)
+                set_variables_at_timestep!(status_flattened, status(object), vector_variables_mt, i)
                 for (process, node) in roots
                     run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
                 end
@@ -235,8 +235,8 @@ function run!(
         end
     end
 
-    outputs_preallocated = pre_allocate_outputs(object, tracked_outputs, nsteps)
-    status_flattened, vector_variables = flatten_status(object.status)
+    outputs_preallocated = pre_allocate_outputs(object, tracked_outputs, nsteps; type_promotion=object.type_promotion, check=check)
+    status_flattened, vector_variables = flatten_status(status(object))
 
     # Not parallelizable over time-steps, it means some values depend on the previous value.
     # In this case we propagate the values of the variables from one time-step to the other, except for 
@@ -247,7 +247,7 @@ function run!(
     if nsteps == 1
         for (process, node) in roots
             run_node!(object, node, 1, status_flattened, meteo_adjusted, constants, extra)
-        end        
+        end
         save_results!(status_flattened, outputs_preallocated, 1)
     else
 
@@ -256,10 +256,10 @@ function run!(
                 run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
             end
             save_results!(status_flattened, outputs_preallocated, i)
-            i + 1 <= nsteps && update_vector_variables(object.status, status_flattened, vector_variables, i + 1)
+            i + 1 <= nsteps && set_variables_at_timestep!(status_flattened, status(object), vector_variables, i + 1)
         end
     end
-    
+
     return outputs_preallocated
 end
 
@@ -273,7 +273,7 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx()
-) where {T<:Union{AbstractArray, AbstractDict}}
+) where {T<:Union{AbstractArray,AbstractDict}}
 
     dep_graphs = [dep(obj) for obj in collect(values(object))]
     #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
@@ -305,7 +305,7 @@ function run!(
 
     # Each object:
     for obj in object
-        if isa(object, AbstractArray) 
+        if isa(object, AbstractArray)
             push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
             outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)

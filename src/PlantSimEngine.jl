@@ -43,6 +43,9 @@ include("component_models/RefVector.jl")
 # Simulation table (time-step table, from PlantMeteo):
 include("component_models/TimeStepTable.jl")
 
+# Declaring the dependency graph
+include("dependencies/dependency_graph.jl")
+
 # List of models:
 include("component_models/ModelList.jl")
 include("mtg/MultiScaleModel.jl")
@@ -53,8 +56,7 @@ include("component_models/get_status.jl")
 # Transform into a dataframe:
 include("dataframe.jl")
 
-# Model dependencies:
-include("dependencies/dependency_graph.jl")
+# Computing model dependencies:
 include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
 include("dependencies/traversal.jl")

@@ -112,7 +112,7 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
     outs_ = Dict{String,Vector{Symbol}}()
-    
+
     # default behaviour : track everything
     if isnothing(outs)
         for organ in keys(statuses)
@@ -130,7 +130,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
         end
     end
 
-    len = Dict{String, Int}()
+    len = Dict{String,Int}()
     for (organ, vals) in outs_
         len[organ] = length(outs_[organ])
         unique!(outs_[organ])
@@ -210,7 +210,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     node_type = only(node_type)
 
     # I don't know if this function barrier is necessary
-    preallocated_outputs = Dict{String, Vector}()
+    preallocated_outputs = Dict{String,Vector}()
     complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
     return preallocated_outputs
 end
@@ -218,7 +218,7 @@ end
 function complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
     types = Vector{DataType}()
     for organ in keys(outs_)
-        
+
         outs_no_node = filter(x -> x != :node, outs_[organ])
 
         #types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
@@ -230,14 +230,14 @@ function complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_,
         symbols_tuple = (:timestep, :node, outs_no_node...,)
         # using node_type.parameters[1] is clunky, but covers both NodeMTG and AbstractNodeMTG types
         values_tuple = (1, MultiScaleTreeGraph.Node((node_type.parameters[1])("/", "Uninitialized", 0, 0),), values...,)
-    
+
         # Dummy value to make accessing the type easier 
         # (empty arrays don't have references to an instance, so their types can't be inspected and manipulated as easily)
-        dummy_status = (;zip(symbols_tuple, values_tuple)...)
+        dummy_status = (; zip(symbols_tuple, values_tuple)...)
         data = typeof(Status(dummy_status))[]
         resize!(data, nsteps)
-        
-        for ii in 1:nsteps 
+
+        for ii in 1:nsteps
             data[ii] = Status(dummy_status)
         end
         preallocated_outputs[organ] = data
@@ -278,22 +278,22 @@ function save_results!(object::GraphSimulation, i)
         # So there may be possible simplifications (maybe no need for a function barrier, perhaps the resizing could be made a one-liner...)
         # But this should work without causing visible performance regressions on XPalm
         len = length(outs[organ])
-        if length(statuses[organ]) + index - 1 > len            
+        if length(statuses[organ]) + index - 1 > len
             min_required = max(length(statuses[organ]) + index - len, index)
-            
-            extra_length = 2*min_required - len
+
+            extra_length = 2 * min_required - len
             data = eltype(outs[organ])[]
             resize!(data, extra_length)
             dummy_value = NamedTuple(outs[organ][1])
             # TODO set timestep to 0 for clarity ?
-            
+
             # Using fill! caused Ref issues, so call a Status constructor here instead of passing a prebuilt value
             # This will avoid having all array entries point to the same ref but keep construction cost at a minimum
             for new_entry in 1:extra_length
                 data[new_entry] = Status(dummy_value)
             end
 
-            outs[organ] = cat(outs[organ], data, dims=1)           
+            outs[organ] = cat(outs[organ], data, dims=1)
             #println("len : ", len, " statuses #", length(statuses[organ]), " index ", index)
             #println("min_required : ", min_required, " extra_length ", extra_length, " new len ", length(outs[organ]))
         end
@@ -316,15 +316,9 @@ function copy_tracked_outputs_into_vector!(outs_organ, i, statuses_organ, tracke
     return j
 end
 
-
 function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
-    
-    # NOTE : init_variables recreates a DependencyGraph, it's not great
-    # TODO : copy ?
-    out_vars_pre_type_promotion = merge(init_variables(m; verbose=false)...)
-    
-    # bit hacky, could be cleaned up
-    out_vars_all = convert_vars(out_vars_pre_type_promotion, m.type_promotion)
+    st, = flatten_status(status(m))
+    out_vars_all = convert_vars(st, type_promotion)
 
     out_keys_requested = Symbol[]
     if !isnothing(outs)
@@ -337,9 +331,10 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
 
     # default implicit behaviour, track everything
     if isempty(out_keys_requested)
-        out_vars_requested = out_vars_all
+        # We already have the status here, just repeating its value:
+        out_vars_requested = NamedTuple(out_vars_all)
     else
-        unexpected_outputs = setdiff(out_keys_requested, status_keys(status(m)))
+        unexpected_outputs = setdiff(out_keys_requested, keys(st))
 
         if !isempty(unexpected_outputs)
             e = string(
@@ -354,22 +349,21 @@ function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing
                 @info e
                 [delete!(unexpected_outputs, i) for i in unexpected_outputs]
             end
-        end    
+        end
 
         out_defaults_requested = (out_vars_all[i] for i in out_keys_requested)
-        out_vars_requested = (;zip(out_keys_requested, out_defaults_requested)...)
+        out_vars_requested = (; zip(out_keys_requested, out_defaults_requested)...)
     end
 
-    outputs_timestep = fill(out_vars_requested, nsteps)
-    return TimeStepTable([Status(i) for i in outputs_timestep])
+    return TimeStepTable([Status(out_vars_requested) for i in Base.OneTo(nsteps)])
 end
 
 function save_results!(status_flattened::Status, outputs, i)
-    if length(outputs) == 0 
-        return 
+    if length(outputs) == 0
+        return
     end
     outs = outputs[i]
-    
+
     for var in keys(outs)
         outs[var] = status_flattened[var]
     end

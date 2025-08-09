@@ -72,29 +72,29 @@ end
     mapping_with_vector = Dict(
         "Scale" =>
             (ToyAssimGrowthModel(0.0, 0.0, 0.0),
-            ToyCAllocationModel(),
-            Status( TT_cu=Vector(cumsum(meteo_day.TT))),
+                ToyCAllocationModel(),
+                Status(TT_cu=Vector(cumsum(meteo_day.TT))),
             ),
-        )
-        
-        mtg = import_mtg_example()
-        @test !last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_vector))
-        @test_throws "call the function generate_models_from_status_vectors" PlantSimEngine.GraphSimulation(mtg, mapping_with_vector)
-    
-     mapping_with_empty_status = Dict(
+    )
+
+    mtg = import_mtg_example()
+    @test !last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_vector))
+    @test_throws "call the function generate_models_from_status_vectors" PlantSimEngine.GraphSimulation(mtg, mapping_with_vector)
+
+    mapping_with_empty_status = Dict(
         "Scale" =>
             (ToyAssimGrowthModel(0.0, 0.0, 0.0),
-            ToyCAllocationModel(),
-            Status(),
+                ToyCAllocationModel(),
+                Status(),
             ),
-        )
-    
-     @test last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_empty_status))
+    )
+
+    @test last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_empty_status))
 end
 
 # simple conversion to a mapping, with a manually written model
 function modellist_to_mapping_manual(modellist_original::ModelList, modellist_status, nsteps; check=true, outputs=nothing, TT_cu_vec=Vector{Float64}())
-    
+
     modellist = Base.copy(modellist_original, modellist_original.status)
 
     default_scale = "Default"
@@ -106,17 +106,17 @@ function modellist_to_mapping_manual(modellist_original::ModelList, modellist_st
 
     mapping = Dict(
         default_scale => (
-        models..., 
-        ToyTestDegreeDaysCumulModel(TT_cu_vec=TT_cu_vec),
-        PlantSimEngine.HelperNextTimestepModel(),
-        MultiScaleModel(
-        model=PlantSimEngine.HelperCurrentTimestepModel(),
-        mapped_variables=[PreviousTimeStep(:next_timestep),],
-        ),
-        Status(current_timestep=1,next_timestep=1)
+            models...,
+            ToyTestDegreeDaysCumulModel(TT_cu_vec=TT_cu_vec),
+            PlantSimEngine.HelperNextTimestepModel(),
+            MultiScaleModel(
+                model=PlantSimEngine.HelperCurrentTimestepModel(),
+                mapped_variables=[PreviousTimeStep(:next_timestep),],
+            ),
+            Status(current_timestep=1, next_timestep=1)
         ),
     )
-    
+
     if isnothing(outputs)
         f = []
         for i in 1:length(modellist.models)
@@ -131,7 +131,7 @@ function modellist_to_mapping_manual(modellist_original::ModelList, modellist_st
         f = unique!(f)
         all_vars = (f...,)
         #all_vars = merge((keys(init_variables(object.models[i])) for i in 1:length(object.models))...)
-    else 
+    else
         all_vars = outputs
         # TODO sanity check
     end
@@ -150,7 +150,7 @@ end
 PlantSimEngine.inputs_(::ToyTestDegreeDaysCumulModel) = (current_timestep=1,)
 PlantSimEngine.outputs_(::ToyTestDegreeDaysCumulModel) = (TT_cu=0.0,)
 
-ToyTestDegreeDaysCumulModel(; TT_cu_vec = Vector{Float64}()) = ToyTestDegreeDaysCumulModel(TT_cu_vec)
+ToyTestDegreeDaysCumulModel(; TT_cu_vec=Vector{Float64}()) = ToyTestDegreeDaysCumulModel(TT_cu_vec)
 
 
 function PlantSimEngine.run!(m::ToyTestDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
@@ -164,7 +164,7 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
     st = (TT_cu=cumsum(meteo_day.TT),)
-    
+
     TT_cu_vec = Vector(cumsum(meteo_day.TT))
 
     rue = 0.3
@@ -197,9 +197,9 @@ PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyTestDegreeDaysCumulModel}) = Pl
 
     # fully automated model generation
     st2 = (TT_cu=Vector(cumsum(meteo_day.TT)),)
-   
+
     mtg, mapping, outputs_mapping = PlantSimEngine.modellist_to_mapping(models, st2; nsteps=nsteps, outputs=nothing)
- 
+
     @test to_initialize(mapping) == Dict()
 
     graphsim2 = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
@@ -225,52 +225,50 @@ end
     TT_cu_vec = Vector(cumsum(meteo_day.TT))
     nsteps = length(meteo_day.TT)
 
-    mapping_with_vector = Dict(
-    
-    "Plant" => (
-        MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapped_variables=[
-                # inputs
-                :carbon_assimilation => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                # outputs
-                :carbon_allocation => ["Leaf", "Internode"]
-            ],
+    mapping_with_vector = Dict("Plant" => (
+            MultiScaleModel(
+                model=ToyCAllocationModel(),
+                mapped_variables=[
+                    # inputs
+                    :carbon_assimilation => ["Leaf"],
+                    :carbon_demand => ["Leaf", "Internode"],
+                    # outputs
+                    :carbon_allocation => ["Leaf", "Internode"]
+                ],
+            ),
+            MultiScaleModel(
+                model=ToyPlantRmModel(),
+                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            ),
         ),
-        MultiScaleModel(
-            model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+        "Internode" => (
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
+            Status(TT=TT_v, carbon_biomass=1.0)
         ),
-    ),
-    "Internode" => (
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-        Status(TT=TT_v, carbon_biomass=1.0)
-    ),
-    "Leaf" => (
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil",],
-            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+        "Leaf" => (
+            MultiScaleModel(
+                model=ToyAssimModel(),
+                mapped_variables=[:soil_water_content => "Soil",],
+                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            ),
+            ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+            ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
+            Status(aPPFD=1300.0, carbon_biomass=2.0, TT=10.0), # TODO try calling the generated TT output through a variable mapping
         ),
-        ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-        Status(aPPFD=1300.0, carbon_biomass=2.0, TT=10.0), # TODO try calling the generated TT output through a variable mapping
-    ),
-    "Soil" => (
-        ToySoilWaterModel(),
-    ),
-)
+        "Soil" => (
+            ToySoilWaterModel(),
+        ),
+    )
 
-out_multiscale = Dict("Plant" => (:Rm_organs,),)
-mtg = import_mtg_example();
+    out_multiscale = Dict("Plant" => (:Rm_organs,),)
+    mtg = import_mtg_example()
 
-mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_with_vector, "Soil", nsteps)
+    mapping_without_vectors = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_with_vector, "Soil", nsteps)
 
-@test to_initialize(mapping_without_vectors) == Dict()
+    @test to_initialize(mapping_without_vectors) == Dict()
 
- graph_sim_multiscale = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors, nsteps=nsteps, check=true, outputs=out_multiscale)
+    graph_sim_multiscale = @test_nowarn PlantSimEngine.GraphSimulation(mtg, mapping_without_vectors, nsteps=nsteps, check=true, outputs=out_multiscale)
 
     sim_multiscale = run!(graph_sim_multiscale,
         meteo_day,
