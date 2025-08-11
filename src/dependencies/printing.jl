@@ -105,7 +105,7 @@ function draw_model_panel(i::SoftDependencyNode{T}; title=nothing) where {T}
             "Model: $(T)\n",
             "Dep: $(i.parent_vars)"
         );
-        fit=true,
+        fit=false,
         style="blue dim"
     )
 end
