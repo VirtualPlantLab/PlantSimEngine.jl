@@ -64,6 +64,8 @@ AbstractTrees.printnode(io::IO, node::HardDependencyNode{T}) where {T} = print(i
 AbstractTrees.printnode(io::IO, node::SoftDependencyNode{T}) where {T} = print(io, T)
 Base.show(io::IO, t::AbstractDependencyNode) = AbstractTrees.print_tree(io, t)
 Base.length(t::AbstractDependencyNode) = length(collect(AbstractTrees.PreOrderDFS(t)))
+Base.length(t::DependencyGraph) = length(traverse_dependency_graph(t))
+AbstractTrees.children(t::DependencyGraph) = collect(t.roots)
 
 # Long form printing
 function Base.show(io::IO, ::MIME"text/plain", t::DependencyGraph)

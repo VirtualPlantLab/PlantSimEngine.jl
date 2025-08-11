@@ -187,8 +187,6 @@ function ModelList(
     ts_kwargs = homogeneous_ts_kwargs(status)
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
 
-
-
     model_list = ModelList(
         mods,
         ts_kwargs,

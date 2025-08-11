@@ -40,7 +40,8 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
     d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
     for (procname, node) in d.roots
         var = Pair{Symbol,NamedTuple}[]
-        traverse_dependency_graph!(node, variables, var)
+        nodes_visited = Set{AbstractDependencyNode}()
+        traverse_dependency_graph!(node, variables, var; node_visited=nodes_visited)
         push!(d_vars, procname => var)
     end
 
@@ -138,7 +139,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
 end
 
 # For multiscale mapping:
-function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol, String}, HardDependencyNode}) where {A<:Any}
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode}) where {A<:Any}
     mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
     rev_mapping = reverse_mapping(mapped_vars, all=false)
 
@@ -151,11 +152,11 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
 
             # Remove the hard dependencies from the soft dependencies:
             soft_deps_not_hard = drop_process(soft_deps, [hd.process for hd in i.hard_dependency])
-           
+
             hard_dependencies_from_other_scale = [hd for hd in i.hard_dependency if hd.scale != i.scale]
 
             # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
-            
+
             # Check if the process has soft dependencies at other scales:
             soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, rev_mapping, hard_dependencies_from_other_scale)
             # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
@@ -171,37 +172,37 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                     # If the process has soft dependencies, then it is not independant
                     # and we need to add its parent(s) to the node, and the node as a child
                     for (parent_soft_dep, soft_dep_vars) in pairs(soft_deps_not_hard)
-    
+
                         # if the parent isn't registered as a soft dependency, it likely means the soft dependecy should be to an internal hard dependency to the parent
-                        if(!haskey(soft_dep_graph, parent_soft_dep))
+                        if (!haskey(soft_dep_graph, parent_soft_dep))
 
                             roots_at_given_scale = soft_dep_graphs_roots.roots[i.scale][:soft_dep_graph]
-                            if !(parent_soft_dep in keys(roots_at_given_scale))                                                               
+                            if !(parent_soft_dep in keys(roots_at_given_scale))
                                 master_node = ()
-                                for ((hd_key, hd_scale), hd) in hard_dep_dict 
-                                    if parent_soft_dep == hd_key     
-                                        master_node = hd                                                                                                                                                                                       
+                                for ((hd_key, hd_scale), hd) in hard_dep_dict
+                                    if parent_soft_dep == hd_key
+                                        master_node = hd
                                         depth = 0
                                         # A cleaner way of preventing cycles or infinite loops would be more desirable
                                         while !isa(master_node, SoftDependencyNode) && depth < 50
                                             master_node.parent === nothing && error("Finalised hard dependency has no parent")
                                             master_node = master_node.parent
                                             depth += 1
-                                        end                                      
-                                        
+                                        end
+
                                         break
                                     end
-                               end
-                            master_node == () && error("Parent is not located in hard deps, nor in roots, which should be the case when initalizing soft dependencies")
-                        end
+                                end
+                                master_node == () && error("Parent is not located in hard deps, nor in roots, which should be the case when initalizing soft dependencies")
+                            end
                             # NOTE : this may need to be propagated within internal hard dependencies' ancestors of this model... ?
                             parent_node = soft_dep_graphs_roots.roots[master_node.scale][:soft_dep_graph][master_node.process]
                         else
                             parent_node = soft_dep_graph[parent_soft_dep]
                         end
-                        
-                        
-                        
+
+
+
                         # preventing a cyclic dependency
                         if parent_soft_dep == proc
                             error("Cyclic model dependency detected for process $proc from organ $organ.")
@@ -247,33 +248,33 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                 # If the node has soft dependencies at other scales, add it as child of the other scale (and add its parent too):
                 if length(soft_deps_multiscale) > 0
                     for org in keys(soft_deps_multiscale)
-                        for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]                            
-                                                      
+                        for (parent_soft_dep, soft_dep_vars) in soft_deps_multiscale[org]
+
                             # if the node has a soft dependency on a node that is a nested hard dependency, 
                             # have it point to the master node of that hard dependency instead of the internal node
                             # This check is meant in case the organ at the inspected scale is part of a hard dependency, 
                             # and therefore already absent from the roots
 
-                            roots_at_given_scale = soft_dep_graphs_roots.roots[org][:soft_dep_graph]   
-                            if !(parent_soft_dep in keys(roots_at_given_scale))                                                               
+                            roots_at_given_scale = soft_dep_graphs_roots.roots[org][:soft_dep_graph]
+                            if !(parent_soft_dep in keys(roots_at_given_scale))
                                 master_node = ()
-                                for ((hd_key, hd_scale), hd) in hard_dep_dict 
-                                    if parent_soft_dep == hd_key     
-                                        master_node = hd                                                                                                                                                                                       
+                                for ((hd_key, hd_scale), hd) in hard_dep_dict
+                                    if parent_soft_dep == hd_key
+                                        master_node = hd
                                         depth = 0
                                         # A cleaner way of preventing cycles or infinite loops would be more desirable
                                         while !isa(master_node, SoftDependencyNode) && depth < 50
                                             master_node.parent === nothing && error("Finalised hard dependency has no parent")
                                             master_node = master_node.parent
                                             depth += 1
-                                        end                                      
-                                        
+                                        end
+
                                         break
                                     end
-                               end
+                                end
 
                                 master_node == () && error("Parent is not located in hard deps, nor in roots, which should be the case when initalizing soft dependencies")
-                            
+
                                 # NOTE : this may need to be propagated within internal hard dependencies' ancestors of this model... ?
                                 parent_node = soft_dep_graphs_roots.roots[master_node.scale][:soft_dep_graph][master_node.process]
                             else
@@ -298,13 +299,13 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                                 )
                             end
 
-                            
+
                             if !(i in parent_node.children) # && error("Cyclic dependency detected for process $proc from organ $organ.")
 
                                 # Add the current node as a child of the node on which it depends:
                                 push!(parent_node.children, i)
                             end
-                                # Add the node on which the current node depends as a parent
+                            # Add the node on which the current node depends as a parent
                             if i.parent === nothing
                                 # If the node had no parent already, it is nothing, so we change into a vector
                                 i.parent = [parent_node]
@@ -315,7 +316,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                             end
 
                             # Add the multiscale soft dependencies variables of the parent to the current node
-                            i.parent_vars = NamedTuple(Symbol(k) => NamedTuple(v) for (k, v) in soft_deps_multiscale)                             
+                            i.parent_vars = NamedTuple(Symbol(k) => NamedTuple(v) for (k, v) in soft_deps_multiscale)
                         end
                     end
                 end
@@ -488,9 +489,9 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                 # Avoid collecting variables at other scales if they come from a hard dependency
                 # They are handled internally by the hard dep, so if a hard dependency contains that variable, don't add it
                 # (This only needs to be done one level beneath the soft dependency nodes, any hard dependencies internal to another one don't expose their variables here)
-               
+
                 in_hard_dep::Bool = false
-                hd_os_current_scale = filter(x -> x.scale == org, hard_dependencies_from_other_scale)               
+                hd_os_current_scale = filter(x -> x.scale == org, hard_dependencies_from_other_scale)
                 for hd_os in hd_os_current_scale
                     hd_os_output_vars = [first(p) for p in pairs(hd_os.outputs)]
                     in_hard_dep |= length(filter(x -> x == var, hd_os_output_vars)) > 0
