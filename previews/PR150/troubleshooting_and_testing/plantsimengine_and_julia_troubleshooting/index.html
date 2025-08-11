@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Troubleshooting · PlantSimEngine.jl</title><meta name="title" content="Troubleshooting · PlantSimEngine.jl"/><meta property="og:title" content="Troubleshooting · PlantSimEngine.jl"/><meta property="twitter:title" content="Troubleshooting · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Introduction</span><ul><li><a class="tocitem" href="../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../../introduction/why_julia/">Why Julia ?</a></li></ul></li><li><span class="tocitem">Prerequisites</span><ul><li><a class="tocitem" href="../../prerequisites/installing_plantsimengine/">Installing and running PlantSimEngine</a></li><li><a class="tocitem" href="../../prerequisites/key_concepts/">Key Concepts</a></li><li><a class="tocitem" href="../../prerequisites/julia_basics/">Julia language basics</a></li></ul></li><li><span class="tocitem">Step by step - Single-scale simulations</span><ul><li><a class="tocitem" href="../../step_by_step/detailed_first_example/">Detailed first simulation</a></li><li><a class="tocitem" href="../../step_by_step/simple_model_coupling/">Coupling</a></li><li><a class="tocitem" href="../../step_by_step/model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../step_by_step/quick_and_dirty_examples/">Quick examples</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_process/">Implementing a process</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model/">Implementing a model</a></li><li><a class="tocitem" href="../../step_by_step/parallelization/">Parallelization</a></li><li><a class="tocitem" href="../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model_additional/">Implementing a model : additional notes</a></li></ul></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><span class="tocitem">Working with data</span><ul><li><a class="tocitem" href="../../working_with_data/reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../working_with_data/fitting/">Fitting</a></li><li><a class="tocitem" href="../../working_with_data/inputs/">Input types</a></li><li><a class="tocitem" href="../../working_with_data/visualising_outputs/">Visualizing outputs and data</a></li><li><a class="tocitem" href="../../working_with_data/floating_point_accumulation_error/">Floating-point considerations</a></li></ul></li><li><span class="tocitem">Moving to multiscale</span><ul><li><a class="tocitem" href="../../multiscale/multiscale_considerations/">Multiscale considerations</a></li><li><a class="tocitem" href="../../multiscale/single_to_multiscale/">Converting a simulation to multi-scale</a></li><li><a class="tocitem" href="../../multiscale/multiscale/">More variable mapping examples</a></li><li><a class="tocitem" href="../../multiscale/multiscale_cyclic/">Handling cyclic dependencies</a></li><li><a class="tocitem" href="../../multiscale/multiscale_coupling/">Multiscale coupling considerations</a></li><li><input class="collapse-toggle" id="menuitem-7-6" type="checkbox"/><label class="tocitem" for="menuitem-7-6"><span class="docs-label">Building a simple plant</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../../multiscale/multiscale_example_1/">A rudimentary plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_2/">Expanding the plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_3/">Fixing bugs in the plant simulation</a></li></ul></li><li><a class="tocitem" href="../../multiscale/multiscale_example_4/">Visualizing our toy plant with PlantGeom</a></li></ul></li><li><span class="tocitem">Troubleshooting and testing</span><ul><li class="is-active"><a class="tocitem" href>Troubleshooting</a><ul class="internal"><li><a class="tocitem" href="#Tips-and-workflow"><span>Tips and workflow</span></a></li><li><a class="tocitem" href="#Common-Julia-errors"><span>Common Julia errors</span></a></li><li><a class="tocitem" href="#PlantSimEngine-user-errors"><span>PlantSimEngine user errors</span></a></li><li><a class="tocitem" href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it"><span>Forgetting to declare a scale in the mapping but having variables point to it</span></a></li></ul></li><li><a class="tocitem" href="../downstream_tests/">Automated testing</a></li><li><a class="tocitem" href="../tips_and_workarounds/">Tips and Workarounds</a></li><li><a class="tocitem" href="../implicit_contracts/">Implicit contracts</a></li></ul></li><li><span class="tocitem">API</span><ul><li><a class="tocitem" href="../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../API/API_examples/">Example models</a></li><li><a class="tocitem" href="../../API/API_private/">Internal API</a></li></ul></li><li><a class="tocitem" href="../../documentation_improvement/">Improving our documentation</a></li><li><a class="tocitem" href="../../developers/">Developer guidelines</a></li><li><a class="tocitem" href="../../planned_features/">Planned features</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Troubleshooting and testing</a></li><li class="is-active"><a href>Troubleshooting</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Troubleshooting</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Troubleshooting-error-messages"><a class="docs-heading-anchor" href="#Troubleshooting-error-messages">Troubleshooting error messages</a><a id="Troubleshooting-error-messages-1"></a><a class="docs-heading-anchor-permalink" href="#Troubleshooting-error-messages" title="Permalink"></a></h1><p>PlantSimEngine attempts to be as comfortable and easy to use as possible for the user, and many kinds of user error will be caught and explanations provided to resolve them, but there are still blind spots, as well as syntax errors that will often generate a Julia error (which can be less intuitive to decrypt) rather than a PlantSimEngine error.</p><p>To help people newer to Julia with troubleshooting, here are a few common &#39;easy-to-make&#39; mistakes with the current API that might not be obvious to interpret, and pointers on how to fix them.</p><p>They are listed by &#39;nature of error&#39;, rather than by error message, so you may need to search the page to find your specific error.</p><p>If you need more help to decode Julia errors, you can find help on the <a href="https://discourse.julialang.org">Julia Discourse forums</a>. If you need some advice on the FSPM side, the research community has <a href="https://fspm.discourse.group">its own discourse forum</a>.</p><p>If the issue seems PlantSimEngine-related, or you have questions regarding modeling or have suggestions, you can also <a href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues">file an issue</a> on Github.</p><ul><li><a href="#Troubleshooting-error-messages">Troubleshooting error messages</a></li><li class="no-marker"><ul><li><a href="#Tips-and-workflow">Tips and workflow</a></li><li><a href="#Common-Julia-errors">Common Julia errors</a></li><li class="no-marker"><ul><li><a href="#NamedTuples-with-a-single-value-require-a-comma-:">NamedTuples with a single value require a comma :</a></li><li><a href="#Incorrectly-declaring-empty-inputs-or-outputs">Incorrectly declaring empty inputs or outputs</a></li></ul></li><li><a href="#PlantSimEngine-user-errors">PlantSimEngine user errors</a></li><li class="no-marker"><ul><li><a href="#Implementing-a-model:-forgetting-to-import-or-prefix-functions">Implementing a model: forgetting to import or prefix functions</a></li><li><a href="#MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration">MultiScaleModel : forgetting a kwarg in the declaration</a></li><li><a href="#MultiScaleModel-:-variable-not-defined-in-Module">MultiScaleModel : variable not defined in Module</a></li><li><a href="#Kwarg-and-arg-parameter-issues-when-calling-run!">Kwarg and arg parameter issues when calling run!</a></li><li><a href="#Hard-dependency-process-not-present-in-the-mapping">Hard dependency process not present in the mapping</a></li><li><a href="#Status-API-ambiguity">Status API ambiguity</a></li></ul></li><li><a href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it">Forgetting to declare a scale in the mapping but having variables point to it</a></li><li class="no-marker"><ul><li><a href="#Parenthesis-placement-when-declaring-a-mapping">Parenthesis placement when declaring a mapping</a></li><li><a href="#Empty-status-vectors-in-multi-scale-simulations">Empty status vectors in multi-scale simulations</a></li></ul></li></ul></li></ul><h2 id="Tips-and-workflow"><a class="docs-heading-anchor" href="#Tips-and-workflow">Tips and workflow</a><a id="Tips-and-workflow-1"></a><a class="docs-heading-anchor-permalink" href="#Tips-and-workflow" title="Permalink"></a></h2><p>Some errors are very specific as to their cause, and the PlantSimEngine errors tend to be explicit about which parameter / variable / organ is causing the error, helping narrow down its origin.</p><p>Some generic-looking errors usually do contain some extra information to help focus the debugging hunt. For instance, a dispatch failure on run! caused by some issue with args/kwargs may highlight explicitely indicate which arguments are currently causing conflict. In VSCode, such arguments are highlighted in red (the first and last arguments in the example below) : </p><pre><code class="language-julia hljs">a = 1
+run!(a, simple_mtg, mapping, meteo_day, a)
+
+ERROR: MethodError: no method matching run!(::Int64, ::Node{NodeMTG, Dict{…}}, ::Dict{String, Tuple{…}}, ::DataFrame, ::Int64)
+The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  run!(::ToyPlantLeafSurfaceModel, ::Any, ::Any, ::Any, ::Any, ::Any)
+   @ PlantSimEngine /PlantSimEngine/examples/ToyLeafSurfaceModel.jl:75
+   ...</code></pre><p>If you wish to search for a specific error in the current page, copy the part of the description that is not specific to your script, and Ctrl+F it here. In the above example, the generic part would be : </p><pre><code class="language-julia hljs">ERROR: MethodError: no method matching</code></pre><h2 id="Common-Julia-errors"><a class="docs-heading-anchor" href="#Common-Julia-errors">Common Julia errors</a><a id="Common-Julia-errors-1"></a><a class="docs-heading-anchor-permalink" href="#Common-Julia-errors" title="Permalink"></a></h2><h3 id="NamedTuples-with-a-single-value-require-a-comma-:"><a class="docs-heading-anchor" href="#NamedTuples-with-a-single-value-require-a-comma-:">NamedTuples with a single value require a comma :</a><a id="NamedTuples-with-a-single-value-require-a-comma-:-1"></a><a class="docs-heading-anchor-permalink" href="#NamedTuples-with-a-single-value-require-a-comma-:" title="Permalink"></a></h3><p>This one is easy to miss.</p><p>Empty NamedTuple objects are initialised with x = NamedTuple(). Ones with more than one variable can be initialised like this : </p><pre><code class="language-julia hljs">a = (var1 = 0, var2 = 0)</code></pre><p>or like this : </p><pre><code class="language-julia hljs">a = (var1 = 0, var2 = 0,)</code></pre><p>The second comma being optional.</p><p>However, if there is only a single variable, notation has to be : </p><pre><code class="language-julia hljs">a = (var1 = 0,)</code></pre><p>The comma is compulsory. If it is forgotten : </p><pre><code class="language-julia hljs">a = (var1 = 0)</code></pre><p>the line will be interpreted as setting the variable a to the value var1 is set to, hence a will be an Int64 of value 0.</p><p>This is a liability when writing custom models as some functions work with NamedTuples : </p><pre><code class="language-julia hljs">function PlantSimEngine.inputs_(::HardDepSameScaleAvalModel)
+    (e2 = -Inf,)
+end</code></pre><p>The error returned will likely be a Julia error along the lines of : </p><pre><code class="language-julia hljs">[ERROR: MethodError: no method matching merge(::Float64, ::@NamedTuple{g::Float64})
+
+Closest candidates are:
+merge(::NamedTuple{()}, ::NamedTuple)
+@ Base namedtuple.jl:337
+merge(::NamedTuple{an}, ::NamedTuple{bn}) where {an, bn}
+@ Base namedtuple.jl:324
+merge(::NamedTuple, ::NamedTuple, NamedTuple...)
+@ Base namedtuple.jl:343
+
+Stacktrace:
+[1] variables_multiscale(node::PlantSimEngine.HardDependencyNode{…}, organ::String, vars_mapping::Dict{…}, st::@NamedTuple{})
+...</code></pre><p>It is sometimes properly detected and explained on PlantSimEngine&#39;s side (when passing in tracked_outputs, for instance), but may also occur when declaring statuses.</p><h3 id="Incorrectly-declaring-empty-inputs-or-outputs"><a class="docs-heading-anchor" href="#Incorrectly-declaring-empty-inputs-or-outputs">Incorrectly declaring empty inputs or outputs</a><a id="Incorrectly-declaring-empty-inputs-or-outputs-1"></a><a class="docs-heading-anchor-permalink" href="#Incorrectly-declaring-empty-inputs-or-outputs" title="Permalink"></a></h3><p>The syntax for an empty NamedTuple is <code>NamedTuple()</code>. If instead one types <code>()</code> or <code>(,)</code>an error returned respectively by PlantSimEngine or Julia will be returned.</p><h2 id="PlantSimEngine-user-errors"><a class="docs-heading-anchor" href="#PlantSimEngine-user-errors">PlantSimEngine user errors</a><a id="PlantSimEngine-user-errors-1"></a><a class="docs-heading-anchor-permalink" href="#PlantSimEngine-user-errors" title="Permalink"></a></h2><p>Most of the following errors occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.</p><h3 id="Implementing-a-model:-forgetting-to-import-or-prefix-functions"><a class="docs-heading-anchor" href="#Implementing-a-model:-forgetting-to-import-or-prefix-functions">Implementing a model: forgetting to import or prefix functions</a><a id="Implementing-a-model:-forgetting-to-import-or-prefix-functions-1"></a><a class="docs-heading-anchor-permalink" href="#Implementing-a-model:-forgetting-to-import-or-prefix-functions" title="Permalink"></a></h3><p>When implementing a model, you need to make sure that your implementation is correctly recognised as extending <code>PlantSimEngine</code> methods and types, and not writing new independent ones.</p><p>In the following working toy model implementation, note that the <code>inputs_</code>, <code>outputs_</code> and <a href="../../API/API_public/#PlantSimEngine.run!"><code>run!</code></a> function are all prefixed with the module name. If there were hard dependencies to manage, the <a href="../../API/API_public/#PlantSimEngine.dep"><code>dep</code></a> function would also be identically prefixed.</p><pre><code class="language-julia hljs">using PlantSimEngine
+@process &quot;toy&quot; verbose = false
+
+struct ToyToyModel{T} &lt;: AbstractToyModel 
+    internal_constant::T
+end
+
+function PlantSimEngine.inputs_(::ToyToyModel)
+    (a = -Inf, b = -Inf, c = -Inf)
+end
+
+function PlantSimEngine.outputs_(::ToyToyModel)
+    (d = -Inf, e = -Inf)
+end
+
+
+function PlantSimEngine.run!(m::ToyToyModel, models, status, meteo, constants=nothing, extra_args=nothing)
+    status.d = m.internal_constant * status.a 
+    status.e += m.internal_constant
+end
+
+meteo = Weather([
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
+        Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
+])
+
+model = ModelList(
+    ToyToyModel(1),
+   status = ( a = 1, b = 0, c = 0),
+)
+to_initialize(model) 
+sim = PlantSimEngine.run!(model, meteo)</code></pre><p>If you declare these functions without importing them first, or prefixing them with the module name, they will be considered to be part of your current environment, and won&#39;t be extending PlantSimEngine methods, which means PlantSimEngine will not be able to properly make use of your functions, and simulations are likely to error, or run incorrectly.</p><p>Forgetting to prefix the <a href="../../API/API_public/#PlantSimEngine.run!"><code>run!</code></a> function definition gives the following error : </p><pre><code class="language-julia hljs">ERROR: MethodError: no method matching run!(::ModelList{@NamedTuple{…}, Status{…}}, ::TimeStepTable{Atmosphere{…}})
+The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  run!(::ToyToyModel, ::Any, ::Any, ::Any, ::Any, ::Any)
+   @ Main ~/path/to/file.jl:20</code></pre><p>Forgetting to prefix the <code>inputs_</code>or <code>outputs_</code> functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your ModelList or mapping&#39;s corresponding Status.</p><p>In cases where they do throw an error, you may get the following kind of output:</p><pre><code class="language-julia hljs">ERROR: type NamedTuple has no field d
+Stacktrace:
+ [1] setproperty!(mnt::Status{(:a, :b, :c), Tuple{…}}, s::Symbol, x::Int64)
+   @ PlantSimEngine ~/path/to/package/PlantSimEngine/src/component_models/Status.jl:100
+ [2] run!(m::ToyToyModel{…}, models::@NamedTuple{…}, status::Status{…}, meteo::PlantMeteo.TimeStepRow{…}, constants::Constants{…}, extra_args::Nothing)
+ ...</code></pre><div class="admonition is-info" id="Note-f3a8443538bffb1d"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-f3a8443538bffb1d" title="Permalink"></a></header><div class="admonition-body"><p>There may be more we can do on our end in the future to make the issue more obvious, but in the meantime it is safest to consistently prefix the methods you need to declare and call with <code>PlantSimEngine.</code>, or to explicitely import the functions you wish to extend, <em>e.g.</em>: <code>import PlantSimEngine: inputs_, outputs_</code>.</p></div></div><h3 id="MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration"><a class="docs-heading-anchor" href="#MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration">MultiScaleModel : forgetting a kwarg in the declaration</a><a id="MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration-1"></a><a class="docs-heading-anchor-permalink" href="#MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration" title="Permalink"></a></h3><p>A MultiScaleModel requires two kwargs, model and mapped_variables : </p><pre><code class="language-julia hljs">models = MultiScaleModel(
+        model=ToyLAIModel(),
+        mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,],
+    )</code></pre><p>Forgetting &#39;model=&#39; :</p><pre><code class="language-julia hljs">models = MultiScaleModel(
+        ToyLAIModel(),
+        mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,],
+    )
+ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
+The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
+    
+Closest candidates are:
+    MultiScaleModel(::T, ::Any) where T&lt;:AbstractModel got unsupported keyword argument &quot;mapped_variables&quot;
+    @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:188
+    MultiScaleModel(; model, mapped_variables)
+    @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191</code></pre><p>Forgetting &#39;mapped_variables=&#39; :</p><pre><code class="language-julia hljs">models = MultiScaleModel(
+        model=ToyLAIModel(),
+        [:TT_cu =&gt; &quot;Scene&quot;,],
+    )
+
+ERROR: MethodError: no method matching MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
+The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
+
+Closest candidates are:
+  MultiScaleModel(; model, mapping)
+   @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191
+  MultiScaleModel(::T, ::Any) where T&lt;:AbstractModel got unsupported keyword argument &quot;model&quot;</code></pre><p>The message &#39;got unsupported keyword argument &quot;model&quot;&#39; can be misleading, as in the error in this case is not that a kwarg is <em>unsupported</em>, but rather that a keyword argument is <em>missing</em>.</p><h3 id="MultiScaleModel-:-variable-not-defined-in-Module"><a class="docs-heading-anchor" href="#MultiScaleModel-:-variable-not-defined-in-Module">MultiScaleModel : variable not defined in Module</a><a id="MultiScaleModel-:-variable-not-defined-in-Module-1"></a><a class="docs-heading-anchor-permalink" href="#MultiScaleModel-:-variable-not-defined-in-Module" title="Permalink"></a></h3><p>A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :</p><pre><code class="language-julia hljs">mapping = Dict(&quot;Scale&quot; =&gt;
+MultiScaleModel(
+    model = ToyModel(),
+    mapped_variables = [should_be_symbol =&gt; &quot;Other_Scale&quot;] # should_be_symbol is a variable, likely not found in the current module 
+),
+...
+),</code></pre><p>Here&#39;s the correct version : </p><pre><code class="language-julia hljs">mapping = Dict(&quot;Scale&quot; =&gt;
+MultiScaleModel(
+    model = ToyModel(),
+    mapped_variables=[:should_be_symbol =&gt; &quot;Other_Scale&quot;] # should_be_symbol is now a symbol
+),
+...
+),</code></pre><h3 id="Kwarg-and-arg-parameter-issues-when-calling-run!"><a class="docs-heading-anchor" href="#Kwarg-and-arg-parameter-issues-when-calling-run!">Kwarg and arg parameter issues when calling run!</a><a id="Kwarg-and-arg-parameter-issues-when-calling-run!-1"></a><a class="docs-heading-anchor-permalink" href="#Kwarg-and-arg-parameter-issues-when-calling-run!" title="Permalink"></a></h3><p>There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine&#39;s end and may be improved upon in the future. </p><p>Here are a few examples when modifying the usual multiscale run! call in this working example : </p><pre><code class="language-julia hljs">    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), DataFrame, header=18)
+    mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 1, 1))
+    var1 = 15.0
+
+    mapping = Dict(
+        &quot;Leaf&quot; =&gt; (
+            Process1Model(1.0),
+            Process2Model(),
+            Process3Model(),
+            Status(var1=var1,)
+        )
+    )
+
+    outs = Dict(
+        &quot;Leaf&quot; =&gt; (:var1,), # :non_existing_variable is not computed by any model
+    )
+
+run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)</code></pre><p>The exact signature is this : </p><pre><code class="language-julia hljs">function run!(
+    object::MultiScaleTreeGraph.Node,
+    mapping::Dict{String,T} where {T},
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    nsteps=nothing,
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx()</code></pre><p>Arguments after the mtg and mapping all have a default value and are optional, and arguments after the &#39;;&#39; delimiter are kwargs and need to be named.</p><p>If one forgets the mtg, a flaw in the way run! is defined will lead to this error :</p><pre><code class="language-julia hljs">run!(mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)
+
+ERROR: MethodError: no method matching check_dimensions(::PlantSimEngine.TableAlike, ::Tuple{…}, ::DataFrame)
+The function `check_dimensions` exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  check_dimensions(::Any, ::Any)
+   @ PlantSimEngine PlantSimEngine/src/checks/dimensions.jl:43
+ ...</code></pre><p>If one forgets the necessary &#39;tracked_outputs=&#39; in the definition, outs will be interpreted as the &#39;extra&#39; arg instead of a kwarg. &#39;extra&#39; usually defaults to nothing, and is reserved in multiscale mode, leading to the following error :</p><pre><code class="language-julia hljs">run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), outs)
+
+ERROR: Extra parameters are not allowed for the simulation of an MTG (already used for statuses).
+Stacktrace:
+ [1] error(s::String)
+   @ Base ./error.jl:35
+ [2] run!(::PlantSimEngine.TreeAlike, object::PlantSimEngine.GraphSimulation{…}, meteo::DataFrames.DataFrameRows{…}, constants::Constants{…}, extra::Dict{…}; tracked_outputs::Nothing, check::Bool, executor::ThreadedEx{…})</code></pre><p>In case of a more generic error that returns a  For example, if one does the opposite and adds a non-existent kwarg, the generic dispatch failure has some more specific information :  <code>got unsupported keyword argument &quot;constants&quot;</code></p><pre><code class="language-julia hljs">run!(mtg, mapping, meteo_day, constants=PlantMeteo.Constants(), tracked_outputs=outs)
+
+ERROR: MethodError: no method matching run!(::Node{…}, ::Dict{…}, ::DataFrame, ::Dict{…}, ::Nothing; constants::Constants{…})
+This error has been manually thrown, explicitly, so the method may exist but be intentionally marked as unimplemented.
+
+Closest candidates are:
+  run!(::Node, ::Dict{String}, ::Any, ::Any, ::Any; nsteps, tracked_outputs, check, executor) got unsupported keyword argument &quot;constants&quot;</code></pre><h3 id="Hard-dependency-process-not-present-in-the-mapping"><a class="docs-heading-anchor" href="#Hard-dependency-process-not-present-in-the-mapping">Hard dependency process not present in the mapping</a><a id="Hard-dependency-process-not-present-in-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Hard-dependency-process-not-present-in-the-mapping" title="Permalink"></a></h3><p>Another weakness in the current error checking leads to an unclear Julia error if a model A is present in a mapping and has a hard dependency on a model B, but B is absent from the mapping.</p><p>In the following example, A corresponds to Process3Model, which requires a model B implementing &#39;Process2Model&#39; and referred to as &#39;process2&#39;.  Looking at the source code for Process3Model, the hard dependency is declared here : </p><pre><code class="language-julia hljs">PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)</code></pre><p>However, the model provided in the examples, Process2Model is absent from the mapping :</p><pre><code class="language-julia hljs">simple_mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 1, 1))    
+mapping = Dict(
+    &quot;Leaf&quot; =&gt; (
+        Process3Model(),
+        Status(var5=15.0,)
+    )
+)
+outs = Dict(
+    &quot;Leaf&quot; =&gt; (:var5,),
+)
+run!(simple_mtg, mapping, meteo_day, tracked_outputs=outs)
+
+ERROR: type NamedTuple has no field process2
+Stacktrace:
+ [1] getproperty(x::@NamedTuple{process3::Process3Model}, f::Symbol)
+   @ Base ./Base.jl:49
+ [2] run!(::Process3Model, models::@NamedTuple{…}, status::Status{…}, meteo::DataFrameRow{…}, constants::Constants{…}, extra::PlantSimEngine.GraphSimulation{…})
+ ...</code></pre><p>The fix is to add Process2Model() -or another model for the same process- to the mapping.</p><h3 id="Status-API-ambiguity"><a class="docs-heading-anchor" href="#Status-API-ambiguity">Status API ambiguity</a><a id="Status-API-ambiguity-1"></a><a class="docs-heading-anchor-permalink" href="#Status-API-ambiguity" title="Permalink"></a></h3><p>One current problem with PlantSimEngine&#39;s API is that declaring a simulation&#39;s Status or Statuses differs between single- and multi-scale.</p><p>Returning to the example in <a href="#Implementing-a-model:-forgetting-to-import-or-prefix-functions">Implementing a model: forgetting to import or prefix functions</a>, the <code>ModelList</code> status was declared like this:</p><pre><code class="language-julia hljs">model = ModelList(
+    ToyToyModel(1),
+   status = ( a = 1, b = 0, c = 0),
+)</code></pre><p>If instead you replace <code>status = ...</code>with the multi-scale declaration: <code>Status(...)</code>, you will get the following error:</p><pre><code class="language-julia hljs">ERROR: MethodError: no method matching process(::Status{(:a, :b, :c), Tuple{Base.RefValue{Int64}, Base.RefValue{Int64}, Base.RefValue{Int64}}})
+The function `process` exists, but no method is defined for this combination of argument types.
+
+Closest candidates are:
+  process(::Pair{Symbol, A}) where A&lt;:AbstractModel
+   @ PlantSimEngine ~/path/to/pkg/PlantSimEngine/src/Abstract_model_structs.jl:16
+  process(::A) where A&lt;:AbstractModel
+   @ PlantSimEngine ~/path/to/pkg/PlantSimEngine/src/Abstract_model_structs.jl:13
+
+Stacktrace:
+ [1] (::PlantSimEngine.var&quot;#5#6&quot;)(i::Status{(:a, :b, :c), Tuple{Base.RefValue{…}, Base.RefValue{…}, Base.RefValue{…}}})
+   @ PlantSimEngine ./none:0
+ [2] iterate</code></pre><p>If you do the opposite in a multi-scale simulation by replacing the necessary <code>Status(...)</code> with <code>status = ...</code>, you may get an <code>ERROR: syntax: invalid named tuple element</code> error. Here&#39;s some output when tinkering with the Toy Plant tutorial&#39;s mapping:</p><pre><code class="language-julia hljs">ERROR: syntax: invalid named tuple element &quot;MultiScaleModel(...)&quot; around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+Stacktrace:
+ [1] top-level scope
+   @ ~/path/to/pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196</code></pre><p>or </p><pre><code class="language-julia hljs">ERROR: syntax: invalid named tuple element &quot;ToyRootGrowthModel(50, 10)&quot; around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+Stacktrace:
+ [1] top-level scope
+   @ ~/path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196</code></pre><h2 id="Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it"><a class="docs-heading-anchor" href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it">Forgetting to declare a scale in the mapping but having variables point to it</a><a id="Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it-1"></a><a class="docs-heading-anchor-permalink" href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it" title="Permalink"></a></h2><p>If there is a need to collect variables at two different scales, and one scale is completely absent from the mapping, the error currently occurs on the Julia side :</p><pre><code class="language-julia hljs"># No models at the E3 scale in the mapping !
+
+&quot;E2&quot; =&gt; (
+        MultiScaleModel(
+        model = HardDepSameScaleEchelle2Model(),
+        mapped_variables=[:c =&gt; &quot;E1&quot; =&gt; :c, :e3 =&gt; &quot;E3&quot; =&gt; :e3, :f3 =&gt; &quot;E3&quot; =&gt; :f3,], 
+        ),
+    ),
+
+Exception has occurred: KeyError
+*
+KeyError: key &quot;E3&quot; not found
+Stacktrace:
+[1] hard_dependencies(mapping::Dict{String, Tuple{Any, Any}}; verbose::Bool)
+@ PlantSimEngine ......./src/dependencies/hard_dependencies.jl:175
+...</code></pre><h3 id="Parenthesis-placement-when-declaring-a-mapping"><a class="docs-heading-anchor" href="#Parenthesis-placement-when-declaring-a-mapping">Parenthesis placement when declaring a mapping</a><a id="Parenthesis-placement-when-declaring-a-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Parenthesis-placement-when-declaring-a-mapping" title="Permalink"></a></h3><p>An unintuitive error encountered in the past when defining a mapping : </p><pre><code class="language-julia hljs">ERROR: ArgumentError: AbstractDict(kv): kv needs to be an iterator of 2-tuples or pairs</code></pre><p>may occur when forgetting the parenthesis after &#39;=&gt;&#39; in a mapping declaration, and combining it with another parenthesis error.</p><pre><code class="language-julia hljs">mapping = Dict( &quot;Scale&quot; =&gt; (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )</code></pre><p>Other errors such as : </p><pre><code class="language-julia hljs">ERROR: MethodError: no method matching Dict(::Pair{String, ToyAssimGrowthModel{Float64}}, ::ToyCAllocationModel, ::Status{(:TT_cu,), Tuple{Base.RefValue{…}}})
+The type `Dict` exists, but no method is defined for this combination of argument types when trying to construct it.
+
+Closest candidates are:
+  Dict(::Pair{K, V}...) where {K, V}</code></pre><p>often indicate a likely syntax error somewhere in the mapping definition.</p><h3 id="Empty-status-vectors-in-multi-scale-simulations"><a class="docs-heading-anchor" href="#Empty-status-vectors-in-multi-scale-simulations">Empty status vectors in multi-scale simulations</a><a id="Empty-status-vectors-in-multi-scale-simulations-1"></a><a class="docs-heading-anchor-permalink" href="#Empty-status-vectors-in-multi-scale-simulations" title="Permalink"></a></h3><p>This situation won&#39;t trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.</p><p>Here&#39;s an example taken from the <a href="../../multiscale/single_to_multiscale/#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a> page. It was modified by removing the &quot;Plant&quot; node in the dummy MTG passed into the <a href="../../API/API_public/#PlantSimEngine.run!"><code>run!</code></a>function. Without that &quot;Plant&quot; node, only &quot;Scene&quot;-scale models can run initially, and since no nodes are created, &quot;Plant&quot;-scale models will never be run.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tt_cu&quot; verbose = false
+
+struct ToyTt_CuModel &lt;: AbstractTt_CuModel end
+
+function PlantSimEngine.run!(::ToyTt_CuModel, models, status, meteo, constants, extra=nothing)
+    status.TT_cu +=
+        meteo.TT
+end
+
+function PlantSimEngine.inputs_(::ToyTt_CuModel)
+    NamedTuple() # No input variables
+end
+
+function PlantSimEngine.outputs_(::ToyTt_CuModel)
+    (TT_cu=-Inf,)
+end
+
+mapping_multiscale = Dict(
+    &quot;Scene&quot; =&gt; ToyTt_CuModel(),
+    &quot;Plant&quot; =&gt; (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapped_variables=[
+                :TT_cu =&gt; &quot;Scene&quot;,
+            ],
+        ),
+        Beer(0.5),
+        ToyRUEGrowthModel(0.2),
+    ),
+)
+
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 0, 0),)
+#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Plant&quot;, 1, 1))
+
+out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+
+out_multiscale[&quot;Plant&quot;][:LAI]</code></pre><p>In the above code, uncommenting the second line will add a &quot;Plant&quot; node to the MTG, and the simulation will then behave as intuitively expected.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../multiscale/multiscale_example_4/">« Visualizing our toy plant with PlantGeom</a><a class="docs-footer-nextpage" href="../downstream_tests/">Automated testing »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.14.1 on <span class="colophon-date" title="Monday 11 August 2025 10:53">Monday 11 August 2025</span>. Using Julia version 1.11.6.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
