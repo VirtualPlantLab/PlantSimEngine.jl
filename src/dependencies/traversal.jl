@@ -1,9 +1,11 @@
 """
     traverse_dependency_graph(graph::DependencyGraph, f::Function; visit_hard_dep=true)
+    traverse_dependency_graph(graph; visit_hard_dep=true)
 
-Traverse the dependency `graph` and apply the function `f` to each node.
-The first-level soft-dependencies are traversed first, then their
-hard-dependencies (if `visit_hard_dep=true`), and then the children of the soft-dependencies.
+Traverse the dependency `graph` and apply the function `f` to each node, or just return the nodes if `f` is not provided.
+
+The first-level soft-dependencies are traversed first, then their hard-dependencies (if `visit_hard_dep=true`), and then 
+the children of the soft-dependencies.
 
 Return a vector of pairs of the node and the result of the function `f`.
 
@@ -38,41 +40,71 @@ function traverse_dependency_graph(
     f::Function;
     visit_hard_dep=true
 )
-    var = []
+
+    var = Pair{Symbol,Any}[]
+    nodes_types = visit_hard_dep ? AbstractDependencyNode : SoftDependencyNode
+    node_visited = Set{nodes_types}()
     for (p, root) in graph.roots
-        traverse_dependency_graph!(root, f, var; visit_hard_dep=visit_hard_dep)
+        traverse_dependency_graph!(root, f, var; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 
     return var
 end
 
-
-function traverse_dependency_graph!(f::Function, graph::DependencyGraph; visit_hard_dep=true)
+function traverse_dependency_graph(
+    graph::DependencyGraph,
+    visit_hard_dep=true
+)
+    nodes_types = visit_hard_dep ? AbstractDependencyNode : SoftDependencyNode
+    var = Pair{Symbol,nodes_types}[]
+    node_visited = Set{nodes_types}()
     for (p, root) in graph.roots
-        traverse_dependency_graph!(f, root, visit_hard_dep=visit_hard_dep)
+        traverse_dependency_graph!(root, x -> x, var; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
+    end
+
+    return last.(var)
+end
+
+function traverse_dependency_graph!(f::Function, graph::DependencyGraph; visit_hard_dep=true, node_visited::Set=Set{AbstractDependencyNode}())
+    for (p, root) in graph.roots
+        traverse_dependency_graph!(f, root, visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 end
 
-function traverse_dependency_graph!(f::Function, node::SoftDependencyNode; visit_hard_dep=true)
+function traverse_dependency_graph!(f::Function, node::SoftDependencyNode; visit_hard_dep=true, node_visited::Set=Set{AbstractDependencyNode}())
+    if node in node_visited
+        return nothing
+    end
+
     f(node)
+
+    push!(node_visited, node)
+
     # Traverse the hard dependencies of the SoftDependencyNode if any:
     if visit_hard_dep && node isa SoftDependencyNode
         # draw a branching guide if there's more soft dependencies after this one:
         for child in node.hard_dependency
-            traverse_dependency_graph!(f, child)
+            traverse_dependency_graph!(f, child; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
         end
     end
 
     for child in node.children
-        traverse_dependency_graph!(f, child; visit_hard_dep=visit_hard_dep)
+        traverse_dependency_graph!(f, child; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 end
 
-function traverse_dependency_graph!(f::Function, node::HardDependencyNode; visit_hard_dep=true)
+function traverse_dependency_graph!(f::Function, node::HardDependencyNode; visit_hard_dep=true, node_visited::Set=Set{AbstractDependencyNode}())
+    if node in node_visited
+        return nothing
+    end
+
     f(node)
+
+    push!(node_visited, node)
+
     # Traverse all hard dependencies:
     for child in node.children
-        traverse_dependency_graph!(f, child)
+        traverse_dependency_graph!(f, child; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 end
 
@@ -89,20 +121,27 @@ function traverse_dependency_graph!(
     node::SoftDependencyNode,
     f::Function,
     var::Vector;
-    visit_hard_dep=true
+    visit_hard_dep=true,
+    node_visited::Set=Set{AbstractDependencyNode}()
 )
+    if node in node_visited
+        return nothing
+    end
+
     push!(var, node.process => f(node))
+
+    push!(node_visited, node)
 
     # Traverse the hard dependencies of the SoftDependencyNode if any:
     if visit_hard_dep && node isa SoftDependencyNode
         # draw a branching guide if there's more soft dependencies after this one:
         for child in node.hard_dependency
-            traverse_dependency_graph!(child, f, var)
+            traverse_dependency_graph!(child, f, var; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
         end
     end
 
     for child in node.children
-        traverse_dependency_graph!(child, f, var; visit_hard_dep=visit_hard_dep)
+        traverse_dependency_graph!(child, f, var; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 end
 
@@ -117,11 +156,19 @@ function traverse_dependency_graph!(
     node::HardDependencyNode,
     f::Function,
     var::Vector;
-    visit_hard_dep=true  # Just to be compatible with a call shared with SoftDependencyNode method
+    visit_hard_dep=true,  # Just to be compatible with a call shared with SoftDependencyNode method
+    node_visited::Set=Set{HardDependencyNode}()
 )
+
+    if node in node_visited
+        return nothing
+    end
+
     push!(var, node.process => f(node))
 
+    push!(node_visited, node)
+
     for child in node.children
-        traverse_dependency_graph!(child, f, var)
+        traverse_dependency_graph!(child, f, var; visit_hard_dep=visit_hard_dep, node_visited=node_visited)
     end
 end

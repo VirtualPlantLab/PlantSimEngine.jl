@@ -187,8 +187,6 @@ function ModelList(
     ts_kwargs = homogeneous_ts_kwargs(status)
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
 
-
-
     model_list = ModelList(
         mods,
         ts_kwargs,
@@ -469,9 +467,10 @@ function convert_vars!(mapped_vars::Dict{String,Dict{Symbol,Any}}, type_promotio
     end
 end
 
-function Base.show(io::IO, ::MIME"text/plain", t::ModelList)
-    print(io, dep(t))
-    print(io, status(t))
+function Base.show(io::IO, m::MIME"text/plain", t::ModelList)
+    show(io, m, dep(t))
+    println(io, "")
+    show(io, m, status(t))
 end
 
 # Short form printing (e.g. inside another object)

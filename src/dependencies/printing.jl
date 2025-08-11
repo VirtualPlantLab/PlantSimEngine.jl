@@ -1,7 +1,8 @@
 function draw_dependency_graph(
     io,
-    graphs::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}};
-    title="Dependency graph",
+    graphs::DependencyGraph;
+    title=string("Dependency graph (", length(graphs), " models)"),
+    max_depth::Int=1,
     title_style::String="#FFA726 italic",
     guides_style::String="#42A5F5",
     dep_graph_guides=(space=" ", vline="│", branch="├", leaf="└", hline="─")
@@ -9,13 +10,20 @@ function draw_dependency_graph(
 
     dep_graph_guides = map((g) -> Term.apply_style("{$guides_style}$g{/$guides_style}"), dep_graph_guides)
 
+    max_depth_reached = Ref(max_depth)
+
     graph_panel = []
     for (p, graph) in graphs.roots
+        if max_depth_reached[] <= 0
+            push!(graph_panel, "...")
+            break
+        end
         node = []
         # p = :process2; graph = graphs.roots[p]
         # typeof(deps[:process4].children[1].hard_dependency.children[1])
-        draw_panel(node, graph, "", dep_graph_guides, graph; title="Main model")
+        draw_panel(node, graph, "", dep_graph_guides, graph, max_depth_reached; title="Main model")
         push!(graph_panel, Term.Panel(node...; fit=true, title=string(p), style="green dim"))
+        max_depth_reached[] -= 1
     end
 
     print(
@@ -34,7 +42,12 @@ end
 
 Draw the panels for all dependencies
 """
-function draw_panel(node, graph, prefix, dep_graph_guides, parent; title="Soft-coupled model")
+function draw_panel(node, graph, prefix, dep_graph_guides, parent, max_depth_reached=Ref(5); title="Soft-coupled model")
+
+    if max_depth_reached[] <= 0
+        push!(node, "...")
+        return nothing
+    end
 
     # If the node has a sibling, draw a branching guide + a horizontal line:
     if length(parent.children) <= 1
@@ -65,7 +78,8 @@ function draw_panel(node, graph, prefix, dep_graph_guides, parent; title="Soft-c
     if graph isa SoftDependencyNode
         # draw a branching guide if there's more soft dependencies after this one:
         for child in graph.hard_dependency
-            draw_panel(node, child, panel_hright, dep_graph_guides, graph; title="Hard-coupled model")
+            draw_panel(node, child, panel_hright, dep_graph_guides, graph, max_depth_reached; title="Hard-coupled model")
+            max_depth_reached[] -= 1
         end
     elseif isa(parent, SoftDependencyNode) && length(parent.children) > 0
         # The current node is a hard dependency of a soft dependency.
@@ -75,7 +89,8 @@ function draw_panel(node, graph, prefix, dep_graph_guides, parent; title="Soft-c
 
     # Recursive call:
     for child in AbstractTrees.children(graph)
-        draw_panel(node, child, panel_hright, dep_graph_guides, graph; title=title_panel(child))
+        draw_panel(node, child, panel_hright, dep_graph_guides, graph, max_depth_reached; title=title_panel(child))
+        max_depth_reached[] -= 1
     end
 end
 
@@ -90,7 +105,7 @@ function draw_model_panel(i::SoftDependencyNode{T}; title=nothing) where {T}
             "Model: $(T)\n",
             "Dep: $(i.parent_vars)"
         );
-        fit=true,
+        fit=false,
         style="blue dim"
     )
 end
