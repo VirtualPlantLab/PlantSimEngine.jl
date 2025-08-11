@@ -65,7 +65,8 @@ AbstractTrees.printnode(io::IO, node::SoftDependencyNode{T}) where {T} = print(i
 Base.show(io::IO, t::AbstractDependencyNode) = AbstractTrees.print_tree(io, t)
 Base.length(t::AbstractDependencyNode) = length(collect(AbstractTrees.PreOrderDFS(t)))
 
-function Base.show(io::IO, t::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}})
+# Long form printing
+function Base.show(io::IO, ::MIME"text/plain", t::DependencyGraph)
     # If the graph is cyclic, we print the cycle because we can't print indefinitely:
     iscyclic, cycle_vec = is_graph_cyclic(t; warn=false, full_stack=true)
     if iscyclic
@@ -73,7 +74,6 @@ function Base.show(io::IO, t::DependencyGraph{Dict{Pair{String,Symbol},PlantSimE
         return nothing
     else
         draw_dependency_graph(io, t)
-        print(io, "The dependency graph is acyclic.")
     end
 end
 

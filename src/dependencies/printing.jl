@@ -1,6 +1,6 @@
 function draw_dependency_graph(
     io,
-    graphs::DependencyGraph{Dict{Pair{String,Symbol},PlantSimEngine.SoftDependencyNode}};
+    graphs::DependencyGraph;
     title="Dependency graph",
     title_style::String="#FFA726 italic",
     guides_style::String="#42A5F5",
