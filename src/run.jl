@@ -336,7 +336,7 @@ function run_node!(
     end
 
     # Actual call to the model:
-    run!(node.value, object.models, st, meteo, constants, extra)
+    #run!(node.value, object.models, st, meteo, constants, extra)
     node.simulation_id[i] += 1 # increment the simulation id, to know if the model has been called already
 
     # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
@@ -344,7 +344,7 @@ function run_node!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe.
-        run_node!(object, child, i, st, meteo, constants, extra)
+        #run_node!(object, child, i, st, meteo, constants, extra)
     end
 end
 
@@ -467,6 +467,6 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
+        #run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
     end
 end
