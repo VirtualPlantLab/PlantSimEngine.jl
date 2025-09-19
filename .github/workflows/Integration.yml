@@ -33,7 +33,7 @@ jobs:
           - x64
         package:
         - {user: PalmStudio, repo: XPalm.jl, branch: main, default: main}
-        - {user: VEZY, repo: PlantBioPhysics.jl, branch: CI_downstream_changes_tests, default: master}
+        - {user: VEZY, repo: PlantBioPhysics.jl, branch: master, default: master}
     steps:
       - uses: actions/checkout@v4
       - uses: julia-actions/setup-julia@v2
