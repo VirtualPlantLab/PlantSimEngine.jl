@@ -1,0 +1,28 @@
+name: Benchmarks
+on:
+  pull_request_target:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+    pull-requests: write
+jobs:
+  bench:
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - "1"
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+        arch:
+          - x64
+    steps:
+      - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
+        with:
+          julia-version: ${{ matrix.version }}
+          bench-on: ${{ github.event.pull_request.head.sha }}
