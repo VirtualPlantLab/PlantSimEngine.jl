@@ -95,6 +95,9 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     meteo_adjusted = meteo
 
     if DataFormat(meteo_adjusted) == TableAlike()
+        if get_nsteps(meteo) == 1
+            return Tables.rows(meteo_adjusted)[1]
+        end
         return Tables.rows(meteo_adjusted)
     end
 

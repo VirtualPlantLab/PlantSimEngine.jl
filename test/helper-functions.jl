@@ -92,8 +92,13 @@ period = [Dates.Date("2021-01-01"), Dates.Date("2021-12-31")]
 meteo = get_weather(43.649777, 3.869889, period, sink = DataFrame)=#
 
 function get_simple_meteo_bank()
+
+    df = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+
+
     meteos= 
     [#=nothing,=# Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
+    Weather([Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65)]),
     Weather(
         [
         Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
@@ -107,9 +112,9 @@ function get_simple_meteo_bank()
     Atmosphere(T=20.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
     Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
     Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)]),
-    
-    CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18),
-
+    df,
+    df[1,:],
+    DataFrame(df[1,:]),
     ]
     return meteos
 end
