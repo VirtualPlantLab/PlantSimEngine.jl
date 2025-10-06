@@ -106,6 +106,9 @@ function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, n
                     refv = (refv..., var)
                 end
             end
+        else
+            @warn "No instance found at the $organ scale, no output available, removing it from the Dict"
+            continue
         end
        
         # Get the new NamedTuple type
