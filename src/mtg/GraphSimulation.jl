@@ -16,7 +16,7 @@ A type that holds all information for a simulation over a graph.
 - `models`: a dictionary of models
 - `outputs`: a dictionary of outputs
 """
-struct GraphSimulation{T,S,U,O,V}
+struct GraphSimulation{T,S,U,O,V,W}
     graph::T
     statuses::S
     status_templates::Dict{String,Dict{Symbol,Any}}
@@ -26,10 +26,12 @@ struct GraphSimulation{T,S,U,O,V}
     models::Dict{String,U}
     outputs::Dict{String,O}
     outputs_index::Dict{String, Int}
+    default_timestep::Int # TODO make it a period ?
+    model_timesteps::Dict{W, Int} #where {W <: AbstractModel}
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, default_timestep=1, model_timesteps=Dict{String, Int}())
+    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)..., default_timestep, model_timesteps)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph

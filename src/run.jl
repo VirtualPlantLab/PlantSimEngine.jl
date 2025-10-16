@@ -365,17 +365,21 @@ function run!(
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
+    orchestrator::Orchestrator=nothing,
     nsteps=nothing,
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    default_timestep::Int,
+    model_timesteps::Dict{T, Int} where {T}
+  
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs)
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs, default_timestep=default_timestep, model_timesteps=model_timesteps)
     run!(
         sim,
         meteo_adjusted,
@@ -453,6 +457,18 @@ function run_node_multiscale!(
     if !AbstractTrees.isroot(node) && any([p.simulation_id[1] <= node.simulation_id[1] for p in node.parent])
         # If not, this node should be called via another parent
         return nothing
+    end
+
+    model_timestep = object.model_timesteps[typeof(node.value)]
+
+    if model_timestep != object.default_timestep
+        # do accumulation
+        
+
+        # run if necessary
+        if i % model_timestep != 0
+            return nothing
+        end
     end
 
     node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
