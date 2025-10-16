@@ -305,7 +305,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
 
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going

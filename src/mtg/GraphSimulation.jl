@@ -14,9 +14,10 @@ A type that holds all information for a simulation over a graph.
 - `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
+- `Orchestrator : the structure that handles timestep peculiarities
 - `outputs`: a dictionary of outputs
 """
-struct GraphSimulation{T,S,U,O,V,W}
+struct GraphSimulation{T,S,U,O,V}
     graph::T
     statuses::S
     status_templates::Dict{String,Dict{Symbol,Any}}
@@ -24,14 +25,12 @@ struct GraphSimulation{T,S,U,O,V,W}
     var_need_init::Dict{String,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
+    orchestrator::Orchestrator
     outputs::Dict{String,O}
-    outputs_index::Dict{String, Int}
-    default_timestep::Int # TODO make it a period ?
-    model_timesteps::Dict{W, Int} #where {W <: AbstractModel}
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, default_timestep=1, model_timesteps=Dict{String, Int}())
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)..., default_timestep, model_timesteps)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
+    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)..., orchestrator)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph
