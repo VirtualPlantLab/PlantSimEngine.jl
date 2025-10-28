@@ -11,7 +11,7 @@ However, models that are identified as hard-dependencies are not given individua
 nodes under other models.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)); verbose=false)
+function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2())); verbose=false)
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 
@@ -54,7 +54,7 @@ This function returns a dictionary with the (multiscale-) inputs and outputs var
 Note that this function does not include the variables that are outputs from another scale and not computed by this scale,
 see `mapped_variables_with_outputs_as_inputs` for that.
  """
-function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)))
+function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2())))
     nodes_insouts = Dict(organ => (inputs=ins, outputs=outs) for (organ, (soft_dep_graph, ins, outs)) in dependency_graph.roots)
     ins = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
     outs = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)

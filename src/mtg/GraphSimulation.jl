@@ -25,12 +25,14 @@ struct GraphSimulation{T,S,U,O,V}
     var_need_init::Dict{String,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
-    orchestrator::Orchestrator
     outputs::Dict{String,O}
+    outputs_index::Dict{String, Int}
+    orchestrator::Orchestrator2
+
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)..., orchestrator)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
+    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph

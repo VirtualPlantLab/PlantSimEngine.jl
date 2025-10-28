@@ -12,6 +12,16 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     children::Vector{HardDependencyNode}
 end
 
+mutable struct TimestepMapping
+    variable_from::Symbol
+    variable_to::Symbol
+    node_to # SoftDependencyNode causes a circular reference # TODO could it be a harddependencynode... ?
+    mapping_function::Function
+    mapping_data_template
+    mapping_data::Dict{Int, Any} # TODO Any's type is the variable's type, also, is Int good here ? Prob not
+end
+
+# can hard dependency nodes also handle timestep mapped variables... ?
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
@@ -23,6 +33,8 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     parent_vars::Union{Nothing,NamedTuple}
     children::Vector{SoftDependencyNode}
     simulation_id::Vector{Int} # id of the simulation
+    timestep::Period
+    timestep_mapping_data::Union{Nothing, Vector{TimestepMapping}} # TODO : this approach might not play too well with parallelisation over MTG nodes
 end
 
 # Add methods to check if a node is parallelizable:

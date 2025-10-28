@@ -21,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)); type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2())); type_promotion=nothing, verbose=false, check=true, orchestrator=Orchestrator2())
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 
@@ -38,8 +38,16 @@ function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(ma
     convert_reference_values!(mapped_vars)
 
     # Get the variables that are not initialised or computed by other models in the output:
-    vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys for (org, vars) in mapped_vars) |>
+    vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys |> collect for (org, vars) in mapped_vars) |>
                      filter(x -> length(last(x)) > 0)
+
+    # Filter out variables that are timestep-mapped by the user, 
+    # as those variables are initialized by another model, but are currently flagged as needing initialization
+    # At this stage, data present in the orchestrator is expected to be valid, so we can take it into account
+    # A model with a different timestep can still have unitialized vars found in a node, the meteo, or to be initialized by the user
+    # in which case it'll be absent from the timestep mapping, but this needs testing
+    #filter_timestep_mapped_variables!(vars_need_init, orchestrator)
+
 
     # Note: these variables may be present in the MTG attributes, we check that below when traversing the MTG.
 
@@ -91,7 +99,7 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status, orchestrator=Orchestrator2())
     # Check if the node has a model defined for its symbol, if not, no need to compute
     symbol(node) ∉ collect(keys(mapped_vars)) && return
 
@@ -113,7 +121,6 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
                     end
                     continue
                 end
-                error("Variable `$(var)` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale $(symbol(node)) (checked for MTG node $(node_id(node))).")
             end
             # Applying the type promotion to the node attribute if needed:
             if isnothing(type_promotion)
@@ -305,7 +312,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
 
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going
@@ -314,9 +321,11 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
     end
 
+ #   preliminary_check_timestep_data(mapping, orchestrator)
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false)); type_promotion=type_promotion, verbose=verbose, check=check)
+        init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false, orchestrator=orchestrator)); type_promotion=type_promotion, verbose=verbose, check=check, orchestrator=orchestrator)
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -329,5 +338,102 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep(mapping, verbose=verbose), models, outputs, outputs_index)
+
+    dependency_graph = dep(mapping, verbose=verbose, orchestrator=orchestrator)
+
+    # Samuel : Once the dependency graph is created, and the timestep mappings are added into it
+    # We need to register the existing MTG nodes to initialize their individual data
+    # The current implementation is heavy, it may be quite slow for MTGs that already contain many nodes
+    # A faster way would be to count nodes by type once, store their ids, and only traverse the dependency graph once to add them
+    MultiScaleTreeGraph.traverse!(mtg, init_timestep_mapping_data, dependency_graph)
+
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dependency_graph, models, outputs, outputs_index, orchestrator)
+end
+
+function preliminary_check_timestep_data(mapping, orchestrator)
+    
+    if isempty(orchestrator.non_default_timestep_data_per_scale)
+        return
+    end
+
+    # First, check timesteps are within models' accepted ranges
+    for (organ, models_status) in mapping
+        models = get_models(models_status)
+
+        for model in models
+        checked = false
+
+        if haskey(orchestrator.non_default_timestep_data_per_scale, organ)
+            tsh = orchestrator.non_default_timestep_data_per_scale[organ]
+            
+            if typeof(model) in collect(keys(tsh.model_timesteps))
+                checked = true
+                    # Check the timestep is within the model's accepted timestep range
+                if !is_timestep_in_range(timestep_range_(model), tsh.model_timesteps[typeof(model)])
+                    # TODO return error
+                end
+            end
+        end
+        # if it wasn't found, it means it's a model set to the default timestep
+        if !checked
+            if !is_timestep_in_range(timestep_range_(model), orchestrator.default_timestep)
+                # TODO return error
+            end
+        end
+    end
+    end
+
+    # Next, check timestep mapped variables : 
+    # They should all exist as input/output somewhere (not dealing with mtg stuff for now)
+    # If they are already mapped in a MultiScaleModel, there should be no differences
+    # They should not cause name conflicts
+    # The scales should all be in the mapping
+    # They should map to different timesteps, and if the timestep isn't the default, then the downstream model should be in the list as well
+    for (organ, tsh) in orchestrator.non_default_timestep_data_per_scale
+        #if !organ in collect(keys(mapping))
+            # TODO error
+        #end
+
+        for (model, tvm) in tsh.model_timesteps
+        end
+    end>
+
+    return
+end
+
+
+
+
+#=
+function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
+    for (org, vars) in vars_need_init
+        if haskey(orchestrator.non_default_timestep_data_per_scale, org)
+            
+            filter!(o -> !haskey(orchestrator.non_default_timestep_data_per_scale[org].timestep_variable_mapping, o), vars)
+            #for var in vars
+            #    if haskey(orchestrator.non_default_timestep_data_per_scale[org].timestep_variable_mapping, var)
+            #        delete!(vars, var)
+            #    end
+            #end
+            if isempty(vars)
+                delete!(vars_need_init, org)
+            end
+        end
+    end
+end=#
+
+function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
+    for (org, vars) in vars_need_init
+        for tmst in orchestrator.non_default_timestep_mapping
+            if tmst.scale == org
+            
+                for (var_to, var_from) in tmst.var_to_var            
+                    filter!(o -> o == var_to.name || o == var_from.name, vars)
+                end
+                if isempty(vars)
+                    delete!(vars_need_init, org)
+                end
+            end
+        end
+    end
 end

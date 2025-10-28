@@ -50,18 +50,16 @@ end
 
 """
     timestep_valid(tsr::TimestepRange)
-
-Checks whether a TimestepRange
 """
 timestep_valid(tsr::TimestepRange) = tsr.lower_bound <= tsr.upper_bound
 
-function model_timestep_range_compatible_with_timestep(tsr::TimestepRange, p::Period) 
+function is_timestep_in_range(tsr::TimestepRange, p::Period) 
     if !timestep_valid(tsr)
         return false
     end
 
     # 0 means any timestep is valid, no timestep constraints
-    if tsr.upper_bound == Seconds(0)
+    if tsr.upper_bound == Second(0)
         return true
     end
 

@@ -33,5 +33,10 @@ function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, sc
     new_node = MultiScaleTreeGraph.Node(id, node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale), attributes)
     st = init_node_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.reverse_multiscale_mapping, sim_object.var_need_init, check=check)
 
+    # TODO add the node to the timestep mappings
+    # TODO initialise the MTG nodes in the timestep mappings
+    # NOTE : this isn't ideal, as it constrains the add_organ! function usage
+    init_timestep_mapping_data(new_node, sim_object.dependency_graph)
+
     return st
 end

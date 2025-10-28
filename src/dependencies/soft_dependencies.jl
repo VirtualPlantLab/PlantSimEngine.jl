@@ -70,7 +70,9 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
             nothing,
             nothing,
             SoftDependencyNode[],
-            fill(0, nsteps)
+            fill(0, nsteps),
+            Day(1), # TODO
+            nothing
         )
         for (process_, soft_dep_vars) in d.roots
     )
@@ -138,8 +140,18 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
     return DependencyGraph(independant_process_root, d.not_found)
 end
 
+function timestep_mapped_variables(orchestrator)
+
+#=struct SimulationTimestepHandler#{W,V}
+    model_timesteps::Dict{Any, Period} # where {W <: AbstractModel} # if a model isn't in there, then it follows the default, todo check if the given timestep respects the model's range
+    timestep_variable_mapping::Dict{Any, TimestepMapper} #where {V}
+end
+    non_default_timestep_data_per_scale::Dict{String, SimulationTimestepHandler}
+=#
+end
+
 # For multiscale mapping:
-function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode}) where {A<:Any}
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode}; orchestrator::Orchestrator2=Orchestrator2()) where {A<:Any}
     mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
     rev_mapping = reverse_mapping(mapped_vars, all=false)
 
@@ -324,10 +336,93 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
         end
     end
 
-    return DependencyGraph(independant_process_root, soft_dep_graphs_roots.not_found)
+    dep_graph = DependencyGraph(independant_process_root, soft_dep_graphs_roots.not_found)
+    traverse_dependency_graph!(x ->  set_non_default_timestep_in_node(x, orchestrator), dep_graph, visit_hard_dep=false)
+    traverse_dependency_graph!(x -> add_timestep_data_to_node(x, orchestrator), dep_graph, visit_hard_dep=false)
+
+    return dep_graph
 end
 
+# # set the timestep for everyone first, else we might not use the correct timestep when looking at the parents later
+function set_non_default_timestep_in_node(soft_dependency_node, orchestrator::Orchestrator2)
+    for mtsm in orchestrator.non_default_timestep_mapping
+        if mtsm.scale == soft_dependency_node.scale && (mtsm.model) == typeof(model_(soft_dependency_node.value))
+            soft_dependency_node.timestep = mtsm.timestep
+        end
+    end
+end
 
+function add_timestep_data_to_node(soft_dependency_node, orchestrator::Orchestrator2)
+
+    # now we can create the mapping
+    for mtsm in orchestrator.non_default_timestep_mapping
+        if mtsm.scale == soft_dependency_node.scale && (mtsm.model) == typeof(model_(soft_dependency_node.value))
+            for (var_to, var_from) in mtsm.var_to_var        
+                if !isnothing(soft_dependency_node.parent)
+                    parent = nothing
+                    variable_mapping = nothing
+                    for parent_node in soft_dependency_node.parent
+                        if typeof(parent_node.value) == var_from.model && parent_node.scale == var_from.scale
+                            parent = parent_node                                            
+                            variable_mapping = create_timestep_mapping(soft_dependency_node, parent, var_to, var_from)
+                            break
+                        end
+                    end
+                    if isnothing(parent)
+                        #error
+                    end
+                    if isnothing(parent.timestep_mapping_data)
+                        parent.timestep_mapping_data = Vector{TimestepMapping}()
+                    end
+                    push!(parent.timestep_mapping_data, variable_mapping)
+                else
+                    # Error
+                end
+            end                
+        end
+    end
+end
+
+# TODO this is incorrect, there may be multiple variables mapped between the two nodes
+function create_timestep_mapping(node::SoftDependencyNode, parent::SoftDependencyNode, var_to::Var_to, var_from::Var_from)
+    
+    @assert parent.timestep != 0 "Error : node timestep internally set to 0"
+
+    timestep_ratio = node.timestep / parent.timestep
+
+    # Keeping things simple for now, only integers allowed
+    @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
+
+    # TODO ensure type compatibility between var_to and var_from
+    # Simplification probably possible by doing the check earlier
+
+    # TODO test previoustimestep
+    var_type = DataType
+    
+    for (symbol, var_dump) in node.inputs
+        for var in var_dump
+            if isa(var, MappedVar)
+                # check the source variable, because the sink one might be a vector...?
+                # TODO multinode mapping
+                if var.source_variable  == var_from.name
+                    # This should be a fixed size array, ideally
+                    var_type = eltype(mapped_default(var))
+                    break
+                end
+            else
+                if var.symbol == var_from.name
+                    @assert "untested"
+                    var_type = eltype(mapped_default(var))
+                    break
+                end
+            end
+        end
+    end
+
+    mapping_data_template = Vector{var_type}(undef, convert(Int64, timestep_ratio))
+    # TODO : type shouldn't be Any but Vector{var_type}
+    return TimestepMapping(var_from.name, var_to.name, node, var_from.mapping_function, mapping_data_template, Dict{MultiScaleTreeGraph.NodeMTG, Any}())
+end
 """
     drop_process(proc_vars, process)
 

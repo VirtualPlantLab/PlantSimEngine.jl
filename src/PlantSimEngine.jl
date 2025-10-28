@@ -57,6 +57,9 @@ include("component_models/get_status.jl")
 # Transform into a dataframe:
 include("dataframe.jl")
 
+# Timesteps. : 
+include("timestep/timestep_mapping.jl")
+
 # Computing model dependencies:
 include("dependencies/soft_dependencies.jl")
 include("dependencies/hard_dependencies.jl")
@@ -65,9 +68,6 @@ include("dependencies/is_graph_cyclic.jl")
 include("dependencies/printing.jl")
 include("dependencies/dependencies.jl")
 include("dependencies/get_model_in_dependency_graph.jl")
-
-# Timesteps. : 
-include("timestep/timestep_mapping.jl")
 
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
@@ -107,7 +107,7 @@ include("examples_import.jl")
 export PreviousTimeStep
 export AbstractModel
 export ModelList, MultiScaleModel
-export Orchestrator
+export Orchestrator, Orchestrator2, TimestepRange, Var_to, Var_from, ModelTimestepMapping
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
