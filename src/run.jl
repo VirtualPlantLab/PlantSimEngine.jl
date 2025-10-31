@@ -453,77 +453,76 @@ function run_node_multiscale!(
     node_ratio = node.timestep / Day(1)
 
     # Check if the model needs to run this timestep
-    if (1 + (i-1) % node_ratio) != node_ratio
+    if (1 + (i - 1) % node_ratio) != node_ratio
 
         # TODO : This does prevent the node form being updated by two different parents but probably should be changed
-        if any([p.simulation_id[1] >= node.simulation_id[1] for p in node.parent])
+        if any([p.simulation_id[1] > node.simulation_id[1] for p in node.parent])
             node.simulation_id[1] += 1
         end
-        return nothing
-    end
-
-    # run!(status(object), dependency_node, meteo, constants, extra)
-    # Check if all the parents have been called before the child:
-    if !AbstractTrees.isroot(node) && any([p.simulation_id[1] <= node.simulation_id[1] for p in node.parent])
-        # If not, this node should be called via another parent
-        return nothing
-    end
-
-    node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
-    models_at_scale = models[node.scale]
-
-    # TODO : is empty check should be pre simulation
-    if isnothing(node.timestep_mapping_data) || isempty(node.timestep_mapping_data) 
-        # Samuel : this is the happy path, no further timestep mapping checks needed
-
-        for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
-            # Actual call to the model:
-            run!(node.value, models_at_scale, st, meteo, constants, extra)
-        end    
-        node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
-
-        # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
-        for child in node.children
-        #! check if we can run this safely in a @floop loop. I would say no, 
-        #! because we are running a parallel computation above already, modifying the node.simulation_id,
-        #! which is not thread-safe yet.
-            run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
-        end
     else
-        # we have a child with a different timestep than the parent, 
-        # which requires accumulation/reduce and running only some of the time
 
-        for st in node_statuses 
-            run!(node.value, models_at_scale, st, meteo, constants, extra)
-            # TODO do the accumulation
-            # then write into the child's status if need be ?   
-            for tmst in node.timestep_mapping_data
-                ratio = Int(tmst.node_to.timestep / node.timestep)
-                # TODO assert etc.
-                # do the accumulation for each variable
-                accumulation_index = 1 + ((i-1)%ratio)
-                tmst.mapping_data[node_id(st.node)][accumulation_index] = st[tmst.variable_from]
+        # run!(status(object), dependency_node, meteo, constants, extra)
+        # Check if all the parents have been called before the child:
+        if !AbstractTrees.isroot(node) && any([p.simulation_id[1] <= node.simulation_id[1] for p in node.parent])
+            # If not, this node should be called via another parent
+            return nothing
+        end
 
-                # if we have completed a *full* cycle, then presumably we need to write out the value to 
-                # the mapped model
-                # A full cycle isn't just the ratio to the parent, it's the ratio to the finest-grained timestep
-                if accumulation_index == ratio
-                    node_statuses_to = status(object)[tmst.node_to.scale]
+        node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
+        models_at_scale = models[node.scale]
 
-                    # TODO : INCORRECT in a scale with multiple mtg nodes
-                    for st_to in node_statuses_to
-                        # TODO might be able to catch mapping_function type incompatibility errors and make them clearer
-                        st_to[tmst.variable_to] = tmst.mapping_function(tmst.mapping_data[node_id(st.node)])
+        # TODO : is empty check should be pre simulation
+        if isnothing(node.timestep_mapping_data) || isempty(node.timestep_mapping_data)
+            # Samuel : this is the happy path, no further timestep mapping checks needed
+
+            for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
+                # Actual call to the model:
+                run!(node.value, models_at_scale, st, meteo, constants, extra)
+            end
+            node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
+
+            # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
+            for child in node.children
+                #! check if we can run this safely in a @floop loop. I would say no, 
+                #! because we are running a parallel computation above already, modifying the node.simulation_id,
+                #! which is not thread-safe yet.
+                run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
+            end
+        else
+            # we have a child with a different timestep than the parent, 
+            # which requires accumulation/reduce and running only some of the time
+
+            for st in node_statuses
+                run!(node.value, models_at_scale, st, meteo, constants, extra)
+                # TODO do the accumulation
+                # then write into the child's status if need be ?   
+                for tmst in node.timestep_mapping_data
+                    ratio = Int(tmst.node_to.timestep / node.timestep)
+                    # TODO assert etc. This is all assuming the ratio is an integer, whereas it can be, like 1/7
+                    # do the accumulation for each variable
+                    index = Int(i*Day(1) / node.timestep)
+                    accumulation_index = 1 + ((index - 1) % ratio)
+                    tmst.mapping_data[node_id(st.node)][accumulation_index] = st[tmst.variable_from]
+
+                    # if we have completed a *full* cycle, then presumably we need to write out the value to 
+                    # the mapped model
+                    # A full cycle isn't just the ratio to the parent, it's the ratio to the finest-grained timestep
+                    if accumulation_index == ratio
+                        node_statuses_to = status(object)[tmst.node_to.scale]
+
+                        # TODO : INCORRECT in a scale with multiple mtg nodes
+                        for st_to in node_statuses_to
+                            # TODO might be able to catch mapping_function type incompatibility errors and make them clearer
+                            st_to[tmst.variable_to] = tmst.mapping_function(tmst.mapping_data[node_id(st.node)])
+                        end
                     end
                 end
-            end         
-        end
+            end
 
-        node.simulation_id[1] += 1 
-
-        for child in node.children
-            
-            run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
+            node.simulation_id[1] += 1
         end
+    end
+    for child in node.children        
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
     end
 end
