@@ -126,6 +126,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
                     end
                     continue
                 end
+                error("Variable `$(var)` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale $(symbol(node)) (checked for MTG node $(node_id(node))).")
             end
             # Applying the type promotion to the node attribute if needed:
             if isnothing(type_promotion)
