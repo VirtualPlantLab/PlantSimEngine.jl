@@ -279,6 +279,18 @@ function default_variables_from_mapping(mapped_vars, verbose=true)
 end
 
 
+function is_timestep_mapped(key, orchestrator::Orchestrator2; search_inputs_only::Bool=false)
+    for mtsm in orchestrator.non_default_timestep_mapping
+        for (var_from, var_to) in mtsm.var_to_var
+            if ((first(key) == mtsm.scale) && last(key) == var_to.name) ||
+                (!search_inputs_only && (first(key) == var_from.scale && last(key) == var_from.name))
+                return true
+            end
+        end
+    end
+    return false
+end
+
 """
     convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
@@ -286,7 +298,7 @@ Convert the variables that are `MappedVar{SelfNodeMapping}` or `MappedVar{Single
 common value for the variable; and convert `MappedVar{MultiNodeMapping}` to RefVectors that reference the values for the
 variable in the source organs.
 """
-function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}}, orchestrator::Orchestrator2)
     # For the variables that will be RefValues, i.e. referencing a value that exists for different scales, we need to first 
     # create a common reference to the value that we use wherever we need this value. These values are created in the dict_mapped_vars
     # Dict, and then referenced from there every time we point to it.
@@ -303,7 +315,11 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
                 if !haskey(dict_mapped_vars, key)
-                    push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
+#                    if is_timestep_mapped(key, orchestrator)
+#                        push!(dict_mapped_vars, key => (mapped_default(vars[k])))
+#                    else
+                        push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
+#                    end
                 end
 
                 # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:

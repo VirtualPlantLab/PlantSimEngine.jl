@@ -297,13 +297,64 @@ mtg2 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default2", 1, 2))
 to = PlantSimEngine.Var_to(:weekly_max_temperature)
 from = PlantSimEngine.Var_from(MyToyDayModel, "Default", :daily_temperature, maximum)
 
-dict_to_from = Dict(to => from)
+dict_to_from = Dict(from => to)
 mtsm = PlantSimEngine.ModelTimestepMapping(MyToyWeekModel, "Default2", Week(1), dict_to_from)
 
 orch2 = PlantSimEngine.Orchestrator2(Day(1), [mtsm,])
 
-out = @enter run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+out = run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
  
+
+###########################
+# Three timestep model that is single-scale, to circumvent refvector/refvalue overwriting
+# and explore alternatives
+# (eg filtering out timestep-mapped variables from vars_need_init and storing the values elsewhere)
+###########################
+
+ m_singlescale = Dict("Default" => (
+    MyToyDay2Model(),
+    MyToyWeek2Model(),    
+    MyToyFourWeek2Model(),    
+    ),)
+
+
+    model_timesteps_defaultscale = Dict(MyToyWeek2Model =>Week(1), MyToyFourWeek2Model =>Week(4), )
+    tsm_d = PlantSimEngine.TimestepMapper(:out_day, Day(1), sum, nothing)
+    sth_d = PlantSimEngine.SimulationTimestepHandler(model_timesteps_defaultscale, Dict(:in_week => tsm_d ))
+
+    tsm_w = PlantSimEngine.TimestepMapper(:out_week, Week(1), sum, nothing)
+    sth_w = PlantSimEngine.SimulationTimestepHandler(model_timesteps_defaultscale, Dict(:in_four_week_from_day => tsm_d, :in_four_week_from_week => tsm_w ))
+
+    to_w = PlantSimEngine.Var_to(:in_week)
+    from_d = PlantSimEngine.Var_from(MyToyDay2Model, "Default", :out_day, sum)
+    dict_to_from_w = Dict(to_w => from_d)
+
+    to_w4_d = PlantSimEngine.Var_to(:in_four_week_from_day)
+    to_w4_w = PlantSimEngine.Var_to(:in_four_week_from_week)
+    from_w = PlantSimEngine.Var_from(MyToyWeek2Model, "Default", :out_week, sum)
+
+    dict_to_from_w4 = Dict(from_d => to_w4_d, from_w => to_w4_w)
+    
+    mtsm_w = PlantSimEngine.ModelTimestepMapping(MyToyWeek2Model, "Default", Week(1), dict_to_from_w)
+    mtsm_w4 = PlantSimEngine.ModelTimestepMapping(MyToyFourWeek2Model, "Default", Week(4), dict_to_from_w4)
+
+    orch2 = PlantSimEngine.Orchestrator2(Day(1), [mtsm_w, mtsm_w4])
+
+mtg_single = Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 1, 1))
+out = @run run!(mtg_single, m_singlescale, df, orchestrator=orch2)
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 ###########################
 # Test with three timesteps, multiscale
@@ -325,6 +376,28 @@ PlantSimEngine.outputs_(m::MyToyDay2Model) = (out_day=-Inf,)
 function PlantSimEngine.run!(m::MyToyDay2Model, models, status, meteo, constants=nothing, extra=nothing)
     status.out_day = meteo.data
 end
+
+#=PlantSimEngine.@process "ToyDay3" verbose = false
+
+struct MyToyDay3Model <: AbstractToyday3Model end
+
+PlantSimEngine.inputs_(m::MyToyDay3Model) = (in_day=-Inf, in_day_summed_prev_timestep=-Inf)
+PlantSimEngine.outputs_(m::MyToyDay3Model) = (out_day_summed=-Inf,)
+
+function PlantSimEngine.run!(m::MyToyDay3Model, models, status, meteo, constants=nothing, extra=nothing)
+    status.out_day_summed = status.in_day + status.in_day_summed_prev_timestep
+end
+
+PlantSimEngine.@process "ToyDay4" verbose = false
+
+struct MyToyDay4Model <: AbstractToyday4Model end
+
+PlantSimEngine.inputs_(m::MyToyDay4Model) = (in_day_summed=-Inf,)
+PlantSimEngine.outputs_(m::MyToyDay4Model) = (out_day_summed_2= -Inf,)
+
+function PlantSimEngine.run!(m::MyToyDay4Model, models, status, meteo, constants=nothing, extra=nothing)
+    status.out_day_summed_2 = status.in_day_summed
+end=#
 
 PlantSimEngine.@process "ToyWeek2" verbose = false
 
@@ -367,13 +440,13 @@ df = DataFrame(:data => [1 for i in 1:365], )
 
     to_w = PlantSimEngine.Var_to(:in_week)
     from_d = PlantSimEngine.Var_from(MyToyDay2Model, "Default", :out_day, sum)
-    dict_to_from_w = Dict(to_w => from_d)
+    dict_to_from_w = Dict(from_d => to_w)
 
     to_w4_d = PlantSimEngine.Var_to(:in_four_week_from_day)
     to_w4_w = PlantSimEngine.Var_to(:in_four_week_from_week)
     from_w = PlantSimEngine.Var_from(MyToyWeek2Model, "Default2", :out_week, sum)
 
-    dict_to_from_w4 = Dict(to_w4_d => from_d, to_w4_w => from_w)
+    dict_to_from_w4 = Dict(from_d => to_w4_d, from_w => to_w4_w)
     
     mtsm_w = PlantSimEngine.ModelTimestepMapping(MyToyWeek2Model, "Default2", Week(1), dict_to_from_w)
     mtsm_w4 = PlantSimEngine.ModelTimestepMapping(MyToyFourWeek2Model, "Default3", Week(4), dict_to_from_w4)
@@ -395,55 +468,36 @@ m_multiscale = Dict("Default" => (
         :in_four_week_from_day => "Default" => :out_day,
         :in_four_week_from_week => "Default2" => :out_week,
         ],
+    ),),
+    #="Default4"=> (
+    MultiScaleModel(
+        model=MyToyDay3Model(),
+        mapped_variables=[
+            PlantSimEngine.PreviousTimeStep(:in_day_summed_prev_timestep) => "Default5" => :out_day_summed_2,
+            :in_day => "Default" => :out_day,
+            ]),
+            Status(in_day_summed_prev_timestep=0,)
     ),
-    ),)
+    "Default5" => (
+    MultiScaleModel(model=MyToyDay4Model(),
+    mapped_variables= [:in_day_summed => "Default4" => :out_day_summed],
+    ),
+    Status(in_day_summed=0,out_day_summed_2=0)
+    ),=#
+    )
 
    
 # TODO test with multiple nodes
 mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 1, 1))
 mtg2 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default2", 1, 2))
 mtg3 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default3", 1, 3))
-#out = @enter run!(mtg, m_multiscale, df, orchestrator=orch2)
+#mtg4 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default4", 1, 4))
+#mtg5 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default5", 1, 5))
 
+    #orch2 = PlantSimEngine.Orchestrator2()
 
-
-###########################
-# Three timestep model that is single-scale, to circumvent refvector/refvalue overwriting
-# and explore alternatives
-# (eg filtering out timestep-mapped variables from vars_need_init and storing the values elsewhere)
-###########################
-
- m_singlescale = Dict("Default" => (
-    MyToyDay2Model(),
-    MyToyWeek2Model(),    
-    MyToyFourWeek2Model(),    
-    ),)
-
-
-    model_timesteps_defaultscale = Dict(MyToyWeek2Model =>Week(1), MyToyFourWeek2Model =>Week(4), )
-    tsm_d = PlantSimEngine.TimestepMapper(:out_day, Day(1), sum, nothing)
-    sth_d = PlantSimEngine.SimulationTimestepHandler(model_timesteps_defaultscale, Dict(:in_week => tsm_d ))
-
-    tsm_w = PlantSimEngine.TimestepMapper(:out_week, Week(1), sum, nothing)
-    sth_w = PlantSimEngine.SimulationTimestepHandler(model_timesteps_defaultscale, Dict(:in_four_week_from_day => tsm_d, :in_four_week_from_week => tsm_w ))
-
-    to_w = PlantSimEngine.Var_to(:in_week)
-    from_d = PlantSimEngine.Var_from(MyToyDay2Model, "Default", :out_day, sum)
-    dict_to_from_w = Dict(to_w => from_d)
-
-    to_w4_d = PlantSimEngine.Var_to(:in_four_week_from_day)
-    to_w4_w = PlantSimEngine.Var_to(:in_four_week_from_week)
-    from_w = PlantSimEngine.Var_from(MyToyWeek2Model, "Default", :out_week, sum)
-
-    dict_to_from_w4 = Dict(to_w4_d => from_d, to_w4_w => from_w)
-    
-    mtsm_w = PlantSimEngine.ModelTimestepMapping(MyToyWeek2Model, "Default", Week(1), dict_to_from_w)
-    mtsm_w4 = PlantSimEngine.ModelTimestepMapping(MyToyFourWeek2Model, "Default", Week(4), dict_to_from_w4)
-
-    orch2 = PlantSimEngine.Orchestrator2(Day(1), [mtsm_w, mtsm_w4])
-
-mtg_single = Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 1, 1))
-out = @run run!(mtg_single, m_singlescale, df, orchestrator=orch2)
+out = @run run!(mtg, m_multiscale, df, orchestrator=orch2)
+#out = run!(mtg, m_multiscale, df, orchestrator=orch2)
 
 
 

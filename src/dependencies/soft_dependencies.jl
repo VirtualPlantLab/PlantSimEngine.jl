@@ -357,7 +357,7 @@ function add_timestep_data_to_node(soft_dependency_node, orchestrator::Orchestra
     # now we can create the mapping
     for mtsm in orchestrator.non_default_timestep_mapping
         if mtsm.scale == soft_dependency_node.scale && (mtsm.model) == typeof(model_(soft_dependency_node.value))
-            for (var_to, var_from) in mtsm.var_to_var        
+            for (var_from, var_to) in mtsm.var_to_var        
                 if !isnothing(soft_dependency_node.parent)
                     parent = nothing
                     variable_mapping = nothing

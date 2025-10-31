@@ -35,18 +35,23 @@ function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(ma
     # Note 3: we do it before `convert_reference_values!` because we need the variables to be MappedVar{MultiNodeMapping} to get the reverse mapping.
 
     # Convert the MappedVar{SelfNodeMapping} or MappedVar{SingleNodeMapping} to RefValues, and MappedVar{MultiNodeMapping} to RefVectors:
-    convert_reference_values!(mapped_vars)
+    convert_reference_values!(mapped_vars, orchestrator)
 
     # Get the variables that are not initialised or computed by other models in the output:
     vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys |> collect for (org, vars) in mapped_vars) |>
                      filter(x -> length(last(x)) > 0)
 
     # Filter out variables that are timestep-mapped by the user, 
-    # as those variables are initialized by another model, but are currently flagged as needing initialization
+    # Since we disconnect outputs from the source variable (as values are changed by the accumulation function,
+    # meaning they differ and we can't just Ref point to the source variable)
+    # they will be currently flagged as needing initialization
     # At this stage, data present in the orchestrator is expected to be valid, so we can take it into account
     # A model with a different timestep can still have unitialized vars found in a node, the meteo, or to be initialized by the user
     # in which case it'll be absent from the timestep mapping, but this needs testing
-    #filter_timestep_mapped_variables!(vars_need_init, orchestrator)
+    # TODO, *however*, this isn't the cleanest in its current state, 
+    # there may be some user initialisation issues that are hidden by this approach
+    # Needs to be checked
+    filter_timestep_mapped_variables!(vars_need_init, orchestrator)
 
 
     # Note: these variables may be present in the MTG attributes, we check that below when traversing the MTG.
@@ -54,7 +59,7 @@ function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(ma
     # We traverse the MTG to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in collect(keys(mapped_vars)))
     MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = MultiScaleTreeGraph.get_node(mtg, 5)
-        init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion, check=check)
+        init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion, check=check, orchestrator=orchestrator)
     end
 
     return (; statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init)
@@ -153,7 +158,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     end
 
     # Make the node status from the template:
-    st = status_from_template(st_template)
+    st = status_from_template(st_template, symbol(node), orchestrator)
 
     push!(statuses[symbol(node)], st)
 
@@ -209,17 +214,23 @@ julia> b
 2.0
 ```
 """
-function status_from_template(d::Dict{Symbol,T} where {T})
+function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator2)
     # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
     sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
     # Note: PerStatusRef are used to reference variables in the same status for renaming.
 
     # We create the status with the right references for variables, and for PerStatusRef (we reference the reference variable):
     for (k, v) in sorted_vars
-        if isa(v, RefVariable)
-            sorted_vars[k] = sorted_vars[v.reference_variable]
-        else
+        if is_timestep_mapped((scale => k), orchestrator, search_inputs_only=true)
+            # avoid referring to the original variable
             sorted_vars[k] = ref_var(v)
+        else
+
+            if isa(v, RefVariable)
+                sorted_vars[k] = sorted_vars[v.reference_variable]
+            else
+                sorted_vars[k] = ref_var(v)
+            end
         end
     end
 
@@ -423,16 +434,21 @@ function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
 end=#
 
 function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
-    for (org, vars) in vars_need_init
-        for tmst in orchestrator.non_default_timestep_mapping
+    for tmst in orchestrator.non_default_timestep_mapping
+        for (org, vars) in vars_need_init
             if tmst.scale == org
-            
-                for (var_to, var_from) in tmst.var_to_var            
-                    filter!(o -> o == var_to.name || o == var_from.name, vars)
+                for (var_from, var_to) in tmst.var_to_var
+                    filter!(o -> o == var_to.name, vars)
+                end                
+            end
+            for (var_from, var_to) in tmst.var_to_var
+                if var_from.scale == org
+                    filter!(o -> o == var_from.name, vars)
                 end
-                if isempty(vars)
-                    delete!(vars_need_init, org)
-                end
+            end
+
+            if isempty(vars)
+                delete!(vars_need_init, org)
             end
         end
     end

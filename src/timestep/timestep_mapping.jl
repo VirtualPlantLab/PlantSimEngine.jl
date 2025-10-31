@@ -78,7 +78,7 @@ struct ModelTimestepMapping
     model
     scale::String
     timestep::Period
-    var_to_var::Dict{Var_to, Var_from}
+    var_to_var::Dict{Var_from, Var_to}
 end
 
 mutable struct Orchestrator2

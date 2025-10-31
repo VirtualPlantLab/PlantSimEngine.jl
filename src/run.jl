@@ -454,7 +454,11 @@ function run_node_multiscale!(
 
     # Check if the model needs to run this timestep
     if (1 + (i-1) % node_ratio) != node_ratio
-        node.simulation_id[1] += 1
+
+        # TODO : This does prevent the node form being updated by two different parents but probably should be changed
+        if any([p.simulation_id[1] >= node.simulation_id[1] for p in node.parent])
+            node.simulation_id[1] += 1
+        end
         return nothing
     end
 
@@ -468,6 +472,7 @@ function run_node_multiscale!(
     node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
     models_at_scale = models[node.scale]
 
+    # TODO : is empty check should be pre simulation
     if isnothing(node.timestep_mapping_data) || isempty(node.timestep_mapping_data) 
         # Samuel : this is the happy path, no further timestep mapping checks needed
 
