@@ -439,12 +439,12 @@ function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
         for (org, vars) in vars_need_init
             if tmst.scale == org
                 for (var_from, var_to) in tmst.var_to_var
-                    filter!(o -> o == var_to.name, vars)
+                    filter!(o -> o != var_to.name, vars)
                 end                
             end
             for (var_from, var_to) in tmst.var_to_var
                 if var_from.scale == org
-                    filter!(o -> o == var_from.name, vars)
+                    filter!(o -> o != var_from.name, vars)
                 end
             end
 
