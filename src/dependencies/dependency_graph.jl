@@ -15,10 +15,10 @@ end
 mutable struct TimestepMapping
     variable_from::Symbol
     variable_to::Symbol
-    node_to # SoftDependencyNode causes a circular reference # TODO could it be a harddependencynode... ?
+    node_to # SoftDependencyNode causes a circular reference, removing it as a shortcut TODO
     mapping_function::Function
     mapping_data_template
-    mapping_data::Dict{Int, Any} # TODO Any's type is the variable's type, also, is Int good here ? Prob not
+    mapping_data::Dict{Int, Any} # TODO fix type stability : Int is the node id, Any is a vector of n elements of the variable's type, n being the # of required timesteps
 end
 
 # can hard dependency nodes also handle timestep mapped variables... ?
