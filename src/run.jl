@@ -453,10 +453,14 @@ function run_node_multiscale!(
     node_ratio = node.timestep / Day(1)
 
     # Check if the model needs to run this timestep
-    if (1 + (i - 1) % node_ratio) != node_ratio
 
-        # TODO : This does prevent the node form being updated by two different parents but probably should be changed
-        if any([p.simulation_id[1] > node.simulation_id[1] for p in node.parent])
+    skip = (1 + (i - 1) % node_ratio) != node_ratio
+
+    if skip
+
+        # TODO : This prevents a non-default timestep node form being updated by two different parents 
+        # but probably should be changed, it is bug-prone
+        if isnothing(node.parent) || any([p.simulation_id[1] > node.simulation_id[1] for p in node.parent])
             node.simulation_id[1] += 1
         end
     else
@@ -471,7 +475,7 @@ function run_node_multiscale!(
         node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
         models_at_scale = models[node.scale]
 
-        # TODO : is empty check should be pre simulation
+        # TODO : is empty check should actually be checkde pre-simulation, it is incorrect behaviour
         if isnothing(node.timestep_mapping_data) || isempty(node.timestep_mapping_data)
             # Samuel : this is the happy path, no further timestep mapping checks needed
 
@@ -481,6 +485,7 @@ function run_node_multiscale!(
             end
             node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
 
+            # TODO remove this bit
             # Recursively visit the children (soft dependencies only, hard dependencies are handled by the model itself):
             for child in node.children
                 #! check if we can run this safely in a @floop loop. I would say no, 
@@ -494,8 +499,8 @@ function run_node_multiscale!(
 
             for st in node_statuses
                 run!(node.value, models_at_scale, st, meteo, constants, extra)
-                # TODO do the accumulation
-                # then write into the child's status if need be ?   
+                
+                # Do the accumulation then write into the child's status if need be
                 for tmst in node.timestep_mapping_data
                     ratio = Int(tmst.node_to.timestep / node.timestep)
                     # TODO assert etc. This is all assuming the ratio is an integer, whereas it can be, like 1/7
