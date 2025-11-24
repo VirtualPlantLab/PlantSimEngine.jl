@@ -6,45 +6,8 @@
 
 # Many shortcuts will be taken, I'll try and comment what's missing/implicit/etc.
 
-# TODO specify scale ?
-struct TimestepMapper#{V}
-    variable_from#::V
-    timestep_from::Period # ? Not sure whether this is the best bit of info... Also, to or from ? And it should be a Period, no ?
-    mapping_function
-    mapping_data # TODO this should be internal
-end
-
-struct SimulationTimestepHandler#{W,V}
-    model_timesteps::Dict{Any, Period} # where {W <: AbstractModel} # if a model isn't in there, then it follows the default, todo check if the given timestep respects the model's range
-    timestep_variable_mapping::Dict{Any, TimestepMapper} #where {V}
-end
-
-SimulationTimestepHandler() = SimulationTimestepHandler(Dict{Any, Int}(), Dict{Any, TimestepMapper}()) #Dict{W, Int}(), Dict{V, TimestepMapper}()) where {W, V}
-
-mutable struct Orchestrator
-    # This is actually a general simulation parameter, not-scale specific 
-    # todo change to Period
-    default_timestep::Period
-
-    # This needs to be per-scale : if a model is used at two different scales, 
-    # and the same variable of that model maps to some other timestep to two *different* variables
-    # then I believe we can only rely on the different scale to disambiguate
-    non_default_timestep_data_per_scale::Dict{String, SimulationTimestepHandler}
-
-    function Orchestrator(default::Period, per_scale::Dict{String, SimulationTimestepHandler})
-        @assert default >= Second(0) "The default_timestep should be greater than or equal to 0."
-        return new(default, per_scale)
-    end
-end
-
 # TODO have a default constructor take in a meteo or something, and set up the default timestep automagically to be the finest weather timestep
 # Other options are possible
-Orchestrator() = Orchestrator(Day(1), Dict{String, SimulationTimestepHandler}())
-
-
-#o = Orchestrator()
-#oo = Orchestrator(1, Dict{String, SimulationTimestepHandler}())
-
 
 # TODO issue : what if the user wants to force initialize a variable that isn't at the default timestep ?
 # This requires the ability to fit data with a vector that isn't at the default timestep
@@ -67,7 +30,6 @@ struct Var_from
     scale::String
     name::Symbol
     mapping_function::Function
-    # mapping_data::Dict{NodeMTG, Vector{stuff}}
 end
 
 struct Var_to
@@ -94,7 +56,7 @@ end
 Orchestrator2() = Orchestrator2(Day(1), Vector{ModelTimestepMapping}())
 
 
-# TODO parallelization, 
+# TODO parallelization
 
 function init_timestep_mapping_data(node_mtg::MultiScaleTreeGraph.Node, dependency_graph)
     traverse_dependency_graph!(x -> register_mtg_node_in_timestep_mapping(x, node_mtg), dependency_graph, visit_hard_dep=false)

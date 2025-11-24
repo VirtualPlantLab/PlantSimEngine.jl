@@ -107,7 +107,7 @@ include("examples_import.jl")
 export PreviousTimeStep
 export AbstractModel
 export ModelList, MultiScaleModel
-export Orchestrator, Orchestrator2, TimestepRange, Var_to, Var_from, ModelTimestepMapping
+export Orchestrator2, TimestepRange, Var_to, Var_from, ModelTimestepMapping
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
