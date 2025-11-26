@@ -23,7 +23,7 @@ a dictionary of variables that need to be initialised or computed by other model
 """
 function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2())); type_promotion=nothing, verbose=false, check=true, orchestrator=Orchestrator2())
     # We compute the variables mapping for each scale:
-    mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
+    mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose,orchestrator=orchestrator)
 
     # Update the types of the variables as desired by the user:
     convert_vars!(mapped_vars, type_promotion)
@@ -182,7 +182,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
 end
 
 """
-    status_from_template(d::Dict{Symbol,Any})
+    status_from_template(d::Dict{Symbol,Any}, scale::String)
 
 Create a status from a template dictionary of variables and values. If the values 
 are already RefValues or RefVectors, they are used as is, else they are converted to Refs.
@@ -202,7 +202,7 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest mylabel
-julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0));
+julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0), "Dummy_Scale");
 ```
 
 ```jldoctest mylabel
@@ -215,7 +215,7 @@ julia> b
 2.0
 ```
 """
-function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator2)
+function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator2=Orchestrator2())
     # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
     sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
     # Note: PerStatusRef are used to reference variables in the same status for renaming.
@@ -335,9 +335,16 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
  #   preliminary_check_timestep_data(mapping, orchestrator)
 
+ #   soft_dep_graph_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false, orchestrator=orchestrator)
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
+ #   statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
+ #       init_statuses(mtg, mapping, soft_dep_graph_roots; type_promotion=type_promotion, verbose=verbose, check=check, orchestrator=orchestrator)
+
+# Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
         init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false, orchestrator=orchestrator)); type_promotion=type_promotion, verbose=verbose, check=check, orchestrator=orchestrator)
+
 
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
@@ -351,7 +358,8 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
 
-    dependency_graph = dep(mapping, verbose=verbose, orchestrator=orchestrator)
+        dependency_graph = dep(mapping, verbose=verbose, orchestrator=orchestrator)
+    #dependency_graph = dep(mapping, soft_dep_graph_roots=soft_dep_graph_roots, hard_dep_dict=hard_dep_dict, orchestrator=orchestrator)
 
     # Samuel : Once the dependency graph is created, and the timestep mappings are added into it
     # We need to register the existing MTG nodes to initialize their individual data
