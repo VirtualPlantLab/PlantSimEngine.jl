@@ -156,11 +156,17 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orches
             end
 
             # TODO no idea how this meshes with refvector situations or previoustimestep
+#            if is_timestep_mapped(organ => var, orchestrator, search_inputs_only=true)                
+#                push!(vars_, var => default)
+#                if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
+#                        organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+#                        push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
+#                    end
+#            else
             if is_timestep_mapped(organ => var, orchestrator, search_inputs_only=true)
                 
                 push!(vars_, var => default)
             else
-
                 if haskey(vars_mapping[organ], var)
                     organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
                     push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
@@ -180,6 +186,7 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orches
                 end
             end
         end
+#        end
         return (; vars_...,)
     end
 end
@@ -195,6 +202,16 @@ function _node_mapping(var_mapping)
     organ_mapped_var = [last(i) for i in var_mapping]
 
     return organ_mapped, organ_mapped_var
+end
+
+function extract_timestep_mapped_outputs(m::MultiScaleModel, organ::String, outputs_process, timestep_mapped_outputs_process)
+    if length(m.timestep_mapped_variables) > 0
+        timestep_mapped_outputs_process[organ] = Dict{Symbol,Vector}()
+        key = process(m.model)
+        extra_outputs = timestep_mapped_outputs_(m)
+        #ind = findfirst(x -> first(x) == key, outputs_process[organ][key])
+        timestep_mapped_outputs_process[organ][key] = (; extra_outputs...) #TODO 
+    end
 end
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
@@ -222,6 +239,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
     #* dependency may not appear in its own scale, but this is treated in the soft-dependency computation
     inputs_process = Dict{String,Dict{Symbol,Vector}}()
     outputs_process = Dict{String,Dict{Symbol,Vector}}()
+    timestep_mapped_outputs_process = Dict{String,Dict{Symbol,NamedTuple}}()
     for (organ, model) in mapping
         # Get the status given by the user, that is used to set the default values of the variables in the mapping:
         st_scale_user = get_status(model)
@@ -240,6 +258,32 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
 
         inputs_process[organ] = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in status_scale)
         outputs_process[organ] = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in status_scale)
+
+        # Samuel : This if else loop is a bit awkward
+        # None of the other code works this way, it uses the dependency grpah
+        # but the hard_dep graph loses the multiscale model information...
+        if isa(model, AbstractModel)            
+        elseif isa(model, MultiScaleModel)
+            extract_timestep_mapped_outputs(model, organ, outputs_process, timestep_mapped_outputs_process)            
+        else
+            for m in model
+                if isa(m, MultiScaleModel)
+                    extract_timestep_mapped_outputs(m, organ, outputs_process, timestep_mapped_outputs_process)
+                end
+            end
+        end
+
+        #=for m in model
+            if isa(m, MultiScaleModel)
+                if length(m.timestep_mapped_variables) > 0
+                    key = process(m.model)
+                    extra_outputs = timestep_mapped_outputs_(m)
+                    ind = findfirst(x -> first(x) == key, outputs_process[organ][key])
+                    outputs_process[organ][key][ind] = first(outputs_process[organ][key][ind]) => (; last(outputs_process[organ][key][ind])..., extra_outputs...)
+
+                end
+            end
+        end=#
     end
 
     # If some models needed as hard-dependency are not found in their own scale, check the other scales:
@@ -366,7 +410,18 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
             )
             for (process_, soft_dep_vars) in hard_deps[organ].roots # proc_ = :carbon_assimilation ; soft_dep_vars = hard_deps.roots[proc_]
         )
-
+        for (process_, soft_dep_vars) in hard_deps[organ].roots 
+             # TODO this is not good enough for some model ranges, and doesn't check for inconsistencies errors for models that have a modeltimestepmapping 
+            if timestep_range_(soft_dep_vars.value).lower_bound == timestep_range_(soft_dep_vars.value).upper_bound
+                timestep = timestep_range_(soft_dep_vars.value).lower_bound
+                
+                # if the model has infinite range, set it to the simulation timestep
+                if timestep == Second(0)
+                    timestep = orchestrator.default_timestep
+                end
+                soft_dep_graph[process_].timestep = timestep
+            end
+        end
         # Update the parent node of the hard dependency nodes to be the new SoftDependencyNode instead of the old
         # HardDependencyNode.
         for (p, node) in soft_dep_graph
@@ -375,7 +430,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
             end
         end
 
-        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ])
+        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ], timestep_mapped_outputs=haskey(timestep_mapped_outputs_process,organ) ? timestep_mapped_outputs_process[organ] : Dict{Symbol,NamedTuple}())
         not_found = merge(not_found, hard_deps[organ].not_found)
     end
 

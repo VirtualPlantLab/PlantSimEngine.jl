@@ -148,3 +148,19 @@ function convert_outputs(out::TimeStepTable{T} where T, sink)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
     return sink(out)
 end
+
+
+struct MultiScaleMapping{T}
+    default_timestep::Date
+    mapping::Dict{String,T}
+end
+
+
+function MultiScaleMapping(mapping, mtg; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
+    GraphSimulation(init_simulation(mtg, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
+end
+
+
+function dep(m::MultiScaleMapping)
+    return dep(m.graph)
+end

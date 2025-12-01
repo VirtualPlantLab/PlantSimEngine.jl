@@ -212,7 +212,7 @@ mtsm = PlantSimEngine.ModelTimestepMapping(MyToyWeekModel, "Default2", Week(1), 
 
 orch2 = PlantSimEngine.Orchestrator2(Day(1), [mtsm,])
 
-out = run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+out = @enter run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
 
 temps = [out["Default"][i].daily_temperature for i in 1:365]
 temp_m = maximum(temps)
@@ -1040,3 +1040,110 @@ out = run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
 #mtg_bis_2 = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Default2", 1, 2))
 #mtg_bis_3 = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Default2", 1, 2))
 #out = @enter run!(mtg_bis, m_multiscale, meteo_day, orchestrator=orch2)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+################################
+## API change : integrate timestep mapping into multiscalemodels
+################################
+
+
+###########################
+# Simple test with an orchestrator
+###########################
+using MultiScaleTreeGraph
+using PlantSimEngine
+using PlantMeteo
+using PlantMeteo.Dates
+using Test
+
+PlantSimEngine.@process "ToyDay" verbose = false
+
+struct MyToyDayModel <: AbstractToydayModel end
+
+PlantSimEngine.inputs_(m::MyToyDayModel) = (a=1,)
+PlantSimEngine.outputs_(m::MyToyDayModel) = (daily_temperature=-Inf,)
+
+function PlantSimEngine.run!(m::MyToyDayModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.daily_temperature = meteo.T
+end
+
+PlantSimEngine.@process "ToyWeek" verbose = false
+
+struct MyToyWeekModel <: AbstractToyweekModel
+    temperature_threshold::Float64
+end
+
+MyToyWeekModel() = MyToyWeekModel(28.0)
+function PlantSimEngine.inputs_(::MyToyWeekModel)
+     (weekly_max_temperature=-Inf,)
+end
+PlantSimEngine.outputs_(m::MyToyWeekModel) = (hot = false,)
+
+function PlantSimEngine.run!(m::MyToyWeekModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.hot = status.weekly_max_temperature > m.temperature_threshold
+end
+
+PlantSimEngine.timestep_range_(m::MyToyWeekModel) = TimestepRange(Week(1))
+
+
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
+
+m_multiscale = Dict("Default" => (
+    MultiScaleModel(model=MyToyDayModel(),
+    mapped_variables=[],
+    timestep_mapped_variables=[TimestepMappedVariable(:daily_temperature, :weekly_max_temperature, Week(1), max),]
+    ),
+    Status(a=1,)
+    ),
+    "Default2" => (
+    MultiScaleModel(model=MyToyWeekModel(),    
+    #mapped_variables=[:weekly_max_temperature => ["Default" => :daily_temperature]], # TODO test this
+    mapped_variables=[:weekly_max_temperature => "Default" => :weekly_max_temperature],
+    timestep_mapped_variables=PlantSimEngine.TimestepMappedVariable[], #TODO avoid this 
+    ),
+    ),)
+
+
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 1, 1))
+mtg2 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default2", 1, 2))
+
+#=to = PlantSimEngine.Var_to(:weekly_max_temperature)
+from = PlantSimEngine.Var_from(MyToyDayModel, "Default", :daily_temperature, maximum)
+
+dict_to_from = Dict(from => to)=#
+dict_to_from = Dict()
+mtsm = PlantSimEngine.ModelTimestepMapping(MyToyWeekModel, "Default2", Week(1), dict_to_from)
+
+orch2 = PlantSimEngine.Orchestrator2(Day(1), [mtsm,])
+
+out = @run run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+out = run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+
+temps = [out["Default"][i].daily_temperature for i in 1:365]
+temp_m = maximum(temps)
+
+# At least one week should have max temp > 28
+@test temp_m > 28 && unique!([out["Default2"][i].hot for i in 1:365]) == [0,1]
+
+
+ m = @enter MultiScaleModel(model=MyToyDayModel(),
+    mapped_variables=[],
+    timestep_mapped_variables=[TimestepMappedVariable(:daily_temperature, :weekly_max_temperature, Week(1), max),]
+    )
