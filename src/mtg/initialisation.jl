@@ -21,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph#=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2()))=#; type_promotion=nothing, verbose=false, check=true, orchestrator=Orchestrator2())
+function init_statuses(mtg, mapping, dependency_graph#=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator()))=#; type_promotion=nothing, verbose=false, check=true, orchestrator=Orchestrator())
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose,orchestrator=orchestrator)
 
@@ -104,7 +104,7 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status, orchestrator=Orchestrator2())
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status, orchestrator=Orchestrator())
     # Check if the node has a model defined for its symbol, if not, no need to compute
     symbol(node) ∉ collect(keys(mapped_vars)) && return
 
@@ -215,23 +215,17 @@ julia> b
 2.0
 ```
 """
-function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator2=Orchestrator2())
+function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator=Orchestrator())
     # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
     sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
     # Note: PerStatusRef are used to reference variables in the same status for renaming.
 
     # We create the status with the right references for variables, and for PerStatusRef (we reference the reference variable):
     for (k, v) in sorted_vars
-        if is_timestep_mapped((scale => k), orchestrator, search_inputs_only=true)
-            # avoid referring to the original variable
-            sorted_vars[k] = ref_var(v)
+        if isa(v, RefVariable)
+            sorted_vars[k] = sorted_vars[v.reference_variable]
         else
-
-            if isa(v, RefVariable)
-                sorted_vars[k] = sorted_vars[v.reference_variable]
-            else
-                sorted_vars[k] = ref_var(v)
-            end
+            sorted_vars[k] = ref_var(v)
         end
     end
 
@@ -324,7 +318,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
 
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going

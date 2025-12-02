@@ -110,7 +110,7 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 ```
 """
 # TODO orchestrator prob shouldn't be a kwarg with a default
-function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true, orchestrator=Orchestrator2())
+function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true, orchestrator=Orchestrator())
     outs_ = Dict{String,Vector{Symbol}}()
 
     # default behaviour : track everything

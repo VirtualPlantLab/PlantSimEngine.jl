@@ -369,7 +369,7 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(), 
-    orchestrator::Orchestrator2=Orchestrator2(),
+    orchestrator::Orchestrator=Orchestrator(),
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
@@ -502,7 +502,7 @@ function run_node_multiscale!(
                 
                 # Do the accumulation then write into the child's status if need be
                 for tmst in node.timestep_mapping_data
-                    ratio = Int(tmst.node_to.timestep / node.timestep)
+                    ratio = Int(tmst.timestep_to / node.timestep)
                     # TODO assert etc. This is all assuming the ratio is an integer, whereas it can be, like 1/7
                     # do the accumulation for each variable
                     index = Int(i*Day(1) / node.timestep)
@@ -513,13 +513,13 @@ function run_node_multiscale!(
                     # the mapped model
                     # A full cycle isn't just the ratio to the parent, it's the ratio to the finest-grained timestep
                     if accumulation_index == ratio
-                        node_statuses_to = status(object)[tmst.node_to.scale]
-
+                        #node_statuses_to = status(object)[tmst.node_to.scale]
+                        st[tmst.variable_to] = tmst.mapping_function(tmst.mapping_data[node_id(st.node)])
                         # TODO : INCORRECT in a scale with multiple mtg nodes
-                        for st_to in node_statuses_to
+                        #=for st_to in node_statuses_to
                             # TODO might be able to catch mapping_function type incompatibility errors and make them clearer
                             st_to[tmst.variable_to] = tmst.mapping_function(tmst.mapping_data[node_id(st.node)])
-                        end
+                        end=#
                     end
                 end
             end

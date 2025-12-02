@@ -100,8 +100,8 @@ function initialise_all_as_hard_dependency_node(models, scale)
             NamedTuple(),
             Int[],
             scale,
-            inputs_(i),
-            outputs_(i),
+            #inputs_(i),
+            #outputs_(i),
             nothing,
             HardDependencyNode[]
         ) for (p, i) in pairs(models)
@@ -134,7 +134,7 @@ Return a NamedTuple with the variables and their default values.
 The `vars_mapping` is a dictionary with the organ type as key and a dictionary as value. It is 
 computed from the user mapping like so:
 """
-function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orchestrator::Orchestrator2=Orchestrator2())
+function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orchestrator::Orchestrator=Orchestrator())
     node_vars = variables(node) # e.g. (inputs = (:var1=-Inf, :var2=-Inf), outputs = (:var3=-Inf,))
     ins = node_vars.inputs
     ins_variables = keys(ins)
@@ -154,36 +154,22 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orches
                 # If the variable is an output, we use the default value given by the model:
                 default = defaults[var]
             end
-
-            # TODO no idea how this meshes with refvector situations or previoustimestep
-#            if is_timestep_mapped(organ => var, orchestrator, search_inputs_only=true)                
-#                push!(vars_, var => default)
-#                if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
-#                        organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
-#                        push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
-#                    end
-#            else
-            if is_timestep_mapped(organ => var, orchestrator, search_inputs_only=true)
-                
-                push!(vars_, var => default)
-            else
-                if haskey(vars_mapping[organ], var)
-                    organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
-                    push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
-                    #* We still check if the variable also exists wrapped in PreviousTimeStep, because one model could use the current 
-                    #* values, and another one the previous values.
-                    if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
-                        organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
-                        push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
-                    end
-                elseif haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
-                    # If not found in the current time step, we check if the variable is mapped to the previous time step:
+            if haskey(vars_mapping[organ], var)
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
+                push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
+                #* We still check if the variable also exists wrapped in PreviousTimeStep, because one model could use the current 
+                #* values, and another one the previous values.
+                if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
                     organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
                     push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
-                else
-                    # Else we take the default value:
-                    push!(vars_, var => default)
                 end
+            elseif haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
+                # If not found in the current time step, we check if the variable is mapped to the previous time step:
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+                push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
+            else
+                # Else we take the default value:
+                push!(vars_, var => default)
             end
         end
 #        end
@@ -210,12 +196,12 @@ function extract_timestep_mapped_outputs(m::MultiScaleModel, organ::String, outp
         key = process(m.model)
         extra_outputs = timestep_mapped_outputs_(m)
         #ind = findfirst(x -> first(x) == key, outputs_process[organ][key])
-        timestep_mapped_outputs_process[organ][key] = (; extra_outputs...) #TODO 
+        timestep_mapped_outputs_process[organ][key] = extra_outputs #TODO 
     end
 end
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
-function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestrator::Orchestrator2=Orchestrator2()) where {T}
+function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestrator::Orchestrator=Orchestrator()) where {T}
     full_vars_mapping = Dict(first(mod) => Dict(get_mapped_variables(last(mod))) for mod in mapping)
     soft_dep_graphs = Dict{String,Any}()
     not_found = Dict{Symbol,DataType}()
@@ -239,7 +225,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
     #* dependency may not appear in its own scale, but this is treated in the soft-dependency computation
     inputs_process = Dict{String,Dict{Symbol,Vector}}()
     outputs_process = Dict{String,Dict{Symbol,Vector}}()
-    timestep_mapped_outputs_process = Dict{String,Dict{Symbol,NamedTuple}}()
+    timestep_mapped_outputs_process = Dict{String,Dict{Symbol,Vector}}()
     for (organ, model) in mapping
         # Get the status given by the user, that is used to set the default values of the variables in the mapping:
         st_scale_user = get_status(model)
@@ -324,8 +310,8 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
                     dep_node_model.dependency,
                     dep_node_model.missing_dependency,
                     dep_node_model.scale,
-                    dep_node_model.inputs,
-                    dep_node_model.outputs,
+                    #dep_node_model.inputs,
+                    #dep_node_model.outputs,
                     parent_node,
                     dep_node_model.children
                 )
@@ -398,8 +384,8 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
                 soft_dep_vars.value,
                 process_, # process name
                 organ, # scale
-                inputs_process[organ][process_], # These are the inputs, potentially multiscale
-                outputs_process[organ][process_], # Same for outputs
+                #inputs_process[organ][process_], # These are the inputs, potentially multiscale
+                #outputs_process[organ][process_], # Same for outputs
                 AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,
@@ -430,7 +416,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
             end
         end
 
-        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ], timestep_mapped_outputs=haskey(timestep_mapped_outputs_process,organ) ? timestep_mapped_outputs_process[organ] : Dict{Symbol,NamedTuple}())
+        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ], timestep_mapped_outputs=haskey(timestep_mapped_outputs_process,organ) ? timestep_mapped_outputs_process[organ] : Dict{Symbol,Vector}())
         not_found = merge(not_found, hard_deps[organ].not_found)
     end
 

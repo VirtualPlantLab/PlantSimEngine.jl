@@ -27,11 +27,11 @@ struct GraphSimulation{T,S,U,O,V}
     models::Dict{String,U}
     outputs::Dict{String,O}
     outputs_index::Dict{String, Int}
-    orchestrator::Orchestrator2
+    orchestrator::Orchestrator
 
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
     GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
 end
 
@@ -156,7 +156,7 @@ struct MultiScaleMapping{T}
 end
 
 
-function MultiScaleMapping(mapping, mtg; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator2())
+function MultiScaleMapping(mapping, mtg; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
     GraphSimulation(init_simulation(mtg, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
 end
 

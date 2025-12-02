@@ -40,20 +40,19 @@ struct ModelTimestepMapping
     model
     scale::String
     timestep::Period
-    var_to_var::Dict{Var_from, Var_to}
 end
 
-mutable struct Orchestrator2
+mutable struct Orchestrator
     default_timestep::Period
     non_default_timestep_mapping::Vector{ModelTimestepMapping}
     
-    function Orchestrator2(default::Period, non_default_timestep_mapping::Vector{ModelTimestepMapping})
+    function Orchestrator(default::Period, non_default_timestep_mapping::Vector{ModelTimestepMapping})
         @assert default >= Second(0) "The default_timestep should be greater than or equal to 0."
         return new(default, non_default_timestep_mapping)
     end
 end
 
-Orchestrator2() = Orchestrator2(Day(1), Vector{ModelTimestepMapping}())
+Orchestrator() = Orchestrator(Day(1), Vector{ModelTimestepMapping}())
 
 
 # TODO parallelization

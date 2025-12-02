@@ -234,8 +234,9 @@ model_(m::MultiScaleModel) = m.model
 inputs_(m::MultiScaleModel) = inputs_(m.model)
 outputs_(m::MultiScaleModel) = outputs_(m.model)
 function timestep_mapped_outputs_(m::MultiScaleModel)
-    # TODO this is not going to be correct beyond simple examples
-    (; [i.name_to => outputs_(m.model)[i.name_from] for i in m.timestep_mapped_variables]...)
+    # TODO outputs_(m.model)[i.name_from] is the default value of the source variable
+    # this is not going to be correct beyond simple examples
+    [i.name_to => Pair(i, outputs_(m.model)[i.name_from]) for i in m.timestep_mapped_variables]
 end
 get_models(m::MultiScaleModel) = [model_(m)] # Get the models of a MultiScaleModel:
 # Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.

@@ -64,8 +64,8 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
             soft_dep_vars.value,
             process_, # process name
             "",
-            inputs_(soft_dep_vars.value),
-            outputs_(soft_dep_vars.value),
+            #inputs_(soft_dep_vars.value),
+            #outputs_(soft_dep_vars.value),
             AbstractTrees.children(soft_dep_vars), # hard dependencies
             nothing,
             nothing,
@@ -323,7 +323,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
             end
 
             if haskey(timestep_mapped_outs, proc)
-                CreateTimeStepMapping(i, reverse_multiscale_mapping, organ, proc)
+                create_timestep_mapping(i, timestep_mapped_outs, proc)
             end
 
         end
@@ -331,148 +331,24 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
 
     dep_graph = DependencyGraph(independant_process_root, soft_dep_graphs_roots.not_found)
 
-    # TODO move these into the loop to directly act on the ndoe, use the provided timestep mappings
-    # Don't provide parents, and then change the run! function to apply from the node to itself
-    #traverse_dependency_graph!(x ->  set_non_default_timestep_in_node(x, orchestrator), dependency_graph, visit_hard_dep=false)
-    #traverse_dependency_graph!(x -> add_timestep_data_to_node(x, orchestrator), dep_graph, visit_hard_dep=false)
-
-
     return dep_graph
 end
 
-# # set the timestep for everyone first, else we might not use the correct timestep when looking at the parents later
-function set_non_default_timestep_in_node(soft_dependency_node, orchestrator::Orchestrator2)
-    for mtsm in orchestrator.non_default_timestep_mapping
-        if mtsm.scale == soft_dependency_node.scale && (mtsm.model) == typeof(model_(soft_dependency_node.value))
-            soft_dependency_node.timestep = mtsm.timestep
-        end
-    end
-end
+function create_timestep_mapping(soft_dependency_node, timestep_mapped_outs, proc)
 
-function add_timestep_data_to_node(soft_dependency_node, orchestrator::Orchestrator2)
+    for (proc_mapped, mapping_entries) in timestep_mapped_outs
 
-    # now we can create the mapping
-    for mtsm in orchestrator.non_default_timestep_mapping
-        if mtsm.scale == soft_dependency_node.scale && (mtsm.model) == typeof(model_(soft_dependency_node.value))
-            for (var_from, var_to) in mtsm.var_to_var        
-                if !isnothing(soft_dependency_node.parent)
-                    parent = nothing
-                    variable_mapping = nothing
-                    for parent_node in soft_dependency_node.parent
-                        if typeof(parent_node.value) == var_from.model && parent_node.scale == var_from.scale
-                            parent = parent_node                                            
-                            variable_mapping = create_timestep_mapping(soft_dependency_node, parent, var_to, var_from)
-                            break
-                        end
-                    end
-                    if isnothing(parent)
-                        #error
-                    end
-                    if isnothing(parent.timestep_mapping_data)
-                        parent.timestep_mapping_data = Vector{TimestepMapping}()
-                    end
-                    push!(parent.timestep_mapping_data, variable_mapping)
-                else
-                    # Error
-                end
-            end                
-        end
-    end
-end
+        if proc_mapped == proc
+            for (var_to, (timestep_mapped_var_data, default_value)) in mapping_entries
+                timestep_ratio = timestep_mapped_var_data.timestep_to / soft_dependency_node.timestep
+                if timestep_ratio > 1 # todo assert it's an int or a rational ?
+                    @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
 
-# Create the structure to attach to the softdependencynode, (not to be confused with the user-declared timestep-mapping structure)
-function create_timestep_mapping(node::SoftDependencyNode, parent::SoftDependencyNode, var_to::Var_to, var_from::Var_from)
-    
-    @assert parent.timestep != 0 "Error : node timestep internally set to 0"
+                    tmvd = timestep_mapped_var_data
+                    var_type = typeof(default_value)
 
-    timestep_ratio = node.timestep / parent.timestep
-
-    # Keeping things simple for now, only integers allowed
-    @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
-
-    # TODO ensure type compatibility between var_to and var_from
-    # Simplification probably possible by doing the check earlier
-
-    # TODO test previoustimestep
-    var_type = DataType
-    
-    for (symbol, var_dump) in node.inputs
-        for var in var_dump
-            if isa(var, MappedVar)
-                # check the source variable, because the sink one might be a vector...?
-                # TODO multinode mapping
-                if isa(var.source_organ, MultiNodeMapping)
-                    if var.source_variable[1] == var_from.name
-                        # This should be a fixed size array, ideally
-                        var_type = eltype(eltype(mapped_default(var)))
-                        break
-                    end
-                else
-                    if var.source_variable == var_from.name
-                        # This should be a fixed size array, ideally
-                        var_type = eltype(mapped_default(var))
-                        break
-                    end
-                end
-            else
-                if var.symbol == var_from.name
-                    @assert "untested"
-                    var_type = eltype(mapped_default(var))
-                    break
-                end
-            end
-        end
-    end
-
-    # TODO : type shouldn't be Any but Vector{var_type}
-    return TimestepMapping(var_from.name, var_to.name, node, var_from.mapping_function, mapping_data_template, Dict{MultiScaleTreeGraph.NodeMTG, Any}())
-end
-
-
-function CreateTimeStepMapping(soft_dependency_node, reverse_multiscale_mapping, scale, proc)
-
-    for mapping_entry in reverse_multiscale_mapping[scale]
-        if isa(mapping_entry, MultiScaleModel)
-            if process(mapping_entry.model) == proc
-                for timestep_mapped_var_data in mapping_entry.timestep_mapped_variables
-                    timestep_ratio = timestep_mapped_var_data.timestep_to / soft_dependency_node.timestep
-                    if timestep_ratio > 1 # todo assert it's an int or a rational ?
-                        @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
-
-                        tmvd = timestep_mapped_var_data
-
-                        var_type = DataType
-
-                        for (symbol, var_dump) in soft_dependency_node.outputs
-                            for var in var_dump
-                                if isa(var, MappedVar)
-                                    # check the source variable, because the sink one might be a vector...?
-                                    # TODO multinode mapping
-                                    if isa(var.source_organ, MultiNodeMapping)
-                                        if var.source_variable[1] == tmvd.name_from
-                                            # This should be a fixed size array, ideally
-                                            var_type = eltype(eltype(mapped_default(var)))
-                                            break
-                                        end
-                                    else
-                                        if var.source_variable == tmvd.name_from
-                                            # This should be a fixed size array, ideally
-                                            var_type = eltype(mapped_default(var))
-                                            break
-                                        end
-                                    end
-                                else
-                                    if var.symbol == tmvd.name_from
-                                        @assert "untested"
-                                        var_type = eltype(mapped_default(var))
-                                        break
-                                    end
-                                end
-                            end
-                        end
-
-                        mapping_data_template = Vector{var_type}(undef, convert(Int64, timestep_ratio))
-                        tsm = TimestepMapping(tmvd.name_from, tmvd.name_to, soft_dependency_node, tmvd.aggregation_function, mapping_data_template, Dict{MultiScaleTreeGraph.NodeMTG,Any}())
+                    mapping_data_template = Vector{var_type}(undef, convert(Int64, timestep_ratio))
+                    tsm = TimestepMapping(tmvd.name_from, tmvd.name_to, timestep_mapped_var_data.timestep_to, tmvd.aggregation_function, mapping_data_template, Dict{MultiScaleTreeGraph.NodeMTG,Any}())
 
                     if isnothing(soft_dependency_node.timestep_mapping_data)
                         soft_dependency_node.timestep_mapping_data = Vector{TimestepMapping}()
@@ -483,10 +359,9 @@ function CreateTimeStepMapping(soft_dependency_node, reverse_multiscale_mapping,
         end
     end
 end
-end
 
 
-"""
+        """
     drop_process(proc_vars, process)
 
 Return a new `NamedTuple` with the process `process` removed from the `NamedTuple` `proc_vars`.
@@ -674,6 +549,13 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     return inputs_as_output_of_other_scale
 end
 
+function extract_mapped_outputs(timestep_mapped_outputs)
+    extracted = Pair[]
+    for pair in timestep_mapped_outputs
+        push!(extracted, Pair(first(last(pair)).name_to, last(last(pair))))
+    end
+    return extracted
+end
 
 function add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, organ_source, variable, value)
     
@@ -684,7 +566,7 @@ function add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, 
         vars_all_outputs = vars_output
 
         if haskey(timestep_mapped_outputs, proc_output)
-            vars_all_outputs = (; vars_output..., flatten_vars(timestep_mapped_outputs)...)
+            vars_all_outputs = (; vars_output..., extract_mapped_outputs(timestep_mapped_outputs[proc_output])...)
         end
 
         # If the variable is found in the outputs of the process at the other scale:

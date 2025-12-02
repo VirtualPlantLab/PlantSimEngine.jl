@@ -148,7 +148,7 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
     end
 
     to_init = Dict(org => Symbol[] for org in keys(mapping))
-    mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator2())), verbose=false)
+    mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator())), verbose=false)
     for (org, vars) in mapped_vars
         for (var, val) in vars
             if isa(val, UninitializedVar) && var ∉ vars_in_mtg

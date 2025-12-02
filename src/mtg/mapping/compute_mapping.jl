@@ -11,7 +11,7 @@ However, models that are identified as hard-dependencies are not given individua
 nodes under other models.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph; verbose=false, orchestrator=Orchestrator2())
+function mapped_variables(mapping, dependency_graph; verbose=false, orchestrator=Orchestrator())
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 
@@ -56,8 +56,12 @@ see `mapped_variables_with_outputs_as_inputs` for that.
  """
 
 function combine_outputs(organ, outs, timestep_mapped_outputs_process)
-    if length(timestep_mapped_outputs_process) > 0 
-        timestep_mapped_organ = collect(values(timestep_mapped_outputs_process))[1]
+    if length(timestep_mapped_outputs_process) > 0
+        timestep_mapped_organ = NamedTuple()
+        for (proc, data) in timestep_mapped_outputs_process
+            timestep_mapped_organ = (; timestep_mapped_organ..., extract_mapped_outputs(data)...)
+        end
+        #timestep_mapped_organ = collect(values(timestep_mapped_outputs_process))[1]
        (; flatten_vars(vcat(values(outs)...))..., timestep_mapped_organ...)
     else
         flatten_vars(vcat(values(outs)...))
@@ -169,7 +173,7 @@ This helps us declare it as a reference when we create the template status objec
 
 These node are found in the mapping as `[:variable_name => "Plant"]` (notice that "Plant" is a scalar value).
 """
-function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars, orchestrator=Orchestrator2())
+function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars, orchestrator=Orchestrator())
     for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs][organ]
         for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
@@ -181,57 +185,25 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
                 @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
-    
-                
-#=                if !haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var))
 
-                # Special case : Some variables computed by timestep mapping aren't necessarily 'true' outputs
-                # ie they are present in the *mapping*, but not as *outputs* of any model
-                # They should exist as *inputs* of a scale after computation, so map to that instead
-                # TODO ensure the models are consistent in terms of timestep, eg they correspond to the expected timestep mapping
-                # See example # TODO in the tests for a mapping requiring this code
-                # This might not be the ideal solution. It might be better to insert a proper SoftDependencyNode at that scale
-                # between the two models that handles the timestep mapping and has the variable as a proper input
-                    if is_timestep_mapped(source_organ => source_variable(mapped_var), orchestrator)
-                        # It isn't in the outputs, they should be in the inputs of the requested scale
-                        # Assuming the user didn't mess up (TODO may be tricky to handle if so)
-                        if haskey(mapped_vars[:inputs][source_organ], source_variable(mapped_var))
-                            self_mapped_var = (;
-                                source_variable(mapped_var) =>
-                                    MappedVar(
-                                        SelfNodeMapping(),
-                                        source_variable(mapped_var),
-                                        source_variable(mapped_var),
-                                        mapped_vars[:inputs][source_organ][source_variable(mapped_var)],
-                                    )
-                            )
-                        else
-                            @assert false "Couldn't find a timestep-mapped variable at the expected scale"
-                        end
-                    else=#
-                        # no timestep mapping fallback means this is a standard error
-                        @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
-                                                                                             "scale `$organ`, but is not computed by any model at `$source_organ` scale."
-               
-#                    end
-#                else
-                    
-                    # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
-                    isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
-                    # Note: this happens when a variable is mapped to several scales, e.g. soil_water_content computed at soil scale can be 
-                    # mapped at "Leaf" and "Internode" scale.
+                @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
+                                                                                                 "scale `$organ`, but is not computed by any model at `$source_organ` scale."
+                # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
+                isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
+                # Note: this happens when a variable is mapped to several scales, e.g. soil_water_content computed at soil scale can be 
+                # mapped at "Leaf" and "Internode" scale.
 
-                    # Transforming the variable into a MappedVar pointing to itself:
-                    self_mapped_var = (;
-                        source_variable(mapped_var) =>
-                            MappedVar(
-                                SelfNodeMapping(),
-                                source_variable(mapped_var),
-                                source_variable(mapped_var),
-                                mapped_vars[:outputs][source_organ][source_variable(mapped_var)],
-                            )
-                    )
-#                end             
+                # Transforming the variable into a MappedVar pointing to itself:
+                self_mapped_var = (;
+                    source_variable(mapped_var) =>
+                        MappedVar(
+                            SelfNodeMapping(),
+                            source_variable(mapped_var),
+                            source_variable(mapped_var),
+                            mapped_vars[:outputs][source_organ][source_variable(mapped_var)],
+                        )
+                )
+                #                end             
                 mapped_vars[:outputs][source_organ] = merge(mapped_vars[:outputs][source_organ], self_mapped_var)
                 # Note: merge overwrites the LHS values with the RHS values if they have the same key.
             end
@@ -325,18 +297,6 @@ function default_variables_from_mapping(mapped_vars, verbose=true)
 end
 
 
-function is_timestep_mapped(key, orchestrator::Orchestrator2; search_inputs_only::Bool=false)
-    for mtsm in orchestrator.non_default_timestep_mapping
-        for (var_from, var_to) in mtsm.var_to_var
-            if ((first(key) == mtsm.scale) && last(key) == var_to.name) ||
-                (!search_inputs_only && (first(key) == var_from.scale && last(key) == var_from.name))
-                return true
-            end
-        end
-    end
-    return false
-end
-
 """
     convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
@@ -344,7 +304,7 @@ Convert the variables that are `MappedVar{SelfNodeMapping}` or `MappedVar{Single
 common value for the variable; and convert `MappedVar{MultiNodeMapping}` to RefVectors that reference the values for the
 variable in the source organs.
 """
-function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})#, orchestrator::Orchestrator2)
+function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})#, orchestrator::Orchestrator)
     # For the variables that will be RefValues, i.e. referencing a value that exists for different scales, we need to first 
     # create a common reference to the value that we use wherever we need this value. These values are created in the dict_mapped_vars
     # Dict, and then referenced from there every time we point to it.
@@ -361,11 +321,7 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})#,
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
                 if !haskey(dict_mapped_vars, key)
-#                    if is_timestep_mapped(key, orchestrator)
-#                        push!(dict_mapped_vars, key => (mapped_default(vars[k])))
-#                    else
                         push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
-#                    end
                 end
 
                 # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:

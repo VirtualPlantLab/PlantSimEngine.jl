@@ -6,8 +6,8 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     dependency::NamedTuple
     missing_dependency::Vector{Int}
     scale::String
-    inputs
-    outputs
+    #inputs
+    #outputs
     parent::Union{Nothing,<:AbstractDependencyNode}
     children::Vector{HardDependencyNode}
 end
@@ -15,7 +15,7 @@ end
 mutable struct TimestepMapping
     variable_from::Symbol
     variable_to::Symbol
-    node_to # SoftDependencyNode causes a circular reference, removing it as a shortcut TODO
+    timestep_to::Period
     mapping_function::Function
     mapping_data_template
     mapping_data::Dict{Int, Any} # TODO fix type stability : Int is the node id, Any is a vector of n elements of the variable's type, n being the # of required timesteps
@@ -26,8 +26,8 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
     scale::String
-    inputs
-    outputs
+    #inputs
+    #outputs
     hard_dependency::Vector{HardDependencyNode}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}
