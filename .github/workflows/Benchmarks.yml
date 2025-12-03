@@ -7,13 +7,13 @@ permissions:
     pull-requests: write
 jobs:
   bench:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    name: Julia ${{ matrix.julia }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
-        julia-version: ["1", "1.10"]
+        julia: ['1', '1.9']
         os:
           - ubuntu-latest
         arch:
@@ -21,5 +21,5 @@ jobs:
     steps:
       - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
         with:
-          julia-version: ${{ matrix.julia-version }}
+          julia-version: ${{ matrix.julia }}
           bench-on: ${{ github.event.pull_request.head.sha }}
