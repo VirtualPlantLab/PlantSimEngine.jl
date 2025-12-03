@@ -21,7 +21,7 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)); type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph; type_promotion=nothing, verbose=false, check=true)
     # We compute the variables mapping for each scale:
     mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
 
@@ -314,10 +314,32 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
     end
 
+    soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
+
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, first(hard_dependencies(mapping; verbose=false)); type_promotion=type_promotion, verbose=verbose, check=check)
+        init_statuses(mtg, mapping, soft_dep_graphs_roots; type_promotion=type_promotion, verbose=verbose, check=check)
 
+    # First step, get the hard-dependency graph and create SoftDependencyNodes for each hard-dependency root. In other word, we want 
+    # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
+    # are independant.
+    # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
+    # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
+    # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
+    # of the nodes that they depend on.
+    dep_graph = soft_dependencies_multiscale(soft_dep_graphs_roots, reverse_multiscale_mapping, hard_dep_dict)
+    # During the building of the soft-dependency graph, we identified the inputs and outputs of each dependency node, 
+    # and also defined **inputs** as MappedVar if they are multiscale, i.e. if they take their values from another scale.
+    # What we are missing is that we need to also define **outputs** as multiscale if they are needed by another scale.
+
+    # Checking that the graph is acyclic:
+    iscyclic, cycle_vec = is_graph_cyclic(dep_graph; warn=false)
+    # Note: we could do that in `soft_dependencies_multiscale` but we prefer to keep the function as simple as possible, and 
+    # usable on its own.
+
+    iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
+    # Third step, we identify which 
+    
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
@@ -329,5 +351,5 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep(mapping, verbose=verbose), models, outputs, outputs_index)
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep_graph, models, outputs, outputs_index)
 end
