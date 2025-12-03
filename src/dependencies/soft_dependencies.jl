@@ -139,10 +139,8 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
 end
 
 # For multiscale mapping:
-function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, mapping::Dict{String,A}, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode}) where {A<:Any}
-    mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
-    rev_mapping = reverse_mapping(mapped_vars, all=false)
-
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, reverse_multiscale_mapping, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode})
+    
     independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
     for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
@@ -158,7 +156,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
             # NB: if a node is already a hard dependency of the node, it cannot be a soft dependency
 
             # Check if the process has soft dependencies at other scales:
-            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, rev_mapping, hard_dependencies_from_other_scale)
+            soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, reverse_multiscale_mapping, hard_dependencies_from_other_scale)
             # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
             # is computed by the process :soil_water at the scale "Soil".
 
