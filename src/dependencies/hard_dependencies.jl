@@ -192,7 +192,9 @@ end
 
 function extract_timestep_mapped_outputs(m::MultiScaleModel, organ::String, outputs_process, timestep_mapped_outputs_process)
     if length(m.timestep_mapped_variables) > 0
-        timestep_mapped_outputs_process[organ] = Dict{Symbol,Vector}()
+        if !haskey(timestep_mapped_outputs_process, organ)
+            timestep_mapped_outputs_process[organ] = Dict{Symbol,Vector}()
+        end
         key = process(m.model)
         extra_outputs = timestep_mapped_outputs_(m)
         #ind = findfirst(x -> first(x) == key, outputs_process[organ][key])

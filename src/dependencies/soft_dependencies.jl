@@ -431,6 +431,16 @@ search_inputs_in_output(:process3, in_, out_)
 (process4 = (:var1, :var2),)
 ```
 """
+
+
+function extract_mapped_outputs(timestep_mapped_outputs)
+    extracted = Pair[]
+    for pair in timestep_mapped_outputs
+        push!(extracted, Pair(first(last(pair)).name_to, last(last(pair))))
+    end
+    return extracted
+end
+
 function search_inputs_in_output(process, inputs, outputs, timestep_mapped_outputs=Dict{Symbol,NamedTuple}())
     # proc, ins, outs
     # get the inputs of the node:
@@ -442,7 +452,7 @@ function search_inputs_in_output(process, inputs, outputs, timestep_mapped_outpu
             vars_output = flatten_vars(pairs_vars_output)
             vars_all_outputs = vars_output
             if haskey(timestep_mapped_outputs, proc_output)
-                vars_all_outputs = (; vars_output..., flatten_vars(timestep_mapped_outputs[proc_output])...)
+                vars_all_outputs = (; vars_output..., extract_mapped_outputs(timestep_mapped_outputs[proc_output])...)
             end
             
             inputs_in_outputs = vars_in_variables(vars_input, vars_all_outputs)
@@ -547,14 +557,6 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     end
 
     return inputs_as_output_of_other_scale
-end
-
-function extract_mapped_outputs(timestep_mapped_outputs)
-    extracted = Pair[]
-    for pair in timestep_mapped_outputs
-        push!(extracted, Pair(first(last(pair)).name_to, last(last(pair))))
-    end
-    return extracted
 end
 
 function add_input_as_output!(inputs_as_output_of_other_scale, soft_dep_graphs, organ_source, variable, value)
