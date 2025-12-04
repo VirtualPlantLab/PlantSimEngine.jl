@@ -11,7 +11,7 @@ However, models that are identified as hard-dependencies are not given individua
 nodes under other models.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph; verbose=false, orchestrator=Orchestrator())
+function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator())); verbose=false, orchestrator=Orchestrator())
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 

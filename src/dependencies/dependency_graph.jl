@@ -6,8 +6,8 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     dependency::NamedTuple
     missing_dependency::Vector{Int}
     scale::String
-    #inputs
-    #outputs
+    inputs
+    outputs
     parent::Union{Nothing,<:AbstractDependencyNode}
     children::Vector{HardDependencyNode}
 end
@@ -26,8 +26,8 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
     scale::String
-    #inputs
-    #outputs
+    inputs
+    outputs
     hard_dependency::Vector{HardDependencyNode}
     parent::Union{Nothing,Vector{SoftDependencyNode}}
     parent_vars::Union{Nothing,NamedTuple}

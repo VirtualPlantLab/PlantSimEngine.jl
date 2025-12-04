@@ -100,8 +100,8 @@ function initialise_all_as_hard_dependency_node(models, scale)
             NamedTuple(),
             Int[],
             scale,
-            #inputs_(i),
-            #outputs_(i),
+            inputs_(i),
+            outputs_(i),
             nothing,
             HardDependencyNode[]
         ) for (p, i) in pairs(models)
@@ -312,8 +312,8 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
                     dep_node_model.dependency,
                     dep_node_model.missing_dependency,
                     dep_node_model.scale,
-                    #dep_node_model.inputs,
-                    #dep_node_model.outputs,
+                    dep_node_model.inputs,
+                    dep_node_model.outputs,
                     parent_node,
                     dep_node_model.children
                 )
@@ -386,8 +386,8 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
                 soft_dep_vars.value,
                 process_, # process name
                 organ, # scale
-                #inputs_process[organ][process_], # These are the inputs, potentially multiscale
-                #outputs_process[organ][process_], # Same for outputs
+                inputs_process[organ][process_], # These are the inputs, potentially multiscale
+                outputs_process[organ][process_], # Same for outputs
                 AbstractTrees.children(soft_dep_vars), # hard dependencies
                 nothing,
                 nothing,
