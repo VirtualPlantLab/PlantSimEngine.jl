@@ -400,7 +400,7 @@ function run!(
     executor=ThreadedEx()
 )
 
-    dep_graph = dep(object)
+    dep_graph = object.dependency_graph
     models = get_models(object)
     # st = status(object)
 

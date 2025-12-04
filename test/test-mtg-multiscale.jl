@@ -127,8 +127,10 @@ end
 end
 
 @testset "Status initialisation" begin
-    @test_throws "Variable `carbon_biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1)
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1)
+    # Samuel : internal function, suppressing REPL display errors
+    hard_dep_graph = first(PlantSimEngine.hard_dependencies(mapping_1; verbose=false));
+    @test_throws "Variable `carbon_biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1, hard_dep_graph)  
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     # Check that the soil_water_content is linked between the soil and the leaves:
@@ -148,7 +150,7 @@ end
     @test organs_statuses["Leaf"][1][:carbon_demand] == -Inf
 
     # Testing with a different type:
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph, type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
 
     @test isa(organs_statuses["Plant"][1][:carbon_assimilation], PlantSimEngine.RefVector{Float32})
     @test isa(organs_statuses["Plant"][1][:carbon_allocation], PlantSimEngine.RefVector{Float32})
@@ -168,7 +170,8 @@ end
     type_promotion = nothing
     nsteps = 2
     dependency_graph = dep(mapping_1)
-    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, first(PlantSimEngine.hard_dependencies(mapping_1; verbose=false)); type_promotion=type_promotion)
+    hard_dep_graph = first(PlantSimEngine.hard_dependencies(mapping_1; verbose=false))
+    organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph; type_promotion=type_promotion)
 
     @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
     @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]
@@ -194,7 +197,7 @@ end
     @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
     @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
 
-    statuses, status_templates, reverse_multiscale_mapping, vars_need_init = PlantSimEngine.init_statuses(mtg_init, mapping_1)
+    statuses, status_templates, reverse_multiscale_mapping, vars_need_init = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph)
     @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
 
     @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2
