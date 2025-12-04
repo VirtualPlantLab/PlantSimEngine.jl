@@ -99,6 +99,21 @@ The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` 
 
 Most of the following errors occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
 
+### ModelList/Mapping : providing a type name instead of an constructed instance
+
+```julia
+m = ModelList(day=MyToyModel, week=MyToyModel2)
+```
+This line is incorrect and will return
+```julia
+MethodError: no method matching inputs_(::Type{MyToyDayModel})
+```
+
+The correct syntax is (assuming the corresponding constructor exists) :
+```julia
+m = ModelList(day=MyToyModel(), week=MyToyModel2())
+```
+
 ### Implementing a model: forgetting to import or prefix functions
 
 When implementing a model, you need to make sure that your implementation is correctly recognised as extending `PlantSimEngine` methods and types, and not writing new independent ones.
