@@ -41,19 +41,6 @@ function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(ma
     vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys |> collect for (org, vars) in mapped_vars) |>
                      filter(x -> length(last(x)) > 0)
 
-    # Filter out variables that are timestep-mapped by the user, 
-    # Since we disconnect outputs from the source variable (as values are changed by the accumulation function,
-    # meaning they differ and we can't just Ref point to the source variable)
-    # they will be currently flagged as needing initialization
-    # At this stage, data present in the orchestrator is expected to be valid, so we can take it into account
-    # A model with a different timestep can still have unitialized vars found in a node, the meteo, or to be initialized by the user
-    # in which case it'll be absent from the timestep mapping, but this needs testing
-    # TODO, *however*, this isn't the cleanest in its current state, 
-    # there may be some user initialisation issues that are hidden by this approach
-    # Needs to be checked
-    #filter_timestep_mapped_variables!(vars_need_init, orchestrator)
-
-
     # Note: these variables may be present in the MTG attributes, we check that below when traversing the MTG.
 
     # We traverse the MTG to initialise the statuses linked to the nodes:
@@ -320,6 +307,8 @@ automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
 
+    # TODO several preliminary checks on model timestep ranges
+
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going
     (organ_with_vector, no_vectors_found) = (check_statuses_contain_no_remaining_vectors(mapping))
@@ -344,7 +333,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
-    outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
+    outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check, orchestrator=orchestrator)
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
 
@@ -375,97 +364,4 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     MultiScaleTreeGraph.traverse!(mtg, init_timestep_mapping_data, dependency_graph)
 
     return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dependency_graph, models, outputs, outputs_index, orchestrator)
-end
-
-function preliminary_check_timestep_data(mapping, orchestrator)
-    
-    if isempty(orchestrator.non_default_timestep_data_per_scale)
-        return
-    end
-
-    # First, check timesteps are within models' accepted ranges
-    for (organ, models_status) in mapping
-        models = get_models(models_status)
-
-        for model in models
-        checked = false
-
-        if haskey(orchestrator.non_default_timestep_data_per_scale, organ)
-            tsh = orchestrator.non_default_timestep_data_per_scale[organ]
-            
-            if typeof(model) in collect(keys(tsh.model_timesteps))
-                checked = true
-                    # Check the timestep is within the model's accepted timestep range
-                if !is_timestep_in_range(timestep_range_(model), tsh.model_timesteps[typeof(model)])
-                    # TODO return error
-                end
-            end
-        end
-        # if it wasn't found, it means it's a model set to the default timestep
-        if !checked
-            if !is_timestep_in_range(timestep_range_(model), orchestrator.default_timestep)
-                # TODO return error
-            end
-        end
-    end
-    end
-
-    # Next, check timestep mapped variables : 
-    # They should all exist as input/output somewhere (not dealing with mtg stuff for now)
-    # If they are already mapped in a MultiScaleModel, there should be no differences
-    # They should not cause name conflicts
-    # The scales should all be in the mapping
-    # They should map to different timesteps, and if the timestep isn't the default, then the downstream model should be in the list as well
-    for (organ, tsh) in orchestrator.non_default_timestep_data_per_scale
-        #if !organ in collect(keys(mapping))
-            # TODO error
-        #end
-
-        for (model, tvm) in tsh.model_timesteps
-        end
-    end>
-
-    return
-end
-
-
-
-
-#=
-function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
-    for (org, vars) in vars_need_init
-        if haskey(orchestrator.non_default_timestep_data_per_scale, org)
-            
-            filter!(o -> !haskey(orchestrator.non_default_timestep_data_per_scale[org].timestep_variable_mapping, o), vars)
-            #for var in vars
-            #    if haskey(orchestrator.non_default_timestep_data_per_scale[org].timestep_variable_mapping, var)
-            #        delete!(vars, var)
-            #    end
-            #end
-            if isempty(vars)
-                delete!(vars_need_init, org)
-            end
-        end
-    end
-end=#
-
-function filter_timestep_mapped_variables!(vars_need_init, orchestrator)
-    for tmst in orchestrator.non_default_timestep_mapping
-        for (org, vars) in vars_need_init
-            if tmst.scale == org
-                for (var_from, var_to) in tmst.var_to_var
-                    filter!(o -> o != var_to.name, vars)
-                end                
-            end
-            for (var_from, var_to) in tmst.var_to_var
-                if var_from.scale == org
-                    filter!(o -> o != var_from.name, vars)
-                end
-            end
-
-            if isempty(vars)
-                delete!(vars_need_init, org)
-            end
-        end
-    end
 end

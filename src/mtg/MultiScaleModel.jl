@@ -1,13 +1,14 @@
 """
-    MultiScaleModel(model, mapped_variables)
+    MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
 
 A structure to make a model multi-scale. It defines a mapping between the variables of a 
-model and the nodes symbols from which the values are taken from.
+model and the nodes symbols from which the values are taken from. It also handles timestep variation between a model and its children.
 
 # Arguments
 
 - `model<:AbstractModel`: the model to make multi-scale
 - `mapped_variables<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
+- `timestep_mapped_variables<:AbstractVector{TimestepMappedVariable}` : An optional vector indicating which variables are reduced to a different timestep, and in what way.
 
 The mapped_variables argument can be of the form:
 
@@ -111,11 +112,6 @@ struct TimestepMappedVariable
     aggregation_function
 end
 
-#=function TimestepMappedVariable(name::Symbol, name_to::Symbol, ts_to::Date, aggreg_fn)
- TimestepMappedVariable(name, name_to, ts_to, aggreg_fn)
-end=#
-
-
 struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}, W<:AbstractVector{TimestepMappedVariable}}
     model::T
     mapped_variables::V
@@ -131,8 +127,7 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
             # If it was a pair, the first element can still be a PreviousTimeStep, so we take the variable name:
             var = isa(var, PreviousTimeStep) ? var.variable : var
 
-            if !(var in model_variables)
-                # TODO check duplicates within the timestep_mapped_variables
+            if !(var in model_variables)                
                 error("Mapping for model $model defines variable $var, but it is not a variable of the model.")
             end
         end
@@ -150,7 +145,7 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
             # Avoid name conflicts # TODO make sure no model at that scale causes name conflicts by having the same name (amongst its outputs), not just the model owning that variable
             var_out = i.name_to
             if var_out in model_variables
-                error("Timestep mapping for model $model defines an output variable $var, but that name is already used as a variable in the model.")
+            #    error("Timestep mapping for model $model defines an output variable $var_out, but that name is already used as a variable in the model.")
             end
         end
 
@@ -228,14 +223,16 @@ end
 
 MultiScaleModel(; model, mapped_variables, timestep_mapped_variables=TimestepMappedVariable[]) = MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
 
+#MultiScaleModel(model::T, mapped_variables) where {T<:AbstractModel} = MultiScaleModel(model, mapped_variables, TimestepMappedVariable[])
+
 mapped_variables_(m::MultiScaleModel) = m.mapped_variables
-#timestep_mapped_variables_(m::MultiScaleModel) = m.timestep_mapped_variables
+
 model_(m::MultiScaleModel) = m.model
 inputs_(m::MultiScaleModel) = inputs_(m.model)
 outputs_(m::MultiScaleModel) = outputs_(m.model)
 function timestep_mapped_outputs_(m::MultiScaleModel)
-    # TODO outputs_(m.model)[i.name_from] is the default value of the source variable
-    # this is not going to be correct beyond simple examples
+    # Note outputs_(m.model)[i.name_from] is the default value of the source variable
+    # There may be more complicated types where we can't reuse the same default value
     [i.name_to => Pair(i, outputs_(m.model)[i.name_from]) for i in m.timestep_mapped_variables]
 end
 get_models(m::MultiScaleModel) = [model_(m)] # Get the models of a MultiScaleModel:

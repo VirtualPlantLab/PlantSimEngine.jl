@@ -179,9 +179,6 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
                 source_organ == "" && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
-                # TODO dirty prototyping to see how timestep mapped variables work at the same scale
-                # not good to special-case them
-                #source_organ == organ && continue
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
                 @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."

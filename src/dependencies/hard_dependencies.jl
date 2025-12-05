@@ -197,8 +197,7 @@ function extract_timestep_mapped_outputs(m::MultiScaleModel, organ::String, outp
         end
         key = process(m.model)
         extra_outputs = timestep_mapped_outputs_(m)
-        #ind = findfirst(x -> first(x) == key, outputs_process[organ][key])
-        timestep_mapped_outputs_process[organ][key] = extra_outputs #TODO 
+        timestep_mapped_outputs_process[organ][key] = extra_outputs
     end
 end
 
@@ -344,42 +343,6 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
         end
     end
 
-#=
- # TODO check whether this is a bit late in the game
-                # maybe the timestep mapping should be done before we enter this function
-                if length(orchestrator.non_default_timestep_data_per_scale) > 0
-                    if haskey(orchestrator.non_default_timestep_data_per_scale, symbol(node))
-                        tvm = orchestrator.non_default_timestep_data_per_scale[symbol(node)].timestep_variable_mapping
-                        if haskey(twm, var)
-
-                        end
-                    end
-                end
-                error("Variable `$(var)` is not computed by any model, not mapped from a different scale or timestep not initialised by the user in the status, and not found in the MTG at scale $(symbol(node)) (checked for MTG node $(node_id(node))).")
-=#
-
-
-    # Once multiscale mapping has been dealt with, check if any variable has a timestep mapping
-    # Which will add potential new dependencies
-    #=if !isempty(orchestrator.non_default_timestep_data_per_scale)
-        # TODO the user can get away with not declaring the model, only the scale if necessary
-        # a prepass that recomputes everything might simplify code here and make the simulation require less variable digging
-        for (scale, tsh) in non_default_timestep_data_per_scale
-            # TODO find which model the variable is pulled from
-            # TODO check the variable exists
-            for (model, timestep) in tsh.model_timesteps
-            # TODO check the timestep is within the model's accepted timestep range
-            # TODO recover the right variables
-            end
-
-            for (variable, tvm) in tsh.timestep_variable_mapping
-                # TODO check the variable isn't already mapped
-                # If it is, ensure there are no name conflicts 
-                # and the model of the variable it is taken from has the expected timestep
-                # If it isn't, create a new link
-            end
-        end
-    end=#
     for (organ, model) in mapping
         soft_dep_graph = Dict(
             process_ => SoftDependencyNode(

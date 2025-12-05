@@ -71,7 +71,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
             nothing,
             SoftDependencyNode[],
             fill(0, nsteps),
-            Day(1), # TODO should be orchestrator.default_timestep,
+            Day(1), # TODO should be orchestrator.default_timestep, but modellist case isn't handeld atm
             nothing
         )
         for (process_, soft_dep_vars) in d.roots
@@ -341,7 +341,9 @@ function create_timestep_mapping(soft_dependency_node, timestep_mapped_outs, pro
         if proc_mapped == proc
             for (var_to, (timestep_mapped_var_data, default_value)) in mapping_entries
                 timestep_ratio = timestep_mapped_var_data.timestep_to / soft_dependency_node.timestep
-                if timestep_ratio > 1 # todo assert it's an int or a rational ?
+                @assert timestep_ratio > 1
+                @assert isinteger(timestep_ratio) # This will need to be relaxed to a rational in the future, probably
+                if timestep_ratio > 1
                     @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
 
                     tmvd = timestep_mapped_var_data

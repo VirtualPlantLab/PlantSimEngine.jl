@@ -21,7 +21,6 @@ mutable struct TimestepMapping
     mapping_data::Dict{Int, Any} # TODO fix type stability : Int is the node id, Any is a vector of n elements of the variable's type, n being the # of required timesteps
 end
 
-# can hard dependency nodes also handle timestep mapped variables... ?
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
@@ -34,7 +33,7 @@ mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     children::Vector{SoftDependencyNode}
     simulation_id::Vector{Int} # id of the simulation
     timestep::Period
-    timestep_mapping_data::Union{Nothing, Vector{TimestepMapping}} # TODO : this approach might not play too well with parallelisation over MTG nodes
+    timestep_mapping_data::Union{Nothing, Vector{TimestepMapping}} # Note : this approach adds complexity in terms of parallelisation over MTG nodes
 end
 
 # Add methods to check if a node is parallelizable:
