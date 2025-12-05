@@ -11,7 +11,7 @@ However, models that are identified as hard-dependencies are not given individua
 nodes under other models.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
-function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)); verbose=false)
+function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator())); verbose=false, orchestrator=Orchestrator())
     # Initialise a dict that defines the multiscale variables for each organ type:
     mapped_vars = mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)
 
@@ -22,7 +22,7 @@ function mapped_variables(mapping, dependency_graph=first(hard_dependencies(mapp
 
     # Find variables that are inputs to other scales as a `SingleNodeMapping` and declare them as MappedVar from themselves in the source scale.
     # This helps us declare it as a reference when we create the template status objects.
-    transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
+    transform_single_node_mapped_variables_as_self_node_output!(mapped_vars, orchestrator)
 
     # We now merge inputs and outputs into a single dictionary:
     mapped_vars_per_organ = merge(merge, mapped_vars[:inputs], mapped_vars[:outputs])
@@ -54,10 +54,24 @@ This function returns a dictionary with the (multiscale-) inputs and outputs var
 Note that this function does not include the variables that are outputs from another scale and not computed by this scale,
 see `mapped_variables_with_outputs_as_inputs` for that.
  """
-function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)))
-    nodes_insouts = Dict(organ => (inputs=ins, outputs=outs) for (organ, (soft_dep_graph, ins, outs)) in dependency_graph.roots)
-    ins = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
-    outs = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
+
+function combine_outputs(organ, outs, timestep_mapped_outputs_process)
+    if length(timestep_mapped_outputs_process) > 0
+        timestep_mapped_organ = NamedTuple()
+        for (proc, data) in timestep_mapped_outputs_process
+            timestep_mapped_organ = (; timestep_mapped_organ..., extract_mapped_outputs(data)...)
+        end
+        #timestep_mapped_organ = collect(values(timestep_mapped_outputs_process))[1]
+       (; flatten_vars(vcat(values(outs)...))..., timestep_mapped_organ...)
+    else
+        flatten_vars(vcat(values(outs)...))
+    end
+end
+
+function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph)    
+    nodes_insouts = Dict(organ => (inputs=ins, outputs=outs, timestep_outs=timestep_mapped_outs) for (organ, (soft_dep_graph, ins, outs, timestep_mapped_outs)) in dependency_graph.roots)
+    ins = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs, timestep_mapped_outs)) in nodes_insouts)
+    outs = Dict{String,NamedTuple}(organ => combine_outputs(organ, outs, timestep_mapped_outs) for (organ, (ins, outs, timestep_mapped_outs)) in nodes_insouts)
 
     return Dict(:inputs => ins, :outputs => outs)
 end
@@ -159,7 +173,7 @@ This helps us declare it as a reference when we create the template status objec
 
 These node are found in the mapping as `[:variable_name => "Plant"]` (notice that "Plant" is a scalar value).
 """
-function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
+function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars, orchestrator=Orchestrator())
     for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs][organ]
         for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
@@ -168,9 +182,9 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
                 @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
+
                 @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
                                                                                                  "scale `$organ`, but is not computed by any model at `$source_organ` scale."
-
                 # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
                 isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
                 # Note: this happens when a variable is mapped to several scales, e.g. soil_water_content computed at soil scale can be 
@@ -186,6 +200,7 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
                             mapped_vars[:outputs][source_organ][source_variable(mapped_var)],
                         )
                 )
+                #                end             
                 mapped_vars[:outputs][source_organ] = merge(mapped_vars[:outputs][source_organ], self_mapped_var)
                 # Note: merge overwrites the LHS values with the RHS values if they have the same key.
             end
@@ -286,7 +301,7 @@ Convert the variables that are `MappedVar{SelfNodeMapping}` or `MappedVar{Single
 common value for the variable; and convert `MappedVar{MultiNodeMapping}` to RefVectors that reference the values for the
 variable in the source organs.
 """
-function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})#, orchestrator::Orchestrator)
     # For the variables that will be RefValues, i.e. referencing a value that exists for different scales, we need to first 
     # create a common reference to the value that we use wherever we need this value. These values are created in the dict_mapped_vars
     # Dict, and then referenced from there every time we point to it.
@@ -303,7 +318,7 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
                 if !haskey(dict_mapped_vars, key)
-                    push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
+                        push!(dict_mapped_vars, key => Ref(mapped_default(vars[k])))
                 end
 
                 # Then we use the value for the particular variable to replace the MappedVar to a RefValue in the mapping:
