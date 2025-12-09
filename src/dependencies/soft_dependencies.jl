@@ -285,7 +285,7 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
                             if parent_node.parent !== nothing && any([i == p for p in parent_node.parent])
                                 error(
                                     "Cyclic dependency detected for process $proc:",
-                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one",
+                                    " $proc for organ $organ depends on $parent_soft_dep from organ $org, which depends on the first one.",
                                     " This is not allowed, you may need to develop a new process that does the whole computation by itself."
                                 )
                             end
@@ -341,10 +341,9 @@ function create_timestep_mapping(soft_dependency_node, timestep_mapped_outs, pro
         if proc_mapped == proc
             for (var_to, (timestep_mapped_var_data, default_value)) in mapping_entries
                 timestep_ratio = timestep_mapped_var_data.timestep_to / soft_dependency_node.timestep
-                @assert timestep_ratio > 1
                 @assert isinteger(timestep_ratio) # This will need to be relaxed to a rational in the future, probably
                 if timestep_ratio > 1
-                    @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio"
+                    @assert timestep_ratio == trunc(timestep_ratio) "Error : non-integer timestep ratio, currently unhandled"
 
                     tmvd = timestep_mapped_var_data
                     var_type = typeof(default_value)

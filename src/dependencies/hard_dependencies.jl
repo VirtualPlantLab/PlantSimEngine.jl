@@ -361,10 +361,14 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestr
             )
             for (process_, soft_dep_vars) in hard_deps[organ].roots # proc_ = :carbon_assimilation ; soft_dep_vars = hard_deps.roots[proc_]
         )
+
+        # Set flexible models to the simulation timestep
         for (process_, soft_dep_vars) in hard_deps[organ].roots 
-             # TODO this is not good enough for some model ranges, and doesn't check for inconsistencies errors for models that have a modeltimestepmapping 
-            if timestep_range_(soft_dep_vars.value).lower_bound == timestep_range_(soft_dep_vars.value).upper_bound
-                timestep = timestep_range_(soft_dep_vars.value).lower_bound
+
+            range = timestep_range_(soft_dep_vars.value)
+            @assert timestep_valid(range)
+            if range.lower_bound == range.upper_bound
+                timestep = range.lower_bound
                 
                 # if the model has infinite range, set it to the simulation timestep
                 if timestep == Second(0)

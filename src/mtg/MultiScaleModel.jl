@@ -142,11 +142,10 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
                 error("Timestep mapping for model $model requires variable $var, but it is not a variable of the model.")
             end
 
-            # Avoid name conflicts # TODO make sure no model at that scale causes name conflicts by having the same name (amongst its outputs), not just the model owning that variable
-            var_out = i.name_to
-            if var_out in model_variables
+            # TODO make sure no model at that scale causes name conflicts by having the same name amongst its outputs as the timestep-mapped variable
+            #if var_out in model_variables
             #    error("Timestep mapping for model $model defines an output variable $var_out, but that name is already used as a variable in the model.")
-            end
+            #end
         end
 
         # If the name of the variable mapped from the other scale is not given, we add it as the same of the variable name in the model. Cases:
@@ -167,7 +166,7 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         end
         
         for i in timestep_mapped_variables
-            #TODO
+            !(i.name_from in outputs(model)) && error("Variable $(i.name_from) is part of a timestep mapping but not an output of the model $(model)")
         end
          
         new{T,typeof(unfolded_mapping), typeof(timestep_mapped_variables)}(model, unfolded_mapping, timestep_mapped_variables)

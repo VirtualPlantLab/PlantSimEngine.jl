@@ -458,8 +458,8 @@ function run_node_multiscale!(
 
     if skip
 
-        # TODO : This prevents a non-default timestep node form being updated by two different parents 
-        # but probably should be changed, it is bug-prone
+        # This prevents a non-default timestep node form being updated by two different parents, it feels somewhat brittle
+        # A proper end-of-timestep sanity check would be good
         if isnothing(node.parent) || any([p.simulation_id[1] > node.simulation_id[1] for p in node.parent])
             node.simulation_id[1] += 1
         end
@@ -477,8 +477,8 @@ function run_node_multiscale!(
 
         # TODO : is empty check should actually be checked pre-simulation, it is incorrect behaviour
         if isnothing(node.timestep_mapping_data) || isempty(node.timestep_mapping_data)
+            
             # Samuel : this is the happy path, no further timestep mapping checks needed
-
             for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
                 # Actual call to the model:
                 run!(node.value, models_at_scale, st, meteo, constants, extra)
@@ -491,11 +491,11 @@ function run_node_multiscale!(
             for st in node_statuses
                 run!(node.value, models_at_scale, st, meteo, constants, extra)
                 
-                # Do the accumulation then write into the child's status if need be
+                # Do the accumulation for each variable
                 for tmst in node.timestep_mapping_data
+                    # This will need to be changed for rational ratios
                     ratio = Int(tmst.timestep_to / node.timestep)
-                    # TODO assert etc. This is all assuming the ratio is an integer, whereas it can be, like 1/7
-                    # do the accumulation for each variable
+                    
                     index = Int(i*object.orchestrator.default_timestep / node.timestep)
                     accumulation_index = 1 + ((index - 1) % ratio)
                     tmst.mapping_data[node_id(st.node)][accumulation_index] = st[tmst.variable_from]

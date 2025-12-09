@@ -62,7 +62,8 @@ function check_dimensions(component::T, weather) where {T<:AbstractDict{N,<:Mode
 end
 
 
-# TODO multi timestep handling
+# Note : everything is at the smallest timestep
+# A few variables on the slower timesteps will have many redundant values 
 
 # A Status (one time-step) is always authorized with a Weather (it is recycled).
 # The status is updated at each time-step, but no intermediate saving though!

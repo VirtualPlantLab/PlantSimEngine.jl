@@ -73,7 +73,7 @@ include("helper-functions.jl")
     end
 
     @testset "Multi timestep" begin
-        #include("test-multitimestep.jl")
+        include("test-multitimestep.jl")
     end
 
     if VERSION >= v"1.10"

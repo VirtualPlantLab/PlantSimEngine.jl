@@ -65,7 +65,3 @@ function is_timestep_in_range(tsr::TimestepRange, p::Period)
 
     return p >= tsr.lower_bound && p <= tsr.lower_bound
 end
-
-# TODO should i set all timestep ranges to default and hope the modeler gets it right or should i force them to write something ?
-
-# TODO properly test on models with default timestep

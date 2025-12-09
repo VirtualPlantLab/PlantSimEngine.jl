@@ -307,8 +307,6 @@ automatically passed as is.
 """
 function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
 
-    # TODO several preliminary checks on model timestep ranges
-
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going
     (organ_with_vector, no_vectors_found) = (check_statuses_contain_no_remaining_vectors(mapping))
@@ -356,6 +354,8 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
     # Third step, we identify which 
+    
+    check_timestep_compatibility(soft_dep_graph_roots, dependency_graph, orchestrator)
 
     # Samuel : Once the dependency graph is created, and the timestep mappings are added into it
     # We need to register the existing MTG nodes to initialize their individual data
@@ -364,4 +364,59 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     MultiScaleTreeGraph.traverse!(mtg, init_timestep_mapping_data, dependency_graph)
 
     return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dependency_graph, models, outputs, outputs_index, orchestrator)
+end
+
+function check_timestep_compatibility(soft_dep_graph_roots, dependency_graph, orchestrator)
+    
+    # Timestep sanity checks are quite limited with the current API
+    # The user only provides the variable's data and the model that computes it
+    # This doesn't provide us with an easy way to link to downstream models and ensure no errors
+    # We could check that at least one of the model's children is compatible with the computed variable,
+    # but we don't make a distinction between a global output timestep-mapped variable
+    # and one that is used by another model, so a global output used by no model would be a false positive
+    
+    # With a little more data, or better knowledge of which variables were used to link which models, we could check that :
+    # - A parent and child model properly link with the right timestep difference 
+    # and that the output timestep is compatible with the child's range
+    # - Check that models with no timestep mapping structure have children all at the same timestep 
+    # (... I think ? Not sure)
+    # - Check that models with a timestep mapping structure either have children that use those variables
+    # or that those variables are part of the user-requested tracked outputs
+    # If not, we have a variable that is timestep-mapped for no reason
+
+    for (organ, (soft_dep_graph, ins, outs, timestep_mapped_outs)) in soft_dep_graph_roots.roots
+        
+        for (proc, node) in soft_dep_graph           
+            range = timestep_range_(node.value)
+
+            if !is_timestep_in_range(range, node.timestep)
+                error("Model $(node.value) has a provided timestep ($(node.timestep)) outside of its accepted range : ($(range.lower_bound), $(range.upper_bound))")
+            end
+
+            non_default = false
+            for ndtm in orchestrator.non_default_timestep_models
+                if (node.scale == ndtm.scale) && (typeof(node.value) == ndtm.model)
+                    non_default = true
+                    if node.timestep != ndtm.timestep
+                        error("Model $model at scale $scale has timestep $(node.timestep), which differs from orchestrator's provided timestep ($(ndtm.timestep)).")
+                    end
+                end
+            end
+            if !non_default && !is_timestep_in_range(range, orchestrator.default_timestep)
+                error("Simulation default timestep ($(orchestrator.default_timestep)) is outside model $(node.value)'s accepted range : ($(range.lower_bound), $(range.upper_bound))")
+            end
+
+            if haskey(timestep_mapped_outs, proc)
+                for (mapped_var_name, (mapped_var, default_value)) in timestep_mapped_outs[proc]
+                    if mapped_var.timestep_to == node.timestep
+                        error("Model $(node.value) has a variable, $(mapped_var.name_from), timestep-mapped at the same timestep as the model.")        
+                    end
+
+                    if mapped_var.timestep_to < node.timestep
+                        error("Model $(node.value) has a variable, $(mapped_var.name_from), timestep-mapped at a smaller timestep.")        
+                    end
+                end
+            end
+        end
+    end
 end
