@@ -491,6 +491,7 @@ function run_node_multiscale!(
             for st in node_statuses
                 run!(node.value, models_at_scale, st, meteo, constants, extra)
                 
+                # TODO since the mapping data type differs per variable, it is likely worth adding a function barrier within this loop for type stability
                 # Do the accumulation for each variable
                 for tmst in node.timestep_mapping_data
                     # This will need to be changed for rational ratios
