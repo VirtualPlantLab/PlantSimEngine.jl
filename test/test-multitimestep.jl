@@ -751,3 +751,77 @@ end
     # Too basic
     @test_nowarn run!(mtg, m_multiscale_prev_and_timestep, df, orchestrator=orch2)
 end
+
+##########################
+# Two models, D -> W, both D and W initially have two MTG nodes, one model adds MTG nodes
+##########################
+
+# Ideally this would be expanded to check the reduce doesn't do anything odd as the simulation continues
+@testset "D -> W, both D and W have two nodes" begin
+
+    PlantSimEngine.@process "ToyDay" verbose = false
+
+    struct MyToyDayModel <: AbstractToydayModel end
+
+    PlantSimEngine.inputs_(m::MyToyDayModel) = (a=1,)
+    PlantSimEngine.outputs_(m::MyToyDayModel) = (daily_temperature=-Inf,)
+
+    function PlantSimEngine.run!(m::MyToyDayModel, models, status, meteo, constants=nothing, extra=nothing)
+        status.daily_temperature = meteo.T + node_id(status.node)
+    end
+
+    PlantSimEngine.@process "ToyWeek" verbose = false
+
+    struct MyToyWeekModel <: AbstractToyweekModel
+        temperature_threshold::Float64
+    end
+
+    MyToyWeekModel() = MyToyWeekModel(30.0)
+    function PlantSimEngine.inputs_(::MyToyWeekModel)
+        (weekly_max_temperature=[-Inf],)
+    end
+    PlantSimEngine.outputs_(m::MyToyWeekModel) = (refvector=false,length=-Inf)
+
+    function PlantSimEngine.run!(m::MyToyWeekModel, models, status, meteo, constants=nothing, extra=nothing)
+        status.refvector = status.weekly_max_temperature[1] + 1 == status.weekly_max_temperature[2]
+        add_organ!(status.node,extra,"+", "Default", 1, index=1)
+        # Having length computed after the organ addition means the two nodes at scale Default2 will have a different length value
+        status.length = length(status.weekly_max_temperature)
+    end
+
+    PlantSimEngine.timestep_range_(m::MyToyWeekModel) = TimestepRange(Week(1))
+
+    meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
+
+    m_multiscale = Dict("Default" => (
+            MultiScaleModel(
+                model=MyToyDayModel(),
+                mapped_variables=[],
+                timestep_mapped_variables=[TimestepMappedVariable(:daily_temperature, :weekly_temperature, Week(1), maximum)],
+            ),
+            Status(a=1,)
+        ),
+        "Default2" => (
+            MultiScaleModel(model=MyToyWeekModel(),
+                mapped_variables=[:weekly_max_temperature => ["Default" => :weekly_temperature]],
+            ),
+        ),)
+
+
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Default2", 1, 1))
+    mtg2 = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Default2", 1, 1))
+    mtg3 = Node(mtg2, MultiScaleTreeGraph.NodeMTG("+", "Default", 1, 1))
+    mtg4 = Node(mtg2, MultiScaleTreeGraph.NodeMTG("+", "Default", 1, 2))
+
+    mtsm = PlantSimEngine.ModelTimestepMapping(MyToyWeekModel, "Default2", Week(1))
+
+    orch2 = PlantSimEngine.Orchestrator(Day(1), [mtsm,])
+
+    #@run run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+    out = run!(mtg, m_multiscale, meteo_day, orchestrator=orch2)
+
+    @test unique!([out["Default2"][i].refvector for i in 1:12]) == [false]
+    @test unique!([out["Default2"][i].refvector for i in 13:730]) == [true]
+    # This basic test checks that two nodes are added every week to the refvector
+    @test unique!([out["Default2"][i].length == div(i,7)+1 for i in 15:7:730]) == [true]
+end
