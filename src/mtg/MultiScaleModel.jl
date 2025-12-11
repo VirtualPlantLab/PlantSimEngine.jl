@@ -220,9 +220,13 @@ function MultiScaleModel(model::T, mapped_variables, timestep_mapped_variables) 
     MultiScaleModel{T}(model, mapped_variables, timestep_mapped_variables)
 end
 
-MultiScaleModel(; model, mapped_variables, timestep_mapped_variables=TimestepMappedVariable[]) = MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
-
-#MultiScaleModel(model::T, mapped_variables) where {T<:AbstractModel} = MultiScaleModel(model, mapped_variables, TimestepMappedVariable[])
+function MultiScaleModel(; model, mapped_variables=[], timestep_mapped_variables=TimestepMappedVariable[])
+    if isempty(mapped_variables) && isempty(timestep_mapped_variables)
+        error("mapped_variables and timestep_mapped_variables keyword arguments for $model's MultiScaleModel wrapper cannot both be empty.")
+    end
+    
+    MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
+end
 
 mapped_variables_(m::MultiScaleModel) = m.mapped_variables
 
