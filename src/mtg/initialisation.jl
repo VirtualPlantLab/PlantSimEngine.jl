@@ -21,9 +21,9 @@ a dictionary of variables that need to be initialised or computed by other model
 
 `(;statuses, status_templates, reverse_multiscale_mapping, vars_need_init, nodes_with_models)`
 """
-function init_statuses(mtg, mapping, dependency_graph; type_promotion=nothing, verbose=false, check=true)
+function init_statuses(mtg, mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator())); type_promotion=nothing, verbose=false, check=true, orchestrator=Orchestrator())
     # We compute the variables mapping for each scale:
-    mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose)
+    mapped_vars = mapped_variables(mapping, dependency_graph, verbose=verbose,orchestrator=orchestrator)
 
     # Update the types of the variables as desired by the user:
     convert_vars!(mapped_vars, type_promotion)
@@ -35,10 +35,10 @@ function init_statuses(mtg, mapping, dependency_graph; type_promotion=nothing, v
     # Note 3: we do it before `convert_reference_values!` because we need the variables to be MappedVar{MultiNodeMapping} to get the reverse mapping.
 
     # Convert the MappedVar{SelfNodeMapping} or MappedVar{SingleNodeMapping} to RefValues, and MappedVar{MultiNodeMapping} to RefVectors:
-    convert_reference_values!(mapped_vars)
+    convert_reference_values!(mapped_vars)#, orchestrator)
 
     # Get the variables that are not initialised or computed by other models in the output:
-    vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys for (org, vars) in mapped_vars) |>
+    vars_need_init = Dict(org => filter(x -> isa(last(x), UninitializedVar), vars) |> keys |> collect for (org, vars) in mapped_vars) |>
                      filter(x -> length(last(x)) > 0)
 
     # Note: these variables may be present in the MTG attributes, we check that below when traversing the MTG.
@@ -46,7 +46,7 @@ function init_statuses(mtg, mapping, dependency_graph; type_promotion=nothing, v
     # We traverse the MTG to initialise the statuses linked to the nodes:
     statuses = Dict(i => Status[] for i in collect(keys(mapped_vars)))
     MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = MultiScaleTreeGraph.get_node(mtg, 5)
-        init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion, check=check)
+        init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion, check=check, orchestrator=orchestrator)
     end
 
     return (; statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init)
@@ -91,7 +91,7 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status, orchestrator=Orchestrator())
     # Check if the node has a model defined for its symbol, if not, no need to compute
     symbol(node) ∉ collect(keys(mapped_vars)) && return
 
@@ -146,7 +146,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     end
 
     # Make the node status from the template:
-    st = status_from_template(st_template)
+    st = status_from_template(st_template, symbol(node), orchestrator)
 
     push!(statuses[symbol(node)], st)
 
@@ -169,7 +169,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
 end
 
 """
-    status_from_template(d::Dict{Symbol,Any})
+    status_from_template(d::Dict{Symbol,Any}, scale::String)
 
 Create a status from a template dictionary of variables and values. If the values 
 are already RefValues or RefVectors, they are used as is, else they are converted to Refs.
@@ -189,7 +189,7 @@ julia> using PlantSimEngine
 ```
 
 ```jldoctest mylabel
-julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0));
+julia> a, b = PlantSimEngine.status_from_template(Dict(:a => 1.0, :b => 2.0), "Dummy_Scale");
 ```
 
 ```jldoctest mylabel
@@ -202,7 +202,7 @@ julia> b
 2.0
 ```
 """
-function status_from_template(d::Dict{Symbol,T} where {T})
+function status_from_template(d::Dict{Symbol,T}  where {T}, scale::String, orchestrator::Orchestrator=Orchestrator())
     # Sort vars to put the values that are of type PerStatusRef at the end (we need the pass on the other ones first):
     sorted_vars = Dict{Symbol,Any}(sort([pairs(d)...], by=v -> last(v) isa RefVariable ? 1 : 0))
     # Note: PerStatusRef are used to reference variables in the same status for renaming.
@@ -305,7 +305,7 @@ The value is not a reference to the one in the attribute of the MTG, but a copy 
 a value in a Dict. If you need a reference, you can use a `Ref` for your variable in the MTG directly, and it will be 
 automatically passed as is.
 """
-function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
+function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
 
     # Ensure the user called the model generation function to handle vectors passed into a status
     # before we keep going
@@ -314,32 +314,15 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
     end
 
-    soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
+    soft_dep_graph_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false, orchestrator=orchestrator)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
+ #   statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
+ #       init_statuses(mtg, mapping, soft_dep_graph_roots; type_promotion=type_promotion, verbose=verbose, check=check, orchestrator=orchestrator)
+
+# Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
-        init_statuses(mtg, mapping, soft_dep_graphs_roots; type_promotion=type_promotion, verbose=verbose, check=check)
-
-    # First step, get the hard-dependency graph and create SoftDependencyNodes for each hard-dependency root. In other word, we want 
-    # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
-    # are independant.
-    # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
-    # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
-    # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
-    # of the nodes that they depend on.
-    dep_graph = soft_dependencies_multiscale(soft_dep_graphs_roots, reverse_multiscale_mapping, hard_dep_dict)
-    # During the building of the soft-dependency graph, we identified the inputs and outputs of each dependency node, 
-    # and also defined **inputs** as MappedVar if they are multiscale, i.e. if they take their values from another scale.
-    # What we are missing is that we need to also define **outputs** as multiscale if they are needed by another scale.
-
-    # Checking that the graph is acyclic:
-    iscyclic, cycle_vec = is_graph_cyclic(dep_graph; warn=false)
-    # Note: we could do that in `soft_dependencies_multiscale` but we prefer to keep the function as simple as possible, and 
-    # usable on its own.
-
-    iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
-    # Third step, we identify which 
-    
+        init_statuses(mtg, mapping, soft_dep_graph_roots; type_promotion=type_promotion, verbose=verbose, check=check, orchestrator=orchestrator)
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
@@ -348,8 +331,92 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
 
-    outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
+    outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check, orchestrator=orchestrator)
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep_graph, models, outputs, outputs_index)
+
+    #    dependency_graph = dep(mapping, verbose=verbose, orchestrator=orchestrator)
+    #dependency_graph = dep(mapping, soft_dep_graph_roots=soft_dep_graph_roots, hard_dep_dict=hard_dep_dict, orchestrator=orchestrator)
+
+    # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
+    # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
+    # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children
+    # of the nodes that they depend on.
+    dependency_graph = soft_dependencies_multiscale(soft_dep_graph_roots, reverse_multiscale_mapping, hard_dep_dict)
+    # During the building of the soft-dependency graph, we identified the inputs and outputs of each dependency node, 
+    # and also defined **inputs** as MappedVar if they are multiscale, i.e. if they take their values from another scale.
+    # What we are missing is that we need to also define **outputs** as multiscale if they are needed by another scale.
+
+    # Checking that the graph is acyclic:
+    iscyclic, cycle_vec = is_graph_cyclic(dependency_graph; warn=false)
+    # Note: we could do that in `soft_dependencies_multiscale` but we prefer to keep the function as simple as possible, and 
+    # usable on its own.
+
+    iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
+    # Third step, we identify which 
+    
+    check_timestep_compatibility(soft_dep_graph_roots, dependency_graph, orchestrator)
+
+    # Samuel : Once the dependency graph is created, and the timestep mappings are added into it
+    # We need to register the existing MTG nodes to initialize their individual data
+    # The current implementation is heavy, it may be quite slow for MTGs that already contain many nodes
+    # A faster way would be to count nodes by type once, store their ids, and only traverse the dependency graph once to add them
+    MultiScaleTreeGraph.traverse!(mtg, init_timestep_mapping_data, dependency_graph)
+
+    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dependency_graph, models, outputs, outputs_index, orchestrator)
+end
+
+function check_timestep_compatibility(soft_dep_graph_roots, dependency_graph, orchestrator)
+    
+    # Timestep sanity checks are quite limited with the current API
+    # The user only provides the variable's data and the model that computes it
+    # This doesn't provide us with an easy way to link to downstream models and ensure no errors
+    # We could check that at least one of the model's children is compatible with the computed variable,
+    # but we don't make a distinction between a global output timestep-mapped variable
+    # and one that is used by another model, so a global output used by no model would be a false positive
+    
+    # With a little more data, or better knowledge of which variables were used to link which models, we could check that :
+    # - A parent and child model properly link with the right timestep difference 
+    # and that the output timestep is compatible with the child's range
+    # - Check that models with no timestep mapping structure have children all at the same timestep 
+    # (... I think ? Not sure)
+    # - Check that models with a timestep mapping structure either have children that use those variables
+    # or that those variables are part of the user-requested tracked outputs
+    # If not, we have a variable that is timestep-mapped for no reason
+
+    for (organ, (soft_dep_graph, ins, outs, timestep_mapped_outs)) in soft_dep_graph_roots.roots
+        
+        for (proc, node) in soft_dep_graph           
+            range = timestep_range_(node.value)
+
+            if !is_timestep_in_range(range, node.timestep)
+                error("Model $(node.value) has a provided timestep ($(node.timestep)) outside of its accepted range : ($(range.lower_bound), $(range.upper_bound))")
+            end
+
+            non_default = false
+            for ndtm in orchestrator.non_default_timestep_models
+                if (node.scale == ndtm.scale) && (typeof(node.value) == ndtm.model)
+                    non_default = true
+                    if node.timestep != ndtm.timestep
+                        error("Model $model at scale $scale has timestep $(node.timestep), which differs from orchestrator's provided timestep ($(ndtm.timestep)).")
+                    end
+                end
+            end
+            if !non_default && !is_timestep_in_range(range, orchestrator.default_timestep)
+                error("Simulation default timestep ($(orchestrator.default_timestep)) is outside model $(node.value)'s accepted range : ($(range.lower_bound), $(range.upper_bound))")
+            end
+
+            if haskey(timestep_mapped_outs, proc)
+                for (mapped_var_name, (mapped_var, default_value)) in timestep_mapped_outs[proc]
+                    if mapped_var.timestep_to == node.timestep
+                        error("Model $(node.value) has a variable, $(mapped_var.name_from), timestep-mapped at the same timestep as the model.")        
+                    end
+
+                    if mapped_var.timestep_to < node.timestep
+                        error("Model $(node.value) has a variable, $(mapped_var.name_from), timestep-mapped at a smaller timestep.")        
+                    end
+                end
+            end
+        end
+    end
 end

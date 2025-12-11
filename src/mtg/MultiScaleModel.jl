@@ -1,13 +1,14 @@
 """
-    MultiScaleModel(model, mapped_variables)
+    MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
 
 A structure to make a model multi-scale. It defines a mapping between the variables of a 
-model and the nodes symbols from which the values are taken from.
+model and the nodes symbols from which the values are taken from. It also handles timestep variation between a model and its children.
 
 # Arguments
 
 - `model<:AbstractModel`: the model to make multi-scale
 - `mapped_variables<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
+- `timestep_mapped_variables<:AbstractVector{TimestepMappedVariable}` : An optional vector indicating which variables are reduced to a different timestep, and in what way.
 
 The mapped_variables argument can be of the form:
 
@@ -102,11 +103,21 @@ julia> PlantSimEngine.model_(multiscale_model)
 ToyCAllocationModel()
 ```
 """
-struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}}
+
+# timestep mapped variables : original variable name, aggregated variable name, timestep at which it operates, aggregation function
+struct TimestepMappedVariable
+    name_from::Symbol
+    name_to::Symbol
+    timestep_to::Period
+    aggregation_function
+end
+
+struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}, W<:AbstractVector{TimestepMappedVariable}}
     model::T
     mapped_variables::V
+    timestep_mapped_variables::W
 
-    function MultiScaleModel{T}(model::T, mapped_variables) where {T<:AbstractModel}
+    function MultiScaleModel{T}(model::T, mapped_variables, timestep_mapped_variables) where {T<:AbstractModel}
         # Check that the variables in the mapping are variables of the model:
         model_variables = keys(variables(model))
         for i in mapped_variables
@@ -116,9 +127,25 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
             # If it was a pair, the first element can still be a PreviousTimeStep, so we take the variable name:
             var = isa(var, PreviousTimeStep) ? var.variable : var
 
-            if !(var in model_variables)
+            if !(var in model_variables)                
                 error("Mapping for model $model defines variable $var, but it is not a variable of the model.")
             end
+        end
+
+        for i in timestep_mapped_variables
+            # TODO handle cases where name_from is a PreviousTimestep in the mapped variables
+            # var = isa(i, PreviousTimeStep) ? i.variable : first(i)
+            var = i.name_from
+
+            # TODO ensure no conflicts with other mappings and refs on that variable... ?
+            if !(var in model_variables)
+                error("Timestep mapping for model $model requires variable $var, but it is not a variable of the model.")
+            end
+
+            # TODO make sure no model at that scale causes name conflicts by having the same name amongst its outputs as the timestep-mapped variable
+            #if var_out in model_variables
+            #    error("Timestep mapping for model $model defines an output variable $var_out, but that name is already used as a variable in the model.")
+            #end
         end
 
         # If the name of the variable mapped from the other scale is not given, we add it as the same of the variable name in the model. Cases:
@@ -137,8 +164,12 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
             push!(unfolded_mapping, _get_var(isa(i, PreviousTimeStep) ? i : Pair(i.first, i.second), process_))
             # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
         end
-
-        new{T,typeof(unfolded_mapping)}(model, unfolded_mapping)
+        
+        for i in timestep_mapped_variables
+            !(i.name_from in outputs(model)) && error("Variable $(i.name_from) is part of a timestep mapping but not an output of the model $(model)")
+        end
+         
+        new{T,typeof(unfolded_mapping), typeof(timestep_mapped_variables)}(model, unfolded_mapping, timestep_mapped_variables)
     end
 end
 
@@ -185,16 +216,31 @@ end
 
 
 
-function MultiScaleModel(model::T, mapped_variables) where {T<:AbstractModel}
-    MultiScaleModel{T}(model, mapped_variables)
+function MultiScaleModel(model::T, mapped_variables, timestep_mapped_variables) where {T<:AbstractModel}
+    MultiScaleModel{T}(model, mapped_variables, timestep_mapped_variables)
 end
-MultiScaleModel(; model, mapped_variables) = MultiScaleModel(model, mapped_variables)
+
+function MultiScaleModel(; model, mapped_variables=[], timestep_mapped_variables=TimestepMappedVariable[])
+    if isempty(mapped_variables) && isempty(timestep_mapped_variables)
+        error("mapped_variables and timestep_mapped_variables keyword arguments for $model's MultiScaleModel wrapper cannot both be empty.")
+    end
+    
+    MultiScaleModel(model, mapped_variables, timestep_mapped_variables)
+end
 
 mapped_variables_(m::MultiScaleModel) = m.mapped_variables
+
 model_(m::MultiScaleModel) = m.model
 inputs_(m::MultiScaleModel) = inputs_(m.model)
 outputs_(m::MultiScaleModel) = outputs_(m.model)
+function timestep_mapped_outputs_(m::MultiScaleModel)
+    # Note outputs_(m.model)[i.name_from] is the default value of the source variable
+    # There may be more complicated types where we can't reuse the same default value
+    [i.name_to => Pair(i, outputs_(m.model)[i.name_from]) for i in m.timestep_mapped_variables]
+end
 get_models(m::MultiScaleModel) = [model_(m)] # Get the models of a MultiScaleModel:
 # Note: it is returning a vector of models, because in this case the user provided a single MultiScaleModel instead of a vector of.
 get_status(m::MultiScaleModel) = nothing
-get_mapped_variables(m::MultiScaleModel{T,S}) where {T,S} = mapped_variables_(m)
+function get_mapped_variables(m::MultiScaleModel{T,S}) where {T,S}
+    mapped_variables_(m)
+end

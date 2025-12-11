@@ -26,6 +26,7 @@ import Statistics
 import SHA: sha1
 
 using PlantMeteo
+using PlantMeteo.Dates
 
 # UninitializedVar + PreviousTimeStep:
 include("variables_wrappers.jl")
@@ -55,6 +56,9 @@ include("component_models/get_status.jl")
 
 # Transform into a dataframe:
 include("dataframe.jl")
+
+# Timesteps. : 
+include("timestep/timestep_mapping.jl")
 
 # Computing model dependencies:
 include("dependencies/soft_dependencies.jl")
@@ -102,7 +106,9 @@ include("examples_import.jl")
 
 export PreviousTimeStep
 export AbstractModel
-export ModelList, MultiScaleModel
+export ModelList, MultiScaleModel, TimestepMappedVariable
+export MultiScaleMapping
+export Orchestrator, TimestepRange, ModelTimestepMapping
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!

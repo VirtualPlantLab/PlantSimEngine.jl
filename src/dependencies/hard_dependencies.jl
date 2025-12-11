@@ -110,9 +110,99 @@ function initialise_all_as_hard_dependency_node(models, scale)
     return dep_graph
 end
 
+# Samuel : this requires the orchestrator, which requires the dependency graph
+# Leaving it in dependency_graph.jl causes forward declaration issues, moving it here as a quick protoyping hack, it might not be the ideal spot
+"""
+    variables_multiscale(node, organ, mapping, st=NamedTuple())
+
+Get the variables of a HardDependencyNode, taking into account the multiscale mapping, *i.e.*
+defining variables as `MappedVar` if they are mapped to another scale. The default values are 
+taken from the model if not given by the user (`st`), and are marked as `UninitializedVar` if 
+they are inputs of the node.
+
+Return a NamedTuple with the variables and their default values.
+
+# Arguments
+
+- `node::HardDependencyNode`: the node to get the variables from.
+- `organ::String`: the organ type, *e.g.* "Leaf".
+- `vars_mapping::Dict{String,T}`: the mapping of the models (see details below).
+- `st::NamedTuple`: an optional named tuple with default values for the variables.
+
+# Details
+
+The `vars_mapping` is a dictionary with the organ type as key and a dictionary as value. It is 
+computed from the user mapping like so:
+"""
+function variables_multiscale(node, organ, vars_mapping, st=NamedTuple(), orchestrator::Orchestrator=Orchestrator())
+    node_vars = variables(node) # e.g. (inputs = (:var1=-Inf, :var2=-Inf), outputs = (:var3=-Inf,))
+    ins = node_vars.inputs
+    ins_variables = keys(ins)
+    outs_variables = keys(node_vars.outputs)
+    defaults = merge(node_vars...)
+    map((inputs=ins_variables, outputs=outs_variables)) do vars # Map over vars from :inputs and vars from :outputs
+        vars_ = Vector{Pair{Symbol,Any}}()
+        for var in vars # e.g. var = :carbon_biomass
+            if var in keys(st)
+                #If the user has given a status, we use it as default value.
+                default = st[var]
+            elseif var in ins_variables
+                # Otherwise, we use the default value given by the model:
+                # If the variable is an input, we mark it as uninitialized:
+                default = UninitializedVar(var, defaults[var])
+            else
+                # If the variable is an output, we use the default value given by the model:
+                default = defaults[var]
+            end
+            if haskey(vars_mapping[organ], var)
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][var])
+                push!(vars_, var => MappedVar(organ_mapped, var, organ_mapped_var, default))
+                #* We still check if the variable also exists wrapped in PreviousTimeStep, because one model could use the current 
+                #* values, and another one the previous values.
+                if haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
+                    organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+                    push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
+                end
+            elseif haskey(vars_mapping[organ], PreviousTimeStep(var, node.process))
+                # If not found in the current time step, we check if the variable is mapped to the previous time step:
+                organ_mapped, organ_mapped_var = _node_mapping(vars_mapping[organ][PreviousTimeStep(var, node.process)])
+                push!(vars_, var => MappedVar(organ_mapped, PreviousTimeStep(var, node.process), organ_mapped_var, default))
+            else
+                # Else we take the default value:
+                push!(vars_, var => default)
+            end
+        end
+#        end
+        return (; vars_...,)
+    end
+end
+
+function _node_mapping(var_mapping::Pair{String,Symbol})
+    # One organ is mapped to the variable:
+    return SingleNodeMapping(first(var_mapping)), last(var_mapping)
+end
+
+function _node_mapping(var_mapping)
+    # Several organs are mapped to the variable:
+    organ_mapped = MultiNodeMapping([first(i) for i in var_mapping])
+    organ_mapped_var = [last(i) for i in var_mapping]
+
+    return organ_mapped, organ_mapped_var
+end
+
+function extract_timestep_mapped_outputs(m::MultiScaleModel, organ::String, outputs_process, timestep_mapped_outputs_process)
+    if length(m.timestep_mapped_variables) > 0
+        if !haskey(timestep_mapped_outputs_process, organ)
+            timestep_mapped_outputs_process[organ] = Dict{Symbol,Vector}()
+        end
+        key = process(m.model)
+        extra_outputs = timestep_mapped_outputs_(m)
+        timestep_mapped_outputs_process[organ][key] = extra_outputs
+    end
+end
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
-function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
+function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true, orchestrator::Orchestrator=Orchestrator()) where {T}
     full_vars_mapping = Dict(first(mod) => Dict(get_mapped_variables(last(mod))) for mod in mapping)
     soft_dep_graphs = Dict{String,Any}()
     not_found = Dict{Symbol,DataType}()
@@ -136,6 +226,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     #* dependency may not appear in its own scale, but this is treated in the soft-dependency computation
     inputs_process = Dict{String,Dict{Symbol,Vector}}()
     outputs_process = Dict{String,Dict{Symbol,Vector}}()
+    timestep_mapped_outputs_process = Dict{String,Dict{Symbol,Vector}}()
     for (organ, model) in mapping
         # Get the status given by the user, that is used to set the default values of the variables in the mapping:
         st_scale_user = get_status(model)
@@ -148,12 +239,38 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
         status_scale = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
         for (procname, node) in hard_deps[organ].roots # procname = :leaf_surface ; node = hard_deps.roots[procname]
             var = Pair{Symbol,NamedTuple}[]
-            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st_scale_user), var)
+            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st_scale_user, orchestrator), var)
             push!(status_scale, procname => var)
         end
 
         inputs_process[organ] = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in status_scale)
         outputs_process[organ] = Dict(key => [j.first => j.second.outputs for j in val] for (key, val) in status_scale)
+
+        # Samuel : This if else loop is a bit awkward
+        # None of the other code works this way, it uses the dependency grpah
+        # but the hard_dep graph loses the multiscale model information...
+        if isa(model, AbstractModel)            
+        elseif isa(model, MultiScaleModel)
+            extract_timestep_mapped_outputs(model, organ, outputs_process, timestep_mapped_outputs_process)            
+        else
+            for m in model
+                if isa(m, MultiScaleModel)
+                    extract_timestep_mapped_outputs(m, organ, outputs_process, timestep_mapped_outputs_process)
+                end
+            end
+        end
+
+        #=for m in model
+            if isa(m, MultiScaleModel)
+                if length(m.timestep_mapped_variables) > 0
+                    key = process(m.model)
+                    extra_outputs = timestep_mapped_outputs_(m)
+                    ind = findfirst(x -> first(x) == key, outputs_process[organ][key])
+                    outputs_process[organ][key][ind] = first(outputs_process[organ][key][ind]) => (; last(outputs_process[organ][key][ind])..., extra_outputs...)
+
+                end
+            end
+        end=#
     end
 
     # If some models needed as hard-dependency are not found in their own scale, check the other scales:
@@ -238,11 +355,28 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
                 nothing,
                 nothing,
                 SoftDependencyNode[],
-                [0] # Vector of zeros of length = number of time-steps
+                [0], # Vector of zeros of length = number of time-steps
+                orchestrator.default_timestep,
+                nothing
             )
             for (process_, soft_dep_vars) in hard_deps[organ].roots # proc_ = :carbon_assimilation ; soft_dep_vars = hard_deps.roots[proc_]
         )
 
+        # Set flexible models to the simulation timestep
+        for (process_, soft_dep_vars) in hard_deps[organ].roots 
+
+            range = timestep_range_(soft_dep_vars.value)
+            @assert timestep_valid(range)
+            if range.lower_bound == range.upper_bound
+                timestep = range.lower_bound
+                
+                # if the model has infinite range, set it to the simulation timestep
+                if timestep == Second(0)
+                    timestep = orchestrator.default_timestep
+                end
+                soft_dep_graph[process_].timestep = timestep
+            end
+        end
         # Update the parent node of the hard dependency nodes to be the new SoftDependencyNode instead of the old
         # HardDependencyNode.
         for (p, node) in soft_dep_graph
@@ -251,7 +385,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
             end
         end
 
-        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ])
+        soft_dep_graphs[organ] = (soft_dep_graph=soft_dep_graph, inputs=inputs_process[organ], outputs=outputs_process[organ], timestep_mapped_outputs=haskey(timestep_mapped_outputs_process,organ) ? timestep_mapped_outputs_process[organ] : Dict{Symbol,Vector}())
         not_found = merge(not_found, hard_deps[organ].not_found)
     end
 

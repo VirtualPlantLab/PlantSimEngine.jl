@@ -14,6 +14,7 @@ A type that holds all information for a simulation over a graph.
 - `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
+- `Orchestrator : the structure that handles timestep peculiarities
 - `outputs`: a dictionary of outputs
 """
 struct GraphSimulation{T,S,U,O,V}
@@ -26,10 +27,12 @@ struct GraphSimulation{T,S,U,O,V}
     models::Dict{String,U}
     outputs::Dict{String,O}
     outputs_index::Dict{String, Int}
+    orchestrator::Orchestrator
+
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
+    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph
@@ -144,4 +147,20 @@ end
 function convert_outputs(out::TimeStepTable{T} where T, sink)
     @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
     return sink(out)
+end
+
+
+struct MultiScaleMapping{T}
+    default_timestep::Date
+    mapping::Dict{String,T}
+end
+
+
+function MultiScaleMapping(mapping, mtg; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false, orchestrator=Orchestrator())
+    GraphSimulation(init_simulation(mtg, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose, orchestrator=orchestrator)...)
+end
+
+
+function dep(m::MultiScaleMapping)
+    return dep(m.graph)
 end

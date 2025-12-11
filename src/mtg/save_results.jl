@@ -109,8 +109,8 @@ julia> collect(keys(preallocated_vars["Leaf"]))
  :carbon_demand
 ```
 """
-
-function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
+# TODO orchestrator prob shouldn't be a kwarg with a default
+function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true, orchestrator=Orchestrator())
     outs_ = Dict{String,Vector{Symbol}}()
 
     # default behaviour : track everything
@@ -211,18 +211,18 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
 
     # I don't know if this function barrier is necessary
     preallocated_outputs = Dict{String,Vector}()
-    complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
+    complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template, orchestrator)
     return preallocated_outputs
 end
 
-function complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
+function complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template, orchestrator)
     types = Vector{DataType}()
     for organ in keys(outs_)
 
         outs_no_node = filter(x -> x != :node, outs_[organ])
 
         #types = [typeof(status_from_template(statuses_template[organ])[var]) for var in outs[organ]]
-        values = [status_from_template(statuses_template[organ])[var] for var in outs_no_node]
+        values = [status_from_template(statuses_template[organ], organ, orchestrator)[var] for var in outs_no_node]
 
         #push!(types, node_type)
 

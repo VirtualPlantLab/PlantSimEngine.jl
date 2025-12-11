@@ -26,3 +26,42 @@ get_models(m::AbstractModel) = [model_(m)] # Get the models of an AbstractModel
 # Note: it is returning a vector of models, because in this case the user provided a single model instead of a vector of.
 get_status(m::AbstractModel) = nothing
 get_mapped_variables(m::AbstractModel) = Pair{Symbol,String}[]
+
+
+#using Dates
+struct TimestepRange 
+    lower_bound::Period
+    upper_bound::Period
+end
+
+# Default, no specified range, meaning the model either doesn't depend on time or uses the simulation's default (eg smallest) timestep
+TimestepRange() = TimestepRange(Second(0), Second(0))
+# Only a single timestep type possible
+TimestepRange(p::Period) = TimestepRange(p, p)
+
+"""
+    timestep_range_(tsr::TimestepRange)
+
+Return the model's valid range for timesteps (which corresponds to the simulation base timestep in the default case).
+"""
+function timestep_range_(model::AbstractModel)
+    return TimestepRange()
+end
+
+"""
+    timestep_valid(tsr::TimestepRange)
+"""
+timestep_valid(tsr::TimestepRange) = tsr.lower_bound <= tsr.upper_bound
+
+function is_timestep_in_range(tsr::TimestepRange, p::Period) 
+    if !timestep_valid(tsr)
+        return false
+    end
+
+    # 0 means any timestep is valid, no timestep constraints
+    if tsr.upper_bound == Second(0)
+        return true
+    end
+
+    return p >= tsr.lower_bound && p <= tsr.lower_bound
+end

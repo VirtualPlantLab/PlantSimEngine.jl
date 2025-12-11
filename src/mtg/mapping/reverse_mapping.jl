@@ -69,7 +69,7 @@ Dict{String, Dict{String, Dict{Symbol, Any}}} with 3 entries:
 """
 function reverse_mapping(mapping::Dict{String,T}; all=true) where {T<:Any}
     # Method for the reverse mapping applied directly on the mapping (not used in the code base)
-    mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false)), verbose=false)
+    mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false, orchestrator=Orchestrator())), verbose=false)
     reverse_mapping(mapped_vars, all=all)
 end
 

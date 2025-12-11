@@ -31,7 +31,12 @@ or the `test-mtg-dynamic.jl` test file for an example usage.
 """
 function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, scale; index=0, id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(node)), attributes=Dict{Symbol,Any}(), check=true)
     new_node = MultiScaleTreeGraph.Node(id, node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale), attributes)
+    
+    # Since timestep mapped variables are added to the statuses, any refvector updates should be handled
     st = init_node_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.reverse_multiscale_mapping, sim_object.var_need_init, check=check)
+
+    # NOTE : this might constrain the add_organ! function usage ?
+    init_timestep_mapping_data(new_node, sim_object.dependency_graph)
 
     return st
 end

@@ -72,6 +72,10 @@ include("helper-functions.jl")
         include("test-performance.jl")
     end
 
+    @testset "Multi timestep" begin
+        include("test-multitimestep.jl")
+    end
+
     if VERSION >= v"1.10"
         # Some formating changed in Julia 1.10, e.g. @NamedTuple instead of NamedTuple.
         @testset "Doctests" begin
