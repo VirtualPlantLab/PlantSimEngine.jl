@@ -213,6 +213,9 @@ function _parse_input_binding(binding)
         var = haskey(binding, :var) ? binding.var : nothing
         scale = haskey(binding, :scale) ? string(binding.scale) : nothing
         policy = haskey(binding, :policy) ? binding.policy : HoldLast()
+        if policy isa DataType && policy <: SchedulePolicy
+            policy = policy()
+        end
         return (process=process, var=var, scale=scale, policy=policy)
     else
         return nothing
@@ -239,6 +242,45 @@ function _resolved_value_for_source(sim::GraphSimulation, source_scale::String, 
     return nothing, false
 end
 
+function _window_start_for_clock(clock::ClockSpec, t::Float64)
+    dt = float(clock.dt)
+    dt <= 1.0 && return t
+    return t - dt + 1.0
+end
+
+function _resolved_windowed_value_for_source(
+    sim::GraphSimulation,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t_start::Float64,
+    t_end::Float64,
+    policy::SchedulePolicy
+)
+    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    samples = get(sim.temporal_state.samples, key, nothing)
+    isnothing(samples) && return nothing, false
+
+    vals = Any[]
+    for (ts, v) in samples
+        if ts >= t_start - 1e-8 && ts <= t_end + 1e-8
+            push!(vals, v)
+        end
+    end
+    isempty(vals) && return nothing, false
+
+    if policy isa Integrate
+        all(v -> v isa Real, vals) || return nothing, false
+        return sum(vals), true
+    elseif policy isa Aggregate
+        all(v -> v isa Real, vals) || return nothing, false
+        return sum(vals) / length(vals), true
+    end
+
+    return nothing, false
+end
+
 function _assign_input_value!(st::Status, input_var::Symbol, value)
     current = st[input_var]
     if current isa RefVector && value isa AbstractVector
@@ -249,6 +291,73 @@ function _assign_input_value!(st::Status, input_var::Symbol, value)
         return nothing
     end
     st[input_var] = value
+    return nothing
+end
+
+function _resolve_input_windowed(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    input_var::Symbol,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    t_start::Float64,
+    t_end::Float64,
+    policy::SchedulePolicy
+)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        vals = Any[]
+        for src_st in source_statuses
+            src_node_id = node_id(src_st.node)
+            v, ok = _resolved_windowed_value_for_source(
+                sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+            )
+            if ok
+                push!(vals, v)
+            elseif policy isa Integrate || policy isa Aggregate
+                push!(vals, 0.0)
+            elseif source_var in keys(src_st)
+                push!(vals, src_st[source_var])
+            end
+        end
+        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+        return nothing
+    end
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_windowed_value_for_source(
+        sim, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy
+    )
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    # Cross-scale scalar fallback: allow unique producer value at source scale.
+    candidates = Any[]
+    for src_st in source_statuses
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_windowed_value_for_source(
+            sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+        )
+        found && push!(candidates, vv)
+    end
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    elseif policy isa Integrate || policy isa Aggregate
+        _assign_input_value!(st, input_var, 0.0)
+    end
+
     return nothing
 end
 
@@ -304,6 +413,8 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
     model = node.value
     ins = keys(inputs_(model))
     length(ins) == 0 && return nothing
+    consumer_clock = _model_clock(model_spec, model)
+    t_start = _window_start_for_clock(consumer_clock, t)
 
     bindings = input_bindings(model_spec)
 
@@ -334,8 +445,11 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
             end
         end
 
-        policy isa HoldLast || continue
-        _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+        if policy isa HoldLast
+            _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+        elseif policy isa Integrate || policy isa Aggregate
+            _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t, policy)
+        end
     end
 
     return nothing
@@ -352,10 +466,15 @@ function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependen
     sim.temporal_state.last_run[mkey] = t
 
     for out_var in outs
-        policy = _policy_for_output(model, out_var)
-        policy isa HoldLast || continue
         val = st[out_var]
         key = OutputKey(scope, node.scale, nodeid, node.process, out_var)
+
+        # Keep a full sample stream for windowed policies.
+        samples = get!(sim.temporal_state.samples, key, Vector{Tuple{Float64,Any}}())
+        push!(samples, (t, val))
+
+        policy = _policy_for_output(model, out_var)
+        policy isa HoldLast || continue
         sim.temporal_state.caches[key] = HoldLastCache(t, val)
     end
 

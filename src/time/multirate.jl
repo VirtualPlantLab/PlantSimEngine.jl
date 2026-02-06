@@ -90,16 +90,23 @@ mutable struct AggregateCache{T<:Real} <: OutputCache
 end
 
 """
-    TemporalState(caches, last_run)
+    TemporalState(caches, last_run, samples)
     TemporalState()
 
 Temporal storage for multi-rate simulations.
 `caches` stores producer output streams.
 `last_run` stores last execution time per model key.
+`samples` stores raw `(time, value)` producer samples for windowed policies
+(`Integrate`, `Aggregate`, ...).
 """
-mutable struct TemporalState{C<:AbstractDict{OutputKey,OutputCache},L<:AbstractDict{ModelKey,Float64}}
+mutable struct TemporalState{C<:AbstractDict{OutputKey,OutputCache},L<:AbstractDict{ModelKey,Float64},S<:AbstractDict{OutputKey,Vector{Tuple{Float64,Any}}}}
     caches::C
     last_run::L
+    samples::S
 end
 
-TemporalState() = TemporalState(Dict{OutputKey,OutputCache}(), Dict{ModelKey,Float64}())
+TemporalState() = TemporalState(
+    Dict{OutputKey,OutputCache}(),
+    Dict{ModelKey,Float64}(),
+    Dict{OutputKey,Vector{Tuple{Float64,Any}}}()
+)
