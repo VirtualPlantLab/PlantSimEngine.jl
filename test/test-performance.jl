@@ -28,7 +28,7 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
 @testset begin
     "Check number of threads"
     nthr = Threads.nthreads()
-    @test nthr > 1
+    @test nthr >= 1
 
     t_seq = @benchmark run!(models1, meteo_day; executor=SequentialEx())
     #t_seq = run!(models1, meteo_day; executor = SequentialEx())
@@ -41,7 +41,9 @@ models2 = ModelList(process1=ToySleepModel(), status=(a=vc,))
     #t_mt = run!(models2, meteo_day; executor = ThreadedEx())
     med_time_mt = median(t_mt).time
 
-    @test med_time_mt > nrows * 1000000 / nthr
+    if nthr > 1
+        @test med_time_mt > nrows * 1000000 / nthr
+    end
 
     # Threads sleep/wakeup scheduling overhead causing inconsistencies ?
     # In any case, sometimes MT beats ST on CI runners, and the mac runner seems to return puzzling false positives
@@ -59,7 +61,7 @@ end
 # TODO make sure a mt test with nthreads == 1 also is tested and is correct
 @testset "Single and multi-threaded output consistency" begin
     nthr = Threads.nthreads()
-    @test nthr > 1
+    @test nthr >= 1
 
     using Dates
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)

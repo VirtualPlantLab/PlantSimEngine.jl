@@ -2,6 +2,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 using MultiScaleTreeGraph
 using PlantMeteo
+using DataFrames
 using Test
 
 # Producer stream: writes :S.
@@ -101,6 +102,44 @@ PlantSimEngine.inputs_(::MRCrossConsumerModel) = (XS=-Inf,)
 PlantSimEngine.outputs_(::MRCrossConsumerModel) = (XP=-Inf,)
 function PlantSimEngine.run!(::MRCrossConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
     status.XP = sum(status.XS)
+end
+
+PlantSimEngine.@process "mrinterpsource" verbose = false
+struct MRInterpSourceModel <: AbstractMrinterpsourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRInterpSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRInterpSourceModel) = (XI=-Inf,)
+function PlantSimEngine.run!(m::MRInterpSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.XI = 2.0 * m.n[] - 1.0
+end
+
+PlantSimEngine.@process "mrinterpconsumer" verbose = false
+struct MRInterpConsumerModel <: AbstractMrinterpconsumerModel end
+PlantSimEngine.inputs_(::MRInterpConsumerModel) = (XI=-Inf,)
+PlantSimEngine.outputs_(::MRInterpConsumerModel) = (YI=-Inf,)
+function PlantSimEngine.run!(::MRInterpConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YI = status.XI
+end
+
+PlantSimEngine.@process "mraggsource" verbose = false
+struct MRAggSourceModel <: AbstractMraggsourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRAggSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRAggSourceModel) = (XA=-Inf,)
+function PlantSimEngine.run!(m::MRAggSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.XA = float(m.n[])
+end
+
+PlantSimEngine.@process "mraggconsumer" verbose = false
+struct MRAggConsumerModel <: AbstractMraggconsumerModel end
+PlantSimEngine.inputs_(::MRAggConsumerModel) = (XA=-Inf,)
+PlantSimEngine.outputs_(::MRAggConsumerModel) = (YA=-Inf,)
+function PlantSimEngine.run!(::MRAggConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YA = status.XA
 end
 
 @testset "Multi-rate runtime: HoldLast and conflict validation" begin
@@ -217,4 +256,44 @@ end
     st_plant_cross = status(sim_cross)["Plant"][1]
     @test st_leaf_cross.XS == 4.0
     @test st_plant_cross.XP == 3.0
+
+    # Expectation 9: Interpolate policy resolves a slower producer for a faster consumer.
+    # Source runs at t=1,3,5 with values 1,3,5.
+    # Consumer runs every step and receives XI through Interpolate:
+    # expected YI over time is [1, 1, 3, 4, 5].
+    interp_counter = Ref(0)
+    mapping_interp = Dict(
+        "Leaf" => (
+            ModelSpec(MRInterpSourceModel(interp_counter)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRInterpConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate())),
+        ),
+    )
+    meteo5 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 5))
+    sim_interp = PlantSimEngine.GraphSimulation(mtg, mapping_interp, nsteps=5, check=true, outputs=Dict("Leaf" => (:YI,)))
+    out_interp = run!(sim_interp, meteo5, multirate=true, executor=SequentialEx())
+    out_interp_df = convert_outputs(out_interp, DataFrame)
+    @test out_interp_df["Leaf"][:, :YI] == [1.0, 1.0, 3.0, 4.0, 5.0]
+
+    # Expectation 10: Aggregate policy computes mean over the consumer window.
+    # Source runs every step with XA=[1,2,3,4].
+    # Consumer runs on t=1,3 (ClockSpec(2,1)):
+    # - at t=1: window [0,1] => mean([1]) = 1
+    # - at t=3: window [2,3] => mean([2,3]) = 2.5
+    # Output YA over time is therefore [1, 1, 2.5, 2.5].
+    agg_counter = Ref(0)
+    mapping_agg = Dict(
+        "Leaf" => (
+            ModelSpec(MRAggSourceModel(agg_counter)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate())),
+        ),
+    )
+    sim_agg = PlantSimEngine.GraphSimulation(mtg, mapping_agg, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
+    out_agg = run!(sim_agg, meteo4, multirate=true, executor=SequentialEx())
+    out_agg_df = convert_outputs(out_agg, DataFrame)
+    @test out_agg_df["Leaf"][:, :YA] == [1.0, 1.0, 2.5, 2.5]
+    @test status(sim_agg)["Leaf"][1].YA == 2.5
 end

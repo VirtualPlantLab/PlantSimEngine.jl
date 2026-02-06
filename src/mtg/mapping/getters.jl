@@ -72,6 +72,7 @@ Plain models and `MultiScaleModel` entries are converted to `ModelSpec`.
 """
 get_model_specs(m::ModelSpec) = [m]
 get_model_specs(m::AbstractModel) = [as_model_spec(m)]
+get_model_specs(m::MultiScaleModel) = [as_model_spec(m)]
 get_model_specs(m) = [as_model_spec(i) for i in m if !isa(i, Status)]
 
 """
