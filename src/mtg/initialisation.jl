@@ -314,6 +314,10 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
     end
 
+    models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
+    model_specs = Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    validate_model_specs_configuration(model_specs)
+
     soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
@@ -345,9 +349,6 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
         @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
     end
-
-    models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
-    model_specs = Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
 
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 

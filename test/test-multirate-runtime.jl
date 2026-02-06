@@ -142,6 +142,25 @@ function PlantSimEngine.run!(::MRAggConsumerModel, models, status, meteo, consta
     status.YA = status.XA
 end
 
+PlantSimEngine.@process "mrdailysource" verbose = false
+struct MRDailySourceModel <: AbstractMrdailysourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRDailySourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRDailySourceModel) = (XD=-Inf,)
+function PlantSimEngine.run!(m::MRDailySourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.XD = float(m.n[])
+end
+
+PlantSimEngine.@process "mrhourlyfromdailyconsumer" verbose = false
+struct MRHourlyFromDailyConsumerModel <: AbstractMrhourlyfromdailyconsumerModel end
+PlantSimEngine.inputs_(::MRHourlyFromDailyConsumerModel) = (XD=-Inf,)
+PlantSimEngine.outputs_(::MRHourlyFromDailyConsumerModel) = (YD=-Inf,)
+function PlantSimEngine.run!(::MRHourlyFromDailyConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YD = status.XD
+end
+
 @testset "Multi-rate runtime: HoldLast and conflict validation" begin
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
     plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
@@ -219,6 +238,9 @@ end
     st_clock = status(sim_clock_trait)["Leaf"][1]
     @test st_clock.X == 4.0
     @test st_clock.Y == 3.0
+    scope = ScopeId(:global, 1)
+    @test sim_clock_trait.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclocksource)] == 4.0
+    @test sim_clock_trait.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclockconsumer)] == 3.0
 
     # Expectation 7: TimeStepModel override takes precedence over model timespec.
     source_counter_2 = Ref(0)
@@ -235,6 +257,8 @@ end
     st_clock_override = status(sim_clock_override)["Leaf"][1]
     @test st_clock_override.X == 4.0
     @test st_clock_override.Y == 3.0
+    @test sim_clock_override.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclocksource)] == 4.0
+    @test sim_clock_override.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclockconsumer)] == 3.0
 
     # Expectation 8: cross-scale hold-last resolution works with different clocks.
     # Leaf producer runs each step; Plant consumer runs every 2 steps (1, 3) and reads Leaf XS through multiscale mapping.
@@ -296,4 +320,51 @@ end
     out_agg_df = convert_outputs(out_agg, DataFrame)
     @test out_agg_df["Leaf"][:, :YA] == [1.0, 1.0, 2.5, 2.5]
     @test status(sim_agg)["Leaf"][1].YA == 2.5
+
+    # Expectation 11: daily producer to hourly consumer within same day uses hold-last.
+    # Source runs at t=1 and t=25 (ClockSpec(24,1)), consumer runs every step.
+    # YD should stay at 1 for t=1..24, then switch to 2 at t=25.
+    daily_counter = Ref(0)
+    mapping_daily_hourly = Dict(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(daily_counter)) |> TimeStepModel(ClockSpec(24.0, 1.0)),
+            ModelSpec(MRHourlyFromDailyConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+        ),
+    )
+    meteo26 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 26))
+    sim_daily_hourly = PlantSimEngine.GraphSimulation(mtg, mapping_daily_hourly, nsteps=26, check=true, outputs=Dict("Leaf" => (:YD,)))
+    out_daily_hourly = run!(sim_daily_hourly, meteo26, multirate=true, executor=SequentialEx())
+    out_daily_hourly_df = convert_outputs(out_daily_hourly, DataFrame)
+    @test out_daily_hourly_df["Leaf"][1:24, :YD] == fill(1.0, 24)
+    @test out_daily_hourly_df["Leaf"][25:26, :YD] == [2.0, 2.0]
+    @test sim_daily_hourly.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
+    @test sim_daily_hourly.temporal_state.last_run[ModelKey(scope, "Leaf", :mrhourlyfromdailyconsumer)] == 26.0
+
+    # Expectation 12: invalid mapping-level API configuration fails during GraphSimulation init.
+    mapping_bad_input = Dict(
+        "Leaf" => (
+            MRSourceModel(),
+            ModelSpec(MRConsumerModel()) |>
+            InputBindings(; Z=(process=:mrsource, var=:S)),
+        ),
+    )
+    @test_throws "declares binding for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_input, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
+
+    mapping_bad_process = Dict(
+        "Leaf" => (
+            ModelSpec(MRConsumerModel()) |>
+            InputBindings(; C=(process=:unknown_process, var=:S)),
+        ),
+    )
+    @test_throws "Unknown source process `unknown_process`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_process, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
+
+    mapping_bad_routing = Dict(
+        "Leaf" => (
+            ModelSpec(MRSourceModel()) |>
+            OutputRouting(; Z=:stream_only),
+        ),
+    )
+    @test_throws "declares routing for output `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_routing, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
 end
