@@ -17,6 +17,15 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `InputBindings(...)`: sets producer, source variable, optional source scale, and policy for each consumer input.
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 
+Policy parameterization:
+- `Integrate()` defaults to `:sum`; you can pass another reducer, e.g. `Integrate(:mean)` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
+- `Aggregate()` defaults to `:mean`; you can pass reducers such as `Aggregate(:max)`.
+- `Interpolate()` defaults to `mode=:linear, extrapolation=:linear`; use `Interpolate(; mode=:hold, extrapolation=:hold)` for hold behavior.
+
+`TimeStepModel(...)` accepts either step counts (`Real`), `ClockSpec`, or fixed `Dates` periods
+(for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using
+the meteo base timestep duration.
+
 Typical pipeline form:
 
 ```julia
