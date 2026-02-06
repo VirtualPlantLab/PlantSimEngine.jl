@@ -26,6 +26,15 @@ Policy parameterization:
 (for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using
 the meteo base timestep duration.
 
+Developer note on period conversion:
+- Runtime time is indexed on a 1-based timeline (`t = 1, 2, 3, ...`).
+- `TimeStepModel(Dates.Day(1))` is converted to a clock step count using:
+  `dt = day_seconds / meteo_step_seconds`.
+- For hourly meteo (`duration = Dates.Hour(1)`), this gives `dt = 24` and the default phase is `1`,
+  so the model runs at `t = 1, 25, 49, ...`.
+- This is equivalent to `ClockSpec(24.0, 1.0)`.
+- If you need runs at `t = 24, 48, 72, ...`, set an explicit phase with `ClockSpec(24.0, 0.0)`.
+
 Typical pipeline form:
 
 ```julia

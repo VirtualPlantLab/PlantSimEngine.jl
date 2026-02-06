@@ -27,6 +27,11 @@ For mapping-level multi-rate configuration, combine:
 - `ClockSpec`
 - fixed `Dates` periods (`Dates.Second`, `Dates.Minute`, `Dates.Hour`, `Dates.Day`, ...)
 
+Period conversion detail:
+- Period-based timesteps are converted using the meteo base step `duration`.
+- Example: `TimeStepModel(Dates.Day(1))` with hourly meteo (`Dates.Hour(1)`) maps to `ClockSpec(24.0, 1.0)`,
+  so execution times are `t = 1, 25, 49, ...`.
+
 ### Default hold-last
 
 ```julia
