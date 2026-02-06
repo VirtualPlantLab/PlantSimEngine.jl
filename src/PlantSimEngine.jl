@@ -4,6 +4,7 @@ module PlantSimEngine
 import DataFrames
 import Tables
 import DataAPI
+import Dates
 
 import CSV # For reading csv files with variables()
 

@@ -409,6 +409,7 @@ function run!(
 
     dep_graph = object.dependency_graph
     models = get_models(object)
+    timeline = _timeline_context(meteo)
     # st = status(object)
     multirate && validate_canonical_publishers(object)
 
@@ -420,14 +421,14 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor, multirate)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor, multirate, timeline)
         end
         save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor, multirate)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor, multirate, timeline)
             end
             # At the end of the time-step, we save the results of the simulation in the object:
             save_results!(object, i)
@@ -455,7 +456,8 @@ function run_node_multiscale!(
     extra::T, # we pass the simulation object as extra so we can access its parameters during simulation
     check,
     executor,
-    multirate
+    multirate,
+    timeline::TimelineContext
 ) where {T<:GraphSimulation} # T is the status of each node by organ type
 
     # run!(status(object), dependency_node, meteo, constants, extra)
@@ -469,14 +471,14 @@ function run_node_multiscale!(
     models_at_scale = models[node.scale]
     model_specs_at_scale = get_model_specs(object)[node.scale]
     model_spec = get(model_specs_at_scale, node.process, as_model_spec(node.value))
-    model_clock = _model_clock(model_spec, node.value)
-    t = _time_from_step(i)
+    model_clock = _model_clock(model_spec, node.value, timeline)
+    t = _time_from_step(i, timeline)
 
     for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
         should_run = !multirate || _should_run_at_time(model_clock, t)
         !should_run && continue
         if multirate
-            resolve_inputs_from_temporal_state!(object, node, st, t, model_spec)
+            resolve_inputs_from_temporal_state!(object, node, st, t, model_spec, timeline)
         end
         # Actual call to the model:
         run!(node.value, models_at_scale, st, meteo, constants, extra)
@@ -492,6 +494,6 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate)
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate, timeline)
     end
 end

@@ -4,6 +4,7 @@ using MultiScaleTreeGraph
 using PlantMeteo
 using DataFrames
 using Test
+using Dates
 
 # Producer stream: writes :S.
 PlantSimEngine.@process "mrsource" verbose = false
@@ -321,7 +322,59 @@ end
     @test out_agg_df["Leaf"][:, :YA] == [1.0, 1.0, 2.5, 2.5]
     @test status(sim_agg)["Leaf"][1].YA == 2.5
 
-    # Expectation 11: daily producer to hourly consumer within same day uses hold-last.
+    # Expectation 11: parameterized Aggregate reducer (symbol) is applied per window.
+    # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=:max.
+    # YA over time is [1,1,3,3].
+    agg_counter_max = Ref(0)
+    mapping_agg_max = Dict(
+        "Leaf" => (
+            ModelSpec(MRAggSourceModel(agg_counter_max)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate(:max))),
+        ),
+    )
+    sim_agg_max = PlantSimEngine.GraphSimulation(mtg, mapping_agg_max, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
+    out_agg_max = run!(sim_agg_max, meteo4, multirate=true, executor=SequentialEx())
+    out_agg_max_df = convert_outputs(out_agg_max, DataFrame)
+    @test out_agg_max_df["Leaf"][:, :YA] == [1.0, 1.0, 3.0, 3.0]
+
+    # Expectation 12: parameterized Integrate reducer (callable) is applied per window.
+    # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=max-min.
+    # YA over time is [0,0,1,1].
+    agg_counter_callable = Ref(0)
+    mapping_integrate_callable = Dict(
+        "Leaf" => (
+            ModelSpec(MRAggSourceModel(agg_counter_callable)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(vals -> maximum(vals) - minimum(vals)))),
+        ),
+    )
+    sim_integrate_callable = PlantSimEngine.GraphSimulation(mtg, mapping_integrate_callable, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
+    out_integrate_callable = run!(sim_integrate_callable, meteo4, multirate=true, executor=SequentialEx())
+    out_integrate_callable_df = convert_outputs(out_integrate_callable, DataFrame)
+    @test out_integrate_callable_df["Leaf"][:, :YA] == [0.0, 0.0, 1.0, 1.0]
+
+    # Expectation 13: Interpolate policy supports hold mode and hold extrapolation.
+    # Source runs at t=1,3,5 with values 1,3,5. Consumer runs each step.
+    # With Interpolate(mode=:hold, extrapolation=:hold), YI is [1,1,3,3,5,5].
+    interp_counter_hold = Ref(0)
+    mapping_interp_hold = Dict(
+        "Leaf" => (
+            ModelSpec(MRInterpSourceModel(interp_counter_hold)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRInterpConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate(; mode=:hold, extrapolation=:hold))),
+        ),
+    )
+    meteo6 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 6))
+    sim_interp_hold = PlantSimEngine.GraphSimulation(mtg, mapping_interp_hold, nsteps=6, check=true, outputs=Dict("Leaf" => (:YI,)))
+    out_interp_hold = run!(sim_interp_hold, meteo6, multirate=true, executor=SequentialEx())
+    out_interp_hold_df = convert_outputs(out_interp_hold, DataFrame)
+    @test out_interp_hold_df["Leaf"][:, :YI] == [1.0, 1.0, 3.0, 3.0, 5.0, 5.0]
+
+    # Expectation 14: daily producer to hourly consumer within same day uses hold-last.
     # Source runs at t=1 and t=25 (ClockSpec(24,1)), consumer runs every step.
     # YD should stay at 1 for t=1..24, then switch to 2 at t=25.
     daily_counter = Ref(0)
@@ -342,7 +395,26 @@ end
     @test sim_daily_hourly.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
     @test sim_daily_hourly.temporal_state.last_run[ModelKey(scope, "Leaf", :mrhourlyfromdailyconsumer)] == 26.0
 
-    # Expectation 12: invalid mapping-level API configuration fails during GraphSimulation init.
+    # Expectation 15: period-based timestep uses timeline base-step conversion.
+    # Meteo has duration=Hour(1), source uses Day(1) => runs on t=1 and t=25.
+    daily_counter_period = Ref(0)
+    mapping_daily_period = Dict(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(daily_counter_period)) |> TimeStepModel(Dates.Day(1)),
+            ModelSpec(MRHourlyFromDailyConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+        ),
+    )
+    meteo_hourly = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 26))
+    sim_daily_period = PlantSimEngine.GraphSimulation(mtg, mapping_daily_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:YD,)))
+    out_daily_period = run!(sim_daily_period, meteo_hourly, multirate=true, executor=SequentialEx())
+    out_daily_period_df = convert_outputs(out_daily_period, DataFrame)
+    @test out_daily_period_df["Leaf"][1:24, :YD] == fill(1.0, 24)
+    @test out_daily_period_df["Leaf"][25:26, :YD] == [2.0, 2.0]
+    @test sim_daily_period.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
+
+    # Expectation 16: invalid mapping-level API configuration fails during GraphSimulation init.
     mapping_bad_input = Dict(
         "Leaf" => (
             MRSourceModel(),
@@ -367,4 +439,29 @@ end
         ),
     )
     @test_throws "declares routing for output `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_routing, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
+
+    mapping_bad_interp_mode = Dict(
+        "Leaf" => (
+            MRSourceModel(),
+            ModelSpec(MRConsumerModel()) |>
+            InputBindings(; C=(process=:mrsource, var=:S, policy=Interpolate(:spline))),
+        ),
+    )
+    @test_throws "Invalid interpolation mode `spline`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_interp_mode, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
+
+    mapping_bad_reducer = Dict(
+        "Leaf" => (
+            MRSourceModel(),
+            ModelSpec(MRConsumerModel()) |>
+            InputBindings(; C=(process=:mrsource, var=:S, policy=Aggregate(:median))),
+        ),
+    )
+    @test_throws "Invalid reducer `median`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_reducer, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
+
+    mapping_bad_period = Dict(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Month(1)),
+        ),
+    )
+    @test_throws "non-fixed periods are not supported" PlantSimEngine.GraphSimulation(mtg, mapping_bad_period, nsteps=1, check=true, outputs=Dict("Leaf" => (:XD,)))
 end

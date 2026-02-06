@@ -57,10 +57,72 @@ struct OutputKey
 end
 
 abstract type SchedulePolicy end
+
+"""
+    HoldLast()
+
+Use the latest available producer value.
+"""
 struct HoldLast <: SchedulePolicy end
-struct Interpolate <: SchedulePolicy end
-struct Integrate <: SchedulePolicy end
-struct Aggregate <: SchedulePolicy end
+
+const _INTERPOLATE_MODES = (:linear, :hold)
+const _WINDOW_REDUCER_SYMBOLS = (:sum, :mean, :max, :min, :first, :last)
+
+"""
+    Interpolate()
+    Interpolate(mode)
+    Interpolate(mode, extrapolation)
+    Interpolate(; mode=:linear, extrapolation=:linear)
+
+Interpolation policy for fast consumers reading slower producer streams.
+
+Supported modes:
+- `:linear`: linear interpolation between bracket points for real values
+- `:hold`: left-hold (previous sample)
+
+Supported extrapolation modes when no future sample exists:
+- `:linear`: linear extrapolation from last two samples when possible
+- `:hold`: keep the latest sample
+"""
+struct Interpolate{M<:Symbol,E<:Symbol} <: SchedulePolicy
+    mode::M
+    extrapolation::E
+end
+
+Interpolate(mode::Symbol) = Interpolate(mode, :linear)
+Interpolate(; mode::Symbol=:linear, extrapolation::Symbol=:linear) = Interpolate(mode, extrapolation)
+
+"""
+    Integrate()
+    Integrate(reducer)
+
+Windowed policy for consumers running at coarser clocks.
+Values in the consumer window are reduced with `reducer`.
+
+Supported reducer symbols: `:sum`, `:mean`, `:max`, `:min`, `:first`, `:last`.
+You can also provide a callable taking the collected window values.
+"""
+struct Integrate{R} <: SchedulePolicy
+    reducer::R
+end
+
+Integrate() = Integrate(:sum)
+
+"""
+    Aggregate()
+    Aggregate(reducer)
+
+Windowed aggregation policy for consumers running at coarser clocks.
+Values in the consumer window are reduced with `reducer`.
+
+Supported reducer symbols: `:sum`, `:mean`, `:max`, `:min`, `:first`, `:last`.
+You can also provide a callable taking the collected window values.
+"""
+struct Aggregate{R} <: SchedulePolicy
+    reducer::R
+end
+
+Aggregate() = Aggregate(:mean)
 
 abstract type OutputCache end
 

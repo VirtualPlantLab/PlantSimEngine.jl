@@ -1,5 +1,46 @@
 const _INPUT_BINDING_FIELDS = (:process, :var, :scale, :policy)
 
+function _validate_window_reducer(scale::String, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
+    if reducer isa Symbol
+        reducer in _WINDOW_REDUCER_SYMBOLS || error(
+            "Invalid reducer `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
+            "in process `$(process)` at scale `$(scale)`. Supported symbols are $(_WINDOW_REDUCER_SYMBOLS)."
+        )
+        return nothing
+    end
+
+    applicable(reducer, [1.0, 2.0]) || error(
+        "Reducer for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
+        "must be a supported Symbol or a callable accepting a vector of numeric values."
+    )
+
+    return nothing
+end
+
+function _validate_policy_instance(scale::String, process::Symbol, input_var::Symbol, policy::SchedulePolicy)
+    if policy isa HoldLast
+        return nothing
+    elseif policy isa Interpolate
+        policy.mode in _INTERPOLATE_MODES || error(
+            "Invalid interpolation mode `$(policy.mode)` for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+            "Supported modes are $(_INTERPOLATE_MODES)."
+        )
+        policy.extrapolation in _INTERPOLATE_MODES || error(
+            "Invalid interpolation extrapolation `$(policy.extrapolation)` for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+            "Supported values are $(_INTERPOLATE_MODES)."
+        )
+        return nothing
+    elseif policy isa Integrate
+        _validate_window_reducer(scale, process, input_var, :Integrate, policy.reducer)
+        return nothing
+    elseif policy isa Aggregate
+        _validate_window_reducer(scale, process, input_var, :Aggregate, policy.reducer)
+        return nothing
+    end
+
+    return nothing
+end
+
 function _validate_timestep_spec(scale::String, process::Symbol, spec::ModelSpec)
     ts = timestep(spec)
     isnothing(ts) && return nothing
@@ -20,9 +61,22 @@ function _validate_timestep_spec(scale::String, process::Symbol, spec::ModelSpec
         return nothing
     end
 
+    if ts isa Dates.Period
+        ts isa Dates.FixedPeriod || error(
+            "Invalid timestep for process `$(process)` at scale `$(scale)`: ",
+            "non-fixed periods are not supported (`$(typeof(ts))`). ",
+            "Use fixed periods such as `Second`, `Minute`, `Hour` or `Day`."
+        )
+        Dates.value(Dates.Second(ts)) > 0 || error(
+            "Invalid timestep for process `$(process)` at scale `$(scale)`: ",
+            "period must be > 0, got $(ts)."
+        )
+        return nothing
+    end
+
     error(
         "Invalid timestep for process `$(process)` at scale `$(scale)`: ",
-        "expected `Real` or `ClockSpec`, got `$(typeof(ts))`."
+        "expected `Real`, `ClockSpec` or `Dates.Period`, got `$(typeof(ts))`."
     )
 end
 
@@ -32,6 +86,15 @@ function _validate_binding_policy(scale::String, process::Symbol, input_var::Sym
             "Invalid policy for input `$(input_var)` in process `$(process)` at scale `$(scale)`: ",
             "expected a `SchedulePolicy` type or instance, got `$(policy)`."
         )
+        p = try
+            policy()
+        catch
+            error(
+                "Invalid policy type `$(policy)` for input `$(input_var)` in process `$(process)` at scale `$(scale)`: ",
+                "this policy type cannot be instantiated without arguments. Provide a policy instance instead."
+            )
+        end
+        _validate_policy_instance(scale, process, input_var, p)
         return nothing
     end
 
@@ -39,6 +102,7 @@ function _validate_binding_policy(scale::String, process::Symbol, input_var::Sym
         "Invalid policy for input `$(input_var)` in process `$(process)` at scale `$(scale)`: ",
         "expected a `SchedulePolicy` type or instance, got `$(typeof(policy))`."
     )
+    _validate_policy_instance(scale, process, input_var, policy)
 
     return nothing
 end
