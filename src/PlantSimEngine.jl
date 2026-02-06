@@ -92,6 +92,12 @@ include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
 include("checks/dimensions.jl")
 
+# Multi-rate runtime:
+include("time/runtime/clocks.jl")
+include("time/runtime/bindings.jl")
+include("time/runtime/input_resolution.jl")
+include("time/runtime/publishers.jl")
+
 # Simulation:
 include("run.jl")
 

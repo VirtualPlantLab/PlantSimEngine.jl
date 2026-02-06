@@ -1,0 +1,376 @@
+"""
+    _resolved_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t)
+
+Resolve one producer value through hold-last cache lookup.
+Returns `(value, found::Bool)`.
+"""
+function _resolved_value_for_source(sim::GraphSimulation, source_scale::String, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
+    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    cache = get(sim.temporal_state.caches, key, nothing)
+    if cache isa HoldLastCache
+        return cache.v, true
+    end
+    return nothing, false
+end
+
+"""
+    _resolved_windowed_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t_start, t_end, policy)
+
+Resolve one producer value over `[t_start, t_end]` for windowed policies.
+`Integrate` returns the sum, `Aggregate` returns the mean.
+Returns `(value, found::Bool)`.
+"""
+function _resolved_windowed_value_for_source(
+    sim::GraphSimulation,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t_start::Float64,
+    t_end::Float64,
+    policy::SchedulePolicy
+)
+    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    samples = get(sim.temporal_state.samples, key, nothing)
+    isnothing(samples) && return nothing, false
+
+    vals = Any[]
+    for (ts, v) in samples
+        if ts >= t_start - 1e-8 && ts <= t_end + 1e-8
+            push!(vals, v)
+        end
+    end
+    isempty(vals) && return nothing, false
+
+    if policy isa Integrate
+        all(v -> v isa Real, vals) || return nothing, false
+        return sum(vals), true
+    elseif policy isa Aggregate
+        all(v -> v isa Real, vals) || return nothing, false
+        return sum(vals) / length(vals), true
+    end
+
+    return nothing, false
+end
+
+"""
+    _resolved_interpolated_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t)
+
+Resolve one producer value at time `t` using interpolation/extrapolation over
+stored temporal samples.
+Returns `(value, found::Bool)`.
+"""
+function _resolved_interpolated_value_for_source(
+    sim::GraphSimulation,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t::Float64
+)
+    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    samples = get(sim.temporal_state.samples, key, nothing)
+    isnothing(samples) && return nothing, false
+    isempty(samples) && return nothing, false
+
+    prev_idx = findlast(s -> s[1] <= t + 1e-8, samples)
+    next_idx = findfirst(s -> s[1] >= t - 1e-8, samples)
+
+    # Interpolate between known bracketing points when available.
+    if !isnothing(prev_idx) && !isnothing(next_idx)
+        t_prev, v_prev = samples[prev_idx]
+        t_next, v_next = samples[next_idx]
+        if isapprox(t_prev, t_next; atol=1e-8, rtol=0.0)
+            return v_prev, true
+        end
+        if v_prev isa Real && v_next isa Real
+            α = (t - t_prev) / (t_next - t_prev)
+            return v_prev + α * (v_next - v_prev), true
+        end
+        return v_prev, true
+    end
+
+    # Real-time fallback when no future sample exists yet:
+    # use linear extrapolation from last two samples if possible, else hold-last.
+    if !isnothing(prev_idx)
+        t_last, v_last = samples[prev_idx]
+        if prev_idx >= 2
+            t_prev, v_prev = samples[prev_idx - 1]
+            if v_prev isa Real && v_last isa Real && !isapprox(t_last, t_prev; atol=1e-8, rtol=0.0)
+                α = (t - t_last) / (t_last - t_prev)
+                return v_last + α * (v_last - v_prev), true
+            end
+        end
+        return v_last, true
+    end
+
+    # If only future data exists, use the earliest known value.
+    return samples[1][2], true
+end
+
+"""
+    _assign_input_value!(st, input_var, value)
+
+Assign an input value into `Status`, preserving in-place updates for `RefVector`
+inputs when both sides are vectors.
+"""
+function _assign_input_value!(st::Status, input_var::Symbol, value)
+    current = st[input_var]
+    if current isa RefVector && value isa AbstractVector
+        n = min(length(current), length(value))
+        for i in 1:n
+            current[i] = value[i]
+        end
+        return nothing
+    end
+    st[input_var] = value
+    return nothing
+end
+
+"""
+    _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t_end, policy)
+
+Resolve one consumer input from producer temporal streams using a windowed
+policy (`Integrate` or `Aggregate`) and write it into `st`.
+"""
+function _resolve_input_windowed(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    input_var::Symbol,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    t_start::Float64,
+    t_end::Float64,
+    policy::SchedulePolicy
+)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        vals = Any[]
+        for src_st in source_statuses
+            src_node_id = node_id(src_st.node)
+            v, ok = _resolved_windowed_value_for_source(
+                sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+            )
+            if ok
+                push!(vals, v)
+            elseif policy isa Integrate || policy isa Aggregate
+                push!(vals, 0.0)
+            elseif source_var in keys(src_st)
+                push!(vals, src_st[source_var])
+            end
+        end
+        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+        return nothing
+    end
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_windowed_value_for_source(
+        sim, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy
+    )
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    # Cross-scale scalar fallback: allow unique producer value at source scale.
+    candidates = Any[]
+    for src_st in source_statuses
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_windowed_value_for_source(
+            sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+        )
+        found && push!(candidates, vv)
+    end
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    elseif policy isa Integrate || policy isa Aggregate
+        _assign_input_value!(st, input_var, 0.0)
+    end
+
+    return nothing
+end
+
+"""
+    _resolve_input_interpolate(sim, node, st, input_var, source_scale, source_process, source_var, t)
+
+Resolve one consumer input from producer temporal streams using interpolation
+policy and write it into `st`.
+"""
+function _resolve_input_interpolate(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    input_var::Symbol,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64
+)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        vals = Any[]
+        for src_st in source_statuses
+            src_node_id = node_id(src_st.node)
+            v, ok = _resolved_interpolated_value_for_source(
+                sim, source_scale, source_process, source_var, src_node_id, t
+            )
+            if ok
+                push!(vals, v)
+            elseif source_var in keys(src_st)
+                push!(vals, src_st[source_var])
+            end
+        end
+        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+        return nothing
+    end
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_interpolated_value_for_source(
+        sim, source_scale, source_process, source_var, consumer_node_id, t
+    )
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    # Cross-scale scalar fallback: allow unique producer value at source scale.
+    candidates = Any[]
+    for src_st in source_statuses
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_interpolated_value_for_source(
+            sim, source_scale, source_process, source_var, src_node_id, t
+        )
+        found && push!(candidates, vv)
+    end
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    end
+
+    return nothing
+end
+
+"""
+    _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+
+Resolve one consumer input from producer hold-last values and write it into
+`st`.
+"""
+function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode, st::Status, input_var::Symbol, source_scale::String, source_process::Symbol, source_var::Symbol, t::Float64)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        vals = Any[]
+        for src_st in source_statuses
+            src_node_id = node_id(src_st.node)
+            v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+            if ok
+                push!(vals, v)
+            else
+                if source_var in keys(src_st)
+                    push!(vals, src_st[source_var])
+                end
+            end
+        end
+        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+        return nothing
+    end
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, consumer_node_id, t)
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    # Cross-scale scalar fallback: allow unique producer value at source scale.
+    candidates = Any[]
+    for src_st in source_statuses
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+        found && push!(candidates, vv)
+    end
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    end
+
+    return nothing
+end
+
+"""
+    resolve_inputs_from_temporal_state!(sim, node, st, t, model_spec)
+
+Resolve all model inputs for `node` at time `t` using declared
+`InputBindings(...)` and schedule policies, then mutate `st` in place.
+"""
+function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDependencyNode, st::Status, t::Float64, model_spec)
+    model = node.value
+    ins = keys(inputs_(model))
+    length(ins) == 0 && return nothing
+    consumer_clock = _model_clock(model_spec, model)
+    t_start = _window_start_for_clock(consumer_clock, t)
+
+    bindings = input_bindings(model_spec)
+
+    for input_var in ins
+        binding = input_var in keys(bindings) ? _parse_input_binding(bindings[input_var]) : nothing
+
+        source_process = nothing
+        source_var = input_var
+        policy = HoldLast()
+
+        if !isnothing(binding) && !isnothing(binding.process)
+            source_process = binding.process
+            source_var = isnothing(binding.var) ? input_var : binding.var
+            source_scale = isnothing(binding.scale) ? _source_scale_for_process(node, source_process) : binding.scale
+            policy = binding.policy
+        else
+            candidates = _candidate_producers(node, input_var)
+            if length(candidates) == 1
+                source_process, source_var = only(candidates)
+                source_scale = _source_scale_for_process(node, source_process)
+            elseif length(candidates) > 1
+                error(
+                    "Ambiguous producer for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+                    "Please define explicit `InputBindings(...)` for this model in your mapping."
+                )
+            else
+                continue
+            end
+        end
+
+        if policy isa HoldLast
+            _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+        elseif policy isa Interpolate
+            _resolve_input_interpolate(sim, node, st, input_var, source_scale, source_process, source_var, t)
+        elseif policy isa Integrate || policy isa Aggregate
+            _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t, policy)
+        end
+    end
+
+    return nothing
+end
