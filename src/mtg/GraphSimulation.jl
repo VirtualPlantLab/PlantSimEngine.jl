@@ -14,9 +14,11 @@ A type that holds all information for a simulation over a graph.
 - `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
+- `model_specs`: a dictionary of normalized model usage specifications
 - `outputs`: a dictionary of outputs
+- `temporal_state`: multi-rate temporal storage (scaffolding, currently unused at runtime)
 """
-struct GraphSimulation{T,S,U,O,V}
+struct GraphSimulation{T,S,U,O,V,TS,MS}
     graph::T
     statuses::S
     status_templates::Dict{String,Dict{Symbol,Any}}
@@ -24,8 +26,10 @@ struct GraphSimulation{T,S,U,O,V}
     var_need_init::Dict{String,V}
     dependency_graph::DependencyGraph
     models::Dict{String,U}
+    model_specs::MS
     outputs::Dict{String,O}
     outputs_index::Dict{String, Int}
+    temporal_state::TS
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
@@ -38,7 +42,9 @@ status_template(g::GraphSimulation) = g.status_templates
 reverse_mapping(g::GraphSimulation) = g.reverse_multiscale_mapping
 var_need_init(g::GraphSimulation) = g.var_need_init
 get_models(g::GraphSimulation) = g.models
+get_model_specs(g::GraphSimulation) = g.model_specs
 outputs(g::GraphSimulation) = g.outputs
+temporal_state(g::GraphSimulation) = g.temporal_state
 
 """
     convert_outputs(sim_outputs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)

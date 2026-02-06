@@ -6,6 +6,9 @@
 
 Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap, and is planned as the next milestone.
 
+A technical draft for scoped multi-rate execution is available here:
+- [Multi-rate and scoped simulation draft](multirate_design_draft.md)
+
 ### Multi-plant/Multi-species simulations
 
 A goal for PlantSimEngine down the line is to be able to simulate complex scenes with data comprising several plants, possibly of different species, for agroforestry purposes.

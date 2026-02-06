@@ -36,6 +36,9 @@ include("doc_templates/mtg-related.jl")
 # Models:
 include("Abstract_model_structs.jl")
 
+# Multi-rate scaffolding:
+include("time/multirate.jl")
+
 # Simulation row (status):
 include("component_models/Status.jl")
 include("component_models/RefVector.jl")
@@ -49,6 +52,7 @@ include("dependencies/dependency_graph.jl")
 # List of models:
 include("component_models/ModelList.jl")
 include("mtg/MultiScaleModel.jl")
+include("mtg/ModelSpec.jl")
 
 # Getters / setters for status:
 include("component_models/get_status.jl")
@@ -102,7 +106,11 @@ include("examples_import.jl")
 
 export PreviousTimeStep
 export AbstractModel
-export ModelList, MultiScaleModel
+export ScopeId, ClockSpec, ModelKey, OutputKey
+export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
+export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
+export TemporalState
+export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, OutputRouting
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
@@ -110,6 +118,7 @@ export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
+export timespec, output_policy, input_bindings, output_routing
 export run!
 export fit
 

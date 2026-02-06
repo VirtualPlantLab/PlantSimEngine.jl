@@ -20,6 +20,8 @@ multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed w
 - `mapping`: a mapping between the MTG and the model list.
 - `nsteps`: the number of time-steps to run, only needed if no meteo is given (else it is infered from it).
 - `outputs`: the outputs to get in dynamic for each node type of the MTG.
+- `multirate`: experimental feature flag enabling temporal cache-based input resolution for multiscale simulations.
+Current implementation supports `HoldLast` resolution only.
 
 # Returns 
 
@@ -86,6 +88,280 @@ julia> (outputs_sim[:var4],outputs_sim[:var6])
 """
 run!
 
+# Global default scope placeholder for first multi-rate slice.
+_default_scope(::GraphSimulation) = ScopeId(:global, 1)
+
+_time_from_step(i) = float(i)
+
+function _clock_from_spec_timestep(ts)
+    if ts isa ClockSpec
+        return ts
+    elseif ts isa Real
+        return ClockSpec(float(ts), 0.0)
+    else
+        return nothing
+    end
+end
+
+function _model_clock(model_spec, model)
+    !isnothing(model_spec) || return timespec(model)
+    c = _clock_from_spec_timestep(PlantSimEngine.timestep(model_spec))
+    return isnothing(c) ? timespec(model) : c
+end
+
+function _should_run_at_time(clock::ClockSpec, t::Float64)
+    dt = float(clock.dt)
+    phase = float(clock.phase)
+    dt <= 0 && error("Invalid model clock: `dt` must be > 0, got $(dt).")
+    dt <= 1.0 && return true
+    # Robust phase alignment check for floating clocks.
+    return isapprox(mod(t - phase, dt), 0.0; atol=1e-8, rtol=0.0)
+end
+
+function _policy_for_output(model, var::Symbol)
+    pol = output_policy(model)
+    var in keys(pol) ? pol[var] : HoldLast()
+end
+
+function _publish_mode_for_output(model_spec, var::Symbol)
+    modes = output_routing(model_spec)
+    mode = var in keys(modes) ? modes[var] : :canonical
+    mode in (:canonical, :stream_only) || error(
+        "Unsupported output routing mode `$(mode)` for output `$(var)`. ",
+        "Allowed values are `:canonical` and `:stream_only`."
+    )
+    return mode
+end
+
+function validate_canonical_publishers(sim::GraphSimulation)
+    for (scale, models_at_scale) in get_models(sim)
+        specs_at_scale = get_model_specs(sim)[scale]
+        publishers = Dict{Symbol,Vector{Symbol}}()
+        for (process, model) in pairs(models_at_scale)
+            model_spec = get(specs_at_scale, process, as_model_spec(model))
+            for var in keys(outputs_(model))
+                _publish_mode_for_output(model_spec, var) == :stream_only && continue
+                if !haskey(publishers, var)
+                    publishers[var] = Symbol[process]
+                else
+                    push!(publishers[var], process)
+                end
+            end
+        end
+
+        for (var, procs) in publishers
+            if length(procs) > 1
+                error(
+                    "Ambiguous canonical publishers for variable `$(var)` at scale `$(scale)`: ",
+                    join(procs, ", "),
+                    ". Declare `OutputRouting(; $(var)=:stream_only)` for non-canonical producers."
+                )
+            end
+        end
+    end
+    return nothing
+end
+
+function _symbol_from_dependency_var(x)
+    if x isa Symbol
+        return x
+    elseif x isa PreviousTimeStep
+        return x.variable
+    elseif x isa MappedVar
+        mv = mapped_variable(x)
+        return mv isa PreviousTimeStep ? mv.variable : mv
+    else
+        return nothing
+    end
+end
+
+function _push_candidate_producer!(candidates::Vector{Tuple{Symbol,Symbol}}, process_key, vars, input_var::Symbol)
+    process = Symbol(process_key)
+    for v in vars
+        s = _symbol_from_dependency_var(v)
+        isnothing(s) && continue
+        if s == input_var
+            push!(candidates, (process, input_var))
+        end
+    end
+end
+
+function _collect_candidate_producers!(candidates::Vector{Tuple{Symbol,Symbol}}, parent_vars::NamedTuple, input_var::Symbol)
+    for (k, v) in pairs(parent_vars)
+        if v isa NamedTuple
+            _collect_candidate_producers!(candidates, v, input_var)
+        elseif v isa Tuple || v isa AbstractVector
+            _push_candidate_producer!(candidates, k, v, input_var)
+        end
+    end
+end
+
+function _candidate_producers(node::SoftDependencyNode, input_var::Symbol)
+    node.parent_vars === nothing && return Tuple{Symbol,Symbol}[]
+    c = Tuple{Symbol,Symbol}[]
+    _collect_candidate_producers!(c, node.parent_vars, input_var)
+    unique(c)
+end
+
+function _parse_input_binding(binding)
+    if binding isa Symbol
+        return (process=binding, var=nothing, scale=nothing, policy=HoldLast())
+    elseif binding isa Pair{Symbol,Symbol}
+        return (process=first(binding), var=last(binding), scale=nothing, policy=HoldLast())
+    elseif binding isa NamedTuple
+        process = haskey(binding, :process) ? binding.process : nothing
+        var = haskey(binding, :var) ? binding.var : nothing
+        scale = haskey(binding, :scale) ? string(binding.scale) : nothing
+        policy = haskey(binding, :policy) ? binding.policy : HoldLast()
+        return (process=process, var=var, scale=scale, policy=policy)
+    else
+        return nothing
+    end
+end
+
+function _source_scale_for_process(node::SoftDependencyNode, process::Symbol)
+    if node.parent !== nothing
+        for p in node.parent
+            if p.process == process
+                return p.scale
+            end
+        end
+    end
+    return node.scale
+end
+
+function _resolved_value_for_source(sim::GraphSimulation, source_scale::String, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
+    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    cache = get(sim.temporal_state.caches, key, nothing)
+    if cache isa HoldLastCache
+        return cache.v, true
+    end
+    return nothing, false
+end
+
+function _assign_input_value!(st::Status, input_var::Symbol, value)
+    current = st[input_var]
+    if current isa RefVector && value isa AbstractVector
+        n = min(length(current), length(value))
+        for i in 1:n
+            current[i] = value[i]
+        end
+        return nothing
+    end
+    st[input_var] = value
+    return nothing
+end
+
+function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode, st::Status, input_var::Symbol, source_scale::String, source_process::Symbol, source_var::Symbol, t::Float64)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        vals = Any[]
+        for src_st in source_statuses
+            src_node_id = node_id(src_st.node)
+            v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+            if ok
+                push!(vals, v)
+            else
+                if source_var in keys(src_st)
+                    push!(vals, src_st[source_var])
+                end
+            end
+        end
+        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+        return nothing
+    end
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, consumer_node_id, t)
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    # Cross-scale scalar fallback: allow unique producer value at source scale.
+    candidates = Any[]
+    for src_st in source_statuses
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+        found && push!(candidates, vv)
+    end
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    end
+
+    return nothing
+end
+
+function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDependencyNode, st::Status, t::Float64, model_spec)
+    model = node.value
+    ins = keys(inputs_(model))
+    length(ins) == 0 && return nothing
+
+    bindings = input_bindings(model_spec)
+
+    for input_var in ins
+        binding = input_var in keys(bindings) ? _parse_input_binding(bindings[input_var]) : nothing
+
+        source_process = nothing
+        source_var = input_var
+        policy = HoldLast()
+
+        if !isnothing(binding) && !isnothing(binding.process)
+            source_process = binding.process
+            source_var = isnothing(binding.var) ? input_var : binding.var
+            source_scale = isnothing(binding.scale) ? _source_scale_for_process(node, source_process) : binding.scale
+            policy = binding.policy
+        else
+            candidates = _candidate_producers(node, input_var)
+            if length(candidates) == 1
+                source_process, source_var = only(candidates)
+                source_scale = _source_scale_for_process(node, source_process)
+            elseif length(candidates) > 1
+                error(
+                    "Ambiguous producer for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+                    "Please define explicit `InputBindings(...)` for this model in your mapping."
+                )
+            else
+                continue
+            end
+        end
+
+        policy isa HoldLast || continue
+        _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+    end
+
+    return nothing
+end
+
+function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependencyNode, st::Status, t::Float64)
+    model = node.value
+    outs = keys(outputs_(model))
+    length(outs) == 0 && return nothing
+
+    scope = _default_scope(sim)
+    nodeid = node_id(st.node)
+    mkey = ModelKey(scope, node.scale, node.process)
+    sim.temporal_state.last_run[mkey] = t
+
+    for out_var in outs
+        policy = _policy_for_output(model, out_var)
+        policy isa HoldLast || continue
+        val = st[out_var]
+        key = OutputKey(scope, node.scale, nodeid, node.process, out_var)
+        sim.temporal_state.caches[key] = HoldLastCache(t, val)
+    end
+
+    return nothing
+end
+
 
 
 function adjust_weather_timesteps_to_given_length(desired_length, meteo)
@@ -123,7 +399,8 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 )
     run!(
         DataFormat(object),
@@ -133,7 +410,8 @@ function run!(
         extra;
         tracked_outputs,
         check,
-        executor
+        executor,
+        multirate
     )
 end
 
@@ -150,7 +428,8 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
     if executor != SequentialEx()
@@ -165,9 +444,9 @@ function run!(
     for obj in object
 
         if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate)
         end
 
     end
@@ -184,7 +463,8 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 ) where {T<:ModelList}
 
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
@@ -275,7 +555,8 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 ) where {T<:Union{AbstractArray,AbstractDict}}
 
     dep_graphs = [dep(obj) for obj in collect(values(object))]
@@ -309,9 +590,9 @@ function run!(
     # Each object:
     for obj in object
         if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate)
         end
 
     end
@@ -368,7 +649,8 @@ function run!(
     nsteps=nothing,
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
@@ -382,7 +664,8 @@ function run!(
         constants,
         extra;
         check=check,
-        executor=executor
+        executor=executor,
+        multirate=multirate
     )
 
     return outputs(sim)
@@ -396,12 +679,14 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false
 )
 
     dep_graph = object.dependency_graph
     models = get_models(object)
     # st = status(object)
+    multirate && validate_canonical_publishers(object)
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
@@ -411,14 +696,14 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor, multirate)
         end
         save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor, multirate)
             end
             # At the end of the time-step, we save the results of the simulation in the object:
             save_results!(object, i)
@@ -445,7 +730,8 @@ function run_node_multiscale!(
     constants,
     extra::T, # we pass the simulation object as extra so we can access its parameters during simulation
     check,
-    executor
+    executor,
+    multirate
 ) where {T<:GraphSimulation} # T is the status of each node by organ type
 
     # run!(status(object), dependency_node, meteo, constants, extra)
@@ -457,10 +743,22 @@ function run_node_multiscale!(
 
     node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
     models_at_scale = models[node.scale]
+    model_specs_at_scale = get_model_specs(object)[node.scale]
+    model_spec = get(model_specs_at_scale, node.process, as_model_spec(node.value))
+    model_clock = _model_clock(model_spec, node.value)
+    t = _time_from_step(i)
 
     for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
+        should_run = !multirate || _should_run_at_time(model_clock, t)
+        !should_run && continue
+        if multirate
+            resolve_inputs_from_temporal_state!(object, node, st, t, model_spec)
+        end
         # Actual call to the model:
         run!(node.value, models_at_scale, st, meteo, constants, extra)
+        if multirate
+            update_temporal_state_outputs!(object, node, st, t)
+        end
     end
 
     node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
@@ -470,6 +768,6 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate)
     end
 end

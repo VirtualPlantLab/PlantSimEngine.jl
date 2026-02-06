@@ -81,7 +81,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
         # insert timestep models wherever they're required
         if organ == timestep_model_organ_level
             # mapping at a given level can be a tuple or a single model
-            if isa(mapping[organ], AbstractModel) || isa(mapping[organ], MultiScaleModel)
+            if isa(mapping[organ], AbstractModel) || isa(mapping[organ], MultiScaleModel) || isa(mapping[organ], ModelSpec)
                 mapping[organ] = (
                     HelperNextTimestepModel(),
                     MultiScaleModel(
@@ -258,7 +258,7 @@ function check_statuses_contain_no_remaining_vectors(mapping)
     for (organ,models) in mapping
 
         # Special case (scales that map to a single-model don't need to be declared as a tuple for user-convenience)
-        if isa(models, AbstractModel) || isa(models, MultiScaleModel)
+        if isa(models, AbstractModel) || isa(models, MultiScaleModel) || isa(models, ModelSpec)
             continue
         end
 

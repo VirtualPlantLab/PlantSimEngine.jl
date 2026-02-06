@@ -26,6 +26,14 @@ include("helper-functions.jl")
         include("test-mapping.jl")
     end
 
+    @testset "Multi-rate scaffolding" begin
+        include("test-multirate-scaffolding.jl")
+    end
+
+    @testset "Multi-rate runtime" begin
+        include("test-multirate-runtime.jl")
+    end
+
     @testset "MultiScaleModel" begin
         include("test-MultiScaleModel.jl")
     end

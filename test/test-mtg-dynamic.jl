@@ -87,3 +87,100 @@ out = run!(sim,meteo)
     @test out_df_dict["Internode"][:, :TT_cu_emergence] == [0.0, 0.0, 0.0, 0.0, 25.0]
     @test out_df_dict["Leaf"][:, :carbon_demand] == [0.5, 0.5, 0.75, 0.75, 0.75]
 end
+
+@testset "MTG with mixed daily/hourly clocks (2 leaves)" begin
+    mtg2 = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
+    plant2 = Node(mtg2, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+    Node(mtg2, MultiScaleTreeGraph.NodeMTG("+", "Soil", 1, 1))
+    internode2 = Node(plant2, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+
+    daily = ClockSpec(24.0, 1.0)
+    hourly = 1.0
+
+    mapping2 = Dict(
+        "Scene" => (
+            ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStepModel(daily),
+        ),
+        "Plant" => (
+            ModelSpec(ToyLAIModel()) |>
+            MultiScaleModel([:TT_cu => "Scene"]) |>
+            TimeStepModel(daily),
+            ModelSpec(Beer(0.6)) |> TimeStepModel(hourly),
+            ModelSpec(ToyCAllocationModel()) |>
+            MultiScaleModel([
+                :carbon_assimilation => ["Leaf"],
+                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_allocation => ["Leaf", "Internode"],
+            ]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyPlantRmModel()) |>
+            MultiScaleModel([:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]]) |>
+            TimeStepModel(daily),
+        ),
+        "Internode" => (
+            ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
+            MultiScaleModel([:TT => "Scene"]) |>
+            TimeStepModel(daily),
+            # Keep emergence model in the stack (as in the dynamic test), but prevent growth in this scenario.
+            ModelSpec(ToyInternodeEmergence(TT_emergence=1.0e6)) |>
+            MultiScaleModel([:TT_cu => "Scene"]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004)) |> TimeStepModel(daily),
+            Status(carbon_biomass=1.0),
+        ),
+        "Leaf" => (
+            ModelSpec(ToyAssimModel()) |>
+            MultiScaleModel([:soil_water_content => "Soil", :aPPFD => "Plant"]) |>
+            TimeStepModel(hourly),
+            ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
+            MultiScaleModel([:TT => "Scene"]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025)) |> TimeStepModel(daily),
+            Status(carbon_biomass=1.0),
+        ),
+        "Soil" => (
+            ModelSpec(ToySoilWaterModel()) |> TimeStepModel(daily),
+        ),
+    )
+
+    out_vars2 = Dict(
+        "Leaf" => (:carbon_assimilation, :aPPFD, :carbon_demand),
+        "Plant" => (:LAI, :carbon_offer, :Rm),
+        "Scene" => (:TT, :TT_cu),
+        "Soil" => (:soil_water_content,),
+        "Internode" => (:carbon_demand, :TT_cu_emergence),
+    )
+
+    nsteps2 = 48
+    meteo2 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0)], nsteps2))
+    sim2 = PlantSimEngine.GraphSimulation(mtg2, mapping2, nsteps=nsteps2, check=true, outputs=out_vars2)
+    out2 = run!(sim2, meteo2, multirate=true, executor=SequentialEx())
+
+    st2 = status(sim2)
+    @test length(st2["Scene"]) == length(st2["Soil"]) == length(st2["Plant"]) == length(st2["Internode"]) == 1
+    @test length(st2["Leaf"]) == 2
+
+    scope = ScopeId(:global, 1)
+    last_run = sim2.temporal_state.last_run
+    p_dd = process(ToyDegreeDaysCumulModel())
+    p_lai = process(ToyLAIModel())
+    p_beer = process(Beer(0.6))
+    p_assim = process(ToyAssimModel())
+    p_alloc = process(ToyCAllocationModel())
+    p_cdemand = process(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0))
+    p_soil = process(ToySoilWaterModel())
+
+    @test last_run[ModelKey(scope, "Plant", p_beer)] == 48.0
+    @test last_run[ModelKey(scope, "Leaf", p_assim)] == 48.0
+
+    @test last_run[ModelKey(scope, "Scene", p_dd)] == 25.0
+    @test last_run[ModelKey(scope, "Plant", p_lai)] == 25.0
+    @test last_run[ModelKey(scope, "Plant", p_alloc)] == 25.0
+    @test last_run[ModelKey(scope, "Leaf", p_cdemand)] == 25.0
+    @test last_run[ModelKey(scope, "Soil", p_soil)] == 25.0
+
+    @test st2["Scene"][1].TT_cu == 20.0
+    @test !isempty(out2["Leaf"])
+end

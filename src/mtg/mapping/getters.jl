@@ -64,6 +64,23 @@ julia> PlantSimEngine.get_models(models2)
 """
 get_models(m) = [model_(i) for i in m if !isa(i, Status)]
 
+"""
+    get_model_specs(m)
+
+Normalize model declarations to `ModelSpec`.
+Plain models and `MultiScaleModel` entries are converted to `ModelSpec`.
+"""
+get_model_specs(m::ModelSpec) = [m]
+get_model_specs(m::AbstractModel) = [as_model_spec(m)]
+get_model_specs(m) = [as_model_spec(i) for i in m if !isa(i, Status)]
+
+"""
+    parse_model_specs(m)
+
+Return a process-indexed dictionary of normalized `ModelSpec`.
+"""
+parse_model_specs(m) = Dict(process(model_(spec)) => spec for spec in get_model_specs(m))
+
 
 # Same, for the status (if any provided):
 
@@ -105,7 +122,7 @@ Returns a vector of pairs of symbols and strings or vectors of strings
 See [`get_models`](@ref) for examples.
 """
 function get_mapped_variables(m)
-    mod_mapping = [mapped_variables_(i) for i in m if isa(i, MultiScaleModel)]
+    mod_mapping = [get_mapped_variables(i) for i in m if !isa(i, Status)]
     if length(mod_mapping) == 0
         return Pair{Symbol,String}[]
     end

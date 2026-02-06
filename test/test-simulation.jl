@@ -36,7 +36,7 @@ end;
 
 
 @testset "Simulation: 1 time-step, 1 Atmosphere" begin
-    
+
     status_nt = (var1=15.0, var2=0.3)
     models = ModelList(
         process1=Process1Model(1.0),
@@ -51,7 +51,7 @@ end;
     vars = keys(modellist_outputs)
     @test [modellist_outputs[i][1] for i in vars] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
 
-    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)
     @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
 end;
 
@@ -108,7 +108,7 @@ end;
 end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres" begin
-    
+
     status_nt = (var1=[15.0, 16.0], var2=0.3)
 
     models = ModelList(
@@ -136,7 +136,7 @@ end;
         [0.3, 0.3],
     ]
 
-    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)    
+    mtg, mapping, out = check_multiscale_simulation_is_equivalent_begin(models, status_nt, meteo)
     @test check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
 end;
 
@@ -214,7 +214,7 @@ end;
     #out = @test_nowarn run!(mtg, mapping, meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
     sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true)
-    out = @test_nowarn run!(sim,meteo)
+    out = @test_nowarn run!(sim, meteo)
 
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
     @test [sim.statuses["Leaf"][1][i] for i in vars] == [
@@ -224,27 +224,28 @@ end;
 
 
 @testset "Meteo+ModelList/mapping+outputs combos either valid or different status vector size vs meteo length either run successfully or return a DimensionMisMatch" begin
-    
+    verbose = false # set to true to print the indices of the combinations that fail
     meteos = get_simple_meteo_bank()
     modellists, status_tuples, outputs_tuples_vectors = get_modellist_bank()
 
     for i in 1:length(modellists)
-#       i = 3
+        #       i = 3
         modellist = modellists[i]
         status_tuple = status_tuples[i]
         outs_vector = outputs_tuples_vectors[i]
 
         for j in 1:length(meteos)
-#        j = 1
+            #        j = 1
             meteo = meteos[j]
             for k in 1:length(outs_vector)
-#            k = 7
-                out_tuple = outs_vector[k]                
-                @test try outs_modellist = run!(modellist, meteo; tracked_outputs=out_tuple)
+                #            k = 7
+                out_tuple = outs_vector[k]
+                @test try
+                    outs_modellist = run!(modellist, meteo; tracked_outputs=out_tuple)
                     true
                 catch e
-                    print(i," ", j, " ", k)
-                    println()
+                    verbose && print(i, " ", j, " ", k)
+                    verbose && println()
                     if isa(e, DimensionMismatch)
                         true
                     elseif isa(e, ErrorException)
@@ -262,27 +263,27 @@ end;
     mtgs, mappings, outs_tuples_vectors_mappings = get_simple_mapping_bank()
 
     for i in 1:length(mappings)
-#        i = 1
+        #        i = 1
         mapping = mappings[i]
         outs_vector = outs_tuples_vectors_mappings[i]
 
         for j in 1:length(meteos)
-#            j = 1
+            #            j = 1
             meteo = meteos[j]
             for k in 1:length(outs_vector)
-#                k = 4
+                #                k = 4
                 out_tuple = outs_vector[k]
-               
+
                 mtg = deepcopy(mtgs[i])
-                try 
+                try
                     outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple)
-                    @test true                                       
+                    @test true
                 catch e
-                    print(i," ", j, " ", k)
-                    println()                    
+                    verbose && print(i, " ", j, " ", k)
+                    verbose && println()
                     if isa(e, DimensionMismatch)
                         @test true
-                    #elseif isa(e, ErrorException)  
+                        #elseif isa(e, ErrorException)  
                     else
                         #@enter outs_multiscale = run!(mtg, mapping, meteo; tracked_outputs=out_tuple) 
                         showerror(stdout, e)
