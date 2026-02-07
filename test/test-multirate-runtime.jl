@@ -323,7 +323,7 @@ end
         OutputKey(ScopeId(:plant, plant_ancestor_id(st.node)), "Leaf", node_id(st.node), :mrcrosssource, :XS)
         for st in leaf_scoped_statuses
     ]
-    @test all(k -> haskey(sim_scoped.temporal_state.samples, k), leaf_scoped_keys)
+    @test all(k -> haskey(sim_scoped.temporal_state.caches, k), leaf_scoped_keys)
 
     # Expectation 9: Interpolate policy resolves a slower producer for a faster consumer.
     # Source runs at t=1,3,5 with values 1,3,5.
@@ -366,9 +366,9 @@ end
     @test status(sim_agg)["Leaf"][1].YA == 2.5
     nid_agg = node_id(status(sim_agg)["Leaf"][1].node)
     key_agg = OutputKey(scope, "Leaf", nid_agg, :mraggsource, :XA)
-    @test length(sim_agg.temporal_state.samples[key_agg]) == 4
-    @test length(sim_agg.temporal_state.runtime_samples[key_agg]) <= 2
-    @test sim_agg.temporal_state.runtime_window_horizon == 2.0
+    @test haskey(sim_agg.temporal_state.streams, key_agg)
+    @test length(sim_agg.temporal_state.streams[key_agg]) <= 2
+    @test sim_agg.temporal_state.producer_horizons[("Leaf", :mraggsource, :XA)] == 2.0
 
     # Expectation 11: parameterized Aggregate reducer (symbol) is applied per window.
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=:max.

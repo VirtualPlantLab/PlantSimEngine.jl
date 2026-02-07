@@ -156,6 +156,9 @@ function run!(
     multirate=false
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+
     if executor != SequentialEx()
         @warn string(
             "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
@@ -190,6 +193,9 @@ function run!(
     executor=ThreadedEx(),
     multirate=false
 ) where {T<:ModelList}
+
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
 
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
@@ -283,6 +289,9 @@ function run!(
     multirate=false
 ) where {T<:Union{AbstractArray,AbstractDict}}
 
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+
     dep_graphs = [dep(obj) for obj in collect(values(object))]
     #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
 
@@ -364,6 +373,22 @@ end
 # Another user entry point
 # If we pass an MTG and a mapping, then we use them to compute a GraphSimulation object 
 # that we then use with the generic run! entry point.
+function _multirate_tracked_outputs(tracked_outputs)
+    if isnothing(tracked_outputs)
+        return nothing, OutputRequest[]
+    elseif tracked_outputs isa Dict
+        return tracked_outputs, OutputRequest[]
+    elseif tracked_outputs isa OutputRequest
+        return nothing, OutputRequest[tracked_outputs]
+    elseif tracked_outputs isa AbstractVector{<:OutputRequest}
+        return nothing, collect(tracked_outputs)
+    end
+    error(
+        "For MTG multi-rate runs, `tracked_outputs` must be `nothing`, a Dict of status outputs, ",
+        "an `OutputRequest`, or a vector of `OutputRequest`."
+    )
+end
+
 function run!(
     object::MultiScaleTreeGraph.Node,
     mapping::Dict{String,T} where {T},
@@ -378,10 +403,12 @@ function run!(
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
+    status_outputs, output_requests = _multirate_tracked_outputs(tracked_outputs)
+    !multirate && !isempty(output_requests) && error("`OutputRequest` requires `multirate=true`.")
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs)
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=status_outputs)
     run!(
         sim,
         meteo_adjusted,
@@ -389,7 +416,8 @@ function run!(
         extra;
         check=check,
         executor=executor,
-        multirate=multirate
+        multirate=multirate,
+        tracked_outputs=output_requests
     )
 
     return outputs(sim)
@@ -413,7 +441,8 @@ function run!(
     # st = status(object)
     if multirate
         validate_canonical_publishers(object)
-        configure_runtime_temporal_buffers!(object, timeline)
+        prepare_output_requests!(object, tracked_outputs, timeline)
+        configure_temporal_buffers!(object, timeline)
     end
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
@@ -426,6 +455,7 @@ function run!(
         for (process_key, dependency_node) in roots
             run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor, multirate, timeline)
         end
+        multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
         save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
@@ -433,6 +463,7 @@ function run!(
             for (process_key, dependency_node) in roots
                 run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor, multirate, timeline)
             end
+            multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
             # At the end of the time-step, we save the results of the simulation in the object:
             save_results!(object, i)
         end

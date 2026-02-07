@@ -59,40 +59,73 @@ function validate_canonical_publishers(sim::GraphSimulation)
     return nothing
 end
 
-function _runtime_window_horizon(sim::GraphSimulation, timeline::TimelineContext)
-    max_dt = 1.0
-    for (scale, models_at_scale) in get_models(sim)
-        specs_at_scale = get_model_specs(sim)[scale]
-        for (process, model) in pairs(models_at_scale)
-            model_spec = get(specs_at_scale, process, as_model_spec(model))
-            consumer_clock = _model_clock(model_spec, model, timeline)
-            consumer_dt = float(consumer_clock.dt)
-            for (_, raw_binding) in pairs(input_bindings(model_spec))
-                parsed = _parse_input_binding(raw_binding)
-                isnothing(parsed) && continue
-                policy = parsed.policy
-                if policy isa Union{Integrate,Aggregate}
-                    max_dt = max(max_dt, consumer_dt)
-                end
-            end
-        end
-    end
-    return max_dt
-end
+_producer_signature(scale::String, process::Symbol, var::Symbol) = (scale, process, var)
 
-"""
-    configure_runtime_temporal_buffers!(sim, timeline)
-
-Prepare bounded runtime temporal buffers used by input resolution.
-Full sample history used by export stays in `temporal_state.samples`.
-"""
-function configure_runtime_temporal_buffers!(sim::GraphSimulation, timeline::TimelineContext)
-    sim.temporal_state.runtime_window_horizon = _runtime_window_horizon(sim, timeline)
-    empty!(sim.temporal_state.runtime_samples)
+function _max_horizon!(horizons::Dict{Tuple{String,Symbol,Symbol},Float64}, key::Tuple{String,Symbol,Symbol}, required::Float64)
+    horizons[key] = max(get(horizons, key, 0.0), required)
     return nothing
 end
 
-function _trim_runtime_samples!(samples::Vector{Tuple{Float64,Any}}, t::Float64, horizon::Float64)
+function _required_horizon_for_policy(policy::SchedulePolicy, consumer_dt::Float64, source_dt::Float64)
+    if policy isa Union{Integrate,Aggregate}
+        return max(1.0, consumer_dt)
+    elseif policy isa Interpolate
+        # Keep at least two source samples for interpolation/extrapolation.
+        return max(2.0, source_dt + 1.0)
+    end
+    return 0.0
+end
+
+function _consumer_horizon_requirements(sim::GraphSimulation, timeline::TimelineContext)
+    horizons = Dict{Tuple{String,Symbol,Symbol},Float64}()
+
+    dep_nodes = traverse_dependency_graph(dep(sim), false)
+    for node in dep_nodes
+        model_spec = _model_spec_for_process(sim, node.scale, node.process)
+        consumer_clock = _model_clock(model_spec, node.value, timeline)
+        consumer_dt = float(consumer_clock.dt)
+
+        for (input_var, raw_binding) in pairs(input_bindings(model_spec))
+            parsed = _parse_input_binding(raw_binding)
+            isnothing(parsed) && continue
+            isnothing(parsed.process) && continue
+            source_process = parsed.process
+            source_var = isnothing(parsed.var) ? input_var : parsed.var
+            source_scale = isnothing(parsed.scale) ? _source_scale_for_process(node, source_process) : parsed.scale
+            source_scale = string(source_scale)
+            source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
+            source_model = get_models(sim)[source_scale][source_process]
+            source_clock = _model_clock(source_model_spec, source_model, timeline)
+            source_dt = float(source_clock.dt)
+            required = _required_horizon_for_policy(parsed.policy, consumer_dt, source_dt)
+            required <= 0.0 && continue
+            key = _producer_signature(source_scale, source_process, source_var)
+            _max_horizon!(horizons, key, required)
+        end
+    end
+
+    return horizons
+end
+
+"""
+    configure_temporal_buffers!(sim, timeline)
+
+Prepare bounded producer streams used at runtime and online export.
+"""
+function configure_temporal_buffers!(sim::GraphSimulation, timeline::TimelineContext)
+    horizons = _consumer_horizon_requirements(sim, timeline)
+    for (key, required) in export_horizon_requirements(sim)
+        _max_horizon!(horizons, key, required)
+    end
+    sim.temporal_state.producer_horizons = horizons
+    empty!(sim.temporal_state.streams)
+    empty!(sim.temporal_state.caches)
+    empty!(sim.temporal_state.last_run)
+    return nothing
+end
+
+function _trim_stream!(samples::Vector{Tuple{Float64,Any}}, t::Float64, horizon::Float64)
+    horizon <= 0.0 && (empty!(samples); return nothing)
     t_min = t - horizon + 1.0 - 1e-8
     first_keep = findfirst(s -> s[1] >= t_min, samples)
     isnothing(first_keep) && (empty!(samples); return nothing)
@@ -119,13 +152,13 @@ function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependen
     for out_var in outs
         val = st[out_var]
         key = OutputKey(scope, node.scale, nodeid, node.process, out_var)
+        producer_key = _producer_signature(node.scale, node.process, out_var)
 
-        # Keep a full sample stream for windowed policies.
-        samples = get!(sim.temporal_state.samples, key, Vector{Tuple{Float64,Any}}())
-        push!(samples, (t, val))
-        runtime_samples = get!(sim.temporal_state.runtime_samples, key, Vector{Tuple{Float64,Any}}())
-        push!(runtime_samples, (t, val))
-        _trim_runtime_samples!(runtime_samples, t, sim.temporal_state.runtime_window_horizon)
+        if haskey(sim.temporal_state.producer_horizons, producer_key)
+            samples = get!(sim.temporal_state.streams, key, Vector{Tuple{Float64,Any}}())
+            push!(samples, (t, val))
+            _trim_stream!(samples, t, sim.temporal_state.producer_horizons[producer_key])
+        end
 
         policy = _policy_for_output(model, out_var)
         policy isa HoldLast || continue

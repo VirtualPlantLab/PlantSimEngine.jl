@@ -1,16 +1,7 @@
 """
     OutputRequest(scale, var; name=var, process=nothing, policy=HoldLast(), clock=nothing)
 
-Describe one exported multi-rate output series from temporal producer streams.
-
-# Fields
-
-- `scale`: source scale (e.g. `"Leaf"`).
-- `var`: source variable name.
-- `name`: output series key in the returned dictionary.
-- `process`: optional source process. If omitted, canonical source resolution is used.
-- `policy`: resampling policy used at export time (`HoldLast`, `Interpolate`, `Integrate`, `Aggregate`).
-- `clock`: optional target export clock (`Real`, `ClockSpec`, `Dates.Period`).
+Describe one online-exported multi-rate output series.
 """
 struct OutputRequest{S<:AbstractString,P<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
     scale::S
@@ -42,14 +33,6 @@ function _export_clock(request::OutputRequest, timeline::TimelineContext)
     return c
 end
 
-function _max_export_time(sim::GraphSimulation, nsteps)
-    !isnothing(nsteps) && return Int(nsteps)
-    isempty(sim.temporal_state.last_run) && error(
-        "No temporal samples available. Run simulation with `multirate=true` before calling `collect_outputs`."
-    )
-    return Int(floor(maximum(values(sim.temporal_state.last_run))))
-end
-
 function _canonical_source_process(sim::GraphSimulation, scale::String, var::Symbol)
     haskey(get_models(sim), scale) || error("Unknown scale `$(scale)` in output export request.")
     models_at_scale = get_models(sim)[scale]
@@ -79,7 +62,84 @@ function _canonical_source_process(sim::GraphSimulation, scale::String, var::Sym
     return only(publishers)
 end
 
-function _resolve_output_value(
+function _normalize_output_requests(requests)
+    isnothing(requests) && return OutputRequest[]
+    requests isa OutputRequest && return OutputRequest[requests]
+    requests isa AbstractVector{<:OutputRequest} || error(
+        "`tracked_outputs` (for multi-rate exports) must be `nothing`, an `OutputRequest`, or a vector of `OutputRequest`."
+    )
+    return collect(requests)
+end
+
+"""
+    prepare_output_requests!(sim, requests, timeline)
+
+Resolve and register online export requests for the current run.
+"""
+function prepare_output_requests!(sim::GraphSimulation, requests, timeline::TimelineContext)
+    reqs = _normalize_output_requests(requests)
+
+    plans = Any[]
+    rows = Dict{Symbol,Vector{NamedTuple}}()
+
+    for req in reqs
+        scale = String(req.scale)
+        process = isnothing(req.process) ? _canonical_source_process(sim, scale, req.var) : req.process
+        model_spec = _model_spec_for_process(sim, scale, process)
+        source_model = get_models(sim)[scale][process]
+        source_clock = _model_clock(model_spec, source_model, timeline)
+        clock = _export_clock(req, timeline)
+
+        haskey(rows, req.name) && error(
+            "Duplicate output request name `$(req.name)`. Request names must be unique."
+        )
+
+        push!(plans, (
+            name=req.name,
+            scale=scale,
+            var=req.var,
+            process=process,
+            policy=req.policy,
+            clock=clock,
+            model_spec=model_spec,
+            source_dt=float(source_clock.dt),
+        ))
+        rows[req.name] = NamedTuple[]
+    end
+
+    sim.temporal_state.export_plans = plans
+    sim.temporal_state.export_rows = rows
+    return nothing
+end
+
+function _required_horizon_for_export_policy(policy::SchedulePolicy, clock::ClockSpec, source_dt::Float64)
+    if policy isa Union{Integrate,Aggregate}
+        return max(1.0, float(clock.dt))
+    elseif policy isa Interpolate
+        return max(2.0, source_dt + 1.0)
+    end
+    # HoldLast export is served from caches and does not require streams.
+    return 0.0
+end
+
+"""
+    export_horizon_requirements(sim)
+
+Return additional producer horizon requirements induced by configured online
+export requests.
+"""
+function export_horizon_requirements(sim::GraphSimulation)
+    horizons = Dict{Tuple{String,Symbol,Symbol},Float64}()
+    for plan in sim.temporal_state.export_plans
+        required = _required_horizon_for_export_policy(plan.policy, plan.clock, plan.source_dt)
+        required <= 0.0 && continue
+        key = (plan.scale, plan.process, plan.var)
+        horizons[key] = max(get(horizons, key, 0.0), required)
+    end
+    return horizons
+end
+
+function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::HoldLast,
     scope::ScopeId,
@@ -90,20 +150,11 @@ function _resolve_output_value(
     t::Float64,
     t_start::Float64
 )
-    key = OutputKey(scope, scale, nodeid, process, var)
-    samples = get(sim.temporal_state.samples, key, nothing)
-    isnothing(samples) && return missing
-    isempty(samples) && return missing
-    idx = findlast(s -> s[1] <= t + 1e-8, samples)
-    if isnothing(idx)
-        v = samples[1][2]
-        return v
-    end
-    v = samples[idx][2]
-    return v
+    v, ok = _resolved_value_for_source(sim, scope, scale, process, var, nodeid, t)
+    return ok ? v : missing
 end
 
-function _resolve_output_value(
+function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::Interpolate,
     scope::ScopeId,
@@ -114,13 +165,11 @@ function _resolve_output_value(
     t::Float64,
     t_start::Float64
 )
-    v, ok = _resolved_interpolated_value_for_source(
-        sim, scope, scale, process, var, nodeid, t, policy; runtime=false
-    )
+    v, ok = _resolved_interpolated_value_for_source(sim, scope, scale, process, var, nodeid, t, policy)
     return ok ? v : missing
 end
 
-function _resolve_output_value(
+function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::Union{Integrate,Aggregate},
     scope::ScopeId,
@@ -131,47 +180,51 @@ function _resolve_output_value(
     t::Float64,
     t_start::Float64
 )
-    v, ok = _resolved_windowed_value_for_source(
-        sim, scope, scale, process, var, nodeid, t_start, t, policy; runtime=false
-    )
+    v, ok = _resolved_windowed_value_for_source(sim, scope, scale, process, var, nodeid, t_start, t, policy)
     return ok ? v : missing
 end
 
-function _collect_one_output_request(
-    sim::GraphSimulation,
-    request::OutputRequest,
-    timeline::TimelineContext,
-    max_t::Int
-)
-    scale = String(request.scale)
-    process = isnothing(request.process) ? _canonical_source_process(sim, scale, request.var) : request.process
-    model_spec = _model_spec_for_process(sim, scale, process)
-    source_statuses = get(status(sim), scale, nothing)
-    isnothing(source_statuses) && error("No statuses found at scale `$(scale)` for OutputRequest `$(request.name)`.")
+"""
+    update_requested_outputs!(sim, t)
 
-    clock = _export_clock(request, timeline)
-    times = Int[t for t in 1:max_t if _should_run_at_time(clock, float(t))]
-    rows = NamedTuple[]
+Materialize configured output requests online at runtime time `t`.
+"""
+function update_requested_outputs!(sim::GraphSimulation, t::Float64)
+    isempty(sim.temporal_state.export_plans) && return nothing
 
-    for st in source_statuses
-        scope = _scope_for_status(sim, model_spec, scale, process, st.node)
-        nodeid = node_id(st.node)
-        for ti in times
-            t = float(ti)
-            t_start = _window_start_for_clock(clock, t)
-            v = _resolve_output_value(sim, request.policy, scope, scale, process, request.var, nodeid, t, t_start)
-            push!(rows, (
-                timestep=ti,
-                scale=scale,
-                process=process,
-                var=request.var,
+    for plan in sim.temporal_state.export_plans
+        _should_run_at_time(plan.clock, t) || continue
+        source_statuses = get(status(sim), plan.scale, nothing)
+        isnothing(source_statuses) && continue
+
+        t_start = _window_start_for_clock(plan.clock, t)
+        for st in source_statuses
+            scope = _scope_for_status(sim, plan.model_spec, plan.scale, plan.process, st.node)
+            nodeid = node_id(st.node)
+            v = _resolve_output_value_online(
+                sim,
+                plan.policy,
+                scope,
+                plan.scale,
+                plan.process,
+                plan.var,
+                nodeid,
+                t,
+                t_start,
+            )
+
+            push!(sim.temporal_state.export_rows[plan.name], (
+                timestep=Int(round(t)),
+                scale=plan.scale,
+                process=plan.process,
+                var=plan.var,
                 node=nodeid,
                 value=v,
             ))
         end
     end
 
-    return rows
+    return nothing
 end
 
 function _materialize_output_rows(rows, sink)
@@ -180,36 +233,21 @@ function _materialize_output_rows(rows, sink)
 end
 
 """
-    collect_outputs(sim, requests; nsteps=nothing, meteo=nothing, sink=DataFrame)
+    collect_outputs(sim; sink=DataFrame)
 
-Export selected multi-rate output series from producer temporal streams.
-
-Returns a dictionary keyed by request `name`.
-Each value is materialized with `sink` (default: `DataFrame`).
+Return online-exported output rows configured for the run.
 """
-function collect_outputs(
-    sim::GraphSimulation,
-    requests::AbstractVector{<:OutputRequest};
-    nsteps=nothing,
-    meteo=nothing,
-    sink=DataFrames.DataFrame
-)
-    timeline = _timeline_context(meteo)
-    max_t = _max_export_time(sim, nsteps)
+function collect_outputs(sim::GraphSimulation; sink=DataFrames.DataFrame)
     out = Dict{Symbol,Any}()
-    for req in requests
-        rows = _collect_one_output_request(sim, req, timeline, max_t)
-        out[req.name] = _materialize_output_rows(rows, sink)
+    for (name, rows) in sim.temporal_state.export_rows
+        out[name] = _materialize_output_rows(rows, sink)
     end
     return out
 end
 
-function collect_outputs(
-    sim::GraphSimulation,
-    request::OutputRequest;
-    nsteps=nothing,
-    meteo=nothing,
-    sink=DataFrames.DataFrame
-)
-    return collect_outputs(sim, [request]; nsteps=nsteps, meteo=meteo, sink=sink)[request.name]
+function collect_outputs(sim::GraphSimulation, name::Symbol; sink=DataFrames.DataFrame)
+    haskey(sim.temporal_state.export_rows, name) || error(
+        "Unknown output request name `$(name)`."
+    )
+    return _materialize_output_rows(sim.temporal_state.export_rows[name], sink)
 end

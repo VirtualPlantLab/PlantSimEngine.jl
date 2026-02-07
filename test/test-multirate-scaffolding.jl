@@ -32,8 +32,10 @@ using Test
     ts = TemporalState()
     @test isempty(ts.caches)
     @test isempty(ts.last_run)
-    @test isempty(ts.runtime_samples)
-    @test ts.runtime_window_horizon == 1.0
+    @test isempty(ts.streams)
+    @test isempty(ts.producer_horizons)
+    @test isempty(ts.export_plans)
+    @test isempty(ts.export_rows)
 
     scope = ScopeId(:global, 1)
     key = OutputKey(scope, "Leaf", 7, :process1, :var3)
