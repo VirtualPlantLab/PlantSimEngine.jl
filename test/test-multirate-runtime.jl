@@ -261,6 +261,33 @@ end
     @test sim_clock_override.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclocksource)] == 4.0
     @test sim_clock_override.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclockconsumer)] == 3.0
 
+    # Expectation 7b: non-sequential executors warn and fall back to sequential behavior.
+    mapping_clock_fallback_seq = Dict(
+        "Leaf" => (
+            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
+            ModelSpec(MRClockConsumerModel()) |>
+            InputBindings(; X=(process=:mrclocksource, var=:X)),
+        ),
+    )
+    sim_clock_fallback_seq = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_seq, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
+    out_fallback_seq = run!(sim_clock_fallback_seq, meteo4, multirate=true, executor=SequentialEx())
+    out_fallback_seq_df = convert_outputs(out_fallback_seq, DataFrame)
+
+    mapping_clock_fallback_threaded = Dict(
+        "Leaf" => (
+            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
+            ModelSpec(MRClockConsumerModel()) |>
+            InputBindings(; X=(process=:mrclocksource, var=:X)),
+        ),
+    )
+    sim_clock_fallback_threaded = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_threaded, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
+    @test_logs (:warn, r"Multi-rate MTG runs currently execute sequentially") begin
+        out_fallback_threaded = run!(sim_clock_fallback_threaded, meteo4, multirate=true, executor=ThreadedEx())
+        out_fallback_threaded_df = convert_outputs(out_fallback_threaded, DataFrame)
+        @test out_fallback_threaded_df["Leaf"][:, :X] == out_fallback_seq_df["Leaf"][:, :X]
+        @test out_fallback_threaded_df["Leaf"][:, :Y] == out_fallback_seq_df["Leaf"][:, :Y]
+    end
+
     # Expectation 8: cross-scale hold-last resolution works with different clocks.
     # Leaf producer runs each step; Plant consumer runs every 2 steps (1, 3) and reads Leaf XS through multiscale mapping.
     source_counter_3 = Ref(0)
@@ -462,7 +489,16 @@ end
     @test out_daily_period_df["Leaf"][25:26, :YD] == [2.0, 2.0]
     @test sim_daily_period.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
 
-    # Expectation 16: invalid mapping-level API configuration fails during GraphSimulation init.
+    # Expectation 16: model timesteps shorter than meteo base step are rejected.
+    mapping_substep_period = Dict(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Minute(30)),
+        ),
+    )
+    sim_substep_period = PlantSimEngine.GraphSimulation(mtg, mapping_substep_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:XD,)))
+    @test_throws "shorter than simulation base step" run!(sim_substep_period, meteo_hourly, multirate=true, executor=SequentialEx())
+
+    # Expectation 17: invalid mapping-level API configuration fails during GraphSimulation init.
     mapping_bad_input = Dict(
         "Leaf" => (
             MRSourceModel(),
