@@ -4,7 +4,14 @@
 
 ### Varying timesteps
 
-Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap, and is planned as the next milestone.
+Model-level varying timesteps are now available experimentally for MTG simulations
+through multi-rate execution (`multirate=true`) and mapping-level `ModelSpec` transforms
+such as `TimeStepModel`, `InputBindings`, `OutputRouting`, and `ScopeModel`.
+
+Current remaining gaps for this area are:
+- no sub-step execution below the meteo base step duration;
+- no dedicated event scheduler for irregular/non-fixed calendar execution;
+- no threaded/distributed multi-rate MTG execution path yet (multi-rate MTG runs are currently sequential).
 
 A technical draft for scoped multi-rate execution is available here:
 - [Multi-rate and scoped simulation draft](multirate_design_draft.md)

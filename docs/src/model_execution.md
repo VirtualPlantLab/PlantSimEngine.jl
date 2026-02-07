@@ -88,6 +88,11 @@ mapping = Dict(
 
 When `multirate=true` is passed to `run!`, the runtime resolves inputs from producer temporal streams according to these policies.
 
+### Current limitations
+
+- Multi-rate MTG runs currently execute sequentially. Passing `executor=ThreadedEx()` or `executor=DistributedEx()` falls back to sequential execution with a warning.
+- Sub-step execution is currently unsupported: model timesteps shorter than the meteo base step (for example `TimeStepModel(Dates.Minute(30))` with hourly meteo) raise an error.
+
 ## Multi-rate output export (experimental)
 
 You can export selected variables at a requested rate from temporal streams:

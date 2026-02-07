@@ -16,7 +16,8 @@ A type that holds all information for a simulation over a graph.
 - `models`: a dictionary of models
 - `model_specs`: a dictionary of normalized model usage specifications
 - `outputs`: a dictionary of outputs
-- `temporal_state`: multi-rate temporal storage (scaffolding, currently unused at runtime)
+- `temporal_state`: multi-rate temporal storage used at runtime for producer streams,
+  input resolution caches, run clocks, and requested output export buffers
 """
 struct GraphSimulation{T,S,U,O,V,TS,MS}
     graph::T
