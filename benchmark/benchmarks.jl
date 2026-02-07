@@ -30,11 +30,13 @@ SUITE[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
 # "PSE benchmark"
 include("test-PSE-benchmark.jl")
 SUITE[suite_name]["PSE"] = @benchmarkable do_benchmark_on_heavier_mtg()
-include("test-multirate-buffer-benchmark.jl")
-mtg_mr, mapping_mr, meteo_mr, reqs_mr, tracked_mr, nsteps_mr = setup_multirate_buffer_benchmark()
-SUITE[suite_name]["PSE_multirate_status_tracked_run"] = @benchmarkable benchmark_multirate_status_tracked_run($mtg_mr, $mapping_mr, $meteo_mr, $tracked_mr, $nsteps_mr)
-SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run($mtg_mr, $mapping_mr, $meteo_mr, $reqs_mr, $tracked_mr, $nsteps_mr)
 
+if isdefined(PlantSimEngine, :ModelSpec) # Only in new versions
+    include("test-multirate-buffer-benchmark.jl")
+    mtg_mr, mapping_mr, meteo_mr, reqs_mr, tracked_mr, nsteps_mr = setup_multirate_buffer_benchmark()
+    SUITE[suite_name]["PSE_multirate_status_tracked_run"] = @benchmarkable benchmark_multirate_status_tracked_run($mtg_mr, $mapping_mr, $meteo_mr, $tracked_mr, $nsteps_mr)
+    SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run($mtg_mr, $mapping_mr, $meteo_mr, $reqs_mr, $tracked_mr, $nsteps_mr)
+end
 # "PBP benchmark"
 include("test-plantbiophysics.jl")
 SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
