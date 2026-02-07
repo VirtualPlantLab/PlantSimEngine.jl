@@ -22,12 +22,15 @@ multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed w
 - `outputs`: the outputs to get in dynamic for each node type of the MTG.
 - `multirate`: experimental feature flag enabling temporal cache-based input resolution for multiscale simulations.
 Current implementation supports `HoldLast` resolution only.
+- `return_requested_outputs`: when `true` in MTG multi-rate runs, return requested resampled outputs directly
+  as second return value.
+- `requested_outputs_sink`: sink used to materialize requested outputs when `return_requested_outputs=true`.
 
 # Returns 
 
-Modifies the status of the object in-place. Users may retrieve the results from the object using 
-the [`status`](https://virtualplantlab.github.io/PlantSimEngine.jl/stable/API/#PlantSimEngine.status-Tuple{Any}) 
-function (see examples).
+Returns status outputs (and optionally requested exports).
+For MTG multi-rate runs with `return_requested_outputs=true`, returns
+`(status_outputs, requested_outputs)`.
 
 # Details 
 
@@ -124,7 +127,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
     run!(
         DataFormat(object),
@@ -135,7 +140,9 @@ function run!(
         tracked_outputs,
         check,
         executor,
-        multirate
+        multirate,
+        return_requested_outputs,
+        requested_outputs_sink
     )
 end
 
@@ -153,11 +160,14 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict},A}
 
     tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
     tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
 
     if executor != SequentialEx()
         @warn string(
@@ -191,11 +201,14 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelList}
 
     tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
     tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
 
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
@@ -286,11 +299,14 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict}}
 
     tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
     tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
 
     dep_graphs = [dep(obj) for obj in collect(values(object))]
     #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
@@ -376,17 +392,12 @@ end
 function _multirate_tracked_outputs(tracked_outputs)
     if isnothing(tracked_outputs)
         return nothing, OutputRequest[]
-    elseif tracked_outputs isa Dict
-        return tracked_outputs, OutputRequest[]
     elseif tracked_outputs isa OutputRequest
         return nothing, OutputRequest[tracked_outputs]
     elseif tracked_outputs isa AbstractVector{<:OutputRequest}
         return nothing, collect(tracked_outputs)
     end
-    error(
-        "For MTG multi-rate runs, `tracked_outputs` must be `nothing`, a Dict of status outputs, ",
-        "an `OutputRequest`, or a vector of `OutputRequest`."
-    )
+    return tracked_outputs, OutputRequest[]
 end
 
 function run!(
@@ -399,17 +410,20 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
     status_outputs, output_requests = _multirate_tracked_outputs(tracked_outputs)
     !multirate && !isempty(output_requests) && error("`OutputRequest` requires `multirate=true`.")
+    return_requested_outputs && !multirate && error("`return_requested_outputs=true` requires `multirate=true`.")
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
     sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=status_outputs)
-    run!(
+    result = run!(
         sim,
         meteo_adjusted,
         constants,
@@ -417,8 +431,14 @@ function run!(
         check=check,
         executor=executor,
         multirate=multirate,
-        tracked_outputs=output_requests
+        tracked_outputs=output_requests,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink
     )
+
+    if return_requested_outputs
+        return result
+    end
 
     return outputs(sim)
 end
@@ -432,7 +452,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
 
     dep_graph = object.dependency_graph
@@ -443,6 +465,8 @@ function run!(
         validate_canonical_publishers(object)
         prepare_output_requests!(object, tracked_outputs, timeline)
         configure_temporal_buffers!(object, timeline)
+    elseif return_requested_outputs
+        error("`return_requested_outputs=true` requires `multirate=true`.")
     end
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
@@ -473,6 +497,10 @@ function run!(
     # if models create organs, so shrink it down to the final size here
     for (organ, index) in object.outputs_index
         resize!(outputs(object)[organ], index - 1)
+    end
+
+    if return_requested_outputs
+        return outputs(object), collect_outputs(object; sink=requested_outputs_sink)
     end
 
     return outputs(object)

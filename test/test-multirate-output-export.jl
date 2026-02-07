@@ -77,4 +77,46 @@ end
     )
     exported_auto = collect_outputs(sim_canonical; sink=DataFrame)
     @test exported_auto[:x_auto][:, :value] == [1.0, 2.0, 3.0, 4.0]
+
+    # Optional direct export return from run! on GraphSimulation.
+    sim_direct = PlantSimEngine.GraphSimulation(
+        mtg,
+        Dict(
+            "Leaf" => (
+                ModelSpec(MRExportSourceModel(Ref(0))) |>
+                TimeStepModel(1.0),
+            ),
+        ),
+        nsteps=4,
+        check=true,
+        outputs=Dict("Leaf" => (:X,)),
+    )
+    out_status, out_requested = run!(
+        sim_direct,
+        meteo4,
+        multirate=true,
+        executor=SequentialEx(),
+        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_direct, policy=HoldLast())],
+        return_requested_outputs=true,
+    )
+    @test haskey(out_status, "Leaf")
+    @test out_requested[:x_direct][:, :value] == [1.0, 2.0, 3.0, 4.0]
+
+    # Optional direct export return from run! on MTG + mapping entry point.
+    out_status_mtg, out_requested_mtg = run!(
+        mtg,
+        Dict(
+            "Leaf" => (
+                ModelSpec(MRExportSourceModel(Ref(0))) |>
+                TimeStepModel(1.0),
+            ),
+        ),
+        meteo4;
+        multirate=true,
+        executor=SequentialEx(),
+        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_mtg, policy=HoldLast())],
+        return_requested_outputs=true,
+    )
+    @test haskey(out_status_mtg, "Leaf")
+    @test out_requested_mtg[:x_mtg][:, :value] == [1.0, 2.0, 3.0, 4.0]
 end

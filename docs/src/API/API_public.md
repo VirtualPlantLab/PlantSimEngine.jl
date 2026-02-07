@@ -22,7 +22,7 @@ For mapping-level multi-rate configuration, combine:
 - `InputBindings(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
-- `OutputRequest(...)` with `collect_outputs(...)` for resampled exports
+- `OutputRequest(...)` in `tracked_outputs` for resampled exports
 
 `TimeStepModel(...)` accepts:
 - `Real` step counts
@@ -45,7 +45,17 @@ Scope selection detail:
 ```julia
 req_hold = OutputRequest("Leaf", :A; name=:A_hourly, process=:assim, policy=HoldLast())
 req_day = OutputRequest("Leaf", :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
-out = collect_outputs(sim, [req_hold, req_day]; sink=DataFrame)
+run!(sim, meteo; multirate=true, tracked_outputs=[req_hold, req_day], executor=SequentialEx())
+out = collect_outputs(sim; sink=DataFrame)
+
+# or directly:
+out_status, out = run!(
+    sim,
+    meteo;
+    multirate=true,
+    tracked_outputs=[req_hold, req_day],
+    return_requested_outputs=true,
+)
 ```
 
 - `process` is optional when the source is canonical and unique.

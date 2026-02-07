@@ -100,7 +100,19 @@ req = OutputRequest("Leaf", :carbon_assimilation;
     clock=ClockSpec(24.0, 1.0)
 )
 
-exported = collect_outputs(sim, [req]; sink=DataFrame)
+run!(sim, meteo; multirate=true, tracked_outputs=[req], executor=SequentialEx())
+exported = collect_outputs(sim; sink=DataFrame)
 ```
 
-This is independent from `tracked_outputs` and allows per-variable resampling policies at export time.
+`tracked_outputs` accepts `OutputRequest` values for these resampled exports.
+You can also return them directly from `run!`:
+
+```julia
+out_status, exported = run!(
+    sim,
+    meteo;
+    multirate=true,
+    tracked_outputs=[req],
+    return_requested_outputs=true,
+)
+```

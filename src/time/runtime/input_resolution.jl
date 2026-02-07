@@ -36,18 +36,66 @@ function _resolved_windowed_value_for_source(
     samples = _resolution_samples(sim, key)
     isnothing(samples) && return nothing, false
 
-    vals = Any[]
-    for (ts, v) in samples
-        if ts >= t_start - 1e-8 && ts <= t_end + 1e-8
-            push!(vals, v)
+    if policy isa Union{Integrate,Aggregate}
+        reducer = policy.reducer
+        if reducer isa Symbol
+            reducer in _WINDOW_REDUCER_SYMBOLS || error(
+                "Unsupported reducer symbol `$(reducer)`. Supported symbols are $(_WINDOW_REDUCER_SYMBOLS)."
+            )
+
+            found = false
+            n = 0
+            s = 0.0
+            first_v = 0.0
+            last_v = 0.0
+            min_v = 0.0
+            max_v = 0.0
+
+            for (ts, v) in samples
+                ts < t_start - 1e-8 && continue
+                ts > t_end + 1e-8 && continue
+                v isa Real || return nothing, false
+                vf = float(v)
+
+                if !found
+                    found = true
+                    first_v = vf
+                    min_v = vf
+                    max_v = vf
+                end
+
+                last_v = vf
+                s += vf
+                n += 1
+                vf < min_v && (min_v = vf)
+                vf > max_v && (max_v = vf)
+            end
+
+            !found && return nothing, false
+
+            if reducer == :sum
+                return s, true
+            elseif reducer == :mean
+                return s / n, true
+            elseif reducer == :max
+                return max_v, true
+            elseif reducer == :min
+                return min_v, true
+            elseif reducer == :first
+                return first_v, true
+            elseif reducer == :last
+                return last_v, true
+            end
         end
-    end
-    isempty(vals) && return nothing, false
 
-    all(v -> v isa Real, vals) || return nothing, false
-    vals_real = [float(v) for v in vals]
-
-    if policy isa Integrate || policy isa Aggregate
+        vals_real = Float64[]
+        for (ts, v) in samples
+            ts < t_start - 1e-8 && continue
+            ts > t_end + 1e-8 && continue
+            v isa Real || return nothing, false
+            push!(vals_real, float(v))
+        end
+        isempty(vals_real) && return nothing, false
         return _window_reduce(vals_real, policy), true
     end
 
