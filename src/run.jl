@@ -483,7 +483,7 @@ function run_node_multiscale!(
         # Actual call to the model:
         run!(node.value, models_at_scale, st, meteo, constants, extra)
         if multirate
-            update_temporal_state_outputs!(object, node, st, t)
+            update_temporal_state_outputs!(object, node, model_spec, st, t)
         end
     end
 

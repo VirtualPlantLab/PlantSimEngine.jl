@@ -91,6 +91,14 @@ Allowed values are:
 output_routing(spec::ModelSpec) = spec.output_routing
 
 """
+    model_scope(spec::ModelSpec)
+
+Scope selector used by multi-rate runtime to partition producer streams.
+Default is `:global`.
+"""
+model_scope(spec::ModelSpec) = spec.scope
+
+"""
     inputs(mapping::Dict{String,T})
 
 Get the inputs of the models in a mapping, for each process and organ type.

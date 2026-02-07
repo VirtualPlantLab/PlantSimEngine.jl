@@ -1,13 +1,4 @@
 """
-    _default_scope(sim)
-
-Internal helper returning the default multi-rate scope identifier used by the
-current runtime.
-"""
-# Global default scope placeholder for first multi-rate slice.
-_default_scope(::GraphSimulation) = ScopeId(:global, 1)
-
-"""
     TimelineContext(base_step_seconds)
 
 Internal timing context for one simulation run.

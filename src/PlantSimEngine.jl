@@ -96,6 +96,7 @@ include("checks/dimensions.jl")
 
 # Multi-rate runtime:
 include("time/runtime/clocks.jl")
+include("time/runtime/scopes.jl")
 include("time/runtime/bindings.jl")
 include("time/runtime/input_resolution.jl")
 include("time/runtime/publishers.jl")
@@ -118,7 +119,7 @@ export ScopeId, ClockSpec, ModelKey, OutputKey
 export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
 export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
 export TemporalState
-export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, OutputRouting
+export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, OutputRouting, ScopeModel
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
@@ -126,7 +127,7 @@ export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
-export timespec, output_policy, input_bindings, output_routing
+export timespec, output_policy, input_bindings, output_routing, model_scope
 export run!
 export fit
 

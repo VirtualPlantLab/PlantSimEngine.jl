@@ -1,5 +1,5 @@
 """
-    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), output_routing=NamedTuple())
+    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), output_routing=NamedTuple(), scope=:global)
 
 User-side model configuration wrapper for mapping/model list composition.
 
@@ -7,12 +7,13 @@ User-side model configuration wrapper for mapping/model list composition.
 This allows modelers to publish reusable models while users decide how models are coupled in
 their simulation setup.
 """
-struct ModelSpec{M,MS,TS,IB,OR}
+struct ModelSpec{M,MS,TS,IB,OR,SC}
     model::M
     multiscale::MS
     timestep::TS
     input_bindings::IB
     output_routing::OR
+    scope::SC
 end
 
 function _normalize_multiscale_mapping(model::AbstractModel, mapped_variables)
@@ -26,7 +27,8 @@ function ModelSpec(
     multiscale=nothing,
     timestep=nothing,
     input_bindings=NamedTuple(),
-    output_routing=NamedTuple()
+    output_routing=NamedTuple(),
+    scope=:global
 )
     base_model = model
     base_multiscale = multiscale
@@ -39,12 +41,14 @@ function ModelSpec(
     normalized_multiscale = _normalize_multiscale_mapping(base_model, base_multiscale)
     normalized_input_bindings = _normalize_input_bindings(input_bindings)
     normalized_output_routing = _normalize_output_routing(output_routing)
-    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_output_routing)}(
+    normalized_scope = _normalize_scope_selector(scope)
+    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_output_routing),typeof(normalized_scope)}(
         base_model,
         normalized_multiscale,
         timestep,
         normalized_input_bindings,
-        normalized_output_routing
+        normalized_output_routing,
+        normalized_scope
     )
 end
 
@@ -54,9 +58,10 @@ function ModelSpec(
     multiscale=spec.multiscale,
     timestep=spec.timestep,
     input_bindings=spec.input_bindings,
-    output_routing=spec.output_routing
+    output_routing=spec.output_routing,
+    scope=spec.scope
 )
-    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, output_routing=output_routing)
+    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, output_routing=output_routing, scope=scope)
 end
 
 as_model_spec(spec::ModelSpec) = spec
@@ -103,6 +108,16 @@ function with_output_routing(model_or_spec, routing)
     return ModelSpec(spec; output_routing=_normalize_output_routing(routing))
 end
 
+"""
+    with_scope(model_or_spec, scope)
+
+Return a `ModelSpec` with explicit scope selection for multi-rate stream keys.
+"""
+function with_scope(model_or_spec, scope)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; scope=_normalize_scope_selector(scope))
+end
+
 function _normalize_input_binding(binding)
     if binding isa NamedTuple
         return haskey(binding, :policy) ? binding : (; binding..., policy=HoldLast())
@@ -139,6 +154,13 @@ end
 
 _normalize_output_routing(routing) = routing
 
+function _normalize_scope_selector(scope)
+    if scope isa AbstractString
+        return Symbol(scope)
+    end
+    return scope
+end
+
 """
     MultiScaleModel(mapped_variables)
 
@@ -173,6 +195,14 @@ Allowed modes:
 """
 OutputRouting(routing) = x -> with_output_routing(x, routing)
 OutputRouting(; kwargs...) = OutputRouting((; kwargs...))
+
+"""
+    ScopeModel(scope)
+
+Pipe-style transform that sets scope selection on a model/spec for multi-rate
+stream partitioning.
+"""
+ScopeModel(scope) = x -> with_scope(x, scope)
 
 model_(m::ModelSpec) = m.model
 mapped_variables_(m::ModelSpec) = isnothing(m.multiscale) ? Pair{Symbol,String}[] : m.multiscale

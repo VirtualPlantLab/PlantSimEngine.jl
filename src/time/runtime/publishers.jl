@@ -60,17 +60,17 @@ function validate_canonical_publishers(sim::GraphSimulation)
 end
 
 """
-    update_temporal_state_outputs!(sim, node, st, t)
+    update_temporal_state_outputs!(sim, node, model_spec, st, t)
 
 Store producer outputs at time `t` into temporal streams and hold-last caches.
 Also updates `last_run` for the emitting model key.
 """
-function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependencyNode, st::Status, t::Float64)
+function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependencyNode, model_spec, st::Status, t::Float64)
     model = node.value
     outs = keys(outputs_(model))
     length(outs) == 0 && return nothing
 
-    scope = _default_scope(sim)
+    scope = _scope_for_status(sim, model_spec, node.scale, node.process, st.node)
     nodeid = node_id(st.node)
     mkey = ModelKey(scope, node.scale, node.process)
     sim.temporal_state.last_run[mkey] = t

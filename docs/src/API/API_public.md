@@ -21,6 +21,7 @@ For mapping-level multi-rate configuration, combine:
 - `TimeStepModel(...)`
 - `InputBindings(...)`
 - `OutputRouting(...)`
+- `ScopeModel(...)`
 
 `TimeStepModel(...)` accepts:
 - `Real` step counts
@@ -31,6 +32,12 @@ Period conversion detail:
 - Period-based timesteps are converted using the meteo base step `duration`.
 - Example: `TimeStepModel(Dates.Day(1))` with hourly meteo (`Dates.Hour(1)`) maps to `ClockSpec(24.0, 1.0)`,
   so execution times are `t = 1, 25, 49, ...`.
+
+Scope selection detail:
+- `ScopeModel(:global)` is the default and shares streams across the whole simulation.
+- `ScopeModel(:plant)` isolates streams within each plant subtree.
+- `ScopeModel(:scene)` isolates by scene ancestor.
+- `ScopeModel(:self)` isolates by node id.
 
 ### Default hold-last
 

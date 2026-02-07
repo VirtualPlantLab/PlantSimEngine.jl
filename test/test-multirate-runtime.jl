@@ -282,6 +282,49 @@ end
     @test st_leaf_cross.XS == 4.0
     @test st_plant_cross.XP == 3.0
 
+    # Expectation 8b: scope partitioning isolates producer streams between plants.
+    scene2 = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
+    plant2_a = Node(scene2, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+    plant2_b = Node(scene2, MultiScaleTreeGraph.NodeMTG("+", "Plant", 2, 1))
+    internode2_a = Node(plant2_a, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    internode2_b = Node(plant2_b, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    Node(internode2_a, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    Node(internode2_b, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+
+    source_counter_scoped = Ref(0)
+    mapping_scoped = Dict(
+        "Leaf" => (
+            ModelSpec(MRCrossSourceModel(source_counter_scoped)) |> TimeStepModel(1.0) |> ScopeModel(:plant),
+        ),
+        "Plant" => (
+            ModelSpec(MRCrossConsumerModel()) |>
+            MultiScaleModel([:XS => ["Leaf"]]) |>
+            TimeStepModel(1.0) |>
+            ScopeModel(:plant) |>
+            InputBindings(; XS=(process=:mrcrosssource, var=:XS, scale="Leaf")),
+        ),
+    )
+    sim_scoped = PlantSimEngine.GraphSimulation(scene2, mapping_scoped, nsteps=1, check=true, outputs=Dict("Plant" => (:XP,), "Leaf" => (:XS,)))
+    run!(sim_scoped, meteo, multirate=true, executor=SequentialEx())
+    plant_vals = sort([st.XP for st in status(sim_scoped)["Plant"]])
+    @test plant_vals == [1.0, 2.0]
+
+    function plant_ancestor_id(node)
+        current = node
+        while !isnothing(current) && symbol(current) != "Plant"
+            current = parent(current)
+        end
+        isnothing(current) && error("Expected a Plant ancestor in scoped test tree.")
+        return node_id(current)
+    end
+
+    leaf_scoped_statuses = status(sim_scoped)["Leaf"]
+    leaf_scoped_keys = [
+        OutputKey(ScopeId(:plant, plant_ancestor_id(st.node)), "Leaf", node_id(st.node), :mrcrosssource, :XS)
+        for st in leaf_scoped_statuses
+    ]
+    @test all(k -> haskey(sim_scoped.temporal_state.samples, k), leaf_scoped_keys)
+
     # Expectation 9: Interpolate policy resolves a slower producer for a faster consumer.
     # Source runs at t=1,3,5 with values 1,3,5.
     # Consumer runs every step and receives XI through Interpolate:
@@ -464,4 +507,11 @@ end
         ),
     )
     @test_throws "non-fixed periods are not supported" PlantSimEngine.GraphSimulation(mtg, mapping_bad_period, nsteps=1, check=true, outputs=Dict("Leaf" => (:XD,)))
+
+    mapping_bad_scope = Dict(
+        "Leaf" => (
+            ModelSpec(MRSourceModel()) |> ScopeModel(:invalid_scope),
+        ),
+    )
+    @test_throws "Invalid scope selector" PlantSimEngine.GraphSimulation(mtg, mapping_bad_scope, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
 end

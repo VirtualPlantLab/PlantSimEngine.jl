@@ -16,6 +16,7 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `TimeStepModel(...)`: sets model execution clock.
 - `InputBindings(...)`: sets producer, source variable, optional source scale, and policy for each consumer input.
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
+- `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
 Policy parameterization:
 - `Integrate()` defaults to `:sum`; you can pass another reducer, e.g. `Integrate(:mean)` or `Integrate(vals -> maximum(vals) - minimum(vals))`.

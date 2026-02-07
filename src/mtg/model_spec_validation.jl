@@ -1,4 +1,5 @@
 const _INPUT_BINDING_FIELDS = (:process, :var, :scale, :policy)
+const _MODEL_SCOPE_SELECTORS = (:global, :plant, :scene, :self)
 
 function _validate_window_reducer(scale::String, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
     if reducer isa Symbol
@@ -77,6 +78,32 @@ function _validate_timestep_spec(scale::String, process::Symbol, spec::ModelSpec
     error(
         "Invalid timestep for process `$(process)` at scale `$(scale)`: ",
         "expected `Real`, `ClockSpec` or `Dates.Period`, got `$(typeof(ts))`."
+    )
+end
+
+function _validate_scope_spec(scale::String, process::Symbol, spec::ModelSpec)
+    selector = model_scope(spec)
+    if selector isa ScopeId
+        return nothing
+    elseif selector isa Symbol
+        selector in _MODEL_SCOPE_SELECTORS || error(
+            "Invalid scope selector `$(selector)` for process `$(process)` at scale `$(scale)`. ",
+            "Supported selectors are $(_MODEL_SCOPE_SELECTORS), `ScopeId`, or a callable."
+        )
+        return nothing
+    elseif selector isa AbstractString
+        Symbol(selector) in _MODEL_SCOPE_SELECTORS || error(
+            "Invalid scope selector `$(selector)` for process `$(process)` at scale `$(scale)`. ",
+            "Supported selectors are $(_MODEL_SCOPE_SELECTORS), `ScopeId`, or a callable."
+        )
+        return nothing
+    elseif selector isa Function
+        return nothing
+    end
+
+    error(
+        "Invalid scope selector for process `$(process)` at scale `$(scale)`: ",
+        "expected `Symbol`, `String`, `ScopeId`, or callable, got `$(typeof(selector))`."
     )
 end
 
@@ -263,6 +290,7 @@ function validate_model_specs_configuration(model_specs)
     for (scale, specs_at_scale) in pairs(model_specs)
         for (process, spec) in pairs(specs_at_scale)
             _validate_timestep_spec(scale, process, spec)
+            _validate_scope_spec(scale, process, spec)
             _validate_input_bindings_for_spec(scale, process, spec, model_specs, known_processes)
             _validate_output_routing_for_spec(scale, process, spec)
         end

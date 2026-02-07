@@ -1,11 +1,11 @@
 """
-    _resolved_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t)
+    _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t)
 
 Resolve one producer value through hold-last cache lookup.
 Returns `(value, found::Bool)`.
 """
-function _resolved_value_for_source(sim::GraphSimulation, source_scale::String, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
-    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+function _resolved_value_for_source(sim::GraphSimulation, source_scope::ScopeId, source_scale::String, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
+    key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
     cache = get(sim.temporal_state.caches, key, nothing)
     if cache isa HoldLastCache
         return cache.v, true
@@ -14,13 +14,14 @@ function _resolved_value_for_source(sim::GraphSimulation, source_scale::String, 
 end
 
 """
-    _resolved_windowed_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t_start, t_end, policy)
+    _resolved_windowed_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t_start, t_end, policy)
 
 Resolve one producer value over `[t_start, t_end]` for windowed policies.
 Returns `(value, found::Bool)`.
 """
 function _resolved_windowed_value_for_source(
     sim::GraphSimulation,
+    source_scope::ScopeId,
     source_scale::String,
     source_process::Symbol,
     source_var::Symbol,
@@ -29,7 +30,7 @@ function _resolved_windowed_value_for_source(
     t_end::Float64,
     policy::SchedulePolicy
 )
-    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
     samples = get(sim.temporal_state.samples, key, nothing)
     isnothing(samples) && return nothing, false
 
@@ -52,7 +53,7 @@ function _resolved_windowed_value_for_source(
 end
 
 """
-    _resolved_interpolated_value_for_source(sim, source_scale, source_process, source_var, source_node_id, t, policy)
+    _resolved_interpolated_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t, policy)
 
 Resolve one producer value at time `t` using interpolation/extrapolation over
 stored temporal samples.
@@ -60,6 +61,7 @@ Returns `(value, found::Bool)`.
 """
 function _resolved_interpolated_value_for_source(
     sim::GraphSimulation,
+    source_scope::ScopeId,
     source_scale::String,
     source_process::Symbol,
     source_var::Symbol,
@@ -67,7 +69,7 @@ function _resolved_interpolated_value_for_source(
     t::Float64,
     policy::Interpolate
 )
-    key = OutputKey(_default_scope(sim), source_scale, source_node_id, source_process, source_var)
+    key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
     samples = get(sim.temporal_state.samples, key, nothing)
     isnothing(samples) && return nothing, false
     isempty(samples) && return nothing, false
@@ -150,8 +152,8 @@ inputs when both sides are vectors.
 function _assign_input_value!(st::Status, input_var::Symbol, value)
     current = st[input_var]
     if current isa RefVector && value isa AbstractVector
-        n = min(length(current), length(value))
-        for i in 1:n
+        length(current) != length(value) && resize!(current, length(value))
+        for i in eachindex(value)
             current[i] = value[i]
         end
         return nothing
@@ -170,6 +172,8 @@ function _resolve_input_windowed(
     sim::GraphSimulation,
     node::SoftDependencyNode,
     st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
     input_var::Symbol,
     source_scale::String,
     source_process::Symbol,
@@ -186,8 +190,10 @@ function _resolve_input_windowed(
         vals = Any[]
         for src_st in source_statuses
             src_node_id = node_id(src_st.node)
+            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+            source_scope == consumer_scope || continue
             v, ok = _resolved_windowed_value_for_source(
-                sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+                sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
             )
             if ok
                 push!(vals, v)
@@ -203,7 +209,7 @@ function _resolve_input_windowed(
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_windowed_value_for_source(
-        sim, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy
+        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy
     )
     if ok
         _assign_input_value!(st, input_var, v)
@@ -214,8 +220,10 @@ function _resolve_input_windowed(
     candidates = Any[]
     for src_st in source_statuses
         src_node_id = node_id(src_st.node)
+        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+        source_scope == consumer_scope || continue
         vv, found = _resolved_windowed_value_for_source(
-            sim, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+            sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
         )
         found && push!(candidates, vv)
     end
@@ -243,6 +251,8 @@ function _resolve_input_interpolate(
     sim::GraphSimulation,
     node::SoftDependencyNode,
     st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
     input_var::Symbol,
     source_scale::String,
     source_process::Symbol,
@@ -258,8 +268,10 @@ function _resolve_input_interpolate(
         vals = Any[]
         for src_st in source_statuses
             src_node_id = node_id(src_st.node)
+            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+            source_scope == consumer_scope || continue
             v, ok = _resolved_interpolated_value_for_source(
-                sim, source_scale, source_process, source_var, src_node_id, t, policy
+                sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy
             )
             if ok
                 push!(vals, v)
@@ -273,7 +285,7 @@ function _resolve_input_interpolate(
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_interpolated_value_for_source(
-        sim, source_scale, source_process, source_var, consumer_node_id, t, policy
+        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t, policy
     )
     if ok
         _assign_input_value!(st, input_var, v)
@@ -284,8 +296,10 @@ function _resolve_input_interpolate(
     candidates = Any[]
     for src_st in source_statuses
         src_node_id = node_id(src_st.node)
+        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+        source_scope == consumer_scope || continue
         vv, found = _resolved_interpolated_value_for_source(
-            sim, source_scale, source_process, source_var, src_node_id, t, policy
+            sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy
         )
         found && push!(candidates, vv)
     end
@@ -307,7 +321,18 @@ end
 Resolve one consumer input from producer hold-last values and write it into
 `st`.
 """
-function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode, st::Status, input_var::Symbol, source_scale::String, source_process::Symbol, source_var::Symbol, t::Float64)
+function _resolve_input_holdlast(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    input_var::Symbol,
+    source_scale::String,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64
+)
     source_statuses = get(status(sim), source_scale, nothing)
     isnothing(source_statuses) && return nothing
 
@@ -316,7 +341,9 @@ function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode,
         vals = Any[]
         for src_st in source_statuses
             src_node_id = node_id(src_st.node)
-            v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+            source_scope == consumer_scope || continue
+            v, ok = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, src_node_id, t)
             if ok
                 push!(vals, v)
             else
@@ -330,7 +357,7 @@ function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode,
     end
 
     consumer_node_id = node_id(st.node)
-    v, ok = _resolved_value_for_source(sim, source_scale, source_process, source_var, consumer_node_id, t)
+    v, ok = _resolved_value_for_source(sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t)
     if ok
         _assign_input_value!(st, input_var, v)
         return nothing
@@ -340,7 +367,9 @@ function _resolve_input_holdlast(sim::GraphSimulation, node::SoftDependencyNode,
     candidates = Any[]
     for src_st in source_statuses
         src_node_id = node_id(src_st.node)
-        vv, found = _resolved_value_for_source(sim, source_scale, source_process, source_var, src_node_id, t)
+        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+        source_scope == consumer_scope || continue
+        vv, found = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, src_node_id, t)
         found && push!(candidates, vv)
     end
     if length(candidates) == 1
@@ -367,6 +396,7 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
     length(ins) == 0 && return nothing
     consumer_clock = _model_clock(model_spec, model, timeline)
     t_start = _window_start_for_clock(consumer_clock, t)
+    consumer_scope = _scope_for_status(sim, model_spec, node.scale, node.process, st.node)
 
     bindings = input_bindings(model_spec)
 
@@ -396,13 +426,14 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
                 continue
             end
         end
+        source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
 
         if policy isa HoldLast
-            _resolve_input_holdlast(sim, node, st, input_var, source_scale, source_process, source_var, t)
+            _resolve_input_holdlast(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t)
         elseif policy isa Interpolate
-            _resolve_input_interpolate(sim, node, st, input_var, source_scale, source_process, source_var, t, policy)
+            _resolve_input_interpolate(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t, policy)
         elseif policy isa Integrate || policy isa Aggregate
-            _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t, policy)
+            _resolve_input_windowed(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t_start, t, policy)
         end
     end
 

@@ -12,16 +12,19 @@ using Test
     @test output_policy(m) == NamedTuple()
     @test input_bindings(ModelSpec(m)) == NamedTuple()
     @test output_routing(ModelSpec(m)) == NamedTuple()
+    @test model_scope(ModelSpec(m)) == :global
 
     spec = ModelSpec(m) |>
            TimeStepModel(24.0) |>
            InputBindings(; var1=(process=:process1, var=:var3)) |>
-           OutputRouting(; var3=:stream_only)
+           OutputRouting(; var3=:stream_only) |>
+           ScopeModel(:plant)
     @test PlantSimEngine.model_(spec) === m
     @test PlantSimEngine.timestep(spec) == 24.0
     @test input_bindings(spec).var1.process == :process1
     @test input_bindings(spec).var1.policy isa HoldLast
     @test output_routing(spec).var3 == :stream_only
+    @test model_scope(spec) == :plant
 
     mspec = ModelSpec(m) |> MultiScaleModel([:var1 => "Leaf"])
     @test length(PlantSimEngine.get_mapped_variables(mspec)) == 1

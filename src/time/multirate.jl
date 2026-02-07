@@ -1,7 +1,7 @@
 """
     ScopeId(kind, id)
 
-Identifier for a simulation scope (e.g. global scene, species group, plant).
+Identifier for a simulation scope (e.g. global scene or plant).
 """
 struct ScopeId
     kind::Symbol
