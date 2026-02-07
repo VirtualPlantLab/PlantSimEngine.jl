@@ -100,6 +100,7 @@ include("time/runtime/scopes.jl")
 include("time/runtime/bindings.jl")
 include("time/runtime/input_resolution.jl")
 include("time/runtime/publishers.jl")
+include("time/runtime/output_export.jl")
 
 # Simulation:
 include("run.jl")
@@ -119,6 +120,7 @@ export ScopeId, ClockSpec, ModelKey, OutputKey
 export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
 export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
 export TemporalState
+export OutputRequest, collect_outputs
 export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, OutputRouting, ScopeModel
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status

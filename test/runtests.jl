@@ -34,6 +34,10 @@ include("helper-functions.jl")
         include("test-multirate-runtime.jl")
     end
 
+    @testset "Multi-rate output export" begin
+        include("test-multirate-output-export.jl")
+    end
+
     @testset "MultiScaleModel" begin
         include("test-MultiScaleModel.jl")
     end

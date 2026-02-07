@@ -22,6 +22,7 @@ For mapping-level multi-rate configuration, combine:
 - `InputBindings(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
+- `OutputRequest(...)` with `collect_outputs(...)` for resampled exports
 
 `TimeStepModel(...)` accepts:
 - `Real` step counts
@@ -38,6 +39,18 @@ Scope selection detail:
 - `ScopeModel(:plant)` isolates streams within each plant subtree.
 - `ScopeModel(:scene)` isolates by scene ancestor.
 - `ScopeModel(:self)` isolates by node id.
+
+### Exporting variables at requested rates
+
+```julia
+req_hold = OutputRequest("Leaf", :A; name=:A_hourly, process=:assim, policy=HoldLast())
+req_day = OutputRequest("Leaf", :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
+out = collect_outputs(sim, [req_hold, req_day]; sink=DataFrame)
+```
+
+- `process` is optional when the source is canonical and unique.
+- `policy` defines how source streams are resampled at export time.
+- `clock` defines the export schedule; omit it to export every simulation step.
 
 ### Default hold-last
 

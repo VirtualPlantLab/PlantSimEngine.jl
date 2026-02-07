@@ -87,3 +87,20 @@ mapping = Dict(
 ```
 
 When `multirate=true` is passed to `run!`, the runtime resolves inputs from producer temporal streams according to these policies.
+
+## Multi-rate output export (experimental)
+
+You can export selected variables at a requested rate from temporal streams:
+
+```julia
+req = OutputRequest("Leaf", :carbon_assimilation;
+    name=:A_daily,
+    process=:toyassim,
+    policy=Integrate(),
+    clock=ClockSpec(24.0, 1.0)
+)
+
+exported = collect_outputs(sim, [req]; sink=DataFrame)
+```
+
+This is independent from `tracked_outputs` and allows per-variable resampling policies at export time.
