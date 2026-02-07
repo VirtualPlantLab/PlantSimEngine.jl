@@ -73,7 +73,28 @@ function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     return mtg, mapping, meteo, reqs, tracked, nsteps
 end
 
-function benchmark_multirate_buffered_run(mtg, mapping, meteo, reqs, tracked, nsteps)
-    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=tracked)
-    run!(sim, meteo, multirate=true, executor=SequentialEx(), tracked_outputs=reqs)
+function benchmark_multirate_status_tracked_run(mtg, mapping, meteo, tracked, nsteps)
+    run!(
+        mtg,
+        mapping,
+        meteo,
+        nsteps=nsteps,
+        check=true,
+        multirate=true,
+        executor=SequentialEx(),
+        tracked_outputs=tracked
+    )
+end
+
+function benchmark_multirate_output_request_run(mtg, mapping, meteo, reqs, tracked, nsteps)
+    run!(
+        mtg,
+        mapping,
+        meteo,
+        nsteps=nsteps,
+        check=true,
+        multirate=true,
+        executor=SequentialEx(),
+        tracked_outputs=reqs
+    )
 end
