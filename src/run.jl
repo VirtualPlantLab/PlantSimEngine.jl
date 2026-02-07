@@ -20,8 +20,10 @@ multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed w
 - `mapping`: a mapping between the MTG and the model list.
 - `nsteps`: the number of time-steps to run, only needed if no meteo is given (else it is infered from it).
 - `outputs`: the outputs to get in dynamic for each node type of the MTG.
-- `multirate`: experimental feature flag enabling temporal cache-based input resolution for multiscale simulations.
-Current implementation supports `HoldLast` resolution only.
+- `multirate`: experimental feature flag enabling temporal stream-based input resolution for multiscale simulations.
+Supports `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` policies.
+In MTG multi-rate runs, non-sequential executors are currently downgraded to `SequentialEx()` with a warning.
+Model timesteps shorter than the meteo base step are rejected (sub-step execution is currently unsupported).
 - `return_requested_outputs`: when `true` in MTG multi-rate runs, return requested resampled outputs directly
   as second return value.
 - `requested_outputs_sink`: sink used to materialize requested outputs when `return_requested_outputs=true`.
@@ -460,8 +462,17 @@ function run!(
     dep_graph = object.dependency_graph
     models = get_models(object)
     timeline = _timeline_context(meteo)
+    effective_executor = executor
     # st = status(object)
     if multirate
+        if executor != SequentialEx()
+            @warn string(
+                "Multi-rate MTG runs currently execute sequentially. ",
+                "Provided `executor=$(executor)` is ignored in this mode. ",
+                "Use `executor=SequentialEx()` to silence this warning."
+            ) maxlog = 1
+            effective_executor = SequentialEx()
+        end
         validate_canonical_publishers(object)
         prepare_output_requests!(object, tracked_outputs, timeline)
         configure_temporal_buffers!(object, timeline)
@@ -477,7 +488,7 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor, multirate, timeline)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, multirate, timeline)
         end
         multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
         save_results!(object, 1)
@@ -485,7 +496,7 @@ function run!(
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor, multirate, timeline)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, multirate, timeline)
             end
             multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
             # At the end of the time-step, we save the results of the simulation in the object:
