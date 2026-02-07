@@ -80,7 +80,7 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
     reqs = _normalize_output_requests(requests)
 
     plans = Any[]
-    rows = Dict{Symbol,Vector{NamedTuple}}()
+    rows = Dict{Symbol,ExportBuffer}()
 
     for req in reqs
         scale = String(req.scale)
@@ -104,7 +104,7 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
             model_spec=model_spec,
             source_dt=float(source_clock.dt),
         ))
-        rows[req.name] = NamedTuple[]
+        rows[req.name] = ExportBuffer(scale, process, req.var)
     end
 
     sim.temporal_state.export_plans = plans
@@ -191,11 +191,13 @@ Materialize configured output requests online at runtime time `t`.
 """
 function update_requested_outputs!(sim::GraphSimulation, t::Float64)
     isempty(sim.temporal_state.export_plans) && return nothing
+    timestep = Int(round(t))
 
     for plan in sim.temporal_state.export_plans
         _should_run_at_time(plan.clock, t) || continue
         source_statuses = get(status(sim), plan.scale, nothing)
         isnothing(source_statuses) && continue
+        buf = sim.temporal_state.export_rows[plan.name]
 
         t_start = _window_start_for_clock(plan.clock, t)
         for st in source_statuses
@@ -213,23 +215,46 @@ function update_requested_outputs!(sim::GraphSimulation, t::Float64)
                 t_start,
             )
 
-            push!(sim.temporal_state.export_rows[plan.name], (
-                timestep=Int(round(t)),
-                scale=plan.scale,
-                process=plan.process,
-                var=plan.var,
-                node=nodeid,
-                value=v,
-            ))
+            push!(buf.timestep, timestep)
+            push!(buf.node, nodeid)
+            push!(buf.value, v)
         end
     end
 
     return nothing
 end
 
-function _materialize_output_rows(rows, sink)
-    isnothing(sink) && return rows
-    return sink(rows)
+function _materialize_output_rows(rows::ExportBuffer, sink)
+    n = length(rows.timestep)
+    scale_col = fill(rows.scale, n)
+    process_col = fill(rows.process, n)
+    var_col = fill(rows.var, n)
+
+    if sink === DataFrames.DataFrame
+        return DataFrames.DataFrame(
+            timestep=rows.timestep,
+            scale=scale_col,
+            process=process_col,
+            var=var_col,
+            node=rows.node,
+            value=rows.value,
+        )
+    end
+
+    table = Vector{NamedTuple{(:timestep, :scale, :process, :var, :node, :value),Tuple{Int,String,Symbol,Symbol,Int,Any}}}(undef, n)
+    @inbounds for i in 1:n
+        table[i] = (
+            timestep=rows.timestep[i],
+            scale=scale_col[i],
+            process=process_col[i],
+            var=var_col[i],
+            node=rows.node[i],
+            value=rows.value[i],
+        )
+    end
+
+    isnothing(sink) && return table
+    return sink(table)
 end
 
 """

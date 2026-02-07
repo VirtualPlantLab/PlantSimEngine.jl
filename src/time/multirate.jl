@@ -152,6 +152,29 @@ mutable struct AggregateCache{T<:Real} <: OutputCache
 end
 
 """
+    ExportBuffer()
+
+Compact in-memory storage for requested output rows during runtime.
+"""
+mutable struct ExportBuffer{
+    S<:AbstractString,
+    P<:Symbol,
+    V<:Symbol,
+    TI<:AbstractVector{Int},
+    NI<:AbstractVector{Int},
+    VV<:AbstractVector{Any},
+}
+    scale::S
+    process::P
+    var::V
+    timestep::TI
+    node::NI
+    value::VV
+end
+
+ExportBuffer(scale::AbstractString, process::Symbol, var::Symbol) = ExportBuffer(scale, process, var, Int[], Int[], Any[])
+
+"""
     TemporalState(caches, last_run, streams, producer_horizons, export_plans, export_rows)
     TemporalState()
 
@@ -171,7 +194,7 @@ mutable struct TemporalState{
     S<:AbstractDict{OutputKey,Vector{Tuple{Float64,Any}}},
     H<:AbstractDict{Tuple{String,Symbol,Symbol},Float64},
     P<:AbstractVector,
-    R<:AbstractDict{Symbol,Vector{NamedTuple}}
+    R<:AbstractDict{Symbol,ExportBuffer}
 }
     caches::C
     last_run::L
@@ -187,5 +210,5 @@ TemporalState() = TemporalState(
     Dict{OutputKey,Vector{Tuple{Float64,Any}}}(),
     Dict{Tuple{String,Symbol,Symbol},Float64}(),
     Any[],
-    Dict{Symbol,Vector{NamedTuple}}()
+    Dict{Symbol,ExportBuffer}()
 )
