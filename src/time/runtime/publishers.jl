@@ -59,6 +59,47 @@ function validate_canonical_publishers(sim::GraphSimulation)
     return nothing
 end
 
+function _runtime_window_horizon(sim::GraphSimulation, timeline::TimelineContext)
+    max_dt = 1.0
+    for (scale, models_at_scale) in get_models(sim)
+        specs_at_scale = get_model_specs(sim)[scale]
+        for (process, model) in pairs(models_at_scale)
+            model_spec = get(specs_at_scale, process, as_model_spec(model))
+            consumer_clock = _model_clock(model_spec, model, timeline)
+            consumer_dt = float(consumer_clock.dt)
+            for (_, raw_binding) in pairs(input_bindings(model_spec))
+                parsed = _parse_input_binding(raw_binding)
+                isnothing(parsed) && continue
+                policy = parsed.policy
+                if policy isa Union{Integrate,Aggregate}
+                    max_dt = max(max_dt, consumer_dt)
+                end
+            end
+        end
+    end
+    return max_dt
+end
+
+"""
+    configure_runtime_temporal_buffers!(sim, timeline)
+
+Prepare bounded runtime temporal buffers used by input resolution.
+Full sample history used by export stays in `temporal_state.samples`.
+"""
+function configure_runtime_temporal_buffers!(sim::GraphSimulation, timeline::TimelineContext)
+    sim.temporal_state.runtime_window_horizon = _runtime_window_horizon(sim, timeline)
+    empty!(sim.temporal_state.runtime_samples)
+    return nothing
+end
+
+function _trim_runtime_samples!(samples::Vector{Tuple{Float64,Any}}, t::Float64, horizon::Float64)
+    t_min = t - horizon + 1.0 - 1e-8
+    first_keep = findfirst(s -> s[1] >= t_min, samples)
+    isnothing(first_keep) && (empty!(samples); return nothing)
+    first_keep > 1 && deleteat!(samples, 1:first_keep-1)
+    return nothing
+end
+
 """
     update_temporal_state_outputs!(sim, node, model_spec, st, t)
 
@@ -82,6 +123,9 @@ function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependen
         # Keep a full sample stream for windowed policies.
         samples = get!(sim.temporal_state.samples, key, Vector{Tuple{Float64,Any}}())
         push!(samples, (t, val))
+        runtime_samples = get!(sim.temporal_state.runtime_samples, key, Vector{Tuple{Float64,Any}}())
+        push!(runtime_samples, (t, val))
+        _trim_runtime_samples!(runtime_samples, t, sim.temporal_state.runtime_window_horizon)
 
         policy = _policy_for_output(model, out_var)
         policy isa HoldLast || continue

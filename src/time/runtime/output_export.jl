@@ -114,7 +114,9 @@ function _resolve_output_value(
     t::Float64,
     t_start::Float64
 )
-    v, ok = _resolved_interpolated_value_for_source(sim, scope, scale, process, var, nodeid, t, policy)
+    v, ok = _resolved_interpolated_value_for_source(
+        sim, scope, scale, process, var, nodeid, t, policy; runtime=false
+    )
     return ok ? v : missing
 end
 
@@ -129,7 +131,9 @@ function _resolve_output_value(
     t::Float64,
     t_start::Float64
 )
-    v, ok = _resolved_windowed_value_for_source(sim, scope, scale, process, var, nodeid, t_start, t, policy)
+    v, ok = _resolved_windowed_value_for_source(
+        sim, scope, scale, process, var, nodeid, t_start, t, policy; runtime=false
+    )
     return ok ? v : missing
 end
 

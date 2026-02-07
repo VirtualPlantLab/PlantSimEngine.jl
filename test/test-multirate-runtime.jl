@@ -364,6 +364,11 @@ end
     out_agg_df = convert_outputs(out_agg, DataFrame)
     @test out_agg_df["Leaf"][:, :YA] == [1.0, 1.0, 2.5, 2.5]
     @test status(sim_agg)["Leaf"][1].YA == 2.5
+    nid_agg = node_id(status(sim_agg)["Leaf"][1].node)
+    key_agg = OutputKey(scope, "Leaf", nid_agg, :mraggsource, :XA)
+    @test length(sim_agg.temporal_state.samples[key_agg]) == 4
+    @test length(sim_agg.temporal_state.runtime_samples[key_agg]) <= 2
+    @test sim_agg.temporal_state.runtime_window_horizon == 2.0
 
     # Expectation 11: parameterized Aggregate reducer (symbol) is applied per window.
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=:max.

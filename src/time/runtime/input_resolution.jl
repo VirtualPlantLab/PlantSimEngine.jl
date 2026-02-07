@@ -13,6 +13,13 @@ function _resolved_value_for_source(sim::GraphSimulation, source_scope::ScopeId,
     return nothing, false
 end
 
+function _resolution_samples(sim::GraphSimulation, key::OutputKey; runtime::Bool=true)
+    if runtime
+        return get(sim.temporal_state.runtime_samples, key, get(sim.temporal_state.samples, key, nothing))
+    end
+    return get(sim.temporal_state.samples, key, nothing)
+end
+
 """
     _resolved_windowed_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t_start, t_end, policy)
 
@@ -28,10 +35,11 @@ function _resolved_windowed_value_for_source(
     source_node_id::Int,
     t_start::Float64,
     t_end::Float64,
-    policy::SchedulePolicy
+    policy::SchedulePolicy;
+    runtime::Bool=true
 )
     key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
-    samples = get(sim.temporal_state.samples, key, nothing)
+    samples = _resolution_samples(sim, key; runtime=runtime)
     isnothing(samples) && return nothing, false
 
     vals = Any[]
@@ -67,10 +75,11 @@ function _resolved_interpolated_value_for_source(
     source_var::Symbol,
     source_node_id::Int,
     t::Float64,
-    policy::Interpolate
+    policy::Interpolate;
+    runtime::Bool=false
 )
     key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
-    samples = get(sim.temporal_state.samples, key, nothing)
+    samples = _resolution_samples(sim, key; runtime=runtime)
     isnothing(samples) && return nothing, false
     isempty(samples) && return nothing, false
 

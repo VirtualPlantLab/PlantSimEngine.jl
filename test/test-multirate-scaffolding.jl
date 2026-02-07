@@ -32,6 +32,8 @@ using Test
     ts = TemporalState()
     @test isempty(ts.caches)
     @test isempty(ts.last_run)
+    @test isempty(ts.runtime_samples)
+    @test ts.runtime_window_horizon == 1.0
 
     scope = ScopeId(:global, 1)
     key = OutputKey(scope, "Leaf", 7, :process1, :var3)

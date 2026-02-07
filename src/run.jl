@@ -411,7 +411,10 @@ function run!(
     models = get_models(object)
     timeline = _timeline_context(meteo)
     # st = status(object)
-    multirate && validate_canonical_publishers(object)
+    if multirate
+        validate_canonical_publishers(object)
+        configure_runtime_temporal_buffers!(object, timeline)
+    end
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
