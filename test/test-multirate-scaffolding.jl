@@ -28,6 +28,7 @@ using Test
     @test explained[1].process == :process1
     @test occursin("Resolved model specs:", explain_txt)
     @test occursin("Leaf/process1", explain_txt)
+    @test occursin("input_bindings=", explain_txt)
 
     spec = ModelSpec(m) |>
            TimeStepModel(24.0) |>

@@ -166,6 +166,22 @@ function PlantSimEngine.run!(::MRHourlyFromDailyConsumerModel, models, status, m
     status.YD = status.XD
 end
 
+PlantSimEngine.@process "mrzconsumer" verbose = false
+struct MRZConsumerModel <: AbstractMrzconsumerModel end
+PlantSimEngine.inputs_(::MRZConsumerModel) = (Z=-Inf,)
+PlantSimEngine.outputs_(::MRZConsumerModel) = (ZZ=-Inf,)
+function PlantSimEngine.run!(::MRZConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.ZZ = status.Z
+end
+
+PlantSimEngine.@process "mrmissinginputconsumer" verbose = false
+struct MRMissingInputConsumerModel <: AbstractMrmissinginputconsumerModel end
+PlantSimEngine.inputs_(::MRMissingInputConsumerModel) = (U=-Inf,)
+PlantSimEngine.outputs_(::MRMissingInputConsumerModel) = (OU=-Inf,)
+function PlantSimEngine.run!(::MRMissingInputConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.OU = status.U
+end
+
 PlantSimEngine.@process "mrmeteodailyconsumer" verbose = false
 struct MRMeteoDailyConsumerModel <: AbstractMrmeteodailyconsumerModel end
 PlantSimEngine.inputs_(::MRMeteoDailyConsumerModel) = NamedTuple()
@@ -268,6 +284,8 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(specs_leaf[:mrconsumer]).C.var == :S
     @test input_bindings(specs_leaf[:mrconsumer]).C.policy isa HoldLast
     @test output_routing(specs_leaf[:mroverwrite]).C == :stream_only
+    @test input_bindings(specs_leaf[:mrautosamename]).S.process == :mrsource
+    @test input_bindings(specs_leaf[:mrautosamename]).S.var == :S
 
     st_leaf = status(sim_ok)["Leaf"][1]
     # Expectation 1: consumer :C input is remapped from mrsource/:S via mapping-level InputBindings.
@@ -387,6 +405,26 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     st_plant_cross = status(sim_cross)["Plant"][1]
     @test st_leaf_cross.XS == 4.0
     @test st_plant_cross.XP == 3.0
+
+    # Expectation 8a: cross-scale producer is inferred automatically when unique.
+    source_counter_3_auto = Ref(0)
+    mapping_cross_auto = Dict(
+        "Leaf" => (
+            ModelSpec(MRCrossSourceModel(source_counter_3_auto)) |> TimeStepModel(1.0),
+        ),
+        "Plant" => (
+            ModelSpec(MRCrossConsumerModel()) |>
+            MultiScaleModel([:XS => ["Leaf"]]) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)),
+        ),
+    )
+    sim_cross_auto = PlantSimEngine.GraphSimulation(mtg, mapping_cross_auto, nsteps=4, check=true, outputs=Dict("Leaf" => (:XS,), "Plant" => (:XP,)))
+    run!(sim_cross_auto, meteo4, multirate=true, executor=SequentialEx())
+    st_plant_cross_auto = status(sim_cross_auto)["Plant"][1]
+    @test st_plant_cross_auto.XP == 3.0
+    spec_cross_auto = PlantSimEngine.get_model_specs(sim_cross_auto)["Plant"][:mrcrossconsumer]
+    @test input_bindings(spec_cross_auto).XS.process == :mrcrosssource
+    @test input_bindings(spec_cross_auto).XS.scale == "Leaf"
 
     # Expectation 8b: scope partitioning isolates producer streams between plants.
     scene2 = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
@@ -752,7 +790,28 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test_throws "No period available" run!(sim_meteo_calendar_prev_strict, meteo_calendar, multirate=true, executor=SequentialEx())
     end
 
-    # Expectation 24: invalid mapping-level API configuration fails during GraphSimulation init.
+    # Expectation 24: ambiguous same-name inferred producer is rejected at initialization.
+    mapping_ambiguous_infer = Dict(
+        "Leaf" => (
+            MRConflict1Model(),
+            MRConflict2Model(),
+            MRZConsumerModel(),
+        ),
+    )
+    @test_throws "Ambiguous inferred producer for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_ambiguous_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
+
+    # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
+    mapping_missing_input = Dict(
+        "Leaf" => (
+            MRMissingInputConsumerModel(),
+            Status(U=42.0),
+        ),
+    )
+    sim_missing_input = PlantSimEngine.GraphSimulation(mtg, mapping_missing_input, nsteps=1, check=true, outputs=Dict("Leaf" => (:OU,)))
+    run!(sim_missing_input, meteo, multirate=true, executor=SequentialEx())
+    @test status(sim_missing_input)["Leaf"][1].OU == 42.0
+
+    # Expectation 26: invalid mapping-level API configuration fails during GraphSimulation init.
     mapping_bad_input = Dict(
         "Leaf" => (
             MRSourceModel(),

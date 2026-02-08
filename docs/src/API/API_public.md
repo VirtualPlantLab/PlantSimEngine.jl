@@ -43,6 +43,8 @@ Period conversion detail:
 Trait-based inference detail:
 - If `TimeStepModel(...)` is omitted, `timestep_hint(::Type{<:Model})` may provide:
 : fixed period (`Dates.Day(1)`) or required range (`(Dates.Minute(1), Dates.Hour(4))`).
+- If `InputBindings(...)` is omitted, same-name sources are inferred automatically from
+: unique producers (same scale first, then cross-scale). Ambiguous cases require explicit bindings.
 - If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
 : may provide `(; bindings=..., window=...)`.
 - Explicit mapping-level configuration always overrides hints.

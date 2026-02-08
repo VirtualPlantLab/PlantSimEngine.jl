@@ -25,6 +25,12 @@ the runtime can infer defaults from model traits:
 - `timestep_hint(::Type{<:MyModel})`
 - `meteo_hint(::Type{<:MyModel})`
 
+If users do not provide `InputBindings(...)`, runtime infers same-name bindings:
+- first from a unique producer at the same scale;
+- otherwise from a unique producer at another scale;
+- if no producer exists, input stays unresolved (so initialization/forced values can be used);
+- if multiple producers are possible, runtime errors and asks for explicit `InputBindings(...)`.
+
 For timestep hints:
 - `Dates.FixedPeriod` sets a fixed inferred timestep, e.g. `Dates.Day(1)`.
 - `(min_period, max_period)` sets a required range. For models with only range hints,
@@ -39,7 +45,7 @@ For meteo hints:
 Inspection helpers:
 - `resolved_model_specs(mapping)` returns resolved specs after inference/validation.
 - `explain_model_specs(mapping_or_sim)` prints a compact summary (`timestep`,
-  `meteo_bindings`, `meteo_window`) for each model process.
+  `input_bindings`, `meteo_bindings`, `meteo_window`) for each model process.
 
 Policy parameterization:
 - `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.

@@ -217,6 +217,102 @@ function _infer_timestep_hints!(model_specs)
     return nothing
 end
 
+function _format_candidate_list(candidates)
+    isempty(candidates) && return "(none)"
+    return join(["$(c.scale)/$(c.process)" for c in candidates], ", ")
+end
+
+function _input_candidates_for_var(model_specs, consumer_scale::String, consumer_process::Symbol, input_var::Symbol)
+    same_scale = NamedTuple[]
+    cross_scale = NamedTuple[]
+
+    for (scale, specs_at_scale) in pairs(model_specs)
+        for (process, spec) in pairs(specs_at_scale)
+            scale == consumer_scale && process == consumer_process && continue
+            input_var in keys(outputs_(model_(spec))) || continue
+            c = (scale=scale, process=process, var=input_var)
+            if scale == consumer_scale
+                push!(same_scale, c)
+            else
+                push!(cross_scale, c)
+            end
+        end
+    end
+
+    return same_scale, cross_scale
+end
+
+function _infer_input_binding_for_var(model_specs, scale::String, process::Symbol, input_var::Symbol)
+    same_scale, cross_scale = _input_candidates_for_var(model_specs, scale, process, input_var)
+
+    if length(same_scale) == 1
+        c = only(same_scale)
+        return (process=c.process, var=c.var, policy=HoldLast())
+    elseif length(same_scale) > 1
+        error(
+            "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+            "Multiple same-scale candidates were found: $(_format_candidate_list(same_scale)). ",
+            "Please provide explicit `InputBindings(...)`."
+        )
+    end
+
+    if length(cross_scale) == 1
+        c = only(cross_scale)
+        return (process=c.process, var=c.var, scale=c.scale, policy=HoldLast())
+    elseif length(cross_scale) > 1
+        by_process = Dict{Symbol,Vector{NamedTuple}}()
+        for c in cross_scale
+            push!(get!(by_process, c.process, NamedTuple[]), c)
+        end
+
+        if length(by_process) == 1
+            proc = only(keys(by_process))
+            scales = unique(c.scale for c in by_process[proc])
+            if length(scales) == 1
+                return (process=proc, var=input_var, scale=only(scales), policy=HoldLast())
+            end
+            # Same process name appears at multiple scales (common in multiscale
+            # mappings). Keep scale unresolved so runtime resolves through parent links.
+            return (process=proc, var=input_var, policy=HoldLast())
+        end
+
+        error(
+            "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+            "Multiple cross-scale candidates were found: $(_format_candidate_list(cross_scale)). ",
+            "Please provide explicit `InputBindings(...)`."
+        )
+    end
+
+    # No producer found. Keep input unresolved so user-provided initialization/forced
+    # values can still drive the model.
+    return nothing
+end
+
+function _infer_input_bindings!(model_specs)
+    for (scale, specs_at_scale) in pairs(model_specs)
+        for (process, spec) in pairs(specs_at_scale)
+            current_bindings = input_bindings(spec)
+            current_bindings isa NamedTuple || continue
+
+            inferred = Pair{Symbol,Any}[]
+            model_inputs = keys(inputs_(model_(spec)))
+
+            for input_var in model_inputs
+                input_var in keys(current_bindings) && continue
+                inferred_binding = _infer_input_binding_for_var(model_specs, scale, process, input_var)
+                isnothing(inferred_binding) && continue
+                push!(inferred, input_var => inferred_binding)
+            end
+
+            isempty(inferred) && continue
+            merged = (; pairs(current_bindings)..., inferred...)
+            specs_at_scale[process] = ModelSpec(spec; input_bindings=merged)
+        end
+    end
+
+    return nothing
+end
+
 function _normalize_meteo_hint(scale::String, process::Symbol, hint)
     isnothing(hint) && return (bindings=nothing, window=nothing)
 
@@ -261,10 +357,13 @@ end
 """
     infer_model_specs_configuration!(model_specs)
 
-Fill missing `ModelSpec` fields from model-level hint traits.
+Fill missing `ModelSpec` fields from inference:
+- auto input bindings from unique same-name producers
+- model-level hint traits (`timestep_hint`, `meteo_hint`)
 Explicit `ModelSpec` user values always take precedence over inferred values.
 """
 function infer_model_specs_configuration!(model_specs)
+    _infer_input_bindings!(model_specs)
     _infer_timestep_hints!(model_specs)
     _infer_meteo_hints!(model_specs)
     return model_specs
@@ -310,6 +409,7 @@ function _model_specs_rows(model_specs)
                 process=process,
                 model=typeof(model_(spec)),
                 timestep=timestep(spec),
+                input_bindings=input_bindings(spec),
                 meteo_bindings=meteo_bindings(spec),
                 meteo_window=meteo_window(spec),
             ))
@@ -329,6 +429,7 @@ Summary fields:
 - `process`
 - `model`
 - `timestep`
+- `input_bindings`
 - `meteo_bindings`
 - `meteo_window`
 """
@@ -344,6 +445,7 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
 
     for row in rows
         timestep_desc = isnothing(row.timestep) ? "(timespec(model))" : _stringify_compact(row.timestep)
+        input_bindings_desc = (row.input_bindings isa NamedTuple && isempty(keys(row.input_bindings))) ? "(none)" : _stringify_compact(row.input_bindings)
         meteo_bindings_desc = (row.meteo_bindings isa NamedTuple && isempty(keys(row.meteo_bindings))) ? "(none)" : _stringify_compact(row.meteo_bindings)
         meteo_window_desc = isnothing(row.meteo_window) ? "(default rolling)" : _stringify_compact(row.meteo_window)
         println(
@@ -356,6 +458,8 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
             row.model,
             "]: timestep=",
             timestep_desc,
+            ", input_bindings=",
+            input_bindings_desc,
             ", meteo_bindings=",
             meteo_bindings_desc,
             ", meteo_window=",
