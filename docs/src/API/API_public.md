@@ -24,6 +24,8 @@ For mapping-level multi-rate configuration, combine:
 - `MeteoWindow(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
+- `timestep_hint(::Type{<:AbstractModel})` (optional trait)
+- `meteo_hint(::Type{<:AbstractModel})` (optional trait)
 - `OutputRequest(...)` in `tracked_outputs` for resampled exports
 
 `TimeStepModel(...)` accepts:
@@ -35,6 +37,13 @@ Period conversion detail:
 - Period-based timesteps are converted using the meteo base step `duration`.
 - Example: `TimeStepModel(Dates.Day(1))` with hourly meteo (`Dates.Hour(1)`) maps to `ClockSpec(24.0, 1.0)`,
   so execution times are `t = 1, 25, 49, ...`.
+
+Trait-based inference detail:
+- If `TimeStepModel(...)` is omitted, `timestep_hint(::Type{<:Model})` may provide:
+: fixed period (`Dates.Day(1)`) or required range (`(Dates.Minute(1), Dates.Hour(4))`).
+- If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
+: may provide `(; bindings=..., window=...)`.
+- Explicit mapping-level configuration always overrides hints.
 
 Scope selection detail:
 - `ScopeModel(:global)` is the default and shares streams across the whole simulation.

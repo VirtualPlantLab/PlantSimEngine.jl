@@ -10,6 +10,8 @@ using Test
     @test clk.phase == 0.0
 
     @test output_policy(m) == NamedTuple()
+    @test isnothing(timestep_hint(m))
+    @test isnothing(meteo_hint(m))
     @test input_bindings(ModelSpec(m)) == NamedTuple()
     @test output_routing(ModelSpec(m)) == NamedTuple()
     @test model_scope(ModelSpec(m)) == :global

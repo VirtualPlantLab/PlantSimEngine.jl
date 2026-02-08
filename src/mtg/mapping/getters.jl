@@ -80,7 +80,7 @@ get_model_specs(m) = [as_model_spec(i) for i in m if !isa(i, Status)]
 
 Return a process-indexed dictionary of normalized `ModelSpec`.
 """
-parse_model_specs(m) = Dict(process(model_(spec)) => spec for spec in get_model_specs(m))
+parse_model_specs(m) = Dict{Symbol,ModelSpec}(process(model_(spec)) => spec for spec in get_model_specs(m))
 
 
 # Same, for the status (if any provided):

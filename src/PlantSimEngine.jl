@@ -76,6 +76,7 @@ include("mtg/mapping/getters.jl")
 include("mtg/mapping/mapping.jl")
 include("mtg/mapping/compute_mapping.jl")
 include("mtg/mapping/reverse_mapping.jl")
+include("mtg/model_spec_inference.jl")
 include("mtg/model_spec_validation.jl")
 include("mtg/initialisation.jl")
 include("mtg/save_results.jl")
@@ -131,7 +132,8 @@ export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
-export timespec, output_policy, input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
+export timespec, output_policy, timestep_hint, meteo_hint
+export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
 export fit
 

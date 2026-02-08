@@ -316,6 +316,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
     model_specs = Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    infer_model_specs_configuration!(model_specs)
     validate_model_specs_configuration(model_specs)
 
     soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)

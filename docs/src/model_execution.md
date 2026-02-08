@@ -20,6 +20,22 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 - `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
+If users do not provide `TimeStepModel(...)`, `MeteoBindings(...)`, or `MeteoWindow(...)`,
+the runtime can infer defaults from model traits:
+- `timestep_hint(::Type{<:MyModel})`
+- `meteo_hint(::Type{<:MyModel})`
+
+For timestep hints:
+- `Dates.FixedPeriod` sets a fixed inferred timestep, e.g. `Dates.Day(1)`.
+- `(min_period, max_period)` sets a required range. For models with only range hints,
+  runtime computes a consensus (default: finest feasible period in the intersection).
+- Explicit `TimeStepModel(...)` always takes precedence.
+
+For meteo hints:
+- return `(; bindings=..., window=...)` where `bindings` matches `MeteoBindings(...)`
+  and `window` matches `MeteoWindow(...)`.
+- Explicit `MeteoBindings(...)` / `MeteoWindow(...)` always take precedence.
+
 Policy parameterization:
 - `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
 - `Aggregate()` defaults to `MeanReducer()`; you can pass reducers such as `Aggregate(MaxReducer())`.
