@@ -269,3 +269,98 @@ function infer_model_specs_configuration!(model_specs)
     _infer_meteo_hints!(model_specs)
     return model_specs
 end
+
+"""
+    resolved_model_specs(mapping; infer=true, validate=true)
+    resolved_model_specs(sim::GraphSimulation)
+
+Return process-indexed `ModelSpec` dictionaries as used by runtime:
+`Dict{String, Dict{Symbol, ModelSpec}}`.
+
+For a mapping, this parses model declarations and optionally applies inference
+(`timestep_hint`, `meteo_hint`) and validation.
+For a `GraphSimulation`, this returns the already resolved model specs used by the simulation.
+"""
+function resolved_model_specs(mapping::AbstractDict; infer::Bool=true, validate::Bool=true)
+    model_specs = Dict{String,Dict{Symbol,ModelSpec}}()
+    for (scale, declarations) in pairs(mapping)
+        model_specs[string(scale)] = parse_model_specs(declarations)
+    end
+
+    infer && infer_model_specs_configuration!(model_specs)
+    validate && validate_model_specs_configuration(model_specs)
+    return model_specs
+end
+
+resolved_model_specs(sim::GraphSimulation; infer::Bool=true, validate::Bool=true) = get_model_specs(sim)
+
+function _stringify_compact(x; maxlen::Int=120)
+    s = sprint(show, x)
+    return ncodeunits(s) <= maxlen ? s : string(first(s, maxlen - 3), "...")
+end
+
+function _model_specs_rows(model_specs)
+    rows = NamedTuple[]
+    for scale in sort!(collect(keys(model_specs)))
+        specs_at_scale = model_specs[scale]
+        for process in sort!(collect(keys(specs_at_scale)); by=string)
+            spec = specs_at_scale[process]
+            push!(rows, (
+                scale=scale,
+                process=process,
+                model=typeof(model_(spec)),
+                timestep=timestep(spec),
+                meteo_bindings=meteo_bindings(spec),
+                meteo_window=meteo_window(spec),
+            ))
+        end
+    end
+    return rows
+end
+
+"""
+    explain_model_specs(target; io=stdout, infer=true, validate=true)
+
+Print a compact per-model summary of resolved runtime configuration and return it
+as a vector of named tuples.
+
+Summary fields:
+- `scale`
+- `process`
+- `model`
+- `timestep`
+- `meteo_bindings`
+- `meteo_window`
+"""
+function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::Bool=true)
+    specs = target isa GraphSimulation ? resolved_model_specs(target) : resolved_model_specs(target; infer=infer, validate=validate)
+    rows = _model_specs_rows(specs)
+
+    println(io, "Resolved model specs:")
+    if isempty(rows)
+        println(io, "  (no model specs)")
+        return rows
+    end
+
+    for row in rows
+        timestep_desc = isnothing(row.timestep) ? "(timespec(model))" : _stringify_compact(row.timestep)
+        meteo_bindings_desc = (row.meteo_bindings isa NamedTuple && isempty(keys(row.meteo_bindings))) ? "(none)" : _stringify_compact(row.meteo_bindings)
+        meteo_window_desc = isnothing(row.meteo_window) ? "(default rolling)" : _stringify_compact(row.meteo_window)
+        println(
+            io,
+            "  - ",
+            row.scale,
+            "/",
+            row.process,
+            " [",
+            row.model,
+            "]: timestep=",
+            timestep_desc,
+            ", meteo_bindings=",
+            meteo_bindings_desc,
+            ", meteo_window=",
+            meteo_window_desc
+        )
+    end
+    return rows
+end

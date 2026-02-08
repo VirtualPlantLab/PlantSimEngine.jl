@@ -26,6 +26,8 @@ For mapping-level multi-rate configuration, combine:
 - `ScopeModel(...)`
 - `timestep_hint(::Type{<:AbstractModel})` (optional trait)
 - `meteo_hint(::Type{<:AbstractModel})` (optional trait)
+- `resolved_model_specs(mapping)` (utility)
+- `explain_model_specs(mapping_or_sim)` (utility)
 - `OutputRequest(...)` in `tracked_outputs` for resampled exports
 
 `TimeStepModel(...)` accepts:

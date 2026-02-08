@@ -16,6 +16,19 @@ using Test
     @test output_routing(ModelSpec(m)) == NamedTuple()
     @test model_scope(ModelSpec(m)) == :global
 
+    mapping = Dict("Leaf" => (m,))
+    resolved_specs = resolved_model_specs(mapping)
+    @test haskey(resolved_specs, "Leaf")
+    @test haskey(resolved_specs["Leaf"], :process1)
+
+    io = IOBuffer()
+    explained = explain_model_specs(mapping; io=io)
+    explain_txt = String(take!(io))
+    @test length(explained) == 1
+    @test explained[1].process == :process1
+    @test occursin("Resolved model specs:", explain_txt)
+    @test occursin("Leaf/process1", explain_txt)
+
     spec = ModelSpec(m) |>
            TimeStepModel(24.0) |>
            InputBindings(; var1=(process=:process1, var=:var3)) |>

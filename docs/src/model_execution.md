@@ -36,6 +36,11 @@ For meteo hints:
   and `window` matches `MeteoWindow(...)`.
 - Explicit `MeteoBindings(...)` / `MeteoWindow(...)` always take precedence.
 
+Inspection helpers:
+- `resolved_model_specs(mapping)` returns resolved specs after inference/validation.
+- `explain_model_specs(mapping_or_sim)` prints a compact summary (`timestep`,
+  `meteo_bindings`, `meteo_window`) for each model process.
+
 Policy parameterization:
 - `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
 - `Aggregate()` defaults to `MeanReducer()`; you can pass reducers such as `Aggregate(MaxReducer())`.

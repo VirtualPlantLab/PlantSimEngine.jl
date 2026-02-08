@@ -599,6 +599,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test status(sim_timestep_hints)["Leaf"][1].XB == 3.0
     @test status(sim_timestep_hints)["Leaf"][1].XF == 4.0
 
+    io_hints = IOBuffer()
+    explained_hints = PlantSimEngine.explain_model_specs(sim_timestep_hints; io=io_hints)
+    explain_hints_txt = String(take!(io_hints))
+    @test any(r -> r.process == :mrrangehinta && Dates.value(Dates.Second(r.timestep)) == 10800, explained_hints)
+    @test occursin("Leaf/mrrangehinta", explain_hints_txt)
+
     if _HAS_METEO_SAMPLER_API
         # Expectation 18: meteo is sampled at model clock using default weather aggregation.
         mapping_meteo_default = Dict(

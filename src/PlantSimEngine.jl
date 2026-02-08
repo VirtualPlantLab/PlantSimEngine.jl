@@ -125,6 +125,7 @@ export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCa
 export TemporalState
 export OutputRequest, collect_outputs
 export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export resolved_model_specs, explain_model_specs
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
