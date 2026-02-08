@@ -6,6 +6,10 @@ using DataFrames
 using Test
 using Dates
 
+const _HAS_METEO_SAMPLER_API = isdefined(PlantMeteo, :prepare_weather_sampler) &&
+                               isdefined(PlantMeteo, :MeteoSamplingSpec) &&
+                               isdefined(PlantMeteo, :sample_weather)
+
 # Producer stream: writes :S.
 PlantSimEngine.@process "mrsource" verbose = false
 struct MRSourceModel <: AbstractMrsourceModel end
@@ -160,6 +164,28 @@ PlantSimEngine.inputs_(::MRHourlyFromDailyConsumerModel) = (XD=-Inf,)
 PlantSimEngine.outputs_(::MRHourlyFromDailyConsumerModel) = (YD=-Inf,)
 function PlantSimEngine.run!(::MRHourlyFromDailyConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
     status.YD = status.XD
+end
+
+PlantSimEngine.@process "mrmeteodailyconsumer" verbose = false
+struct MRMeteoDailyConsumerModel <: AbstractMrmeteodailyconsumerModel end
+PlantSimEngine.inputs_(::MRMeteoDailyConsumerModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRMeteoDailyConsumerModel) = (MT=-Inf, MTmin=-Inf, MTmax=-Inf, MRh=-Inf, MSW=-Inf, MSWq=-Inf)
+function PlantSimEngine.run!(::MRMeteoDailyConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.MT = meteo.T
+    status.MTmin = meteo.Tmin
+    status.MTmax = meteo.Tmax
+    status.MRh = meteo.Rh
+    status.MSW = meteo.Ri_SW_f
+    status.MSWq = meteo.Ri_SW_q
+end
+
+PlantSimEngine.@process "mrmeteocustomconsumer" verbose = false
+struct MRMeteoCustomConsumerModel <: AbstractMrmeteocustomconsumerModel end
+PlantSimEngine.inputs_(::MRMeteoCustomConsumerModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRMeteoCustomConsumerModel) = (MRQ=-Inf, MCV=-Inf)
+function PlantSimEngine.run!(::MRMeteoCustomConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.MRQ = meteo.Ri_SW_f
+    status.MCV = meteo.custom_peak
 end
 
 @testset "Multi-rate runtime: HoldLast and conflict validation" begin
@@ -397,8 +423,8 @@ end
     @test length(sim_agg.temporal_state.streams[key_agg]) <= 2
     @test sim_agg.temporal_state.producer_horizons[("Leaf", :mraggsource, :XA)] == 2.0
 
-    # Expectation 11: parameterized Aggregate reducer (symbol) is applied per window.
-    # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=:max.
+    # Expectation 11: parameterized Aggregate reducer is applied per window.
+    # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=MaxReducer().
     # YA over time is [1,1,3,3].
     agg_counter_max = Ref(0)
     mapping_agg_max = Dict(
@@ -406,7 +432,7 @@ end
             ModelSpec(MRAggSourceModel(agg_counter_max)) |> TimeStepModel(1.0),
             ModelSpec(MRAggConsumerModel()) |>
             TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate(:max))),
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate(MaxReducer()))),
         ),
     )
     sim_agg_max = PlantSimEngine.GraphSimulation(mtg, mapping_agg_max, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
@@ -498,7 +524,51 @@ end
     sim_substep_period = PlantSimEngine.GraphSimulation(mtg, mapping_substep_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:XD,)))
     @test_throws "shorter than simulation base step" run!(sim_substep_period, meteo_hourly, multirate=true, executor=SequentialEx())
 
-    # Expectation 17: invalid mapping-level API configuration fails during GraphSimulation init.
+    if _HAS_METEO_SAMPLER_API
+        # Expectation 17: meteo is sampled at model clock using default weather aggregation.
+        mapping_meteo_default = Dict(
+            "Leaf" => (
+                ModelSpec(MRMeteoDailyConsumerModel()) |>
+                TimeStepModel(ClockSpec(2.0, 1.0)),
+            ),
+        )
+        meteo_mr = Weather([
+            Atmosphere(T=10.0, Wind=1.0, Rh=0.50, P=100.0, Ri_SW_f=100.0, duration=Dates.Hour(1), custom_var=1.0),
+            Atmosphere(T=20.0, Wind=1.0, Rh=0.60, P=100.0, Ri_SW_f=200.0, duration=Dates.Hour(1), custom_var=2.0),
+            Atmosphere(T=30.0, Wind=1.0, Rh=0.70, P=100.0, Ri_SW_f=300.0, duration=Dates.Hour(1), custom_var=3.0),
+            Atmosphere(T=40.0, Wind=1.0, Rh=0.80, P=100.0, Ri_SW_f=400.0, duration=Dates.Hour(1), custom_var=4.0),
+        ])
+        sim_meteo_default = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_default, nsteps=4, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
+        out_meteo_default = run!(sim_meteo_default, meteo_mr, multirate=true, executor=SequentialEx())
+        out_meteo_default_df = convert_outputs(out_meteo_default, DataFrame)
+        @test out_meteo_default_df["Leaf"][:, :MT] == [10.0, 10.0, 25.0, 25.0]
+        @test out_meteo_default_df["Leaf"][:, :MTmin] == [10.0, 10.0, 20.0, 20.0]
+        @test out_meteo_default_df["Leaf"][:, :MTmax] == [10.0, 10.0, 30.0, 30.0]
+        @test out_meteo_default_df["Leaf"][:, :MRh] == [0.5, 0.5, 0.65, 0.65]
+        @test out_meteo_default_df["Leaf"][:, :MSW] == [100.0, 100.0, 250.0, 250.0]
+        @test isapprox(out_meteo_default_df["Leaf"][:, :MSWq][1], 0.36; atol=1.0e-9)
+        @test isapprox(out_meteo_default_df["Leaf"][:, :MSWq][3], 1.8; atol=1.0e-9)
+
+        # Expectation 18: meteo bindings allow custom reducers and variable remapping.
+        mapping_meteo_custom = Dict(
+            "Leaf" => (
+                ModelSpec(MRMeteoCustomConsumerModel()) |>
+                TimeStepModel(ClockSpec(2.0, 1.0)) |>
+                MeteoBindings(
+                    ;
+                    Ri_SW_f=RadiationEnergy(),
+                    custom_peak=(source=:custom_var, reducer=MaxReducer()),
+                ),
+            ),
+        )
+        sim_meteo_custom = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_custom, nsteps=4, check=true, outputs=Dict("Leaf" => (:MRQ, :MCV)))
+        out_meteo_custom = run!(sim_meteo_custom, meteo_mr, multirate=true, executor=SequentialEx())
+        out_meteo_custom_df = convert_outputs(out_meteo_custom, DataFrame)
+        @test isapprox.(out_meteo_custom_df["Leaf"][:, :MRQ], [0.36, 0.36, 1.8, 1.8], atol=1.0e-9) |> all
+        @test out_meteo_custom_df["Leaf"][:, :MCV] == [1.0, 1.0, 3.0, 3.0]
+    end
+
+    # Expectation 19: invalid mapping-level API configuration fails during GraphSimulation init.
     mapping_bad_input = Dict(
         "Leaf" => (
             MRSourceModel(),
@@ -533,14 +603,7 @@ end
     )
     @test_throws "Invalid interpolation mode `spline`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_interp_mode, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
 
-    mapping_bad_reducer = Dict(
-        "Leaf" => (
-            MRSourceModel(),
-            ModelSpec(MRConsumerModel()) |>
-            InputBindings(; C=(process=:mrsource, var=:S, policy=Aggregate(:median))),
-        ),
-    )
-    @test_throws "Invalid reducer `median`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_reducer, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
+    @test_throws "Unsupported reducer value" Aggregate(:median)
 
     mapping_bad_period = Dict(
         "Leaf" => (
@@ -555,4 +618,19 @@ end
         ),
     )
     @test_throws "Invalid scope selector" PlantSimEngine.GraphSimulation(mtg, mapping_bad_scope, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
+
+    mapping_bad_meteo = Dict(
+        "Leaf" => (
+            ModelSpec(MRMeteoCustomConsumerModel()) |>
+                MeteoBindings(; Ri_SW_f=(source=:Ri_SW_f, badfield=:oops)),
+        ),
+    )
+    @test_throws "unsupported fields" PlantSimEngine.GraphSimulation(mtg, mapping_bad_meteo, nsteps=1, check=true, outputs=Dict("Leaf" => (:MRQ,)))
+
+    @test_throws "Unsupported MeteoBindings value" Dict(
+        "Leaf" => (
+            ModelSpec(MRMeteoCustomConsumerModel()) |>
+                MeteoBindings(; Ri_SW_f=:radiation_energy),
+        ),
+    )
 end

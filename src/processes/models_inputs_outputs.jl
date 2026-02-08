@@ -99,6 +99,18 @@ Default is `:global`.
 model_scope(spec::ModelSpec) = spec.scope
 
 """
+    meteo_bindings(spec::ModelSpec)
+
+Optional explicit weather aggregation bindings used by multi-rate MTG runtime.
+Each key is the target meteo variable exposed to the model at execution time.
+Each value can be:
+- PlantMeteo reducer instance/type (e.g. `MeanWeighted()`, `MaxReducer`)
+- `Function`: custom reducer callable
+- `NamedTuple`: optional fields `source` and `reducer`
+"""
+meteo_bindings(spec::ModelSpec) = spec.meteo_bindings
+
+"""
     inputs(mapping::Dict{String,T})
 
 Get the inputs of the models in a mapping, for each process and organ type.

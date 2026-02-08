@@ -1,21 +1,46 @@
 const _INPUT_BINDING_FIELDS = (:process, :var, :scale, :policy)
 const _MODEL_SCOPE_SELECTORS = (:global, :plant, :scene, :self)
+const _METEO_BINDING_FIELDS = (:source, :reducer)
 
 function _validate_window_reducer(scale::String, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
-    if reducer isa Symbol
-        reducer in _WINDOW_REDUCER_SYMBOLS || error(
-            "Invalid reducer `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
-            "in process `$(process)` at scale `$(scale)`. Supported symbols are $(_WINDOW_REDUCER_SYMBOLS)."
+    if reducer isa DataType
+        reducer <: PlantMeteo.AbstractTimeReducer || error(
+            "Invalid reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
+            "in process `$(process)` at scale `$(scale)`. ",
+            "Expected a PlantMeteo reducer type/instance or a callable."
+        )
+        rr = try
+            reducer()
+        catch
+            error(
+                "Reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
+                "in process `$(process)` at scale `$(scale)` cannot be instantiated without arguments."
+            )
+        end
+        applicable(rr, [1.0, 2.0]) || error(
+            "Reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
+            "must be callable on a vector of numeric values."
+        )
+        return nothing
+    elseif reducer isa PlantMeteo.AbstractTimeReducer
+        applicable(reducer, [1.0, 2.0]) || error(
+            "Reducer `$(typeof(reducer))` for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
+            "must be callable on a vector of numeric values."
+        )
+        return nothing
+    elseif reducer isa Function
+        applicable(reducer, [1.0, 2.0]) || error(
+            "Reducer for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
+            "must be callable on a vector of numeric values."
         )
         return nothing
     end
 
-    applicable(reducer, [1.0, 2.0]) || error(
-        "Reducer for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
-        "must be a supported Symbol or a callable accepting a vector of numeric values."
+    error(
+        "Invalid reducer value `$(reducer)` (type `$(typeof(reducer))`) for policy `$(policy_name)` ",
+        "on input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+        "Expected a PlantMeteo reducer type/instance or a callable."
     )
-
-    return nothing
 end
 
 function _validate_policy_instance(scale::String, process::Symbol, input_var::Symbol, policy::SchedulePolicy)
@@ -275,6 +300,81 @@ function _validate_output_routing_for_spec(scale::String, process::Symbol, spec:
     return nothing
 end
 
+function _validate_meteo_binding(scale::String, process::Symbol, target_var::Symbol, binding)
+    if binding isa Function || binding isa PlantMeteo.AbstractTimeReducer
+        return nothing
+    elseif binding isa DataType
+        binding <: PlantMeteo.AbstractTimeReducer || error(
+            "Invalid MeteoBindings reducer type for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+            "expected a subtype of `PlantMeteo.AbstractTimeReducer`."
+        )
+        try
+            binding()
+        catch
+            error(
+                "Invalid MeteoBindings reducer type for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+                "type `$(binding)` cannot be instantiated without arguments."
+            )
+        end
+        return nothing
+    elseif binding isa NamedTuple
+        extra = setdiff(collect(keys(binding)), collect(_METEO_BINDING_FIELDS))
+        isempty(extra) || error(
+            "Invalid MeteoBindings for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+            "unsupported fields $(extra)."
+        )
+
+        if haskey(binding, :source)
+            binding.source isa Symbol || binding.source isa AbstractString || error(
+                "Invalid MeteoBindings source for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+                "`source` must be a Symbol or String."
+            )
+        end
+        if haskey(binding, :reducer)
+            reducer = binding.reducer
+            if reducer isa DataType
+                reducer <: PlantMeteo.AbstractTimeReducer || error(
+                    "Invalid MeteoBindings reducer for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+                    "`reducer` type must subtype `PlantMeteo.AbstractTimeReducer`."
+                )
+                try
+                    reducer()
+                catch
+                    error(
+                        "Invalid MeteoBindings reducer type for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+                        "type `$(reducer)` cannot be instantiated without arguments."
+                    )
+                end
+            else
+                (reducer isa PlantMeteo.AbstractTimeReducer || reducer isa Function) || error(
+                    "Invalid MeteoBindings reducer for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+                    "`reducer` must be a reducer instance/type or a callable."
+                )
+            end
+        end
+        return nothing
+    end
+
+    error(
+        "Invalid MeteoBindings value for variable `$(target_var)` in process `$(process)` at scale `$(scale)`: ",
+        "unsupported type `$(typeof(binding))`."
+    )
+end
+function _validate_meteo_bindings_for_spec(scale::String, process::Symbol, spec::ModelSpec)
+    bindings = meteo_bindings(spec)
+    bindings isa NamedTuple || error(
+        "MeteoBindings for process `$(process)` at scale `$(scale)` must be a NamedTuple, got `$(typeof(bindings))`."
+    )
+
+    for (target_var, binding) in pairs(bindings)
+        target_var isa Symbol || error(
+            "MeteoBindings key for process `$(process)` at scale `$(scale)` must be a Symbol, got `$(typeof(target_var))`."
+        )
+        _validate_meteo_binding(scale, process, target_var, binding)
+    end
+    return nothing
+end
+
 """
     validate_model_specs_configuration(model_specs)
 
@@ -292,6 +392,7 @@ function validate_model_specs_configuration(model_specs)
             _validate_timestep_spec(scale, process, spec)
             _validate_scope_spec(scale, process, spec)
             _validate_input_bindings_for_spec(scale, process, spec, model_specs, known_processes)
+            _validate_meteo_bindings_for_spec(scale, process, spec)
             _validate_output_routing_for_spec(scale, process, spec)
         end
     end

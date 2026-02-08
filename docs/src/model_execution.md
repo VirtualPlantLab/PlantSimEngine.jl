@@ -15,13 +15,15 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 
 - `TimeStepModel(...)`: sets model execution clock.
 - `InputBindings(...)`: sets producer, source variable, optional source scale, and policy for each consumer input.
+- `MeteoBindings(...)`: sets weather aggregation rules at the model clock for meteo variables.
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 - `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
 Policy parameterization:
-- `Integrate()` defaults to `:sum`; you can pass another reducer, e.g. `Integrate(:mean)` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
-- `Aggregate()` defaults to `:mean`; you can pass reducers such as `Aggregate(:max)`.
+- `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
+- `Aggregate()` defaults to `MeanReducer()`; you can pass reducers such as `Aggregate(MaxReducer())`.
 - `Interpolate()` defaults to `mode=:linear, extrapolation=:linear`; use `Interpolate(; mode=:hold, extrapolation=:hold)` for hold behavior.
+- The same reducer objects are reused by meteo sampling (`MeteoBindings`) and by windowed policies (`Integrate`, `Aggregate`).
 
 `TimeStepModel(...)` accepts either step counts (`Real`), `ClockSpec`, or fixed `Dates` periods
 (for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using
@@ -41,6 +43,7 @@ Typical pipeline form:
 ```julia
 ModelSpec(MyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
+MeteoBindings(; T=MeanWeighted()) |>
 InputBindings(; x=(process=:producer, var=:y, policy=HoldLast())) |>
 OutputRouting(; z=:stream_only)
 ```
@@ -87,6 +90,10 @@ mapping = Dict(
 ```
 
 When `multirate=true` is passed to `run!`, the runtime resolves inputs from producer temporal streams according to these policies.
+Meteo rows are also sampled at each model clock. By default, meteo variables are aggregated from
+the finest weather step (for example `T` and `Rh` as weighted means, `Tmin/Tmax`, and radiation
+quantity aliases such as `Ri_SW_q` in MJ m-2). You can override these rules with `MeteoBindings(...)`
+on each `ModelSpec`.
 
 ### Current limitations
 

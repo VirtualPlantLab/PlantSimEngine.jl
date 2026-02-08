@@ -37,57 +37,6 @@ function _resolved_windowed_value_for_source(
     isnothing(samples) && return nothing, false
 
     if policy isa Union{Integrate,Aggregate}
-        reducer = policy.reducer
-        if reducer isa Symbol
-            reducer in _WINDOW_REDUCER_SYMBOLS || error(
-                "Unsupported reducer symbol `$(reducer)`. Supported symbols are $(_WINDOW_REDUCER_SYMBOLS)."
-            )
-
-            found = false
-            n = 0
-            s = 0.0
-            first_v = 0.0
-            last_v = 0.0
-            min_v = 0.0
-            max_v = 0.0
-
-            for (ts, v) in samples
-                ts < t_start - 1e-8 && continue
-                ts > t_end + 1e-8 && continue
-                v isa Real || return nothing, false
-                vf = float(v)
-
-                if !found
-                    found = true
-                    first_v = vf
-                    min_v = vf
-                    max_v = vf
-                end
-
-                last_v = vf
-                s += vf
-                n += 1
-                vf < min_v && (min_v = vf)
-                vf > max_v && (max_v = vf)
-            end
-
-            !found && return nothing, false
-
-            if reducer == :sum
-                return s, true
-            elseif reducer == :mean
-                return s / n, true
-            elseif reducer == :max
-                return max_v, true
-            elseif reducer == :min
-                return min_v, true
-            elseif reducer == :first
-                return first_v, true
-            elseif reducer == :last
-                return last_v, true
-            end
-        end
-
         vals_real = Float64[]
         for (ts, v) in samples
             ts < t_start - 1e-8 && continue
@@ -160,30 +109,25 @@ function _resolved_interpolated_value_for_source(
 end
 
 function _resolve_window_reducer(reducer)
-    if reducer isa Symbol
-        reducer in _WINDOW_REDUCER_SYMBOLS || error(
-            "Unsupported reducer symbol `$(reducer)`. Supported symbols are $(_WINDOW_REDUCER_SYMBOLS)."
+    if reducer isa DataType
+        reducer <: PlantMeteo.AbstractTimeReducer || error(
+            "Unsupported reducer type `$(reducer)`. Use a PlantMeteo reducer type/instance or a callable."
         )
-        if reducer == :sum
-            return vals -> sum(vals)
-        elseif reducer == :mean
-            return vals -> sum(vals) / length(vals)
-        elseif reducer == :max
-            return vals -> maximum(vals)
-        elseif reducer == :min
-            return vals -> minimum(vals)
-        elseif reducer == :first
-            return vals -> first(vals)
-        elseif reducer == :last
-            return vals -> last(vals)
-        end
+        return reducer()
+    elseif reducer isa PlantMeteo.AbstractTimeReducer
+        return reducer
+    elseif reducer isa Function
+        return reducer
     end
 
-    return reducer
+    error(
+        "Unsupported reducer value `$(reducer)` of type `$(typeof(reducer))`. ",
+        "Use a PlantMeteo reducer type/instance or a callable."
+    )
 end
 
 function _window_reduce(vals::AbstractVector{<:Real}, policy::SchedulePolicy)
-    reducer = policy isa Integrate ? policy.reducer : (policy isa Aggregate ? policy.reducer : :sum)
+    reducer = policy isa Integrate ? policy.reducer : (policy isa Aggregate ? policy.reducer : PlantMeteo.SumReducer())
     f = _resolve_window_reducer(reducer)
 
     applicable(f, vals) || error(

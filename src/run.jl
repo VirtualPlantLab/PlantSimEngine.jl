@@ -462,6 +462,7 @@ function run!(
     dep_graph = object.dependency_graph
     models = get_models(object)
     timeline = _timeline_context(meteo)
+    meteo_sampler = multirate ? _prepare_meteo_sampler(meteo) : nothing
     effective_executor = executor
     # st = status(object)
     if multirate
@@ -488,7 +489,7 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, multirate, timeline)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, multirate, timeline, meteo_sampler)
         end
         multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
         save_results!(object, 1)
@@ -496,7 +497,7 @@ function run!(
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, multirate, timeline)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, multirate, timeline, meteo_sampler)
             end
             multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
             # At the end of the time-step, we save the results of the simulation in the object:
@@ -530,7 +531,8 @@ function run_node_multiscale!(
     check,
     executor,
     multirate,
-    timeline::TimelineContext
+    timeline::TimelineContext,
+    meteo_sampler
 ) where {T<:GraphSimulation} # T is the status of each node by organ type
 
     # run!(status(object), dependency_node, meteo, constants, extra)
@@ -553,8 +555,9 @@ function run_node_multiscale!(
         if multirate
             resolve_inputs_from_temporal_state!(object, node, st, t, model_spec, timeline)
         end
+        meteo_for_model = multirate ? _sample_meteo_for_model(meteo_sampler, meteo, i, model_clock, model_spec) : meteo
         # Actual call to the model:
-        run!(node.value, models_at_scale, st, meteo, constants, extra)
+        run!(node.value, models_at_scale, st, meteo_for_model, constants, extra)
         if multirate
             update_temporal_state_outputs!(object, node, model_spec, st, t)
         end
@@ -567,6 +570,6 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate, timeline)
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate, timeline, meteo_sampler)
     end
 end

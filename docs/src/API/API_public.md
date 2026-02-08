@@ -20,6 +20,7 @@ For mapping-level multi-rate configuration, combine:
 - `ModelSpec(...)`
 - `TimeStepModel(...)`
 - `InputBindings(...)`
+- `MeteoBindings(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
 - `OutputRequest(...)` in `tracked_outputs` for resampled exports
@@ -70,26 +71,39 @@ TimeStepModel(ClockSpec(2.0, 1.0)) |>
 InputBindings(; x=(process=:producer, var=:x))
 ```
 
-### Parameterized window reducers
-
-`Integrate()` defaults to `:sum`; `Aggregate()` defaults to `:mean`.
+### Meteo aggregation bindings
 
 ```julia
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(:sum)))
+MeteoBindings(
+    T=MeanWeighted(),                     # default source is :T
+    Ri_SW_f=RadiationEnergy(),            # integrate W m-2 to MJ m-2 over the model window
+    custom_peak=(source=:custom_var, reducer=MaxReducer()),
+)
+```
+
+### Parameterized window reducers
+
+`Integrate()` defaults to `SumReducer()`; `Aggregate()` defaults to `MeanReducer()`.
+
+```julia
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(SumReducer())))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Aggregate(:max)))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Aggregate(MaxReducer())))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
 InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(vals -> maximum(vals) - minimum(vals))))
 ```
 
-Supported reducer symbols are:
-`:sum`, `:mean`, `:max`, `:min`, `:first`, `:last`.
+Built-in reducer types are:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`, `LastReducer()`.
+The same reducer objects are also used by `MeteoBindings(...)`.
 
 ### Parameterized interpolation mode
 

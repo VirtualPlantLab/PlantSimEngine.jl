@@ -66,7 +66,6 @@ Use the latest available producer value.
 struct HoldLast <: SchedulePolicy end
 
 const _INTERPOLATE_MODES = (:linear, :hold)
-const _WINDOW_REDUCER_SYMBOLS = (:sum, :mean, :max, :min, :first, :last)
 
 """
     Interpolate()
@@ -99,14 +98,18 @@ Interpolate(; mode::Symbol=:linear, extrapolation::Symbol=:linear) = Interpolate
 Windowed policy for consumers running at coarser clocks.
 Values in the consumer window are reduced with `reducer`.
 
-Supported reducer symbols: `:sum`, `:mean`, `:max`, `:min`, `:first`, `:last`.
+Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
+`LastReducer()`.
 You can also provide a callable taking the collected window values.
 """
 struct Integrate{R} <: SchedulePolicy
     reducer::R
+    function Integrate(reducer)
+        normalized = _normalize_policy_reducer(reducer)
+        return new{typeof(normalized)}(normalized)
+    end
 end
-
-Integrate() = Integrate(:sum)
 
 """
     Aggregate()
@@ -115,14 +118,41 @@ Integrate() = Integrate(:sum)
 Windowed aggregation policy for consumers running at coarser clocks.
 Values in the consumer window are reduced with `reducer`.
 
-Supported reducer symbols: `:sum`, `:mean`, `:max`, `:min`, `:first`, `:last`.
+Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
+`LastReducer()`.
 You can also provide a callable taking the collected window values.
 """
 struct Aggregate{R} <: SchedulePolicy
     reducer::R
+    function Aggregate(reducer)
+        normalized = _normalize_policy_reducer(reducer)
+        return new{typeof(normalized)}(normalized)
+    end
 end
 
-Aggregate() = Aggregate(:mean)
+function _normalize_policy_reducer(reducer)
+    if reducer isa DataType
+        reducer <: PlantMeteo.AbstractTimeReducer || error(
+            "Unsupported reducer type `$(reducer)`. ",
+            "Use a PlantMeteo reducer type/instance or a callable."
+        )
+        return reducer()
+    elseif reducer isa PlantMeteo.AbstractTimeReducer
+        return reducer
+    elseif reducer isa Function
+        return reducer
+    end
+
+    error(
+        "Unsupported reducer value `$(reducer)` of type `$(typeof(reducer))`. ",
+        "Use a PlantMeteo reducer type/instance or a callable."
+    )
+end
+
+Integrate() = Integrate(PlantMeteo.SumReducer())
+
+Aggregate() = Aggregate(PlantMeteo.MeanReducer())
 
 abstract type OutputCache end
 
