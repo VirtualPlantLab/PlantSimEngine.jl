@@ -1,6 +1,9 @@
 const _INPUT_BINDING_FIELDS = (:process, :var, :scale, :policy)
 const _MODEL_SCOPE_SELECTORS = (:global, :plant, :scene, :self)
 const _METEO_BINDING_FIELDS = (:source, :reducer)
+const _CALENDAR_PERIODS = (:day, :week, :month)
+const _CALENDAR_ANCHORS = (:current_period, :previous_complete_period)
+const _CALENDAR_COMPLETENESS = (:allow_partial, :strict)
 
 function _validate_window_reducer(scale::String, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
     if reducer isa DataType
@@ -375,6 +378,36 @@ function _validate_meteo_bindings_for_spec(scale::String, process::Symbol, spec:
     return nothing
 end
 
+function _validate_meteo_window_for_spec(scale::String, process::Symbol, spec::ModelSpec)
+    window = meteo_window(spec)
+    isnothing(window) && return nothing
+
+    window isa PlantMeteo.AbstractSamplingWindow || error(
+        "MeteoWindow for process `$(process)` at scale `$(scale)` must be a PlantMeteo sampling-window instance, got `$(typeof(window))`."
+    )
+
+    if window isa PlantMeteo.CalendarWindow
+        window.period in _CALENDAR_PERIODS || error(
+            "Invalid CalendarWindow period `$(window.period)` for process `$(process)` at scale `$(scale)`. ",
+            "Allowed values are $(_CALENDAR_PERIODS)."
+        )
+        window.anchor in _CALENDAR_ANCHORS || error(
+            "Invalid CalendarWindow anchor `$(window.anchor)` for process `$(process)` at scale `$(scale)`. ",
+            "Allowed values are $(_CALENDAR_ANCHORS)."
+        )
+        1 <= window.week_start <= 7 || error(
+            "Invalid CalendarWindow week_start `$(window.week_start)` for process `$(process)` at scale `$(scale)`. ",
+            "Allowed values are integers in 1:7."
+        )
+        window.completeness in _CALENDAR_COMPLETENESS || error(
+            "Invalid CalendarWindow completeness `$(window.completeness)` for process `$(process)` at scale `$(scale)`. ",
+            "Allowed values are $(_CALENDAR_COMPLETENESS)."
+        )
+    end
+
+    return nothing
+end
+
 """
     validate_model_specs_configuration(model_specs)
 
@@ -393,6 +426,7 @@ function validate_model_specs_configuration(model_specs)
             _validate_scope_spec(scale, process, spec)
             _validate_input_bindings_for_spec(scale, process, spec, model_specs, known_processes)
             _validate_meteo_bindings_for_spec(scale, process, spec)
+            _validate_meteo_window_for_spec(scale, process, spec)
             _validate_output_routing_for_spec(scale, process, spec)
         end
     end

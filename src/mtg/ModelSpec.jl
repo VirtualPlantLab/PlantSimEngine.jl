@@ -1,5 +1,5 @@
 """
-    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), output_routing=NamedTuple(), scope=:global)
+    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), meteo_window=nothing, output_routing=NamedTuple(), scope=:global)
 
 User-side model configuration wrapper for mapping/model list composition.
 
@@ -7,12 +7,13 @@ User-side model configuration wrapper for mapping/model list composition.
 This allows modelers to publish reusable models while users decide how models are coupled in
 their simulation setup.
 """
-struct ModelSpec{M,MS,TS,IB,MB,OR,SC}
+struct ModelSpec{M,MS,TS,IB,MB,MW,OR,SC}
     model::M
     multiscale::MS
     timestep::TS
     input_bindings::IB
     meteo_bindings::MB
+    meteo_window::MW
     output_routing::OR
     scope::SC
 end
@@ -29,6 +30,7 @@ function ModelSpec(
     timestep=nothing,
     input_bindings=NamedTuple(),
     meteo_bindings=NamedTuple(),
+    meteo_window=nothing,
     output_routing=NamedTuple(),
     scope=:global
 )
@@ -43,14 +45,16 @@ function ModelSpec(
     normalized_multiscale = _normalize_multiscale_mapping(base_model, base_multiscale)
     normalized_input_bindings = _normalize_input_bindings(input_bindings)
     normalized_meteo_bindings = _normalize_meteo_bindings(meteo_bindings)
+    normalized_meteo_window = _normalize_meteo_window(meteo_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_scope = _normalize_scope_selector(scope)
-    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_output_routing),typeof(normalized_scope)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope)}(
         base_model,
         normalized_multiscale,
         timestep,
         normalized_input_bindings,
         normalized_meteo_bindings,
+        normalized_meteo_window,
         normalized_output_routing,
         normalized_scope
     )
@@ -63,10 +67,11 @@ function ModelSpec(
     timestep=spec.timestep,
     input_bindings=spec.input_bindings,
     meteo_bindings=spec.meteo_bindings,
+    meteo_window=spec.meteo_window,
     output_routing=spec.output_routing,
     scope=spec.scope
 )
-    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, output_routing=output_routing, scope=scope)
+    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope)
 end
 
 as_model_spec(spec::ModelSpec) = spec
@@ -111,6 +116,16 @@ Return a `ModelSpec` with explicit meteo aggregation bindings.
 function with_meteo_bindings(model_or_spec, bindings)
     spec = as_model_spec(model_or_spec)
     return ModelSpec(spec; meteo_bindings=_normalize_meteo_bindings(bindings))
+end
+
+"""
+    with_meteo_window(model_or_spec, window)
+
+Return a `ModelSpec` with explicit weather-window selection strategy.
+"""
+function with_meteo_window(model_or_spec, window)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; meteo_window=_normalize_meteo_window(window))
 end
 
 """
@@ -184,6 +199,25 @@ end
 
 _normalize_meteo_bindings(bindings) = bindings
 
+function _normalize_meteo_window(window)
+    if isnothing(window)
+        return nothing
+    elseif window isa DataType
+        window <: PlantMeteo.AbstractSamplingWindow || error(
+            "Unsupported MeteoWindow type `$(window)`. ",
+            "Use a PlantMeteo sampling-window type/instance."
+        )
+        return window()
+    elseif window isa PlantMeteo.AbstractSamplingWindow
+        return window
+    end
+
+    error(
+        "Unsupported MeteoWindow value `$(window)` of type `$(typeof(window))`. ",
+        "Use a PlantMeteo sampling-window type/instance."
+    )
+end
+
 function _normalize_output_routing(routing::NamedTuple)
     normalized = Pair{Symbol,Symbol}[]
     for (k, v) in pairs(routing)
@@ -242,6 +276,14 @@ Each value can be:
 """
 MeteoBindings(bindings) = x -> with_meteo_bindings(x, bindings)
 MeteoBindings(; kwargs...) = MeteoBindings((; kwargs...))
+
+"""
+    MeteoWindow(window)
+
+Pipe-style transform that sets the weather window-selection strategy on a model/spec.
+Use `PlantMeteo.RollingWindow()` (default) or `PlantMeteo.CalendarWindow(...)`.
+"""
+MeteoWindow(window) = x -> with_meteo_window(x, window)
 
 """
     OutputRouting(routing)

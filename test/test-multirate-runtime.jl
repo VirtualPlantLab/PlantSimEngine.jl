@@ -566,9 +566,84 @@ end
         out_meteo_custom_df = convert_outputs(out_meteo_custom, DataFrame)
         @test isapprox.(out_meteo_custom_df["Leaf"][:, :MRQ], [0.36, 0.36, 1.8, 1.8], atol=1.0e-9) |> all
         @test out_meteo_custom_df["Leaf"][:, :MCV] == [1.0, 1.0, 3.0, 3.0]
+
+        # Expectation 19: CalendarWindow(:day, :current_period) aggregates over the civil day
+        # (including future timesteps in the same day).
+        meteo_calendar = Weather(vcat(
+            [
+                Atmosphere(
+                    date=DateTime(2025, 1, 1, h - 1, 0, 0),
+                    duration=Dates.Hour(1),
+                    T=float(h),
+                    Wind=1.0,
+                    Rh=0.50,
+                    P=100.0,
+                    Ri_SW_f=100.0
+                )
+                for h in 1:24
+            ],
+            [
+                Atmosphere(
+                    date=DateTime(2025, 1, 2, h - 1, 0, 0),
+                    duration=Dates.Hour(1),
+                    T=float(100 + h),
+                    Wind=1.0,
+                    Rh=0.60,
+                    P=100.0,
+                    Ri_SW_f=200.0
+                )
+                for h in 1:24
+            ],
+        ))
+
+        mapping_meteo_calendar_current = Dict(
+            "Leaf" => (
+                ModelSpec(MRMeteoDailyConsumerModel()) |>
+                TimeStepModel(1.0) |>
+                MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:allow_partial)),
+            ),
+        )
+        sim_meteo_calendar_current = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_current, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
+        out_meteo_calendar_current = run!(sim_meteo_calendar_current, meteo_calendar, multirate=true, executor=SequentialEx())
+        out_meteo_calendar_current_df = convert_outputs(out_meteo_calendar_current, DataFrame)
+        @test out_meteo_calendar_current_df["Leaf"][1, :MT] == 12.5
+        @test out_meteo_calendar_current_df["Leaf"][10, :MT] == 12.5
+        @test out_meteo_calendar_current_df["Leaf"][25, :MT] == 112.5
+        @test out_meteo_calendar_current_df["Leaf"][1, :MTmin] == 1.0
+        @test out_meteo_calendar_current_df["Leaf"][1, :MTmax] == 24.0
+        @test out_meteo_calendar_current_df["Leaf"][25, :MTmin] == 101.0
+        @test out_meteo_calendar_current_df["Leaf"][25, :MTmax] == 124.0
+        @test isapprox(out_meteo_calendar_current_df["Leaf"][1, :MSWq], 8.64; atol=1.0e-9)
+        @test isapprox(out_meteo_calendar_current_df["Leaf"][25, :MSWq], 17.28; atol=1.0e-9)
+
+        # Expectation 20: CalendarWindow(:day, :previous_complete_period) uses previous day.
+        mapping_meteo_calendar_prev = Dict(
+            "Leaf" => (
+                ModelSpec(MRMeteoDailyConsumerModel()) |>
+                TimeStepModel(1.0) |>
+                MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:allow_partial)),
+            ),
+        )
+        sim_meteo_calendar_prev = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
+        out_meteo_calendar_prev = run!(sim_meteo_calendar_prev, meteo_calendar, multirate=true, executor=SequentialEx())
+        out_meteo_calendar_prev_df = convert_outputs(out_meteo_calendar_prev, DataFrame)
+        @test out_meteo_calendar_prev_df["Leaf"][30, :MT] == 12.5
+        @test out_meteo_calendar_prev_df["Leaf"][30, :MTmin] == 1.0
+        @test out_meteo_calendar_prev_df["Leaf"][30, :MTmax] == 24.0
+
+        # Expectation 21: strict previous-complete-period errors when unavailable.
+        mapping_meteo_calendar_prev_strict = Dict(
+            "Leaf" => (
+                ModelSpec(MRMeteoDailyConsumerModel()) |>
+                TimeStepModel(1.0) |>
+                MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:strict)),
+            ),
+        )
+        sim_meteo_calendar_prev_strict = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev_strict, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
+        @test_throws "No period available" run!(sim_meteo_calendar_prev_strict, meteo_calendar, multirate=true, executor=SequentialEx())
     end
 
-    # Expectation 19: invalid mapping-level API configuration fails during GraphSimulation init.
+    # Expectation 22: invalid mapping-level API configuration fails during GraphSimulation init.
     mapping_bad_input = Dict(
         "Leaf" => (
             MRSourceModel(),
@@ -631,6 +706,13 @@ end
         "Leaf" => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
                 MeteoBindings(; Ri_SW_f=:radiation_energy),
+        ),
+    )
+
+    @test_throws "Unsupported MeteoWindow value" Dict(
+        "Leaf" => (
+            ModelSpec(MRMeteoCustomConsumerModel()) |>
+                MeteoWindow("day"),
         ),
     )
 end

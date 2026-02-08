@@ -21,6 +21,7 @@ For mapping-level multi-rate configuration, combine:
 - `TimeStepModel(...)`
 - `InputBindings(...)`
 - `MeteoBindings(...)`
+- `MeteoWindow(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
 - `OutputRequest(...)` in `tracked_outputs` for resampled exports
@@ -76,12 +77,21 @@ InputBindings(; x=(process=:producer, var=:x))
 ```julia
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
+MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict)) |>
 MeteoBindings(
     T=MeanWeighted(),                     # default source is :T
     Ri_SW_f=RadiationEnergy(),            # integrate W m-2 to MJ m-2 over the model window
     custom_peak=(source=:custom_var, reducer=MaxReducer()),
 )
 ```
+
+`MeteoWindow(...)` options:
+- `RollingWindow()` (default): trailing rolling window driven by `dt`.
+- `CalendarWindow(period; anchor, week_start, completeness)` with:
+: `period` in `:day`, `:week`, `:month`
+: `anchor` in `:current_period`, `:previous_complete_period`
+: `week_start` in `1:7` (1 = Monday)
+: `completeness` in `:allow_partial`, `:strict`
 
 ### Parameterized window reducers
 

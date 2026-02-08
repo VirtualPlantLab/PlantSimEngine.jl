@@ -111,6 +111,14 @@ Each value can be:
 meteo_bindings(spec::ModelSpec) = spec.meteo_bindings
 
 """
+    meteo_window(spec::ModelSpec)
+
+Optional weather window-selection strategy used by multi-rate MTG runtime.
+Defaults to `nothing` (runtime falls back to `PlantMeteo.RollingWindow()` behavior).
+"""
+meteo_window(spec::ModelSpec) = spec.meteo_window
+
+"""
     inputs(mapping::Dict{String,T})
 
 Get the inputs of the models in a mapping, for each process and organ type.

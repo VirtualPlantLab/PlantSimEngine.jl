@@ -10,7 +10,32 @@ function _prepare_meteo_sampler(meteo)
     return PlantMeteo.prepare_weather_sampler(meteo)
 end
 
-_meteo_sampling_spec(clock::ClockSpec) = PlantMeteo.MeteoSamplingSpec(float(clock.dt), float(clock.phase))
+function _runtime_meteo_window(window)
+    if isnothing(window)
+        return nothing
+    elseif window isa PlantMeteo.AbstractSamplingWindow
+        return window
+    elseif window isa DataType
+        window <: PlantMeteo.AbstractSamplingWindow || error(
+            "Unsupported MeteoWindow type `$(window)`. ",
+            "Use a PlantMeteo sampling-window type/instance."
+        )
+        return window()
+    end
+
+    error(
+        "Unsupported MeteoWindow value `$(window)` of type `$(typeof(window))`. ",
+        "Use a PlantMeteo sampling-window type/instance."
+    )
+end
+
+function _meteo_sampling_spec(clock::ClockSpec, model_spec)
+    window = _runtime_meteo_window(meteo_window(model_spec))
+    if isnothing(window)
+        return PlantMeteo.MeteoSamplingSpec(float(clock.dt), float(clock.phase))
+    end
+    return PlantMeteo.MeteoSamplingSpec(float(clock.dt), float(clock.phase); window=window)
+end
 
 function _normalize_meteo_reducer(reducer)
     if reducer isa DataType
@@ -67,11 +92,12 @@ function _sample_meteo_for_model(
     model_spec
 )
     transforms = _meteo_transforms_for_model(model_spec)
+    window = _runtime_meteo_window(meteo_window(model_spec))
 
     isnothing(meteo_sampler) && begin
-        if !isnothing(transforms)
+        if !isnothing(transforms) || !isnothing(window)
             @warn string(
-                "MeteoBindings were provided but weather sampler API is unavailable or meteo is not TimeStepTable{Atmosphere}. ",
+                "MeteoBindings or MeteoWindow were provided but weather sampler API is unavailable or meteo is not TimeStepTable{Atmosphere}. ",
                 "Falling back to raw meteo rows."
             ) maxlog = 1
         end
@@ -79,10 +105,12 @@ function _sample_meteo_for_model(
     end
 
     # Fast-path: default 1:1 weather step with no custom transforms.
-    if float(model_clock.dt) <= 1.0 && isnothing(transforms)
+    if float(model_clock.dt) <= 1.0 &&
+       isnothing(transforms) &&
+       (isnothing(window) || window isa PlantMeteo.RollingWindow)
         return meteo
     end
 
-    spec = _meteo_sampling_spec(model_clock)
+    spec = _meteo_sampling_spec(model_clock, model_spec)
     return PlantMeteo.sample_weather(meteo_sampler, i; spec=spec, transforms=transforms)
 end

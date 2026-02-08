@@ -16,6 +16,7 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `TimeStepModel(...)`: sets model execution clock.
 - `InputBindings(...)`: sets producer, source variable, optional source scale, and policy for each consumer input.
 - `MeteoBindings(...)`: sets weather aggregation rules at the model clock for meteo variables.
+- `MeteoWindow(...)`: sets weather row selection strategy (`RollingWindow()` or `CalendarWindow(...)`).
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 - `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
@@ -43,10 +44,24 @@ Typical pipeline form:
 ```julia
 ModelSpec(MyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
+MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict)) |>
 MeteoBindings(; T=MeanWeighted()) |>
 InputBindings(; x=(process=:producer, var=:y, policy=HoldLast())) |>
 OutputRouting(; z=:stream_only)
 ```
+
+### Calendar-aligned meteo windows
+
+`MeteoWindow(...)` controls how rows are selected before reducers are applied:
+- `RollingWindow()` (default): trailing window based on `dt` (for example "last 24 steps").
+- `CalendarWindow(period; anchor, week_start, completeness)`:
+: `period` in `:day`, `:week`, `:month`
+: `anchor` in `:current_period`, `:previous_complete_period`
+: `week_start` in `1:7` (1 = Monday)
+: `completeness` in `:allow_partial`, `:strict`
+
+`CalendarWindow(:day; anchor=:current_period, ...)` guarantees that a model running inside a day sees
+aggregates over that civil day (including later timesteps from that day when available).
 
 ### Hold-last coupling (default policy)
 

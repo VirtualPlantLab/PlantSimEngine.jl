@@ -123,7 +123,7 @@ export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, M
 export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
 export TemporalState
 export OutputRequest, collect_outputs
-export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, OutputRouting, ScopeModel
+export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
@@ -131,7 +131,7 @@ export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
-export timespec, output_policy, input_bindings, meteo_bindings, output_routing, model_scope
+export timespec, output_policy, input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
 export fit
 
