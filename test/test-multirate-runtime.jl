@@ -7,7 +7,7 @@ using Test
 using Dates
 
 const _HAS_METEO_SAMPLER_API = isdefined(PlantMeteo, :prepare_weather_sampler) &&
-                               isdefined(PlantMeteo, :MeteoSamplingSpec) &&
+                               isdefined(PlantMeteo, :RollingWindow) &&
                                isdefined(PlantMeteo, :sample_weather)
 
 # Producer stream: writes :S.

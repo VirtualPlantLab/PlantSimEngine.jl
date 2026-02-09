@@ -1,6 +1,6 @@
 function _has_meteo_sampler_api()
     return isdefined(PlantMeteo, :prepare_weather_sampler) &&
-           isdefined(PlantMeteo, :MeteoSamplingSpec) &&
+           isdefined(PlantMeteo, :RollingWindow) &&
            isdefined(PlantMeteo, :sample_weather)
 end
 
@@ -29,12 +29,17 @@ function _runtime_meteo_window(window)
     )
 end
 
-function _meteo_sampling_spec(clock::ClockSpec, model_spec)
+function _meteo_sampling_window(clock::ClockSpec, model_spec)
     window = _runtime_meteo_window(meteo_window(model_spec))
     if isnothing(window)
-        return PlantMeteo.MeteoSamplingSpec(float(clock.dt), float(clock.phase))
+        return PlantMeteo.RollingWindow(float(clock.dt))
     end
-    return PlantMeteo.MeteoSamplingSpec(float(clock.dt), float(clock.phase); window=window)
+    # Keep historical behavior when a plain RollingWindow marker is provided:
+    # rolling width follows the model clock by default.
+    if window isa PlantMeteo.RollingWindow && window.dt == 1.0
+        return PlantMeteo.RollingWindow(float(clock.dt))
+    end
+    return window
 end
 
 function _normalize_meteo_reducer(reducer)
@@ -111,6 +116,6 @@ function _sample_meteo_for_model(
         return meteo
     end
 
-    spec = _meteo_sampling_spec(model_clock, model_spec)
-    return PlantMeteo.sample_weather(meteo_sampler, i; spec=spec, transforms=transforms)
+    window = _meteo_sampling_window(model_clock, model_spec)
+    return PlantMeteo.sample_weather(meteo_sampler, i; window=window, transforms=transforms)
 end
