@@ -203,6 +203,13 @@ Manually computing daily sums from the hourly series confirms the daily assimila
 plant_daily_df
 ```
 
+Of course the outputs of the models are still available in the `status_outputs` returned by `run!`, and can be converted to DataFrames as well:
+
+```@example multirate_tutorial
+outs = convert_outputs(out_status.outputs, DataFrame)
+outs["Plant"]
+```
+
 ## 5. Deeper notes
 
 ### Calendar-aligned windows
