@@ -39,7 +39,7 @@ makedocs(;
             "Implementing a model" => "./step_by_step/implement_a_model.md",
             "Parallelization" => "./step_by_step/parallelization.md",
             "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
-            "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",           
+            "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",
         ],
         "Execution" => "model_execution.md",
         "Working with data" => [
@@ -58,10 +58,14 @@ makedocs(;
             "Building a simple plant" => [
                 "A rudimentary plant simulation" => "./multiscale/multiscale_example_1.md",
                 "Expanding the plant simulation" => "./multiscale/multiscale_example_2.md",
-                "Fixing bugs in the plant simulation"=> "./multiscale/multiscale_example_3.md",
+                "Fixing bugs in the plant simulation" => "./multiscale/multiscale_example_3.md",
             ],
-            "Visualizing our toy plant with PlantGeom"=> "./multiscale/multiscale_example_4.md",
-        ], "Troubleshooting and testing" => [
+            "Visualizing our toy plant with PlantGeom" => "./multiscale/multiscale_example_4.md",
+        ],
+        "Multi-rate tutorials" => [
+            "Hourly, daily, weekly simulation" => "./multirate/multirate_tutorial.md",
+        ],
+        "Troubleshooting and testing" => [
             "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
             "Automated testing" => "./troubleshooting_and_testing/downstream_tests.md",
             "Tips and Workarounds" => "./troubleshooting_and_testing/tips_and_workarounds.md",
