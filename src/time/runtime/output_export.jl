@@ -1,7 +1,39 @@
 """
     OutputRequest(scale, var; name=var, process=nothing, policy=HoldLast(), clock=nothing)
 
-Describe one online-exported multi-rate output series.
+Describe one online-exported multi-rate output series for MTG multi-rate runs.
+
+Use this type in `run!(...; multirate=true, tracked_outputs=...)` to export
+resampled temporal streams while simulation is running.
+
+# Arguments
+- `scale::AbstractString`: producer scale (for example `"Leaf"` or `"Plant"`).
+- `var::Symbol`: source variable name published on `scale`.
+
+# Keyword arguments
+- `name::Symbol=var`: name of the exported series in `collect_outputs(sim)` or
+  returned output dictionaries. Names must be unique across requests.
+- `process=nothing`: producer process name (`Symbol`/`String`) or `nothing`.
+  When `nothing`, runtime tries to use the unique canonical publisher for
+  `(scale, var)` and errors on ambiguity.
+- `policy::SchedulePolicy=HoldLast()`: resampling policy applied at export time.
+  Common values are `HoldLast()`, `Integrate(...)`, `Aggregate(...)`,
+  `Interpolate(...)`.
+- `clock=nothing`: export clock. When `nothing`, export is evaluated at each
+  simulation step (`ClockSpec(1.0, 0.0)`). Accepted explicit values are the same
+  as model timestep specs (`Real`, `ClockSpec`, or fixed `Dates.Period`).
+
+# Example
+```julia
+req_daily = OutputRequest(
+    "Leaf",
+    :A;
+    name=:A_daily,
+    process=:toyassim,
+    policy=Integrate(),
+    clock=ClockSpec(24.0, 0.0),
+)
+```
 """
 struct OutputRequest{S<:AbstractString,P<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
     scale::S

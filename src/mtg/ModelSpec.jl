@@ -258,7 +258,35 @@ TimeStepModel(timestep) = x -> with_timestep(x, timestep)
     InputBindings(bindings)
     InputBindings(; kwargs...)
 
-Pipe-style transform that sets explicit input bindings on a model/spec.
+Pipe-style transform that sets explicit producer bindings for model inputs.
+
+This is used in multi-rate mappings to tell runtime where each input should be
+read from (process, optional source variable, optional source scale, and policy).
+
+# Arguments
+- `bindings::NamedTuple`: maps each consumer input variable (`Symbol`) to a
+  binding descriptor.
+- `kwargs...`: keyword shorthand equivalent to a `NamedTuple`.
+
+Each binding descriptor can be:
+- `Symbol`: producer process (`policy=HoldLast()` and source variable inferred).
+- `Pair{Symbol,Symbol}`: `producer_process => source_var`
+  (`policy=HoldLast()`).
+- `NamedTuple`: explicit fields:
+  - `process` (`Symbol`/`String`, optional if uniquely inferable),
+  - `var` (`Symbol`, optional, defaults to same-name input when inferable),
+  - `scale` (`String`/`Symbol`, optional, useful for cross-scale disambiguation),
+  - `policy` (`SchedulePolicy` instance/type, optional, default `HoldLast()`).
+
+When omitted fields cannot be inferred uniquely, runtime errors and asks for an
+explicit `InputBindings(...)`.
+
+# Example
+```julia
+ModelSpec(ConsumerModel()) |>
+TimeStepModel(ClockSpec(24.0, 0.0)) |>
+InputBindings(; A=(process=:assim, var=:carbon_assimilation, scale="Leaf", policy=Integrate()))
+```
 """
 InputBindings(bindings) = x -> with_input_bindings(x, bindings)
 InputBindings(; kwargs...) = InputBindings((; kwargs...))
@@ -267,12 +295,35 @@ InputBindings(; kwargs...) = InputBindings((; kwargs...))
     MeteoBindings(bindings)
     MeteoBindings(; kwargs...)
 
-Pipe-style transform that sets explicit weather sampling bindings on a model/spec.
-Each key is the target meteo variable seen by the model.
-Each value can be:
-- a PlantMeteo reducer instance/type (e.g. `MeanWeighted()`, `MaxReducer`)
-- `Function`: custom reducer callable
-- `NamedTuple`: optional fields `source` (Symbol/String) and `reducer`
+Pipe-style transform that sets weather-variable aggregation rules per model.
+
+Each key is the target weather variable name as seen by the model (for example
+`:T`, `:Rh`, `:Ri_SW_q`).
+
+# Arguments
+- `bindings::NamedTuple`: per-target meteo binding rules.
+- `kwargs...`: keyword shorthand equivalent to a `NamedTuple`.
+
+Each rule value can be:
+- a `PlantMeteo.AbstractTimeReducer` instance/type
+  (for example `MeanWeighted()`, `MaxReducer`, `RadiationEnergy()`),
+- a callable reducer (`Function`) receiving sampled values,
+- a `NamedTuple` with:
+  - `source` (`Symbol`/`String`, optional, defaults to target key),
+  - `reducer` (reducer type/instance/callable, optional, defaults to
+    `MeanWeighted()`).
+
+# Example
+```julia
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 0.0)) |>
+MeteoBindings(
+    ;
+    T=MeanWeighted(),
+    Rh=MeanWeighted(),
+    Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
+)
+```
 """
 MeteoBindings(bindings) = x -> with_meteo_bindings(x, bindings)
 MeteoBindings(; kwargs...) = MeteoBindings((; kwargs...))
@@ -280,8 +331,23 @@ MeteoBindings(; kwargs...) = MeteoBindings((; kwargs...))
 """
     MeteoWindow(window)
 
-Pipe-style transform that sets the weather window-selection strategy on a model/spec.
-Use `PlantMeteo.RollingWindow()` (default) or `PlantMeteo.CalendarWindow(...)`.
+Pipe-style transform that sets the weather row-selection window for one model.
+
+This controls which meteo rows are sampled before `MeteoBindings` reducers are
+applied.
+
+# Arguments
+- `window`: a `PlantMeteo.AbstractSamplingWindow` instance/type.
+  Typical values are:
+  - `PlantMeteo.RollingWindow()` (default trailing window),
+  - `PlantMeteo.CalendarWindow(...)` (calendar-aligned day/week/month windows).
+
+# Example
+```julia
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 0.0)) |>
+MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict))
+```
 """
 MeteoWindow(window) = x -> with_meteo_window(x, window)
 
@@ -289,10 +355,26 @@ MeteoWindow(window) = x -> with_meteo_window(x, window)
     OutputRouting(routing)
     OutputRouting(; kwargs...)
 
-Pipe-style transform that sets explicit output routing on a model/spec.
-Allowed modes:
-- `:canonical` (default): output is considered canonical at that scale.
-- `:stream_only`: output is kept in temporal streams only.
+Pipe-style transform that sets output publication mode for a model.
+
+This is mainly used to disambiguate publishers in multi-rate runs when several
+models write variables with the same name.
+
+# Arguments
+- `routing::NamedTuple`: maps output variable symbols to routing mode.
+- `kwargs...`: keyword shorthand equivalent to a `NamedTuple`.
+
+Allowed routing values:
+- `:canonical` (default): output is considered canonical at that scale and can
+  be auto-selected as source/export publisher.
+- `:stream_only`: output is kept only in temporal streams and excluded from
+  canonical publisher resolution.
+
+# Example
+```julia
+ModelSpec(AltSourceModel()) |>
+OutputRouting(; C=:stream_only)
+```
 """
 OutputRouting(routing) = x -> with_output_routing(x, routing)
 OutputRouting(; kwargs...) = OutputRouting((; kwargs...))
@@ -300,8 +382,22 @@ OutputRouting(; kwargs...) = OutputRouting((; kwargs...))
 """
     ScopeModel(scope)
 
-Pipe-style transform that sets scope selection on a model/spec for multi-rate
-stream partitioning.
+Pipe-style transform that sets stream scope selection for a model.
+
+Scope controls how temporal streams are partitioned/resolved across entities in
+multi-rate simulations.
+
+# Arguments
+- `scope`: one of:
+  - selector symbols/strings: `:global`, `:plant`, `:scene`, `:self`,
+  - a concrete `ScopeId`,
+  - a callable returning a scope selector/id at runtime.
+
+# Example
+```julia
+ModelSpec(LeafSourceModel()) |>
+ScopeModel(:plant)
+```
 """
 ScopeModel(scope) = x -> with_scope(x, scope)
 
