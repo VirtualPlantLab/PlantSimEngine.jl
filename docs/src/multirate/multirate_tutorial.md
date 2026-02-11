@@ -206,7 +206,7 @@ plant_daily_df
 Of course the outputs of the models are still available in the `status_outputs` returned by `run!`, and can be converted to DataFrames as well:
 
 ```@example multirate_tutorial
-outs = convert_outputs(out_status.outputs, DataFrame)
+outs = convert_outputs(out_status, DataFrame)
 outs["Plant"]
 ```
 
