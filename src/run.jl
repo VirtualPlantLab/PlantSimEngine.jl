@@ -97,9 +97,8 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     # This isn't ideal in terms of codeflow, but check_dimensions will kick in later
     # And determine whether there is a status vector length discrepancy
 
-    meteo_adjusted = meteo
-
-    if DataFormat(meteo_adjusted) == TableAlike()
+    if DataFormat(meteo) == TableAlike()
+        meteo_adjusted = TimeStepTable{Atmosphere}(meteo)
         if get_nsteps(meteo) == 1
             return Tables.rows(meteo_adjusted)[1]
         end
@@ -107,14 +106,14 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     end
 
     if isnothing(meteo)
-        meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], desired_length))
+        return Weather(repeat([Atmosphere(NamedTuple())], desired_length))
     elseif get_nsteps(meteo) == 1 && desired_length > 1
         if isa(meteo, Atmosphere)
-            meteo_adjusted = Weather(repeat([meteo], desired_length))
+            return Weather(repeat([meteo], desired_length))
         end
+    else
+        return meteo # If e.g. single Atmosphere
     end
-
-    return meteo_adjusted
 end
 
 
@@ -417,7 +416,13 @@ function run!(
     requested_outputs_sink=DataFrames.DataFrame
 )
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
-    meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
+    meteo_adjusted = if multirate && meteo isa TimeStepTable{<:Atmosphere}
+        # Keep TimeStepTable intact in MTG multi-rate runs so model-clock meteo
+        # sampling/aggregation can use PlantMeteo sampler APIs.
+        meteo
+    else
+        adjust_weather_timesteps_to_given_length(nsteps, meteo)
+    end
     status_outputs, output_requests = _multirate_tracked_outputs(tracked_outputs)
     !multirate && !isempty(output_requests) && error("`OutputRequest` requires `multirate=true`.")
     return_requested_outputs && !multirate && error("`return_requested_outputs=true` requires `multirate=true`.")

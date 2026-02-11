@@ -668,6 +668,24 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test isapprox(out_meteo_default_df["Leaf"][:, :MSWq][1], 0.36; atol=1.0e-9)
         @test isapprox(out_meteo_default_df["Leaf"][:, :MSWq][3], 1.8; atol=1.0e-9)
 
+        # Expectation 18b: MTG + mapping entrypoint preserves multi-rate meteo sampling.
+        out_meteo_default_mtg = run!(
+            mtg,
+            mapping_meteo_default,
+            meteo_mr;
+            multirate=true,
+            executor=SequentialEx(),
+            tracked_outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)),
+        )
+        out_meteo_default_mtg_df = convert_outputs(out_meteo_default_mtg, DataFrame)
+        @test out_meteo_default_mtg_df["Leaf"][:, :MT] == [10.0, 10.0, 25.0, 25.0]
+        @test out_meteo_default_mtg_df["Leaf"][:, :MTmin] == [10.0, 10.0, 20.0, 20.0]
+        @test out_meteo_default_mtg_df["Leaf"][:, :MTmax] == [10.0, 10.0, 30.0, 30.0]
+        @test out_meteo_default_mtg_df["Leaf"][:, :MRh] == [0.5, 0.5, 0.65, 0.65]
+        @test out_meteo_default_mtg_df["Leaf"][:, :MSW] == [100.0, 100.0, 250.0, 250.0]
+        @test isapprox(out_meteo_default_mtg_df["Leaf"][:, :MSWq][1], 0.36; atol=1.0e-9)
+        @test isapprox(out_meteo_default_mtg_df["Leaf"][:, :MSWq][3], 1.8; atol=1.0e-9)
+
         # Expectation 19: meteo bindings allow custom reducers and variable remapping.
         mapping_meteo_custom = Dict(
             "Leaf" => (
