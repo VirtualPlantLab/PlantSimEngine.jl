@@ -13,5 +13,5 @@ XPalm = "6b523e1e-d512-416c-8e51-a8fbef0064e7"
 
 [sources]
 PlantSimEngine = {path = ".."}
-XPalm = {rev = "main", url = "https://github.com/PalmStudio/XPalm.jl"}
+XPalm = {rev = "PSe-with-multirate", url = "https://github.com/PalmStudio/XPalm.jl"}
 PlantBiophysics = {rev = "master", url = "https://github.com/VEZY/PlantBiophysics.jl"}
