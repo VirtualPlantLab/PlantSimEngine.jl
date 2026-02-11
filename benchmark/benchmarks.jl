@@ -1,11 +1,3 @@
-using Pkg
-Pkg.activate(dirname(@__FILE__))
-# Pkg.develop(PackageSpec(path=dirname(@__DIR__)))
-Pkg.add(url="https://github.com/VEZY/PlantBiophysics.jl", rev="master")
-Pkg.add(url="https://github.com/PalmStudio/XPalm.jl", rev="main")
-Pkg.resolve()
-Pkg.instantiate()
-
 using PlantSimEngine
 using PlantSimEngine.Examples
 using DataFrames, CSV
