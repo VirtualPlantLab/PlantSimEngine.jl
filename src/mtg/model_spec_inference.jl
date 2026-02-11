@@ -331,6 +331,12 @@ end
 
 function _infer_input_bindings!(model_specs; scale_reachability=nothing)
     for (scale, specs_at_scale) in pairs(model_specs)
+        # When a scale is absent from the initial MTG, input producer inference at
+        # init time is unreliable (dynamic growth may introduce it later). Keep
+        # bindings unresolved and let runtime resolve from actual dependencies.
+        if !isnothing(scale_reachability) && !haskey(scale_reachability, scale)
+            continue
+        end
         for (process, spec) in pairs(specs_at_scale)
             current_bindings = input_bindings(spec)
             current_bindings isa NamedTuple || continue
