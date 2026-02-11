@@ -222,7 +222,44 @@ function _format_candidate_list(candidates)
     return join(["$(c.scale)/$(c.process)" for c in candidates], ", ")
 end
 
-function _input_candidates_for_var(model_specs, consumer_scale::String, consumer_process::Symbol, input_var::Symbol)
+function _is_stream_only_output(spec::ModelSpec, var::Symbol)
+    routing = output_routing(spec)
+    mode = var in keys(routing) ? routing[var] : :canonical
+    return mode == :stream_only
+end
+
+function _scale_reachable(scale_reachability, consumer_scale::String, source_scale::String)
+    isnothing(scale_reachability) && return true
+    # If one of the scales is not present in the initial MTG, reachability is
+    # unknown at init time: keep candidate permissively.
+    haskey(scale_reachability, consumer_scale) || return true
+    haskey(scale_reachability, source_scale) || return true
+    allowed = scale_reachability[consumer_scale]
+    return source_scale in allowed
+end
+
+function _scale_reachability_from_mtg(mtg)
+    scale_reachability = Dict{String,Set{String}}()
+
+    MultiScaleTreeGraph.traverse!(mtg) do node
+        scale = string(symbol(node))
+        push!(get!(scale_reachability, scale, Set{String}()), scale)
+
+        ancestor = parent(node)
+        while !isnothing(ancestor)
+            ancestor_scale = string(symbol(ancestor))
+            # Scales are reachable only when they appear on the same MTG lineage
+            # (ancestor/descendant relation). Sibling-only scales are excluded.
+            push!(get!(scale_reachability, scale, Set{String}()), ancestor_scale)
+            push!(get!(scale_reachability, ancestor_scale, Set{String}()), scale)
+            ancestor = parent(ancestor)
+        end
+    end
+
+    return scale_reachability
+end
+
+function _input_candidates_for_var(model_specs, consumer_scale::String, consumer_process::Symbol, input_var::Symbol; scale_reachability=nothing)
     same_scale = NamedTuple[]
     cross_scale = NamedTuple[]
 
@@ -230,6 +267,10 @@ function _input_candidates_for_var(model_specs, consumer_scale::String, consumer
         for (process, spec) in pairs(specs_at_scale)
             scale == consumer_scale && process == consumer_process && continue
             input_var in keys(outputs_(model_(spec))) || continue
+            _is_stream_only_output(spec, input_var) && continue
+            if scale != consumer_scale && !_scale_reachable(scale_reachability, consumer_scale, scale)
+                continue
+            end
             c = (scale=scale, process=process, var=input_var)
             if scale == consumer_scale
                 push!(same_scale, c)
@@ -242,8 +283,8 @@ function _input_candidates_for_var(model_specs, consumer_scale::String, consumer
     return same_scale, cross_scale
 end
 
-function _infer_input_binding_for_var(model_specs, scale::String, process::Symbol, input_var::Symbol)
-    same_scale, cross_scale = _input_candidates_for_var(model_specs, scale, process, input_var)
+function _infer_input_binding_for_var(model_specs, scale::String, process::Symbol, input_var::Symbol; scale_reachability=nothing)
+    same_scale, cross_scale = _input_candidates_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
 
     if length(same_scale) == 1
         c = only(same_scale)
@@ -288,7 +329,7 @@ function _infer_input_binding_for_var(model_specs, scale::String, process::Symbo
     return nothing
 end
 
-function _infer_input_bindings!(model_specs)
+function _infer_input_bindings!(model_specs; scale_reachability=nothing)
     for (scale, specs_at_scale) in pairs(model_specs)
         for (process, spec) in pairs(specs_at_scale)
             current_bindings = input_bindings(spec)
@@ -299,7 +340,7 @@ function _infer_input_bindings!(model_specs)
 
             for input_var in model_inputs
                 input_var in keys(current_bindings) && continue
-                inferred_binding = _infer_input_binding_for_var(model_specs, scale, process, input_var)
+                inferred_binding = _infer_input_binding_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
                 isnothing(inferred_binding) && continue
                 push!(inferred, input_var => inferred_binding)
             end
@@ -362,8 +403,8 @@ Fill missing `ModelSpec` fields from inference:
 - model-level hint traits (`timestep_hint`, `meteo_hint`)
 Explicit `ModelSpec` user values always take precedence over inferred values.
 """
-function infer_model_specs_configuration!(model_specs)
-    _infer_input_bindings!(model_specs)
+function infer_model_specs_configuration!(model_specs; scale_reachability=nothing)
+    _infer_input_bindings!(model_specs; scale_reachability=scale_reachability)
     _infer_timestep_hints!(model_specs)
     _infer_meteo_hints!(model_specs)
     return model_specs

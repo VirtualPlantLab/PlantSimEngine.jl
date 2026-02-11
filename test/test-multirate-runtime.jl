@@ -70,6 +70,22 @@ function PlantSimEngine.run!(::MRConflict2Model, models, status, meteo, constant
     status.Z = 2.0
 end
 
+PlantSimEngine.@process "mrancestorsource" verbose = false
+struct MRAncestorSourceModel <: AbstractMrancestorsourceModel end
+PlantSimEngine.inputs_(::MRAncestorSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRAncestorSourceModel) = (Z=-Inf,)
+function PlantSimEngine.run!(::MRAncestorSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.Z = 11.0
+end
+
+PlantSimEngine.@process "mrsiblingsource" verbose = false
+struct MRSiblingSourceModel <: AbstractMrsiblingsourceModel end
+PlantSimEngine.inputs_(::MRSiblingSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRSiblingSourceModel) = (Z=-Inf,)
+function PlantSimEngine.run!(::MRSiblingSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.Z = 22.0
+end
+
 PlantSimEngine.@process "mrclocksource" verbose = false
 struct MRClockSourceModel <: AbstractMrclocksourceModel
     n::Base.RefValue{Int}
@@ -260,6 +276,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 @testset "Multi-rate runtime: HoldLast and conflict validation" begin
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
     plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+    Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Soil", 1, 1))
     internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
     Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 
@@ -817,6 +834,40 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     @test_throws "Ambiguous inferred producer for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_ambiguous_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
+
+    # Expectation 24a: stream-only publishers are ignored by auto input producer inference.
+    mapping_stream_only_infer = Dict(
+        "Leaf" => (
+            MRConflict1Model(),
+            ModelSpec(MRConflict2Model()) |> OutputRouting(; Z=:stream_only),
+            MRZConsumerModel(),
+        ),
+    )
+    sim_stream_only_infer = PlantSimEngine.GraphSimulation(mtg, mapping_stream_only_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
+    run!(sim_stream_only_infer, meteo, multirate=true, executor=SequentialEx())
+    @test status(sim_stream_only_infer)["Leaf"][1].ZZ == 1.0
+    spec_stream_only_infer = PlantSimEngine.get_model_specs(sim_stream_only_infer)["Leaf"][:mrzconsumer]
+    @test input_bindings(spec_stream_only_infer).Z.process == :mrconflict1
+
+    # Expectation 24b: cross-scale inference ignores sibling scales not on the same lineage.
+    mapping_lineage_infer = Dict(
+        "Plant" => (
+            MRAncestorSourceModel(),
+        ),
+        "Soil" => (
+            MRSiblingSourceModel(),
+        ),
+        "Leaf" => (
+            ModelSpec(MRZConsumerModel()) |>
+            MultiScaleModel([:Z => "Plant"]),
+        ),
+    )
+    sim_lineage_infer = PlantSimEngine.GraphSimulation(mtg, mapping_lineage_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
+    run!(sim_lineage_infer, meteo, multirate=true, executor=SequentialEx())
+    @test status(sim_lineage_infer)["Leaf"][1].ZZ == 11.0
+    spec_lineage_infer = PlantSimEngine.get_model_specs(sim_lineage_infer)["Leaf"][:mrzconsumer]
+    @test input_bindings(spec_lineage_infer).Z.process == :mrancestorsource
+    @test input_bindings(spec_lineage_infer).Z.scale == "Plant"
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
     mapping_missing_input = Dict(
