@@ -5,7 +5,7 @@ Get the models of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
 Returns a vector of models
 
@@ -92,7 +92,7 @@ Get the status of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
 Returns a [`Status`](@ref) or `nothing`.
 
@@ -114,7 +114,7 @@ Get the mapping of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
 Returns a vector of pairs of symbols and strings or vectors of strings
 

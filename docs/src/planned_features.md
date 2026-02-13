@@ -33,7 +33,7 @@ Its current state doesn't enable practical declaration of several plant species,
 - Improved user errors
 - More examples
 - Better dependency graph traversal functions
-- Ensure cyclic dependency checking and PreviousTimestep is active for ModelLists
+- Ensure cyclic dependency checking and PreviousTimestep is active for ModelLists pathway
 
 ## Improvements on the testing side
 
@@ -44,8 +44,8 @@ Its current state doesn't enable practical declaration of several plant species,
 
 ## Possible features (likely not a priority)
 
-- API enabling iterative builds and validation of mappings and ModelLists
-- Build step for the models, *i.e.* a function that would write a mapping or ModelList into a Julia script for validation, improved readability and (maybe) performance (no need to traverse the dependency graph anymore).
+- API enabling iterative builds and validation of ModelMapping
+- Build step for the models, *i.e.* a function that would write a ModelMapping into a Julia script for validation, improved readability and (maybe) performance (no need to traverse the dependency graph anymore).
 - Improved parallelisation
 - Reintroduce multi-object parallelisation in single-scale
 

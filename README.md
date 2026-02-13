@@ -92,7 +92,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 # Define the model:
-model = ModelList(
+model = ModelMapping(
     ToyLAIModel(),
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
@@ -136,7 +136,7 @@ lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)",
 
 ### Model coupling
 
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
 
 ```julia
 # ] add PlantSimEngine, DataFrames, CSV
@@ -149,14 +149,14 @@ using PlantSimEngine.Examples
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 # Define the list of models for coupling:
-model = ModelList(
+model = ModelMapping(
     ToyLAIModel(),
     Beer(0.6),
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 ```
 
-The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
 
 ```
 ╭──── Dependency graph ──────────────────────────────────────────╮
@@ -223,7 +223,7 @@ fig
 The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(
@@ -295,7 +295,7 @@ meteo = Weather(
 And run the simulation:
 
 ```julia
-out_vars = Dict(
+out_vars = ModelMapping(
     "Scene" => (:TT_cu,),
     "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
     "Leaf" => (:carbon_demand, :carbon_allocation),

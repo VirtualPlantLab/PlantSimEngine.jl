@@ -146,7 +146,7 @@ meteo_day = to_daily(meteo, :TT => (x -> sum(x) / 24) => :TT)
 Then we can define our list of models, passing the values for `TT_cu` in the status at initialization:
 
 ```@example mymodel
-m = ModelList(
+m = ModelMapping(
     ToyLAIModel(),
     status = (TT_cu = cumsum(meteo_day.TT),),
 )

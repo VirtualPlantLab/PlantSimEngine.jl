@@ -35,7 +35,7 @@ There may be different models that can be used for the same process; for instanc
 
 Models can also be used for ad hoc computations that aren't directly tied to a specific literature-defined physiological process. In PlantSimEngine, everything is a model. There are many instances where a custom model might be practical to aggregate some computations or handle other information. To illustrate, XPalm, the Oil Palm model, has a few models that handle the state of different organs, and a model to handle leaf pruning, which you can find [here](https://github.com/PalmStudio/XPalm.jl/blob/main/src/plant/phytomer/leaves/leaf_pruning.jl).
 
-To prepare a simulation, you declare a ModelList with whatever models you wish to make use of and initialize necessary parameters: see the [step by step](@ref detailed-walkthrough-of-a-simple-simulation) section to learn how to use them in practice.
+To prepare a simulation, you declare a ModelMapping with whatever models you wish to make use of and initialize necessary parameters: see the [step by step](@ref detailed-walkthrough-of-a-simple-simulation) section to learn how to use them in practice.
 
 For multi-scale simulations, models need to be tied to a particular scale when used. See the [Multiscale modeling](@ref) section below, or the [Multi-scale considerations](@ref) page for a more detailed description of multi-scale peculiarities.
 
@@ -129,13 +129,9 @@ For example, a model of photosynthesis at the leaf scale can be combined with a 
 
 When running multi-scale simulations which contain models operating at different organ levels for the plant, extra information needs to be provided by the user to run models. Since some models are reused at different organ levels, it is necessary to indicate which organ level a model operates at.
 
-This is why multi-scale simulations make use of a 'mapping': the ModelList in the single-scale examples does not have a way to tie models to plant organs, and the more versatile models could be used in various places. The user must also indicate how models operate with other scales, *e.g.* if an input variable comes from another scale, it is required to indicate which scale it is mapped from.
+This is why multi-scale simulations make use of a 'mapping' in the `ModelMapping`, as well as links between models/variables in different scales, *e.g.* if an input variable comes from another scale, it is required to indicate which scale it is mapped from.
 
 You can read more about some practical differences as a user between single- and multi-scale simulations here: [Multi-scale considerations](@ref).
-
-!!! note
-    When you encounter the terms "Single-scale simulations", or "ModelList simulations", they will refer to simulations that are "not multi-scale". A multi-scale simulation makes use of a mapping between different organ/scale levels. A single-scale simulation has no such mapping, and uses the simpler ModelList interface.
-    You can implement a mapping that only makes use of a single scale level, of course, making it a "single-scale multi-scale simulation", but **unless otherwise specified, single-scale, and the whole section dedicated to single-scale simulations, refer to simulations with ModelList objects, and no mapping**.
 
 ### Multi-scale Tree Graphs
 

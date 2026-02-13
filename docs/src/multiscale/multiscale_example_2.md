@@ -197,7 +197,7 @@ The resource storage and internode emergence models now need a couple of extra w
 The "Root" organ is added to the mapping with its own models. New parameters need to be initialized.
 
 ```@example usepkg
-mapping = Dict(
+mapping = ModelMapping(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
     MultiScaleModel(

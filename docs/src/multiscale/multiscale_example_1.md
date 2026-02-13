@@ -56,7 +56,7 @@ Let's also add a very artificial limiting factor: if the total leaf surface area
 We can expect the simulation mapping to look like a more complex version of the following: 
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => ToyStockComputationModel(),
 "Internode" => ToyCustomInternodeEmergence(),
@@ -219,7 +219,7 @@ as opposed to the single-valued carbon stock mapped variable :
 And of course, some variables need to be initialized in the status:
 
 ```@example usepkg
-mapping = Dict(
+mapping = ModelMapping(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
     MultiScaleModel(

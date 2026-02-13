@@ -99,10 +99,10 @@ The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` 
 
 Most of the following errors occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
 
-### ModelList/Mapping : providing a type name instead of an constructed instance
+### ModelMapping: providing a type name instead of a constructed instance
 
 ```julia
-m = ModelList(day=MyToyModel, week=MyToyModel2)
+m = ModelMapping(day=MyToyModel, week=MyToyModel2)
 ```
 This line is incorrect and will return
 ```julia
@@ -111,7 +111,7 @@ MethodError: no method matching inputs_(::Type{MyToyDayModel})
 
 The correct syntax is (assuming the corresponding constructor exists) :
 ```julia
-m = ModelList(day=MyToyModel(), week=MyToyModel2())
+m = ModelMapping(day=MyToyModel(), week=MyToyModel2())
 ```
 
 ### Implementing a model: forgetting to import or prefix functions
@@ -148,7 +148,7 @@ meteo = Weather([
         Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
 ])
 
-model = ModelList(
+model = ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -160,7 +160,7 @@ If you declare these functions without importing them first, or prefixing them w
 
 Forgetting to prefix the [`run!`](@ref) function definition gives the following error : 
 ```julia
-ERROR: MethodError: no method matching run!(::ModelList{@NamedTuple{…}, Status{…}}, ::TimeStepTable{Atmosphere{…}})
+ERROR: MethodError: no method matching run!(::ModelMapping{...}, ::TimeStepTable{Atmosphere{…}})
 The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
 
 Closest candidates are:
@@ -168,7 +168,7 @@ Closest candidates are:
    @ Main ~/path/to/file.jl:20
 ```
 
-Forgetting to prefix the `inputs_`or `outputs_` functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your ModelList or mapping's corresponding Status.
+Forgetting to prefix the `inputs_`or `outputs_` functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your mapping's corresponding Status.
 
 In cases where they do throw an error, you may get the following kind of output:
 ```julia
@@ -234,7 +234,7 @@ The message 'got unsupported keyword argument "model"' can be misleading, as in 
 A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :
 
 ```julia
-mapping = Dict("Scale" =>
+mapping = ModelMapping("Scale" =>
 MultiScaleModel(
     model = ToyModel(),
     mapped_variables = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
@@ -245,7 +245,7 @@ MultiScaleModel(
 
 Here's the correct version : 
 ```julia
-mapping = Dict("Scale" =>
+mapping = ModelMapping("Scale" =>
 MultiScaleModel(
     model = ToyModel(),
     mapped_variables=[:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
@@ -265,7 +265,7 @@ Here are a few examples when modifying the usual multiscale run! call in this wo
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
     var1 = 15.0
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "Leaf" => (
             Process1Model(1.0),
             Process2Model(),
@@ -285,7 +285,7 @@ The exact signature is this :
 ```julia
 function run!(
     object::MultiScaleTreeGraph.Node,
-    mapping::Dict{String,T} where {T},
+    mapping::ModelMapping,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
@@ -350,7 +350,7 @@ However, the model provided in the examples, Process2Model is absent from the ma
 
 ```julia
 simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))    
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         Process3Model(),
         Status(var5=15.0,)
@@ -375,10 +375,10 @@ The fix is to add Process2Model() -or another model for the same process- to the
 
 One current problem with PlantSimEngine's API is that declaring a simulation's Status or Statuses differs between single- and multi-scale.
 
-Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the `ModelList` status was declared like this:
+Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the single-scale mapping status was declared like this:
 
 ```julia
-model = ModelList(
+model = ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -447,12 +447,15 @@ An unintuitive error encountered in the past when defining a mapping :
 ```julia
 ERROR: ArgumentError: AbstractDict(kv): kv needs to be an iterator of 2-tuples or pairs
 ```
+
 may occur when forgetting the parenthesis after '=>' in a mapping declaration, and combining it with another parenthesis error.
+
 ```julia
-mapping = Dict( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
+mapping = ModelMapping( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
 ```
 
-Other errors such as : 
+Other errors such as:
+
 ```julia
 ERROR: MethodError: no method matching Dict(::Pair{String, ToyAssimGrowthModel{Float64}}, ::ToyCAllocationModel, ::Status{(:TT_cu,), Tuple{Base.RefValue{…}}})
 The type `Dict` exists, but no method is defined for this combination of argument types when trying to construct it.
@@ -460,6 +463,7 @@ The type `Dict` exists, but no method is defined for this combination of argumen
 Closest candidates are:
   Dict(::Pair{K, V}...) where {K, V}
 ```
+
 often indicate a likely syntax error somewhere in the mapping definition.
 
 ### Empty status vectors in multi-scale simulations
@@ -486,7 +490,7 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=-Inf,)
 end
 
-mapping_multiscale = Dict(
+mapping_multiscale = ModelMapping(
     "Scene" => ToyTt_CuModel(),
     "Plant" => (
         MultiScaleModel(

@@ -5,7 +5,7 @@ Get the variables for each organ type from a dependency graph, with `MappedVar`s
 
 # Arguments
 
-- `mapping::Dict{String,T}`: the mapping between models and scales.
+- `mapping::ModelMapping` (or dictionary-like mapping): the mapping between models and scales.
 - `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
 However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
 nodes under other models.
@@ -42,7 +42,7 @@ Get the variables for each organ type from a dependency graph, without the varia
 
 # Arguments
 
-- `mapping::Dict{String,T}`: the mapping between models and scales.
+- `mapping::ModelMapping` (or dictionary-like mapping): the mapping between models and scales.
 - `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
 However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
 nodes under other models.

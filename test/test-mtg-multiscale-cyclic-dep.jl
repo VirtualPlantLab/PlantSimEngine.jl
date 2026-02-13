@@ -15,7 +15,7 @@ out_vars = Dict(
 )
 
 @testset "Cyclic dependency -> error" begin
-    mapping_cyclic = Dict(
+    mapping_cyclic = ModelMapping(
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -61,7 +61,7 @@ end
 
 
 @testset "Cyclic dependency -> fixed with `PreviousTimeStep`" begin
-    mapping_nocyclic = Dict(
+    mapping_nocyclic = ModelMapping(
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -123,7 +123,7 @@ end
 end
 
 @testset "Mutiscale simulation -> cyclic dependency" begin
-    mapping = Dict(
+    mapping = ModelMapping(
         "Scene" => (
             ToyDegreeDaysCumulModel(),
             MultiScaleModel(

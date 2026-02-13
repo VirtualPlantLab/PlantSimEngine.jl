@@ -9,7 +9,7 @@ using PlantSimEngine.Examples
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 # Define the list of models for coupling:
-model = ModelList(
+model = ModelMapping(
     ToyLAIModel(),
     Beer(0.6),
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
@@ -39,7 +39,7 @@ using PlantSimEngine.Examples
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 # Define the list of models for coupling:
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.6),
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model

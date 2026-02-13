@@ -18,11 +18,11 @@ include("helper-functions.jl")
     Aqua.test_all(PlantSimEngine, ambiguities=false)
     Aqua.test_ambiguities([PlantSimEngine])
 
-    @testset "ModelList" begin
-        include("test-ModelList.jl")
+    @testset "ModelMapping: single scale" begin
+        include("test-ModelMapping.jl")
     end
 
-    @testset "ModelList" begin
+    @testset "ModelMapping: multi scale" begin
         include("test-mapping.jl")
     end
 

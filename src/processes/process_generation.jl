@@ -143,10 +143,10 @@ macro process(f, args...)
         end
         ```
 
-        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the ModelList, the status, the meteorology,
+        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the ModelMapping, the status, the meteorology,
         the constants and any extra values.
 
-        Then we can use variables from the status as inputs or outputs, model parameters from the ModelList (indexing by process, here 
+        Then we can use variables from the status as inputs or outputs, model parameters from the ModelMapping (indexing by process, here 
         using "$(process_name)" as the process name), and meteorology variables.
 
         Note that our example model has an hard-dependency on another process called `other_process_name` that is called using the {#8abeff}run!(){/#8abeff} function with 
@@ -169,10 +169,10 @@ macro process(f, args...)
 
         !!! tip "Variables and parameters usage"
             Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
-            for dispatch), the ModelList, the status, the meteorology, the constants and
+            for dispatch), the ModelMapping, the status, the meteorology, the constants and
             any extra values.
             Then we can use variables from the status as inputs or outputs, model parameters
-            from the ModelList (indexing by process, here using "$(process_name)" as the
+            from the ModelMapping (indexing by process, here using "$(process_name)" as the
             process name), and meteorology variables.
         """
         )

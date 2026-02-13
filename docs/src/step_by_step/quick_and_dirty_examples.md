@@ -25,7 +25,7 @@ These examples assume you have a working Julia environment with PlantSimengine a
 using PlantSimEngine, PlantMeteo
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 out = run!(leaf, meteo)
 ```
 
@@ -41,7 +41,7 @@ using PlantSimEngine.Examples
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     status=(TT_cu=cumsum(meteo_day.TT),),
@@ -61,7 +61,7 @@ using PlantSimEngine.Examples
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -84,7 +84,7 @@ using PlantBiophysics, PlantSimEngine
 
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
-leaf = ModelList(
+leaf = ModelMapping(
         Monteith(),
         Fvcb(),
         Medlyn(0.03, 12.0),

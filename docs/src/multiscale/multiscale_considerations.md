@@ -11,8 +11,7 @@ Declaring and running a multi-scale simulation follows the same general workflow
 
 - a simulation requires a Multi-scale Tree Graph (MTG) to run and operates on that graph
 - when running, models are tied to a scale and only access local information
-- models can run multiple times per timestep, 
-- the [`ModelList`](@ref) is replaced by a slightly more complex model mapping to link models to the scale they will operate at.
+- models can run multiple times per timestep
 
 The simulation dependency graph will still be computed automatically and handle most couplings, meaning users don't need to specify the order of model execution once the extra code to declare the models is written. You will still need to declare hard dependencies, with extra considerations for multi-scale hard dependencies.
 
@@ -22,7 +21,7 @@ Multi-scale simulations also tend to require more extra ad hoc models to prepare
 
 Other pages in the multiscale section describe :
 
-- How to write a direct conversion of a single-scale ModelList simulation to a multi-scale simulation and add a second scale to it: [Converting a single-scale simulation to multi-scale](@ref), 
+- How convert a single-scale ModelMapping to a multi-scale one: [Converting a single-scale simulation to multi-scale](@ref), 
 - A more complex multi-scale version of the single-scale simulation showcasing different variable mappings between scales: [Multi-scale variable mapping](@ref), 
 - A three-part tutorial describing how to build up a combination of models to simulate a growing toy plant: [Writing a multiscale simulation](@ref),
 - Ways to handle situations where a variable ends up causing a cyclic dependency: [Avoiding cyclic dependencies](@ref),
@@ -55,7 +54,7 @@ When users define which models they use, PlantSimEngine cannot determine in adva
 
 The user therefore needs to indicate for a simulation's which models are related to which scale.
 
-A multi-scale mapping links models to the scale at which they operate, and is implemented as a Julia `Dict`, tying a scale, such as "Leaf" to models operating at that scale, such as "LeafSurfaceAreaModel". It is the equivalent of a [`ModelList`](@ref) in a single-scale simulation.
+A multi-scale mapping links models to the scale at which they operate, and is also implemented in a [`ModelMapping`](@ref), tying a scale, such as "Leaf" to models operating at that scale, such as "LeafSurfaceAreaModel".
 
 Multi-scale models can be similar models to the ones found in earlier sections, or, if they need to make use of variables at other scales, may need to be wrapped as part of a [`MultiScaleModel`](@ref) object. Many models are not tied to a particular scale, which means those models can be reused at different scales or in single-scale simulations.
 
@@ -76,10 +75,10 @@ This has two **important** consequences in terms of running a simulation :
 The [`run!`](@ref) function differs slightly from its single-scale version. The current structure (excluding a couple of advanced/deprecated kwargs) is the following:
 
 ```julia
-run!(mtg, mapping, meteo, constants, extra; nsteps, tracked_outputs)
+run!(mtg, mapping::ModelMapping, meteo, constants, extra; nsteps, tracked_outputs)
 ```
 
-Instead of a [`ModelList`](@ref), it takes an MTG and a mapping. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 
+Instead of a just the [`ModelMapping`](@ref), it also takes an MTG as the first argument. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 
 
 ## Multi-scale output data structure
 
@@ -152,7 +151,7 @@ Multi-scale simulations, especially for plants which have thousands of leaves, i
 Those tracked variables also need to be indexed by scale to avoid ambiguity: 
 
 ```julia
-outs = Dict(
+outs = ModelMapping(
     "Scene" => (:TT, :TT_cu,),
     "Plant" => (:aPPFD, :LAI),
     "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),

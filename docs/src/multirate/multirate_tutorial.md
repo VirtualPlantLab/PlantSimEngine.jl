@@ -105,7 +105,7 @@ leaf_proc = process(TutorialLeafHourlyModel())
 plant_daily_proc = process(TutorialPlantDailyModel())
 plant_weekly_proc = process(TutorialPlantWeeklyModel())
 
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         ModelSpec(TutorialLeafHourlyModel()) |>
         TimeStepModel(hourly) |>
@@ -123,7 +123,6 @@ mapping = Dict(
             Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
         ) |>
         InputBindings(; leaf_assim_h=(process=leaf_proc, var=:leaf_assim_h, scale="Leaf", policy=Integrate())),
-
         ModelSpec(TutorialPlantWeeklyModel()) |>
         ScopeModel(:plant) |>
         TimeStepModel(weekly) |>

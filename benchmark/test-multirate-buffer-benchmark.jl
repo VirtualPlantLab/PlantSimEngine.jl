@@ -45,7 +45,7 @@ end
 function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     mtg = _build_multirate_benchmark_mtg(nleaves)
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "Leaf" => (
             ModelSpec(MRBenchSourceModel(Ref(0))) |> TimeStepModel(1.0),
         ),

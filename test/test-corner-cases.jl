@@ -172,7 +172,7 @@ end
 
 @testset "Multiscale nested hard dependencies" begin
 
-    mapping3Lvl = Dict("E1" => (
+    mapping3Lvl = ModelMapping("E1" => (
             Msg3LvlScaleAmontModel(),
             MultiScaleModel(
                 model=Msg3LvlScaleAvalModel(),
@@ -332,7 +332,7 @@ end
 # actual testset
 
 @testset "Soft dependency whose parent is a hard dependency of a parent at a different scale" begin
-    mapping = Dict(
+    mapping = ModelMapping(
         "E1" => (HardDepSameScaleEchelle1Model(),
             MultiScaleModel(
                 model=HardDepSameScaleEchelle1bisModel(),
@@ -449,7 +449,7 @@ end
 
 @testset "Process/model reuse at different scales" begin
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "E1" => (
             SingleModelScale1(),
             Status(in=1.0, in1=1.0),
@@ -518,7 +518,7 @@ end
     using PlantSimEngine, PlantMeteo, DataFrames
     using PlantSimEngine.Examples
     mtg = import_mtg_example()
-    m = Dict(
+    m = ModelMapping(
         "Leaf" => (
             Process1Model(1.0),
             Status(var1=10.0, var2=1.0,)
@@ -554,7 +554,7 @@ end
     outs = Dict("Default" => (:var1,))
     mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 0, 0),)
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "Default" => (
             Process1Model(1.0),
             Status(var1=15.0, var2=0.3,),
@@ -581,7 +581,7 @@ Inputs : a, b, c
 Outputs : d, e
 """
 
-struct ToyToyModel{T} <: AbstractToyModel 
+struct ToyToyModel{T} <: AbstractToyModel
     internal_constant::T
 end
 
@@ -605,11 +605,11 @@ end
         Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
     ])
 
-    model = ModelList(
+    model = ModelMapping(
         ToyToyModel(1),
         status=(a=1, b=0, c=0),
         #nsteps = length(meteo)
-    )    
+    )
     @test to_initialize(model) == NamedTuple()
 
     sim = run!(model, meteo)

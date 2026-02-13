@@ -96,7 +96,7 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsObjectIndependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsTimeStepIndependent()
 
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(

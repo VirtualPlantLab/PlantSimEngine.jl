@@ -119,11 +119,12 @@ Defaults to `nothing` (runtime falls back to `PlantMeteo.RollingWindow()` behavi
 meteo_window(spec::ModelSpec) = spec.meteo_window
 
 """
-    inputs(mapping::Dict{String,T})
+    inputs(mapping::ModelMapping)
+    inputs(mapping::AbstractDict{String,T})
 
 Get the inputs of the models in a mapping, for each process and organ type.
 """
-function inputs(mapping::Dict{String,T}) where {T}
+function inputs(mapping::AbstractDict{String,T}) where {T}
     vars = Dict{String,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
@@ -164,11 +165,12 @@ function outputs(v::T, vars...) where {T<:AbstractModel}
 end
 
 """
-    outputs(mapping::Dict{String,T})
+    outputs(mapping::ModelMapping)
+    outputs(mapping::AbstractDict{String,T})
 
 Get the outputs of the models in a mapping, for each process and organ type.
 """
-function outputs(mapping::Dict{String,T}) where {T}
+function outputs(mapping::AbstractDict{String,T}) where {T}
     vars = Dict{String,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
@@ -259,12 +261,13 @@ function variables(pkg::Module)
 end
 
 """
-    variables(mapping::Dict{String,T})
+    variables(mapping::ModelMapping)
+    variables(mapping::AbstractDict{String,T})
 
 Get the variables (inputs and outputs) of the models in a mapping, for each 
 process and organ type.
 """
-function variables(mapping::Dict{String,T}) where {T}
+function variables(mapping::AbstractDict{String,T}) where {T}
     vars = Dict{String,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))

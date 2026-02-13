@@ -34,7 +34,8 @@ struct GraphSimulation{T,S,U,O,V,TS,MS}
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
+    mapping_checked = mapping isa ModelMapping ? mapping : ModelMapping(mapping)
+    GraphSimulation(init_simulation(graph, mapping_checked; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph

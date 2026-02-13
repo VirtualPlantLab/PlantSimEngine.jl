@@ -24,7 +24,7 @@ It resembles the ToyAssimGrowth model used in the single-scale simulation [Model
 Our mapping between scale and model is therefore:
 
 ```@example usepkg
-mapping = Dict("Leaf" => ToyAssimModel())
+mapping = ModelMapping("Leaf" => ToyAssimModel())
 ```
 
 Just like in single-scale simulations, we can call `to_initialize` to check whether variables need to be initialised. It will this time index by scale:
@@ -38,7 +38,7 @@ In this example, the ToyAssimModel needs `:aPPFD` and `:soil_water_content` as i
 The initialization values for the variables can be passed along via a [`Status`](@ref) object:
 
 ```@example usepkg
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         ToyAssimModel(),
         Status(aPPFD=1300.0, soil_water_content=0.5),
@@ -61,7 +61,7 @@ It also makes sense to have that model operate at a different scale than the "Le
 ToyAssimModel is now makes use of the `soil_water_content` variable from the `"Soil"` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the "Soil" to the "Leaf" scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
 
 ```@example usepkg
-mapping = Dict(
+mapping = ModelMapping(
     "Soil" => ToySoilWaterModel(),
     "Leaf" => (
         MultiScaleModel(
@@ -91,7 +91,7 @@ Once again, `to_initialize` returns an empty dictionary, meaning the mapping is 
 Let's now expand this mapping, to showcase other ways in which variables can be mapped from one scale to another. We'll keep the first two models, and add several more to simulate a couple of other processes within our plant.
 
 ```@example usepkg
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(
@@ -144,17 +144,17 @@ nothing # hide
 This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Model switching](@ref) subsection.
 
 ```julia
-models2 = ModelList(
+models2 = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyAssimGrowthModel(),
+    ToyAssimGrowthModel();
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 ```
 
 The multi-scale models simulate carbon capture via photosynthesis and carbon allocation for the plant organs' maintenance respiration and development.
 
-The LAI and photosynthesis models are the same as in the ModelList example. The [`ToyDegreeDaysCumulModel`](@ref) provides the Cumulative Thermal Time to the plant. 
+The LAI and photosynthesis models are the same as in the single-scale mapping example. The [`ToyDegreeDaysCumulModel`](@ref) provides the Cumulative Thermal Time to the plant. 
 
 The newly introduced models have the following dynamic : 
 
@@ -210,7 +210,7 @@ This graph has a root node that defines a scene, then a soil, and a plant with t
 For long simulations on plants with many organs, the output data can be very significant. It's possible to restrict the output variables that are tracked for the whole simulation to a subset of all the variables:
 
 ```@example usepkg
-outs = Dict(
+outs = ModelMapping(
     "Scene" => (:TT, :TT_cu,),
     "Plant" => (:aPPFD, :LAI),
     "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),

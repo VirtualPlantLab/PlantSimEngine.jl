@@ -10,7 +10,7 @@ meteo = Weather(
 ]
 )
 
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(

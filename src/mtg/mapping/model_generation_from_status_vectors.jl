@@ -52,7 +52,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
     (organ, check) = check_statuses_contain_no_remaining_vectors(mapping_with_vectors_in_status)
         if check
         @warn "No vectors, or types deriving from AbstractVector found in statuses, returning mapping as is."
-        return mapping_with_vectors_in_status
+        return mapping_with_vectors_in_status isa ModelMapping ? mapping_with_vectors_in_status : ModelMapping(mapping_with_vectors_in_status)
     end
 
     # we are now certain a model will be generated, and that the timestep models need to be inserted
@@ -101,7 +101,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
         end
     end
 
-    return mapping
+    return ModelMapping(mapping)
 end
 
 # Note : eval works in global scope, and state synchronisation doesn't occur until one returns to top-level
@@ -251,7 +251,7 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
         # TODO sanity check
     end
 
-    return mtg, mapping, Dict(default_scale => all_vars)
+    return mtg, ModelMapping(mapping), Dict(default_scale => all_vars)
 end
 
 function check_statuses_contain_no_remaining_vectors(mapping)

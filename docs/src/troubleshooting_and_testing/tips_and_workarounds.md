@@ -49,8 +49,8 @@ This change in design avoids model order ambiguity and also improves readability
 
 !!! note
     This section is a little more advanced and not recommended for beginners
-    
-You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelList`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
+
+You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelMapping`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 
 This is practical for simple simulations, or when quickly prototyping, to avoid having to write a model specifically for it. Whatever models make use of that variable are provided with one element corresponding to the current timestep every iteration.
 
@@ -58,7 +58,7 @@ In multi-scale simulations, this feature is also supported, though not part of t
 
 It is more brittle, makes use of not-recommended Julia metaprogramming features (`eval()`), fiddles with global variables, might not work outside of a REPL environment and is not tested for more complex interactions, so it may interact badly with variables that are mapped to different scales or in bizarre dependency couplings.
 
-Due to, uh, implementation quirks, the way to use this is as follows : 
+Due to, uh, implementation quirks, the way to use this is as follows:
 
 Call the function `replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)`on your mapping.
 
@@ -73,9 +73,7 @@ It will parse your mapping, generate custom models to store and feed the vector 
     cumsum(meteo_day.TT) actually returns a CSV.SentinelArray.ChainedVectors{T, Vector{T}}, which is not a subtype of AbstractVector. 
     Replacing it with Vector(cumsum(meteo_day.TT)) will provide an adequate type.
 
-Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale
-](@ref):
-
+Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale](@ref):
 
 ```julia
 using PlantSimEngine
@@ -84,7 +82,7 @@ using PlantMeteo, CSV, DataFrames
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
 # Direct translation of the single-scale simulation
-mapping_pseudo_multiscale = Dict(
+mapping_pseudo_multiscale = ModelMapping(
 "Plant" => (
    ToyLAIModel(),
     Beer(0.5),

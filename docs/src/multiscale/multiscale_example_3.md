@@ -175,7 +175,7 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsObjectIndependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsTimeStepIndependent()
 
-mapping = Dict(
+mapping = ModelMapping(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
     MultiScaleModel(
@@ -416,7 +416,7 @@ end
 The new mapping only has straightforward changes. Some models cease to be multi-scale, others require new variables to be mapped for them. `carbon_root_creation_consumed` ceases to be a vector mapping and is a scalar variable.
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
 "Scene" => ToyDegreeDaysCumulModel(),
 "Plant" => (
     MultiScaleModel(
@@ -471,7 +471,7 @@ The solution is hopefully quite intuitive : when we compute resource stocks, we 
 The relevant part of the mapping that needs to be updated is the following:
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
 ...
 "Plant" => (
     MultiScaleModel(
