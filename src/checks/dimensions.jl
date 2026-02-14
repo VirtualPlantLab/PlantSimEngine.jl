@@ -47,6 +47,10 @@ function check_dimensions(component::T, w) where {T<:ModelList}
     check_dimensions(status(component), w)
 end
 
+function check_dimensions(component::ModelMapping{SingleScale}, w)
+    check_dimensions(status(component), w)
+end
+
 # for several components as an array
 function check_dimensions(component::T, weather) where {T<:AbstractArray{<:ModelList}}
     for i in component

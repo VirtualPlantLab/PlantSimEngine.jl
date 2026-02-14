@@ -27,6 +27,19 @@ function compare_outputs_modellists(filtered_outputs_1, filtered_outputs_2)
     return models_df_sorted_2 == models_df_sorted_1
 end
 
+function compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
+    modellist_df = DataFrame(filtered_outputs_modellist)
+    modellist_sorted = modellist_df[:, sortperm(names(modellist_df))]
+
+    outputs_df = convert_outputs(graphsim.outputs, DataFrame)
+    @assert haskey(outputs_df, "Default")
+    common_cols = filter(c -> c in names(outputs_df["Default"]), names(modellist_sorted))
+    mapping_sorted = outputs_df["Default"][:, sortperm(common_cols)]
+    modellist_sorted = modellist_sorted[:, sortperm(common_cols)]
+
+    return modellist_sorted == mapping_sorted
+end
+
 # Breaking this function into two to ensure eval() state synchronisation happens (see comments around the modellist_to_mapping definition)
 # Naming could be better
 function check_multiscale_simulation_is_equivalent_begin(mapping::ModelMapping, meteo)

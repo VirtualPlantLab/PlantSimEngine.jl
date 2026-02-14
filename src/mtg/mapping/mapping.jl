@@ -135,7 +135,8 @@ model-specific methods that return a comparable value (for example `Dates.Period
 model_rate(::AbstractModel) = nothing
 model_rate(model::MultiScaleModel) = model_rate(model_(model))
 
-Base.length(mapping::ModelMapping) = length(mapping.data)
+Base.length(mapping::ModelMapping{MultiScale}) = length(mapping.data)
+Base.length(::ModelMapping{SingleScale}) = 1
 Base.iterate(mapping::ModelMapping{MultiScale}, state...) = iterate(mapping.data, state...)
 # Base.iterate(mapping::ModelMapping{SingleScale}, state...) = iterate(mapping.data.models, state...)
 Base.show(io::IO, mapping::ModelMapping) = print(io, "ModelMapping with scales: ", join(keys(mapping), ", "))
@@ -154,19 +155,39 @@ end
 Base.keys(mapping::ModelMapping) = keys(mapping.data)
 Base.values(mapping::ModelMapping) = values(mapping.data)
 Base.pairs(mapping::ModelMapping) = pairs(mapping.data)
+Base.keys(::ModelMapping{SingleScale}) = ("Default",)
+Base.values(mapping::ModelMapping{SingleScale}) = ((values(mapping.data.models)..., status(mapping.data)),)
+Base.pairs(mapping::ModelMapping{SingleScale}) = ("Default" => (values(mapping.data.models)..., status(mapping.data)),)
 Base.getindex(mapping::ModelMapping, key::String) = mapping.data[key]
 Base.getindex(mapping::ModelMapping, key::AbstractString) = mapping.data[String(key)]
+function Base.getindex(mapping::ModelMapping{SingleScale}, key::String)
+    key == "Default" || throw(KeyError(key))
+    return (values(mapping.data.models)..., status(mapping.data))
+end
+Base.getindex(mapping::ModelMapping{SingleScale}, key::AbstractString) = getindex(mapping, String(key))
+Base.getindex(mapping::ModelMapping{SingleScale}, key::Symbol) = getindex(mapping.data, key)
+Base.getindex(mapping::ModelMapping{SingleScale}, key::Integer) = getindex(mapping.data, key)
 Base.haskey(mapping::ModelMapping, key::String) = haskey(mapping.data, key)
 Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, String(key))
 Base.eltype(::Type{ModelMapping}) = Pair{String,Tuple}
-Base.copy(mapping::ModelMapping) = ModelMapping(copy(mapping.data); check=false)
+Base.copy(mapping::ModelMapping{MultiScale}) = ModelMapping(copy(mapping.data); check=false)
+Base.copy(mapping::ModelMapping{SingleScale}) = ModelMapping{SingleScale,ModelList}(copy(mapping.data))
+Base.copy(mapping::ModelMapping{SingleScale}, status) = ModelMapping{SingleScale,ModelList}(copy(mapping.data, status))
 Base.Dict(mapping::ModelMapping) = copy(mapping.data)
+Base.:(==)(left::ModelMapping{SingleScale}, right::ModelMapping{SingleScale}) = left.data == right.data
+
+function Base.getproperty(mapping::ModelMapping{SingleScale}, name::Symbol)
+    name === :data && return getfield(mapping, :data)
+    return getproperty(getfield(mapping, :data), name)
+end
 
 function ModelMapping{MultiScale}(mapping::T; check::Bool=true) where {T<:AbstractDict}
     normalized = _normalize_multiscale_mapping(mapping)
     check && _check_multiscale_mapping!(normalized)
     ModelMapping{MultiScale,Dict{String,Tuple}}(normalized)
 end
+
+ModelMapping(mapping::AbstractDict; check::Bool=true) = ModelMapping{MultiScale}(mapping; check=check)
 
 ModelMapping(mapping::ModelMapping; check::Bool=true) = check ? ModelMapping(mapping.data; check=true) : mapping
 
@@ -190,6 +211,12 @@ function ModelMapping(
             "No mapping or model was provided. Use `ModelMapping(\"Scale\" => models)` or pass models directly."
         )
 
+    # Backwards compatibility: allow dict-like construction for type promotion maps,
+    # e.g. `ModelMapping(Float64 => Float32)`.
+    if !isempty(args) && all(arg -> arg isa Pair && !(first(arg) isa Union{AbstractString,Symbol}), args)
+        return Dict(args)
+    end
+
     if _all_scale_pairs(args)
         isempty(processes) || error(
             "Cannot mix scale-level pairs with process keyword arguments. ",
@@ -200,7 +227,7 @@ function ModelMapping(
             "Provide statuses inside each scale mapping instead."
         )
         raw_mapping = Dict{String,Any}(String(first(pair)) => last(pair) for pair in args)
-        return ModelMapping{MultiScale,typeof(raw_mapping)}(raw_mapping; check=check)
+        return ModelMapping{MultiScale}(raw_mapping; check=check)
     end
 
     _contains_scale_like_pair(args) && error(
@@ -215,13 +242,20 @@ function ModelMapping(
 end
 
 # Canonical API dispatches for model mappings.
-dep(mapping::ModelMapping; verbose::Bool=true) = dep(mapping.data; verbose=verbose)
-hard_dependencies(mapping::ModelMapping; verbose::Bool=true) = hard_dependencies(mapping.data; verbose=verbose)
+dep(mapping::ModelMapping{SingleScale}; verbose::Bool=true) = dep(mapping.data)
+dep(mapping::ModelMapping{MultiScale}; verbose::Bool=true) = dep(mapping.data; verbose=verbose)
+hard_dependencies(mapping::ModelMapping{SingleScale}; verbose::Bool=true) = hard_dependencies(mapping.data)
+hard_dependencies(mapping::ModelMapping{MultiScale}; verbose::Bool=true) = hard_dependencies(mapping.data; verbose=verbose)
 inputs(mapping::ModelMapping) = inputs(mapping.data)
 outputs(mapping::ModelMapping) = outputs(mapping.data)
 variables(mapping::ModelMapping) = variables(mapping.data)
 to_initialize(mapping::ModelMapping, graph=nothing) = to_initialize(mapping.data, graph)
 reverse_mapping(mapping::ModelMapping; all=true) = reverse_mapping(mapping.data; all=all)
+init_variables(mapping::ModelMapping{SingleScale}; verbose=true) = init_variables(mapping.data; verbose=verbose)
+to_initialize(mapping::ModelMapping{SingleScale}) = to_initialize(mapping.data)
+to_initialize(mapping::ModelMapping{SingleScale}, graph) = to_initialize(mapping)
+pre_allocate_outputs(mapping::ModelMapping{SingleScale}, outs, nsteps; type_promotion=nothing, check=true) =
+    pre_allocate_outputs(mapping.data, outs, nsteps; type_promotion=type_promotion, check=check)
 
 function _all_scale_pairs(args)
     !isempty(args) && all(arg -> arg isa Pair && first(arg) isa Union{AbstractString,Symbol}, args)

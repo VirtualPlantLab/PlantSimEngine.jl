@@ -61,13 +61,18 @@ end
 
     # Uninitialized:
     to_init_uninitialized = to_initialize(ModelMapping(ToyAssimGrowthModel()))
-    @test haskey(to_init_uninitialized, "Default")
-    @test :aPPFD in to_init_uninitialized["Default"]
+    if to_init_uninitialized isa AbstractDict
+        @test haskey(to_init_uninitialized, "Default")
+        @test :aPPFD in to_init_uninitialized["Default"]
+    else
+        @test :growth in keys(to_init_uninitialized)
+        @test :aPPFD in to_init_uninitialized[:growth]
+    end
 
     # One time step:
     mapping = ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=30.0,))
 
-    @test to_initialize(mapping) == Dict()
+    @test isempty(to_initialize(mapping))
 
     outputs = run!(mapping)
     @test outputs[:biomass] ≈ [4.5]

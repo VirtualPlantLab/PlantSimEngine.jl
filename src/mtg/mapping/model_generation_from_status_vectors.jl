@@ -254,6 +254,10 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
     return mtg, ModelMapping(mapping), Dict(default_scale => all_vars)
 end
 
+function modellist_to_mapping(mapping::ModelMapping{SingleScale}, modellist_status; nsteps=nothing, outputs=nothing)
+    modellist_to_mapping(mapping.data, modellist_status; nsteps=nsteps, outputs=outputs)
+end
+
 function check_statuses_contain_no_remaining_vectors(mapping)
     for (organ,models) in mapping
 
