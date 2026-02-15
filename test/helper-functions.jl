@@ -34,8 +34,12 @@ function compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
     outputs_df = convert_outputs(graphsim.outputs, DataFrame)
     @assert haskey(outputs_df, "Default")
     common_cols = filter(c -> c in names(outputs_df["Default"]), names(modellist_sorted))
-    mapping_sorted = outputs_df["Default"][:, sortperm(common_cols)]
-    modellist_sorted = modellist_sorted[:, sortperm(common_cols)]
+    mapping_sorted = outputs_df["Default"][:, common_cols]
+    modellist_sorted = modellist_sorted[:, common_cols]
+
+    # Keep deterministic order in case columns are provided in different orders.
+    mapping_sorted = mapping_sorted[:, sortperm(names(mapping_sorted))]
+    modellist_sorted = modellist_sorted[:, sortperm(names(modellist_sorted))]
 
     return modellist_sorted == mapping_sorted
 end

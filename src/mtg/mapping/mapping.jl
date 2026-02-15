@@ -234,7 +234,20 @@ function ModelMapping(
         "Invalid argument mix: scale-level pairs must not be mixed with model arguments."
     )
 
-    return ModelMapping{SingleScale,ModelList}(ModelList(args...; status=status, type_promotion=nothing, variables_check=check, processes...))
+    flat_args = Any[]
+    for arg in args
+        if arg isa Pair && first(arg) isa Symbol
+            push!(flat_args, last(arg))
+        elseif arg isa NamedTuple
+            append!(flat_args, values(arg))
+        elseif arg isa Tuple
+            append!(flat_args, arg)
+        else
+            push!(flat_args, arg)
+        end
+    end
+
+    return ModelMapping{SingleScale,ModelList}(ModelList(flat_args...; status=status, type_promotion=nothing, variables_check=check, processes...))
 
     #TODO: Use the following when we merge the ModelList and ModelMapping paths (create a fake scale):
     single_scale_models = _single_scale_mapping_entries(args, processes, status)
@@ -302,6 +315,10 @@ end
 
 function _normalize_scale_mapping(scale::String, scale_mapping::ModelList)
     return _normalize_scale_mapping(scale, (values(scale_mapping.models)..., status(scale_mapping)))
+end
+
+function _normalize_scale_mapping(scale::String, scale_mapping::ModelMapping{SingleScale})
+    return _normalize_scale_mapping(scale, scale_mapping.data)
 end
 
 function _normalize_scale_mapping(scale::String, scale_mapping::Union{AbstractModel,MultiScaleModel,ModelSpec})

@@ -165,6 +165,20 @@ function run!(
     )
 end
 
+function run!(
+    ::ModelMapping{MultiScale},
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+)
+    error("This `ModelMapping` is a multiscale mapping. ", "Use `run!(mtg, mapping, ...)` for multiscale mappings.")
+end
 
 # User entry point, which uses traits to dispatch to the correct method. 
 # The traits are defined in table_traits.jl
@@ -575,7 +589,10 @@ function run!(
     nsteps=nothing,
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    multirate=false,
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
     Base.depwarn(
         "`run!(mtg, mapping::AbstractDict, ...)` is deprecated. Use `run!(mtg, ModelMapping(mapping), ...)` or construct `ModelMapping(...)` directly.",
@@ -590,7 +607,10 @@ function run!(
         nsteps=nsteps,
         tracked_outputs=tracked_outputs,
         check=check,
-        executor=executor
+        executor=executor,
+        multirate=multirate,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink
     )
 end
 

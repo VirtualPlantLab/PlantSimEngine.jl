@@ -3,9 +3,9 @@ dep(::T, nsteps=1) where {T<:AbstractModel} = NamedTuple()
 """
     dep(mapping::ModelMapping; verbose=true)
     dep(mapping::AbstractDict{String,T}; verbose=true)
-    dep!(m::check_multiscale_simulation_is_equivalent_begin, nsteps=1)
+    dep!(m::ModelMapping, nsteps=1)
 
-Get the model dependency graph given a ModelList or a multiscale model mapping. If one graph is returned, 
+Get the model dependency graph given a ModelMapping or a multiscale model mapping. If one graph is returned, 
 then all models are coupled. If several graphs are returned, then only the models inside each graph are coupled, and
 the models in different graphs are not coupled.
 `nsteps` is the number of steps the dependency graph will be used over. It is used to determine
@@ -39,7 +39,7 @@ these graphs independently to r
 
 # Notes
 
-The difference between `dep(m::ModelList)` and `dep!(m::ModelList, nsteps)` is that the first one returns the dependency graph found in the model list, while the 
+The difference between `dep(m::ModelMapping)` and `dep!(m::ModelMapping, nsteps)` is that the first one returns the dependency graph found in the model list, while the 
 second one returns the dependency graph with the specified number of steps, modifying the simulation IDs of each node in the graph (`simulation_id=fill(0, nsteps)`).
 
 # Examples
@@ -50,7 +50,7 @@ using PlantSimEngine
 # Including example processes and models:
 using PlantSimEngine.Examples;
 
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),

@@ -210,7 +210,7 @@ This graph has a root node that defines a scene, then a soil, and a plant with t
 For long simulations on plants with many organs, the output data can be very significant. It's possible to restrict the output variables that are tracked for the whole simulation to a subset of all the variables:
 
 ```@example usepkg
-outs = ModelMapping(
+outs = Dict(
     "Scene" => (:TT, :TT_cu,),
     "Plant" => (:aPPFD, :LAI),
     "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),

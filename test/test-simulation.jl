@@ -34,7 +34,7 @@ end;
 
     @test_deprecated run!(models, meteo)
     @test_deprecated run!([models], meteo)
-    @test_deprecated run!(ModelMapping("mod1" => models), meteo)
+    @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
 
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Leaf", 1, 1))
     mtg[:var1] = 15.0
