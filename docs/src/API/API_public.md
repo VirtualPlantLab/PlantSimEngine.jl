@@ -60,14 +60,13 @@ Scope selection detail:
 ```julia
 req_hold = OutputRequest("Leaf", :A; name=:A_hourly, process=:assim, policy=HoldLast())
 req_day = OutputRequest("Leaf", :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
-run!(sim, meteo; multirate=true, tracked_outputs=[req_hold, req_day], executor=SequentialEx())
+run!(sim, meteo; tracked_outputs=[req_hold, req_day], executor=SequentialEx())
 out = collect_outputs(sim; sink=DataFrame)
 
 # or directly:
 out_status, out = run!(
     sim,
     meteo;
-    multirate=true,
     tracked_outputs=[req_hold, req_day],
     return_requested_outputs=true,
 )

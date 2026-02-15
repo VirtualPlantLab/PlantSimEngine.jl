@@ -96,6 +96,40 @@ struct MultiScale <: AbstractScaleSetup end
 struct SingleScale <: AbstractScaleSetup end
 
 """
+    ModelMappingInfo
+
+Cached metadata computed at `ModelMapping` construction time to avoid repeated
+normalization/introspection work across runtime entrypoints.
+"""
+struct ModelMappingInfo
+    validated::Bool
+    is_valid::Bool
+    is_multirate::Bool
+    scales::Vector{String}
+    models_per_scale::Dict{String,Int}
+    processes_per_scale::Dict{String,Vector{Symbol}}
+    declared_rates::Dict{String,Any}
+    vars_need_init::Any
+    model_specs::Dict{String,Dict{Symbol,ModelSpec}}
+    recommendations::Vector{String}
+end
+
+function _empty_model_mapping_info()
+    ModelMappingInfo(
+        false,
+        false,
+        false,
+        String[],
+        Dict{String,Int}(),
+        Dict{String,Vector{Symbol}}(),
+        Dict{String,Any}(),
+        NamedTuple(),
+        Dict{String,Dict{Symbol,ModelSpec}}(),
+        String[],
+    )
+end
+
+"""
     ModelMapping(mapping; check=true)
 
 Validated mapping between MTG scales and model definitions.
@@ -119,9 +153,19 @@ Use `Dict(mapping)` to recover a plain dictionary.
 """
 struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{String,Tuple} where {D<:Union{Dict{String,Tuple},ModelList}}
     data::D
+    info::ModelMappingInfo
 end
 
-ModelMapping{S}(data) where {S<:AbstractScaleSetup} = ModelMapping{S,typeof(data)}(data)
+function _build_model_mapping(::Type{S}, data; validated::Bool) where {S<:AbstractScaleSetup}
+    info = try
+        _build_model_mapping_info(S, data; validated=validated)
+    catch
+        _empty_model_mapping_info()
+    end
+    ModelMapping{S,typeof(data)}(data, info)
+end
+
+ModelMapping{S}(data) where {S<:AbstractScaleSetup} = _build_model_mapping(S, data; validated=false)
 
 """
     model_rate(model::AbstractModel)
@@ -139,17 +183,67 @@ Base.length(mapping::ModelMapping{MultiScale}) = length(mapping.data)
 Base.length(::ModelMapping{SingleScale}) = 1
 Base.iterate(mapping::ModelMapping{MultiScale}, state...) = iterate(mapping.data, state...)
 # Base.iterate(mapping::ModelMapping{SingleScale}, state...) = iterate(mapping.data.models, state...)
-Base.show(io::IO, mapping::ModelMapping) = print(io, "ModelMapping with scales: ", join(keys(mapping), ", "))
-# Base.show(io::IO, mapping::ModelMapping{SingleScale}) = print(io, "Single Scale ModelMapping:\n", mapping.data.models)
-Base.show(io::IO, mapping::ModelMapping{SingleScale}) = print(io, "Single Scale ModelMapping")
-
-function Base.show(io::IO, m::MIME"text/plain", t::ModelMapping{SingleScale})
-    print(io, "Single Scale ModelMapping:\n")
-    show(io, m, t.data)
+function Base.show(io::IO, mapping::ModelMapping)
+    print(
+        io,
+        "ModelMapping(",
+        length(mapping.info.scales),
+        " scale",
+        length(mapping.info.scales) == 1 ? "" : "s",
+        ", multirate=",
+        mapping.info.is_multirate,
+        ")"
+    )
 end
 
-function Base.show(io::IO, m::MIME"text/plain", t::ModelMapping)
-    print(io, "ModelMapping with scales: ", join(keys(t), ", "))
+function _isempty_vars_need_init(vars_need_init)
+    vars_need_init isa NamedTuple && return isempty(keys(vars_need_init))
+    vars_need_init isa AbstractDict && return all(isempty, values(vars_need_init))
+    vars_need_init isa AbstractVector && return isempty(vars_need_init)
+    return isnothing(vars_need_init)
+end
+
+function _show_model_mapping_plain(io::IO, mapping::ModelMapping)
+    info = mapping.info
+    println(io, "ModelMapping")
+    println(io, "  validated: ", info.validated)
+    println(io, "  is_valid: ", info.is_valid)
+    println(io, "  multirate: ", info.is_multirate)
+    println(io, "  scales (", length(info.scales), "): ", join(info.scales, ", "))
+    for scale in info.scales
+        print(io, "  - ", scale, ": ", get(info.models_per_scale, scale, 0), " model(s)")
+        processes = get(info.processes_per_scale, scale, Symbol[])
+        if !isempty(processes)
+            print(io, ", processes=", join(string.(processes), ", "))
+        end
+        rate = get(info.declared_rates, scale, nothing)
+        if !isnothing(rate)
+            print(io, ", rate=", rate)
+        end
+        println(io)
+    end
+    if _isempty_vars_need_init(info.vars_need_init)
+        println(io, "  variables to initialize: none")
+    else
+        println(io, "  variables to initialize: ", info.vars_need_init)
+    end
+    if !isempty(info.recommendations)
+        println(io, "  recommendations:")
+        for recommendation in info.recommendations
+            println(io, "  - ", recommendation)
+        end
+    end
+end
+
+function Base.show(io::IO, m::MIME"text/plain", mapping::ModelMapping)
+    if get(io, :compact, false)
+        return show(io, mapping)
+    end
+    _show_model_mapping_plain(io, mapping)
+    if mapping isa ModelMapping{SingleScale}
+        println(io, "  status:")
+        show(io, m, mapping.data)
+    end
 end
 
 Base.keys(mapping::ModelMapping) = keys(mapping.data)
@@ -170,21 +264,21 @@ Base.getindex(mapping::ModelMapping{SingleScale}, key::Integer) = getindex(mappi
 Base.haskey(mapping::ModelMapping, key::String) = haskey(mapping.data, key)
 Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, String(key))
 Base.eltype(::Type{ModelMapping}) = Pair{String,Tuple}
-Base.copy(mapping::ModelMapping{MultiScale}) = ModelMapping(copy(mapping.data); check=false)
-Base.copy(mapping::ModelMapping{SingleScale}) = ModelMapping{SingleScale,ModelList}(copy(mapping.data))
-Base.copy(mapping::ModelMapping{SingleScale}, status) = ModelMapping{SingleScale,ModelList}(copy(mapping.data, status))
+Base.copy(mapping::ModelMapping{MultiScale}) = _build_model_mapping(MultiScale, copy(mapping.data); validated=mapping.info.validated)
+Base.copy(mapping::ModelMapping{SingleScale}) = _build_model_mapping(SingleScale, copy(mapping.data); validated=mapping.info.validated)
+Base.copy(mapping::ModelMapping{SingleScale}, status) = _build_model_mapping(SingleScale, copy(mapping.data, status); validated=mapping.info.validated)
 Base.Dict(mapping::ModelMapping) = copy(mapping.data)
 Base.:(==)(left::ModelMapping{SingleScale}, right::ModelMapping{SingleScale}) = left.data == right.data
 
 function Base.getproperty(mapping::ModelMapping{SingleScale}, name::Symbol)
-    name === :data && return getfield(mapping, :data)
+    (name === :data || name === :info) && return getfield(mapping, name)
     return getproperty(getfield(mapping, :data), name)
 end
 
 function ModelMapping{MultiScale}(mapping::T; check::Bool=true) where {T<:AbstractDict}
     normalized = _normalize_multiscale_mapping(mapping)
     check && _check_multiscale_mapping!(normalized)
-    ModelMapping{MultiScale,Dict{String,Tuple}}(normalized)
+    _build_model_mapping(MultiScale, normalized; validated=check)
 end
 
 ModelMapping(mapping::AbstractDict; check::Bool=true) = ModelMapping{MultiScale}(mapping; check=check)
@@ -247,7 +341,11 @@ function ModelMapping(
         end
     end
 
-    return ModelMapping{SingleScale,ModelList}(ModelList(flat_args...; status=status, type_promotion=nothing, variables_check=check, processes...))
+    return _build_model_mapping(
+        SingleScale,
+        ModelList(flat_args...; status=status, type_promotion=nothing, variables_check=check, processes...);
+        validated=check
+    )
 
     #TODO: Use the following when we merge the ModelList and ModelMapping paths (create a fake scale):
     single_scale_models = _single_scale_mapping_entries(args, processes, status)
@@ -262,13 +360,20 @@ hard_dependencies(mapping::ModelMapping{MultiScale}; verbose::Bool=true) = hard_
 inputs(mapping::ModelMapping) = inputs(mapping.data)
 outputs(mapping::ModelMapping) = outputs(mapping.data)
 variables(mapping::ModelMapping) = variables(mapping.data)
-to_initialize(mapping::ModelMapping, graph=nothing) = to_initialize(mapping.data, graph)
+function to_initialize(mapping::ModelMapping, graph=nothing)
+    isnothing(graph) && return mapping.info.vars_need_init
+    return to_initialize(mapping.data, graph)
+end
 reverse_mapping(mapping::ModelMapping; all=true) = reverse_mapping(mapping.data; all=all)
 init_variables(mapping::ModelMapping{SingleScale}; verbose=true) = init_variables(mapping.data; verbose=verbose)
-to_initialize(mapping::ModelMapping{SingleScale}) = to_initialize(mapping.data)
+to_initialize(mapping::ModelMapping{SingleScale}) = mapping.info.vars_need_init
 to_initialize(mapping::ModelMapping{SingleScale}, graph) = to_initialize(mapping)
 pre_allocate_outputs(mapping::ModelMapping{SingleScale}, outs, nsteps; type_promotion=nothing, check=true) =
     pre_allocate_outputs(mapping.data, outs, nsteps; type_promotion=type_promotion, check=check)
+
+mapping_info(mapping::ModelMapping) = mapping.info
+is_multirate(mapping::ModelMapping) = mapping.info.is_multirate
+is_valid(mapping::ModelMapping) = mapping.info.is_valid
 
 function _all_scale_pairs(args)
     !isempty(args) && all(arg -> arg isa Pair && first(arg) isa Union{AbstractString,Symbol}, args)
@@ -415,8 +520,10 @@ function _check_mapped_sources_exist!(mapping::Dict{String,Tuple})
                     if checks_source_value && source_variable ∉ available_variables[source_scale]
                         error(
                             "Scale `$target_scale` maps variable `$(first(mapped_var))` to `$source_scale.$source_variable`, ",
-                            "but `$source_variable` is not available at scale `$source_scale` (neither model output nor Status variable). ",
-                            "Define a model output for `$source_variable`, initialize it in the source scale Status, or update the mapping."
+                            "but `$source_variable` is not available at scale `$source_scale` ",
+                            "(neither model output, Status variable, nor mapped output from another scale). ",
+                            "Define a model output for `$source_variable`, initialize it in the source scale Status, ",
+                            "or map this variable from another scale into `$source_scale` before using it."
                         )
                     end
 
@@ -455,6 +562,27 @@ function _available_variables_by_scale(mapping::Dict{String,Tuple})
         !isnothing(st) && union!(vars, keys(st))
         available[scale] = vars
     end
+
+    # Variables produced at one scale and explicitly mapped as outputs to another
+    # scale are available at the target scale as runtime references.
+    for (source_scale, scale_mapping) in mapping
+        for item in scale_mapping
+            mapped_vars = _mapping_item_mapped_variables(item)
+            isempty(mapped_vars) && continue
+            base_model = _mapping_item_model(item)
+            model_outputs = Set(keys(outputs_(base_model)))
+            for mapped_var in mapped_vars
+                mapped_variable_name = first(mapped_var) isa PreviousTimeStep ? first(mapped_var).variable : first(mapped_var)
+                mapped_variable_name in model_outputs || continue
+                for (target_scale_raw, target_variable) in _as_mapping_sources(last(mapped_var))
+                    target_scale = isempty(target_scale_raw) ? source_scale : target_scale_raw
+                    haskey(available, target_scale) || continue
+                    push!(available[target_scale], target_variable)
+                end
+            end
+        end
+    end
+
     return available
 end
 
@@ -474,3 +602,122 @@ function _declared_model_rates_by_scale(mapping::Dict{String,Tuple})
 end
 
 _rates_compatible(rate1, rate2) = isnothing(rate1) || isnothing(rate2) || rate1 == rate2
+
+function _spec_declares_multirate(spec::ModelSpec)
+    model = model_(spec)
+    !isnothing(timestep(spec)) && return true
+    !isempty(keys(input_bindings(spec))) && return true
+    !isempty(keys(meteo_bindings(spec))) && return true
+    !isnothing(meteo_window(spec)) && return true
+    !isempty(keys(output_routing(spec))) && return true
+    timespec(model) != ClockSpec(1.0, 0.0) && return true
+    !isempty(keys(output_policy(model))) && return true
+    !isnothing(timestep_hint(model)) && return true
+    !isnothing(meteo_hint(model)) && return true
+    return false
+end
+
+function _mapping_declares_multirate(model_specs::Dict{String,Dict{Symbol,ModelSpec}}, declared_rates::Dict{String,Any})
+    any(!isnothing, values(declared_rates)) && return true
+    for specs_at_scale in values(model_specs), spec in values(specs_at_scale)
+        _spec_declares_multirate(spec) && return true
+    end
+    return false
+end
+
+function _model_summary_from_mapping(mapping::Dict{String,Tuple})
+    models_per_scale = Dict{String,Int}()
+    processes_per_scale = Dict{String,Vector{Symbol}}()
+    for (scale, scale_mapping) in mapping
+        models = get_models(scale_mapping)
+        models_per_scale[scale] = length(models)
+        processes_per_scale[scale] = [_process_name_for_mapping_check(model) for model in models]
+    end
+    return models_per_scale, processes_per_scale
+end
+
+function _parse_model_specs_from_mapping(mapping::Dict{String,Tuple})
+    Dict(scale => parse_model_specs(scale_mapping) for (scale, scale_mapping) in mapping)
+end
+
+function _build_model_mapping_recommendations(
+    validated::Bool,
+    is_multirate::Bool,
+    vars_need_init
+)
+    recommendations = String[]
+    if !validated
+        push!(recommendations, "Built with `check=false`: rebuild with `check=true` to validate consistency.")
+    end
+    if !_isempty_vars_need_init(vars_need_init)
+        push!(recommendations, "Initialize required variables listed above (see `to_initialize(mapping)`).")
+    end
+    if is_multirate
+        push!(recommendations, "Multirate is enabled from mapping metadata; `run!(mtg, mapping, ...)` auto-detects it.")
+    end
+    return recommendations
+end
+
+function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; validated::Bool)
+    specs = Dict(
+        "Default" => Dict{Symbol,ModelSpec}(
+            process(model) => as_model_spec(model) for model in values(mapping.models)
+        )
+    )
+
+    declared_rates = Dict{String,Any}("Default" => nothing)
+    vars_need_init = try
+        to_initialize(mapping)
+    catch
+        NamedTuple()
+    end
+    is_multirate = false
+    recommendations = _build_model_mapping_recommendations(validated, is_multirate, vars_need_init)
+    processes = [process(model) for model in values(mapping.models)]
+    return ModelMappingInfo(
+        validated,
+        validated,
+        is_multirate,
+        ["Default"],
+        Dict("Default" => length(mapping.models)),
+        Dict("Default" => processes),
+        declared_rates,
+        vars_need_init,
+        specs,
+        recommendations,
+    )
+end
+
+function _build_model_mapping_info(::Type{MultiScale}, mapping::Dict{String,Tuple}; validated::Bool)
+    scales = collect(keys(mapping))
+    models_per_scale, processes_per_scale = _model_summary_from_mapping(mapping)
+    declared_rates = try
+        _declared_model_rates_by_scale(mapping)
+    catch
+        Dict{String,Any}(scale => nothing for scale in scales)
+    end
+    model_specs = try
+        _parse_model_specs_from_mapping(mapping)
+    catch
+        Dict{String,Dict{Symbol,ModelSpec}}()
+    end
+    vars_need_init = try
+        to_initialize(mapping, nothing)
+    catch
+        Dict{String,Vector{Symbol}}()
+    end
+    is_multirate = _mapping_declares_multirate(model_specs, declared_rates)
+    recommendations = _build_model_mapping_recommendations(validated, is_multirate, vars_need_init)
+    return ModelMappingInfo(
+        validated,
+        validated,
+        is_multirate,
+        scales,
+        models_per_scale,
+        processes_per_scale,
+        declared_rates,
+        vars_need_init,
+        model_specs,
+        recommendations,
+    )
+end

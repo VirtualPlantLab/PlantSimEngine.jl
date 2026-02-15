@@ -131,7 +131,7 @@ mapping = ModelMapping(
 )
 ```
 
-When `multirate=true` is passed to `run!`, the runtime resolves inputs from producer temporal streams according to these policies.
+When the `ModelMapping` declares multirate configuration, the runtime resolves inputs from producer temporal streams according to these policies.
 Meteo rows are also sampled at each model clock. By default, meteo variables are aggregated from
 the finest weather step (for example `T` and `Rh` as weighted means, `Tmin/Tmax`, and radiation
 quantity aliases such as `Ri_SW_q` in MJ m-2). You can override these rules with `MeteoBindings(...)`
@@ -154,7 +154,7 @@ req = OutputRequest("Leaf", :carbon_assimilation;
     clock=ClockSpec(24.0, 1.0)
 )
 
-run!(sim, meteo; multirate=true, tracked_outputs=[req], executor=SequentialEx())
+run!(sim, meteo; tracked_outputs=[req], executor=SequentialEx())
 exported = collect_outputs(sim; sink=DataFrame)
 ```
 
@@ -165,7 +165,6 @@ You can also return them directly from `run!`:
 out_status, exported = run!(
     sim,
     meteo;
-    multirate=true,
     tracked_outputs=[req],
     return_requested_outputs=true,
 )

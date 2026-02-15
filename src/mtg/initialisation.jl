@@ -315,7 +315,11 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     end
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
-    model_specs = Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    model_specs = if mapping isa ModelMapping && !isempty(mapping.info.model_specs)
+        deepcopy(mapping.info.model_specs)
+    else
+        Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    end
     scale_reachability = _scale_reachability_from_mtg(mtg)
     infer_model_specs_configuration!(model_specs; scale_reachability=scale_reachability)
     validate_model_specs_configuration(model_specs)
@@ -356,5 +360,19 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
     temporal_state = TemporalState()
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep_graph, models, model_specs, outputs, outputs_index, temporal_state)
+    mapping_is_multirate = mapping isa ModelMapping ? is_multirate(mapping) : false
+    return (;
+        mtg,
+        statuses,
+        status_templates,
+        reverse_multiscale_mapping,
+        vars_need_init,
+        dependency_graph=dep_graph,
+        models,
+        model_specs,
+        outputs,
+        outputs_index,
+        temporal_state,
+        is_multirate=mapping_is_multirate
+    )
 end

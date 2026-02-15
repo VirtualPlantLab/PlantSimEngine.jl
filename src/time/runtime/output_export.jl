@@ -3,7 +3,7 @@
 
 Describe one online-exported multi-rate output series for MTG multi-rate runs.
 
-Use this type in `run!(...; multirate=true, tracked_outputs=...)` to export
+Use this type in `run!(...; tracked_outputs=...)` to export
 resampled temporal streams while simulation is running.
 
 # Arguments
