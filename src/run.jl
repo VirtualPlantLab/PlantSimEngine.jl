@@ -126,6 +126,14 @@ function _all_modellists_collection(object)
     return false
 end
 
+function _error_if_multirate_singlescale(multirate)
+    multirate || return nothing
+    error(
+        "`multirate=true` is only supported for MTG-based multiscale runs. ",
+        "For one scale, build a one-scale MTG and call `run!(mtg, mapping, ...; multirate=true)`."
+    )
+end
+
 _single_scale_runtime_object(object) = object
 _single_scale_runtime_object(mapping::ModelMapping) = _modellist_from_model_mapping(mapping)
 
@@ -151,7 +159,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {M<:Union{ModelMapping{SingleScale},ModelList}}
-    multirate && error("`multirate=true` is only supported for MTG runs (`run!(mtg, mapping, ...)`).")
+    _error_if_multirate_singlescale(multirate)
     model_list = _modellist_from_model_mapping(mapping)
     _run_modellist_singleton(
         model_list,
@@ -228,6 +236,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict},A}
+    _error_if_multirate_singlescale(multirate)
     if _all_modellists_collection(object)
         Base.depwarn(
             "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
@@ -275,6 +284,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelList}
+    _error_if_multirate_singlescale(multirate)
     Base.depwarn(
         "`run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)` instead.",
         :run!
@@ -304,6 +314,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelMapping{SingleScale}}
+    _error_if_multirate_singlescale(multirate)
     model_list = _modellist_from_model_mapping(object)
 
     _run_modellist_singleton(
@@ -426,6 +437,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict}}
+    _error_if_multirate_singlescale(multirate)
     if _all_modellists_collection(object)
         Base.depwarn(
             "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",

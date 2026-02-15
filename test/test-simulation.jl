@@ -43,6 +43,19 @@ end;
     @test_deprecated run!(mtg, mapping_dict, meteo)
 end
 
+@testset "Single-scale multirate unsupported" begin
+    mapping = ModelMapping(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=15.0, var2=0.3)
+    )
+    meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
+
+    @test_throws "one-scale MTG" run!(mapping, meteo; multirate=true)
+    @test_throws "one-scale MTG" run!([mapping], meteo; multirate=true)
+end
+
 @testset "Simulation: 1 time-step, 0 Atmosphere" begin
     mapping = ModelMapping(
         Process1Model(1.0);
