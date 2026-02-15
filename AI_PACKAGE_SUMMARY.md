@@ -7,7 +7,7 @@ This document explains how PlantSimEngine is structured internally, how models a
 PlantSimEngine is a Julia framework for composing plant models as modular processes. Users or modelers define models that implement a process, declare inputs/outputs, and optionally declare hard dependencies (manual calls). The engine builds a dependency graph (soft dependencies via inputs/outputs and hard dependencies via explicit model calls) and executes models in dependency order. It supports single-scale model lists and multiscale model mappings on a plant graph (MTG).
 
 Core modules (see `src/PlantSimEngine.jl`):
-- `component_models`: `Status`, `RefVector`, `ModelList`, `TimeStepTable`
+- `component_models`: `Status`, `RefVector`, `ModelMapping`, `TimeStepTable`
 - `dependencies`: dependency graph types and builders
 - `processes`: model interfaces, inputs/outputs/variables, process macro
 - `mtg`: multiscale mapping, GraphSimulation, initialization, save results
@@ -29,7 +29,7 @@ File: `src/component_models/RefVector.jl`
 - Used for multiscale aggregation where a higher scale references values from many lower-scale nodes (e.g., plant-level model reads all leaves).
 - Updating a `RefVector` entry updates the referenced Status field.
 
-### ModelList
+### ModelList (deprecated)
 File: `src/component_models/ModelList.jl`
 - `ModelList` is the single-scale container: `models::NamedTuple`, `status::Status`, `dependency_graph::DependencyGraph`.
 - Building a ModelList:
@@ -39,6 +39,7 @@ File: `src/component_models/ModelList.jl`
 - `type_promotion` can upcast default model values (not user-specified ones).
 
 ### MultiScaleModel
+
 File: `src/mtg/MultiScaleModel.jl`
 - Wrapper to attach a multiscale variable mapping to a model.
 - Supports scalar mapping (SingleNode), vector mapping (MultiNode), renaming, and `PreviousTimeStep`.

@@ -6,10 +6,10 @@ using PlantSimEngine.Examples
 using PlantMeteo, MultiScaleTreeGraph, CSV
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
@@ -24,10 +24,10 @@ In the [Converting a single-scale simulation to multi-scale](@ref) page, a singl
 ```@example usepkg
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models_singlescale = ModelList(
+models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
@@ -54,7 +54,7 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=0.0,)
 end
 
-mapping_multiscale = Dict(
+mapping_multiscale = ModelMapping(
     "Scene" => ToyTt_CuModel(),
     "Plant" => (
         MultiScaleModel(
@@ -77,7 +77,7 @@ outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ### Output comparison
 
 ```@setup usepkg
-mapping_multiscale = Dict(
+mapping_multiscale = ModelMapping(
     "Scene" => ToyTt_CuModel(),
     "Plant" => (
         MultiScaleModel(

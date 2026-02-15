@@ -5,7 +5,7 @@ using PlantSimEngine, PlantMeteo, DataFrames, CSV, Dates, Statistics
 # using PlantSimEngine.Examples
 
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
@@ -20,7 +20,7 @@ time_run_seq = @benchmark run!($models, $meteo_day, executor=$(SequentialEx()))
 median_time_seq_ns = median(time_run_seq.times) / nrow(meteo_day)
 
 # Coupled model: 
-models_coupled = ModelList(
+models_coupled = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     status=(TT_cu=cumsum(meteo_day.TT),),

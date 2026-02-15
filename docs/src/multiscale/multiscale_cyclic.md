@@ -10,7 +10,7 @@ For example the following mapping will raise an error:
     <summary>Example mapping</summary>
     
     ```julia
-    mapping_cyclic = Dict(
+    mapping_cyclic = ModelMapping(
         "Plant" => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -72,7 +72,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
 
 !!! details
     ```@julia
-    mapping_nocyclic = Dict(
+    mapping_nocyclic = ModelMapping(
             "Plant" => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),

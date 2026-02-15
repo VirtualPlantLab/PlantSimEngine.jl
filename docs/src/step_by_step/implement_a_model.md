@@ -170,14 +170,14 @@ These functions are internal, and end with an "\_". Users instead use [`inputs`]
 
 ### The run! method
 
-When running a simulation with [`run!`](@ref), each model is run in turn at every timestep, following whatever order was deduced from the ModelList definition and Status. Each model also has its [`run!`](@ref) method for that purpose that update the simulation's current state, with a slightly different signature. The function takes six arguments:
+When running a simulation with [`run!`](@ref), each model is run in turn at every timestep, following whatever order was deduced from the `ModelMapping` definition and Status. Each model also has its [`run!`](@ref) method for that purpose that update the simulation's current state, with a slightly different signature. The function takes six arguments:
 
 ```julia
 function run!(::Beer, models, status, meteo, constants, extras)
 ```
 
 - the model's type
-- models: a [`ModelList`](@ref) object, which contains all the models of the simulation
+- models: a [`ModelMapping`](@ref) object, which contains all the models of the simulation
 - status: a [`Status`](@ref) object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
 - meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
 - constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant, unit-conversion constants...)
@@ -185,7 +185,7 @@ function run!(::Beer, models, status, meteo, constants, extras)
 
 A typical [`run!`](@ref) function can therefore make use of simulation constants, input/output variables accessible through the [`Status`](@ref object, or weather data. 
 
-Here is the [`run!`](@ref) implementation of the light interception for a [`ModelList`](@ref) component models. Note that the input and output variable are accessed through the [`status`](@ref) argument :
+Here is the [`run!`](@ref) implementation of the light interception for a [`ModelMapping`](@ref) component models. Note that the input and output variable are accessed through the [`status`](@ref) argument :
 
 ```@example usepkg
 function run!(::Beer, models, status, meteo, constants, extras)
@@ -203,7 +203,7 @@ To use this model, users will have to make sure that the variables for that mode
 !!! Note
     [`Status`](@ref) objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.
 
-Model parameters are available from the [`ModelList`](@ref) that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
+Model parameters are available from the [`ModelMapping`](@ref) that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
 
 !!! warning
     You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`. The troubleshooting subsection [Implementing a model: forgetting to import or prefix functions](@ref) showcases output errors that can occur when you forget to prefix.

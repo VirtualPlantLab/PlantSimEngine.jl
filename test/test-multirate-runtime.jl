@@ -280,7 +280,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
     Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 
-    mapping_ok = Dict(
+    mapping_ok = ModelMapping(
         "Leaf" => (
             MRSourceModel(),
             ModelSpec(MROverwriteModel()) |> OutputRouting(; C=:stream_only),
@@ -328,7 +328,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_ok.temporal_state.caches[key_dir].v == 10.0
     @test sim_ok.temporal_state.caches[key_auto].v == 10.0
 
-    mapping_conflict = Dict(
+    mapping_conflict = ModelMapping(
         "Leaf" => (
             MRConflict1Model(),
             MRConflict2Model(),
@@ -340,7 +340,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 6: models run at different clocks; slower model holds last value between runs.
     source_counter = Ref(0)
-    mapping_clock_trait = Dict(
+    mapping_clock_trait = ModelMapping(
         "Leaf" => (
             ModelSpec(MRClockSourceModel(source_counter)) |> TimeStepModel(1.0),
             ModelSpec(MRClockConsumerModel()) |>
@@ -359,7 +359,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 7: TimeStepModel override takes precedence over model timespec.
     source_counter_2 = Ref(0)
-    mapping_clock_override = Dict(
+    mapping_clock_override = ModelMapping(
         "Leaf" => (
             ModelSpec(MRClockSourceModel(source_counter_2)) |> TimeStepModel(1.0),
             ModelSpec(MRClockConsumerModel()) |>
@@ -376,7 +376,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_clock_override.temporal_state.last_run[ModelKey(scope, "Leaf", :mrclockconsumer)] == 3.0
 
     # Expectation 7b: non-sequential executors warn and fall back to sequential behavior.
-    mapping_clock_fallback_seq = Dict(
+    mapping_clock_fallback_seq = ModelMapping(
         "Leaf" => (
             ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
             ModelSpec(MRClockConsumerModel()) |>
@@ -387,7 +387,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     out_fallback_seq = run!(sim_clock_fallback_seq, meteo4, multirate=true, executor=SequentialEx())
     out_fallback_seq_df = convert_outputs(out_fallback_seq, DataFrame)
 
-    mapping_clock_fallback_threaded = Dict(
+    mapping_clock_fallback_threaded = ModelMapping(
         "Leaf" => (
             ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
             ModelSpec(MRClockConsumerModel()) |>
@@ -405,7 +405,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Expectation 8: cross-scale hold-last resolution works with different clocks.
     # Leaf producer runs each step; Plant consumer runs every 2 steps (1, 3) and reads Leaf XS through multiscale mapping.
     source_counter_3 = Ref(0)
-    mapping_cross = Dict(
+    mapping_cross = ModelMapping(
         "Leaf" => (
             ModelSpec(MRCrossSourceModel(source_counter_3)) |> TimeStepModel(1.0),
         ),
@@ -425,7 +425,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 8a: cross-scale producer is inferred automatically when unique.
     source_counter_3_auto = Ref(0)
-    mapping_cross_auto = Dict(
+    mapping_cross_auto = ModelMapping(
         "Leaf" => (
             ModelSpec(MRCrossSourceModel(source_counter_3_auto)) |> TimeStepModel(1.0),
         ),
@@ -453,7 +453,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     Node(internode2_b, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 
     source_counter_scoped = Ref(0)
-    mapping_scoped = Dict(
+    mapping_scoped = ModelMapping(
         "Leaf" => (
             ModelSpec(MRCrossSourceModel(source_counter_scoped)) |> TimeStepModel(1.0) |> ScopeModel(:plant),
         ),
@@ -491,7 +491,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Consumer runs every step and receives XI through Interpolate:
     # expected YI over time is [1, 1, 3, 4, 5].
     interp_counter = Ref(0)
-    mapping_interp = Dict(
+    mapping_interp = ModelMapping(
         "Leaf" => (
             ModelSpec(MRInterpSourceModel(interp_counter)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
             ModelSpec(MRInterpConsumerModel()) |>
@@ -512,7 +512,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # - at t=3: window [2,3] => mean([2,3]) = 2.5
     # Output YA over time is therefore [1, 1, 2.5, 2.5].
     agg_counter = Ref(0)
-    mapping_agg = Dict(
+    mapping_agg = ModelMapping(
         "Leaf" => (
             ModelSpec(MRAggSourceModel(agg_counter)) |> TimeStepModel(1.0),
             ModelSpec(MRAggConsumerModel()) |>
@@ -535,7 +535,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=MaxReducer().
     # YA over time is [1,1,3,3].
     agg_counter_max = Ref(0)
-    mapping_agg_max = Dict(
+    mapping_agg_max = ModelMapping(
         "Leaf" => (
             ModelSpec(MRAggSourceModel(agg_counter_max)) |> TimeStepModel(1.0),
             ModelSpec(MRAggConsumerModel()) |>
@@ -552,7 +552,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=max-min.
     # YA over time is [0,0,1,1].
     agg_counter_callable = Ref(0)
-    mapping_integrate_callable = Dict(
+    mapping_integrate_callable = ModelMapping(
         "Leaf" => (
             ModelSpec(MRAggSourceModel(agg_counter_callable)) |> TimeStepModel(1.0),
             ModelSpec(MRAggConsumerModel()) |>
@@ -569,7 +569,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source runs at t=1,3,5 with values 1,3,5. Consumer runs each step.
     # With Interpolate(mode=:hold, extrapolation=:hold), YI is [1,1,3,3,5,5].
     interp_counter_hold = Ref(0)
-    mapping_interp_hold = Dict(
+    mapping_interp_hold = ModelMapping(
         "Leaf" => (
             ModelSpec(MRInterpSourceModel(interp_counter_hold)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
             ModelSpec(MRInterpConsumerModel()) |>
@@ -587,7 +587,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source runs at t=1 and t=25 (ClockSpec(24,1)), consumer runs every step.
     # YD should stay at 1 for t=1..24, then switch to 2 at t=25.
     daily_counter = Ref(0)
-    mapping_daily_hourly = Dict(
+    mapping_daily_hourly = ModelMapping(
         "Leaf" => (
             ModelSpec(MRDailySourceModel(daily_counter)) |> TimeStepModel(ClockSpec(24.0, 1.0)),
             ModelSpec(MRHourlyFromDailyConsumerModel()) |>
@@ -607,7 +607,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Expectation 15: period-based timestep uses timeline base-step conversion.
     # Meteo has duration=Hour(1), source uses Day(1) => runs on t=1 and t=25.
     daily_counter_period = Ref(0)
-    mapping_daily_period = Dict(
+    mapping_daily_period = ModelMapping(
         "Leaf" => (
             ModelSpec(MRDailySourceModel(daily_counter_period)) |> TimeStepModel(Dates.Day(1)),
             ModelSpec(MRHourlyFromDailyConsumerModel()) |>
@@ -624,7 +624,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_daily_period.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
 
     # Expectation 16: model timesteps shorter than meteo base step are rejected.
-    mapping_substep_period = Dict(
+    mapping_substep_period = ModelMapping(
         "Leaf" => (
             ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Minute(30)),
         ),
@@ -636,7 +636,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     range_counter_a = Ref(0)
     range_counter_b = Ref(0)
     range_counter_forced = Ref(0)
-    mapping_timestep_hints = Dict(
+    mapping_timestep_hints = ModelMapping(
         "Leaf" => (
             ModelSpec(MRRangeHintAModel(range_counter_a)),
             ModelSpec(MRRangeHintBModel(range_counter_b)),
@@ -662,7 +662,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     if _HAS_METEO_SAMPLER_API
         # Expectation 18: meteo is sampled at model clock using default weather aggregation.
-        mapping_meteo_default = Dict(
+        mapping_meteo_default = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
                 TimeStepModel(ClockSpec(2.0, 1.0)),
@@ -704,7 +704,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test isapprox(out_meteo_default_mtg_df["Leaf"][:, :MSWq][3], 1.8; atol=1.0e-9)
 
         # Expectation 19: meteo bindings allow custom reducers and variable remapping.
-        mapping_meteo_custom = Dict(
+        mapping_meteo_custom = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoCustomConsumerModel()) |>
                 TimeStepModel(ClockSpec(2.0, 1.0)) |>
@@ -734,7 +734,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             )
             for h in 1:24
         ])
-        mapping_meteo_hint = Dict(
+        mapping_meteo_hint = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoHintConsumerModel()),
             ),
@@ -778,7 +778,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ],
         ))
 
-        mapping_meteo_calendar_current = Dict(
+        mapping_meteo_calendar_current = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
                 TimeStepModel(1.0) |>
@@ -799,7 +799,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test isapprox(out_meteo_calendar_current_df["Leaf"][25, :MSWq], 17.28; atol=1.0e-9)
 
         # Expectation 22: CalendarWindow(:day, :previous_complete_period) uses previous day.
-        mapping_meteo_calendar_prev = Dict(
+        mapping_meteo_calendar_prev = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
                 TimeStepModel(1.0) |>
@@ -814,7 +814,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test out_meteo_calendar_prev_df["Leaf"][30, :MTmax] == 24.0
 
         # Expectation 23: strict previous-complete-period errors when unavailable.
-        mapping_meteo_calendar_prev_strict = Dict(
+        mapping_meteo_calendar_prev_strict = ModelMapping(
             "Leaf" => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
                 TimeStepModel(1.0) |>
@@ -826,7 +826,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     end
 
     # Expectation 24: ambiguous same-name inferred producer is rejected at initialization.
-    mapping_ambiguous_infer = Dict(
+    mapping_ambiguous_infer = ModelMapping(
         "Leaf" => (
             MRConflict1Model(),
             MRConflict2Model(),
@@ -836,7 +836,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test_throws "Ambiguous inferred producer for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_ambiguous_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
 
     # Expectation 24a: stream-only publishers are ignored by auto input producer inference.
-    mapping_stream_only_infer = Dict(
+    mapping_stream_only_infer = ModelMapping(
         "Leaf" => (
             MRConflict1Model(),
             ModelSpec(MRConflict2Model()) |> OutputRouting(; Z=:stream_only),
@@ -850,7 +850,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_stream_only_infer).Z.process == :mrconflict1
 
     # Expectation 24b: cross-scale inference ignores sibling scales not on the same lineage.
-    mapping_lineage_infer = Dict(
+    mapping_lineage_infer = ModelMapping(
         "Plant" => (
             MRAncestorSourceModel(),
         ),
@@ -870,7 +870,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_lineage_infer).Z.scale == "Plant"
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
-    mapping_missing_input = Dict(
+    mapping_missing_input = ModelMapping(
         "Leaf" => (
             MRMissingInputConsumerModel(),
             Status(U=42.0),
@@ -881,7 +881,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test status(sim_missing_input)["Leaf"][1].OU == 42.0
 
     # Expectation 26: invalid mapping-level API configuration fails during GraphSimulation init.
-    mapping_bad_input = Dict(
+    mapping_bad_input = ModelMapping(
         "Leaf" => (
             MRSourceModel(),
             ModelSpec(MRConsumerModel()) |>
@@ -890,7 +890,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     @test_throws "declares binding for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_input, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
 
-    mapping_bad_process = Dict(
+    mapping_bad_process = ModelMapping(
         "Leaf" => (
             ModelSpec(MRConsumerModel()) |>
             InputBindings(; C=(process=:unknown_process, var=:S)),
@@ -898,7 +898,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     @test_throws "Unknown source process `unknown_process`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_process, nsteps=1, check=true, outputs=Dict("Leaf" => (:B,)))
 
-    mapping_bad_routing = Dict(
+    mapping_bad_routing = ModelMapping(
         "Leaf" => (
             ModelSpec(MRSourceModel()) |>
             OutputRouting(; Z=:stream_only),
@@ -906,7 +906,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     @test_throws "declares routing for output `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_routing, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
 
-    mapping_bad_interp_mode = Dict(
+    mapping_bad_interp_mode = ModelMapping(
         "Leaf" => (
             MRSourceModel(),
             ModelSpec(MRConsumerModel()) |>
@@ -917,39 +917,39 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     @test_throws "Unsupported reducer value" Aggregate(:median)
 
-    mapping_bad_period = Dict(
+    mapping_bad_period = ModelMapping(
         "Leaf" => (
             ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Month(1)),
         ),
     )
     @test_throws "non-fixed periods are not supported" PlantSimEngine.GraphSimulation(mtg, mapping_bad_period, nsteps=1, check=true, outputs=Dict("Leaf" => (:XD,)))
 
-    mapping_bad_scope = Dict(
+    mapping_bad_scope = ModelMapping(
         "Leaf" => (
             ModelSpec(MRSourceModel()) |> ScopeModel(:invalid_scope),
         ),
     )
     @test_throws "Invalid scope selector" PlantSimEngine.GraphSimulation(mtg, mapping_bad_scope, nsteps=1, check=true, outputs=Dict("Leaf" => (:S,)))
 
-    mapping_bad_meteo = Dict(
+    mapping_bad_meteo = ModelMapping(
         "Leaf" => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-                MeteoBindings(; Ri_SW_f=(source=:Ri_SW_f, badfield=:oops)),
+            MeteoBindings(; Ri_SW_f=(source=:Ri_SW_f, badfield=:oops)),
         ),
     )
     @test_throws "unsupported fields" PlantSimEngine.GraphSimulation(mtg, mapping_bad_meteo, nsteps=1, check=true, outputs=Dict("Leaf" => (:MRQ,)))
 
-    @test_throws "Unsupported MeteoBindings value" Dict(
+    @test_throws "Unsupported MeteoBindings value" ModelMapping(
         "Leaf" => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-                MeteoBindings(; Ri_SW_f=:radiation_energy),
+            MeteoBindings(; Ri_SW_f=:radiation_energy),
         ),
     )
 
-    @test_throws "Unsupported MeteoWindow value" Dict(
+    @test_throws "Unsupported MeteoWindow value" ModelMapping(
         "Leaf" => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-                MeteoWindow("day"),
+            MeteoWindow("day"),
         ),
     )
 
@@ -960,7 +960,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     PlantSimEngine.run!(::MRBadHintModel, models, status, meteo, constants=nothing, extra=nothing) = (status.X = 1.0)
     PlantSimEngine.timestep_hint(::Type{<:MRBadHintModel}) = "hourly"
 
-    mapping_bad_hint = Dict(
+    mapping_bad_hint = ModelMapping(
         "Leaf" => (
             ModelSpec(MRBadHintModel()),
         ),

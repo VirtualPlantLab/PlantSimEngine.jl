@@ -1,11 +1,11 @@
 dep(::T, nsteps=1) where {T<:AbstractModel} = NamedTuple()
 
 """
-    dep(m::ModelList)
-    dep(mapping::Dict{String,T}; verbose=true)
-    dep!(m::ModelList, nsteps=1)
+    dep(mapping::ModelMapping; verbose=true)
+    dep(mapping::AbstractDict{String,T}; verbose=true)
+    dep!(m::ModelMapping, nsteps=1)
 
-Get the model dependency graph given a ModelList or a multiscale model mapping. If one graph is returned, 
+Get the model dependency graph given a ModelMapping or a multiscale model mapping. If one graph is returned, 
 then all models are coupled. If several graphs are returned, then only the models inside each graph are coupled, and
 the models in different graphs are not coupled.
 `nsteps` is the number of steps the dependency graph will be used over. It is used to determine
@@ -31,7 +31,7 @@ Note that in the 5th case, we still need to check if a variable is needed from a
 used as a child of the process at the other scale. Note there can be several levels of hard dependency graph, so this is done recursively.
 
 How do we do all that? We identify the hard dependencies first. Then we link the inputs/outputs of the hard dependencies roots 
-to other scales if needed. Then we transform all these nodes into soft dependencies, that we put into a Dict of Scale => Dict(process => SoftDependencyNode).
+to other scales if needed. Then we transform all these nodes into soft dependencies, that we put into a Dict of Scale => ModelMapping(process => SoftDependencyNode).
 Then we traverse all these and we set nodes that need outputs from other nodes as inputs as children/parents.
 If a node has no dependency, it is set as a root node and pushed into a new Dict (independant_process_root). This Dict is the returned dependency graph. And 
 it presents root nodes as independent starting points for the sub-graphs, which are the models that are coupled together. We can then traverse each of 
@@ -39,7 +39,7 @@ these graphs independently to r
 
 # Notes
 
-The difference between `dep(m::ModelList)` and `dep!(m::ModelList, nsteps)` is that the first one returns the dependency graph found in the model list, while the 
+The difference between `dep(m::ModelMapping)` and `dep!(m::ModelMapping, nsteps)` is that the first one returns the dependency graph found in the model list, while the 
 second one returns the dependency graph with the specified number of steps, modifying the simulation IDs of each node in the graph (`simulation_id=fill(0, nsteps)`).
 
 # Examples
@@ -50,7 +50,7 @@ using PlantSimEngine
 # Including example processes and models:
 using PlantSimEngine.Examples;
 
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -100,15 +100,15 @@ function dep(m::NamedTuple, nsteps=1; verbose::Bool=true)
     dep(nsteps; verbose=verbose, m...)
 end
 
-function dep(mapping::Dict{String,T}; verbose::Bool=true) where {T}
+function dep(mapping::AbstractDict{String,T}; verbose::Bool=true) where {T}
     # First step, get the hard-dependency graph and create SoftDependencyNodes for each hard-dependency root. In other word, we want 
     # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
     # are independant.
     soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=verbose)
-    
+
     mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
     reverse_multiscale_mapping = reverse_mapping(mapped_vars, all=false)
-    
+
     # Second step, compute the soft-dependency graph between SoftDependencyNodes computed in the first step. To do so, we search the 
     # inputs of each process into the outputs of the other processes, at the same scale, but also between scales. Then we keep only the
     # nodes that have no soft-dependencies, and we set them as root nodes of the soft-dependency graph. The other nodes are set as children

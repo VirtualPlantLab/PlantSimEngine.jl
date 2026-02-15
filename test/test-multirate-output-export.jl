@@ -53,7 +53,7 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     meteo4 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 4))
 
     # Stream-only producer remains exportable when process is explicit.
-    mapping_stream = Dict(
+    mapping_stream = ModelMapping(
         "Leaf" => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
             TimeStepModel(1.0) |>
@@ -89,7 +89,7 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     )
 
     # Canonical routing allows omitting process in requests.
-    mapping_canonical = Dict(
+    mapping_canonical = ModelMapping(
         "Leaf" => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
             TimeStepModel(1.0),
@@ -110,7 +110,7 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     # Optional direct export return from run! on GraphSimulation.
     sim_direct = PlantSimEngine.GraphSimulation(
         mtg,
-        Dict(
+        ModelMapping(
             "Leaf" => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
                 TimeStepModel(1.0),
@@ -158,7 +158,7 @@ end
 
     meteo8 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 8))
 
-    mapping_defaults = Dict(
+    mapping_defaults = ModelMapping(
         "Leaf" => (
             MultiScaleModel(
                 model=MRDefaultLeafSourceModel(Ref(0)),

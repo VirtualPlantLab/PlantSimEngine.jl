@@ -30,29 +30,29 @@
     @test mnt2.b == "hello"
 end
 
-@testset "Testing ModelList Status" begin
-    # Create a ModelList
-    models = ModelList(
+@testset "Testing ModelMapping Status" begin
+    # Create a ModelMapping
+    models = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
         status=(var1=[15.0, 16.0], var2=0.3)
     )
 
-    @test typeof(status(models)) ==  Status{
-            (:var5, :var4, :var6, :var1, :var3, :var2),
-            Tuple{
-            Base.RefValue{Float64}, Base.RefValue{Float64}, Base.RefValue{Float64}, 
-            Base.RefValue{Vector{Float64}}, Base.RefValue{Float64}, Base.RefValue{Float64}}
-            }
-        
-    
+    @test typeof(status(models)) == Status{
+        (:var5, :var4, :var6, :var1, :var3, :var2),
+        Tuple{
+            Base.RefValue{Float64},Base.RefValue{Float64},Base.RefValue{Float64},
+            Base.RefValue{Vector{Float64}},Base.RefValue{Float64},Base.RefValue{Float64}}
+    }
+
+
     @test status(models) == models.status
     @test status(models)[1] == status(models, 1)
 
-    @test typeof(status(models, 1)) ==  Float64
-    @test typeof(status(models, 4)) ==  Vector{Float64}
-  
+    @test typeof(status(models, 1)) == Float64
+    @test typeof(status(models, 4)) == Vector{Float64}
+
     @test status(models, :var1)[1] == 15.0
     @test status(models, 6) == 0.3
     @test status(models, :var1) == [15.0, 16.0]
@@ -68,8 +68,8 @@ end
     #@test models[:var6] = [5.5, 5.8]
     #@test status(models, :var6) == [5.5, 5.8]
 
-    # Testing a vector of ModelList:
+    # Testing a vector of ModelMapping:
     @test status([models, models]) == [models.status, models.status]
-    # Testing a Dict of ModelList:
+    # Testing a Dict of ModelMapping:
     @test status(Dict(:m1 => models, :m2 => models)) == Dict(:m1 => models.status, :m2 => models.status)
 end

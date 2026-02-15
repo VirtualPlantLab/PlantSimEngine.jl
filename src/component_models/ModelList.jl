@@ -106,7 +106,7 @@ julia> outputs_sim[:var6]
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
 ```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = Dict(Float64 => Float32));
+julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = ModelMapping(Float64 => Float32));
 ```
 
 We used `type_promotion` to force the status into Float32:
@@ -163,7 +163,6 @@ function ModelList(
     variables_check::Bool=true,
     kwargs...
 )
-
     # Get all the variables needed by the models and their default values:
     if length(args) > 0
         args = parse_models(args)

@@ -278,7 +278,7 @@ Initialise the simulation. Returns:
 # Arguments
 
 - `mtg`: the MTG
-- `mapping::Dict{String,Any}`: a dictionary of model mapping
+- `mapping::ModelMapping` (or dictionary-like mapping): associates scales to models/status.
 - `nsteps`: the number of steps of the simulation
 - `outputs`: the dynamic outputs needed for the simulation
 - `type_promotion`: the type promotion to use for the variables

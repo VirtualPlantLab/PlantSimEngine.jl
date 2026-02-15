@@ -68,7 +68,7 @@ Assuming you've setup you're environement, correctly added `PlantMeteo` and `Pla
 using PlantSimEngine, PlantMeteo
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 out_sim = run!(leaf, meteo)
 ```
 

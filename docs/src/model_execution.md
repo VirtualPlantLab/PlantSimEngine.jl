@@ -2,7 +2,7 @@
 
 ## Simulation order
 
-`PlantSimEngine.jl` uses the [`ModelList`](@ref) to automatically compute a dependency graph between the models and run the simulation in the correct order. When running a simulation with [`run!`](@ref), the models are then executed following this simple set of rules:
+`PlantSimEngine.jl` uses the [`ModelMapping`](@ref) to automatically compute a dependency graph between the models and run the simulation in the correct order. When running a simulation with [`run!`](@ref), the models are then executed following this simple set of rules:
 
 1. Independent models are run first. A model is independent if it can be run independently from other models, only using initializations (or nothing).
 2. Then, models that have a dependency on other models are run. The first ones are the ones that depend on an independent model. Then the ones that are children of the second ones, and then their children ... until no children are found anymore. There are two types of children models (*i.e.* dependencies): hard and soft dependencies:
@@ -93,7 +93,7 @@ aggregates over that civil day (including later timesteps from that day when ava
 ### Hold-last coupling (default policy)
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         ModelSpec(LeafSourceModel()) |> TimeStepModel(1.0),
         ModelSpec(LeafConsumerModel()) |>
@@ -106,7 +106,7 @@ mapping = Dict(
 ### Daily integration from hourly stream
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         ModelSpec(HourlyAssimModel()) |> TimeStepModel(1.0),
     ),
@@ -121,7 +121,7 @@ mapping = Dict(
 ### Interpolate slow producer to fast consumer
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     "Leaf" => (
         ModelSpec(SlowSourceModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
         ModelSpec(FastConsumerModel()) |>

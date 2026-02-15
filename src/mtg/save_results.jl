@@ -34,7 +34,7 @@ julia> using PlantSimEngine.Examples;
 Define the models mapping:
 
 ```jldoctest mylabel
-julia> mapping = Dict( \
+julia> mapping = ModelMapping( \
     "Plant" =>  ( \
         MultiScaleModel(  \
             model=ToyCAllocationModel(), \

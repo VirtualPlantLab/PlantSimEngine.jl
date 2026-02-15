@@ -10,10 +10,10 @@ using CSV
 using DataFrames
 using MultiScaleTreeGraph
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-models_singlescale = ModelList(
+models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 ```
@@ -29,9 +29,9 @@ Pages = ["single_to_multiscale.md"]
 Depth = 3
 ```
 
-# Converting the ModelList to a multi-scale mapping
+# From single to multi-scale mapping
 
-For example, let's return to the [`ModelList`](@ref) coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
+For example, let's return to the [`ModelMapping`](@ref) coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
 
 ```@example usepkg
 using PlantMeteo
@@ -41,10 +41,10 @@ using CSV
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
 
-models_singlescale = ModelList(
+models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
@@ -53,10 +53,10 @@ outputs_singlescale = run!(models_singlescale, meteo_day)
 
 Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that "plant" scale, so there is no need to map any variable to other scales.
 
-We can therefore convert this into the following mapping : 
+We can therefore convert this into the following mapping:
 
-```@example usepkg 
-mapping = Dict(
+```@example usepkg
+mapping = ModelMapping(
 "Plant" => (
    ToyLAIModel(),
     Beer(0.5),
@@ -65,7 +65,8 @@ mapping = Dict(
     ),
 )
 ```
-Note the slight difference in syntax for the [`Status`](@ref). This is due to an implementation quirk (sorry).
+
+Note the slight difference in syntax for the [`Status`](@ref). This is because each scale has its own variables, so we must provide the values to each scale independently.
 
 ## Adding a new package for our plant graph
 
@@ -84,9 +85,9 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
 
 We now have **almost** everything we need to run the multiscale simulation.
 
-This first conversion step can be a starting point for a more elaborate multi-scale simulation. 
+This first conversion step can be a starting point for a more elaborate multi-scale simulation.
 
-The signature of the [`run!`](@ref) function in multi-scale differs slightly from the ModelList version : 
+The signature of the [`run!`](@ref) function in multi-scale differs slightly from the single-scale version:
 
 ```julia
 out_multiscale = run!(mtg, mapping, meteo_day)
@@ -94,17 +95,13 @@ out_multiscale = run!(mtg, mapping, meteo_day)
 
 (Some of the optional arguments also change slightly)
 
-Unfortunately, there is one caveat. Passing in a vector through the [`Status`](@ref) field is still possible in multi-scale mode, but requires a little more advanced tinkering with the mapping, as it generates a custom model under the hood and the implementation is experimental and less user-friendly.
-
-If you are keen on going down that path, you can find a detailed example [here](@ref multiscale_vector), but we don't recommend it for beginners.
-
-What we'll do instead, is write our own model provide the thermal time per timestep as a variable, instead of as a single vector in the [`Status`](@ref).
+Passing in a vector through the [`Status`](@ref) field is still possible in multi-scale mode, but more involving than in single-scale mode. If you need to go this way, you can find a detailed example [here](@ref multiscale_vector), although we don't recommend it for beginners. In any case, it's simpler to write a model to provide the thermal time per timestep as a variable, instead of as a single vector in the [`Status`](@ref).
 
 Our 'pseudo-multiscale' first approach will therefore turn into a genuine multi-scale simulation.
 
 ## Adding a second scale
 
-Let's have a model provide the Cumulated Thermal Time to our Leaf Area Index model, instead of initializing it through the [`Status`](@ref). 
+Let's have a model provide the Cumulated Thermal Time to our Leaf Area Index model, instead of initializing it through the [`Status`](@ref).
 
 Let's instead implement our own `ToyTT_cuModel`.
 
@@ -169,7 +166,7 @@ MultiScaleModel(
 and the new mapping with two scales:
 
 ```@example usepkg
-mapping_multiscale = Dict(
+mapping_multiscale = ModelMapping(
     "Scene" => ToyTt_CuModel(),
     "Plant" => (
         MultiScaleModel(

@@ -193,7 +193,7 @@ function PlantSimEngine.run!(::ToyLeafCarbonCaptureModel, models, status, meteo,
 end
 
 
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(

@@ -94,7 +94,7 @@ It’s probably now safe to request a merge.
 
 ### Other helpful things
 
-⁃ In the `/PlantSimEngine/test` folder, there are a few basic helper functions. One of them outputs vectors of modellists, weather data, and output variables, which are used as a test bank/matrix for some tests, and provides wide coverage. If you wrote new models, new combinations of models, or added some new weather data, it helps to add them to the banks.
+⁃ In the `/PlantSimEngine/test` folder, there are a few basic helper functions. One of them outputs vectors of ModelMapping, weather data, and output variables, which are used as a test bank/matrix for some tests, and provides wide coverage. If you wrote new models, new combinations of models, or added some new weather data, it helps to add them to the banks.
 ⁃ New downstream packages are worth adding to the integration and downstream package registry.
 ⁃ Unusual corner-cases are worth giving their own unit tests. Newly fixed bugs as well, even if the fix is fairly trivial.
 

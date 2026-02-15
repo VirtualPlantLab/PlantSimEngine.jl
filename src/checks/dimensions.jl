@@ -16,7 +16,7 @@ using PlantSimEngine.Examples
 w = Atmosphere(T = 20.0, Rh = 0.5, Wind = 1.0)
 
 # Creating a dummy component:
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -44,6 +44,10 @@ check_dimensions(component, weather) = check_dimensions(DataFormat(weather), com
 
 # Here we add methods for applying to a component, an array or a dict of:
 function check_dimensions(component::T, w) where {T<:ModelList}
+    check_dimensions(status(component), w)
+end
+
+function check_dimensions(component::ModelMapping{SingleScale}, w)
     check_dimensions(status(component), w)
 end
 
@@ -82,7 +86,7 @@ end
 
 function check_dimensions(::SingletonAlike, st::Status, weather)
     for (var, value) in zip(keys(st), st)
-        if length(value) > 1 
+        if length(value) > 1
             throw(DimensionMismatch("Component status has a vector variable : $(var) implying multiple timesteps but weather data only provides a single timestep."))
         end
     end

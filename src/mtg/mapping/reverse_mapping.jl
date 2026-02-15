@@ -1,5 +1,6 @@
 """
-    reverse_mapping(mapping::Dict{String,Tuple{Any,Vararg{Any}}}; all=true)
+    reverse_mapping(mapping::ModelMapping; all=true)
+    reverse_mapping(mapping::AbstractDict{String,Tuple{Any,Vararg{Any}}}; all=true)
     reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}})
 
 Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales, or in other words,
@@ -8,7 +9,7 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 
 # Arguments
 
-- `mapping::Dict{String,Any}`: A dictionary of model mapping.
+- `mapping::ModelMapping` (or dictionary-like mapping): the model mapping.
 - `all::Bool`: Whether to get all the variables that are mapped to other scales, including the ones that are mapped as single values.
 
 # Returns
@@ -30,7 +31,7 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
-julia> mapping = Dict( \
+julia> mapping = ModelMapping( \
             "Plant" => \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
@@ -67,7 +68,7 @@ Dict{String, Dict{String, Dict{Symbol, Any}}} with 3 entries:
   "Leaf"      => Dict("Plant"=>Dict(:carbon_allocation=>:carbon_allocation, :ca…
 ```
 """
-function reverse_mapping(mapping::Dict{String,T}; all=true) where {T<:Any}
+function reverse_mapping(mapping::AbstractDict{String,T}; all=true) where {T<:Any}
     # Method for the reverse mapping applied directly on the mapping (not used in the code base)
     mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false)), verbose=false)
     reverse_mapping(mapped_vars, all=all)

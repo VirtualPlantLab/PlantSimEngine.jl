@@ -30,7 +30,7 @@ leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2));
 
 const MAPPING_EXAMPLE = """
 ```@example
-mapping = Dict( \
+mapping = ModelMapping( \
     "Plant" =>  ( \
         MultiScaleModel(  \
             model=ToyCAllocationModel(), \

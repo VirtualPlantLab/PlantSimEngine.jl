@@ -51,9 +51,10 @@ include("component_models/TimeStepTable.jl")
 include("dependencies/dependency_graph.jl")
 
 # List of models:
-include("component_models/ModelList.jl")
+include("component_models/ModelList.jl") # deprecated, to be removed in favor of ModelMapping
 include("mtg/MultiScaleModel.jl")
 include("mtg/ModelSpec.jl")
+include("mtg/mapping/mapping.jl")
 
 # Getters / setters for status:
 include("component_models/get_status.jl")
@@ -73,7 +74,6 @@ include("dependencies/get_model_in_dependency_graph.jl")
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
 include("mtg/mapping/getters.jl")
-include("mtg/mapping/mapping.jl")
 include("mtg/mapping/compute_mapping.jl")
 include("mtg/mapping/reverse_mapping.jl")
 include("mtg/model_spec_inference.jl")
@@ -124,7 +124,7 @@ export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, M
 export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
 export TemporalState
 export OutputRequest, collect_outputs
-export ModelList, MultiScaleModel, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export ModelList, MultiScaleModel, ModelMapping, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status

@@ -14,7 +14,7 @@ meteo = Weather(
     var2 = 0.3
     leaf[:var2] = var2
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "Leaf" => (
             Process1Model(1.0),
             Process2Model(),
@@ -31,7 +31,7 @@ meteo = Weather(
 end
 
 # A mapping that actually works (same as before but with the init for TT):
-mapping_1 = Dict(
+mapping_1 = ModelMapping(
     "Plant" => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
@@ -225,7 +225,7 @@ end
 
 # Testing the mappings:
 @testset "Mapping: missing initialisation" begin
-    mapping = Dict(
+    mapping = ModelMapping(
         "Plant" =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -266,7 +266,7 @@ end
 end
 
 @testset "Mapping: missing organ in mapping (Soil)" begin
-    mapping = Dict(
+    @test_throws "missing scale `Soil`" ModelMapping(
         "Plant" =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -289,12 +289,6 @@ end
             Status(aPPFD=1300.0, TT=10.0),
         )
     )
-
-    if VERSION < v"1.8" # We test differently depending on the julia version because the format of the error message changed
-        @test_throws AssertionError to_initialize(mapping)
-    else
-        @test_throws "Scale Soil not found in the mapping, but mapped to the Leaf scale." to_initialize(mapping)
-    end
 end
 
 mtg_var = let
@@ -307,7 +301,7 @@ mtg_var = let
 end
 
 @testset "Mapping: missing model at other scale (soil_water_content) + missing init + var1 from MTG" begin
-    mapping = Dict(
+    @test_throws "not available at scale `Soil`" ModelMapping(
         "Plant" =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -333,12 +327,10 @@ end
             Process1Model(1.0),
         ),
     )
-
-    @test_throws "The variable `soil_water_content` is mapped from scale `Soil` to scale `Leaf`, but is not computed by any model at `Soil` scale." to_initialize(mapping, mtg_var)
 end
 
 @testset "Mapping: missing init + var1 from MTG" begin
-    mapping = Dict(
+    mapping = ModelMapping(
         "Plant" =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -380,7 +372,7 @@ end
 @testset "run! on MTG: simple mapping" begin
     #out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
-    sim = PlantSimEngine.GraphSimulation(mtg, Dict("Soil" => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
+    sim = PlantSimEngine.GraphSimulation(mtg, ModelMapping("Soil" => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
     out = run!(sim,meteo)
 
     @test sim.statuses["Soil"][1].node == soil
@@ -390,7 +382,7 @@ end
     @test collect(keys(sim.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
     @test sim.graph == mtg
 
-    leaf_mapping = Dict("Leaf" => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
+    leaf_mapping = ModelMapping("Leaf" => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
     
     #out = run!(mtg, leaf_mapping, meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
@@ -408,7 +400,7 @@ end
 
 # A mapping with all different types of mapping (single, multi-scale, model as is, or tuple of):
 @testset "run! on MTG with complete mapping (missing init)" begin
-    mapping_all = Dict(
+    mapping_all = ModelMapping(
         "Plant" =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
@@ -537,7 +529,7 @@ end
 # Here we initialise var1 to a constant value:
 @testset "MTG initialisation" begin
     var1 = 1.0
-    mapping = Dict(
+    mapping = ModelMapping(
         "Leaf" => (
             Process1Model(1.0),
             Process2Model(),
@@ -552,7 +544,7 @@ end
         @test_throws "Variable `var2` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Leaf (checked for MTG node 5)." PlantSimEngine.init_simulation(mtg, mapping)
     end
 
-    mapping = Dict(
+    mapping = ModelMapping(
         "Leaf" => (
             Process1Model(1.0),
             Process2Model(),
@@ -573,8 +565,7 @@ end
 end
 
 @testset "MTG with complex mapping" begin
-    mapping =
-        Dict(
+    mapping = ModelMapping(
             "Plant" => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
@@ -631,8 +622,7 @@ end
 end
 
 @testset "MTG with dynamic output variables" begin
-    mapping =
-        Dict(
+    mapping = ModelMapping(
             "Plant" => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),

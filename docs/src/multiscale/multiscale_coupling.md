@@ -91,7 +91,7 @@ Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an
 The user-mapping includes the required models at specific organ levels. Here's the relevant portion of the mapping for the male reproductive organ :
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     ...
     "Male" =>
     MultiScaleModel(
