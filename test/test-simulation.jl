@@ -32,7 +32,7 @@ end;
     )
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
-    @test_deprecated run!(models, meteo)
+    run!(models, meteo)
     @test_deprecated run!([models], meteo)
     @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
 

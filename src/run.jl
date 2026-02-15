@@ -119,9 +119,9 @@ end
 
 function _all_modellists_collection(object)
     if isa(object, AbstractArray)
-        return all(x -> x isa ModelList, object)
+        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, object)
     elseif isa(object, AbstractDict)
-        return all(x -> x isa ModelList, values(object))
+        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, values(object))
     end
     return false
 end

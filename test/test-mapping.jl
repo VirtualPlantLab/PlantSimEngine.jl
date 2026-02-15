@@ -176,7 +176,7 @@ end
         process3=Process3Model(),
         status=(var1=15.0, var2=0.3)
     )
-    baseline_outputs = @test_deprecated run!(models_single_scale, meteo)
+    baseline_outputs = run!(models_single_scale, meteo)
 
     outputs_from_models_args = run!(
         PlantSimEngine.ModelMapping(
