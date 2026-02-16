@@ -19,6 +19,8 @@ resampled temporal streams while simulation is running.
 - `policy::SchedulePolicy=HoldLast()`: resampling policy applied at export time.
   Common values are `HoldLast()`, `Integrate(...)`, `Aggregate(...)`,
   `Interpolate(...)`.
+  `Integrate` and `Aggregate` are runtime-equivalent with the same reducer;
+  they differ by default reducer (`SumReducer` vs `MeanReducer`) and intent.
 - `clock=nothing`: export clock. When `nothing`, export is evaluated at each
   simulation step (`ClockSpec(1.0, 0.0)`). Accepted explicit values are the same
   as model timestep specs (`Real`, `ClockSpec`, or fixed `Dates.Period`).

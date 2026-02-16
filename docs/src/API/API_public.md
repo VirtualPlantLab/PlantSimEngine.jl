@@ -108,6 +108,8 @@ MeteoBindings(
 ### Parameterized window reducers
 
 `Integrate()` defaults to `SumReducer()`; `Aggregate()` defaults to `MeanReducer()`.
+With the same reducer, they are runtime-equivalent.
+Use `Integrate` for accumulation semantics and `Aggregate` for summary-statistics semantics.
 
 ```julia
 ModelSpec(DailyModel()) |>

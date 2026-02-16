@@ -50,6 +50,8 @@ Inspection helpers:
 Policy parameterization:
 - `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
 - `Aggregate()` defaults to `MeanReducer()`; you can pass reducers such as `Aggregate(MaxReducer())`.
+- Difference between `Integrate` and `Aggregate`: with the same reducer they are runtime-equivalent.
+  In practice, only defaults and naming intent differ (`Integrate` for accumulation, `Aggregate` for summary statistics).
 - `Interpolate()` defaults to `mode=:linear, extrapolation=:linear`; use `Interpolate(; mode=:hold, extrapolation=:hold)` for hold behavior.
 - The same reducer objects are reused by meteo sampling (`MeteoBindings`) and by windowed policies (`Integrate`, `Aggregate`).
 
