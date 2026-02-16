@@ -259,12 +259,135 @@ function _scale_reachability_from_mtg(mtg)
     return scale_reachability
 end
 
-function _input_candidates_for_var(model_specs, consumer_scale::String, consumer_process::Symbol, input_var::Symbol; scale_reachability=nothing)
+function _effective_timestep_spec(spec::ModelSpec)
+    ts = timestep(spec)
+    return isnothing(ts) ? timespec(model_(spec)) : ts
+end
+
+function _timestep_signature(ts)
+    if ts isa ClockSpec
+        return (:clock, float(ts.dt), float(ts.phase))
+    elseif ts isa Real
+        return (:step, float(ts), 0.0)
+    elseif ts isa Dates.FixedPeriod
+        return (:period, _seconds_from_period(ts), 0.0)
+    end
+    return nothing
+end
+
+function _same_timestep_signature(sig_a, sig_b)
+    isnothing(sig_a) && return false
+    isnothing(sig_b) && return false
+
+    if sig_a[1] == :period || sig_b[1] == :period
+        return sig_a[1] == :period &&
+               sig_b[1] == :period &&
+               isapprox(sig_a[2], sig_b[2]; atol=1.0e-9, rtol=0.0)
+    end
+
+    phase_a = sig_a[1] == :step ? 0.0 : sig_a[3]
+    phase_b = sig_b[1] == :step ? 0.0 : sig_b[3]
+    return isapprox(sig_a[2], sig_b[2]; atol=1.0e-9, rtol=0.0) &&
+           isapprox(phase_a, phase_b; atol=1.0e-9, rtol=0.0)
+end
+
+function _hard_dep_same_rate_as_parent(model_specs, parent_scale::String, parent_process::Symbol, child_scale::String, child_process::Symbol)
+    parent_scale == child_scale || return false
+    parent_specs = get(model_specs, parent_scale, nothing)
+    isnothing(parent_specs) && return false
+    parent_spec = get(parent_specs, parent_process, nothing)
+    child_spec = get(parent_specs, child_process, nothing)
+    isnothing(parent_spec) && return false
+    isnothing(child_spec) && return false
+
+    parent_sig = _timestep_signature(_effective_timestep_spec(parent_spec))
+    child_sig = _timestep_signature(_effective_timestep_spec(child_spec))
+    return _same_timestep_signature(parent_sig, child_sig)
+end
+
+function _collect_same_rate_hard_dependency_children!(
+    ignored_processes_by_scale::Dict{String,Set{Symbol}},
+    model_specs,
+    parent_scale::String,
+    parent_process::Symbol,
+    child::HardDependencyNode
+)
+    if _hard_dep_same_rate_as_parent(model_specs, parent_scale, parent_process, child.scale, child.process)
+        push!(get!(ignored_processes_by_scale, child.scale, Set{Symbol}()), child.process)
+    end
+
+    for nested in child.children
+        _collect_same_rate_hard_dependency_children!(
+            ignored_processes_by_scale,
+            model_specs,
+            child.scale,
+            child.process,
+            nested
+        )
+    end
+
+    return nothing
+end
+
+function _soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph{Dict{String,Any}})
+    nodes = SoftDependencyNode[]
+    for (_, roots_at_scale) in pairs(dep_graph.roots)
+        haskey(roots_at_scale, :soft_dep_graph) || continue
+        append!(nodes, values(roots_at_scale[:soft_dep_graph]))
+    end
+    return nodes
+end
+
+_soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph) = traverse_dependency_graph(dep_graph, false)
+
+function _same_rate_hard_dependency_children(model_specs, dep_graph::DependencyGraph)
+    ignored_processes_by_scale = Dict{String,Set{Symbol}}()
+
+    for soft_node in _soft_nodes_for_hard_dependency_analysis(dep_graph)
+        for child in soft_node.hard_dependency
+            _collect_same_rate_hard_dependency_children!(
+                ignored_processes_by_scale,
+                model_specs,
+                soft_node.scale,
+                soft_node.process,
+                child
+            )
+        end
+    end
+
+    return ignored_processes_by_scale
+end
+
+function _active_processes_for_inference(model_specs, ignored_processes_by_scale::Dict{String,Set{Symbol}})
+    active = Dict{String,Set{Symbol}}()
+    for (scale, specs_at_scale) in pairs(model_specs)
+        procs = Set{Symbol}(keys(specs_at_scale))
+        ignored = get(ignored_processes_by_scale, scale, Set{Symbol}())
+        for process in ignored
+            delete!(procs, process)
+        end
+        active[scale] = procs
+    end
+    return active
+end
+
+function _input_candidates_for_var(
+    model_specs,
+    consumer_scale::String,
+    consumer_process::Symbol,
+    input_var::Symbol;
+    scale_reachability=nothing,
+    active_processes_by_scale=nothing
+)
     same_scale = NamedTuple[]
     cross_scale = NamedTuple[]
 
     for (scale, specs_at_scale) in pairs(model_specs)
         for (process, spec) in pairs(specs_at_scale)
+            if !isnothing(active_processes_by_scale)
+                active = get(active_processes_by_scale, scale, Set{Symbol}())
+                process in active || continue
+            end
             scale == consumer_scale && process == consumer_process && continue
             input_var in keys(outputs_(model_(spec))) || continue
             _is_stream_only_output(spec, input_var) && continue
@@ -283,8 +406,22 @@ function _input_candidates_for_var(model_specs, consumer_scale::String, consumer
     return same_scale, cross_scale
 end
 
-function _infer_input_binding_for_var(model_specs, scale::String, process::Symbol, input_var::Symbol; scale_reachability=nothing)
-    same_scale, cross_scale = _input_candidates_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
+function _infer_input_binding_for_var(
+    model_specs,
+    scale::String,
+    process::Symbol,
+    input_var::Symbol;
+    scale_reachability=nothing,
+    active_processes_by_scale=nothing
+)
+    same_scale, cross_scale = _input_candidates_for_var(
+        model_specs,
+        scale,
+        process,
+        input_var;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
 
     if length(same_scale) == 1
         c = only(same_scale)
@@ -329,7 +466,7 @@ function _infer_input_binding_for_var(model_specs, scale::String, process::Symbo
     return nothing
 end
 
-function _infer_input_bindings!(model_specs; scale_reachability=nothing)
+function _infer_input_bindings!(model_specs; scale_reachability=nothing, active_processes_by_scale=nothing)
     for (scale, specs_at_scale) in pairs(model_specs)
         # When a scale is absent from the initial MTG, input producer inference at
         # init time is unreliable (dynamic growth may introduce it later). Keep
@@ -338,6 +475,10 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing)
             continue
         end
         for (process, spec) in pairs(specs_at_scale)
+            if !isnothing(active_processes_by_scale)
+                active = get(active_processes_by_scale, scale, Set{Symbol}())
+                process in active || continue
+            end
             current_bindings = input_bindings(spec)
             current_bindings isa NamedTuple || continue
 
@@ -346,7 +487,14 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing)
 
             for input_var in model_inputs
                 input_var in keys(current_bindings) && continue
-                inferred_binding = _infer_input_binding_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
+                inferred_binding = _infer_input_binding_for_var(
+                    model_specs,
+                    scale,
+                    process,
+                    input_var;
+                    scale_reachability=scale_reachability,
+                    active_processes_by_scale=active_processes_by_scale
+                )
                 isnothing(inferred_binding) && continue
                 push!(inferred, input_var => inferred_binding)
             end
@@ -409,8 +557,12 @@ Fill missing `ModelSpec` fields from inference:
 - model-level hint traits (`timestep_hint`, `meteo_hint`)
 Explicit `ModelSpec` user values always take precedence over inferred values.
 """
-function infer_model_specs_configuration!(model_specs; scale_reachability=nothing)
-    _infer_input_bindings!(model_specs; scale_reachability=scale_reachability)
+function infer_model_specs_configuration!(model_specs; scale_reachability=nothing, active_processes_by_scale=nothing)
+    _infer_input_bindings!(
+        model_specs;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
     _infer_timestep_hints!(model_specs)
     _infer_meteo_hints!(model_specs)
     return model_specs

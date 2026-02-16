@@ -198,6 +198,32 @@ function PlantSimEngine.run!(::MRMissingInputConsumerModel, models, status, mete
     status.OU = status.U
 end
 
+PlantSimEngine.@process "mrhardchild" verbose = false
+struct MRHardChildModel <: AbstractMrhardchildModel end
+PlantSimEngine.inputs_(::MRHardChildModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRHardChildModel) = (A=-Inf,)
+function PlantSimEngine.run!(::MRHardChildModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.A = 1.0
+end
+
+PlantSimEngine.@process "mrhardparent" verbose = false
+struct MRHardParentModel <: AbstractMrhardparentModel end
+PlantSimEngine.dep(::MRHardParentModel) = (mrhardchild=AbstractMrhardchildModel,)
+PlantSimEngine.inputs_(::MRHardParentModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRHardParentModel) = (A=-Inf,)
+function PlantSimEngine.run!(::MRHardParentModel, models, status, meteo, constants=nothing, extra=nothing)
+    run!(models.mrhardchild, models, status, meteo, constants, extra)
+    status.A = 5.0
+end
+
+PlantSimEngine.@process "mrhardconsumer" verbose = false
+struct MRHardConsumerModel <: AbstractMrhardconsumerModel end
+PlantSimEngine.inputs_(::MRHardConsumerModel) = (A=-Inf,)
+PlantSimEngine.outputs_(::MRHardConsumerModel) = (B=-Inf,)
+function PlantSimEngine.run!(::MRHardConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.B = status.A
+end
+
 PlantSimEngine.@process "mrmeteodailyconsumer" verbose = false
 struct MRMeteoDailyConsumerModel <: AbstractMrmeteodailyconsumerModel end
 PlantSimEngine.inputs_(::MRMeteoDailyConsumerModel) = NamedTuple()
@@ -878,6 +904,54 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     spec_lineage_infer = PlantSimEngine.get_model_specs(sim_lineage_infer)["Leaf"][:mrzconsumer]
     @test input_bindings(spec_lineage_infer).Z.process == :mrancestorsource
     @test input_bindings(spec_lineage_infer).Z.scale == "Plant"
+
+    # Expectation 24c: same-rate hard dependencies are ignored for auto bindings and canonical publisher checks.
+    mapping_hard_same_rate = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+        ),
+    )
+    sim_hard_same_rate = PlantSimEngine.GraphSimulation(mtg, mapping_hard_same_rate, nsteps=1, check=true, outputs=Dict("Leaf" => (:A, :B)))
+    run!(sim_hard_same_rate, meteo, executor=SequentialEx())
+    spec_hard_same_rate = PlantSimEngine.get_model_specs(sim_hard_same_rate)["Leaf"][:mrhardconsumer]
+    @test input_bindings(spec_hard_same_rate).A.process == :mrhardparent
+    @test status(sim_hard_same_rate)["Leaf"][1].B == 5.0
+
+    # Expectation 24d: different-rate hard dependencies remain strict and require explicit disambiguation.
+    mapping_hard_different_rate = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+        ),
+    )
+    @test_throws "Ambiguous inferred producer for input `A`" PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_hard_different_rate,
+        nsteps=1,
+        check=true,
+        outputs=Dict("Leaf" => (:A, :B))
+    )
+
+    mapping_hard_different_rate_explicit = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
+            ModelSpec(MRHardConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; A=(process=:mrhardparent, var=:A)),
+        ),
+    )
+    sim_hard_different_rate_explicit = PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_hard_different_rate_explicit,
+        nsteps=1,
+        check=true,
+        outputs=Dict("Leaf" => (:A, :B))
+    )
+    @test_throws "Ambiguous canonical publishers" run!(sim_hard_different_rate_explicit, meteo, executor=SequentialEx())
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
     mapping_missing_input = ModelMapping(

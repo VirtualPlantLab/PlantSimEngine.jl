@@ -31,10 +31,13 @@ Ensure that each `(scale, variable)` has at most one canonical publisher.
 Throws when multiple producers publish the same canonical output.
 """
 function validate_canonical_publishers(sim::GraphSimulation)
+    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(get_model_specs(sim), dep(sim))
     for (scale, models_at_scale) in get_models(sim)
         specs_at_scale = get_model_specs(sim)[scale]
+        ignored_at_scale = get(ignored_same_rate_hard_children, scale, Set{Symbol}())
         publishers = Dict{Symbol,Vector{Symbol}}()
         for (process, model) in pairs(models_at_scale)
+            process in ignored_at_scale && continue
             model_spec = get(specs_at_scale, process, as_model_spec(model))
             for var in keys(outputs_(model))
                 _publish_mode_for_output(model_spec, var) == :stream_only && continue
