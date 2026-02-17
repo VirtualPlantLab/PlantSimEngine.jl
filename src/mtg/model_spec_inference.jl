@@ -207,6 +207,14 @@ function _effective_timestep_spec(spec::ModelSpec)
     return isnothing(ts) ? timespec(model_(spec)) : ts
 end
 
+function _timestep_resolution_source(spec::ModelSpec)
+    !isnothing(timestep(spec)) && return :modelspec
+    return _same_timestep_signature(
+        _timestep_signature(timespec(model_(spec))),
+        _timestep_signature(ClockSpec(1.0, 0.0))
+    ) ? :meteo_base_step : :model_timespec
+end
+
 function _timestep_signature(ts)
     if ts isa ClockSpec
         return (:clock, float(ts.dt), float(ts.phase))
