@@ -207,14 +207,6 @@ function _effective_timestep_spec(spec::ModelSpec)
     return isnothing(ts) ? timespec(model_(spec)) : ts
 end
 
-function _timestep_resolution_source(spec::ModelSpec)
-    !isnothing(timestep(spec)) && return :modelspec
-    return _same_timestep_signature(
-        _timestep_signature(timespec(model_(spec))),
-        _timestep_signature(ClockSpec(1.0, 0.0))
-    ) ? :meteo_base_step : :model_timespec
-end
-
 function _timestep_signature(ts)
     if ts isa ClockSpec
         return (:clock, float(ts.dt), float(ts.phase))
@@ -335,6 +327,10 @@ function _input_candidates_for_var(
 
     for (scale, specs_at_scale) in pairs(model_specs)
         for (process, spec) in pairs(specs_at_scale)
+            if !isnothing(active_processes_by_scale)
+                active = get(active_processes_by_scale, scale, Set{Symbol}())
+                process in active || continue
+            end
             scale == consumer_scale && process == consumer_process && continue
             input_var in keys(outputs_(model_(spec))) || continue
             _is_stream_only_output(spec, input_var) && continue
@@ -353,8 +349,22 @@ function _input_candidates_for_var(
     return same_scale, cross_scale
 end
 
-function _infer_input_binding_for_var(model_specs, scale::String, process::Symbol, input_var::Symbol; scale_reachability=nothing)
-    same_scale, cross_scale = _input_candidates_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
+function _infer_input_binding_for_var(
+    model_specs,
+    scale::String,
+    process::Symbol,
+    input_var::Symbol;
+    scale_reachability=nothing,
+    active_processes_by_scale=nothing
+)
+    same_scale, cross_scale = _input_candidates_for_var(
+        model_specs,
+        scale,
+        process,
+        input_var;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
 
     if length(same_scale) == 1
         c = only(same_scale)
@@ -399,7 +409,7 @@ function _infer_input_binding_for_var(model_specs, scale::String, process::Symbo
     return nothing
 end
 
-function _infer_input_bindings!(model_specs; scale_reachability=nothing)
+function _infer_input_bindings!(model_specs; scale_reachability=nothing, active_processes_by_scale=nothing)
     for (scale, specs_at_scale) in pairs(model_specs)
         # When a scale is absent from the initial MTG, input producer inference at
         # init time is unreliable (dynamic growth may introduce it later). Keep
@@ -408,6 +418,10 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing)
             continue
         end
         for (process, spec) in pairs(specs_at_scale)
+            if !isnothing(active_processes_by_scale)
+                active = get(active_processes_by_scale, scale, Set{Symbol}())
+                process in active || continue
+            end
             current_bindings = input_bindings(spec)
             current_bindings isa NamedTuple || continue
 
@@ -416,7 +430,14 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing)
 
             for input_var in model_inputs
                 input_var in keys(current_bindings) && continue
-                inferred_binding = _infer_input_binding_for_var(model_specs, scale, process, input_var; scale_reachability=scale_reachability)
+                inferred_binding = _infer_input_binding_for_var(
+                    model_specs,
+                    scale,
+                    process,
+                    input_var;
+                    scale_reachability=scale_reachability,
+                    active_processes_by_scale=active_processes_by_scale
+                )
                 isnothing(inferred_binding) && continue
                 push!(inferred, input_var => inferred_binding)
             end
@@ -479,8 +500,12 @@ Fill missing `ModelSpec` fields from inference:
 - model-level hint traits (`timestep_hint`, `meteo_hint`)
 Explicit `ModelSpec` user values always take precedence over inferred values.
 """
-function infer_model_specs_configuration!(model_specs; scale_reachability=nothing)
-    _infer_input_bindings!(model_specs; scale_reachability=scale_reachability)
+function infer_model_specs_configuration!(model_specs; scale_reachability=nothing, active_processes_by_scale=nothing)
+    _infer_input_bindings!(
+        model_specs;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
     _infer_timestep_hints!(model_specs)
     _infer_meteo_hints!(model_specs)
     return model_specs

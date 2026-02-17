@@ -5,7 +5,7 @@
 ### Varying timesteps
 
 Model-level varying timesteps are now available experimentally for MTG simulations
-through multi-rate execution (`multirate=true`) and mapping-level `ModelSpec` transforms
+through mapping-declared multi-rate execution and mapping-level `ModelSpec` transforms
 such as `TimeStepModel`, `InputBindings`, `OutputRouting`, and `ScopeModel`.
 
 Current remaining gaps for this area are:

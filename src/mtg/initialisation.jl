@@ -315,12 +315,24 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     end
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
-    model_specs = Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
-    scale_reachability = _scale_reachability_from_mtg(mtg)
-    infer_model_specs_configuration!(model_specs; scale_reachability=scale_reachability)
-    validate_model_specs_configuration(model_specs)
+    model_specs = if mapping isa ModelMapping && !isempty(mapping.info.model_specs)
+        deepcopy(mapping.info.model_specs)
+    else
+        Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    end
 
     soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
+
+    scale_reachability = _scale_reachability_from_mtg(mtg)
+    _infer_timestep_hints!(model_specs)
+    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(model_specs, soft_dep_graphs_roots)
+    active_processes_by_scale = _active_processes_for_inference(model_specs, ignored_same_rate_hard_children)
+    infer_model_specs_configuration!(
+        model_specs;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
+    validate_model_specs_configuration(model_specs)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
@@ -356,5 +368,19 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
     temporal_state = TemporalState()
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep_graph, models, model_specs, outputs, outputs_index, temporal_state)
+    mapping_is_multirate = mapping isa ModelMapping ? is_multirate(mapping) : false
+    return (;
+        mtg,
+        statuses,
+        status_templates,
+        reverse_multiscale_mapping,
+        vars_need_init,
+        dependency_graph=dep_graph,
+        models,
+        model_specs,
+        outputs,
+        outputs_index,
+        temporal_state,
+        is_multirate=mapping_is_multirate
+    )
 end

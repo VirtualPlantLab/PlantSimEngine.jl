@@ -3,7 +3,7 @@
 
 Describe one online-exported multi-rate output series for MTG multi-rate runs.
 
-Use this type in `run!(...; multirate=true, tracked_outputs=...)` to export
+Use this type in `run!(...; tracked_outputs=...)` to export
 resampled temporal streams while simulation is running.
 
 # Arguments
@@ -19,6 +19,8 @@ resampled temporal streams while simulation is running.
 - `policy::SchedulePolicy=HoldLast()`: resampling policy applied at export time.
   Common values are `HoldLast()`, `Integrate(...)`, `Aggregate(...)`,
   `Interpolate(...)`.
+  `Integrate` and `Aggregate` are runtime-equivalent with the same reducer;
+  they differ by default reducer (`SumReducer` vs `MeanReducer`) and intent.
 - `clock=nothing`: export clock. When `nothing`, export is evaluated at each
   simulation step (`ClockSpec(1.0, 0.0)`). Accepted explicit values are the same
   as model timestep specs (`Real`, `ClockSpec`, or fixed `Dates.Period`).
@@ -69,9 +71,12 @@ function _canonical_source_process(sim::GraphSimulation, scale::String, var::Sym
     haskey(get_models(sim), scale) || error("Unknown scale `$(scale)` in output export request.")
     models_at_scale = get_models(sim)[scale]
     specs_at_scale = get_model_specs(sim)[scale]
+    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(get_model_specs(sim), dep(sim))
+    ignored_at_scale = get(ignored_same_rate_hard_children, scale, Set{Symbol}())
 
     publishers = Symbol[]
     for (process, model) in pairs(models_at_scale)
+        process in ignored_at_scale && continue
         var in keys(outputs_(model)) || continue
         spec = get(specs_at_scale, process, as_model_spec(model))
         _publish_mode_for_output(spec, var) == :stream_only && continue

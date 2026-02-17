@@ -68,7 +68,6 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     run!(
         sim_stream,
         meteo4,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[req_hold, req_sum2],
     )
@@ -83,7 +82,6 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     @test_throws "No canonical publisher found" run!(
         sim_stream,
         meteo4,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[OutputRequest("Leaf", :X; name=:x_auto_fail)],
     )
@@ -100,7 +98,6 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     run!(
         sim_canonical,
         meteo4,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[OutputRequest("Leaf", :X; name=:x_auto, policy=HoldLast())],
     )
@@ -123,7 +120,6 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     out_status, out_requested = run!(
         sim_direct,
         meteo4,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[OutputRequest("Leaf", :X; name=:x_direct, policy=HoldLast())],
         return_requested_outputs=true,
@@ -141,7 +137,6 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
             ),
         ),
         meteo4;
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[OutputRequest("Leaf", :X; name=:x_mtg, policy=HoldLast())],
         return_requested_outputs=true,
@@ -187,7 +182,6 @@ end
     run!(
         sim_defaults,
         meteo8,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=[
             OutputRequest("Plant", :XP),

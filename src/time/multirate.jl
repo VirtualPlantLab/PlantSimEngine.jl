@@ -98,6 +98,12 @@ Interpolate(; mode::Symbol=:linear, extrapolation::Symbol=:linear) = Interpolate
 Windowed policy for consumers running at coarser clocks.
 Values in the consumer window are reduced with `reducer`.
 
+Intended meaning: integrate/accumulate quantities over a window (for example
+hourly flux to daily total). Default reducer is `SumReducer()`.
+
+Important: `Integrate(r)` and `Aggregate(r)` are runtime-equivalent when they
+use the same reducer `r`; they only differ by default reducer and naming intent.
+
 Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
 `SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
 `LastReducer()`.
@@ -117,6 +123,12 @@ end
 
 Windowed aggregation policy for consumers running at coarser clocks.
 Values in the consumer window are reduced with `reducer`.
+
+Intended meaning: summarize window values as a statistic (for example mean/max).
+Default reducer is `MeanReducer()`.
+
+Important: `Aggregate(r)` and `Integrate(r)` are runtime-equivalent when they
+use the same reducer `r`; they only differ by default reducer and naming intent.
 
 Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
 `SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
