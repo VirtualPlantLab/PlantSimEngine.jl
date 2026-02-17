@@ -85,6 +85,20 @@ end
     )
     @test mapping_with_specs isa PlantSimEngine.ModelMapping
     @test any(item -> item isa ModelSpec, mapping_with_specs["Soil"])
+    @test mapping_with_specs.info.validated
+    @test mapping_with_specs.info.is_valid
+    @test mapping_with_specs.info.is_multirate
+    @test Set(mapping_with_specs.info.scales) == Set(["Scene", "Soil", "Leaf"])
+    @test mapping_with_specs.info.models_per_scale["Leaf"] == 1
+    @test length(mapping_with_specs.info.processes_per_scale["Leaf"]) == 1
+    @test haskey(mapping_with_specs.info.model_specs, "Leaf")
+
+    io = IOBuffer()
+    show(io, MIME("text/plain"), mapping_with_specs)
+    summary_txt = String(take!(io))
+    @test occursin("ModelMapping", summary_txt)
+    @test occursin("multirate: true", summary_txt)
+    @test occursin("scales (3)", summary_txt)
 
     dep_from_dict = dep(mapping)
     dep_from_struct = dep(mapping_struct)
@@ -176,6 +190,9 @@ end
         process3=Process3Model(),
         status=(var1=15.0, var2=0.3)
     )
+    @test !models_single_scale.info.is_multirate
+    @test models_single_scale.info.scales == ["Default"]
+    @test models_single_scale.info.models_per_scale["Default"] == 3
     baseline_outputs = run!(models_single_scale, meteo)
 
     outputs_from_models_args = run!(

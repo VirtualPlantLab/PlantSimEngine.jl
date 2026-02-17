@@ -58,4 +58,14 @@ using Test
     ts.caches[key] = HoldLastCache(1.0, 42.0)
     @test ts.caches[key] isa HoldLastCache
     @test ts.caches[key].v == 42.0
+
+    vals = [1.0, 2.0, 3.0]
+    @test Integrate().reducer isa SumReducer
+    @test Aggregate().reducer isa MeanReducer
+    @test PlantSimEngine._window_reduce(vals, Integrate()) == 6.0
+    @test PlantSimEngine._window_reduce(vals, Aggregate()) == 2.0
+    @test PlantSimEngine._window_reduce(vals, Integrate(MeanReducer())) ==
+          PlantSimEngine._window_reduce(vals, Aggregate(MeanReducer()))
+    @test PlantSimEngine._window_reduce(vals, Integrate(SumReducer())) ==
+          PlantSimEngine._window_reduce(vals, Aggregate(SumReducer()))
 end

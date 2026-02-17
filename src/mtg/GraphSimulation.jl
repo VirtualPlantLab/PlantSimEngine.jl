@@ -31,6 +31,7 @@ struct GraphSimulation{T,S,U,O,V,TS,MS}
     outputs::Dict{String,O}
     outputs_index::Dict{String, Int}
     temporal_state::TS
+    is_multirate::Bool
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
@@ -47,6 +48,7 @@ get_models(g::GraphSimulation) = g.models
 get_model_specs(g::GraphSimulation) = g.model_specs
 outputs(g::GraphSimulation) = g.outputs
 temporal_state(g::GraphSimulation) = g.temporal_state
+is_multirate(g::GraphSimulation) = g.is_multirate
 
 """
     convert_outputs(sim_outputs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)

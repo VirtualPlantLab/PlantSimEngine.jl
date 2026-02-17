@@ -20,10 +20,8 @@ multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed w
 - `mapping`: a [`ModelMapping`](@ref) between MTG scales and models.
 - `nsteps`: the number of time-steps to run, only needed if no meteo is given (else it is infered from it).
 - `outputs`: the outputs to get in dynamic for each node type of the MTG.
-- `multirate`: experimental feature flag enabling temporal stream-based input resolution for multiscale simulations.
-Supports `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` policies.
-In MTG multi-rate runs, non-sequential executors are currently downgraded to `SequentialEx()` with a warning.
-Model timesteps shorter than the meteo base step are rejected (sub-step execution is currently unsupported).
+- `tracked_outputs`: tracked outputs for MTG multi-rate exports. Supports `OutputRequest`
+  (or vectors of `OutputRequest`) when the `ModelMapping` declares multirate metadata.
 - `return_requested_outputs`: when `true` in MTG multi-rate runs, return requested resampled outputs directly
   as second return value.
 - `requested_outputs_sink`: sink used to materialize requested outputs when `return_requested_outputs=true`.
@@ -126,14 +124,6 @@ function _all_modellists_collection(object)
     return false
 end
 
-function _error_if_multirate_singlescale(multirate)
-    multirate || return nothing
-    error(
-        "`multirate=true` is only supported for MTG-based multiscale runs. ",
-        "For one scale, build a one-scale MTG and call `run!(mtg, mapping, ...; multirate=true)`."
-    )
-end
-
 _single_scale_runtime_object(object) = object
 _single_scale_runtime_object(mapping::ModelMapping) = _modellist_from_model_mapping(mapping)
 
@@ -155,11 +145,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {M<:Union{ModelMapping{SingleScale},ModelList}}
-    _error_if_multirate_singlescale(multirate)
     model_list = _modellist_from_model_mapping(mapping)
     _run_modellist_singleton(
         model_list,
@@ -181,7 +169,6 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
@@ -199,7 +186,6 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
@@ -212,7 +198,6 @@ function run!(
         tracked_outputs,
         check,
         executor,
-        multirate,
         return_requested_outputs,
         requested_outputs_sink
     )
@@ -232,11 +217,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict},A}
-    _error_if_multirate_singlescale(multirate)
     if _all_modellists_collection(object)
         Base.depwarn(
             "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
@@ -260,9 +243,9 @@ function run!(
     for obj in object
 
         if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
         end
 
     end
@@ -280,11 +263,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelList}
-    _error_if_multirate_singlescale(multirate)
     Base.depwarn(
         "`run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)` instead.",
         :run!
@@ -310,11 +291,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelMapping{SingleScale}}
-    _error_if_multirate_singlescale(multirate)
     model_list = _modellist_from_model_mapping(object)
 
     _run_modellist_singleton(
@@ -433,11 +412,9 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict}}
-    _error_if_multirate_singlescale(multirate)
     if _all_modellists_collection(object)
         Base.depwarn(
             "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
@@ -480,9 +457,9 @@ function run!(
     # Each object:
     for obj in object
         if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate))
+            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
         else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor, multirate=multirate)
+            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
         end
 
     end
@@ -541,6 +518,9 @@ function _multirate_tracked_outputs(tracked_outputs)
     return tracked_outputs, OutputRequest[]
 end
 
+_effective_multirate(mapping::ModelMapping) = is_multirate(mapping)
+_effective_multirate(sim::GraphSimulation) = is_multirate(sim)
+
 function run!(
     object::MultiScaleTreeGraph.Node,
     mapping::ModelMapping,
@@ -551,12 +531,12 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
+    effective_multirate = _effective_multirate(mapping)
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
-    meteo_adjusted = if multirate && meteo isa TimeStepTable{<:Atmosphere}
+    meteo_adjusted = if effective_multirate && meteo isa TimeStepTable{<:Atmosphere}
         # Keep TimeStepTable intact in MTG multi-rate runs so model-clock meteo
         # sampling/aggregation can use PlantMeteo sampler APIs.
         meteo
@@ -566,8 +546,8 @@ function run!(
         adjust_weather_timesteps_to_given_length(nsteps, meteo)
     end
     status_outputs, output_requests = _multirate_tracked_outputs(tracked_outputs)
-    !multirate && !isempty(output_requests) && error("`OutputRequest` requires `multirate=true`.")
-    return_requested_outputs && !multirate && error("`return_requested_outputs=true` requires `multirate=true`.")
+    !effective_multirate && !isempty(output_requests) && error("`OutputRequest` requires a multirate `ModelMapping`.")
+    return_requested_outputs && !effective_multirate && error("`return_requested_outputs=true` requires a multirate `ModelMapping`.")
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
@@ -579,7 +559,6 @@ function run!(
         extra;
         check=check,
         executor=executor,
-        multirate=multirate,
         tracked_outputs=output_requests,
         return_requested_outputs=return_requested_outputs,
         requested_outputs_sink=requested_outputs_sink
@@ -602,7 +581,6 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
@@ -620,7 +598,6 @@ function run!(
         tracked_outputs=tracked_outputs,
         check=check,
         executor=executor,
-        multirate=multirate,
         return_requested_outputs=return_requested_outputs,
         requested_outputs_sink=requested_outputs_sink
     )
@@ -635,18 +612,18 @@ function run!(
     tracked_outputs=nothing,
     check=true,
     executor=ThreadedEx(),
-    multirate=false,
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
 
+    effective_multirate = _effective_multirate(object)
     dep_graph = object.dependency_graph
     models = get_models(object)
     timeline = _timeline_context(meteo)
-    meteo_sampler = multirate ? _prepare_meteo_sampler(meteo) : nothing
+    meteo_sampler = effective_multirate ? _prepare_meteo_sampler(meteo) : nothing
     effective_executor = executor
     # st = status(object)
-    if multirate
+    if effective_multirate
         if executor != SequentialEx()
             @warn string(
                 "Multi-rate MTG runs currently execute sequentially. ",
@@ -659,7 +636,7 @@ function run!(
         prepare_output_requests!(object, tracked_outputs, timeline)
         configure_temporal_buffers!(object, timeline)
     elseif return_requested_outputs
-        error("`return_requested_outputs=true` requires `multirate=true`.")
+        error("`return_requested_outputs=true` requires a multirate `ModelMapping`.")
     end
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
@@ -670,17 +647,17 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, multirate, timeline, meteo_sampler)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, effective_multirate, timeline, meteo_sampler)
         end
-        multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
+        effective_multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
         save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, multirate, timeline, meteo_sampler)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, effective_multirate, timeline, meteo_sampler)
             end
-            multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
+            effective_multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
             # At the end of the time-step, we save the results of the simulation in the object:
             save_results!(object, i)
         end

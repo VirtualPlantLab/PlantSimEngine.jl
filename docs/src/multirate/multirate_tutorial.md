@@ -173,7 +173,6 @@ req_plant_weekly = OutputRequest("Plant", :plant_assim_w;
 out_status, exported = run!(
     sim,
     meteo_hourly;
-    multirate=true,
     executor=SequentialEx(),
     tracked_outputs=[req_leaf_hourly, req_plant_daily, req_plant_daily_T, req_plant_weekly],
     return_requested_outputs=true,

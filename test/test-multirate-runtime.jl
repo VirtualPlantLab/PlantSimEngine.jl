@@ -198,6 +198,32 @@ function PlantSimEngine.run!(::MRMissingInputConsumerModel, models, status, mete
     status.OU = status.U
 end
 
+PlantSimEngine.@process "mrhardchild" verbose = false
+struct MRHardChildModel <: AbstractMrhardchildModel end
+PlantSimEngine.inputs_(::MRHardChildModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRHardChildModel) = (A=-Inf,)
+function PlantSimEngine.run!(::MRHardChildModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.A = 1.0
+end
+
+PlantSimEngine.@process "mrhardparent" verbose = false
+struct MRHardParentModel <: AbstractMrhardparentModel end
+PlantSimEngine.dep(::MRHardParentModel) = (mrhardchild=AbstractMrhardchildModel,)
+PlantSimEngine.inputs_(::MRHardParentModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRHardParentModel) = (A=-Inf,)
+function PlantSimEngine.run!(::MRHardParentModel, models, status, meteo, constants=nothing, extra=nothing)
+    run!(models.mrhardchild, models, status, meteo, constants, extra)
+    status.A = 5.0
+end
+
+PlantSimEngine.@process "mrhardconsumer" verbose = false
+struct MRHardConsumerModel <: AbstractMrhardconsumerModel end
+PlantSimEngine.inputs_(::MRHardConsumerModel) = (A=-Inf,)
+PlantSimEngine.outputs_(::MRHardConsumerModel) = (B=-Inf,)
+function PlantSimEngine.run!(::MRHardConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.B = status.A
+end
+
 PlantSimEngine.@process "mrmeteodailyconsumer" verbose = false
 struct MRMeteoDailyConsumerModel <: AbstractMrmeteodailyconsumerModel end
 PlantSimEngine.inputs_(::MRMeteoDailyConsumerModel) = NamedTuple()
@@ -295,7 +321,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     out_ok = Dict("Leaf" => (:S, :C, :B, :D, :E))
     sim_ok = PlantSimEngine.GraphSimulation(mtg, mapping_ok, nsteps=1, check=true, outputs=out_ok)
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
-    run!(sim_ok, meteo, multirate=true, executor=SequentialEx())
+    run!(sim_ok, meteo, executor=SequentialEx())
 
     specs_leaf = PlantSimEngine.get_model_specs(sim_ok)["Leaf"]
     @test input_bindings(specs_leaf[:mrconsumer]).C.var == :S
@@ -330,13 +356,13 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     mapping_conflict = ModelMapping(
         "Leaf" => (
-            MRConflict1Model(),
-            MRConflict2Model(),
+            ModelSpec(MRConflict1Model()) |> TimeStepModel(1.0),
+            ModelSpec(MRConflict2Model()) |> TimeStepModel(1.0),
         ),
     )
     sim_conflict = PlantSimEngine.GraphSimulation(mtg, mapping_conflict, nsteps=1, check=true, outputs=Dict("Leaf" => (:Z,)))
     # Expectation 5: two canonical publishers of the same output are rejected.
-    @test_throws "Ambiguous canonical publishers" run!(sim_conflict, meteo, multirate=true, executor=SequentialEx())
+    @test_throws "Ambiguous canonical publishers" run!(sim_conflict, meteo, executor=SequentialEx())
 
     # Expectation 6: models run at different clocks; slower model holds last value between runs.
     source_counter = Ref(0)
@@ -349,7 +375,18 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     sim_clock_trait = PlantSimEngine.GraphSimulation(mtg, mapping_clock_trait, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
     meteo4 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 4))
-    run!(sim_clock_trait, meteo4, multirate=true, executor=SequentialEx())
+    run!(sim_clock_trait, meteo4, executor=SequentialEx())
+    source_counter[] = 0
+    out_status_auto, out_requested_auto = run!(
+        mtg,
+        mapping_clock_trait,
+        meteo4;
+        executor=SequentialEx(),
+        tracked_outputs=[OutputRequest("Leaf", :X; process=:mrclocksource, policy=HoldLast(), name=:x_auto)],
+        return_requested_outputs=true,
+    )
+    @test haskey(out_status_auto, "Leaf")
+    @test out_requested_auto[:x_auto][:, :value] == [1.0, 2.0, 3.0, 4.0]
     st_clock = status(sim_clock_trait)["Leaf"][1]
     @test st_clock.X == 4.0
     @test st_clock.Y == 3.0
@@ -368,7 +405,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_clock_override = PlantSimEngine.GraphSimulation(mtg, mapping_clock_override, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
-    run!(sim_clock_override, meteo4, multirate=true, executor=SequentialEx())
+    run!(sim_clock_override, meteo4, executor=SequentialEx())
     st_clock_override = status(sim_clock_override)["Leaf"][1]
     @test st_clock_override.X == 4.0
     @test st_clock_override.Y == 3.0
@@ -384,7 +421,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_clock_fallback_seq = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_seq, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
-    out_fallback_seq = run!(sim_clock_fallback_seq, meteo4, multirate=true, executor=SequentialEx())
+    out_fallback_seq = run!(sim_clock_fallback_seq, meteo4, executor=SequentialEx())
     out_fallback_seq_df = convert_outputs(out_fallback_seq, DataFrame)
 
     mapping_clock_fallback_threaded = ModelMapping(
@@ -396,7 +433,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     sim_clock_fallback_threaded = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_threaded, nsteps=4, check=true, outputs=Dict("Leaf" => (:X, :Y)))
     @test_logs (:warn, r"Multi-rate MTG runs currently execute sequentially") begin
-        out_fallback_threaded = run!(sim_clock_fallback_threaded, meteo4, multirate=true, executor=ThreadedEx())
+        out_fallback_threaded = run!(sim_clock_fallback_threaded, meteo4, executor=ThreadedEx())
         out_fallback_threaded_df = convert_outputs(out_fallback_threaded, DataFrame)
         @test out_fallback_threaded_df["Leaf"][:, :X] == out_fallback_seq_df["Leaf"][:, :X]
         @test out_fallback_threaded_df["Leaf"][:, :Y] == out_fallback_seq_df["Leaf"][:, :Y]
@@ -417,7 +454,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_cross = PlantSimEngine.GraphSimulation(mtg, mapping_cross, nsteps=4, check=true, outputs=Dict("Leaf" => (:XS,), "Plant" => (:XP,)))
-    run!(sim_cross, meteo4, multirate=true, executor=SequentialEx())
+    run!(sim_cross, meteo4, executor=SequentialEx())
     st_leaf_cross = status(sim_cross)["Leaf"][1]
     st_plant_cross = status(sim_cross)["Plant"][1]
     @test st_leaf_cross.XS == 4.0
@@ -436,7 +473,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_cross_auto = PlantSimEngine.GraphSimulation(mtg, mapping_cross_auto, nsteps=4, check=true, outputs=Dict("Leaf" => (:XS,), "Plant" => (:XP,)))
-    run!(sim_cross_auto, meteo4, multirate=true, executor=SequentialEx())
+    run!(sim_cross_auto, meteo4, executor=SequentialEx())
     st_plant_cross_auto = status(sim_cross_auto)["Plant"][1]
     @test st_plant_cross_auto.XP == 3.0
     spec_cross_auto = PlantSimEngine.get_model_specs(sim_cross_auto)["Plant"][:mrcrossconsumer]
@@ -466,7 +503,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_scoped = PlantSimEngine.GraphSimulation(scene2, mapping_scoped, nsteps=1, check=true, outputs=Dict("Plant" => (:XP,), "Leaf" => (:XS,)))
-    run!(sim_scoped, meteo, multirate=true, executor=SequentialEx())
+    run!(sim_scoped, meteo, executor=SequentialEx())
     plant_vals = sort([st.XP for st in status(sim_scoped)["Plant"]])
     @test plant_vals == [1.0, 2.0]
 
@@ -501,7 +538,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     meteo5 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 5))
     sim_interp = PlantSimEngine.GraphSimulation(mtg, mapping_interp, nsteps=5, check=true, outputs=Dict("Leaf" => (:YI,)))
-    out_interp = run!(sim_interp, meteo5, multirate=true, executor=SequentialEx())
+    out_interp = run!(sim_interp, meteo5, executor=SequentialEx())
     out_interp_df = convert_outputs(out_interp, DataFrame)
     @test out_interp_df["Leaf"][:, :YI] == [1.0, 1.0, 3.0, 4.0, 5.0]
 
@@ -521,7 +558,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_agg = PlantSimEngine.GraphSimulation(mtg, mapping_agg, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
-    out_agg = run!(sim_agg, meteo4, multirate=true, executor=SequentialEx())
+    out_agg = run!(sim_agg, meteo4, executor=SequentialEx())
     out_agg_df = convert_outputs(out_agg, DataFrame)
     @test out_agg_df["Leaf"][:, :YA] == [1.0, 1.0, 2.5, 2.5]
     @test status(sim_agg)["Leaf"][1].YA == 2.5
@@ -544,7 +581,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_agg_max = PlantSimEngine.GraphSimulation(mtg, mapping_agg_max, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
-    out_agg_max = run!(sim_agg_max, meteo4, multirate=true, executor=SequentialEx())
+    out_agg_max = run!(sim_agg_max, meteo4, executor=SequentialEx())
     out_agg_max_df = convert_outputs(out_agg_max, DataFrame)
     @test out_agg_max_df["Leaf"][:, :YA] == [1.0, 1.0, 3.0, 3.0]
 
@@ -561,7 +598,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_integrate_callable = PlantSimEngine.GraphSimulation(mtg, mapping_integrate_callable, nsteps=4, check=true, outputs=Dict("Leaf" => (:YA,)))
-    out_integrate_callable = run!(sim_integrate_callable, meteo4, multirate=true, executor=SequentialEx())
+    out_integrate_callable = run!(sim_integrate_callable, meteo4, executor=SequentialEx())
     out_integrate_callable_df = convert_outputs(out_integrate_callable, DataFrame)
     @test out_integrate_callable_df["Leaf"][:, :YA] == [0.0, 0.0, 1.0, 1.0]
 
@@ -579,7 +616,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     meteo6 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 6))
     sim_interp_hold = PlantSimEngine.GraphSimulation(mtg, mapping_interp_hold, nsteps=6, check=true, outputs=Dict("Leaf" => (:YI,)))
-    out_interp_hold = run!(sim_interp_hold, meteo6, multirate=true, executor=SequentialEx())
+    out_interp_hold = run!(sim_interp_hold, meteo6, executor=SequentialEx())
     out_interp_hold_df = convert_outputs(out_interp_hold, DataFrame)
     @test out_interp_hold_df["Leaf"][:, :YI] == [1.0, 1.0, 3.0, 3.0, 5.0, 5.0]
 
@@ -597,7 +634,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     meteo26 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 26))
     sim_daily_hourly = PlantSimEngine.GraphSimulation(mtg, mapping_daily_hourly, nsteps=26, check=true, outputs=Dict("Leaf" => (:YD,)))
-    out_daily_hourly = run!(sim_daily_hourly, meteo26, multirate=true, executor=SequentialEx())
+    out_daily_hourly = run!(sim_daily_hourly, meteo26, executor=SequentialEx())
     out_daily_hourly_df = convert_outputs(out_daily_hourly, DataFrame)
     @test out_daily_hourly_df["Leaf"][1:24, :YD] == fill(1.0, 24)
     @test out_daily_hourly_df["Leaf"][25:26, :YD] == [2.0, 2.0]
@@ -617,7 +654,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     meteo_hourly = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 26))
     sim_daily_period = PlantSimEngine.GraphSimulation(mtg, mapping_daily_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:YD,)))
-    out_daily_period = run!(sim_daily_period, meteo_hourly, multirate=true, executor=SequentialEx())
+    out_daily_period = run!(sim_daily_period, meteo_hourly, executor=SequentialEx())
     out_daily_period_df = convert_outputs(out_daily_period, DataFrame)
     @test out_daily_period_df["Leaf"][1:24, :YD] == fill(1.0, 24)
     @test out_daily_period_df["Leaf"][25:26, :YD] == [2.0, 2.0]
@@ -630,7 +667,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_substep_period = PlantSimEngine.GraphSimulation(mtg, mapping_substep_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:XD,)))
-    @test_throws "shorter than simulation base step" run!(sim_substep_period, meteo_hourly, multirate=true, executor=SequentialEx())
+    @test_throws "shorter than simulation base step" run!(sim_substep_period, meteo_hourly, executor=SequentialEx())
 
     # Expectation 17: timestep hints infer a consensus for range-only models and keep explicit overrides.
     range_counter_a = Ref(0)
@@ -645,7 +682,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     meteo8h = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 8))
     sim_timestep_hints = PlantSimEngine.GraphSimulation(mtg, mapping_timestep_hints, nsteps=8, check=true, outputs=Dict("Leaf" => (:XA, :XB, :XF)))
-    run!(sim_timestep_hints, meteo8h, multirate=true, executor=SequentialEx())
+    run!(sim_timestep_hints, meteo8h, executor=SequentialEx())
     specs_hints = PlantSimEngine.get_model_specs(sim_timestep_hints)["Leaf"]
     @test Dates.value(Dates.Second(PlantSimEngine.timestep(specs_hints[:mrrangehinta]))) == 10800
     @test Dates.value(Dates.Second(PlantSimEngine.timestep(specs_hints[:mrrangehintb]))) == 10800
@@ -675,7 +712,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             Atmosphere(T=40.0, Wind=1.0, Rh=0.80, P=100.0, Ri_SW_f=400.0, duration=Dates.Hour(1), custom_var=4.0),
         ])
         sim_meteo_default = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_default, nsteps=4, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
-        out_meteo_default = run!(sim_meteo_default, meteo_mr, multirate=true, executor=SequentialEx())
+        out_meteo_default = run!(sim_meteo_default, meteo_mr, executor=SequentialEx())
         out_meteo_default_df = convert_outputs(out_meteo_default, DataFrame)
         @test out_meteo_default_df["Leaf"][:, :MT] == [10.0, 10.0, 25.0, 25.0]
         @test out_meteo_default_df["Leaf"][:, :MTmin] == [10.0, 10.0, 20.0, 20.0]
@@ -690,7 +727,6 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             mtg,
             mapping_meteo_default,
             meteo_mr;
-            multirate=true,
             executor=SequentialEx(),
             tracked_outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)),
         )
@@ -716,7 +752,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ),
         )
         sim_meteo_custom = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_custom, nsteps=4, check=true, outputs=Dict("Leaf" => (:MRQ, :MCV)))
-        out_meteo_custom = run!(sim_meteo_custom, meteo_mr, multirate=true, executor=SequentialEx())
+        out_meteo_custom = run!(sim_meteo_custom, meteo_mr, executor=SequentialEx())
         out_meteo_custom_df = convert_outputs(out_meteo_custom, DataFrame)
         @test isapprox.(out_meteo_custom_df["Leaf"][:, :MRQ], [0.36, 0.36, 1.8, 1.8], atol=1.0e-9) |> all
         @test out_meteo_custom_df["Leaf"][:, :MCV] == [1.0, 1.0, 3.0, 3.0]
@@ -740,7 +776,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ),
         )
         sim_meteo_hint = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_hint, nsteps=24, check=true, outputs=Dict("Leaf" => (:HT, :HSWQ)))
-        out_meteo_hint = run!(sim_meteo_hint, meteo_hint_rows, multirate=true, executor=SequentialEx())
+        out_meteo_hint = run!(sim_meteo_hint, meteo_hint_rows, executor=SequentialEx())
         out_meteo_hint_df = convert_outputs(out_meteo_hint, DataFrame)
         spec_meteo_hint = PlantSimEngine.get_model_specs(sim_meteo_hint)["Leaf"][:mrmeteohintconsumer]
         @test PlantSimEngine.timestep(spec_meteo_hint) == Dates.Day(1)
@@ -786,7 +822,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ),
         )
         sim_meteo_calendar_current = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_current, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
-        out_meteo_calendar_current = run!(sim_meteo_calendar_current, meteo_calendar, multirate=true, executor=SequentialEx())
+        out_meteo_calendar_current = run!(sim_meteo_calendar_current, meteo_calendar, executor=SequentialEx())
         out_meteo_calendar_current_df = convert_outputs(out_meteo_calendar_current, DataFrame)
         @test out_meteo_calendar_current_df["Leaf"][1, :MT] == 12.5
         @test out_meteo_calendar_current_df["Leaf"][10, :MT] == 12.5
@@ -807,7 +843,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ),
         )
         sim_meteo_calendar_prev = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
-        out_meteo_calendar_prev = run!(sim_meteo_calendar_prev, meteo_calendar, multirate=true, executor=SequentialEx())
+        out_meteo_calendar_prev = run!(sim_meteo_calendar_prev, meteo_calendar, executor=SequentialEx())
         out_meteo_calendar_prev_df = convert_outputs(out_meteo_calendar_prev, DataFrame)
         @test out_meteo_calendar_prev_df["Leaf"][30, :MT] == 12.5
         @test out_meteo_calendar_prev_df["Leaf"][30, :MTmin] == 1.0
@@ -822,7 +858,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ),
         )
         sim_meteo_calendar_prev_strict = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev_strict, nsteps=48, check=true, outputs=Dict("Leaf" => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
-        @test_throws "No period available" run!(sim_meteo_calendar_prev_strict, meteo_calendar, multirate=true, executor=SequentialEx())
+        @test_throws "No period available" run!(sim_meteo_calendar_prev_strict, meteo_calendar, executor=SequentialEx())
     end
 
     # Expectation 24: ambiguous same-name inferred producer is rejected at initialization.
@@ -844,7 +880,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_stream_only_infer = PlantSimEngine.GraphSimulation(mtg, mapping_stream_only_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
-    run!(sim_stream_only_infer, meteo, multirate=true, executor=SequentialEx())
+    run!(sim_stream_only_infer, meteo, executor=SequentialEx())
     @test status(sim_stream_only_infer)["Leaf"][1].ZZ == 1.0
     spec_stream_only_infer = PlantSimEngine.get_model_specs(sim_stream_only_infer)["Leaf"][:mrzconsumer]
     @test input_bindings(spec_stream_only_infer).Z.process == :mrconflict1
@@ -863,11 +899,59 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_lineage_infer = PlantSimEngine.GraphSimulation(mtg, mapping_lineage_infer, nsteps=1, check=true, outputs=Dict("Leaf" => (:ZZ,)))
-    run!(sim_lineage_infer, meteo, multirate=true, executor=SequentialEx())
+    run!(sim_lineage_infer, meteo, executor=SequentialEx())
     @test status(sim_lineage_infer)["Leaf"][1].ZZ == 11.0
     spec_lineage_infer = PlantSimEngine.get_model_specs(sim_lineage_infer)["Leaf"][:mrzconsumer]
     @test input_bindings(spec_lineage_infer).Z.process == :mrancestorsource
     @test input_bindings(spec_lineage_infer).Z.scale == "Plant"
+
+    # Expectation 24c: same-rate hard dependencies are ignored for auto bindings and canonical publisher checks.
+    mapping_hard_same_rate = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+        ),
+    )
+    sim_hard_same_rate = PlantSimEngine.GraphSimulation(mtg, mapping_hard_same_rate, nsteps=1, check=true, outputs=Dict("Leaf" => (:A, :B)))
+    run!(sim_hard_same_rate, meteo, executor=SequentialEx())
+    spec_hard_same_rate = PlantSimEngine.get_model_specs(sim_hard_same_rate)["Leaf"][:mrhardconsumer]
+    @test input_bindings(spec_hard_same_rate).A.process == :mrhardparent
+    @test status(sim_hard_same_rate)["Leaf"][1].B == 5.0
+
+    # Expectation 24d: different-rate hard dependencies remain strict and require explicit disambiguation.
+    mapping_hard_different_rate = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+        ),
+    )
+    @test_throws "Ambiguous inferred producer for input `A`" PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_hard_different_rate,
+        nsteps=1,
+        check=true,
+        outputs=Dict("Leaf" => (:A, :B))
+    )
+
+    mapping_hard_different_rate_explicit = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
+            ModelSpec(MRHardConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; A=(process=:mrhardparent, var=:A)),
+        ),
+    )
+    sim_hard_different_rate_explicit = PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_hard_different_rate_explicit,
+        nsteps=1,
+        check=true,
+        outputs=Dict("Leaf" => (:A, :B))
+    )
+    @test_throws "Ambiguous canonical publishers" run!(sim_hard_different_rate_explicit, meteo, executor=SequentialEx())
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
     mapping_missing_input = ModelMapping(
@@ -877,7 +961,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
     )
     sim_missing_input = PlantSimEngine.GraphSimulation(mtg, mapping_missing_input, nsteps=1, check=true, outputs=Dict("Leaf" => (:OU,)))
-    run!(sim_missing_input, meteo, multirate=true, executor=SequentialEx())
+    run!(sim_missing_input, meteo, executor=SequentialEx())
     @test status(sim_missing_input)["Leaf"][1].OU == 42.0
 
     # Expectation 26: invalid mapping-level API configuration fails during GraphSimulation init.

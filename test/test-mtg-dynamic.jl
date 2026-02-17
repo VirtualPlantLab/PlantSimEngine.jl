@@ -157,7 +157,7 @@ end
     nsteps2 = 48
     meteo2 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0)], nsteps2))
     sim2 = PlantSimEngine.GraphSimulation(mtg2, mapping2, nsteps=nsteps2, check=true, outputs=out_vars2)
-    out2 = run!(sim2, meteo2, multirate=true, executor=SequentialEx())
+    out2 = run!(sim2, meteo2, executor=SequentialEx())
 
     st2 = status(sim2)
     @test length(st2["Scene"]) == length(st2["Soil"]) == length(st2["Plant"]) == length(st2["Internode"]) == 1
