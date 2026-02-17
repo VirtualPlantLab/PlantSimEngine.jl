@@ -7,6 +7,107 @@ This tutorial builds one MTG simulation that mixes three model rates:
 
 It runs for one week and exports clean series at each rate.
 
+## Decision flow quick examples
+
+### Unset model timestep uses meteo cadence (preferred is informational)
+
+```@example multirate_timestep_flow
+using PlantSimEngine
+using PlantMeteo
+using MultiScaleTreeGraph
+using DataFrames
+using Dates
+
+mtg = Node(NodeMTG("/", "Scene", 1, 0))
+plant = Node(mtg, NodeMTG("+", "Plant", 1, 1))
+internode = Node(plant, NodeMTG("/", "Internode", 1, 2))
+Node(internode, NodeMTG("+", "Leaf", 1, 2))
+
+PlantSimEngine.@process "tutorialmeteodriven" verbose=false
+struct TutorialMeteoDrivenModel <: AbstractTutorialmeteodrivenModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::TutorialMeteoDrivenModel) = NamedTuple()
+PlantSimEngine.outputs_(::TutorialMeteoDrivenModel) = (count=-Inf,)
+function PlantSimEngine.run!(m::TutorialMeteoDrivenModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.count = float(m.n[])
+end
+PlantSimEngine.timestep_hint(::Type{<:TutorialMeteoDrivenModel}) = (; required=(Minute(30), Hour(2)), preferred=Hour(1))
+
+mapping = ModelMapping("Leaf" => (ModelSpec(TutorialMeteoDrivenModel(Ref(0))),))
+meteo_30min = Weather([
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=21.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 0, 0), duration=Minute(30), T=22.0, Wind=1.0, Rh=0.6),
+])
+
+out_meteo_driven = run!(
+    mtg,
+    mapping,
+    meteo_30min;
+    executor=SequentialEx(),
+    tracked_outputs=Dict("Leaf" => (:count,)),
+)
+out_meteo_driven_df = PlantSimEngine.convert_outputs(out_meteo_driven, DataFrame)
+out_meteo_driven_df["Leaf"][end, :count]
+```
+
+The last value is `3.0`, showing the model ran on all three 30-minute meteo rows, even though `preferred=Hour(1)`.
+
+### Explicit coarse `TimeStepModel` triggers integration/aggregation
+
+```@example multirate_timestep_flow
+PlantSimEngine.@process "tutorialhalfhoursource" verbose=false
+struct TutorialHalfHourSourceModel <: AbstractTutorialhalfhoursourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::TutorialHalfHourSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::TutorialHalfHourSourceModel) = (A=-Inf,)
+function PlantSimEngine.run!(m::TutorialHalfHourSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.A = 1.0 # umol m-2 s-1
+end
+
+PlantSimEngine.@process "tutorialhourlyintegrator" verbose=false
+struct TutorialHourlyIntegratorModel <: AbstractTutorialhourlyintegratorModel end
+PlantSimEngine.inputs_(::TutorialHourlyIntegratorModel) = (A=-Inf,)
+PlantSimEngine.outputs_(::TutorialHourlyIntegratorModel) = (A_hourly=-Inf, T_hourly=-Inf,)
+function PlantSimEngine.run!(::TutorialHourlyIntegratorModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.A_hourly = status.A
+    status.T_hourly = meteo.T
+end
+
+mapping_coarse = ModelMapping(
+    "Leaf" => (
+        ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
+        ModelSpec(TutorialHourlyIntegratorModel()) |>
+        TimeStepModel(Hour(1)) |>
+        InputBindings(; A=(process=:tutorialhalfhoursource, var=:A, policy=Integrate(vals -> sum(vals) * 1800.0))) |>
+        MeteoBindings(; T=MeanWeighted()),
+    ),
+)
+
+meteo_30min_4 = Weather([
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=22.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 0, 0), duration=Minute(30), T=24.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 30, 0), duration=Minute(30), T=26.0, Wind=1.0, Rh=0.6),
+])
+
+out_coarse = run!(
+    mtg,
+    mapping_coarse,
+    meteo_30min_4;
+    executor=SequentialEx(),
+    tracked_outputs=Dict("Leaf" => (:A_hourly, :T_hourly)),
+)
+out_coarse_df = PlantSimEngine.convert_outputs(out_coarse, DataFrame)
+(out_coarse_df["Leaf"][end, :A_hourly], out_coarse_df["Leaf"][end, :T_hourly])
+```
+
+The final tuple is `(3600.0, 23.0)`: hourly integrated assimilation (`1.0 * 1800 s * 2`) and hourly mean temperature over the coarse window.
+
 ## 1. Setup and example data
 
 We reuse package example assets:
@@ -133,16 +234,9 @@ mapping = ModelMapping(
 
 ## 4. Run and export hourly/daily/weekly series
 
-Use `GraphSimulation` directly so weather sampling (`MeteoBindings`) is active on the `TimeStepTable` meteo input.
+Run directly from `mtg + mapping` and request exported series.
 
 ```@example multirate_tutorial
-sim = PlantSimEngine.GraphSimulation(
-    mtg,
-    mapping,
-    nsteps=PlantSimEngine.get_nsteps(meteo_hourly),
-    check=true,
-)
-
 req_leaf_hourly = OutputRequest("Leaf", :leaf_assim_h;
     name=:leaf_assim_hourly,
     process=leaf_proc,
@@ -171,7 +265,8 @@ req_plant_weekly = OutputRequest("Plant", :plant_assim_w;
 )
 
 out_status, exported = run!(
-    sim,
+    mtg,
+    mapping,
     meteo_hourly;
     multirate=true,
     executor=SequentialEx(),

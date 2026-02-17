@@ -18,6 +18,27 @@ Many models are considered to be steady-state over that timeframe, but not all :
 !!! Note
     Implicitely, this means any vector variables given as input to the simulation must be consistent with the number of weather timesteps. Providing one weather value but a larger vector variable is an exception : the weather data is replicated over each timestep. (This may be subject to change in the future when support for different timesteps in a single simulation is implemented)
 
+## Why does my model skip half-hour rows?
+
+If your meteo has 30-minute rows but a model appears to run hourly, check timestep resolution order:
+
+1. If model has explicit `TimeStepModel(...)`, it is used.
+2. Else if model `timespec(model)` is non-default, it is used.
+3. Else model uses meteo `duration`.
+
+Then compatibility rules apply:
+
+1. `timestep_hint.required` is enforced for meteo-derived clocks.
+2. `timestep_hint.preferred` is informational only.
+3. Meteo aggregation/integration happens only for models with coarser effective clocks.
+
+Common cause:
+- model has explicit hourly `TimeStepModel(...)`, so 30-minute rows are intentionally aggregated to hourly runs.
+
+Quick diagnostics:
+- Run `explain_model_specs(mapping_or_sim)` to see, per process, whether runtime clock comes from explicit `ModelSpec`, model `timespec`, or meteo base step.
+- Ensure meteo `duration` is present and valid on every row (mandatory when meteo is provided).
+
 ## Weather data must be interpolated prior to simulation
 
 If your weather data isn't adjusted to conform to a regular timestep, you will need to adjust it to fit that constraint. PlantSimEngine does no interpolation prior to simulation and expects regular weather timesteps.

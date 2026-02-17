@@ -230,7 +230,7 @@ function PlantSimEngine.run!(m::MRRangeHintAModel, models, status, meteo, consta
     m.n[] += 1
     status.XA = float(m.n[])
 end
-PlantSimEngine.timestep_hint(::Type{<:MRRangeHintAModel}) = (; required=(Dates.Hour(2), Dates.Hour(4)), preferred=:finest)
+PlantSimEngine.timestep_hint(::Type{<:MRRangeHintAModel}) = (; required=(Dates.Hour(1), Dates.Hour(4)), preferred=Dates.Hour(3))
 
 PlantSimEngine.@process "mrrangehintb" verbose = false
 struct MRRangeHintBModel <: AbstractMrrangehintbModel
@@ -242,7 +242,7 @@ function PlantSimEngine.run!(m::MRRangeHintBModel, models, status, meteo, consta
     m.n[] += 1
     status.XB = float(m.n[])
 end
-PlantSimEngine.timestep_hint(::Type{<:MRRangeHintBModel}) = (Dates.Hour(3), Dates.Hour(6))
+PlantSimEngine.timestep_hint(::Type{<:MRRangeHintBModel}) = (; required=(Dates.Hour(1), Dates.Hour(6)), preferred=Dates.Hour(4))
 
 PlantSimEngine.@process "mrrangehintforced" verbose = false
 struct MRRangeHintForcedModel <: AbstractMrrangehintforcedModel
@@ -255,6 +255,18 @@ function PlantSimEngine.run!(m::MRRangeHintForcedModel, models, status, meteo, c
     status.XF = float(m.n[])
 end
 PlantSimEngine.timestep_hint(::Type{<:MRRangeHintForcedModel}) = (Dates.Hour(3), Dates.Hour(6))
+
+PlantSimEngine.@process "mrrangehintstrict" verbose = false
+struct MRRangeHintStrictModel <: AbstractMrrangehintstrictModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRRangeHintStrictModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRRangeHintStrictModel) = (XS=-Inf,)
+function PlantSimEngine.run!(m::MRRangeHintStrictModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.XS = float(m.n[])
+end
+PlantSimEngine.timestep_hint(::Type{<:MRRangeHintStrictModel}) = (Dates.Hour(2), Dates.Hour(4))
 
 PlantSimEngine.@process "mrmeteohintconsumer" verbose = false
 struct MRMeteoHintConsumerModel <: AbstractMrmeteohintconsumerModel end
@@ -623,6 +635,53 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test out_daily_period_df["Leaf"][25:26, :YD] == [2.0, 2.0]
     @test sim_daily_period.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 25.0
 
+    # Expectation 15b: meteo duration can be a CompoundPeriod.
+    # With duration=CompoundPeriod(Minute(30)), Day(1) runs at t=1 and t=49.
+    daily_counter_compound = Ref(0)
+    mapping_daily_compound = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(daily_counter_compound)) |> TimeStepModel(Dates.Day(1)),
+            ModelSpec(MRHourlyFromDailyConsumerModel()) |>
+            TimeStepModel(1.0) |>
+            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+        ),
+    )
+    meteo_halfhourly = Weather(
+        repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.CompoundPeriod(Dates.Minute(30)))], 50)
+    )
+    sim_daily_compound = PlantSimEngine.GraphSimulation(mtg, mapping_daily_compound, nsteps=50, check=true, outputs=Dict("Leaf" => (:YD,)))
+    out_daily_compound = run!(sim_daily_compound, meteo_halfhourly, executor=SequentialEx())
+    out_daily_compound_df = convert_outputs(out_daily_compound, DataFrame)
+    @test out_daily_compound_df["Leaf"][1:48, :YD] == fill(1.0, 48)
+    @test out_daily_compound_df["Leaf"][49:50, :YD] == [2.0, 2.0]
+    @test sim_daily_compound.temporal_state.last_run[ModelKey(scope, "Leaf", :mrdailysource)] == 49.0
+
+    # Expectation 15c: missing meteo duration is rejected.
+    mapping_no_duration = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Day(1)),
+        ),
+    )
+    sim_no_duration = PlantSimEngine.GraphSimulation(mtg, mapping_no_duration, nsteps=1, check=true, outputs=Dict("Leaf" => (:XD,)))
+    meteo_table_no_duration = DataFrame(T=[20.0], Wind=[1.0], Rh=[0.65])
+    @test_throws "Missing required `duration`" run!(sim_no_duration, meteo_table_no_duration, executor=SequentialEx())
+
+    # Expectation 15c-bis: all meteo rows are validated for duration.
+    meteo_table_partial_duration = DataFrame(
+        T=[20.0, 21.0],
+        Wind=[1.0, 1.0],
+        Rh=[0.65, 0.66],
+        duration=Any[Dates.Hour(1), missing],
+    )
+    @test_throws "meteo row 2" run!(sim_no_duration, meteo_table_partial_duration, executor=SequentialEx())
+
+    meteo_table_bad_duration_type = DataFrame(T=[20.0], Wind=[1.0], Rh=[0.65], duration=["1h"])
+    @test_throws "Expected a positive Real" run!(sim_no_duration, meteo_table_bad_duration_type, executor=SequentialEx())
+
+    # Expectation 15d: non-positive meteo duration is rejected.
+    meteo_zero_duration = Weather([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Second(0))])
+    @test_throws "strictly positive" run!(sim_no_duration, meteo_zero_duration, executor=SequentialEx())
+
     # Expectation 16: model timesteps shorter than meteo base step are rejected.
     mapping_substep_period = ModelMapping(
         "Leaf" => (
@@ -632,7 +691,8 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     sim_substep_period = PlantSimEngine.GraphSimulation(mtg, mapping_substep_period, nsteps=26, check=true, outputs=Dict("Leaf" => (:XD,)))
     @test_throws "shorter than simulation base step" run!(sim_substep_period, meteo_hourly, multirate=true, executor=SequentialEx())
 
-    # Expectation 17: timestep hints infer a consensus for range-only models and keep explicit overrides.
+    # Expectation 17: unset timestep uses meteo base-step (preferred hint is informational),
+    # while explicit TimeStepModel keeps user-selected clock.
     range_counter_a = Ref(0)
     range_counter_b = Ref(0)
     range_counter_forced = Ref(0)
@@ -647,18 +707,46 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     sim_timestep_hints = PlantSimEngine.GraphSimulation(mtg, mapping_timestep_hints, nsteps=8, check=true, outputs=Dict("Leaf" => (:XA, :XB, :XF)))
     run!(sim_timestep_hints, meteo8h, multirate=true, executor=SequentialEx())
     specs_hints = PlantSimEngine.get_model_specs(sim_timestep_hints)["Leaf"]
-    @test Dates.value(Dates.Second(PlantSimEngine.timestep(specs_hints[:mrrangehinta]))) == 10800
-    @test Dates.value(Dates.Second(PlantSimEngine.timestep(specs_hints[:mrrangehintb]))) == 10800
+    @test isnothing(PlantSimEngine.timestep(specs_hints[:mrrangehinta]))
+    @test isnothing(PlantSimEngine.timestep(specs_hints[:mrrangehintb]))
     @test PlantSimEngine.timestep(specs_hints[:mrrangehintforced]) == Dates.Hour(2)
-    @test status(sim_timestep_hints)["Leaf"][1].XA == 3.0
-    @test status(sim_timestep_hints)["Leaf"][1].XB == 3.0
+    @test status(sim_timestep_hints)["Leaf"][1].XA == 8.0
+    @test status(sim_timestep_hints)["Leaf"][1].XB == 8.0
     @test status(sim_timestep_hints)["Leaf"][1].XF == 4.0
 
     io_hints = IOBuffer()
     explained_hints = PlantSimEngine.explain_model_specs(sim_timestep_hints; io=io_hints)
     explain_hints_txt = String(take!(io_hints))
-    @test any(r -> r.process == :mrrangehinta && Dates.value(Dates.Second(r.timestep)) == 10800, explained_hints)
+    @test any(r -> r.process == :mrrangehinta && isnothing(r.timestep), explained_hints)
+    @test occursin("meteo base step at runtime", explain_hints_txt)
     @test occursin("Leaf/mrrangehinta", explain_hints_txt)
+
+    # Expectation 17b: required timestep bounds are enforced for meteo-derived clocks.
+    strict_counter = Ref(0)
+    mapping_timestep_hints_strict = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRRangeHintStrictModel(strict_counter)),
+        ),
+    )
+    sim_timestep_hints_strict = PlantSimEngine.GraphSimulation(mtg, mapping_timestep_hints_strict, nsteps=8, check=true, outputs=Dict("Leaf" => (:XS,)))
+    err_strict = try
+        run!(sim_timestep_hints_strict, meteo8h, executor=SequentialEx())
+        nothing
+    catch err
+        err
+    end
+    @test err_strict isa Exception
+    @test occursin("outside `timestep_hint.required=", sprint(showerror, err_strict))
+
+    # Expectation 17c: warn if no model runs at meteo base timestep.
+    no_base_counter = Ref(0)
+    mapping_no_base_dt = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRClockSourceModel(no_base_counter)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+        ),
+    )
+    sim_no_base_dt = PlantSimEngine.GraphSimulation(mtg, mapping_no_base_dt, nsteps=4, check=true, outputs=Dict("Leaf" => (:X,)))
+    @test_logs (:warn, r"No model runs at the meteo base timestep") run!(sim_no_base_dt, meteo4, executor=SequentialEx())
 
     if _HAS_METEO_SAMPLER_API
         # Expectation 18: meteo is sampled at model clock using default weather aggregation.
@@ -736,7 +824,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ])
         mapping_meteo_hint = ModelMapping(
             "Leaf" => (
-                ModelSpec(MRMeteoHintConsumerModel()),
+                ModelSpec(MRMeteoHintConsumerModel()) |> TimeStepModel(Dates.Day(1)),
             ),
         )
         sim_meteo_hint = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_hint, nsteps=24, check=true, outputs=Dict("Leaf" => (:HT, :HSWQ)))

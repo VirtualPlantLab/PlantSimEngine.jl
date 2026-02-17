@@ -20,10 +20,13 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 - `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
-If users do not provide `TimeStepModel(...)`, `MeteoBindings(...)`, or `MeteoWindow(...)`,
+If users do not provide `MeteoBindings(...)` or `MeteoWindow(...)`,
 the runtime can infer defaults from model traits:
 - `timestep_hint(::Type{<:MyModel})`
 - `meteo_hint(::Type{<:MyModel})`
+
+For timestep specifically, runtime is meteo-first (see decision flow below): `timestep_hint`
+is used for compatibility validation (and user guidance), not to auto-assign model clocks.
 
 If users do not provide `InputBindings(...)`, runtime infers same-name bindings:
 - first from a unique producer at the same scale;
@@ -32,9 +35,8 @@ If users do not provide `InputBindings(...)`, runtime infers same-name bindings:
 - if multiple producers are possible, runtime errors and asks for explicit `InputBindings(...)`.
 
 For timestep hints:
-- `Dates.FixedPeriod` sets a fixed inferred timestep, e.g. `Dates.Day(1)`.
-- `(min_period, max_period)` sets a required range. For models with only range hints,
-  runtime computes a consensus (default: finest feasible period in the intersection).
+- `timestep_hint.required` is a hard compatibility constraint when runtime uses meteo-derived timestep.
+- `timestep_hint.preferred` is informational only (it does not set runtime timestep by itself).
 - Explicit `TimeStepModel(...)` always takes precedence.
 
 For meteo hints:
@@ -56,6 +58,33 @@ Policy parameterization:
 `TimeStepModel(...)` accepts either step counts (`Real`), `ClockSpec`, or fixed `Dates` periods
 (for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using
 the meteo base timestep duration.
+
+### Timestep decision flow
+
+When meteo is provided, `duration` is mandatory for each row (or the simulation errors).
+
+Runtime picks each model effective clock with this order:
+
+1. If `ModelSpec` has `TimeStepModel(...)`, use it.
+2. Else if `timespec(model)` is non-default, use it.
+3. Else use meteo base timestep (`duration`) for that model.
+
+Then runtime applies constraints:
+
+1. If the model clock is meteo-derived (rule 3), `timestep_hint.required` is validated:
+   - fixed required period: meteo timestep must match exactly;
+   - required range: meteo timestep must be inside the range.
+2. `timestep_hint.preferred` never overrides the clock when timestep is unset.
+3. Meteo aggregation/integration is applied only when effective model timestep is coarser than meteo timestep.
+
+Practical consequences:
+
+- Unset `TimeStepModel` + required includes meteo + preferred is coarser:
+  model still runs at meteo timestep.
+- Explicit coarser `TimeStepModel(Dates.Hour(2))` with hourly meteo:
+  model runs every 2 hours and receives aggregated meteo over that window.
+- Unset `TimeStepModel` + required excludes meteo:
+  runtime errors with an actionable compatibility message.
 
 Developer note on period conversion:
 - Runtime time is indexed on a 1-based timeline (`t = 1, 2, 3, ...`).

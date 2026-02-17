@@ -4,14 +4,16 @@ const _TIMESTEP_HINT_FIELDS = (:required, :preferred)
     timestep_hint(model::AbstractModel)
     timestep_hint(::Type{<:AbstractModel})
 
-Optional model trait used to infer a timestep when `ModelSpec.timestep` is not provided.
+Optional model trait used to declare runtime compatibility constraints when
+`ModelSpec.timestep` is not provided.
 
 Supported return values:
 - `nothing` (default): no hint
 - `Dates.FixedPeriod`: fixed required timestep
 - `(min_period, max_period)`: required timestep range (`Dates.FixedPeriod` pair)
 - `NamedTuple`: with `required` (one of the forms above) and optional `preferred`
-  (`:finest`, `:coarsest`, or a `Dates.FixedPeriod` within the required range)
+  (`:finest`, `:coarsest`, or a `Dates.FixedPeriod` within the required range).
+  `preferred` is informational only when runtime derives timestep from meteo.
 """
 timestep_hint(model::AbstractModel) = timestep_hint(typeof(model))
 timestep_hint(::Type{<:AbstractModel}) = nothing
@@ -37,11 +39,6 @@ struct _ResolvedTimeStepHint
 end
 
 _seconds_from_period(p::Dates.FixedPeriod) = float(Dates.value(Dates.Millisecond(p))) * 1.0e-3
-
-function _period_from_seconds(seconds::Float64)
-    ms = round(Int, seconds * 1000.0)
-    return Dates.Millisecond(ms)
-end
 
 function _normalize_required_timestep_hint(scale::String, process::Symbol, required)
     if required isa Dates.FixedPeriod
@@ -147,71 +144,17 @@ function _normalize_timestep_hint(scale::String, process::Symbol, hint)
     )
 end
 
-function _resolve_range_consensus(
-    range_specs::Vector{Tuple{String,Symbol,ModelSpec,_ResolvedTimeStepHint}}
-)
-    isempty(range_specs) && return nothing
-
-    lo = maximum(_seconds_from_period(s[4].range[1]) for s in range_specs)
-    hi = minimum(_seconds_from_period(s[4].range[2]) for s in range_specs)
-    lo <= hi || error(
-        "No feasible inferred timestep consensus for models without explicit `TimeStepModel(...)`. ",
-        "Collected required ranges are incompatible:\n",
-        join(
-            [
-                "  - $(scale)/$(process): ($(hint.range[1]), $(hint.range[2]))" for (scale, process, _, hint) in range_specs
-            ],
-            "\n"
-        )
-    )
-
-    preferred_periods = Float64[]
-    finest_votes = 0
-    coarsest_votes = 0
-    for (_, _, _, hint) in range_specs
-        pref = hint.preferred
-        if pref isa Dates.FixedPeriod
-            sec = _seconds_from_period(pref)
-            lo <= sec <= hi && push!(preferred_periods, sec)
-        elseif pref == :coarsest
-            coarsest_votes += 1
-        elseif pref == :finest
-            finest_votes += 1
-        end
-    end
-
-    chosen_sec = if !isempty(preferred_periods) && all(isapprox(v, first(preferred_periods); atol=1.0e-6, rtol=0.0) for v in preferred_periods)
-        first(preferred_periods)
-    elseif coarsest_votes > finest_votes
-        hi
-    else
-        lo
-    end
-
-    return _period_from_seconds(chosen_sec)
-end
-
 function _infer_timestep_hints!(model_specs)
-    range_specs = Tuple{String,Symbol,ModelSpec,_ResolvedTimeStepHint}[]
-
+    # `timestep_hint` is parsed/validated here but does not assign runtime dt.
+    # Runtime derives dt from:
+    # 1) explicit `ModelSpec.timestep`
+    # 2) model `timespec(model)` when non-default
+    # 3) meteo base step (default fallback)
     for (scale, specs_at_scale) in pairs(model_specs)
         for (process, spec) in pairs(specs_at_scale)
-            !isnothing(timestep(spec)) && continue
-
-            hint = _normalize_timestep_hint(scale, process, timestep_hint(model_(spec)))
-            if !isnothing(hint.fixed)
-                specs_at_scale[process] = ModelSpec(spec; timestep=hint.fixed)
-            elseif !isnothing(hint.range)
-                push!(range_specs, (scale, process, spec, hint))
-            end
+            isnothing(timestep(spec)) || continue
+            _normalize_timestep_hint(scale, process, timestep_hint(model_(spec)))
         end
-    end
-
-    consensus = _resolve_range_consensus(range_specs)
-    isnothing(consensus) && return nothing
-
-    for (scale, process, spec, _) in range_specs
-        model_specs[scale][process] = ModelSpec(spec; timestep=consensus)
     end
 
     return nothing
@@ -259,7 +202,134 @@ function _scale_reachability_from_mtg(mtg)
     return scale_reachability
 end
 
-function _input_candidates_for_var(model_specs, consumer_scale::String, consumer_process::Symbol, input_var::Symbol; scale_reachability=nothing)
+function _effective_timestep_spec(spec::ModelSpec)
+    ts = timestep(spec)
+    return isnothing(ts) ? timespec(model_(spec)) : ts
+end
+
+function _timestep_resolution_source(spec::ModelSpec)
+    !isnothing(timestep(spec)) && return :modelspec
+    return _same_timestep_signature(
+        _timestep_signature(timespec(model_(spec))),
+        _timestep_signature(ClockSpec(1.0, 0.0))
+    ) ? :meteo_base_step : :model_timespec
+end
+
+function _timestep_signature(ts)
+    if ts isa ClockSpec
+        return (:clock, float(ts.dt), float(ts.phase))
+    elseif ts isa Real
+        return (:step, float(ts), 0.0)
+    elseif ts isa Dates.FixedPeriod
+        return (:period, _seconds_from_period(ts), 0.0)
+    end
+    return nothing
+end
+
+function _same_timestep_signature(sig_a, sig_b)
+    isnothing(sig_a) && return false
+    isnothing(sig_b) && return false
+
+    if sig_a[1] == :period || sig_b[1] == :period
+        return sig_a[1] == :period &&
+               sig_b[1] == :period &&
+               isapprox(sig_a[2], sig_b[2]; atol=1.0e-9, rtol=0.0)
+    end
+
+    phase_a = sig_a[1] == :step ? 0.0 : sig_a[3]
+    phase_b = sig_b[1] == :step ? 0.0 : sig_b[3]
+    return isapprox(sig_a[2], sig_b[2]; atol=1.0e-9, rtol=0.0) &&
+           isapprox(phase_a, phase_b; atol=1.0e-9, rtol=0.0)
+end
+
+function _hard_dep_same_rate_as_parent(model_specs, parent_scale::String, parent_process::Symbol, child_scale::String, child_process::Symbol)
+    parent_scale == child_scale || return false
+    parent_specs = get(model_specs, parent_scale, nothing)
+    isnothing(parent_specs) && return false
+    parent_spec = get(parent_specs, parent_process, nothing)
+    child_spec = get(parent_specs, child_process, nothing)
+    isnothing(parent_spec) && return false
+    isnothing(child_spec) && return false
+
+    parent_sig = _timestep_signature(_effective_timestep_spec(parent_spec))
+    child_sig = _timestep_signature(_effective_timestep_spec(child_spec))
+    return _same_timestep_signature(parent_sig, child_sig)
+end
+
+function _collect_same_rate_hard_dependency_children!(
+    ignored_processes_by_scale::Dict{String,Set{Symbol}},
+    model_specs,
+    parent_scale::String,
+    parent_process::Symbol,
+    child::HardDependencyNode
+)
+    if _hard_dep_same_rate_as_parent(model_specs, parent_scale, parent_process, child.scale, child.process)
+        push!(get!(ignored_processes_by_scale, child.scale, Set{Symbol}()), child.process)
+    end
+
+    for nested in child.children
+        _collect_same_rate_hard_dependency_children!(
+            ignored_processes_by_scale,
+            model_specs,
+            child.scale,
+            child.process,
+            nested
+        )
+    end
+
+    return nothing
+end
+
+function _soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph{Dict{String,Any}})
+    nodes = SoftDependencyNode[]
+    for (_, roots_at_scale) in pairs(dep_graph.roots)
+        haskey(roots_at_scale, :soft_dep_graph) || continue
+        append!(nodes, values(roots_at_scale[:soft_dep_graph]))
+    end
+    return nodes
+end
+
+_soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph) = traverse_dependency_graph(dep_graph, false)
+
+function _same_rate_hard_dependency_children(model_specs, dep_graph::DependencyGraph)
+    ignored_processes_by_scale = Dict{String,Set{Symbol}}()
+
+    for soft_node in _soft_nodes_for_hard_dependency_analysis(dep_graph)
+        for child in soft_node.hard_dependency
+            _collect_same_rate_hard_dependency_children!(
+                ignored_processes_by_scale,
+                model_specs,
+                soft_node.scale,
+                soft_node.process,
+                child
+            )
+        end
+    end
+
+    return ignored_processes_by_scale
+end
+
+function _active_processes_for_inference(model_specs, ignored_processes_by_scale::Dict{String,Set{Symbol}})
+    active = Dict{String,Set{Symbol}}()
+    for (scale, specs_at_scale) in pairs(model_specs)
+        procs = Set{Symbol}(keys(specs_at_scale))
+        ignored = get(ignored_processes_by_scale, scale, Set{Symbol}())
+        for process in ignored
+            delete!(procs, process)
+        end
+        active[scale] = procs
+    end
+    return active
+end
+
+function _input_candidates_for_var(
+    model_specs,
+    consumer_scale::String,
+    consumer_process::Symbol,
+    input_var::Symbol;
+    scale_reachability=nothing,
+    active_processes_by_scale=nothing
+)
     same_scale = NamedTuple[]
     cross_scale = NamedTuple[]
 
@@ -451,11 +521,14 @@ function _model_specs_rows(model_specs)
         specs_at_scale = model_specs[scale]
         for process in sort!(collect(keys(specs_at_scale)); by=string)
             spec = specs_at_scale[process]
+            resolution = _timestep_resolution_source(spec)
             push!(rows, (
                 scale=scale,
                 process=process,
                 model=typeof(model_(spec)),
                 timestep=timestep(spec),
+                timespec_default=timespec(model_(spec)),
+                timestep_resolution=resolution,
                 input_bindings=input_bindings(spec),
                 meteo_bindings=meteo_bindings(spec),
                 meteo_window=meteo_window(spec),
@@ -491,7 +564,13 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
     end
 
     for row in rows
-        timestep_desc = isnothing(row.timestep) ? "(timespec(model))" : _stringify_compact(row.timestep)
+        timestep_desc = if row.timestep_resolution == :modelspec
+            string(_stringify_compact(row.timestep), " [explicit ModelSpec]")
+        elseif row.timestep_resolution == :model_timespec
+            string(_stringify_compact(row.timespec_default), " [model timespec]")
+        else
+            "(meteo base step at runtime)"
+        end
         input_bindings_desc = (row.input_bindings isa NamedTuple && isempty(keys(row.input_bindings))) ? "(none)" : _stringify_compact(row.input_bindings)
         meteo_bindings_desc = (row.meteo_bindings isa NamedTuple && isempty(keys(row.meteo_bindings))) ? "(none)" : _stringify_compact(row.meteo_bindings)
         meteo_window_desc = isnothing(row.meteo_window) ? "(default rolling)" : _stringify_compact(row.meteo_window)

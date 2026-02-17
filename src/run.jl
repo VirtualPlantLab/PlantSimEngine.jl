@@ -12,6 +12,7 @@ If several time-steps are given, the models are run sequentially for each time-s
 - `object`: a [`ModelMapping`](@ref) for single-scale runs, or a plant graph (MTG) for multiscale runs.
 - `meteo`: a [`PlantMeteo.TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.TimeStepTable) of 
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
+  When meteo is provided, `duration` must be present and strictly positive.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
 - `extra`: extra parameters, not available for simulation of plant graphs (the simulation object is passed using this).
 - `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time), and return more information while running.
@@ -159,7 +160,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {M<:Union{ModelMapping{SingleScale},ModelList}}
-    _error_if_multirate_singlescale(multirate)
+    _validate_meteo_duration(meteo)
     model_list = _modellist_from_model_mapping(mapping)
     _run_modellist_singleton(
         model_list,
@@ -203,6 +204,7 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
+    _validate_meteo_duration(meteo)
     run!(
         DataFormat(object),
         object,
@@ -215,6 +217,32 @@ function run!(
         multirate,
         return_requested_outputs,
         requested_outputs_sink
+    )
+end
+
+function run!(
+    object::GraphSimulation,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+)
+    _validate_meteo_duration(meteo)
+    run!(
+        TreeAlike(),
+        object,
+        meteo,
+        constants,
+        extra;
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink,
     )
 end
 
@@ -541,6 +569,102 @@ function _multirate_tracked_outputs(tracked_outputs)
     return tracked_outputs, OutputRequest[]
 end
 
+_effective_multirate(mapping::ModelMapping) = is_multirate(mapping)
+_effective_multirate(sim::GraphSimulation) = is_multirate(sim)
+
+function _active_dependency_processes(dep_graph::DependencyGraph)
+    active = Set{Tuple{String,Symbol}}()
+    for node in traverse_dependency_graph(dep_graph, false)
+        push!(active, (node.scale, node.process))
+    end
+    return active
+end
+
+function _runtime_clock_source_for_spec(spec::ModelSpec)
+    !isnothing(timestep(spec)) && return :modelspec
+    return _is_default_clock(timespec(model_(spec))) ? :meteo_base_step : :model_timespec
+end
+
+function _runtime_clock_rows(object::GraphSimulation, timeline::TimelineContext, dep_graph::DependencyGraph)
+    active = _active_dependency_processes(dep_graph)
+    rows = NamedTuple[]
+
+    for (scale, specs_at_scale) in pairs(get_model_specs(object))
+        for (process, spec) in pairs(specs_at_scale)
+            (scale, process) in active || continue
+            model = model_(spec)
+            clock = _model_clock(spec, model, timeline)
+            source = _runtime_clock_source_for_spec(spec)
+            push!(rows, (
+                scale=scale,
+                process=process,
+                source=source,
+                clock=clock,
+                model=model,
+            ))
+        end
+    end
+
+    return rows
+end
+
+function _validate_meteo_derived_timestep_requirements!(rows, timeline::TimelineContext)
+    base_sec = timeline.base_step_seconds
+
+    for row in rows
+        row.source == :meteo_base_step || continue
+
+        hint = _normalize_timestep_hint(row.scale, row.process, timestep_hint(row.model))
+        if !isnothing(hint.fixed)
+            required_sec = _seconds_from_period(hint.fixed)
+            isapprox(base_sec, required_sec; atol=1.0e-9, rtol=0.0) || error(
+                "Meteo timestep ($(base_sec) s) is incompatible with `timestep_hint.required=$(hint.fixed)` ",
+                "for `$(row.scale)/$(row.process)` with unset `TimeStepModel(...)`. ",
+                "Set an explicit `TimeStepModel(...)` or provide meteo with matching `duration`."
+            )
+        elseif !isnothing(hint.range)
+            lo, hi = hint.range
+            lo_sec = _seconds_from_period(lo)
+            hi_sec = _seconds_from_period(hi)
+            lo_sec <= base_sec <= hi_sec || error(
+                "Meteo timestep ($(base_sec) s) is outside `timestep_hint.required=($(lo), $(hi))` ",
+                "for `$(row.scale)/$(row.process)` with unset `TimeStepModel(...)`. ",
+                "Set an explicit `TimeStepModel(...)` or provide meteo with compatible `duration`."
+            )
+        end
+    end
+
+    return nothing
+end
+
+function _warn_if_no_model_runs_at_base_timestep(rows, timeline::TimelineContext)
+    isempty(rows) && return nothing
+    any(isapprox(float(row.clock.dt), 1.0; atol=1.0e-9, rtol=0.0) for row in rows) && return nothing
+
+    source_label(source) = source == :modelspec ? "ModelSpec" : (source == :model_timespec ? "timespec(model)" : "meteo")
+    details = sort([
+        string(
+            row.scale,
+            "/",
+            row.process,
+            "=",
+            round(float(row.clock.dt) * timeline.base_step_seconds; digits=6),
+            "s (",
+            source_label(row.source),
+            ")"
+        ) for row in rows
+    ])
+
+    @warn string(
+        "No model runs at the meteo base timestep (",
+        timeline.base_step_seconds,
+        " s). Resolved model timesteps: ",
+        join(details, ", "),
+        "."
+    ) maxlog = 1
+    return nothing
+end
+
 function run!(
     object::MultiScaleTreeGraph.Node,
     mapping::ModelMapping,
@@ -555,6 +679,8 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 )
+    _validate_meteo_duration(meteo)
+    effective_multirate = _effective_multirate(mapping)
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = if multirate && meteo isa TimeStepTable{<:Atmosphere}
         # Keep TimeStepTable intact in MTG multi-rate runs so model-clock meteo
@@ -642,8 +768,10 @@ function run!(
 
     dep_graph = object.dependency_graph
     models = get_models(object)
+    _validate_meteo_duration(meteo)
     timeline = _timeline_context(meteo)
-    meteo_sampler = multirate ? _prepare_meteo_sampler(meteo) : nothing
+    meteo_sampler = effective_multirate ? _prepare_meteo_sampler(meteo) : nothing
+    runtime_clock_rows = effective_multirate ? _runtime_clock_rows(object, timeline, dep_graph) : NamedTuple[]
     effective_executor = executor
     # st = status(object)
     if multirate
@@ -655,6 +783,8 @@ function run!(
             ) maxlog = 1
             effective_executor = SequentialEx()
         end
+        _validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)
+        _warn_if_no_model_runs_at_base_timestep(runtime_clock_rows, timeline)
         validate_canonical_publishers(object)
         prepare_output_requests!(object, tracked_outputs, timeline)
         configure_temporal_buffers!(object, timeline)

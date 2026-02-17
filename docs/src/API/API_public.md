@@ -41,13 +41,20 @@ Period conversion detail:
   so execution times are `t = 1, 25, 49, ...`.
 
 Trait-based inference detail:
-- If `TimeStepModel(...)` is omitted, `timestep_hint(::Type{<:Model})` may provide:
-: fixed period (`Dates.Day(1)`) or required range (`(Dates.Minute(1), Dates.Hour(4))`).
+- If `TimeStepModel(...)` is omitted, runtime resolves timestep from:
+: `timespec(model)` when non-default, otherwise meteo `duration`.
+- `timestep_hint(::Type{<:Model})` is then interpreted as:
+: `required` = hard compatibility constraint, `preferred` = informational only.
 - If `InputBindings(...)` is omitted, same-name sources are inferred automatically from
 : unique producers (same scale first, then cross-scale). Ambiguous cases require explicit bindings.
 - If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
 : may provide `(; bindings=..., window=...)`.
 - Explicit mapping-level configuration always overrides hints.
+
+Compatibility checks:
+- Meteo `duration` is mandatory when meteo is provided.
+- For models with meteo-derived timestep, runtime enforces `timestep_hint.required`.
+- `timestep_hint.preferred` never sets runtime timestep by itself.
 
 Scope selection detail:
 - `ScopeModel(:global)` is the default and shares streams across the whole simulation.

@@ -20,7 +20,31 @@ function _period_to_seconds(p::Dates.Period)
         "Unsupported non-fixed period `$(typeof(p))` in timestep specification. ",
         "Use fixed periods such as `Second`, `Minute`, `Hour`, `Day`."
     )
-    return float(Dates.value(Dates.Second(p)))
+    sec = float(Dates.value(Dates.Second(p)))
+    sec > 0.0 || error("Invalid duration `$(p)`: expected a strictly positive period.")
+    return sec
+end
+
+function _duration_to_seconds(d)
+    if d isa Dates.CompoundPeriod
+        periods = Dates.periods(d)
+        isempty(periods) && error("Unsupported empty `Dates.CompoundPeriod` in meteo duration.")
+        sec = sum(_period_to_seconds(p) for p in periods)
+        sec > 0.0 || error("Invalid meteo duration `$(d)`: expected a strictly positive value.")
+        return sec
+    elseif d isa Dates.Period
+        return _period_to_seconds(d)
+    elseif d isa Real
+        sec = float(d)
+        sec > 0.0 || error("Invalid meteo duration `$(d)`: expected a strictly positive value in seconds.")
+        return sec
+    end
+    return nothing
+end
+
+function _is_default_clock(clock::ClockSpec)
+    return isapprox(float(clock.dt), 1.0; atol=1.0e-9, rtol=0.0) &&
+           isapprox(float(clock.phase), 0.0; atol=1.0e-9, rtol=0.0)
 end
 
 function _timestep_to_step_count(ts::Dates.Period, timeline::TimelineContext)
@@ -33,24 +57,62 @@ function _timestep_to_step_count(ts::Dates.Period, timeline::TimelineContext)
     return step
 end
 
-function _base_step_seconds_from_meteo_row(row)
+function _first_table_row(table; context::String="meteo")
+    rows = Tables.rows(table)
+    state = iterate(rows)
+    isnothing(state) && error(
+        "Cannot infer simulation timestep from empty $(context) table. ",
+        "Provide at least one row with a valid `duration`."
+    )
+    return state[1]
+end
+
+function _base_step_seconds_from_meteo_row(row; require_duration::Bool=false, context::String="meteo")
     if hasproperty(row, :duration)
         d = getproperty(row, :duration)
-        if d isa Dates.Period
-            return _period_to_seconds(d)
-        elseif d isa Real
-            return float(d)
-        end
+        sec = _duration_to_seconds(d)
+        !isnothing(sec) && return sec
+        require_duration && error(
+            "Invalid `duration=$(d)` (type `$(typeof(d))`) in $(context). ",
+            "Expected a positive Real (seconds), `Dates.Period`, or `Dates.CompoundPeriod`."
+        )
+    elseif require_duration
+        error(
+            "Missing required `duration` in $(context). ",
+            "Meteorology must define a valid per-row duration."
+        )
     end
     return 1.0
 end
 
+function _validate_meteo_duration(meteo)
+    isnothing(meteo) && return nothing
+
+    if meteo isa Atmosphere
+        _base_step_seconds_from_meteo_row(meteo; require_duration=true, context="meteo")
+        return nothing
+    end
+
+    if meteo isa TimeStepTable || DataFormat(meteo) == TableAlike()
+        for (i, row) in enumerate(Tables.rows(meteo))
+            _base_step_seconds_from_meteo_row(row; require_duration=true, context="meteo row $(i)")
+        end
+        return nothing
+    end
+
+    # Unknown formats are validated later by run-path specific checks.
+    return nothing
+end
+
 function _timeline_context(meteo)
     if meteo isa TimeStepTable
-        rows = Tables.rows(meteo)
-        return TimelineContext(_base_step_seconds_from_meteo_row(rows[1]))
+        row = _first_table_row(meteo; context="meteo")
+        return TimelineContext(_base_step_seconds_from_meteo_row(row; require_duration=true, context="meteo"))
     elseif meteo isa Atmosphere
-        return TimelineContext(_base_step_seconds_from_meteo_row(meteo))
+        return TimelineContext(_base_step_seconds_from_meteo_row(meteo; require_duration=true, context="meteo"))
+    elseif !isnothing(meteo) && DataFormat(meteo) == TableAlike()
+        row = _first_table_row(meteo; context="meteo")
+        return TimelineContext(_base_step_seconds_from_meteo_row(row; require_duration=true, context="meteo"))
     end
     return TimelineContext(1.0)
 end
@@ -80,9 +142,13 @@ Return the effective execution clock for `model`, using user-provided
 `ModelSpec` timestep override when available, otherwise `timespec(model)`.
 """
 function _model_clock(model_spec, model, timeline::TimelineContext)
-    !isnothing(model_spec) || return timespec(model)
-    c = _clock_from_spec_timestep(PlantSimEngine.timestep(model_spec), timeline)
-    return isnothing(c) ? timespec(model) : c
+    spec_ts = isnothing(model_spec) ? nothing : PlantSimEngine.timestep(model_spec)
+    c = _clock_from_spec_timestep(spec_ts, timeline)
+    !isnothing(c) && return c
+
+    model_clock = timespec(model)
+    _is_default_clock(model_clock) && return ClockSpec(1.0, 0.0)
+    return model_clock
 end
 
 """
