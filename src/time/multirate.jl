@@ -65,6 +65,31 @@ Use the latest available producer value.
 """
 struct HoldLast <: SchedulePolicy end
 
+function _as_schedule_policy(policy; context::AbstractString="schedule policy")
+    if policy isa DataType
+        policy <: SchedulePolicy || error(
+            "Unsupported $(context) type `$(policy)`. ",
+            "Expected a `SchedulePolicy` type or instance."
+        )
+        return try
+            policy()
+        catch
+            error(
+                "Unsupported $(context) type `$(policy)`: ",
+                "this policy type cannot be instantiated without arguments. ",
+                "Provide a policy instance instead."
+            )
+        end
+    elseif policy isa SchedulePolicy
+        return policy
+    end
+
+    error(
+        "Unsupported $(context) value `$(policy)` of type `$(typeof(policy))`. ",
+        "Expected a `SchedulePolicy` type or instance."
+    )
+end
+
 const _INTERPOLATE_MODES = (:linear, :hold)
 
 """

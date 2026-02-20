@@ -357,6 +357,17 @@ function _input_candidates_for_var(
     return same_scale, cross_scale
 end
 
+function _default_policy_for_inferred_binding(model_specs, source_scale::String, source_process::Symbol, source_var::Symbol)
+    source_spec = model_specs[source_scale][source_process]
+    source_model = model_(source_spec)
+    source_output_policy = output_policy(source_model)
+    source_var in keys(source_output_policy) || return HoldLast()
+    return _as_schedule_policy(
+        source_output_policy[source_var];
+        context="output_policy for inferred binding from `$(source_scale)/$(source_process).$(source_var)`"
+    )
+end
+
 function _infer_input_binding_for_var(
     model_specs,
     scale::String,
@@ -376,7 +387,8 @@ function _infer_input_binding_for_var(
 
     if length(same_scale) == 1
         c = only(same_scale)
-        return (process=c.process, var=c.var, policy=HoldLast())
+        policy = _default_policy_for_inferred_binding(model_specs, c.scale, c.process, c.var)
+        return (process=c.process, var=c.var, policy=policy)
     elseif length(same_scale) > 1
         error(
             "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
@@ -387,7 +399,8 @@ function _infer_input_binding_for_var(
 
     if length(cross_scale) == 1
         c = only(cross_scale)
-        return (process=c.process, var=c.var, scale=c.scale, policy=HoldLast())
+        policy = _default_policy_for_inferred_binding(model_specs, c.scale, c.process, c.var)
+        return (process=c.process, var=c.var, scale=c.scale, policy=policy)
     elseif length(cross_scale) > 1
         by_process = Dict{Symbol,Vector{NamedTuple}}()
         for c in cross_scale
@@ -398,7 +411,9 @@ function _infer_input_binding_for_var(
             proc = only(keys(by_process))
             scales = unique(c.scale for c in by_process[proc])
             if length(scales) == 1
-                return (process=proc, var=input_var, scale=only(scales), policy=HoldLast())
+                src_scale = only(scales)
+                policy = _default_policy_for_inferred_binding(model_specs, src_scale, proc, input_var)
+                return (process=proc, var=input_var, scale=src_scale, policy=policy)
             end
             # Same process name appears at multiple scales (common in multiscale
             # mappings). Keep scale unresolved so runtime resolves through parent links.
@@ -505,6 +520,7 @@ end
 
 Fill missing `ModelSpec` fields from inference:
 - auto input bindings from unique same-name producers
+  (including default policy from producer `output_policy`)
 - model-level hint traits (`timestep_hint`, `meteo_hint`)
 Explicit `ModelSpec` user values always take precedence over inferred values.
 """

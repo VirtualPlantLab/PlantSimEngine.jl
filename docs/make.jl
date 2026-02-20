@@ -42,6 +42,7 @@ makedocs(;
             "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",
         ],
         "Execution" => "model_execution.md",
+        "Model traits" => "model_traits.md",
         "Working with data" => [
             "Reducing DoF" => "./working_with_data/reducing_dof.md",
             "Fitting" => "./working_with_data/fitting.md",

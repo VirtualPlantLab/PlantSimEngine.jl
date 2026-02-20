@@ -400,12 +400,14 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
         source_process = nothing
         source_var = input_var
         policy = HoldLast()
+        policy_is_explicit = false
 
         if !isnothing(binding) && !isnothing(binding.process)
             source_process = binding.process
             source_var = isnothing(binding.var) ? input_var : binding.var
             source_scale = isnothing(binding.scale) ? _source_scale_for_process(node, source_process) : binding.scale
             policy = binding.policy
+            policy_is_explicit = true
         else
             candidates = _candidate_producers(node, input_var)
             if length(candidates) == 1
@@ -421,6 +423,9 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
             end
         end
         source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
+        if !policy_is_explicit
+            policy = _policy_for_output(model_(source_model_spec), source_var)
+        end
 
         if policy isa HoldLast
             _resolve_input_holdlast(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t)

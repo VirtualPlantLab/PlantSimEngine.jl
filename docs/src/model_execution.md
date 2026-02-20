@@ -20,8 +20,12 @@ For multiscale simulations, model usage is configured in the mapping through `Mo
 - `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
 - `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
 
+For a compact overview of all model traits and precedence rules, see [Model traits](model_traits.md).
+
 If users do not provide `MeteoBindings(...)` or `MeteoWindow(...)`,
 the runtime can infer defaults from model traits:
+- `timespec(::Type{<:MyModel})`
+- `output_policy(::Type{<:MyModel})`
 - `timestep_hint(::Type{<:MyModel})`
 - `meteo_hint(::Type{<:MyModel})`
 
@@ -33,6 +37,12 @@ If users do not provide `InputBindings(...)`, runtime infers same-name bindings:
 - otherwise from a unique producer at another scale;
 - if no producer exists, input stays unresolved (so initialization/forced values can be used);
 - if multiple producers are possible, runtime errors and asks for explicit `InputBindings(...)`.
+
+For inferred bindings, default policy is resolved as:
+- producer `output_policy` for the source output when defined;
+- otherwise `HoldLast()`.
+
+Explicit mapping policies still have priority (`InputBindings(..., policy=...)`).
 
 For timestep hints:
 - `timestep_hint.required` is a hard compatibility constraint when runtime uses meteo-derived timestep.

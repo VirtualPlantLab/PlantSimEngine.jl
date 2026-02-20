@@ -5,7 +5,8 @@ Return the per-output schedule policy for `var`, defaulting to `HoldLast()`.
 """
 function _policy_for_output(model, var::Symbol)
     pol = output_policy(model)
-    var in keys(pol) ? pol[var] : HoldLast()
+    var in keys(pol) || return HoldLast()
+    return _as_schedule_policy(pol[var]; context="output_policy for output `$(var)` in model `$(typeof(model))`")
 end
 
 """
