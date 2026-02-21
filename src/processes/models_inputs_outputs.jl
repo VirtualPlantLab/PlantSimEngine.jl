@@ -51,6 +51,10 @@ timespec(::Type{<:AbstractModel}) = ClockSpec(1.0, 0.0)
 
 Per-output scheduling policy for a model. Default is empty, meaning all outputs
 fallback to hold-last behaviour.
+
+When multi-rate input bindings are inferred automatically, this trait also
+provides the default cross-clock policy (`HoldLast`, `Integrate`, `Aggregate`,
+or `Interpolate`) for each producer output.
 """
 output_policy(model::AbstractModel) = output_policy(typeof(model))
 output_policy(::Type{<:AbstractModel}) = NamedTuple()

@@ -24,6 +24,8 @@ For mapping-level multi-rate configuration, combine:
 - `MeteoWindow(...)`
 - `OutputRouting(...)`
 - `ScopeModel(...)`
+- `timespec(::Type{<:AbstractModel})` (optional trait)
+- `output_policy(::Type{<:AbstractModel})` (optional trait)
 - `timestep_hint(::Type{<:AbstractModel})` (optional trait)
 - `meteo_hint(::Type{<:AbstractModel})` (optional trait)
 - `resolved_model_specs(mapping)` (utility)
@@ -47,6 +49,8 @@ Trait-based inference detail:
 : `required` = hard compatibility constraint, `preferred` = informational only.
 - If `InputBindings(...)` is omitted, same-name sources are inferred automatically from
 : unique producers (same scale first, then cross-scale). Ambiguous cases require explicit bindings.
+- For inferred bindings, policy defaults to producer `output_policy` when defined, otherwise `HoldLast()`.
+- Explicit `InputBindings(..., policy=...)` always overrides trait defaults.
 - If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
 : may provide `(; bindings=..., window=...)`.
 - Explicit mapping-level configuration always overrides hints.

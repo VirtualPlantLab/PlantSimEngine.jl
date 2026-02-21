@@ -163,6 +163,26 @@ function PlantSimEngine.run!(::MRAggConsumerModel, models, status, meteo, consta
     status.YA = status.XA
 end
 
+PlantSimEngine.@process "mrtraitaggsource" verbose = false
+struct MRTraitAggSourceModel <: AbstractMrtraitaggsourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRTraitAggSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRTraitAggSourceModel) = (XT=-Inf,)
+function PlantSimEngine.run!(m::MRTraitAggSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.XT = float(m.n[])
+end
+PlantSimEngine.output_policy(::Type{<:MRTraitAggSourceModel}) = (XT=Aggregate(),)
+
+PlantSimEngine.@process "mrtraitaggconsumer" verbose = false
+struct MRTraitAggConsumerModel <: AbstractMrtraitaggconsumerModel end
+PlantSimEngine.inputs_(::MRTraitAggConsumerModel) = (XT=-Inf,)
+PlantSimEngine.outputs_(::MRTraitAggConsumerModel) = (YT=-Inf,)
+function PlantSimEngine.run!(::MRTraitAggConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YT = status.XT
+end
+
 PlantSimEngine.@process "mrdailysource" verbose = false
 struct MRDailySourceModel <: AbstractMrdailysourceModel
     n::Base.RefValue{Int}
@@ -579,6 +599,37 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test haskey(sim_agg.temporal_state.streams, key_agg)
     @test length(sim_agg.temporal_state.streams[key_agg]) <= 2
     @test sim_agg.temporal_state.producer_horizons[("Leaf", :mraggsource, :XA)] == 2.0
+
+    # Expectation 10b: inferred bindings use producer output_policy by default.
+    # Source XT=[1,2,3,4], consumer runs at t=1,3 and has no explicit InputBindings.
+    # output_policy(XT=Aggregate()) drives YT to [1,1,2.5,2.5].
+    trait_counter = Ref(0)
+    mapping_trait_default = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRTraitAggSourceModel(trait_counter)) |> TimeStepModel(1.0),
+            ModelSpec(MRTraitAggConsumerModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+        ),
+    )
+    sim_trait_default = PlantSimEngine.GraphSimulation(mtg, mapping_trait_default, nsteps=4, check=true, outputs=Dict("Leaf" => (:YT,)))
+    out_trait_default = run!(sim_trait_default, meteo4, executor=SequentialEx())
+    out_trait_default_df = convert_outputs(out_trait_default, DataFrame)
+    @test out_trait_default_df["Leaf"][:, :YT] == [1.0, 1.0, 2.5, 2.5]
+    @test input_bindings(PlantSimEngine.get_model_specs(sim_trait_default)["Leaf"][:mrtraitaggconsumer]).XT.policy isa Aggregate
+
+    # Expectation 10c: explicit InputBindings policy overrides producer output_policy.
+    trait_counter_override = Ref(0)
+    mapping_trait_override = ModelMapping(
+        "Leaf" => (
+            ModelSpec(MRTraitAggSourceModel(trait_counter_override)) |> TimeStepModel(1.0),
+            ModelSpec(MRTraitAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XT=(process=:mrtraitaggsource, var=:XT, policy=Integrate())),
+        ),
+    )
+    sim_trait_override = PlantSimEngine.GraphSimulation(mtg, mapping_trait_override, nsteps=4, check=true, outputs=Dict("Leaf" => (:YT,)))
+    out_trait_override = run!(sim_trait_override, meteo4, executor=SequentialEx())
+    out_trait_override_df = convert_outputs(out_trait_override, DataFrame)
+    @test out_trait_override_df["Leaf"][:, :YT] == [1.0, 1.0, 5.0, 5.0]
 
     # Expectation 11: parameterized Aggregate reducer is applied per window.
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=MaxReducer().
