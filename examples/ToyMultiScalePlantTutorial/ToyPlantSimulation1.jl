@@ -6,7 +6,7 @@
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol=:Leaf))
     return nleaves
 end
 
@@ -137,4 +137,4 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 outs = run!(mtg, mapping, meteo_day)
 mtg
 
-length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol="Leaf"))
+length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol=:Leaf))

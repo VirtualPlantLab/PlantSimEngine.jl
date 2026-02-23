@@ -119,7 +119,7 @@ Let's first define a helper function that iterates across a Multiscale Tree Grap
 ```@example usepkg
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol=:Leaf))
     return nleaves
 end
 ```

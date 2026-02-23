@@ -111,7 +111,7 @@ mapping = ModelMapping(
 The model's constructor provides convenient default names for the scale corresponding to the reproductive organs. A user may override that if their naming schemes or MTG attributes differ.
 
 ```julia
-function ReproductiveOrganEmission(mtg::MultiScaleTreeGraph.Node; phytomer_symbol="Phytomer", male_symbol="Male", female_symbol="Female")
+function ReproductiveOrganEmission(mtg::MultiScaleTreeGraph.Node; phytomer_symbol=:Phytomer, male_symbol=:Male, female_symbol=:Female)
     ...
 end
 ```

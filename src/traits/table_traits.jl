@@ -49,6 +49,7 @@ PlantSimEngine.SingletonAlike()
 """
 DataFormat(::Type{<:DataFrames.AbstractDataFrame}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepTable}) = TableAlike()
+DataFormat(::Type{<:PlantMeteo.TimeStepRows}) = TableAlike()
 
 # Giving a ModelList as a vector or a dict of objects:
 DataFormat(::Type{<:AbstractVector}) = TableAlike()

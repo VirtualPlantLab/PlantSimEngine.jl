@@ -394,7 +394,7 @@ function _run_modellist_singleton(
                     run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
                 end
                 for var in vars
-                    outputs_preallocated_mt[i][var] = status_flattened[var]
+                    setproperty!(outputs_preallocated_mt[i], var, status_flattened[var])
                 end
             end
             return outputs_preallocated_mt

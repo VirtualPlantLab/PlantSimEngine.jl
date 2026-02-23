@@ -92,19 +92,21 @@ in the node attributes (using the variable name). If `true`, the function return
 
 """
 function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+    node_scale = string(symbol(node))
+
     # Check if the node has a model defined for its symbol, if not, no need to compute
-    symbol(node) ∉ collect(keys(mapped_vars)) && return
+    haskey(mapped_vars, node_scale) || return
 
     # We make a copy of the template status for this node:
-    st_template = copy(mapped_vars[symbol(node)])
+    st_template = copy(mapped_vars[node_scale])
 
     # We add a reference to the node into the status, so that we can access it from the models if needed.
     push!(st_template, :node => Ref(node))
 
     # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
     # and if so, use their value in the status:
-    if haskey(vars_need_init, symbol(node)) && length(vars_need_init[symbol(node)]) > 0
-        for var in vars_need_init[symbol(node)] # e.g. var = :carbon_biomass
+    if haskey(vars_need_init, node_scale) && length(vars_need_init[node_scale]) > 0
+        for var in vars_need_init[node_scale] # e.g. var = :carbon_biomass
             if !haskey(node, var)
                 if !check
                     # If we don't check, we use the default value from the model (and if it's an UninitializedVar we take its default value):
@@ -148,12 +150,12 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # Make the node status from the template:
     st = status_from_template(st_template)
 
-    push!(statuses[symbol(node)], st)
+    push!(statuses[node_scale], st)
 
     # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
     # add a reference to the value of any variable that is used by another scale into its RefVector:
-    if haskey(reverse_multiscale_mapping, symbol(node))
-        for (organ, vars) in reverse_multiscale_mapping[symbol(node)] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
+    if haskey(reverse_multiscale_mapping, node_scale)
+        for (organ, vars) in reverse_multiscale_mapping[node_scale] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
             for (var_source, var_target_) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
                 var_target = var_target_ isa PreviousTimeStep ? var_target_.variable : var_target_
                 push!(mapped_vars[organ][var_target], refvalue(st, var_source))

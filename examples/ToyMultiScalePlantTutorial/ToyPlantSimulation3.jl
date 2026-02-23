@@ -8,17 +8,17 @@
 
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return MultiScaleTreeGraph.traverse(root, x -> x, symbol="Root", filter_fun=MultiScaleTreeGraph.isleaf)
+    return MultiScaleTreeGraph.traverse(root, x -> x, symbol=:Root, filter_fun=MultiScaleTreeGraph.isleaf)
 end
 
 function get_roots_count(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return length(MultiScaleTreeGraph.traverse(root, x -> x, symbol="Root"))
+    return length(MultiScaleTreeGraph.traverse(root, x -> x, symbol=:Root))
 end
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol=:Leaf))
     return nleaves
 end
 
@@ -248,4 +248,4 @@ outs = run!(mtg, mapping, meteo_day)
 mtg
 
 
-length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol="Leaf"))
+length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol=:Leaf))
