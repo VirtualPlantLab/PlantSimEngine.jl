@@ -78,18 +78,16 @@ The [`run!`](@ref) function differs slightly from its single-scale version. The 
 run!(mtg, mapping::ModelMapping, meteo, constants, extra; nsteps, tracked_outputs)
 ```
 
-Instead of a just the [`ModelMapping`](@ref), it also takes an MTG as the first argument. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps. 
+Instead of a just the [`ModelMapping`](@ref), it also takes an MTG as the first argument. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps.
 
 ## Multi-scale output data structure
 
+The output structure, like the mapping, is a Julia `Dict` structure indexed by the scale name. Values are a per-scale `Vector{NamedTuple}` which lists the requested variables for every node at that scale, for every timestep in the simulation. Timestep and Multiscale Tree Graph nodes are also added to the output data, as a `:timestep`and a `:node` entry.
 
-The output structure, like the mapping, is a Julia `Dict` structure indexed by the scale name. Values are a per-scale `Vector{NamedTuple}` which lists the requested variables for every node at that scale, for every timestep in the simulation. Timestep and Multiscale Tree Graph nodes are also added to the output data, as a `:timestep`and a `:node` entry. 
-
-This dictionary structure makes the outputs as-is a little more verbose to inspect than in single-scale, but the general usage is similar, and it is both compact, and fast to convert to a `Dict{String, DataFrame}` which can make queries easier. 
+This dictionary structure makes the outputs as-is a little more verbose to inspect than in single-scale, but the general usage is similar, and it is both compact, and fast to convert to a `Dict{String, DataFrame}` which can make queries easier.
 
 !!! note
   Some of the mapped variables -those that map from scalar to vector- will not be added to the outputs to save some memory and space since they are redundant.
-
 
 To illustrate, here's an example output from part 3 of the Toy plant tutorial, zeroing in on a variable at the "Root" scale: [Fixing bugs in the plant simulation](@ref):
 

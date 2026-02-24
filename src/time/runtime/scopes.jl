@@ -18,7 +18,7 @@ function _model_spec_for_process(sim::GraphSimulation, scale::String, process::S
     return as_model_spec(models_at_scale[process])
 end
 
-function _find_ancestor_by_symbol(node, target::String)
+function _find_ancestor_by_symbol(node, target::Symbol)
     current = node
     while !isnothing(current)
         symbol(current) == target && return current
@@ -26,6 +26,7 @@ function _find_ancestor_by_symbol(node, target::String)
     end
     return nothing
 end
+_find_ancestor_by_symbol(node, target::AbstractString) = _find_ancestor_by_symbol(node, Symbol(target))
 
 function _scope_from_builtin(selector::Symbol, node, scale::String, process::Symbol)
     if selector == :global
@@ -33,14 +34,14 @@ function _scope_from_builtin(selector::Symbol, node, scale::String, process::Sym
     elseif selector == :self
         return ScopeId(:self, node_id(node))
     elseif selector == :plant
-        plant = _find_ancestor_by_symbol(node, "Plant")
+        plant = _find_ancestor_by_symbol(node, :Plant)
         isnothing(plant) && error(
             "Scope selector `:plant` for process `$(process)` at scale `$(scale)` ",
             "could not find a `Plant` ancestor for node `$(node_id(node))`."
         )
         return ScopeId(:plant, node_id(plant))
     elseif selector == :scene
-        scene = _find_ancestor_by_symbol(node, "Scene")
+        scene = _find_ancestor_by_symbol(node, :Scene)
         isnothing(scene) && error(
             "Scope selector `:scene` for process `$(process)` at scale `$(scale)` ",
             "could not find a `Scene` ancestor for node `$(node_id(node))`."
@@ -106,4 +107,3 @@ function _scope_for_status(sim::GraphSimulation, model_spec, scale::String, proc
     selector = isnothing(model_spec) ? :global : model_scope(model_spec)
     return _scope_from_selector(selector, node, scale, process)
 end
-

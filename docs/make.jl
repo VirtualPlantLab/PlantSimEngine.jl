@@ -18,7 +18,7 @@ makedocs(;
         canonical="https://VirtualPlantLab.github.io/PlantSimEngine.jl",
         edit_link="main",
         assets=String[],
-        size_threshold=500000
+        size_threshold=700000
     ), pages=[
         "Home" => "index.md",
         "Introduction" => [

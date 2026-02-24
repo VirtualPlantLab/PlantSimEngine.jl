@@ -541,7 +541,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     function plant_ancestor_id(node)
         current = node
-        while !isnothing(current) && symbol(current) != "Plant"
+        while !isnothing(current) && symbol(current) != :Plant
             current = parent(current)
         end
         isnothing(current) && error("Expected a Plant ancestor in scoped test tree.")

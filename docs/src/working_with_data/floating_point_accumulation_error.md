@@ -3,8 +3,8 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, MultiScaleTreeGraph, CSV
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using PlantMeteo, Dates, MultiScaleTreeGraph
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 models = ModelMapping(
     ToyLAIModel(),
@@ -22,7 +22,7 @@ In the [Converting a single-scale simulation to multi-scale](@ref) page, a singl
 ### Single-scale simulation
 
 ```@example usepkg
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 models_singlescale = ModelMapping(
     ToyLAIModel(),
@@ -32,6 +32,7 @@ models_singlescale = ModelMapping(
 )
 
 outputs_singlescale = run!(models_singlescale, meteo_day)
+outputs_singlescale[1:3,:] # show the first 3 rows of the output
 ```
 
 ### Multi-scale equivalent 

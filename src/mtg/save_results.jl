@@ -365,6 +365,6 @@ function save_results!(status_flattened::Status, outputs, i)
     outs = outputs[i]
 
     for var in keys(outs)
-        outs[var] = status_flattened[var]
+        setproperty!(outs, var, status_flattened[var])
     end
 end

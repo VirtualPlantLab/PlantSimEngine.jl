@@ -3,13 +3,13 @@ CurrentModule = PlantSimEngine
 ```
 
 ```@setup readme
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Define the model mapping:
 model = ModelMapping(
@@ -125,6 +125,8 @@ model = ModelMapping(
 )
 
 out = run!(model) # run the model and extract its outputs
+
+out[1:3,:]
 ```
 
 > **Note**  
@@ -144,14 +146,14 @@ lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xla
 Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
 
 ```@example readme
-# ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+# ] add PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Define the mapping for coupled models:
 model2 = ModelMapping(
@@ -162,6 +164,7 @@ model2 = ModelMapping(
 
 # Run the simulation:
 out2 = run!(model2, meteo_day)
+out2[1:3,:]
 ```
 
 The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:

@@ -22,9 +22,8 @@ We'll need to make use of a few packages, as usual, after adding them to our Jul
 ```@example usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples # to import the ToyDegreeDaysCumulModel model
-using PlantMeteo
+using PlantMeteo, Dates
 using MultiScaleTreeGraph # multi-scale
-using CSV, DataFrames # used to import the example weather data
 ```
 
 ## A basic growing plant
@@ -119,7 +118,7 @@ Let's first define a helper function that iterates across a Multiscale Tree Grap
 ```@example usepkg
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol=:Leaf))
     return nleaves
 end
 ```
@@ -246,27 +245,27 @@ mapping = ModelMapping(
 !!! note
     This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function [`to_initialize`](@ref) and check the PlantSimEngine user errors.
 
-### Running a simulation 
+### Running a simulation
 
 We only need an MTG, and some weather data, and then we'll be set. Let's create a simple MTG : 
 
 ```@example usepkg
- mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
-    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    
-    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
+plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
 
-    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+
+internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
 ```
 
-Import some weather data : 
+Import some weather data:
 
 ```@example usepkg
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 nothing # hide
 ```
 

@@ -7,7 +7,7 @@ A working trimmed-down script can be found further down in the [Example simulati
 If you simply wish to copy-paste examples and tinker with them, you can find a few examples on the [Quick examples](@ref) page.
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
@@ -189,7 +189,7 @@ The [`ModelMapping`](@ref) should already be initialized for the given process b
 For example we can simulate the `light_interception` of a leaf like so:
 
 ```@example usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples

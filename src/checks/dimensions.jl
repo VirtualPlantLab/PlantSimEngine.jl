@@ -115,3 +115,5 @@ end
 function get_nsteps(::TableAlike, t)
     DataAPI.nrow(t)
 end
+
+get_nsteps(::TableAlike, t::PlantMeteo.TimeStepRows) = length(t)

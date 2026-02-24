@@ -3,9 +3,9 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using CSV
-using DataFrames
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using PlantMeteo, Dates
+
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
@@ -89,13 +89,13 @@ The `Beer` model requires a specific meteorological parameter. Let's fix that by
 using PlantSimEngine
 
 # PlantMeteo and CSV packages are now used
-using PlantMeteo, CSV
+using PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
 # Import example weather data
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # A ModelMapping with two coupled models
 models = ModelMapping(
@@ -106,7 +106,7 @@ models = ModelMapping(
 
 # Add the weather data to the run! call
 outputs_coupled = run!(models, meteo_day)
-
+outputs_coupled[1:3,:]
 ```
 
 And there you have it. The light interception model made its computations using the Leaf Area Index computed by ToyLAIModel.

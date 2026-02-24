@@ -65,7 +65,7 @@ using PlantSimEngine.Examples
 Assuming you've setup you're environement, correctly added `PlantMeteo` and `PlantSimEngine` to that environment, and downloaded everything with `instantiate`, you'll be able to run a test example in your REPL by typing line-by-line:
 
 ```@example mypkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))

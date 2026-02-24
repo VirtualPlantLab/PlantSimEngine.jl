@@ -67,7 +67,7 @@ It will parse your mapping, generate custom models to store and feed the vector 
 !!! warning
     Only subtypes of AbstractVector present in statuses will be affected. In some cases, meteo values might need a small conversion. For instance :
     ```
-    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     status(TT_cu=cumsum(meteo_day.TT),)```
 
     cumsum(meteo_day.TT) actually returns a CSV.SentinelArray.ChainedVectors{T, Vector{T}}, which is not a subtype of AbstractVector. 
@@ -78,8 +78,8 @@ Here's an example usage, fixing the first attempt at [Converting a single-scale 
 ```julia
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, CSV, DataFrames
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using PlantMeteo, Dates
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Direct translation of the single-scale simulation
 mapping_pseudo_multiscale = ModelMapping(

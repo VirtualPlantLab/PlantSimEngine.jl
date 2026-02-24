@@ -16,9 +16,8 @@ Once again, with a properly set-up Julia environment:
 ```@example usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo
+using PlantMeteo, Dates, Dates
 using MultiScaleTreeGraph
-using CSV, DataFrames
 
 PlantSimEngine.@process "leaf_carbon_capture" verbose = false
 
@@ -38,7 +37,7 @@ end
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol=:Leaf))
     return nleaves
 end
 ```
@@ -78,12 +77,12 @@ It also makes use of a couple of helper functions to find the end root and compu
 ```@example usepkg
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return MultiScaleTreeGraph.traverse(root, x->x, symbol="Root", filter_fun = MultiScaleTreeGraph.isleaf)
+    return MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root, filter_fun = MultiScaleTreeGraph.isleaf)
 end
 
 function get_roots_count(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol="Root"))
+    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root))
 end
 
 PlantSimEngine.@process "root_growth" verbose = false
@@ -254,7 +253,7 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
         MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3), 
     )
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     
 outs = run!(mtg, mapping, meteo_day)
 mtg

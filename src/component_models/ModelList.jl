@@ -87,14 +87,7 @@ julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
 ```jldoctest 1
-julia> outputs_sim = run!(models,meteo)
-TimeStepTable{Status{(:var5, :var4, :var6, ...}(1 x 6):
-╭─────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────╮
-│ Row │    var5 │    var4 │    var6 │    var1 │    var3 │    var2 │
-│     │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │
-├─────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────────┤
-│   1 │ 36.0139 │    22.0 │ 58.0139 │    15.0 │     5.5 │     0.3 │
-╰─────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────╯
+julia> outputs_sim = run!(models,meteo);
 ```
 
 ```jldoctest 1

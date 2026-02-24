@@ -82,7 +82,7 @@ end
 
 # Another MTG with initialisation values for biomass:
 mtg_init = deepcopy(mtg)
-transform!(mtg_init, (x -> 1.0) => :carbon_biomass, symbol=["Internode", "Leaf"])
+MultiScaleTreeGraph.transform!(mtg_init, (x -> 1.0) => :carbon_biomass, symbol=[:Internode, :Leaf])
 
 @testset "Multiscale dependency graph" begin
     d = dep(mapping_1)

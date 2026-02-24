@@ -241,8 +241,8 @@ end
     for organ in keys(out)        
         reduced_ref_df = ref_df[(ref_df.organ .== organ), Not(:organ)]
         reduced_ref_df_no_missing = reduced_ref_df[:, any.(!ismissing, eachcol(reduced_ref_df))]
-        sorted_reduced_ref_df_no_missing = select(reduced_ref_df_no_missing, sort(propertynames(reduced_ref_df_no_missing)))
-        sorted_out_df_dict_organ = select(out_df_dict[organ], sort(propertynames(out_df_dict[organ])))
+        sorted_reduced_ref_df_no_missing = DataFrames.select(reduced_ref_df_no_missing, sort(propertynames(reduced_ref_df_no_missing)))
+        sorted_out_df_dict_organ = DataFrames.select(out_df_dict[organ], sort(propertynames(out_df_dict[organ])))
         @test sorted_reduced_ref_df_no_missing == sorted_out_df_dict_organ
     end
 end

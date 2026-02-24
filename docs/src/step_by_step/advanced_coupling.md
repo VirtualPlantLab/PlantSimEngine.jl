@@ -1,7 +1,7 @@
 # Coupling more complex models
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 # Import the example models defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
