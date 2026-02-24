@@ -1,7 +1,7 @@
 # Reducing the DoF
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
@@ -44,7 +44,7 @@ PlantSimEngine provides a simple way to reduce the degrees of freedom in a model
 Let's define a model list as usual with the seven processes from `examples/dummy.jl`:
 
 ```@example usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 

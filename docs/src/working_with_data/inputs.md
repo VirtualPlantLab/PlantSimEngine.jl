@@ -37,7 +37,7 @@ To do so, you need to implement the following methods for your structure that de
 Here's a quick example showcasing how to export the example weather data to your own file :
 
 ```julia 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 PlantMeteo.write_weather("examples/meteo_day.csv", meteo_day, duration = Dates.Day)
 ```
 

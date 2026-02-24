@@ -3,9 +3,9 @@
 ```@setup mymodel
 using PlantSimEngine
 using CairoMakie
-using CSV, DataFrames
 # Import the example models defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
+using PlantMeteo, Dates
 
 function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decslope=1000, dec_slope=20)
     LAI = max_lai * (1 / (1 + exp((dd_incslope - TT_cu) / inc_slope)) - 1 / (1 + exp((dd_decslope - TT_cu) / dec_slope)))
@@ -15,12 +15,12 @@ function lai_toymodel(TT_cu; max_lai=8.0, dd_incslope=500, inc_slope=70, dd_decs
     return LAI
 end
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 ```
 
 If you already have a model, you can easily use `PlantSimEngine` to couple it with other models with minor adjustments.
 
-## Toy LAI Model 
+## Toy LAI Model
 
 ### Model description
 
@@ -128,7 +128,7 @@ Now that we have everything set up, we can run a simulation. The first step here
 
 ```julia
 # Import the packages we need:
-using PlantMeteo, Dates, DataFrames
+using PlantMeteo, Dates
 
 # Define the period of the simulation:
 period = [Dates.Date("2021-01-01"), Dates.Date("2021-12-31")]

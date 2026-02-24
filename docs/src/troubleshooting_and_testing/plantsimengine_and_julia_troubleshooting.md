@@ -20,7 +20,7 @@ Depth = 3
 
 Some errors are very specific as to their cause, and the PlantSimEngine errors tend to be explicit about which parameter / variable / organ is causing the error, helping narrow down its origin.
 
-Some generic-looking errors usually do contain some extra information to help focus the debugging hunt. For instance, a dispatch failure on run! caused by some issue with args/kwargs may highlight explicitely indicate which arguments are currently causing conflict. In VSCode, such arguments are highlighted in red (the first and last arguments in the example below) : 
+Some generic-looking errors usually do contain some extra information to help focus the debugging hunt. For instance, a dispatch failure on run! caused by some issue with args/kwargs may highlight explicitely indicate which arguments are currently causing conflict. In VSCode, such arguments are highlighted in red (the first and last arguments in the example below):
 
 ```julia
 a = 1
@@ -256,27 +256,27 @@ MultiScaleModel(
 
 ### Kwarg and arg parameter issues when calling run!
 
-There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine's end and may be improved upon in the future. 
+There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine's end and may be improved upon in the future.
 
-Here are a few examples when modifying the usual multiscale run! call in this working example : 
+Here are a few examples when modifying the usual multiscale run! call in this working example:
 
 ```julia
-    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    var1 = 15.0
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+var1 = 15.0
 
-    mapping = ModelMapping(
-        "Leaf" => (
-            Process1Model(1.0),
-            Process2Model(),
-            Process3Model(),
-            Status(var1=var1,)
-        )
+mapping = ModelMapping(
+    "Leaf" => (
+        Process1Model(1.0),
+        Process2Model(),
+        Process3Model(),
+        Status(var1=var1,)
     )
+)
 
-    outs = Dict(
-        "Leaf" => (:var1,), # :non_existing_variable is not computed by any model
-    )
+outs = Dict(
+    "Leaf" => (:var1,), # :non_existing_variable is not computed by any model
+)
 
 run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)
 ```

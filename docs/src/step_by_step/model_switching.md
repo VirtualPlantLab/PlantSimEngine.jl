@@ -1,11 +1,11 @@
 # Model switching
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo, CSV, DataFrames
+using PlantSimEngine, PlantMeteo, Dates
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
  
 models = ModelMapping(
     ToyLAIModel(),
@@ -55,7 +55,7 @@ nothing # hide
 We can the simulation by calling the [`run!`](@ref) function with meteorology data. Here we use an example data set:
 
 ```@example usepkg
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 nothing # hide
 ```
 
@@ -63,6 +63,7 @@ We can now run the simulation:
 
 ```@example usepkg
 output_initial = run!(models, meteo_day)
+output_initial[1:3,:] # show the first 3 rows of the output
 ```
 
 ## Switching one model in the simulation
@@ -88,6 +89,7 @@ We can run a new simulation and see that the simulation's results are different 
 
 ```@example usepkg
 output_updated = run!(models2, meteo_day)
+output_updated[1:3,:] # show the first 3 rows of the output
 ```
 
 And that's it! We can switch between models without changing the code, and without having to recompute the dependency graph manually. This is a very powerful feature of PlantSimEngine!💪

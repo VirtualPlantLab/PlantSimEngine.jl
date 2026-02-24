@@ -1,15 +1,15 @@
 # Converting a single-scale simulation to multi-scale
+
 ```@meta
 CurrentModule = PlantSimEngine
 ```
+
 ```@setup usepkg
-using PlantMeteo
+using PlantMeteo, Dates
 using PlantSimEngine
 using PlantSimEngine.Examples
-using CSV
-using DataFrames
 using MultiScaleTreeGraph
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
@@ -34,12 +34,11 @@ Depth = 3
 For example, let's return to the [`ModelMapping`](@ref) coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
 
 ```@example usepkg
-using PlantMeteo
+using PlantMeteo, Dates
 using PlantSimEngine
 using PlantSimEngine.Examples
-using CSV
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 models_singlescale = ModelMapping(
     ToyLAIModel(),
@@ -49,6 +48,7 @@ models_singlescale = ModelMapping(
 )
 
 outputs_singlescale = run!(models_singlescale, meteo_day)
+outputs_singlescale[1:3,:] # show the first 3 rows of the output
 ```
 
 Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that "plant" scale, so there is no need to map any variable to other scales.

@@ -163,6 +163,7 @@ for row in eachrow(week_df)
 end
 
 meteo_hourly = Weather(hourly_rows)
+meteo_hourly[1:3] # show the first 3 rows of the hourly weather table
 ```
 
 ## 2. Define simple tutorial models
@@ -300,7 +301,7 @@ Of course the outputs of the models are still available in the `status_outputs` 
 
 ```@example multirate_tutorial
 outs = convert_outputs(out_status, DataFrame)
-outs["Plant"]
+outs["Plant"][1:3,:]
 ```
 
 ## 5. Deeper notes

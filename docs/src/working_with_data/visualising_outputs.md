@@ -1,12 +1,12 @@
 ```@setup usepkg
-# ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+# ] add PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Include the model definition from the examples folder:
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Define the list of models for coupling:
 model = ModelMapping(
@@ -29,14 +29,14 @@ PlantSimEngine's run! functions return for each timestep the state of the variab
 Here's an example indicating how to plot output data using CairoMakie, a package used for plotting.
 
 ```@example usepkg
-# ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+# ] add PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Include the model definition from the examples folder:
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Define the list of models for coupling:
 models = ModelMapping(
@@ -47,6 +47,7 @@ models = ModelMapping(
 
 # Run the simulation:
 sim_outputs = run!(models, meteo_day)
+sim_outputs[1:3,:] # show the first 3 rows of the output
 ```
 
 The output data is displayed as a by default as a `TimeStepTable`. It is also possible to filter which variables are kept via the optional `tracked_outputs` keyword argument.

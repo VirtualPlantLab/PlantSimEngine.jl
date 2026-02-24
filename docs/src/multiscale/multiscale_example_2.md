@@ -16,9 +16,8 @@ Once again, with a properly set-up Julia environment:
 ```@example usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo
+using PlantMeteo, Dates, Dates
 using MultiScaleTreeGraph
-using CSV, DataFrames
 
 PlantSimEngine.@process "leaf_carbon_capture" verbose = false
 
@@ -254,7 +253,7 @@ mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
         MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3), 
     )
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     
 outs = run!(mtg, mapping, meteo_day)
 mtg
