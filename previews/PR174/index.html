@@ -11,40 +11,53 @@ model = ModelMapping(
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
-out = run!(model) # run the model and extract its outputs</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">TimeStepTable{Status{(:TT_cu, :LAI), Tuple{...}(2000 x 2):
-<span class="sgr31">╭─────┬─────────┬────────────╮</span>
-<span class="sgr31">│</span><span class="sgr1"> Row </span><span class="sgr31">│</span><span class="sgr1">   TT_cu </span><span class="sgr31">│</span><span class="sgr1">        LAI </span><span class="sgr31">│</span>
-<span class="sgr31">│</span>     <span class="sgr31">│</span><span class="sgr90"> Float64 </span><span class="sgr31">│</span><span class="sgr90">    Float64 </span><span class="sgr31">│</span>
-<span class="sgr31">├─────┼─────────┼────────────┤</span>
-<span class="sgr31">│</span>   1 <span class="sgr31">│</span>     1.0 <span class="sgr31">│</span> 0.00560052 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   2 <span class="sgr31">│</span>     2.0 <span class="sgr31">│</span> 0.00565163 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   3 <span class="sgr31">│</span>     3.0 <span class="sgr31">│</span> 0.00570321 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   4 <span class="sgr31">│</span>     4.0 <span class="sgr31">│</span> 0.00575526 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   5 <span class="sgr31">│</span>     5.0 <span class="sgr31">│</span> 0.00580778 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   6 <span class="sgr31">│</span>     6.0 <span class="sgr31">│</span> 0.00586078 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   7 <span class="sgr31">│</span>     7.0 <span class="sgr31">│</span> 0.00591426 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   8 <span class="sgr31">│</span>     8.0 <span class="sgr31">│</span> 0.00596823 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   9 <span class="sgr31">│</span>     9.0 <span class="sgr31">│</span> 0.00602269 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  10 <span class="sgr31">│</span>    10.0 <span class="sgr31">│</span> 0.00607765 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  11 <span class="sgr31">│</span>    11.0 <span class="sgr31">│</span> 0.00613311 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  12 <span class="sgr31">│</span>    12.0 <span class="sgr31">│</span> 0.00618908 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  13 <span class="sgr31">│</span>    13.0 <span class="sgr31">│</span> 0.00624556 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  14 <span class="sgr31">│</span>    14.0 <span class="sgr31">│</span> 0.00630255 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  15 <span class="sgr31">│</span>    15.0 <span class="sgr31">│</span> 0.00636006 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  ⋮  <span class="sgr31">│</span>    ⋮    <span class="sgr31">│</span>     ⋮      <span class="sgr31">│</span>
-<span class="sgr31">╰─────┴─────────┴────────────╯</span>
-<span class="sgr36">             1985 rows omitted</span>
-</code></pre><blockquote><p><strong>Note</strong>   The <code>ToyLAIModel</code> is available from the <a href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples">examples folder</a>, and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows <code>PlantSimEngine</code> interface.</p></blockquote><p>Of course you can plot the outputs quite easily:</p><pre><code class="language-julia hljs"># ] add CairoMakie
+out = run!(model) # run the model and extract its outputs
+
+out[1:3,:]</code></pre><table>
+  <thead>
+    <tr class = "title">
+      <td colspan = "3" style = "font-size: x-large; font-weight: bold; text-align: center;">TimeStepTable{Status{(:TT_cu, :LAI), Tuple{...}(3 x 2):</td>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "font-weight: bold; text-align: right;">TT_cu</th>
+      <th style = "font-weight: bold; text-align: right;">LAI</th>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td>
+      <td style = "text-align: right;">1.0</td>
+      <td style = "text-align: right;">0.00560052</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td>
+      <td style = "text-align: right;">2.0</td>
+      <td style = "text-align: right;">0.00565163</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td>
+      <td style = "text-align: right;">3.0</td>
+      <td style = "text-align: right;">0.00570321</td>
+    </tr>
+  </tbody>
+</table>
+<blockquote><p><strong>Note</strong>   The <code>ToyLAIModel</code> is available from the <a href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples">examples folder</a>, and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows <code>PlantSimEngine</code> interface.</p></blockquote><p>Of course you can plot the outputs quite easily:</p><pre><code class="language-julia hljs"># ] add CairoMakie
 using CairoMakie
 
-lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel=&quot;LAI (m² m⁻²)&quot;, xlabel=&quot;Cumulated growing degree days since sowing (°C)&quot;))</code></pre><img src="index-0d8984c5.png" alt="Example block output"/><h3 id="Model-coupling"><a class="docs-heading-anchor" href="#Model-coupling">Model coupling</a><a id="Model-coupling-1"></a><a class="docs-heading-anchor-permalink" href="#Model-coupling" title="Permalink"></a></h3><p>Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the <code>ModelMapping</code>. For example, let&#39;s couple the <code>ToyLAIModel</code> with a model for light interception based on Beer&#39;s law:</p><pre><code class="language-julia hljs"># ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel=&quot;LAI (m² m⁻²)&quot;, xlabel=&quot;Cumulated growing degree days since sowing (°C)&quot;))</code></pre><img src="index-0d8984c5.png" alt="Example block output"/><h3 id="Model-coupling"><a class="docs-heading-anchor" href="#Model-coupling">Model coupling</a><a id="Model-coupling-1"></a><a class="docs-heading-anchor-permalink" href="#Model-coupling" title="Permalink"></a></h3><p>Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the <code>ModelMapping</code>. For example, let&#39;s couple the <code>ToyLAIModel</code> with a model for light interception based on Beer&#39;s law:</p><pre><code class="language-julia hljs"># ] add PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), duration=Dates.Day)
 
 # Define the mapping for coupled models:
 model2 = ModelMapping(
@@ -54,30 +67,47 @@ model2 = ModelMapping(
 )
 
 # Run the simulation:
-out2 = run!(model2, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">TimeStepTable{Status{(:TT_cu, :LAI, :aPPFD)...}(365 x 3):
-<span class="sgr31">╭─────┬──────────┬────────────┬───────────╮</span>
-<span class="sgr31">│</span><span class="sgr1"> Row </span><span class="sgr31">│</span><span class="sgr1">    TT_cu </span><span class="sgr31">│</span><span class="sgr1">        LAI </span><span class="sgr31">│</span><span class="sgr1">     aPPFD </span><span class="sgr31">│</span>
-<span class="sgr31">│</span>     <span class="sgr31">│</span><span class="sgr90">  Float64 </span><span class="sgr31">│</span><span class="sgr90">    Float64 </span><span class="sgr31">│</span><span class="sgr90">   Float64 </span><span class="sgr31">│</span>
-<span class="sgr31">├─────┼──────────┼────────────┼───────────┤</span>
-<span class="sgr31">│</span>   1 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0476221 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   2 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0260688 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   3 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0377774 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   4 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0468871 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   5 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0545266 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   6 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0567055 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   7 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0521376 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   8 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0563642 <span class="sgr31">│</span>
-<span class="sgr31">│</span>   9 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0349947 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  10 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0168016 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  11 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0606171 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  12 <span class="sgr31">│</span>      0.0 <span class="sgr31">│</span> 0.00554988 <span class="sgr31">│</span> 0.0486197 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  13 <span class="sgr31">│</span>   0.5625 <span class="sgr31">│</span> 0.00557831 <span class="sgr31">│</span> 0.0357278 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  14 <span class="sgr31">│</span> 0.945833 <span class="sgr31">│</span> 0.00559777 <span class="sgr31">│</span> 0.0519777 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  15 <span class="sgr31">│</span> 0.979167 <span class="sgr31">│</span> 0.00559946 <span class="sgr31">│</span> 0.0564167 <span class="sgr31">│</span>
-<span class="sgr31">│</span>  ⋮  <span class="sgr31">│</span>    ⋮     <span class="sgr31">│</span>     ⋮      <span class="sgr31">│</span>     ⋮     <span class="sgr31">│</span>
-<span class="sgr31">╰─────┴──────────┴────────────┴───────────╯</span>
-<span class="sgr36">                           350 rows omitted</span>
-</code></pre><p>The <code>ModelMapping</code> couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:</p><pre><code class="nohighlight hljs">╭──── Dependency graph ──────────────────────────────────────────╮
+out2 = run!(model2, meteo_day)
+out2[1:3,:]</code></pre><table>
+  <thead>
+    <tr class = "title">
+      <td colspan = "4" style = "font-size: x-large; font-weight: bold; text-align: center;">TimeStepTable{Status{(:TT_cu, :LAI, :aPPFD)...}(3 x 3):</td>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "font-weight: bold; text-align: right;">TT_cu</th>
+      <th style = "font-weight: bold; text-align: right;">LAI</th>
+      <th style = "font-weight: bold; text-align: right;">aPPFD</th>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">0.00554988</td>
+      <td style = "text-align: right;">0.0476221</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">0.00554988</td>
+      <td style = "text-align: right;">0.0260688</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">0.00554988</td>
+      <td style = "text-align: right;">0.0377774</td>
+    </tr>
+  </tbody>
+</table>
+<p>The <code>ModelMapping</code> couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:</p><pre><code class="nohighlight hljs">╭──── Dependency graph ──────────────────────────────────────────╮
 │  ╭──── LAI_Dynamic ─────────────────────────────────────────╮  │
 │  │  ╭──── Main model ────────╮                              │  │
 │  │  │  Process: LAI_Dynamic  │                              │  │
@@ -171,4 +201,4 @@ fig</code></pre><img src="index-23291bc5.png" alt="Example block output"/><h3 id
 out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx());</code></pre><p>We can then extract the outputs and convert them to a <code>DataFrame</code> for each scale and sort them:</p><pre><code class="language-julia hljs">using DataFrames
 df_outputs = convert_outputs(out, DataFrame)
 leaf_df = df_outputs isa AbstractDict ? df_outputs[&quot;Leaf&quot;] : df_outputs
-sort!(leaf_df, [:timestep, :node])</code></pre><div><div style = "float: left;"><span>5×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "header"><th class = "rowNumber" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">node</th><th style = "text-align: left;">timestep</th><th style = "text-align: left;">carbon_demand</th><th style = "text-align: left;">carbon_allocation</th></tr><tr class = "subheader headerLastRow"><th class = "rowNumber" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr><td class = "rowNumber" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">5</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.5</td><td style = "text-align: right;">0.124183</td></tr><tr><td class = "rowNumber" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">7</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.5</td><td style = "text-align: right;">0.124183</td></tr><tr><td class = "rowNumber" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">5</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr><tr><td class = "rowNumber" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: right;">7</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr><tr><td class = "rowNumber" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: right;">9</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr></tbody></table></div><p>An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:</p><p><img src="www/image.png" alt="Plant growth simulation"/></p><h2 id="State-of-the-field"><a class="docs-heading-anchor" href="#State-of-the-field">State of the field</a><a id="State-of-the-field-1"></a><a class="docs-heading-anchor-permalink" href="#State-of-the-field" title="Permalink"></a></h2><p>PlantSimEngine is a state-of-the-art plant simulation software that offers significant advantages over existing tools such as OpenAlea, STICS, APSIM, or DSSAT.</p><p>The use of Julia programming language in PlantSimEngine allows for:</p><ul><li>Quick and easy prototyping compared to compiled languages</li><li>Significantly better performance than typical interpreted languages</li><li>No need for translation into another compiled language</li></ul><p>Julia&#39;s features enable PlantSimEngine to provide:</p><ul><li>Multiple-dispatch for automatic computation of model dependency graphs</li><li>Type stability for optimized performance</li><li>Seamless compatibility with powerful tools like MultiScaleTreeGraph.jl for multi-scale computations</li></ul><p>PlantSimEngine&#39;s approach streamlines the process of model development by automatically managing:</p><ul><li>Model coupling with automated dependency graph computation</li><li>Time-steps and parallelization</li><li>Input and output variables</li><li>Various types of objects used for simulations (vectors, dictionaries, multi-scale tree graphs)</li></ul><h2 id="Projects-that-use-PlantSimEngine"><a class="docs-heading-anchor" href="#Projects-that-use-PlantSimEngine">Projects that use PlantSimEngine</a><a id="Projects-that-use-PlantSimEngine-1"></a><a class="docs-heading-anchor-permalink" href="#Projects-that-use-PlantSimEngine" title="Permalink"></a></h2><p>Take a look at these projects that use PlantSimEngine:</p><ul><li><a href="https://github.com/VEZY/PlantBiophysics.jl">PlantBiophysics.jl</a></li><li><a href="https://github.com/PalmStudio/XPalm.jl">XPalm</a></li></ul><h2 id="Make-it-yours"><a class="docs-heading-anchor" href="#Make-it-yours">Make it yours</a><a id="Make-it-yours-1"></a><a class="docs-heading-anchor-permalink" href="#Make-it-yours" title="Permalink"></a></h2><p>The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.</p><p>If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃</p></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="introduction/why_plantsimengine/">Why PlantSimEngine ? »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Saturday 21 February 2026 08:02">Saturday 21 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+sort!(leaf_df, [:timestep, :node])</code></pre><div><div style = "float: left;"><span>5×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">node</th><th style = "text-align: left;">timestep</th><th style = "text-align: left;">carbon_demand</th><th style = "text-align: left;">carbon_allocation</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">5</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.5</td><td style = "text-align: right;">0.124183</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">7</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.5</td><td style = "text-align: right;">0.124183</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">5</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: right;">7</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: right;">9</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.75</td><td style = "text-align: right;">0.157992</td></tr></tbody></table></div><p>An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:</p><p><img src="www/image.png" alt="Plant growth simulation"/></p><h2 id="State-of-the-field"><a class="docs-heading-anchor" href="#State-of-the-field">State of the field</a><a id="State-of-the-field-1"></a><a class="docs-heading-anchor-permalink" href="#State-of-the-field" title="Permalink"></a></h2><p>PlantSimEngine is a state-of-the-art plant simulation software that offers significant advantages over existing tools such as OpenAlea, STICS, APSIM, or DSSAT.</p><p>The use of Julia programming language in PlantSimEngine allows for:</p><ul><li>Quick and easy prototyping compared to compiled languages</li><li>Significantly better performance than typical interpreted languages</li><li>No need for translation into another compiled language</li></ul><p>Julia&#39;s features enable PlantSimEngine to provide:</p><ul><li>Multiple-dispatch for automatic computation of model dependency graphs</li><li>Type stability for optimized performance</li><li>Seamless compatibility with powerful tools like MultiScaleTreeGraph.jl for multi-scale computations</li></ul><p>PlantSimEngine&#39;s approach streamlines the process of model development by automatically managing:</p><ul><li>Model coupling with automated dependency graph computation</li><li>Time-steps and parallelization</li><li>Input and output variables</li><li>Various types of objects used for simulations (vectors, dictionaries, multi-scale tree graphs)</li></ul><h2 id="Projects-that-use-PlantSimEngine"><a class="docs-heading-anchor" href="#Projects-that-use-PlantSimEngine">Projects that use PlantSimEngine</a><a id="Projects-that-use-PlantSimEngine-1"></a><a class="docs-heading-anchor-permalink" href="#Projects-that-use-PlantSimEngine" title="Permalink"></a></h2><p>Take a look at these projects that use PlantSimEngine:</p><ul><li><a href="https://github.com/VEZY/PlantBiophysics.jl">PlantBiophysics.jl</a></li><li><a href="https://github.com/PalmStudio/XPalm.jl">XPalm</a></li></ul><h2 id="Make-it-yours"><a class="docs-heading-anchor" href="#Make-it-yours">Make it yours</a><a id="Make-it-yours-1"></a><a class="docs-heading-anchor-permalink" href="#Make-it-yours" title="Permalink"></a></h2><p>The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.</p><p>If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃</p></article><nav class="docs-footer"><a class="docs-footer-nextpage" href="introduction/why_plantsimengine/">Why PlantSimEngine ? »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 24 February 2026 07:33">Tuesday 24 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
