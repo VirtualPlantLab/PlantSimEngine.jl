@@ -158,6 +158,7 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
             clock=clock,
             model_spec=model_spec,
             source_dt=float(source_clock.dt),
+            source_sample_duration_seconds=float(source_clock.dt) * timeline.base_step_seconds,
         ))
         rows[req.name] = ExportBuffer(scale, process, req.var)
     end
@@ -203,7 +204,8 @@ function _resolve_output_value_online(
     var::Symbol,
     nodeid::Int,
     t::Float64,
-    t_start::Float64
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
 )
     v, ok = _resolved_value_for_source(sim, scope, scale, process, var, nodeid, t)
     return ok ? v : missing
@@ -218,7 +220,8 @@ function _resolve_output_value_online(
     var::Symbol,
     nodeid::Int,
     t::Float64,
-    t_start::Float64
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
 )
     v, ok = _resolved_interpolated_value_for_source(sim, scope, scale, process, var, nodeid, t, policy)
     return ok ? v : missing
@@ -233,9 +236,21 @@ function _resolve_output_value_online(
     var::Symbol,
     nodeid::Int,
     t::Float64,
-    t_start::Float64
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
 )
-    v, ok = _resolved_windowed_value_for_source(sim, scope, scale, process, var, nodeid, t_start, t, policy)
+    v, ok = _resolved_windowed_value_for_source(
+        sim,
+        scope,
+        scale,
+        process,
+        var,
+        nodeid,
+        t_start,
+        t,
+        policy,
+        source_sample_duration_seconds
+    )
     return ok ? v : missing
 end
 
@@ -268,6 +283,7 @@ function update_requested_outputs!(sim::GraphSimulation, t::Float64)
                 nodeid,
                 t,
                 t_start,
+                plan.source_sample_duration_seconds,
             )
 
             push!(buf.timestep, timestep)

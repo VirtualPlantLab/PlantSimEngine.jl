@@ -132,7 +132,9 @@ use the same reducer `r`; they only differ by default reducer and naming intent.
 Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
 `SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
 `LastReducer()`.
-You can also provide a callable taking the collected window values.
+You can also provide a callable taking either:
+- `values`
+- `values, durations_seconds`
 """
 struct Integrate{R} <: SchedulePolicy
     reducer::R
@@ -158,7 +160,9 @@ use the same reducer `r`; they only differ by default reducer and naming intent.
 Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
 `SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
 `LastReducer()`.
-You can also provide a callable taking the collected window values.
+You can also provide a callable taking either:
+- `values`
+- `values, durations_seconds`
 """
 struct Aggregate{R} <: SchedulePolicy
     reducer::R

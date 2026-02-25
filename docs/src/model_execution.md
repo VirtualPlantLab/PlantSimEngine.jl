@@ -42,7 +42,11 @@ For inferred bindings, default policy is resolved as:
 - producer `output_policy` for the source output when defined;
 - otherwise `HoldLast()`.
 
-Explicit mapping policies still have priority (`InputBindings(..., policy=...)`).
+`output_policy` is a default hint, applied only when an output stream is actually read
+by another model input (or output export). Unused outputs do not trigger integration/reduction work.
+
+Explicit mapping policies still have priority (`InputBindings(..., policy=...)`) and can
+complement trait defaults by defining additional bindings with different policies.
 
 For timestep hints:
 - `timestep_hint.required` is a hard compatibility constraint when runtime uses meteo-derived timestep.
@@ -66,6 +70,9 @@ Policy parameterization:
   In practice, only defaults and naming intent differ (`Integrate` for accumulation, `Aggregate` for summary statistics).
 - `Interpolate()` defaults to `mode=:linear, extrapolation=:linear`; use `Interpolate(; mode=:hold, extrapolation=:hold)` for hold behavior.
 - The same reducer objects are reused by meteo sampling (`MeteoBindings`) and by windowed policies (`Integrate`, `Aggregate`).
+- Custom reducers/callables can accept either `(values)` or `(values, durations_seconds)`.
+- For flux-to-amount conversions, use `Integrate(PlantMeteo.DurationSumReducer())`
+  (equivalent to `sum(values .* durations_seconds)`), instead of hardcoding a fixed factor.
 
 `TimeStepModel(...)` accepts either step counts (`Real`), `ClockSpec`, or fixed `Dates` periods
 (for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using

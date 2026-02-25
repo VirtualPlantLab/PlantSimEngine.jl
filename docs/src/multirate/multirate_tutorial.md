@@ -83,7 +83,7 @@ mapping_coarse = ModelMapping(
         ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
         ModelSpec(TutorialHourlyIntegratorModel()) |>
         TimeStepModel(Hour(1)) |>
-        InputBindings(; A=(process=:tutorialhalfhoursource, var=:A, policy=Integrate(vals -> sum(vals) * 1800.0))) |>
+        InputBindings(; A=(process=:tutorialhalfhoursource, var=:A, policy=Integrate(DurationSumReducer()))) |>
         MeteoBindings(; T=MeanWeighted()),
     ),
 )
@@ -106,7 +106,8 @@ out_coarse_df = PlantSimEngine.convert_outputs(out_coarse, DataFrame)
 (out_coarse_df[:Leaf][end, :A_hourly], out_coarse_df[:Leaf][end, :T_hourly])
 ```
 
-The final tuple is `(3600.0, 23.0)`: hourly integrated assimilation (`1.0 * 1800 s * 2`) and hourly mean temperature over the coarse window.
+The final tuple is `(3600.0, 23.0)`: hourly integrated assimilation
+(`sum(A .* duration_seconds)` over two 30-minute rows) and hourly mean temperature over the coarse window.
 
 ## 1. Setup and example data
 
@@ -324,6 +325,9 @@ Reducer objects work for model inputs and meteo bindings:
 
 - `InputBindings(..., policy=Integrate(...)/Aggregate(...))`,
 - `MeteoBindings(..., reducer=...)`.
+- For duration-aware accumulation (for example flux to amount), use
+  `Integrate(DurationSumReducer())` or an equivalent two-argument callable
+  `Integrate((values, durations_seconds) -> sum(values .* durations_seconds))`.
 
 ### Inspect resolved specs
 

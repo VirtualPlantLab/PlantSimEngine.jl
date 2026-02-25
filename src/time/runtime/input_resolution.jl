@@ -30,7 +30,8 @@ function _resolved_windowed_value_for_source(
     source_node_id::Int,
     t_start::Float64,
     t_end::Float64,
-    policy::SchedulePolicy
+    policy::SchedulePolicy,
+    source_sample_duration_seconds::Float64
 )
     key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
     samples = _resolution_samples(sim, key)
@@ -38,14 +39,16 @@ function _resolved_windowed_value_for_source(
 
     if policy isa Union{Integrate,Aggregate}
         vals_real = Float64[]
+        durations_real = Float64[]
         for (ts, v) in samples
             ts < t_start - 1e-8 && continue
             ts > t_end + 1e-8 && continue
             v isa Real || return nothing, false
             push!(vals_real, float(v))
+            push!(durations_real, source_sample_duration_seconds)
         end
         isempty(vals_real) && return nothing, false
-        return _window_reduce(vals_real, policy), true
+        return _window_reduce(vals_real, durations_real, policy), true
     end
 
     return nothing, false
@@ -126,12 +129,17 @@ function _resolve_window_reducer(reducer)
     )
 end
 
-function _window_reduce(vals::AbstractVector{<:Real}, policy::SchedulePolicy)
+function _window_reduce(vals::AbstractVector{<:Real}, durations::AbstractVector{<:Real}, policy::SchedulePolicy)
     reducer = policy isa Integrate ? policy.reducer : (policy isa Aggregate ? policy.reducer : PlantMeteo.SumReducer())
     f = _resolve_window_reducer(reducer)
 
+    if applicable(f, vals, durations)
+        return f(vals, durations)
+    end
+
     applicable(f, vals) || error(
-        "Reducer `$(reducer)` is not callable on collected window values for policy `$(typeof(policy))`."
+        "Reducer `$(reducer)` is not callable on collected window values for policy `$(typeof(policy))`. ",
+        "Expected `(values)` or `(values, durations_seconds)`."
     )
 
     return f(vals)
@@ -201,7 +209,8 @@ function _resolve_input_windowed(
     source_var::Symbol,
     t_start::Float64,
     t_end::Float64,
-    policy::SchedulePolicy
+    policy::SchedulePolicy,
+    source_sample_duration_seconds::Float64
 )
     source_statuses = get(status(sim), source_scale, nothing)
     isnothing(source_statuses) && return nothing
@@ -214,7 +223,7 @@ function _resolve_input_windowed(
             source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
             source_scope == consumer_scope || continue
             v, ok = _resolved_windowed_value_for_source(
-                sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+                sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy, source_sample_duration_seconds
             )
             if ok
                 push!(vals, v)
@@ -230,7 +239,7 @@ function _resolve_input_windowed(
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_windowed_value_for_source(
-        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy
+        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy, source_sample_duration_seconds
     )
     if ok
         _assign_input_value!(st, input_var, v)
@@ -253,7 +262,7 @@ function _resolve_input_windowed(
                 source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
                 if source_scope == consumer_scope
                     vv, found = _resolved_windowed_value_for_source(
-                        sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t_start, t_end, policy
+                        sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t_start, t_end, policy, source_sample_duration_seconds
                     )
                     if found
                         _assign_input_value!(st, input_var, vv)
@@ -274,7 +283,7 @@ function _resolve_input_windowed(
         source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
         source_scope == consumer_scope || continue
         vv, found = _resolved_windowed_value_for_source(
-            sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy
+            sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy, source_sample_duration_seconds
         )
         found && push!(candidates, vv)
     end
@@ -508,6 +517,9 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
             end
         end
         source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
+        source_model = get_models(sim)[source_scale][source_process]
+        source_clock = _model_clock(source_model_spec, source_model, timeline)
+        source_sample_duration_seconds = float(source_clock.dt) * timeline.base_step_seconds
         if !policy_is_explicit
             policy = _policy_for_output(model_(source_model_spec), source_var)
         end
@@ -517,7 +529,21 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
         elseif policy isa Interpolate
             _resolve_input_interpolate(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t, policy)
         elseif policy isa Integrate || policy isa Aggregate
-            _resolve_input_windowed(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t_start, t, policy)
+            _resolve_input_windowed(
+                sim,
+                node,
+                st,
+                consumer_scope,
+                source_model_spec,
+                input_var,
+                source_scale,
+                source_process,
+                source_var,
+                t_start,
+                t,
+                policy,
+                source_sample_duration_seconds
+            )
         end
     end
 

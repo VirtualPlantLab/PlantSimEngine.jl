@@ -6,6 +6,9 @@ const _CALENDAR_ANCHORS = (:current_period, :previous_complete_period)
 const _CALENDAR_COMPLETENESS = (:allow_partial, :strict)
 
 function _validate_window_reducer(scale::Symbol, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
+    vals_probe = [1.0, 2.0]
+    durations_probe = [1.0, 1.0]
+
     if reducer isa DataType
         reducer <: PlantMeteo.AbstractTimeReducer || error(
             "Invalid reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
@@ -20,21 +23,21 @@ function _validate_window_reducer(scale::Symbol, process::Symbol, input_var::Sym
                 "in process `$(process)` at scale `$(scale)` cannot be instantiated without arguments."
             )
         end
-        applicable(rr, [1.0, 2.0]) || error(
+        (applicable(rr, vals_probe) || applicable(rr, vals_probe, durations_probe)) || error(
             "Reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
-            "must be callable on a vector of numeric values."
+            "must be callable on `(values)` or `(values, durations)`."
         )
         return nothing
     elseif reducer isa PlantMeteo.AbstractTimeReducer
-        applicable(reducer, [1.0, 2.0]) || error(
+        (applicable(reducer, vals_probe) || applicable(reducer, vals_probe, durations_probe)) || error(
             "Reducer `$(typeof(reducer))` for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
-            "must be callable on a vector of numeric values."
+            "must be callable on `(values)` or `(values, durations)`."
         )
         return nothing
     elseif reducer isa Function
-        applicable(reducer, [1.0, 2.0]) || error(
+        (applicable(reducer, vals_probe) || applicable(reducer, vals_probe, durations_probe)) || error(
             "Reducer for policy `$(policy_name)` on input `$(input_var)` in process `$(process)` at scale `$(scale)` ",
-            "must be callable on a vector of numeric values."
+            "must be callable on `(values)` or `(values, durations)`."
         )
         return nothing
     end

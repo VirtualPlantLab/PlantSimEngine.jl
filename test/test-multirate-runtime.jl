@@ -649,6 +649,44 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test length(sim_agg.temporal_state.streams[key_agg]) <= 2
     @test sim_agg.temporal_state.producer_horizons[(:Leaf, :mraggsource, :XA)] == 2.0
 
+    # Expectation 10a: duration-aware reducers receive per-sample durations (seconds).
+    # Using hourly meteo rows, RadiationEnergy integrates XA values as value * 3600 s.
+    meteo4_hourly = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 4))
+    agg_counter_duration = Ref(0)
+    mapping_agg_duration = ModelMapping(
+        :Leaf => (
+            ModelSpec(MRAggSourceModel(agg_counter_duration)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(RadiationEnergy()))),
+        ),
+    )
+    sim_agg_duration = PlantSimEngine.GraphSimulation(mtg, mapping_agg_duration, nsteps=4, check=true, outputs=Dict(:Leaf => (:YA,)))
+    out_agg_duration = run!(sim_agg_duration, meteo4_hourly, executor=SequentialEx())
+    out_agg_duration_df = convert_outputs(out_agg_duration, DataFrame)
+    @test isapprox.(out_agg_duration_df[:Leaf][:, :YA], [0.0036, 0.0036, 0.018, 0.018], atol=1.0e-9) |> all
+
+    # Expectation 10aa: custom two-argument reducers can use durations directly.
+    agg_counter_duration_callable = Ref(0)
+    mapping_agg_duration_callable = ModelMapping(
+        :Leaf => (
+            ModelSpec(MRAggSourceModel(agg_counter_duration_callable)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate((vals, durations) -> sum(vals .* durations)))),
+        ),
+    )
+    sim_agg_duration_callable = PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_agg_duration_callable,
+        nsteps=4,
+        check=true,
+        outputs=Dict(:Leaf => (:YA,))
+    )
+    out_agg_duration_callable = run!(sim_agg_duration_callable, meteo4_hourly, executor=SequentialEx())
+    out_agg_duration_callable_df = convert_outputs(out_agg_duration_callable, DataFrame)
+    @test out_agg_duration_callable_df[:Leaf][:, :YA] == [3600.0, 3600.0, 18000.0, 18000.0]
+
     # Expectation 10b: inferred bindings use producer output_policy by default.
     # Source XT=[1,2,3,4], consumer runs at t=1,3 and has no explicit InputBindings.
     # output_policy(XT=Aggregate()) drives YT to [1,1,2.5,2.5].

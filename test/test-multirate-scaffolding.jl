@@ -60,12 +60,13 @@ using Test
     @test ts.caches[key].v == 42.0
 
     vals = [1.0, 2.0, 3.0]
+    durs = [1.0, 1.0, 1.0]
     @test Integrate().reducer isa SumReducer
     @test Aggregate().reducer isa MeanReducer
-    @test PlantSimEngine._window_reduce(vals, Integrate()) == 6.0
-    @test PlantSimEngine._window_reduce(vals, Aggregate()) == 2.0
-    @test PlantSimEngine._window_reduce(vals, Integrate(MeanReducer())) ==
-          PlantSimEngine._window_reduce(vals, Aggregate(MeanReducer()))
-    @test PlantSimEngine._window_reduce(vals, Integrate(SumReducer())) ==
-          PlantSimEngine._window_reduce(vals, Aggregate(SumReducer()))
+    @test PlantSimEngine._window_reduce(vals, durs, Integrate()) == 6.0
+    @test PlantSimEngine._window_reduce(vals, durs, Aggregate()) == 2.0
+    @test PlantSimEngine._window_reduce(vals, durs, Integrate(MeanReducer())) ==
+          PlantSimEngine._window_reduce(vals, durs, Aggregate(MeanReducer()))
+    @test PlantSimEngine._window_reduce(vals, durs, Integrate(SumReducer())) ==
+          PlantSimEngine._window_reduce(vals, durs, Aggregate(SumReducer()))
 end

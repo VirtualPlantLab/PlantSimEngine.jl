@@ -51,6 +51,7 @@ Trait-based inference detail:
 : unique producers (same scale first, then cross-scale). Ambiguous cases require explicit bindings.
 - For inferred bindings, policy defaults to producer `output_policy` when defined, otherwise `HoldLast()`.
 - Explicit `InputBindings(..., policy=...)` always overrides trait defaults.
+- `output_policy` is hint-only: it is applied only when an output is actually consumed/exported.
 - If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
 : may provide `(; bindings=..., window=...)`.
 - Explicit mapping-level configuration always overrides hints.
@@ -134,11 +135,20 @@ InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Aggregate
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
 InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(vals -> maximum(vals) - minimum(vals))))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate((vals, durations) -> sum(vals .* durations))))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(PlantMeteo.DurationSumReducer())))
 ```
 
 Built-in reducer types are:
 `SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`, `LastReducer()`.
 The same reducer objects are also used by `MeteoBindings(...)`.
+Custom reducers/callables can accept either `(values)` or `(values, durations_seconds)`.
 
 ### Parameterized interpolation mode
 
