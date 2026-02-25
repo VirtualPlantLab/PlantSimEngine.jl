@@ -261,6 +261,7 @@ Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.
 """
 ref_var(v) = Base.Ref(copy(v))
 ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
+ref_var(v::T) where {T<:Symbol} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 ref_var(v::T) where {T<:RefVariable} = v
@@ -359,7 +360,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
     # Third step, we identify which 
-    
+
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
@@ -368,7 +369,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
-    outputs_index = Dict{Symbol, Int}(s => 1 for s in keys(outputs))
+    outputs_index = Dict{Symbol,Int}(s => 1 for s in keys(outputs))
     temporal_state = TemporalState()
     mapping_is_multirate = mapping isa ModelMapping ? is_multirate(mapping) : false
     return (;
