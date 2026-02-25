@@ -324,7 +324,7 @@ This hard dependency is in fact multiscale, since both models operate at differe
 Compared to the single-scale equivalent, the multi-scale declaration additionally requires mapping the scale:
 
 ```julia
-PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>[:Root],)
 ```
 
 The `status` argument [`run!`](@ref) function of the root growth decision model only contains variables from the "Plant" scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the [`status`](@ref) at the "Root" scale. It is accessible from the `extra` argument in [`run!`](@ref)'s signature. 
@@ -362,7 +362,7 @@ PlantSimEngine.inputs_(::ToyRootGrowthDecisionModel) =
 
 PlantSimEngine.outputs_(::ToyRootGrowthDecisionModel) = NamedTuple()
 
-PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>[:Root],)
 
 # "status" is at the "Plant" scale
 function PlantSimEngine.run!(m::ToyRootGrowthDecisionModel, models, status, meteo, constants=nothing, extra=nothing)

@@ -140,7 +140,7 @@ PlantSimEngine.inputs_(::ToyRootGrowthDecisionModel) =
 
 PlantSimEngine.outputs_(::ToyRootGrowthDecisionModel) = NamedTuple()
 
-PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel => ["Root"],)
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel => [:Root],)
 
 function PlantSimEngine.run!(m::ToyRootGrowthDecisionModel, models, status, meteo, constants=nothing, extra=nothing)
 

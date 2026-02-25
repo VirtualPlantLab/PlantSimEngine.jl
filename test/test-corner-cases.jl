@@ -94,7 +94,7 @@ function PlantSimEngine.outputs_(::Msg3LvlScaleEchelle2Model)
     (e2=-Inf, f2=-Inf)
 end
 
-PlantSimEngine.dep(::Msg3LvlScaleEchelle2Model) = (Msg3Lvl_echelle3=AbstractMsg3Lvl_Echelle3Model => ("E3",),)
+PlantSimEngine.dep(::Msg3LvlScaleEchelle2Model) = (Msg3Lvl_echelle3=AbstractMsg3Lvl_Echelle3Model => (:E3,),)
 function PlantSimEngine.run!(::Msg3LvlScaleEchelle2Model, models, status, meteo, constants=nothing, extra_args=nothing)
     status_E3 = extra_args.statuses["E3"][1]
     run!(extra_args.models["E3"].Msg3Lvl_echelle3, models, status_E3, meteo, constants)
@@ -116,7 +116,7 @@ function PlantSimEngine.outputs_(::Msg3LvlScaleEchelle1Model)
     (e1=-Inf, f1=-Inf)#, e3 = -Inf)
 end
 
-PlantSimEngine.dep(::Msg3LvlScaleEchelle1Model) = (Msg3Lvl_echelle2=AbstractMsg3Lvl_Echelle2Model => ("E2",),)
+PlantSimEngine.dep(::Msg3LvlScaleEchelle1Model) = (Msg3Lvl_echelle2=AbstractMsg3Lvl_Echelle2Model => (:E2,),)
 function PlantSimEngine.run!(::Msg3LvlScaleEchelle1Model, models, status, meteo, constants=nothing, extra_args=nothing)
 
     status_E2 = extra_args.statuses["E2"][1]
@@ -157,7 +157,7 @@ function PlantSimEngine.outputs_(::Msg3LvlScaleAvalModel)
     (g=-Inf,)
 end
 
-PlantSimEngine.dep(::Msg3LvlScaleAvalModel) = (Msg3Lvl_aval2=AbstractMsg3Lvl_Aval2Model => ("E2",),)
+PlantSimEngine.dep(::Msg3LvlScaleAvalModel) = (Msg3Lvl_aval2=AbstractMsg3Lvl_Aval2Model => (:E2,),)
 
 function PlantSimEngine.run!(::Msg3LvlScaleAvalModel, models, status, meteo, constants=nothing, extra_args=nothing)
 
@@ -275,7 +275,7 @@ function PlantSimEngine.outputs_(::HardDepSameScaleEchelle1Model)
     (e1=-Inf, f1=-Inf)
 end
 
-#PlantSimEngine.dep(::HardDepSameScaleEchelle1Model) = (hard_dep_same_scale_echelle3=AbstractHard_Dep_Same_Scale_Echelle3Model => ("E3",),)
+#PlantSimEngine.dep(::HardDepSameScaleEchelle1Model) = (hard_dep_same_scale_echelle3=AbstractHard_Dep_Same_Scale_Echelle3Model => (:E3,),)
 
 # exta_args = sim_object
 function PlantSimEngine.run!(::HardDepSameScaleEchelle1Model, models, status, meteo, constants=nothing, sim_object=nothing)
@@ -299,7 +299,7 @@ function PlantSimEngine.outputs_(::HardDepSameScaleEchelle1bisModel)
     (e2=-Inf, f2=-Inf)
 end
 
-PlantSimEngine.dep(::HardDepSameScaleEchelle1bisModel) = (hard_dep_same_scale_echelle3=AbstractHard_Dep_Same_Scale_Echelle3Model => ("E3",),)
+PlantSimEngine.dep(::HardDepSameScaleEchelle1bisModel) = (hard_dep_same_scale_echelle3=AbstractHard_Dep_Same_Scale_Echelle3Model => (:E3,),)
 
 # exta_args = sim_object
 function PlantSimEngine.run!(::HardDepSameScaleEchelle1bisModel, models, status, meteo, constants=nothing, sim_object=nothing)
@@ -417,7 +417,7 @@ function PlantSimEngine.outputs_(::SingleModelScale3)
     (out=-Inf, out3=-Inf)
 end
 
-PlantSimEngine.dep(::SingleModelScale1) = (single_model_multiple_scales=AbstractSingle_Model_Multiple_ScalesModel => ("E2bis", "E2"),)
+PlantSimEngine.dep(::SingleModelScale1) = (single_model_multiple_scales=AbstractSingle_Model_Multiple_ScalesModel => (:E2bis, :E2),)
 
 # extra_args = sim_object
 function PlantSimEngine.run!(::SingleModelScale1, models, status, meteo, constants=nothing, sim_object=nothing)

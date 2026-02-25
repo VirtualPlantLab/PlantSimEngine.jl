@@ -68,7 +68,7 @@ Conceptually :
 
 ```julia
  PlantSimEngine.dep(m::ParentModel) = (
-    name_provided_in_the_mapping=AbstractHardDependencyModel => ["Organ_Name_1",],
+    name_provided_in_the_mapping=AbstractHardDependencyModel => [:Organ_Name_1],
 )
 ```
 
