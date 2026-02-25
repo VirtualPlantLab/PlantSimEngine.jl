@@ -24,7 +24,7 @@ function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
     nleaves = length(MultiScaleTreeGraph.traverse(root, x-&gt;1, symbol=:Leaf))
     return nleaves
-end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">get_n_leaves (generic function with 1 method)</code></pre><h2 id="Adding-roots-to-our-plant"><a class="docs-heading-anchor" href="#Adding-roots-to-our-plant">Adding roots to our plant</a><a id="Adding-roots-to-our-plant-1"></a><a class="docs-heading-anchor-permalink" href="#Adding-roots-to-our-plant" title="Permalink"></a></h2><p>We&#39;ll add a root that extracts water and adds it to the stock. Initial water stocks are low, so root growth is prioritized, then the plant also grows leaves and a new internode like it did before. Roots only grow up to a certain point, and don&#39;t branch.</p><p>This leads to adding a new scale, &quot;Root&quot; to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged, and so is the <code>get_n_leaves</code> helper function.</p><h2 id="Root-models"><a class="docs-heading-anchor" href="#Root-models">Root models</a><a id="Root-models-1"></a><a class="docs-heading-anchor-permalink" href="#Root-models" title="Permalink"></a></h2><h3 id="Water-absorption"><a class="docs-heading-anchor" href="#Water-absorption">Water absorption</a><a id="Water-absorption-1"></a><a class="docs-heading-anchor-permalink" href="#Water-absorption" title="Permalink"></a></h3><p>Let&#39;s implement a very fake model of root water absorption. It&#39;ll capture the amount of precipitation in the weather data multiplied by some assimilation factor.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;water_absorption&quot; verbose = false
+end</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">get_n_leaves (generic function with 1 method)</code></pre><h2 id="Adding-roots-to-our-plant"><a class="docs-heading-anchor" href="#Adding-roots-to-our-plant">Adding roots to our plant</a><a id="Adding-roots-to-our-plant-1"></a><a class="docs-heading-anchor-permalink" href="#Adding-roots-to-our-plant" title="Permalink"></a></h2><p>We&#39;ll add a root that extracts water and adds it to the stock. Initial water stocks are low, so root growth is prioritized, then the plant also grows leaves and a new internode like it did before. Roots only grow up to a certain point, and don&#39;t branch.</p><p>This leads to adding a new scale, :Root to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged, and so is the <code>get_n_leaves</code> helper function.</p><h2 id="Root-models"><a class="docs-heading-anchor" href="#Root-models">Root models</a><a id="Root-models-1"></a><a class="docs-heading-anchor-permalink" href="#Root-models" title="Permalink"></a></h2><h3 id="Water-absorption"><a class="docs-heading-anchor" href="#Water-absorption">Water absorption</a><a id="Water-absorption-1"></a><a class="docs-heading-anchor-permalink" href="#Water-absorption" title="Permalink"></a></h3><p>Let&#39;s implement a very fake model of root water absorption. It&#39;ll capture the amount of precipitation in the weather data multiplied by some assimilation factor.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;water_absorption&quot; verbose = false
 
 struct ToyWaterAbsorptionModel &lt;: AbstractWater_AbsorptionModel
 end
@@ -65,7 +65,7 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
         end
         root_len = get_roots_count(root_end[1])
         if root_len &lt; m.root_max_len
-            st = add_organ!(root_end[1], extra, &quot;&lt;&quot;, &quot;Root&quot;, 2, index=1)
+            st = add_organ!(root_end[1], extra, &quot;&lt;&quot;, :Root, 2, index=1)
             status.carbon_root_creation_consumed = m.carbon_root_creation_cost
         end
     else
@@ -119,73 +119,73 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
 
     if length(MultiScaleTreeGraph.children(status.node)) == 2 &amp;&amp;
         status.TT_cu - status.TT_cu_emergence &gt;= m.TT_emergence
-        status_new_internode = add_organ!(status.node, sim_object, &quot;&lt;&quot;, &quot;Internode&quot;, 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, &quot;Leaf&quot;, 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, &quot;Leaf&quot;, 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, &quot;&lt;&quot;, :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
     end
 
     return nothing
-end</code></pre><h2 id="Updating-the-mapping"><a class="docs-heading-anchor" href="#Updating-the-mapping">Updating the mapping</a><a id="Updating-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Updating-the-mapping" title="Permalink"></a></h2><p>The resource storage and internode emergence models now need a couple of extra water-related mapped variables.  The &quot;Root&quot; organ is added to the mapping with its own models. New parameters need to be initialized.</p><pre><code class="language-julia hljs">mapping = ModelMapping(
-&quot;Scene&quot; =&gt; ToyDegreeDaysCumulModel(),
-&quot;Plant&quot; =&gt; (
+end</code></pre><h2 id="Updating-the-mapping"><a class="docs-heading-anchor" href="#Updating-the-mapping">Updating the mapping</a><a id="Updating-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Updating-the-mapping" title="Permalink"></a></h2><p>The resource storage and internode emergence models now need a couple of extra water-related mapped variables.  The :Root organ is added to the mapping with its own models. New parameters need to be initialized.</p><pre><code class="language-julia hljs">mapping = ModelMapping(
+:Scene =&gt; ToyDegreeDaysCumulModel(),
+:Plant =&gt; (
     MultiScaleModel(
         model=ToyStockComputationModel(),
         mapped_variables=[
-            :carbon_captured=&gt;[&quot;Leaf&quot;],
-            :water_absorbed=&gt;[&quot;Root&quot;],
-            :carbon_root_creation_consumed=&gt;[&quot;Root&quot;],
-            :carbon_organ_creation_consumed=&gt;[&quot;Internode&quot;]
+            :carbon_captured=&gt;[:Leaf],
+            :water_absorbed=&gt;[:Root],
+            :carbon_root_creation_consumed=&gt;[:Root],
+            :carbon_organ_creation_consumed=&gt;[:Internode]
 
         ],
         ),
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
-&quot;Internode&quot; =&gt; (
+:Internode =&gt; (
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,
-            PreviousTimeStep(:water_stock)=&gt;&quot;Plant&quot;,
-            PreviousTimeStep(:carbon_stock)=&gt;&quot;Plant&quot;],
+            mapped_variables=[:TT_cu =&gt; :Scene,
+            PreviousTimeStep(:water_stock)=&gt;:Plant,
+            PreviousTimeStep(:carbon_stock)=&gt;:Plant],
         ),
         Status(carbon_organ_creation_consumed=0.0),
     ),
-&quot;Root&quot; =&gt; ( MultiScaleModel(
+:Root =&gt; ( MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
-            mapped_variables=[PreviousTimeStep(:carbon_stock)=&gt;&quot;Plant&quot;,
-            PreviousTimeStep(:water_stock)=&gt;&quot;Plant&quot;],
+            mapped_variables=[PreviousTimeStep(:carbon_stock)=&gt;:Plant,
+            PreviousTimeStep(:water_stock)=&gt;:Plant],
         ),
             ToyWaterAbsorptionModel(),
             Status(carbon_root_creation_consumed=0.0, root_water_assimilation=1.0),
             ),
-&quot;Leaf&quot; =&gt; ( ToyLeafCarbonCaptureModel(),),
+:Leaf =&gt; ( ToyLeafCarbonCaptureModel(),),
 )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
   validated: true
   is_valid: true
   multirate: false
-  scales (5): Internode, Root, Scene, Plant, Leaf
-  - Internode: 1 model(s), processes=organ_emergence
-  - Root: 2 model(s), processes=root_growth, water_absorption
+  scales (5): Scene, Root, Leaf, Plant, Internode
   - Scene: 1 model(s), processes=Degreedays
-  - Plant: 1 model(s), processes=resource_stock_computation
+  - Root: 2 model(s), processes=root_growth, water_absorption
   - Leaf: 1 model(s), processes=leaf_carbon_capture
+  - Plant: 1 model(s), processes=resource_stock_computation
+  - Internode: 1 model(s), processes=organ_emergence
   variables to initialize: none
-</code></pre><h2 id="Running-the-simulation"><a class="docs-heading-anchor" href="#Running-the-simulation">Running the simulation</a><a id="Running-the-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-simulation" title="Permalink"></a></h2><p>Running this new simulation is almost the same as before. The weather data is unchanged, but a new &quot;Root&quot; node was added to the MTG.</p><pre><code class="language-julia hljs">mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Scene&quot;, 1, 0))
-    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Plant&quot;, 1, 1))
+</code></pre><h2 id="Running-the-simulation"><a class="docs-heading-anchor" href="#Running-the-simulation">Running the simulation</a><a id="Running-the-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-simulation" title="Permalink"></a></h2><p>Running this new simulation is almost the same as before. The weather data is unchanged, but a new :Root node was added to the MTG.</p><pre><code class="language-julia hljs">mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Scene, 1, 0))
+    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Plant, 1, 1))
 
-    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Internode&quot;, 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
+    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
+    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
 
-    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;&lt;&quot;, &quot;Internode&quot;, 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
+    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;&lt;&quot;, :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
+    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
 
     plant_root_start = MultiScaleTreeGraph.Node(
         plant,
-        MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Root&quot;, 1, 3),
+        MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Root, 1, 3),
     )
 
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), duration=Dates.Day)
@@ -215,4 +215,4 @@ mtg</code></pre><pre class="documenter-example-output"><code class="nohighlight 
    │                    ├─ + 32: Leaf
    │                    ├─ + 33: Leaf
    │                    └─ &lt; 34: Internode
-…</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 24 February 2026 07:33">Tuesday 24 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+…</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 25 February 2026 14:15">Wednesday 25 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

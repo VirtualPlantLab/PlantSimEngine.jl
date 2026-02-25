@@ -3,10 +3,10 @@
 using PlantSimEngine.Examples # to import the ToyDegreeDaysCumulModel model
 using PlantMeteo, Dates
 using MultiScaleTreeGraph # multi-scale</code></pre><h2 id="A-basic-growing-plant"><a class="docs-heading-anchor" href="#A-basic-growing-plant">A basic growing plant</a><a id="A-basic-growing-plant-1"></a><a class="docs-heading-anchor-permalink" href="#A-basic-growing-plant" title="Permalink"></a></h2><p>At minimum, to simulate some kind of fake growth, we need :</p><ul><li>A Multi-scale Tree Graph representing the plant</li><li>Some way of adding organs to the plant</li><li>Some kind of temporality to spread this growth over multiple timesteps</li></ul><p>Let&#39;s have some concept of &#39;leaves&#39; that capture the (carbon) resource necessary for organ growth, and let&#39;s have the organ emergence happen at the &#39;internode&#39; level, to illustrate multiple organs with different behavior.</p><p>We&#39;ll make the assumption that the internodes make use of carbon from a common pool. We&#39;ll also make use of thermal time as a growth delay factor.</p><p>To sum up, we have: </p><ul><li>a MTG with growing internodes and leaves</li><li>Individual leaves that capture carbon fed into a common pool</li><li>Internodes which take from that pool to create new organs, with a thermal time constraint.</li></ul><p>One way of modeling this approach translates into several scales and models: </p><ul><li>a Scene scale, for thermal time. The <a href="../single_to_multiscale/#ToyDegreeDaysCumulModel"><code>ToyDegreeDaysCumulModel</code></a> from the <a href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/ToyDegreeDays.jl">examples folder</a> provides thermal time from temperature data </li><li>a Plant scale, where we&#39;ll define the carbon pool</li><li>an Internode scale, which draws from the pool to create new organs</li><li>a Leaf scale, which captures carbon</li></ul><p>Let&#39;s also add a very artificial limiting factor: if the total leaf surface area is above a threshold no new organs are created.</p><p>We can expect the simulation mapping to look like a more complex version of the following: </p><pre><code class="language-julia hljs">mapping = ModelMapping(
-&quot;Scene&quot; =&gt; ToyDegreeDaysCumulModel(),
-&quot;Plant&quot; =&gt; ToyStockComputationModel(),
-&quot;Internode&quot; =&gt; ToyCustomInternodeEmergence(),
-&quot;Leaf&quot; =&gt; ToyLeafCarbonCaptureModel(),
+:Scene =&gt; ToyDegreeDaysCumulModel(),
+:Plant =&gt; ToyStockComputationModel(),
+:Internode =&gt; ToyCustomInternodeEmergence(),
+:Leaf =&gt; ToyLeafCarbonCaptureModel(),
 )</code></pre><p>Some of the models will need to gather variables from scales other than their own, meaning they will need to be converted into MultiScaleModels.</p><h2 id="Implementation"><a class="docs-heading-anchor" href="#Implementation">Implementation</a><a id="Implementation-1"></a><a class="docs-heading-anchor-permalink" href="#Implementation" title="Permalink"></a></h2><h3 id="Carbon-Capture"><a class="docs-heading-anchor" href="#Carbon-Capture">Carbon Capture</a><a id="Carbon-Capture-1"></a><a class="docs-heading-anchor-permalink" href="#Carbon-Capture" title="Permalink"></a></h3><p>Let&#39;s start with the simplest model. Our fake leaves will continuously capture some constant amount of carbon every timestep. No inputs or parameters are required.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;leaf_carbon_capture&quot; verbose = false
 
 struct ToyLeafCarbonCaptureModel&lt;: AbstractLeaf_Carbon_CaptureModel end
@@ -61,65 +61,65 @@ PlantSimEngine.outputs_(m::ToyCustomInternodeEmergence) = (TT_cu_emergence=0.0, 
 
     if length(MultiScaleTreeGraph.children(status.node)) == 2 &amp;&amp;
         status.TT_cu - status.TT_cu_emergence &gt;= m.TT_emergence
-        status_new_internode = add_organ!(status.node, sim_object, &quot;&lt;&quot;, &quot;Internode&quot;, 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, &quot;Leaf&quot;, 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, &quot;Leaf&quot;, 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, &quot;&lt;&quot;, :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, &quot;+&quot;, :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
     end
 
     return nothing
-end</code></pre><h3 id="Updated-mapping"><a class="docs-heading-anchor" href="#Updated-mapping">Updated mapping</a><a id="Updated-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Updated-mapping" title="Permalink"></a></h3><p>We can now define the final mapping for this simulation. </p><p>The carbon capture and thermal time models don&#39;t need to be changed from the earlier version.  The organ creation model at the &quot;Internode&quot; scale needs the carbon stock from the &quot;Plant&quot; scale, as well as thermal time from the &quot;Scene&quot; scale. The resource storing model at the &quot;Plant&quot; scale needs the carbon captured by <strong>every</strong> leaf, and the carbon consumed by <strong>every</strong> internode that created new organs this timestep. This requires mapping vector variables :</p><pre><code class="language-julia hljs"> mapped_variables=[
-            :carbon_captured=&gt;[&quot;Leaf&quot;],
-            :carbon_organ_creation_consumed=&gt;[&quot;Internode&quot;]
-        ],</code></pre><p>as opposed to the single-valued carbon stock mapped variable : </p><pre><code class="language-julia hljs"> mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,
-            PreviousTimeStep(:carbon_stock)=&gt;&quot;Plant&quot;],</code></pre><p>And of course, some variables need to be initialized in the status:</p><pre><code class="language-julia hljs">mapping = ModelMapping(
-&quot;Scene&quot; =&gt; ToyDegreeDaysCumulModel(),
-&quot;Plant&quot; =&gt; (
+end</code></pre><h3 id="Updated-mapping"><a class="docs-heading-anchor" href="#Updated-mapping">Updated mapping</a><a id="Updated-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Updated-mapping" title="Permalink"></a></h3><p>We can now define the final mapping for this simulation. </p><p>The carbon capture and thermal time models don&#39;t need to be changed from the earlier version.  The organ creation model at the :Internode scale needs the carbon stock from the :Plant scale, as well as thermal time from the :Scene scale. The resource storing model at the :Plant scale needs the carbon captured by <strong>every</strong> leaf, and the carbon consumed by <strong>every</strong> internode that created new organs this timestep. This requires mapping vector variables :</p><pre><code class="language-julia hljs"> mapped_variables=[
+            :carbon_captured=&gt;[:Leaf],
+            :carbon_organ_creation_consumed=&gt;[:Internode]
+        ],</code></pre><p>as opposed to the single-valued carbon stock mapped variable : </p><pre><code class="language-julia hljs"> mapped_variables=[:TT_cu =&gt; :Scene,
+            PreviousTimeStep(:carbon_stock)=&gt;:Plant],</code></pre><p>And of course, some variables need to be initialized in the status:</p><pre><code class="language-julia hljs">mapping = ModelMapping(
+:Scene =&gt; ToyDegreeDaysCumulModel(),
+:Plant =&gt; (
     MultiScaleModel(
         model=ToyStockComputationModel(),
         mapped_variables=[
-            :carbon_captured=&gt;[&quot;Leaf&quot;],
-            :carbon_organ_creation_consumed=&gt;[&quot;Internode&quot;]
+            :carbon_captured=&gt;[:Leaf],
+            :carbon_organ_creation_consumed=&gt;[:Internode]
         ],
         ),
         Status(carbon_stock = 0.0)
     ),
-&quot;Internode&quot; =&gt; (
+:Internode =&gt; (
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,
-            PreviousTimeStep(:carbon_stock)=&gt;&quot;Plant&quot;],
+            mapped_variables=[:TT_cu =&gt; :Scene,
+            PreviousTimeStep(:carbon_stock)=&gt;:Plant],
         ),
         Status(carbon_organ_creation_consumed=0.0),
     ),
-&quot;Leaf&quot; =&gt; ToyLeafCarbonCaptureModel(),
+:Leaf =&gt; ToyLeafCarbonCaptureModel(),
 )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
   validated: true
   is_valid: true
   multirate: false
-  scales (4): Internode, Scene, Plant, Leaf
-  - Internode: 1 model(s), processes=organ_emergence
+  scales (4): Scene, Leaf, Plant, Internode
   - Scene: 1 model(s), processes=Degreedays
-  - Plant: 1 model(s), processes=resource_stock_computation
   - Leaf: 1 model(s), processes=leaf_carbon_capture
+  - Plant: 1 model(s), processes=resource_stock_computation
+  - Internode: 1 model(s), processes=organ_emergence
   variables to initialize: none
-</code></pre><div class="admonition is-info" id="Note-5ff4c5706f76195a"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-5ff4c5706f76195a" title="Permalink"></a></header><div class="admonition-body"><p>This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function <a href="../../API/API_public/#PlantSimEngine.to_initialize-Tuple{ModelList}"><code>to_initialize</code></a> and check the PlantSimEngine user errors.</p></div></div><h3 id="Running-a-simulation"><a class="docs-heading-anchor" href="#Running-a-simulation">Running a simulation</a><a id="Running-a-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-a-simulation" title="Permalink"></a></h3><p>We only need an MTG, and some weather data, and then we&#39;ll be set. Let&#39;s create a simple MTG : </p><pre><code class="language-julia hljs">mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Scene&quot;, 1, 0))
-plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Plant&quot;, 1, 1))
+</code></pre><div class="admonition is-info" id="Note-5ff4c5706f76195a"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-5ff4c5706f76195a" title="Permalink"></a></header><div class="admonition-body"><p>This excerpt (and the complete script file) showcase the final properly initialized mapping, but when developing, you are encouraged to make liberal use of the helper function <a href="../../API/API_public/#PlantSimEngine.to_initialize-Tuple{ModelList}"><code>to_initialize</code></a> and check the PlantSimEngine user errors.</p></div></div><h3 id="Running-a-simulation"><a class="docs-heading-anchor" href="#Running-a-simulation">Running a simulation</a><a id="Running-a-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-a-simulation" title="Permalink"></a></h3><p>We only need an MTG, and some weather data, and then we&#39;ll be set. Let&#39;s create a simple MTG : </p><pre><code class="language-julia hljs">mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Scene, 1, 0))
+plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Plant, 1, 1))
 
-internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Internode&quot;, 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
+internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
 
-internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;&lt;&quot;, &quot;Internode&quot;, 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Leaf&quot;, 1, 2))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">+ 8: Leaf
-</code></pre><p>Import some weather data:</p><pre><code class="language-julia hljs">meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), duration=Dates.Day)</code></pre><p>And we&#39;re good to go ! </p><pre><code class="language-julia hljs">outs = run!(mtg, mapping, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{String, Vector} with 4 entries:
-  &quot;Internode&quot; =&gt; Status{(:timestep, :node, :TT_cu, :carbon_stock, :carbon_organ…
-  &quot;Scene&quot;     =&gt; Status{(:timestep, :node, :TT_cu, :TT), Tuple{RefValue{Int64},…
-  &quot;Plant&quot;     =&gt; Status{(:timestep, :node, :carbon_organ_creation_consumed, :ca…
-  &quot;Leaf&quot;      =&gt; Status{(:timestep, :node, :carbon_captured), Tuple{RefValue{In…</code></pre><p>If you query or display the MTG after simulation, you&#39;ll see it expanded and grew multiple internodes and leaves :</p><pre><code class="language-julia hljs">mtg
+internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG(&quot;&lt;&quot;, :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Leaf, 1, 2))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">+ 8: Leaf
+</code></pre><p>Import some weather data:</p><pre><code class="language-julia hljs">meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), duration=Dates.Day)</code></pre><p>And we&#39;re good to go ! </p><pre><code class="language-julia hljs">outs = run!(mtg, mapping, meteo_day)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{Symbol, Vector} with 4 entries:
+  :Scene     =&gt; Status{(:timestep, :node, :TT_cu, :TT), Tuple{RefValue{Int64}, …
+  :Leaf      =&gt; Status{(:timestep, :node, :carbon_captured), Tuple{RefValue{Int…
+  :Plant     =&gt; Status{(:timestep, :node, :carbon_organ_creation_consumed, :car…
+  :Internode =&gt; Status{(:timestep, :node, :TT_cu, :carbon_stock, :carbon_organ_…</code></pre><p>If you query or display the MTG after simulation, you&#39;ll see it expanded and grew multiple internodes and leaves :</p><pre><code class="language-julia hljs">mtg
 #get_n_leaves(mtg)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">/ 1: Scene
 └─ + 2: Plant
    └─ / 3: Internode
@@ -144,4 +144,4 @@ MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, 
                         ├─ + 22: Leaf
                         ├─ + 23: Leaf
                         └─ &lt; 24: Internode
-…</code></pre><p>And that&#39;s it ! Feel free to tinker with the parameters and see when things break down, to get a feel for the simulation.</p><p>Of course, this is a very crude and unrealistic simulation, with many dubious assumptions and parameters. But significantly more complex modelling is possible using the same approach : XPalm runs using a few dozen models spread out over nine scales.</p><p>This is a three-part tutorial and continues in the <a href="../multiscale_example_2/#Expanding-on-the-multiscale-simulation">Expanding on the multiscale simulation</a> page.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_coupling/">« Multiscale coupling considerations</a><a class="docs-footer-nextpage" href="../multiscale_example_2/">Expanding the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 24 February 2026 07:33">Tuesday 24 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+…</code></pre><p>And that&#39;s it ! Feel free to tinker with the parameters and see when things break down, to get a feel for the simulation.</p><p>Of course, this is a very crude and unrealistic simulation, with many dubious assumptions and parameters. But significantly more complex modelling is possible using the same approach : XPalm runs using a few dozen models spread out over nine scales.</p><p>This is a three-part tutorial and continues in the <a href="../multiscale_example_2/#Expanding-on-the-multiscale-simulation">Expanding on the multiscale simulation</a> page.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_coupling/">« Multiscale coupling considerations</a><a class="docs-footer-nextpage" href="../multiscale_example_2/">Expanding the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 25 February 2026 14:15">Wednesday 25 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>

@@ -66,10 +66,10 @@ Stacktrace:
  [2] run!(m::ToyToyModel{…}, models::@NamedTuple{…}, status::Status{…}, meteo::PlantMeteo.TimeStepRow{…}, constants::Constants{…}, extra_args::Nothing)
  ...</code></pre><div class="admonition is-info" id="Note-bcaa1573f792e06"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-bcaa1573f792e06" title="Permalink"></a></header><div class="admonition-body"><p>There may be more we can do on our end in the future to make the issue more obvious, but in the meantime it is safest to consistently prefix the methods you need to declare and call with <code>PlantSimEngine.</code>, or to explicitely import the functions you wish to extend, <em>e.g.</em>: <code>import PlantSimEngine: inputs_, outputs_</code>.</p></div></div><h3 id="MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration"><a class="docs-heading-anchor" href="#MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration">MultiScaleModel : forgetting a kwarg in the declaration</a><a id="MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration-1"></a><a class="docs-heading-anchor-permalink" href="#MultiScaleModel-:-forgetting-a-kwarg-in-the-declaration" title="Permalink"></a></h3><p>A MultiScaleModel requires two kwargs, model and mapped_variables : </p><pre><code class="language-julia hljs">models = MultiScaleModel(
         model=ToyLAIModel(),
-        mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,],
+        mapped_variables=[:TT_cu =&gt; :Scene,],
     )</code></pre><p>Forgetting &#39;model=&#39; :</p><pre><code class="language-julia hljs">models = MultiScaleModel(
         ToyLAIModel(),
-        mapped_variables=[:TT_cu =&gt; &quot;Scene&quot;,],
+        mapped_variables=[:TT_cu =&gt; :Scene,],
     )
 ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
@@ -80,7 +80,7 @@ Closest candidates are:
     MultiScaleModel(; model, mapped_variables)
     @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191</code></pre><p>Forgetting &#39;mapped_variables=&#39; :</p><pre><code class="language-julia hljs">models = MultiScaleModel(
         model=ToyLAIModel(),
-        [:TT_cu =&gt; &quot;Scene&quot;,],
+        [:TT_cu =&gt; :Scene,],
     )
 
 ERROR: MethodError: no method matching MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
@@ -89,24 +89,24 @@ The type `MultiScaleModel` exists, but no method is defined for this combination
 Closest candidates are:
   MultiScaleModel(; model, mapping)
    @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191
-  MultiScaleModel(::T, ::Any) where T&lt;:AbstractModel got unsupported keyword argument &quot;model&quot;</code></pre><p>The message &#39;got unsupported keyword argument &quot;model&quot;&#39; can be misleading, as in the error in this case is not that a kwarg is <em>unsupported</em>, but rather that a keyword argument is <em>missing</em>.</p><h3 id="MultiScaleModel-:-variable-not-defined-in-Module"><a class="docs-heading-anchor" href="#MultiScaleModel-:-variable-not-defined-in-Module">MultiScaleModel : variable not defined in Module</a><a id="MultiScaleModel-:-variable-not-defined-in-Module-1"></a><a class="docs-heading-anchor-permalink" href="#MultiScaleModel-:-variable-not-defined-in-Module" title="Permalink"></a></h3><p>A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :</p><pre><code class="language-julia hljs">mapping = ModelMapping(&quot;Scale&quot; =&gt;
+  MultiScaleModel(::T, ::Any) where T&lt;:AbstractModel got unsupported keyword argument &quot;model&quot;</code></pre><p>The message &#39;got unsupported keyword argument &quot;model&quot;&#39; can be misleading, as in the error in this case is not that a kwarg is <em>unsupported</em>, but rather that a keyword argument is <em>missing</em>.</p><h3 id="MultiScaleModel-:-variable-not-defined-in-Module"><a class="docs-heading-anchor" href="#MultiScaleModel-:-variable-not-defined-in-Module">MultiScaleModel : variable not defined in Module</a><a id="MultiScaleModel-:-variable-not-defined-in-Module-1"></a><a class="docs-heading-anchor-permalink" href="#MultiScaleModel-:-variable-not-defined-in-Module" title="Permalink"></a></h3><p>A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :</p><pre><code class="language-julia hljs">mapping = ModelMapping(:Scale =&gt;
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables = [should_be_symbol =&gt; &quot;Other_Scale&quot;] # should_be_symbol is a variable, likely not found in the current module 
+    mapped_variables = [should_be_symbol =&gt; :Other_Scale] # should_be_symbol is a variable, likely not found in the current module 
 ),
 ...
-),</code></pre><p>Here&#39;s the correct version : </p><pre><code class="language-julia hljs">mapping = ModelMapping(&quot;Scale&quot; =&gt;
+),</code></pre><p>Here&#39;s the correct version : </p><pre><code class="language-julia hljs">mapping = ModelMapping(:Scale =&gt;
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables=[:should_be_symbol =&gt; &quot;Other_Scale&quot;] # should_be_symbol is now a symbol
+    mapped_variables=[:should_be_symbol =&gt; :Other_Scale] # should_be_symbol is now a symbol
 ),
 ...
 ),</code></pre><h3 id="Kwarg-and-arg-parameter-issues-when-calling-run!"><a class="docs-heading-anchor" href="#Kwarg-and-arg-parameter-issues-when-calling-run!">Kwarg and arg parameter issues when calling run!</a><a id="Kwarg-and-arg-parameter-issues-when-calling-run!-1"></a><a class="docs-heading-anchor-permalink" href="#Kwarg-and-arg-parameter-issues-when-calling-run!" title="Permalink"></a></h3><p>There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine&#39;s end and may be improved upon in the future.</p><p>Here are a few examples when modifying the usual multiscale run! call in this working example:</p><pre><code class="language-julia hljs">meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), &quot;examples/meteo_day.csv&quot;), duration=Dates.Day)
-mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 1, 1))
+mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Plant, 1, 1))
 var1 = 15.0
 
 mapping = ModelMapping(
-    &quot;Leaf&quot; =&gt; (
+    :Leaf =&gt; (
         Process1Model(1.0),
         Process2Model(),
         Process3Model(),
@@ -115,7 +115,7 @@ mapping = ModelMapping(
 )
 
 outs = Dict(
-    &quot;Leaf&quot; =&gt; (:var1,), # :non_existing_variable is not computed by any model
+    :Leaf =&gt; (:var1,), # :non_existing_variable is not computed by any model
 )
 
 run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)</code></pre><p>The exact signature is this : </p><pre><code class="language-julia hljs">function run!(
@@ -147,15 +147,15 @@ ERROR: MethodError: no method matching run!(::Node{…}, ::Dict{…}, ::DataFram
 This error has been manually thrown, explicitly, so the method may exist but be intentionally marked as unimplemented.
 
 Closest candidates are:
-  run!(::Node, ::Dict{String}, ::Any, ::Any, ::Any; nsteps, tracked_outputs, check, executor) got unsupported keyword argument &quot;constants&quot;</code></pre><h3 id="Hard-dependency-process-not-present-in-the-mapping"><a class="docs-heading-anchor" href="#Hard-dependency-process-not-present-in-the-mapping">Hard dependency process not present in the mapping</a><a id="Hard-dependency-process-not-present-in-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Hard-dependency-process-not-present-in-the-mapping" title="Permalink"></a></h3><p>Another weakness in the current error checking leads to an unclear Julia error if a model A is present in a mapping and has a hard dependency on a model B, but B is absent from the mapping.</p><p>In the following example, A corresponds to Process3Model, which requires a model B implementing &#39;Process2Model&#39; and referred to as &#39;process2&#39;.  Looking at the source code for Process3Model, the hard dependency is declared here : </p><pre><code class="language-julia hljs">PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)</code></pre><p>However, the model provided in the examples, Process2Model is absent from the mapping :</p><pre><code class="language-julia hljs">simple_mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 1, 1))    
+  run!(::Node, ::Dict{String}, ::Any, ::Any, ::Any; nsteps, tracked_outputs, check, executor) got unsupported keyword argument &quot;constants&quot;</code></pre><h3 id="Hard-dependency-process-not-present-in-the-mapping"><a class="docs-heading-anchor" href="#Hard-dependency-process-not-present-in-the-mapping">Hard dependency process not present in the mapping</a><a id="Hard-dependency-process-not-present-in-the-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#Hard-dependency-process-not-present-in-the-mapping" title="Permalink"></a></h3><p>Another weakness in the current error checking leads to an unclear Julia error if a model A is present in a mapping and has a hard dependency on a model B, but B is absent from the mapping.</p><p>In the following example, A corresponds to Process3Model, which requires a model B implementing &#39;Process2Model&#39; and referred to as &#39;process2&#39;.  Looking at the source code for Process3Model, the hard dependency is declared here : </p><pre><code class="language-julia hljs">PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)</code></pre><p>However, the model provided in the examples, Process2Model is absent from the mapping :</p><pre><code class="language-julia hljs">simple_mtg = Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Plant, 1, 1))    
 mapping = ModelMapping(
-    &quot;Leaf&quot; =&gt; (
+    :Leaf =&gt; (
         Process3Model(),
         Status(var5=15.0,)
     )
 )
 outs = Dict(
-    &quot;Leaf&quot; =&gt; (:var5,),
+    :Leaf =&gt; (:var5,),
 )
 run!(simple_mtg, mapping, meteo_day, tracked_outputs=outs)
 
@@ -187,16 +187,16 @@ Stacktrace:
  [1] top-level scope
    @ ~/path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196</code></pre><h2 id="Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it"><a class="docs-heading-anchor" href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it">Forgetting to declare a scale in the mapping but having variables point to it</a><a id="Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it-1"></a><a class="docs-heading-anchor-permalink" href="#Forgetting-to-declare-a-scale-in-the-mapping-but-having-variables-point-to-it" title="Permalink"></a></h2><p>If there is a need to collect variables at two different scales, and one scale is completely absent from the mapping, the error currently occurs on the Julia side :</p><pre><code class="language-julia hljs"># No models at the E3 scale in the mapping !
 
-&quot;E2&quot; =&gt; (
+:E2 =&gt; (
         MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
-        mapped_variables=[:c =&gt; &quot;E1&quot; =&gt; :c, :e3 =&gt; &quot;E3&quot; =&gt; :e3, :f3 =&gt; &quot;E3&quot; =&gt; :f3,], 
+        mapped_variables=[:c =&gt; :E1 =&gt; :c, :e3 =&gt; :E3 =&gt; :e3, :f3 =&gt; :E3 =&gt; :f3,], 
         ),
     ),
 
 Exception has occurred: KeyError
 *
-KeyError: key &quot;E3&quot; not found
+KeyError: key :E3 not found
 Stacktrace:
 [1] hard_dependencies(mapping::Dict{String, Tuple{Any, Any}}; verbose::Bool)
 @ PlantSimEngine ......./src/dependencies/hard_dependencies.jl:175
@@ -204,7 +204,7 @@ Stacktrace:
 The type `Dict` exists, but no method is defined for this combination of argument types when trying to construct it.
 
 Closest candidates are:
-  Dict(::Pair{K, V}...) where {K, V}</code></pre><p>often indicate a likely syntax error somewhere in the mapping definition.</p><h3 id="Empty-status-vectors-in-multi-scale-simulations"><a class="docs-heading-anchor" href="#Empty-status-vectors-in-multi-scale-simulations">Empty status vectors in multi-scale simulations</a><a id="Empty-status-vectors-in-multi-scale-simulations-1"></a><a class="docs-heading-anchor-permalink" href="#Empty-status-vectors-in-multi-scale-simulations" title="Permalink"></a></h3><p>This situation won&#39;t trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.</p><p>Here&#39;s an example taken from the <a href="../../multiscale/single_to_multiscale/#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a> page. It was modified by removing the &quot;Plant&quot; node in the dummy MTG passed into the <a href="../../API/API_public/#PlantSimEngine.run!"><code>run!</code></a>function. Without that &quot;Plant&quot; node, only &quot;Scene&quot;-scale models can run initially, and since no nodes are created, &quot;Plant&quot;-scale models will never be run.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tt_cu&quot; verbose = false
+  Dict(::Pair{K, V}...) where {K, V}</code></pre><p>often indicate a likely syntax error somewhere in the mapping definition.</p><h3 id="Empty-status-vectors-in-multi-scale-simulations"><a class="docs-heading-anchor" href="#Empty-status-vectors-in-multi-scale-simulations">Empty status vectors in multi-scale simulations</a><a id="Empty-status-vectors-in-multi-scale-simulations-1"></a><a class="docs-heading-anchor-permalink" href="#Empty-status-vectors-in-multi-scale-simulations" title="Permalink"></a></h3><p>This situation won&#39;t trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.</p><p>Here&#39;s an example taken from the <a href="../../multiscale/single_to_multiscale/#Converting-a-single-scale-simulation-to-multi-scale">Converting a single-scale simulation to multi-scale</a> page. It was modified by removing the :Plant node in the dummy MTG passed into the <a href="../../API/API_public/#PlantSimEngine.run!"><code>run!</code></a>function. Without that :Plant node, only :Scene-scale models can run initially, and since no nodes are created, :Plant-scale models will never be run.</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tt_cu&quot; verbose = false
 
 struct ToyTt_CuModel &lt;: AbstractTt_CuModel end
 
@@ -222,12 +222,12 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
 end
 
 mapping_multiscale = ModelMapping(
-    &quot;Scene&quot; =&gt; ToyTt_CuModel(),
-    &quot;Plant&quot; =&gt; (
+    :Scene =&gt; ToyTt_CuModel(),
+    :Plant =&gt; (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu =&gt; &quot;Scene&quot;,
+                :TT_cu =&gt; :Scene,
             ],
         ),
         Beer(0.5),
@@ -235,9 +235,9 @@ mapping_multiscale = ModelMapping(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, &quot;Plant&quot;, 0, 0),)
-#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, &quot;Plant&quot;, 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Plant, 0, 0),)
+#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Plant, 1, 1))
 
 out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
-out_multiscale[&quot;Plant&quot;][:LAI]</code></pre><p>In the above code, uncommenting the second line will add a &quot;Plant&quot; node to the MTG, and the simulation will then behave as intuitively expected.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../multirate/multirate_tutorial/">« Hourly, daily, weekly simulation</a><a class="docs-footer-nextpage" href="../downstream_tests/">Automated testing »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 24 February 2026 07:33">Tuesday 24 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+out_multiscale[:Plant][:LAI]</code></pre><p>In the above code, uncommenting the second line will add a :Plant node to the MTG, and the simulation will then behave as intuitively expected.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../multirate/multirate_tutorial/">« Hourly, daily, weekly simulation</a><a class="docs-footer-nextpage" href="../downstream_tests/">Automated testing »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 25 February 2026 14:15">Wednesday 25 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
