@@ -165,6 +165,24 @@ function _same_scale_status_value(source_statuses, target_node_id::Int, source_v
     return nothing, false
 end
 
+function _ancestor_node_id_for_scale(node, source_scale::Symbol)
+    ancestor = parent(node)
+    while !isnothing(ancestor)
+        if symbol(ancestor) == source_scale
+            return node_id(ancestor)
+        end
+        ancestor = parent(ancestor)
+    end
+    return nothing
+end
+
+function _status_for_node_id(source_statuses, target_node_id::Int)
+    for src_st in source_statuses
+        node_id(src_st.node) == target_node_id && return src_st
+    end
+    return nothing
+end
+
 """
     _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t_end, policy)
 
@@ -226,6 +244,26 @@ function _resolve_input_windowed(
         if found
             _assign_input_value!(st, input_var, vv)
             return nothing
+        end
+    else
+        ancestor_node_id = _ancestor_node_id_for_scale(st.node, source_scale)
+        if !isnothing(ancestor_node_id)
+            src_st = _status_for_node_id(source_statuses, ancestor_node_id)
+            if !isnothing(src_st)
+                source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+                if source_scope == consumer_scope
+                    vv, found = _resolved_windowed_value_for_source(
+                        sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t_start, t_end, policy
+                    )
+                    if found
+                        _assign_input_value!(st, input_var, vv)
+                        return nothing
+                    elseif source_var in keys(src_st)
+                        _assign_input_value!(st, input_var, src_st[source_var])
+                        return nothing
+                    end
+                end
+            end
         end
     end
 
@@ -383,6 +421,24 @@ function _resolve_input_holdlast(
         if found
             _assign_input_value!(st, input_var, vv)
             return nothing
+        end
+    else
+        ancestor_node_id = _ancestor_node_id_for_scale(st.node, source_scale)
+        if !isnothing(ancestor_node_id)
+            src_st = _status_for_node_id(source_statuses, ancestor_node_id)
+            if !isnothing(src_st)
+                source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+                if source_scope == consumer_scope
+                    vv, found = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t)
+                    if found
+                        _assign_input_value!(st, input_var, vv)
+                        return nothing
+                    elseif source_var in keys(src_st)
+                        _assign_input_value!(st, input_var, src_st[source_var])
+                        return nothing
+                    end
+                end
+            end
         end
     end
 
