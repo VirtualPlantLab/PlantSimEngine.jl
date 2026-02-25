@@ -368,6 +368,112 @@ function _default_policy_for_inferred_binding(model_specs, source_scale::Symbol,
     )
 end
 
+function _mapped_source_scales_for_input(spec::ModelSpec, input_var::Symbol)
+    mapped = mapped_variables_(spec)
+    isempty(mapped) && return Set{Symbol}()
+
+    scales = Set{Symbol}()
+    for mv in mapped
+        mapped_input = first(mv)
+        mapped_input = mapped_input isa PreviousTimeStep ? mapped_input.variable : mapped_input
+        mapped_input == input_var || continue
+
+        rhs = last(mv)
+        if rhs isa Pair{Symbol,Symbol}
+            src_scale = first(rhs)
+            src_scale == Symbol("") || push!(scales, src_scale)
+        elseif rhs isa AbstractVector
+            for item in rhs
+                item isa Pair{Symbol,Symbol} || continue
+                src_scale = first(item)
+                src_scale == Symbol("") || push!(scales, src_scale)
+            end
+        end
+    end
+
+    return scales
+end
+
+function _input_has_multiscale_mapping(spec::ModelSpec, input_var::Symbol)
+    mapped = mapped_variables_(spec)
+    isempty(mapped) && return false
+
+    for mv in mapped
+        mapped_input = first(mv)
+        mapped_input = mapped_input isa PreviousTimeStep ? mapped_input.variable : mapped_input
+        mapped_input == input_var && return true
+    end
+
+    return false
+end
+
+function _mapped_sources_for_input(spec::ModelSpec, input_var::Symbol)
+    mapped = mapped_variables_(spec)
+    isempty(mapped) && return Pair{Symbol,Symbol}[]
+
+    sources = Pair{Symbol,Symbol}[]
+    for mv in mapped
+        mapped_input = first(mv)
+        mapped_input = mapped_input isa PreviousTimeStep ? mapped_input.variable : mapped_input
+        mapped_input == input_var || continue
+
+        rhs = last(mv)
+        if rhs isa Pair{Symbol,Symbol}
+            push!(sources, rhs)
+        elseif rhs isa AbstractVector
+            for item in rhs
+                item isa Pair{Symbol,Symbol} || continue
+                push!(sources, item)
+            end
+        end
+    end
+
+    return sources
+end
+
+function _infer_binding_from_multiscale_mapping(
+    model_specs,
+    scale::Symbol,
+    process::Symbol,
+    spec::ModelSpec,
+    input_var::Symbol;
+    active_processes_by_scale=nothing
+)
+    has_mapping = _input_has_multiscale_mapping(spec, input_var)
+    has_mapping || return nothing
+
+    mapped_sources = _mapped_sources_for_input(spec, input_var)
+    # Mapping exists but does not point to another scale (self/same-scale aliasing):
+    # avoid generic same-name inference in that case.
+    filtered_sources = filter(s -> first(s) != Symbol(""), mapped_sources)
+    isempty(filtered_sources) && return :skip
+
+    # Multi-source mapping (e.g. vectors from several scales) cannot be represented
+    # as one `InputBindings` entry; keep binding unresolved and skip generic inference.
+    length(filtered_sources) == 1 || return :skip
+
+    src = only(filtered_sources)
+    src_scale = first(src)
+    src_var = last(src)
+    haskey(model_specs, src_scale) || return :skip
+
+    procs = Symbol[]
+    for (src_process, src_spec) in pairs(model_specs[src_scale])
+        if !isnothing(active_processes_by_scale)
+            active = get(active_processes_by_scale, src_scale, Set{Symbol}())
+            src_process in active || continue
+        end
+        src_var in keys(outputs_(model_(src_spec))) || continue
+        _is_stream_only_output(src_spec, src_var) && continue
+        push!(procs, src_process)
+    end
+
+    length(procs) == 1 || return :skip
+    src_process = only(procs)
+    policy = _default_policy_for_inferred_binding(model_specs, src_scale, src_process, src_var)
+    return (process=src_process, var=src_var, scale=src_scale, policy=policy)
+end
+
 function _infer_input_binding_for_var(
     model_specs,
     scale::Symbol,
@@ -388,7 +494,7 @@ function _infer_input_binding_for_var(
     if length(same_scale) == 1
         c = only(same_scale)
         policy = _default_policy_for_inferred_binding(model_specs, c.scale, c.process, c.var)
-        return (process=c.process, var=c.var, policy=policy)
+        return (process=c.process, var=c.var, scale=c.scale, policy=policy)
     elseif length(same_scale) > 1
         error(
             "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
@@ -415,9 +521,25 @@ function _infer_input_binding_for_var(
                 policy = _default_policy_for_inferred_binding(model_specs, src_scale, proc, input_var)
                 return (process=proc, var=input_var, scale=src_scale, policy=policy)
             end
-            # Same process name appears at multiple scales (common in multiscale
-            # mappings). Keep scale unresolved so runtime resolves through parent links.
-            return (process=proc, var=input_var, policy=HoldLast())
+
+            # When multiscale mapping already declares a source scale for this
+            # input, use it to disambiguate instead of forcing explicit bindings.
+            consumer_spec = model_specs[scale][process]
+            mapped_scales = _mapped_source_scales_for_input(consumer_spec, input_var)
+            candidate_scales = Set(scales)
+            hinted_scales = intersect(mapped_scales, candidate_scales)
+            if length(hinted_scales) == 1
+                src_scale = only(hinted_scales)
+                policy = _default_policy_for_inferred_binding(model_specs, src_scale, proc, input_var)
+                return (process=proc, var=input_var, scale=src_scale, policy=policy)
+            end
+
+            error(
+                "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
+                "Process `$(proc)` publishes this variable at multiple reachable scales: $(join(scales, ", ")). ",
+                "Please provide explicit `InputBindings(...)` with `scale`, ",
+                "or add a `MultiScaleModel(...)` mapping so the source scale is unambiguous."
+            )
         end
 
         error(
@@ -453,6 +575,20 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing, active_
 
             for input_var in model_inputs
                 input_var in keys(current_bindings) && continue
+                mapped_binding = _infer_binding_from_multiscale_mapping(
+                    model_specs,
+                    scale,
+                    process,
+                    spec,
+                    input_var;
+                    active_processes_by_scale=active_processes_by_scale
+                )
+                if mapped_binding === :skip
+                    continue
+                elseif !isnothing(mapped_binding)
+                    push!(inferred, input_var => mapped_binding)
+                    continue
+                end
                 inferred_binding = _infer_input_binding_for_var(
                     model_specs,
                     scale,

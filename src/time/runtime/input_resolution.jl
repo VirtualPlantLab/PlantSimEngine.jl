@@ -156,6 +156,15 @@ function _assign_input_value!(st::Status, input_var::Symbol, value)
     return nothing
 end
 
+function _same_scale_status_value(source_statuses, target_node_id::Int, source_var::Symbol)
+    for src_st in source_statuses
+        node_id(src_st.node) == target_node_id || continue
+        source_var in keys(src_st) || continue
+        return src_st[source_var], true
+    end
+    return nothing, false
+end
+
 """
     _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t_end, policy)
 
@@ -208,6 +217,16 @@ function _resolve_input_windowed(
     if ok
         _assign_input_value!(st, input_var, v)
         return nothing
+    end
+
+    # Same-scale scalar fallback: prefer the value attached to the consumer node
+    # before scanning all source nodes (which can be ambiguous in dense scales).
+    if source_scale == node.scale
+        vv, found = _same_scale_status_value(source_statuses, consumer_node_id, source_var)
+        if found
+            _assign_input_value!(st, input_var, vv)
+            return nothing
+        end
     end
 
     # Cross-scale scalar fallback: allow unique producer value at source scale.
@@ -355,6 +374,16 @@ function _resolve_input_holdlast(
     if ok
         _assign_input_value!(st, input_var, v)
         return nothing
+    end
+
+    # Same-scale scalar fallback: prefer the value attached to the consumer node
+    # before scanning all source nodes (which can be ambiguous in dense scales).
+    if source_scale == node.scale
+        vv, found = _same_scale_status_value(source_statuses, consumer_node_id, source_var)
+        if found
+            _assign_input_value!(st, input_var, vv)
+            return nothing
+        end
     end
 
     # Cross-scale scalar fallback: allow unique producer value at source scale.

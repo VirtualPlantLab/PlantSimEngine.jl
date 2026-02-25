@@ -210,6 +210,24 @@ function PlantSimEngine.run!(::MRZConsumerModel, models, status, meteo, constant
     status.ZZ = status.Z
 end
 
+PlantSimEngine.@process "mrmultiscaletsource" verbose = false
+struct MRMultiScaleTSourceModel <: AbstractMrmultiscaletsourceModel
+    tt::Float64
+end
+PlantSimEngine.inputs_(::MRMultiScaleTSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRMultiScaleTSourceModel) = (TT=-Inf,)
+function PlantSimEngine.run!(m::MRMultiScaleTSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.TT = m.tt
+end
+
+PlantSimEngine.@process "mrleafttconsumer" verbose = false
+struct MRLeafTTConsumerModel <: AbstractMrleafttconsumerModel end
+PlantSimEngine.inputs_(::MRLeafTTConsumerModel) = (TT=-Inf,)
+PlantSimEngine.outputs_(::MRLeafTTConsumerModel) = (TT_used=-Inf,)
+function PlantSimEngine.run!(::MRLeafTTConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.TT_used = status.TT
+end
+
 PlantSimEngine.@process "mrmissinginputconsumer" verbose = false
 struct MRMissingInputConsumerModel <: AbstractMrmissinginputconsumerModel end
 PlantSimEngine.inputs_(::MRMissingInputConsumerModel) = (U=-Inf,)
@@ -1044,7 +1062,53 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_lineage_infer).Z.process == :mrancestorsource
     @test input_bindings(spec_lineage_infer).Z.scale == :Plant
 
-    # Expectation 24c: same-rate hard dependencies are ignored for auto bindings and canonical publisher checks.
+    # Expectation 24c: inferred bindings prefer same-scale producers when available.
+    mapping_same_scale_preferred = ModelMapping(
+        :Plant => (
+            MRMultiScaleTSourceModel(100.0),
+        ),
+        :Internode => (
+            MRMultiScaleTSourceModel(10.0),
+        ),
+        :Leaf => (
+            MRMultiScaleTSourceModel(1.0),
+            MRLeafTTConsumerModel(),
+        ),
+    )
+    sim_same_scale_preferred = PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_same_scale_preferred,
+        nsteps=1,
+        check=true,
+        outputs=Dict(:Leaf => (:TT, :TT_used))
+    )
+    run!(sim_same_scale_preferred, meteo, executor=SequentialEx())
+    spec_same_scale_preferred = PlantSimEngine.get_model_specs(sim_same_scale_preferred)[:Leaf][:mrleafttconsumer]
+    @test input_bindings(spec_same_scale_preferred).TT.process == :mrmultiscaletsource
+    @test input_bindings(spec_same_scale_preferred).TT.scale == :Leaf
+    @test status(sim_same_scale_preferred)[:Leaf][1].TT_used == 1.0
+
+    # Expectation 24d: when no same-scale producer exists, repeated process names across scales require explicit scale mapping.
+    mapping_cross_scale_same_process_ambiguous = ModelMapping(
+        :Plant => (
+            MRMultiScaleTSourceModel(100.0),
+        ),
+        :Internode => (
+            MRMultiScaleTSourceModel(10.0),
+        ),
+        :Leaf => (
+            MRLeafTTConsumerModel(),
+        ),
+    )
+    @test_throws "Ambiguous inferred producer for input `TT`" PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_cross_scale_same_process_ambiguous,
+        nsteps=1,
+        check=true,
+        outputs=Dict(:Leaf => (:TT_used,))
+    )
+
+    # Expectation 24e: same-rate hard dependencies are ignored for auto bindings and canonical publisher checks.
     mapping_hard_same_rate = ModelMapping(
         :Leaf => (
             ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
@@ -1058,7 +1122,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_hard_same_rate).A.process == :mrhardparent
     @test status(sim_hard_same_rate)[:Leaf][1].B == 5.0
 
-    # Expectation 24d: different-rate hard dependencies remain strict and require explicit disambiguation.
+    # Expectation 24f: different-rate hard dependencies remain strict and require explicit disambiguation.
     mapping_hard_different_rate = ModelMapping(
         :Leaf => (
             ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
