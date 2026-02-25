@@ -183,6 +183,37 @@ function PlantSimEngine.run!(::MRTraitAggConsumerModel, models, status, meteo, c
     status.YT = status.XT
 end
 
+PlantSimEngine.@process "mrtraitdualaggsource" verbose = false
+struct MRTraitDualAggSourceModel <: AbstractMrtraitdualaggsourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::MRTraitDualAggSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRTraitDualAggSourceModel) = (V1=-Inf, V2=-Inf)
+function PlantSimEngine.run!(m::MRTraitDualAggSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.V1 = float(m.n[])
+    status.V2 = 100.0 + float(m.n[])
+end
+PlantSimEngine.output_policy(::Type{<:MRTraitDualAggSourceModel}) = (V1=Aggregate(), V2=Aggregate())
+
+PlantSimEngine.@process "mrusesvconsumer" verbose = false
+struct MRUsesV1ConsumerModel <: AbstractMrusesvconsumerModel end
+PlantSimEngine.inputs_(::MRUsesV1ConsumerModel) = (V1=-Inf,)
+PlantSimEngine.outputs_(::MRUsesV1ConsumerModel) = (YV1=-Inf,)
+function PlantSimEngine.run!(::MRUsesV1ConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YV1 = status.V1
+end
+
+PlantSimEngine.@process "mrdualpolicyconsumer" verbose = false
+struct MRDualPolicyConsumerModel <: AbstractMrdualpolicyconsumerModel end
+PlantSimEngine.inputs_(::MRDualPolicyConsumerModel) = (V1=-Inf, V2=-Inf, V1_max=-Inf)
+PlantSimEngine.outputs_(::MRDualPolicyConsumerModel) = (YV1=-Inf, YV2=-Inf, YV1_max=-Inf)
+function PlantSimEngine.run!(::MRDualPolicyConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.YV1 = status.V1
+    status.YV2 = status.V2
+    status.YV1_max = status.V1_max
+end
+
 PlantSimEngine.@process "mrdailysource" verbose = false
 struct MRDailySourceModel <: AbstractMrdailysourceModel
     n::Base.RefValue{Int}
@@ -633,6 +664,65 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     out_trait_default_df = convert_outputs(out_trait_default, DataFrame)
     @test out_trait_default_df[:Leaf][:, :YT] == [1.0, 1.0, 2.5, 2.5]
     @test input_bindings(PlantSimEngine.get_model_specs(sim_trait_default)[:Leaf][:mrtraitaggconsumer]).XT.policy isa Aggregate
+
+    # Expectation 10bb: output_policy is consumed lazily per bound variable.
+    # Here source policy declares V1 and V2 as Aggregate, but only V1 is consumed.
+    # Runtime must allocate/integrate only V1 (no stream/horizon for V2).
+    dual_trait_counter = Ref(0)
+    mapping_trait_partial_use = ModelMapping(
+        :Leaf => (
+            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter)) |> TimeStepModel(1.0),
+            ModelSpec(MRUsesV1ConsumerModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+        ),
+    )
+    sim_trait_partial_use = PlantSimEngine.GraphSimulation(mtg, mapping_trait_partial_use, nsteps=4, check=true, outputs=Dict(:Leaf => (:YV1,)))
+    out_trait_partial_use = run!(sim_trait_partial_use, meteo4, executor=SequentialEx())
+    out_trait_partial_use_df = convert_outputs(out_trait_partial_use, DataFrame)
+    @test out_trait_partial_use_df[:Leaf][:, :YV1] == [1.0, 1.0, 2.5, 2.5]
+    spec_trait_partial_use = PlantSimEngine.get_model_specs(sim_trait_partial_use)[:Leaf][:mrusesvconsumer]
+    @test input_bindings(spec_trait_partial_use).V1.policy isa Aggregate
+    @test sim_trait_partial_use.temporal_state.producer_horizons[(:Leaf, :mrtraitdualaggsource, :V1)] == 2.0
+    @test !haskey(sim_trait_partial_use.temporal_state.producer_horizons, (:Leaf, :mrtraitdualaggsource, :V2))
+    nid_trait_partial_use = node_id(status(sim_trait_partial_use)[:Leaf][1].node)
+    key_trait_v1 = OutputKey(scope, :Leaf, nid_trait_partial_use, :mrtraitdualaggsource, :V1)
+    key_trait_v2 = OutputKey(scope, :Leaf, nid_trait_partial_use, :mrtraitdualaggsource, :V2)
+    @test haskey(sim_trait_partial_use.temporal_state.streams, key_trait_v1)
+    @test !haskey(sim_trait_partial_use.temporal_state.streams, key_trait_v2)
+
+    # Expectation 10bc: user bindings can override and complement trait policies.
+    # Trait provides Aggregate for V1 and V2.
+    # User overrides V1 to Integrate and adds V1_max as Aggregate(MaxReducer()).
+    dual_trait_counter_priority = Ref(0)
+    mapping_trait_user_priority = ModelMapping(
+        :Leaf => (
+            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter_priority)) |> TimeStepModel(1.0),
+            ModelSpec(MRDualPolicyConsumerModel()) |>
+            TimeStepModel(ClockSpec(2.0, 1.0)) |>
+            InputBindings(
+                ;
+                V1=(process=:mrtraitdualaggsource, var=:V1, policy=Integrate()),
+                V1_max=(process=:mrtraitdualaggsource, var=:V1, policy=Aggregate(MaxReducer())),
+            ),
+            Status(V1_max=0.0),
+        ),
+    )
+    sim_trait_user_priority = PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_trait_user_priority,
+        nsteps=4,
+        check=true,
+        outputs=Dict(:Leaf => (:YV1, :YV2, :YV1_max))
+    )
+    out_trait_user_priority = run!(sim_trait_user_priority, meteo4, executor=SequentialEx())
+    out_trait_user_priority_df = convert_outputs(out_trait_user_priority, DataFrame)
+    @test out_trait_user_priority_df[:Leaf][:, :YV1] == [1.0, 1.0, 5.0, 5.0]
+    @test out_trait_user_priority_df[:Leaf][:, :YV2] == [101.0, 101.0, 102.5, 102.5]
+    @test out_trait_user_priority_df[:Leaf][:, :YV1_max] == [1.0, 1.0, 3.0, 3.0]
+    spec_trait_user_priority = PlantSimEngine.get_model_specs(sim_trait_user_priority)[:Leaf][:mrdualpolicyconsumer]
+    @test input_bindings(spec_trait_user_priority).V1.policy isa Integrate
+    @test input_bindings(spec_trait_user_priority).V2.policy isa Aggregate
+    @test input_bindings(spec_trait_user_priority).V1_max.policy isa Aggregate
+    @test input_bindings(spec_trait_user_priority).V1_max.policy.reducer isa MaxReducer
 
     # Expectation 10c: explicit InputBindings policy overrides producer output_policy.
     trait_counter_override = Ref(0)
