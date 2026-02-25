@@ -5,7 +5,7 @@ const _BUILTIN_SCOPE_SELECTORS = (:global, :plant, :scene, :self)
 
 Return the normalized `ModelSpec` for one `(scale, process)` pair.
 """
-function _model_spec_for_process(sim::GraphSimulation, scale::String, process::Symbol)
+function _model_spec_for_process(sim::GraphSimulation, scale::Symbol, process::Symbol)
     specs_at_scale = get_model_specs(sim)[scale]
     if haskey(specs_at_scale, process)
         return specs_at_scale[process]
@@ -28,7 +28,7 @@ function _find_ancestor_by_symbol(node, target::Symbol)
 end
 _find_ancestor_by_symbol(node, target::AbstractString) = _find_ancestor_by_symbol(node, Symbol(target))
 
-function _scope_from_builtin(selector::Symbol, node, scale::String, process::Symbol)
+function _scope_from_builtin(selector::Symbol, node, scale::Symbol, process::Symbol)
     if selector == :global
         return ScopeId(:global, 1)
     elseif selector == :self
@@ -55,7 +55,7 @@ function _scope_from_builtin(selector::Symbol, node, scale::String, process::Sym
     )
 end
 
-function _scope_from_selector_result(result, node, scale::String, process::Symbol)
+function _scope_from_selector_result(result, node, scale::Symbol, process::Symbol)
     if result isa ScopeId
         return result
     elseif result isa Symbol
@@ -70,7 +70,7 @@ function _scope_from_selector_result(result, node, scale::String, process::Symbo
     )
 end
 
-function _scope_from_selector(selector, node, scale::String, process::Symbol)
+function _scope_from_selector(selector, node, scale::Symbol, process::Symbol)
     if selector isa ScopeId
         return selector
     elseif selector isa Symbol
@@ -103,7 +103,7 @@ end
 
 Resolve the effective `ScopeId` for one node status and one model process.
 """
-function _scope_for_status(sim::GraphSimulation, model_spec, scale::String, process::Symbol, node)
+function _scope_for_status(sim::GraphSimulation, model_spec, scale::Symbol, process::Symbol, node)
     selector = isnothing(model_spec) ? :global : model_scope(model_spec)
     return _scope_from_selector(selector, node, scale, process)
 end

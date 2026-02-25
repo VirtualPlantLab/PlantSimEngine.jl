@@ -5,7 +5,7 @@ const _CALENDAR_PERIODS = (:day, :week, :month)
 const _CALENDAR_ANCHORS = (:current_period, :previous_complete_period)
 const _CALENDAR_COMPLETENESS = (:allow_partial, :strict)
 
-function _validate_window_reducer(scale::String, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
+function _validate_window_reducer(scale::Symbol, process::Symbol, input_var::Symbol, policy_name::Symbol, reducer)
     if reducer isa DataType
         reducer <: PlantMeteo.AbstractTimeReducer || error(
             "Invalid reducer type `$(reducer)` for policy `$(policy_name)` on input `$(input_var)` ",
@@ -46,7 +46,7 @@ function _validate_window_reducer(scale::String, process::Symbol, input_var::Sym
     )
 end
 
-function _validate_policy_instance(scale::String, process::Symbol, input_var::Symbol, policy::SchedulePolicy)
+function _validate_policy_instance(scale::Symbol, process::Symbol, input_var::Symbol, policy::SchedulePolicy)
     if policy isa HoldLast
         return nothing
     elseif policy isa Interpolate
@@ -70,7 +70,7 @@ function _validate_policy_instance(scale::String, process::Symbol, input_var::Sy
     return nothing
 end
 
-function _validate_timestep_spec(scale::String, process::Symbol, spec::ModelSpec)
+function _validate_timestep_spec(scale::Symbol, process::Symbol, spec::ModelSpec)
     ts = timestep(spec)
     isnothing(ts) && return nothing
 
@@ -109,7 +109,7 @@ function _validate_timestep_spec(scale::String, process::Symbol, spec::ModelSpec
     )
 end
 
-function _validate_scope_spec(scale::String, process::Symbol, spec::ModelSpec)
+function _validate_scope_spec(scale::Symbol, process::Symbol, spec::ModelSpec)
     selector = model_scope(spec)
     if selector isa ScopeId
         return nothing
@@ -135,7 +135,7 @@ function _validate_scope_spec(scale::String, process::Symbol, spec::ModelSpec)
     )
 end
 
-function _validate_binding_policy(scale::String, process::Symbol, input_var::Symbol, policy)
+function _validate_binding_policy(scale::Symbol, process::Symbol, input_var::Symbol, policy)
     if policy isa DataType
         policy <: SchedulePolicy || error(
             "Invalid policy for input `$(input_var)` in process `$(process)` at scale `$(scale)`: ",
@@ -163,7 +163,7 @@ function _validate_binding_policy(scale::String, process::Symbol, input_var::Sym
 end
 
 function _validate_binding_target(
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     input_var::Symbol,
     source_process::Symbol,
@@ -176,7 +176,9 @@ function _validate_binding_target(
     )
 
     isnothing(source_scale) && return nothing
-    src_scale = string(source_scale)
+    src_scale = source_scale isa AbstractString ?
+                _normalize_scale(source_scale; warn=true, context=:ModelSpec) :
+                source_scale
     haskey(model_specs, src_scale) || error(
         "Unknown source scale `$(src_scale)` for input `$(input_var)` in process `$(process)` at scale `$(scale)`."
     )
@@ -188,7 +190,7 @@ function _validate_binding_target(
 end
 
 function _validate_input_binding(
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     input_var::Symbol,
     binding,
@@ -248,7 +250,7 @@ function _validate_input_binding(
 end
 
 function _validate_input_bindings_for_spec(
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     spec::ModelSpec,
     model_specs,
@@ -273,7 +275,7 @@ function _validate_input_bindings_for_spec(
     return nothing
 end
 
-function _validate_output_routing_for_spec(scale::String, process::Symbol, spec::ModelSpec)
+function _validate_output_routing_for_spec(scale::Symbol, process::Symbol, spec::ModelSpec)
     routing = output_routing(spec)
     routing isa NamedTuple || error(
         "OutputRouting for process `$(process)` at scale `$(scale)` must be a NamedTuple, got `$(typeof(routing))`."
@@ -303,7 +305,7 @@ function _validate_output_routing_for_spec(scale::String, process::Symbol, spec:
     return nothing
 end
 
-function _validate_meteo_binding(scale::String, process::Symbol, target_var::Symbol, binding)
+function _validate_meteo_binding(scale::Symbol, process::Symbol, target_var::Symbol, binding)
     if binding isa Function || binding isa PlantMeteo.AbstractTimeReducer
         return nothing
     elseif binding isa DataType
@@ -363,7 +365,7 @@ function _validate_meteo_binding(scale::String, process::Symbol, target_var::Sym
         "unsupported type `$(typeof(binding))`."
     )
 end
-function _validate_meteo_bindings_for_spec(scale::String, process::Symbol, spec::ModelSpec)
+function _validate_meteo_bindings_for_spec(scale::Symbol, process::Symbol, spec::ModelSpec)
     bindings = meteo_bindings(spec)
     bindings isa NamedTuple || error(
         "MeteoBindings for process `$(process)` at scale `$(scale)` must be a NamedTuple, got `$(typeof(bindings))`."
@@ -378,7 +380,7 @@ function _validate_meteo_bindings_for_spec(scale::String, process::Symbol, spec:
     return nothing
 end
 
-function _validate_meteo_window_for_spec(scale::String, process::Symbol, spec::ModelSpec)
+function _validate_meteo_window_for_spec(scale::Symbol, process::Symbol, spec::ModelSpec)
     window = meteo_window(spec)
     isnothing(window) && return nothing
 

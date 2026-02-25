@@ -7,17 +7,18 @@ model and the nodes symbols from which the values are taken from.
 # Arguments
 
 - `model<:AbstractModel`: the model to make multi-scale
-- `mapped_variables<:Vector{Pair{Symbol,Union{AbstractString,Vector{AbstractString}}}}`: a vector of pairs of symbols and strings or vectors of strings
+- `mapped_variables<:Vector{Pair{Symbol,Union{Symbol,AbstractString,Vector{<:Union{Symbol,AbstractString}}}}}`:
+  a vector of pairs of model variables and source scale declarations.
 
 The mapped_variables argument can be of the form:
 
-1. `[:variable_name => "Plant"]`: We take one value from the Plant node
-2. `[:variable_name => ["Leaf"]]`: We take a vector of values from the Leaf nodes
-3. `[:variable_name => ["Leaf", "Internode"]]`: We take a vector of values from the Leaf and Internode nodes
-4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]`: We take one value from another variable name in the Plant node
-5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]`: We take a vector of values from the Leaf and Internode nodes with different names
+1. `[:variable_name => (:Plant => :variable_name)]`: We take one value from the Plant node
+2. `[:variable_name => [:Leaf]]`: We take a vector of values from the Leaf nodes
+3. `[:variable_name => [:Leaf, :Internode]]`: We take a vector of values from the Leaf and Internode nodes
+4. `[:variable_name => (:Plant => :variable_name_in_plant_scale)]`: We take one value from another variable name in the Plant node
+5. `[:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]`: We take a vector of values from the Leaf and Internode nodes with different names
 6. `[PreviousTimeStep(:variable_name) => ...]`: We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
-7. `[:variable_name => :variable_name_from_another_model]`: We take the value from another model at the same scale but rename it
+7. `[:variable_name => (Symbol() => :variable_name_from_another_model)]`: We take the value from another model at the same scale but rename it
 8. `[PreviousTimeStep(:variable_name),]`: We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
 Details about the different forms:
@@ -74,27 +75,25 @@ We can make it multi-scale by defining a mapping between the variables of the mo
 For example, if the `carbon_allocation` comes from the `Leaf` and `Internode` nodes, we can define the mapping as follows:
 
 ```jldoctest mylabel
-julia> mapped_variables=[:carbon_allocation => ["Leaf", "Internode"]]
-1-element Vector{Pair{Symbol, Vector{String}}}:
- :carbon_allocation => ["Leaf", "Internode"]
+julia> mapped_variables = [:carbon_allocation => [:Leaf, :Internode]]
+1-element Vector{Pair{Symbol, Vector{Symbol}}}:
+ :carbon_allocation => [:Leaf, :Internode]
 ```
 
-The mapped_variables argument is a vector of pairs of symbols and strings or vectors of strings. In this case, we have only one pair to define the mapping
+The mapped_variables argument is a vector of pairs of symbols and symbol scales. In this case, we have only one pair to define the mapping
 between the `carbon_allocation` variable and the `Leaf` and `Internode` nodes.
 
 We can now make the model multi-scale by passing the model and the mapped variables to the `MultiScaleModel` constructor :
 
 ```jldoctest mylabel
-julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapped_variables)
-MultiScaleModel{ToyCAllocationModel, Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}}(ToyCAllocationModel(), Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}[:carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]])
+julia> multiscale_model = PlantSimEngine.MultiScaleModel(model, mapped_variables);
 ```
 
 We can access the mapped variables and the model:
 
 ```jldoctest mylabel
-julia> PlantSimEngine.mapped_variables_(multiscale_model)
-1-element Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{String, Symbol}, Vector{Pair{String, Symbol}}}}}:
- :carbon_allocation => ["Leaf" => :carbon_allocation, "Internode" => :carbon_allocation]
+julia> PlantSimEngine.mapped_variables_(multiscale_model) == [:carbon_allocation => [:Leaf => :carbon_allocation, :Internode => :carbon_allocation]]
+true
 ```
 
 ```jldoctest mylabel
@@ -102,7 +101,15 @@ julia> PlantSimEngine.model_(multiscale_model)
 ToyCAllocationModel()
 ```
 """
-struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Symbol},Vector{Pair{S,Symbol}}}}} where {A<:Union{Symbol,PreviousTimeStep},S<:AbstractString}}
+struct MultiScaleModel{
+    T<:AbstractModel,
+    V<:AbstractVector{
+        Pair{
+            A,
+            Union{Pair{Symbol,Symbol},Vector{Pair{Symbol,Symbol}}}
+        }
+    } where {A<:Union{Symbol,PreviousTimeStep}}
+}
     model::T
     mapped_variables::V
 
@@ -122,49 +129,61 @@ struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector{Pair{A,Union{Pair{S,Sy
         end
 
         # If the name of the variable mapped from the other scale is not given, we add it as the same of the variable name in the model. Cases:
-        # 1. `[:variable_name => "Plant"]` # We take one value from the Plant node
-        # 2. `[:variable_name => ["Leaf"]]` # We take a vector of values from the Leaf nodes
-        # 3. `[:variable_name => ["Leaf", "Internode"]]` # We take a vector of values from the Leaf and Internode nodes
-        # 4. `[:variable_name => "Plant" => :variable_name_in_plant_scale]` # We take one value from another variable name in the Plant node
-        # 5. `[:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]` # We take a vector of values from the Leaf and Internode nodes with different names
+        # 1. `[:variable_name => (:Plant => :variable_name)]` # We take one value from the Plant node
+        # 2. `[:variable_name => [:Leaf]]` # We take a vector of values from the Leaf nodes
+        # 3. `[:variable_name => [:Leaf, :Internode]]` # We take a vector of values from the Leaf and Internode nodes
+        # 4. `[:variable_name => (:Plant => :variable_name_in_plant_scale)]` # We take one value from another variable name in the Plant node
+        # 5. `[:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]` # We take a vector of values from the Leaf and Internode nodes with different names
         # 6. `[PreviousTimeStep(:variable_name) => ...]` # We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
-        # 7. `[:variable_name => :variable_name_from_another_model]` # We take the value from another model at the same scale but rename it
+        # 7. `[:variable_name => (Symbol("") => :variable_name_from_another_model)]` # We take the value from another model at the same scale but rename it
         # 8. `[PreviousTimeStep(:variable_name),]` # We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
         process_ = process(model)
-        unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{String,Symbol},Vector{Pair{String,Symbol}}}}[]
+        unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{Symbol,Symbol},Vector{Pair{Symbol,Symbol}}}}[]
         for i in mapped_variables
             push!(unfolded_mapping, _get_var(isa(i, PreviousTimeStep) ? i : Pair(i.first, i.second), process_))
-            # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
+            # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => :S => :v2,:v3 => :S] makes the pairs `Pair{Symbol, Any}`.
         end
 
         new{T,typeof(unfolded_mapping)}(model, unfolded_mapping)
     end
 end
 
-# Method used when the vector in the mapping made the Pair not specialized enough e.g. [:v1 => "S" => :v2,:v3 => "S"] makes the pairs `Pair{Symbol, Any}`.
+# Method used when the vector in the mapping made the Pair not specialized enough e.g. [:v1 => :S => :v2,:v3 => :S] makes the pairs `Pair{Symbol, Any}`.
 function _get_var(i::Pair{Symbol,Any}, proc::Symbol=:unknown)
     return _get_var(first(i) => last(i), proc)
 end
 
-# Case 1: [:variable_name => "Plant"]
-function _get_var(i::Pair{Symbol,S}, proc::Symbol=:unknown) where {S<:String}
-    return first(i) => last(i) => first(i)
+@noinline function _warn_multiscale_model_string_scale()
+    Base.depwarn(
+        "String scale names in `MultiScaleModel(mapped_variables=...)` are deprecated and will be removed in a future release. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`.",
+        :MultiScaleModel
+    )
 end
 
-# Case 2 and 3: [:variable_name => ["Leaf", "Internode"]] or [:variable_name => ["Leaf"]]
-function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:AbstractString}}
-    return first(i) => [scale => first(i) for scale in last(i)]
+_normalize_mapped_scale(scale::Symbol) = scale
+function _normalize_mapped_scale(scale::AbstractString)
+    _warn_multiscale_model_string_scale()
+    return Symbol(scale)
 end
 
-# Case 4: [:variable_name => "Plant" => :variable_name_in_plant_scale], nothing to do, the mapping is already in the right format
-function _get_var(i::Pair{Symbol,Pair{S,Symbol}}, proc::Symbol=:unknown) where {S<:String}
-    return i
+# Case 1: [:variable_name => "Plant"] (deprecated, coerced to symbol scale)
+function _get_var(i::Pair{Symbol,S}, proc::Symbol=:unknown) where {S<:AbstractString}
+    scale = _normalize_mapped_scale(last(i))
+    return first(i) => scale => first(i)
 end
 
-# Case 5: [:variable_name => ["Leaf" => :variable_name_1, "Internode" => :variable_name_2]]
-function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{Pair{S,Symbol}} where {S<:AbstractString}}
-    return i # Note that we do not need to do anything here, the mapping is already in the right format
+function _get_var(i::Pair{Symbol,Pair{S,Symbol}}, proc::Symbol=:unknown) where {S<:Union{AbstractString,Symbol}}
+    return first(i) => (_normalize_mapped_scale(first(last(i))) => last(last(i)))
+end
+
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Union{AbstractString,Symbol}}}
+    return first(i) => [_normalize_mapped_scale(scale) => first(i) for scale in last(i)]
+end
+
+# Case 5: [:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Pair{<:Union{AbstractString,Symbol},Symbol}}}
+    return first(i) => [_normalize_mapped_scale(first(mapping)) => last(mapping) for mapping in last(i)]
 end
 
 # Case 6: [PreviousTimeStep(:variable_name) => ...]
@@ -173,14 +192,14 @@ function _get_var(i::Pair{PreviousTimeStep,T}, proc::Symbol=:unknown) where {T}
     return PreviousTimeStep(first(i).variable, proc) => last(vars) # And put back the PreviousTimeStep as the first element
 end
 
-# Case 7: [:variable_name => :variable_name_from_another_proc]
+# Case 7: [:variable_name => :Plant]
 function _get_var(i::Pair{Symbol,Symbol}, proc::Symbol=:unknown)
-    return first(i) => "" => last(i)
+    return first(i) => last(i) => first(i)
 end
 
 # Case 8: [PreviousTimeStep(:variable_name),]
 function _get_var(i::PreviousTimeStep, proc::Symbol=:unknown)
-    return PreviousTimeStep(i.variable, proc) => "" => i.variable
+    return PreviousTimeStep(i.variable, proc) => Symbol("") => i.variable
 end
 
 

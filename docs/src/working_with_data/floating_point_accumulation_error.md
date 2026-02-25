@@ -56,12 +56,12 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
 end
 
 mapping_multiscale = ModelMapping(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -69,8 +69,8 @@ mapping_multiscale = ModelMapping(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
@@ -79,12 +79,12 @@ outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
 ```@setup usepkg
 mapping_multiscale = ModelMapping(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -92,15 +92,15 @@ mapping_multiscale = ModelMapping(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 0, 0),)
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
 ```@example usepkg
 
-computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+computed_TT_cu_multiscale = [outputs_multiscale[:Scene][i].TT_cu for i in 1:length(outputs_multiscale[:Scene])]
 is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1
 ```
 
@@ -109,7 +109,7 @@ Why was the comparison only approximate ? Why `≈` instead of `==`?
 Let's try it out. What if write instead:
 
 ```@example usepkg
-computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+computed_TT_cu_multiscale = [outputs_multiscale[:Scene][i].TT_cu for i in 1:length(outputs_multiscale[:Scene])]
 is_perfectly_equal = length(unique(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)) == 1
 ```
 

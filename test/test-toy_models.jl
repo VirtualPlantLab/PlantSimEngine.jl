@@ -62,8 +62,8 @@ end
     # Uninitialized:
     to_init_uninitialized = to_initialize(ModelMapping(ToyAssimGrowthModel()))
     if to_init_uninitialized isa AbstractDict
-        @test haskey(to_init_uninitialized, "Default")
-        @test :aPPFD in to_init_uninitialized["Default"]
+        @test haskey(to_init_uninitialized, :Default)
+        @test :aPPFD in to_init_uninitialized[:Default]
     else
         @test :growth in keys(to_init_uninitialized)
         @test :aPPFD in to_init_uninitialized[:growth]

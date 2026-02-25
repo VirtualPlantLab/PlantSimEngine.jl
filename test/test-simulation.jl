@@ -36,10 +36,10 @@ end;
     @test_deprecated run!([models], meteo)
     @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
 
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Leaf", 1, 1))
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
     mtg[:var1] = 15.0
     mtg[:var2] = 0.3
-    mapping_dict = Dict("Leaf" => (Process1Model(1.0), Process2Model(), Process3Model()))
+    mapping_dict = Dict(:Leaf => (Process1Model(1.0), Process2Model(), Process3Model()))
     @test_deprecated run!(mtg, mapping_dict, meteo)
 end
 
@@ -218,14 +218,14 @@ end;
 end;
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres, MTG" begin
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))
+    internode = Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    leaf = Node(mtg, MultiScaleTreeGraph.NodeMTG("<", :Leaf, 1, 2))
     leaf[:var1] = [15.0, 16.0]
     leaf[:var2] = 0.3
 
     mapping = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             Process1Model(1.0),
             Process2Model(),
             Process3Model()
@@ -250,7 +250,7 @@ end;
     out = @test_nowarn run!(sim, meteo)
 
     vars = (:var4, :var6, :var5, :var1, :var2, :var3)
-    @test [sim.statuses["Leaf"][1][i] for i in vars] == [
+    @test [sim.statuses[:Leaf][1][i] for i in vars] == [
         22.0, 61.4, 39.4, 15.0, 0.3, 5.5
     ]
 end;

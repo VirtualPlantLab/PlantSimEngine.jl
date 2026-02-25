@@ -40,7 +40,7 @@ end
 
 _seconds_from_period(p::Dates.FixedPeriod) = float(Dates.value(Dates.Millisecond(p))) * 1.0e-3
 
-function _normalize_required_timestep_hint(scale::String, process::Symbol, required)
+function _normalize_required_timestep_hint(scale::Symbol, process::Symbol, required)
     if required isa Dates.FixedPeriod
         _seconds_from_period(required) > 0.0 || error(
             "Invalid `timestep_hint` required period for process `$(process)` at scale `$(scale)`: ",
@@ -84,7 +84,7 @@ function _normalize_required_timestep_hint(scale::String, process::Symbol, requi
     )
 end
 
-function _normalize_timestep_hint(scale::String, process::Symbol, hint)
+function _normalize_timestep_hint(scale::Symbol, process::Symbol, hint)
     isnothing(hint) && return _ResolvedTimeStepHint(nothing, nothing, nothing)
 
     if hint isa Dates.FixedPeriod || hint isa Tuple
@@ -171,7 +171,7 @@ function _is_stream_only_output(spec::ModelSpec, var::Symbol)
     return mode == :stream_only
 end
 
-function _scale_reachable(scale_reachability, consumer_scale::String, source_scale::String)
+function _scale_reachable(scale_reachability, consumer_scale::Symbol, source_scale::Symbol)
     isnothing(scale_reachability) && return true
     # If one of the scales is not present in the initial MTG, reachability is
     # unknown at init time: keep candidate permissively.
@@ -182,19 +182,19 @@ function _scale_reachable(scale_reachability, consumer_scale::String, source_sca
 end
 
 function _scale_reachability_from_mtg(mtg)
-    scale_reachability = Dict{String,Set{String}}()
+    scale_reachability = Dict{Symbol,Set{Symbol}}()
 
     MultiScaleTreeGraph.traverse!(mtg) do node
-        scale = string(symbol(node))
-        push!(get!(scale_reachability, scale, Set{String}()), scale)
+        scale = symbol(node)
+        push!(get!(scale_reachability, scale, Set{Symbol}()), scale)
 
         ancestor = parent(node)
         while !isnothing(ancestor)
-            ancestor_scale = string(symbol(ancestor))
+            ancestor_scale = symbol(ancestor)
             # Scales are reachable only when they appear on the same MTG lineage
             # (ancestor/descendant relation). Sibling-only scales are excluded.
-            push!(get!(scale_reachability, scale, Set{String}()), ancestor_scale)
-            push!(get!(scale_reachability, ancestor_scale, Set{String}()), scale)
+            push!(get!(scale_reachability, scale, Set{Symbol}()), ancestor_scale)
+            push!(get!(scale_reachability, ancestor_scale, Set{Symbol}()), scale)
             ancestor = parent(ancestor)
         end
     end
@@ -242,7 +242,7 @@ function _same_timestep_signature(sig_a, sig_b)
            isapprox(phase_a, phase_b; atol=1.0e-9, rtol=0.0)
 end
 
-function _hard_dep_same_rate_as_parent(model_specs, parent_scale::String, parent_process::Symbol, child_scale::String, child_process::Symbol)
+function _hard_dep_same_rate_as_parent(model_specs, parent_scale::Symbol, parent_process::Symbol, child_scale::Symbol, child_process::Symbol)
     parent_scale == child_scale || return false
     parent_specs = get(model_specs, parent_scale, nothing)
     isnothing(parent_specs) && return false
@@ -257,9 +257,9 @@ function _hard_dep_same_rate_as_parent(model_specs, parent_scale::String, parent
 end
 
 function _collect_same_rate_hard_dependency_children!(
-    ignored_processes_by_scale::Dict{String,Set{Symbol}},
+    ignored_processes_by_scale::Dict{Symbol,Set{Symbol}},
     model_specs,
-    parent_scale::String,
+    parent_scale::Symbol,
     parent_process::Symbol,
     child::HardDependencyNode
 )
@@ -280,7 +280,7 @@ function _collect_same_rate_hard_dependency_children!(
     return nothing
 end
 
-function _soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph{Dict{String,Any}})
+function _soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph{Dict{Symbol,Any}})
     nodes = SoftDependencyNode[]
     for (_, roots_at_scale) in pairs(dep_graph.roots)
         haskey(roots_at_scale, :soft_dep_graph) || continue
@@ -292,7 +292,7 @@ end
 _soft_nodes_for_hard_dependency_analysis(dep_graph::DependencyGraph) = traverse_dependency_graph(dep_graph, false)
 
 function _same_rate_hard_dependency_children(model_specs, dep_graph::DependencyGraph)
-    ignored_processes_by_scale = Dict{String,Set{Symbol}}()
+    ignored_processes_by_scale = Dict{Symbol,Set{Symbol}}()
 
     for soft_node in _soft_nodes_for_hard_dependency_analysis(dep_graph)
         for child in soft_node.hard_dependency
@@ -309,8 +309,8 @@ function _same_rate_hard_dependency_children(model_specs, dep_graph::DependencyG
     return ignored_processes_by_scale
 end
 
-function _active_processes_for_inference(model_specs, ignored_processes_by_scale::Dict{String,Set{Symbol}})
-    active = Dict{String,Set{Symbol}}()
+function _active_processes_for_inference(model_specs, ignored_processes_by_scale::Dict{Symbol,Set{Symbol}})
+    active = Dict{Symbol,Set{Symbol}}()
     for (scale, specs_at_scale) in pairs(model_specs)
         procs = Set{Symbol}(keys(specs_at_scale))
         ignored = get(ignored_processes_by_scale, scale, Set{Symbol}())
@@ -324,7 +324,7 @@ end
 
 function _input_candidates_for_var(
     model_specs,
-    consumer_scale::String,
+    consumer_scale::Symbol,
     consumer_process::Symbol,
     input_var::Symbol;
     scale_reachability=nothing,
@@ -357,7 +357,7 @@ function _input_candidates_for_var(
     return same_scale, cross_scale
 end
 
-function _default_policy_for_inferred_binding(model_specs, source_scale::String, source_process::Symbol, source_var::Symbol)
+function _default_policy_for_inferred_binding(model_specs, source_scale::Symbol, source_process::Symbol, source_var::Symbol)
     source_spec = model_specs[source_scale][source_process]
     source_model = model_(source_spec)
     source_output_policy = output_policy(source_model)
@@ -370,7 +370,7 @@ end
 
 function _infer_input_binding_for_var(
     model_specs,
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     input_var::Symbol;
     scale_reachability=nothing,
@@ -474,7 +474,7 @@ function _infer_input_bindings!(model_specs; scale_reachability=nothing, active_
     return nothing
 end
 
-function _normalize_meteo_hint(scale::String, process::Symbol, hint)
+function _normalize_meteo_hint(scale::Symbol, process::Symbol, hint)
     isnothing(hint) && return (bindings=nothing, window=nothing)
 
     hint isa NamedTuple || error(
@@ -540,16 +540,23 @@ end
     resolved_model_specs(sim::GraphSimulation)
 
 Return process-indexed `ModelSpec` dictionaries as used by runtime:
-`Dict{String, Dict{Symbol, ModelSpec}}`.
+`Dict{Symbol, Dict{Symbol, ModelSpec}}`.
 
 For a mapping, this parses model declarations and optionally applies inference
 (`timestep_hint`, `meteo_hint`) and validation.
 For a `GraphSimulation`, this returns the already resolved model specs used by the simulation.
 """
 function resolved_model_specs(mapping::AbstractDict; infer::Bool=true, validate::Bool=true)
-    model_specs = Dict{String,Dict{Symbol,ModelSpec}}()
+    model_specs = Dict{Symbol,Dict{Symbol,ModelSpec}}()
     for (scale, declarations) in pairs(mapping)
-        model_specs[string(scale)] = parse_model_specs(declarations)
+        scale_sym = if scale isa Symbol
+            scale
+        elseif scale isa AbstractString
+            _normalize_scale(scale; warn=true, context=:ModelSpec)
+        else
+            error("Scale keys in `resolved_model_specs(mapping)` must be `Symbol` (preferred) or `String`, got `$(typeof(scale))`.")
+        end
+        model_specs[scale_sym] = parse_model_specs(declarations)
     end
 
     infer && infer_model_specs_configuration!(model_specs)

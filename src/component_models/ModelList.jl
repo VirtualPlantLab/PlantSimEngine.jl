@@ -441,19 +441,19 @@ function convert_vars(ref_vars, type_promotion::Nothing)
     return ref_vars
 end
 
-function convert_vars!(ref_vars::Dict{String,Dict{Symbol,Any}}, type_promotion::Nothing)
+function convert_vars!(ref_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion::Nothing)
     return ref_vars
 end
 
 """
-    convert_vars!(mapped_vars::Dict{String,Dict{String,Any}}, type_promotion)
+    convert_vars!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion)
 
 Converts the types of the variables in a mapping (`mapped_vars`) using the `type_promotion` dictionary.
 
 The mapping should be a dictionary with organ name as keys and a dictionary of variables as values,
 with variable names as symbols and variable value as value.
 """
-function convert_vars!(mapped_vars::Dict{String,Dict{Symbol,Any}}, type_promotion)
+function convert_vars!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion)
     for (organ, vars) in mapped_vars
         convert_vars!(vars, type_promotion)
     end

@@ -56,10 +56,10 @@ We can expect the simulation mapping to look like a more complex version of the 
 
 ```julia
 mapping = ModelMapping(
-"Scene" => ToyDegreeDaysCumulModel(),
-"Plant" => ToyStockComputationModel(),
-"Internode" => ToyCustomInternodeEmergence(),
-"Leaf" => ToyLeafCarbonCaptureModel(),
+:Scene => ToyDegreeDaysCumulModel(),
+:Plant => ToyStockComputationModel(),
+:Internode => ToyCustomInternodeEmergence(),
+:Leaf => ToyLeafCarbonCaptureModel(),
 )
 ```
 
@@ -182,9 +182,9 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
   
     if length(MultiScaleTreeGraph.children(status.node)) == 2 && 
         status.TT_cu - status.TT_cu_emergence >= m.TT_emergence            
-        status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, "<", :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
@@ -199,46 +199,46 @@ end
 We can now define the final mapping for this simulation. 
 
 The carbon capture and thermal time models don't need to be changed from the earlier version. 
-The organ creation model at the "Internode" scale needs the carbon stock from the "Plant" scale, as well as thermal time from the "Scene" scale.
-The resource storing model at the "Plant" scale needs the carbon captured by **every** leaf, and the carbon consumed by **every** internode that created new organs this timestep. This requires mapping vector variables :
+The organ creation model at the :Internode scale needs the carbon stock from the :Plant scale, as well as thermal time from the :Scene scale.
+The resource storing model at the :Plant scale needs the carbon captured by **every** leaf, and the carbon consumed by **every** internode that created new organs this timestep. This requires mapping vector variables :
 
 ```julia
  mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :carbon_organ_creation_consumed=>["Internode"]
+            :carbon_captured=>[:Leaf],
+            :carbon_organ_creation_consumed=>[:Internode]
         ],
 ```
 as opposed to the single-valued carbon stock mapped variable : 
 
 ```julia
- mapped_variables=[:TT_cu => "Scene",
-            PreviousTimeStep(:carbon_stock)=>"Plant"],
+ mapped_variables=[:TT_cu => :Scene,
+            PreviousTimeStep(:carbon_stock)=>:Plant],
 ```
 
 And of course, some variables need to be initialized in the status:
 
 ```@example usepkg
 mapping = ModelMapping(
-"Scene" => ToyDegreeDaysCumulModel(),
-"Plant" => (
+:Scene => ToyDegreeDaysCumulModel(),
+:Plant => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :carbon_organ_creation_consumed=>["Internode"]
+            :carbon_captured=>[:Leaf],
+            :carbon_organ_creation_consumed=>[:Internode]
         ],
         ),
         Status(carbon_stock = 0.0)
     ),
-"Internode" => (        
+:Internode => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene",
-            PreviousTimeStep(:carbon_stock)=>"Plant"],
+            mapped_variables=[:TT_cu => :Scene,
+            PreviousTimeStep(:carbon_stock)=>:Plant],
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-"Leaf" => ToyLeafCarbonCaptureModel(),
+:Leaf => ToyLeafCarbonCaptureModel(),
 )
 ```
 
@@ -250,16 +250,16 @@ mapping = ModelMapping(
 We only need an MTG, and some weather data, and then we'll be set. Let's create a simple MTG : 
 
 ```@example usepkg
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
-plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))   
+plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
-internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 ```
 
 Import some weather data:

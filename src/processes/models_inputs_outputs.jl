@@ -124,12 +124,12 @@ meteo_window(spec::ModelSpec) = spec.meteo_window
 
 """
     inputs(mapping::ModelMapping)
-    inputs(mapping::AbstractDict{String,T})
+    inputs(mapping::AbstractDict{Symbol,T})
 
 Get the inputs of the models in a mapping, for each process and organ type.
 """
-function inputs(mapping::AbstractDict{String,T}) where {T}
-    vars = Dict{String,NamedTuple}()
+function inputs(mapping::AbstractDict{Symbol,T}) where {T}
+    vars = Dict{Symbol,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
         push!(vars, organ => (; (i.first => (inputs(i.second)...,) for i in mods)...))
@@ -170,12 +170,12 @@ end
 
 """
     outputs(mapping::ModelMapping)
-    outputs(mapping::AbstractDict{String,T})
+    outputs(mapping::AbstractDict{Symbol,T})
 
 Get the outputs of the models in a mapping, for each process and organ type.
 """
-function outputs(mapping::AbstractDict{String,T}) where {T}
-    vars = Dict{String,NamedTuple}()
+function outputs(mapping::AbstractDict{Symbol,T}) where {T}
+    vars = Dict{Symbol,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
         push!(vars, organ => (; (i.first => (outputs(i.second)...,) for i in mods)...))
@@ -266,13 +266,13 @@ end
 
 """
     variables(mapping::ModelMapping)
-    variables(mapping::AbstractDict{String,T})
+    variables(mapping::AbstractDict{Symbol,T})
 
 Get the variables (inputs and outputs) of the models in a mapping, for each 
 process and organ type.
 """
-function variables(mapping::AbstractDict{String,T}) where {T}
-    vars = Dict{String,NamedTuple}()
+function variables(mapping::AbstractDict{Symbol,T}) where {T}
+    vars = Dict{Symbol,NamedTuple}()
     for organ in keys(mapping)
         mods = pairs(parse_models(get_models(mapping[organ])))
         push!(vars, organ => (; (i.first => (; variables(i.second)...,) for i in mods)...))

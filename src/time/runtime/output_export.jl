@@ -7,7 +7,7 @@ Use this type in `run!(...; tracked_outputs=...)` to export
 resampled temporal streams while simulation is running.
 
 # Arguments
-- `scale::AbstractString`: producer scale (for example `"Leaf"` or `"Plant"`).
+- `scale::Symbol`: producer scale (for example `:Leaf` or `:Plant`).
 - `var::Symbol`: source variable name published on `scale`.
 
 # Keyword arguments
@@ -28,7 +28,7 @@ resampled temporal streams while simulation is running.
 # Example
 ```julia
 req_daily = OutputRequest(
-    "Leaf",
+    :Leaf,
     :A;
     name=:A_daily,
     process=:toyassim,
@@ -37,13 +37,25 @@ req_daily = OutputRequest(
 )
 ```
 """
-struct OutputRequest{S<:AbstractString,P<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
-    scale::S
+struct OutputRequest{P<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
+    scale::Symbol
     var::Symbol
     name::Symbol
     process::P
     policy::POL
     clock::C
+end
+
+function OutputRequest(
+    scale::Symbol,
+    var::Symbol;
+    name::Symbol=var,
+    process=nothing,
+    policy::SchedulePolicy=HoldLast(),
+    clock=nothing
+)
+    proc = isnothing(process) ? nothing : Symbol(process)
+    return OutputRequest(scale, var, name, proc, policy, clock)
 end
 
 function OutputRequest(
@@ -54,8 +66,14 @@ function OutputRequest(
     policy::SchedulePolicy=HoldLast(),
     clock=nothing
 )
-    proc = isnothing(process) ? nothing : Symbol(process)
-    return OutputRequest(scale, var, name, proc, policy, clock)
+    return OutputRequest(
+        _normalize_scale(scale; warn=true, context=:OutputRequest),
+        var;
+        name=name,
+        process=process,
+        policy=policy,
+        clock=clock
+    )
 end
 
 function _export_clock(request::OutputRequest, timeline::TimelineContext)
@@ -67,7 +85,7 @@ function _export_clock(request::OutputRequest, timeline::TimelineContext)
     return c
 end
 
-function _canonical_source_process(sim::GraphSimulation, scale::String, var::Symbol)
+function _canonical_source_process(sim::GraphSimulation, scale::Symbol, var::Symbol)
     haskey(get_models(sim), scale) || error("Unknown scale `$(scale)` in output export request.")
     models_at_scale = get_models(sim)[scale]
     specs_at_scale = get_model_specs(sim)[scale]
@@ -120,7 +138,7 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
     rows = Dict{Symbol,ExportBuffer}()
 
     for req in reqs
-        scale = String(req.scale)
+        scale = req.scale
         process = isnothing(req.process) ? _canonical_source_process(sim, scale, req.var) : req.process
         model_spec = _model_spec_for_process(sim, scale, process)
         source_model = get_models(sim)[scale][process]
@@ -166,7 +184,7 @@ Return additional producer horizon requirements induced by configured online
 export requests.
 """
 function export_horizon_requirements(sim::GraphSimulation)
-    horizons = Dict{Tuple{String,Symbol,Symbol},Float64}()
+    horizons = Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
     for plan in sim.temporal_state.export_plans
         required = _required_horizon_for_export_policy(plan.policy, plan.clock, plan.source_dt)
         required <= 0.0 && continue
@@ -180,7 +198,7 @@ function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::HoldLast,
     scope::ScopeId,
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     var::Symbol,
     nodeid::Int,
@@ -195,7 +213,7 @@ function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::Interpolate,
     scope::ScopeId,
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     var::Symbol,
     nodeid::Int,
@@ -210,7 +228,7 @@ function _resolve_output_value_online(
     sim::GraphSimulation,
     policy::Union{Integrate,Aggregate},
     scope::ScopeId,
-    scale::String,
+    scale::Symbol,
     process::Symbol,
     var::Symbol,
     nodeid::Int,
@@ -278,7 +296,7 @@ function _materialize_output_rows(rows::ExportBuffer, sink)
         )
     end
 
-    table = Vector{NamedTuple{(:timestep, :scale, :process, :var, :node, :value),Tuple{Int,String,Symbol,Symbol,Int,Any}}}(undef, n)
+    table = Vector{NamedTuple{(:timestep, :scale, :process, :var, :node, :value),Tuple{Int,Symbol,Symbol,Symbol,Int,Any}}}(undef, n)
     @inbounds for i in 1:n
         table[i] = (
             timestep=rows.timestep[i],

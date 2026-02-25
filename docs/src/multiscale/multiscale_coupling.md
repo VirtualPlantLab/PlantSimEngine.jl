@@ -11,20 +11,20 @@ Depth = 3
 In the detailed example discussed previously [Multi-scale variable mapping](@ref), there were several instances of mapping a variable from one scale to another, which we'll briefly describe again to help transition to the next and more advanced subsection. Here's a relevant exerpt from the mapping : 
 
 ```julia
-"Plant" => (
+:Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         ...
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
-                :carbon_assimilation => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                :carbon_allocation => ["Leaf", "Internode"]
+                :carbon_assimilation => [:Leaf],
+                :carbon_demand => [:Leaf, :Internode],
+                :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
         ...
@@ -35,17 +35,17 @@ For flexibility reasons, instead of explicitely linking most models from differe
 
 However, PlantSimEngine cannot infer which scales have multiple instances, and which are single-instance, as the scale names are user-defined.
 
-In the above example, there is only one scene at the "Scene", and one plant at the "Plant" scale, meaning the `TT_cu` variable mapped between the two has a one-to-one scalar-to-scalar correspondance.
+In the above example, there is only one scene at the :Scene, and one plant at the :Plant scale, meaning the `TT_cu` variable mapped between the two has a one-to-one scalar-to-scalar correspondance.
 
 On the other hand, the `carbon_assimilation` variable is computed for **every** leaf, of which there could be hundreds, or thousands, giving a scalar-to-vector correspondance. The carbon assimilation model runs many times every timestep, whereas the carbon allocation model only runs once per timestep. There may be initially be only a single leaf, though, meaning PlantSimEngine cannot currently guess from the initial configuration that there might be multiple leaves created during the simulation.
 
 Hence the difference in mapping declaration :  `TT_cu`is declared as a scalar correspondence : 
 ```julia
-:TT_cu => "Scene",
+:TT_cu => :Scene,
 ```
 whereas `carbon_assimilation` (and other variables) will be declared as a vector correspondence :
 ```julia
-:carbon_assimilation => ["Leaf"],
+:carbon_assimilation => [:Leaf],
 ```
 
 Note that there may be instances where you might wish to write your own model to aggregate a variable from a multi-instance scale.
@@ -93,10 +93,10 @@ The user-mapping includes the required models at specific organ levels. Here's t
 ```julia
 mapping = ModelMapping(
     ...
-    "Male" =>
+    :Male =>
     MultiScaleModel(
         model=XPalm.InitiationAgeFromPlantAge(),
-        mapped_variables=[:plant_age => "Plant",],
+        mapped_variables=[:plant_age => :Plant,],
     ),
     ...
     XPalm.MaleFinalPotentialBiomass(
@@ -128,7 +128,7 @@ So when a model M calls a hard dependency H's [`run!`](@ref) function, any requi
 Using the same example in XPalm, the oil palm FSPM: 
 
 ```julia
-# Note that the function's 'status' parameter does NOT contain the variables required by the hard dependencies as the calling model's organ level is "Phytomer", not "Male" or "Female"
+# Note that the function's 'status' parameter does NOT contain the variables required by the hard dependencies as the calling model's organ level is "Phytomer", not :Male or "Female"
 
 function PlantSimEngine.run!(m::ReproductiveOrganEmission, models, status, meteo, constants, sim_object)
     ...
@@ -158,11 +158,11 @@ function PlantSimEngine.run!(m::ReproductiveOrganEmission, models, status, meteo
 
     ...
 
-    if status.sex == "Male"
+    if status.sex == :Male
 
-        status_male = sim_object.statuses["Male"][1]
-        run!(sim_object.models["Male"].initiation_age, models, status_male, meteo, constants, sim_object)
-        run!(sim_object.models["Male"].final_potential_biomass, models, status_male, meteo, constants, sim_object)
+        status_male = sim_object.statuses[:Male][1]
+        run!(sim_object.models[:Male].initiation_age, models, status_male, meteo, constants, sim_object)
+        run!(sim_object.models[:Male].final_potential_biomass, models, status_male, meteo, constants, sim_object)
     else
         # Female
         ...

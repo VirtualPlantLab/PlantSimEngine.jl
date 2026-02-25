@@ -35,35 +35,35 @@ Define the models mapping:
 
 ```jldoctest mylabel
 julia> mapping = ModelMapping( \
-    "Plant" =>  ( \
+    :Plant =>  ( \
         MultiScaleModel(  \
             model=ToyCAllocationModel(), \
             mapped_variables=[ \
-                :carbon_assimilation => ["Leaf"], \
-                :carbon_demand => ["Leaf", "Internode"], \
-                :carbon_allocation => ["Leaf", "Internode"] \
+                :carbon_assimilation => [:Leaf], \
+                :carbon_demand => [:Leaf, :Internode], \
+                :carbon_allocation => [:Leaf, :Internode] \
             ], \
         ), 
         MultiScaleModel(  \
             model=ToyPlantRmModel(), \
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],] \
+            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],] \
         ), \
     ),\
-    "Internode" => ( \
+    :Internode => ( \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004), \
         Status(TT=10.0, carbon_biomass=1.0) \
     ), \
-    "Leaf" => ( \
+    :Leaf => ( \
         MultiScaleModel( \
             model=ToyAssimModel(), \
-            mapped_variables=[:soil_water_content => "Soil",], \
+            mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),], \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025), \
         Status(aPPFD=1300.0, TT=10.0, carbon_biomass=1.0), \
     ), \
-    "Soil" => ( \
+    :Soil => ( \
         ToySoilWaterModel(), \
     ), \
 );
@@ -80,7 +80,7 @@ julia> statuses, status_templates, reverse_multiscale_mapping, vars_need_init = 
 ```
 
 ```jldoctest mylabel
-julia> outs = Dict("Leaf" => (:carbon_assimilation, :carbon_demand), "Soil" => (:soil_water_content,));
+julia> outs = Dict(:Leaf => (:carbon_assimilation, :carbon_demand), :Soil => (:soil_water_content,));
 ```
 
 Pre-allocate the outputs as a dictionary:
@@ -93,16 +93,16 @@ The dictionary has a key for each organ from which we want outputs:
 
 ```jldoctest mylabel
 julia> collect(keys(preallocated_vars))
-2-element Vector{String}:
- "Soil"
- "Leaf"
+2-element Vector{Symbol}:
+ :Soil
+ :Leaf
 ```
 
 Each organ has a dictionary of variables for which we want outputs from, 
 with the pre-allocated empty vectors (one per time-step that will be filled with one value per node):
 
 ```jldoctest mylabel
-julia> collect(keys(preallocated_vars["Leaf"]))
+julia> collect(keys(preallocated_vars[:Leaf]))
 3-element Vector{Symbol}:
  :carbon_assimilation
  :node
@@ -111,7 +111,7 @@ julia> collect(keys(preallocated_vars["Leaf"]))
 """
 
 function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_mapping, vars_need_init, outs, nsteps; type_promotion=nothing, check=true)
-    outs_ = Dict{String,Vector{Symbol}}()
+    outs_ = Dict{Symbol,Vector{Symbol}}()
 
     # default behaviour : track everything
     if isnothing(outs)
@@ -125,12 +125,13 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
         end
     else
         for i in keys(outs) # i = "Plant"
-            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `"$i" => (:a, :b)`, found `"$i" => $(outs[i])` instead."""
+            i isa Symbol || error("Output scale keys must be `Symbol`, got `$(typeof(i))` for key `$(repr(i))`.")
+            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `$i => (:a, :b)`, found `$i => $(outs[i])` instead."""
             outs_[i] = [outs[i]...]
         end
     end
 
-    len = Dict{String,Int}()
+    len = Dict{Symbol,Int}()
     for (organ, vals) in outs_
         len[organ] = length(outs_[organ])
         unique!(outs_[organ])
@@ -210,7 +211,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     node_type = only(node_type)
 
     # I don't know if this function barrier is necessary
-    preallocated_outputs = Dict{String,Vector}()
+    preallocated_outputs = Dict{Symbol,Vector}()
     complete_preallocation_from_types!(preallocated_outputs, nsteps, outs_, node_type, statuses_template)
     return preallocated_outputs
 end

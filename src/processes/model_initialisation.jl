@@ -3,7 +3,7 @@
     to_initialize(m::T)  where T <: ModelMapping
     to_initialize(m::DependencyGraph)
     to_initialize(mapping::ModelMapping, graph=nothing)
-    to_initialize(mapping::AbstractDict{String,T}, graph=nothing)
+    to_initialize(mapping::AbstractDict{Symbol,T}, graph=nothing)
 
 Return the variables that must be initialized providing a set of models and processes. The
 function takes into account model coupling and only returns the variables that are needed
@@ -114,8 +114,8 @@ function to_initialize(m::AbstractDependencyNode)
     return (inputs=inputs_(m.value), outputs=outputs_(m.value))
 end
 
-function to_initialize(m::T) where {T<:Dict{String,ModelMapping}}
-    toinit = Dict{String,NamedTuple}()
+function to_initialize(m::T) where {T<:Dict{Symbol,ModelMapping}}
+    toinit = Dict{Symbol,NamedTuple}()
     for (key, value) in m
         # key = "Leaf"; value = m[key]
         toinit_ = to_initialize(value)
@@ -140,7 +140,7 @@ function to_initialize(; verbose=true, vars...)
 end
 
 # For the list of mapping given to an MTG:
-function to_initialize(mapping::AbstractDict{String,T}, graph=nothing) where {T}
+function to_initialize(mapping::AbstractDict{Symbol,T}, graph=nothing) where {T}
     # Get the variables in the MTG:
     if isnothing(graph)
         vars_in_mtg = Symbol[]
@@ -164,7 +164,7 @@ function to_initialize(mapping::AbstractDict{String,T}, graph=nothing) where {T}
 end
 
 """
-    init_status!(object::Dict{String,ModelMapping};vars...)
+    init_status!(object::Dict{Symbol,ModelMapping};vars...)
     init_status!(component::ModelMapping;vars...)
 
 Initialise model variables for components with user input.
@@ -178,21 +178,21 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 models = Dict(
-    "Leaf" => ModelMapping(
+    :Leaf => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "InterNode" => ModelMapping(
+    :InterNode => ModelMapping(
         process1=Process1Model(1.0),
     )
 )
 
 init_status!(models, var1=1.0 , var2=2.0)
-status(models["Leaf"])
+status(models[:Leaf])
 ```
 """
-function init_status!(object::Dict{String,ModelMapping}; vars...)
+function init_status!(object::Dict{Symbol,ModelMapping}; vars...)
     new_vals = (; vars...)
 
     for (component_name, component) in object

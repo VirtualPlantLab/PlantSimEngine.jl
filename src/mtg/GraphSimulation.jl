@@ -22,14 +22,14 @@ A type that holds all information for a simulation over a graph.
 struct GraphSimulation{T,S,U,O,V,TS,MS}
     graph::T
     statuses::S
-    status_templates::Dict{String,Dict{Symbol,Any}}
-    reverse_multiscale_mapping::Dict{String,Dict{String,Dict{Symbol,Any}}}
-    var_need_init::Dict{String,V}
+    status_templates::Dict{Symbol,Dict{Symbol,Any}}
+    reverse_multiscale_mapping::Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}
+    var_need_init::Dict{Symbol,V}
     dependency_graph::DependencyGraph
-    models::Dict{String,U}
+    models::Dict{Symbol,U}
     model_specs::MS
-    outputs::Dict{String,O}
-    outputs_index::Dict{String, Int}
+    outputs::Dict{Symbol,O}
+    outputs_index::Dict{Symbol, Int}
     temporal_state::TS
     is_multirate::Bool
 end
@@ -51,7 +51,7 @@ temporal_state(g::GraphSimulation) = g.temporal_state
 is_multirate(g::GraphSimulation) = g.is_multirate
 
 """
-    convert_outputs(sim_outputs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
+    convert_outputs(sim_outputs::Dict{Symbol,O} where O, sink; refvectors=false, no_value=nothing)
     convert_outputs(sim_outputs::TimeStepTable{T} where T, sink)
 
 Convert the outputs returned by a simulation made on a plant graph into another format.
@@ -102,8 +102,8 @@ convert_outputs(out, DataFrames)
 """
 # Another, possibly better way would be to just create the DataFrame directly from the outputs 
 # and then remove the RefVector columns and replace the node one, hmm
-function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
-    ret = Dict{String, sink}()
+function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, no_value=nothing)
+    ret = Dict{Symbol, sink}()
     for (organ, status_vector) in outs
         # remove RefVector variables
         refv = ()
@@ -142,11 +142,11 @@ function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, n
 end
 
 # TODO adapt these to new output structure or remove them
-function outputs(outs::Dict{String, O} where O, key::Symbol)
+function outputs(outs::Dict{Symbol, O} where O, key::Symbol)
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
 end
 
-function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
+function outputs(outs::Dict{Symbol, O} where O, i::T) where {T<:Integer}
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
 end
 

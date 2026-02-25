@@ -549,7 +549,7 @@ _effective_multirate(mapping::ModelMapping) = is_multirate(mapping)
 _effective_multirate(sim::GraphSimulation) = is_multirate(sim)
 
 function _active_dependency_processes(dep_graph::DependencyGraph)
-    active = Set{Tuple{String,Symbol}}()
+    active = Set{Tuple{Symbol,Symbol}}()
     for node in traverse_dependency_graph(dep_graph, false)
         push!(active, (node.scale, node.process))
     end
@@ -694,7 +694,7 @@ end
 
 function run!(
     object::MultiScaleTreeGraph.Node,
-    mapping::AbstractDict{String,T} where {T},
+    mapping::AbstractDict{Symbol,T} where {T},
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;

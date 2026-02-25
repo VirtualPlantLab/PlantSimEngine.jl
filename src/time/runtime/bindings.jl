@@ -76,7 +76,13 @@ function _parse_input_binding(binding)
     elseif binding isa NamedTuple
         process = haskey(binding, :process) ? binding.process : nothing
         var = haskey(binding, :var) ? binding.var : nothing
-        scale = haskey(binding, :scale) ? string(binding.scale) : nothing
+        scale = if haskey(binding, :scale)
+            sc = binding.scale
+            isnothing(sc) ? nothing :
+            (sc isa AbstractString ? _normalize_scale(sc; warn=true, context=:ModelSpec) : sc)
+        else
+            nothing
+        end
         policy = haskey(binding, :policy) ? binding.policy : HoldLast()
         if policy isa DataType && policy <: SchedulePolicy
             policy = policy()

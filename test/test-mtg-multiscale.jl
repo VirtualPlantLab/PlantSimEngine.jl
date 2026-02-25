@@ -7,15 +7,15 @@ meteo = Weather(
 )
 
 @testset "MTG initialisation" begin
-    simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    internode = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("<", "Leaf", 1, 2))
+    simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))
+    internode = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    leaf = Node(simple_mtg, MultiScaleTreeGraph.NodeMTG("<", :Leaf, 1, 2))
     var1 = 15.0
     var2 = 0.3
     leaf[:var2] = var2
 
     mapping = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             Process1Model(1.0),
             Process2Model(),
             Process3Model(),
@@ -26,57 +26,57 @@ meteo = Weather(
     @test descendants(simple_mtg, :var1) == [nothing, nothing]
     @test descendants(simple_mtg, :var2) == [nothing, var2]
 
-    @test to_initialize(mapping) == Dict("Leaf" => [:var2]) # NB: :var1 is initialised in the status
+    @test to_initialize(mapping) == Dict(:Leaf => [:var2]) # NB: :var1 is initialised in the status
     @test to_initialize(mapping, simple_mtg) == Dict()
 end
 
 # A mapping that actually works (same as before but with the init for TT):
 mapping_1 = ModelMapping(
-    "Plant" => (
+    :Plant => (
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 # inputs
-                :carbon_assimilation => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
+                :carbon_assimilation => [:Leaf],
+                :carbon_demand => [:Leaf, :Internode],
                 # outputs
-                :carbon_allocation => ["Leaf", "Internode"]
+                :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
-    "Internode" => (
+    :Internode => (
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(TT=10.0)
     ),
-    "Leaf" => (
+    :Leaf => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil",],
-            # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+            mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+            # Notice we provide :Soil, not [:Soil], so a single value is expected here
         ),
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         Status(aPPFD=1300.0, TT=10.0),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
     ),
-    "Soil" => (
+    :Soil => (
         ToySoilWaterModel(),
     ),
 )
 
 # Example MTG:
 mtg = begin
-    scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
-    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-    leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    scene = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", :Soil, 1, 1))
+    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    internode2 = Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+    leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     scene
 end
 
@@ -86,44 +86,44 @@ MultiScaleTreeGraph.transform!(mtg_init, (x -> 1.0) => :carbon_biomass, symbol=[
 
 @testset "Multiscale dependency graph" begin
     d = dep(mapping_1)
-    c_allocation_plant_scale = d.roots["Leaf"=>:carbon_demand].children[1].outputs
+    c_allocation_plant_scale = d.roots[:Leaf=>:carbon_demand].children[1].outputs
     carbon_allocation_vars = last(c_allocation_plant_scale[1])
     @test carbon_allocation_vars[:carbon_offer] == -Inf
     @test isa(carbon_allocation_vars[:carbon_allocation], PlantSimEngine.MappedVar)
-    @test PlantSimEngine.mapped_organ(carbon_allocation_vars[:carbon_allocation]) == ["Leaf", "Internode"]
+    @test PlantSimEngine.mapped_organ(carbon_allocation_vars[:carbon_allocation]) == [:Leaf, :Internode]
     @test PlantSimEngine.mapped_default(carbon_allocation_vars[:carbon_allocation]) == PlantSimEngine.outputs_(ToyCAllocationModel()).carbon_allocation
     @test PlantSimEngine.mapped_variable(carbon_allocation_vars[:carbon_allocation]) == :carbon_allocation
     @test PlantSimEngine.source_variable(carbon_allocation_vars[:carbon_allocation]) == [:carbon_allocation, :carbon_allocation]
 
     # Testing inputs and outputs of the nodes:
-    @test d.roots["Soil"=>:soil_water].inputs == [:soil_water => NamedTuple()]
+    @test d.roots[:Soil=>:soil_water].inputs == [:soil_water => NamedTuple()]
     # Testing if the status given by the user is used to set the default values of the variables in the nodes:
-    @test last(d.roots["Soil"=>:soil_water].children[1].inputs[1]).aPPFD == 1300.0
+    @test last(d.roots[:Soil=>:soil_water].children[1].inputs[1]).aPPFD == 1300.0
     # Testing that the outputs that are not multiscale are simply initialised with the default values from the models:
-    @test d.roots["Internode"=>:carbon_demand].outputs[1] |> last |> first == -Inf
+    @test d.roots[:Internode=>:carbon_demand].outputs[1] |> last |> first == -Inf
     # Testing that the intputs that are not multiscale are initialised with the default values from the models, as an `UninitializedVar`:
-    @test d.roots["Internode"=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:carbon_biomass, 0.0)
+    @test d.roots[:Internode=>:maintenance_respiration].inputs[1] |> last |> first == PlantSimEngine.UninitializedVar(:carbon_biomass, 0.0)
 end
 
 @testset "inputs and outputs of a mapping" begin
     ins = inputs(mapping_1)
 
     @test collect(keys(ins)) == collect(keys(mapping_1))
-    @test ins["Soil"] == (soil_water=(),)
-    @test ins["Leaf"] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:carbon_biomass,))
+    @test ins[:Soil] == (soil_water=(),)
+    @test ins[:Leaf] == (carbon_assimilation=(:aPPFD, :soil_water_content), carbon_demand=(:TT,), maintenance_respiration=(:carbon_biomass,))
 
     outs = outputs(mapping_1)
     @test collect(keys(outs)) == collect(keys(mapping_1))
-    @test outs["Soil"] == (soil_water=(:soil_water_content,),)
-    @test outs["Leaf"] == (carbon_assimilation=(:carbon_assimilation,), carbon_demand=(:carbon_demand,), maintenance_respiration=(:Rm,))
-    @test outs["Plant"] == (carbon_allocation=(:carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm,))
+    @test outs[:Soil] == (soil_water=(:soil_water_content,),)
+    @test outs[:Leaf] == (carbon_assimilation=(:carbon_assimilation,), carbon_demand=(:carbon_demand,), maintenance_respiration=(:Rm,))
+    @test outs[:Plant] == (carbon_allocation=(:carbon_offer, :carbon_allocation), maintenance_respiration=(:Rm,))
 
     vars = variables(mapping_1)
     @test collect(keys(vars)) == collect(keys(mapping_1))
-    @test keys(vars["Soil"]) == keys(outs["Soil"])
-    @test keys(values(vars["Soil"])[1]) == values(outs["Soil"])[1]
-    @test vars["Plant"] == (carbon_allocation=(carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf], carbon_offer=-Inf, carbon_allocation=[-Inf]), maintenance_respiration=(Rm_organs=[-Inf], Rm=-Inf),)
-    @test vars["Leaf"] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(carbon_biomass=0.0, Rm=-Inf))
+    @test keys(vars[:Soil]) == keys(outs[:Soil])
+    @test keys(values(vars[:Soil])[1]) == values(outs[:Soil])[1]
+    @test vars[:Plant] == (carbon_allocation=(carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf], carbon_offer=-Inf, carbon_allocation=[-Inf]), maintenance_respiration=(Rm_organs=[-Inf], Rm=-Inf),)
+    @test vars[:Leaf] == (carbon_assimilation=(aPPFD=-Inf, soil_water_content=-Inf, carbon_assimilation=-Inf), carbon_demand=(TT=-Inf, carbon_demand=-Inf), maintenance_respiration=(carbon_biomass=0.0, Rm=-Inf))
 end
 
 @testset "Status initialisation" begin
@@ -132,39 +132,39 @@ end
     @test_throws "Variable `carbon_biomass` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Internode (checked for MTG node 4)." PlantSimEngine.init_statuses(mtg, mapping_1, hard_dep_graph)  
     organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph)
 
-    @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
+    @test Set(keys(organs_statuses)) == Set([:Soil, :Internode, :Plant, :Leaf])
     # Check that the soil_water_content is linked between the soil and the leaves:
-    @test length(organs_statuses["Soil"]) == length(organs_statuses["Plant"]) == 1
-    @test length(organs_statuses["Leaf"]) == length(organs_statuses["Internode"]) == 2
-    @test organs_statuses["Soil"][1][:soil_water_content] === -Inf
-    @test organs_statuses["Leaf"][1][:soil_water_content] === -Inf
-    @test organs_statuses["Leaf"][2][:soil_water_content] === -Inf
-    @test organs_statuses["Leaf"][2][:soil_water_content] === organs_statuses["Soil"][1][:soil_water_content]
+    @test length(organs_statuses[:Soil]) == length(organs_statuses[:Plant]) == 1
+    @test length(organs_statuses[:Leaf]) == length(organs_statuses[:Internode]) == 2
+    @test organs_statuses[:Soil][1][:soil_water_content] === -Inf
+    @test organs_statuses[:Leaf][1][:soil_water_content] === -Inf
+    @test organs_statuses[:Leaf][2][:soil_water_content] === -Inf
+    @test organs_statuses[:Leaf][2][:soil_water_content] === organs_statuses[:Soil][1][:soil_water_content]
 
-    organs_statuses["Soil"][1][:soil_water_content] = 1.0
-    @test organs_statuses["Leaf"][1][:soil_water_content][] == 1.0
+    organs_statuses[:Soil][1][:soil_water_content] = 1.0
+    @test organs_statuses[:Leaf][1][:soil_water_content][] == 1.0
 
-    @test organs_statuses["Plant"][1][:carbon_assimilation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf)])
-    @test organs_statuses["Plant"][1][:carbon_allocation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf), Ref(-Inf), Ref(-Inf)])
-    @test organs_statuses["Internode"][1][:carbon_allocation] == -Inf
-    @test organs_statuses["Leaf"][1][:carbon_demand] == -Inf
+    @test organs_statuses[:Plant][1][:carbon_assimilation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf)])
+    @test organs_statuses[:Plant][1][:carbon_allocation] == PlantSimEngine.RefVector{Float64}([Ref(-Inf), Ref(-Inf), Ref(-Inf), Ref(-Inf)])
+    @test organs_statuses[:Internode][1][:carbon_allocation] == -Inf
+    @test organs_statuses[:Leaf][1][:carbon_demand] == -Inf
 
     # Testing with a different type:
     organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph, type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
 
-    @test isa(organs_statuses["Plant"][1][:carbon_assimilation], PlantSimEngine.RefVector{Float32})
-    @test isa(organs_statuses["Plant"][1][:carbon_allocation], PlantSimEngine.RefVector{Float32})
-    @test isa(organs_statuses["Internode"][1][:carbon_allocation], Float32)
-    @test isa(organs_statuses["Leaf"][1][:carbon_demand], Float32)
-    @test isa(organs_statuses["Soil"][1][:soil_water_content], Float32)
+    @test isa(organs_statuses[:Plant][1][:carbon_assimilation], PlantSimEngine.RefVector{Float32})
+    @test isa(organs_statuses[:Plant][1][:carbon_allocation], PlantSimEngine.RefVector{Float32})
+    @test isa(organs_statuses[:Internode][1][:carbon_allocation], Float32)
+    @test isa(organs_statuses[:Leaf][1][:carbon_demand], Float32)
+    @test isa(organs_statuses[:Soil][1][:soil_water_content], Float32)
 end
 
 
 @testset "Multiscale initialisations and outputs" begin
     outs = Dict(
-        "Flowers" => (:carbon_assimilation, :carbon_demand), # There are no flowers in this MTG
-        "Leaf" => (:carbon_assimilation, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
-        "Soil" => (:soil_water_content,),
+        :Flowers => (:carbon_assimilation, :carbon_demand), # There are no flowers in this MTG
+        :Leaf => (:carbon_assimilation, :carbon_demand, :non_existing_variable), # :non_existing_variable is not computed by any model
+        :Soil => (:soil_water_content,),
     )
 
     type_promotion = nothing
@@ -173,35 +173,35 @@ end
     hard_dep_graph = first(PlantSimEngine.hard_dependencies(mapping_1; verbose=false))
     organs_statuses, others = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph; type_promotion=type_promotion)
 
-    @test collect(keys(organs_statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
-    @test collect(keys(organs_statuses["Soil"][1])) == [:node, :soil_water_content]
-    @test collect(keys(organs_statuses["Leaf"][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :carbon_biomass, :aPPFD, :node, :Rm, :soil_water_content, :carbon_demand]
-    @test collect(keys(organs_statuses["Plant"][1])) == [:Rm_organs, :carbon_allocation, :carbon_assimilation, :node, :carbon_offer, :Rm, :carbon_demand]
-    @test organs_statuses["Soil"][1][:soil_water_content][] === -Inf
-    @test organs_statuses["Leaf"][1][:carbon_allocation] === -Inf
-    @test organs_statuses["Leaf"][1][:TT] === 10.0
-    @test typeof(organs_statuses["Plant"][1][:carbon_allocation]) === PlantSimEngine.RefVector{Float64}
+    @test Set(keys(organs_statuses)) == Set([:Soil, :Internode, :Plant, :Leaf])
+    @test collect(keys(organs_statuses[:Soil][1])) == [:node, :soil_water_content]
+    @test collect(keys(organs_statuses[:Leaf][1])) == [:carbon_allocation, :carbon_assimilation, :TT, :carbon_biomass, :aPPFD, :node, :Rm, :soil_water_content, :carbon_demand]
+    @test collect(keys(organs_statuses[:Plant][1])) == [:Rm_organs, :carbon_allocation, :carbon_assimilation, :node, :carbon_offer, :Rm, :carbon_demand]
+    @test organs_statuses[:Soil][1][:soil_water_content][] === -Inf
+    @test organs_statuses[:Leaf][1][:carbon_allocation] === -Inf
+    @test organs_statuses[:Leaf][1][:TT] === 10.0
+    @test typeof(organs_statuses[:Plant][1][:carbon_allocation]) === PlantSimEngine.RefVector{Float64}
 
-    @test PlantSimEngine.reverse_mapping(mapping_1, all=true) == Dict{String,Dict{String,Dict{Symbol,Any}}}(
-        "Soil" => Dict("Leaf" => Dict(:soil_water_content => :soil_water_content)),
-        "Internode" => Dict("Plant" => Dict(:carbon_allocation => :carbon_allocation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand)),
-        "Leaf" => Dict("Plant" => Dict(:carbon_allocation => :carbon_allocation, :carbon_assimilation => :carbon_assimilation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand))
+    @test PlantSimEngine.reverse_mapping(mapping_1, all=true) == Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}(
+        :Soil => Dict(:Leaf => Dict(:soil_water_content => :soil_water_content)),
+        :Internode => Dict(:Plant => Dict(:carbon_allocation => :carbon_allocation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand)),
+        :Leaf => Dict(:Plant => Dict(:carbon_allocation => :carbon_allocation, :carbon_assimilation => :carbon_assimilation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand))
     )
 
-    @test PlantSimEngine.reverse_mapping(mapping_1, all=false) == Dict{String,Dict{String,Dict{Symbol,Any}}}(
-        "Internode" => Dict("Plant" => Dict(:carbon_allocation => :carbon_allocation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand)),
-        "Leaf" => Dict("Plant" => Dict(:carbon_allocation => :carbon_allocation, :carbon_assimilation => :carbon_assimilation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand))
+    @test PlantSimEngine.reverse_mapping(mapping_1, all=false) == Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}(
+        :Internode => Dict(:Plant => Dict(:carbon_allocation => :carbon_allocation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand)),
+        :Leaf => Dict(:Plant => Dict(:carbon_allocation => :carbon_allocation, :carbon_assimilation => :carbon_assimilation, :Rm => :Rm_organs, :carbon_demand => :carbon_demand))
     )
 
-    @test PlantSimEngine.reverse_mapping(filter(x -> x.first == "Soil", mapping_1)) == Dict{String,Dict{String,Dict{Symbol,Any}}}()
-    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict("Internode" => [:carbon_biomass], "Leaf" => [:carbon_biomass])
-    @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{String,Symbol}()
+    @test PlantSimEngine.reverse_mapping(filter(x -> x.first == :Soil, mapping_1)) == Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}()
+    @test PlantSimEngine.to_initialize(mapping_1, mtg) == Dict(:Internode => [:carbon_biomass], :Leaf => [:carbon_biomass])
+    @test PlantSimEngine.to_initialize(mapping_1, mtg_init) == Dict{Symbol,Symbol}()
 
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init = PlantSimEngine.init_statuses(mtg_init, mapping_1, hard_dep_graph)
-    @test collect(keys(statuses)) == ["Soil", "Internode", "Plant", "Leaf"]
+    @test Set(keys(statuses)) == Set([:Soil, :Internode, :Plant, :Leaf])
 
-    @test length(statuses["Internode"]) == length(statuses["Leaf"]) == 2
-    @test length(statuses["Soil"]) == length(statuses["Plant"]) == 1
+    @test length(statuses[:Internode]) == length(statuses[:Leaf]) == 2
+    @test length(statuses[:Soil]) == length(statuses[:Plant]) == 1
 
     e_1 = "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models."
     e_2 = "You requested outputs for variables A, carbon_demand, non_existing_variable, but variables non_existing_variable have no models."
@@ -216,74 +216,74 @@ end
     outs_ = @test_logs (:info, "You requested outputs for organs Soil, Flowers, Leaf, but organs Flowers have no models.") (:info, "You requested outputs for variable non_existing_variable in organ Leaf, but it has no model.") PlantSimEngine.pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outs, nsteps, check=false)
 
     @test outs_ == Dict(
-        "Soil" => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0)), soil_water_content = -Inf), 
-        Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), soil_water_content = -Inf)],
-        "Leaf" => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf),
-         Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", "Uninitialized", 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf)]
+        :Soil => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", :Uninitialized, 0, 0)), soil_water_content = -Inf), 
+        Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", :Uninitialized, 0, 0),), soil_water_content = -Inf)],
+        :Leaf => [Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", :Uninitialized, 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf),
+         Status(timestep = 1, node = MultiScaleTreeGraph.Node(NodeMTG("/", :Uninitialized, 0, 0),), carbon_assimilation = -Inf, carbon_demand = -Inf)]
     )
 end
 
 # Testing the mappings:
 @testset "Mapping: missing initialisation" begin
     mapping = ModelMapping(
-        "Plant" =>
+        :Plant =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
-                    :carbon_assimilation => ["Leaf"],
-                    :carbon_demand => ["Leaf", "Internode"],
+                    :carbon_assimilation => [:Leaf],
+                    :carbon_demand => [:Leaf, :Internode],
                     # outputs
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        "Leaf" => (
+        :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        :Leaf => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapped_variables=[:soil_water_content => "Soil",],
-                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                # Notice we provide :Soil, not [:Soil], so a single value is expected here
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             Status(aPPFD=1300.0, TT=10.0),
         ),
-        "Soil" => (
+        :Soil => (
             ToySoilWaterModel(),
         ),
     )
 
     to_init = @test_nowarn to_initialize(mapping)
 
-    @test to_init["Internode"] == [:TT]
+    @test to_init[:Internode] == [:TT]
 
     mapped_vars = PlantSimEngine.mapped_variables(mapping)
-    @test collect(keys(mapped_vars["Plant"])) == [:carbon_allocation, :carbon_assimilation, :carbon_offer, :Rm, :carbon_demand]
-    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars["Plant"])] == [-Inf, -Inf, -Inf, PlantSimEngine.UninitializedVar{Float64}(:Rm, -Inf), -Inf]
-    @test collect(keys(mapped_vars["Leaf"])) == [:carbon_allocation, :carbon_assimilation, :TT, :aPPFD, :soil_water_content, :carbon_demand]
-    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars["Leaf"])] == [-Inf, -Inf, 10.0, 1300.0, -Inf, -Inf]
-    @test collect(keys(mapped_vars["Soil"])) == [:soil_water_content]
-    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars["Soil"])] == [-Inf]
+    @test collect(keys(mapped_vars[:Plant])) == [:carbon_allocation, :carbon_assimilation, :carbon_offer, :Rm, :carbon_demand]
+    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars[:Plant])] == [-Inf, -Inf, -Inf, PlantSimEngine.UninitializedVar{Float64}(:Rm, -Inf), -Inf]
+    @test collect(keys(mapped_vars[:Leaf])) == [:carbon_allocation, :carbon_assimilation, :TT, :aPPFD, :soil_water_content, :carbon_demand]
+    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars[:Leaf])] == [-Inf, -Inf, 10.0, 1300.0, -Inf, -Inf]
+    @test collect(keys(mapped_vars[:Soil])) == [:soil_water_content]
+    @test [PlantSimEngine.mapped_default(i) for i in values(mapped_vars[:Soil])] == [-Inf]
 end
 
 @testset "Mapping: missing organ in mapping (Soil)" begin
     @test_throws "missing scale `Soil`" ModelMapping(
-        "Plant" =>
+        :Plant =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
-                    :carbon_assimilation => ["Leaf"],
-                    :carbon_demand => ["Leaf", "Internode"],
+                    :carbon_assimilation => [:Leaf],
+                    :carbon_demand => [:Leaf, :Internode],
                     # outputs
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        "Leaf" => (
+        :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        :Leaf => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapped_variables=[:soil_water_content => "Soil",],
-                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                # Notice we provide :Soil, not [:Soil], so a single value is expected here
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             Status(aPPFD=1300.0, TT=10.0),
@@ -292,38 +292,38 @@ end
 end
 
 mtg_var = let
-    scene = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
-    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    scene = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    soil = Node(scene, MultiScaleTreeGraph.NodeMTG("/", :Soil, 1, 1))
+    plant = Node(scene, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode1 = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    leaf1 = Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     scene
 end
 
 @testset "Mapping: missing model at other scale (soil_water_content) + missing init + var1 from MTG" begin
     @test_throws "not available at scale `Soil`" ModelMapping(
-        "Plant" =>
+        :Plant =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
-                    :carbon_assimilation => ["Leaf"],
-                    :carbon_demand => ["Leaf", "Internode"],
+                    :carbon_assimilation => [:Leaf],
+                    :carbon_demand => [:Leaf, :Internode],
                     # outputs
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        "Leaf" => (
+        :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        :Leaf => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapped_variables=[:soil_water_content => "Soil",],
-                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                # Notice we provide :Soil, not [:Soil], so a single value is expected here
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             Status(aPPFD=1300.0, TT=10.0),
         ),
-        "Soil" => (
+        :Soil => (
             Process1Model(1.0),
         ),
     )
@@ -331,98 +331,98 @@ end
 
 @testset "Mapping: missing init + var1 from MTG" begin
     mapping = ModelMapping(
-        "Plant" =>
+        :Plant =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
-                    :carbon_assimilation => ["Leaf"],
-                    :carbon_demand => ["Leaf", "Internode"],
+                    :carbon_assimilation => [:Leaf],
+                    :carbon_demand => [:Leaf, :Internode],
                     # outputs
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        "Leaf" => (
+        :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        :Leaf => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapped_variables=[:soil_water_content => "Soil" => :var3,],
-                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                mapped_variables=[:soil_water_content => (:Soil => :var3),],
+                # Notice we provide :Soil, not [:Soil], so a single value is expected here
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             Status(aPPFD=1300.0, TT=10.0),
         ),
-        "Soil" => (
+        :Soil => (
             Process1Model(1.0),
         ),
     )
 
     to_init = to_initialize(mapping, mtg_var)
 
-    @test to_init["Soil"] == [:var1, :var2]# var1 would be here if not present in the MTG
+    @test to_init[:Soil] == [:var1, :var2]# var1 would be here if not present in the MTG
 
     soil_node = mtg_var[1]
     soil_node[:var1] = 1.0
     to_init = to_initialize(mapping, mtg_var)
-    @test to_init["Soil"] == [:var2]# var1 would be here if not present in the MTG
-    @test !haskey(to_init, "Leaf")
-    @test to_init["Internode"] == [:TT]
+    @test to_init[:Soil] == [:var2]# var1 would be here if not present in the MTG
+    @test !haskey(to_init, :Leaf)
+    @test to_init[:Internode] == [:TT]
 end
 # Testing with a simple mapping (just the soil model, no multiscale mapping):
 @testset "run! on MTG: simple mapping" begin
-    #out = @test_nowarn run!(mtg, Dict("Soil" => (ToySoilWaterModel(),)), meteo)
+    #out = @test_nowarn run!(mtg, Dict(:Soil => (ToySoilWaterModel(),)), meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
-    sim = PlantSimEngine.GraphSimulation(mtg, ModelMapping("Soil" => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
+    sim = PlantSimEngine.GraphSimulation(mtg, ModelMapping(:Soil => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
     out = run!(sim,meteo)
 
-    @test sim.statuses["Soil"][1].node == soil
-    @test sim.models == Dict("Soil" => (soil_water=ToySoilWaterModel(sim.models["Soil"].soil_water.values),))
-    @test sim.models["Soil"].soil_water.values == [0.5]
+    @test sim.statuses[:Soil][1].node == soil
+    @test sim.models == Dict(:Soil => (soil_water=ToySoilWaterModel(sim.models[:Soil].soil_water.values),))
+    @test sim.models[:Soil].soil_water.values == [0.5]
     @test length(sim.dependency_graph.roots) == 1
-    @test collect(keys(sim.dependency_graph.roots))[1] == Pair("Soil", :soil_water)
+    @test collect(keys(sim.dependency_graph.roots))[1] == Pair(:Soil, :soil_water)
     @test sim.graph == mtg
 
-    leaf_mapping = ModelMapping("Leaf" => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
+    leaf_mapping = ModelMapping(:Leaf => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
     
     #out = run!(mtg, leaf_mapping, meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
     sim = PlantSimEngine.GraphSimulation(mtg, leaf_mapping, nsteps=nsteps, check=true, outputs=nothing)
     out = run!(sim,meteo)
 
-    @test collect(keys(sim.statuses)) == ["Leaf"]
-    @test length(sim.statuses["Leaf"]) == 2
-    @test sim.statuses["Leaf"][1].TT == 10.0 # As initialized in the mapping
-    @test sim.statuses["Leaf"][1].carbon_demand == 0.5
+    @test collect(keys(sim.statuses)) == [:Leaf]
+    @test length(sim.statuses[:Leaf]) == 2
+    @test sim.statuses[:Leaf][1].TT == 10.0 # As initialized in the mapping
+    @test sim.statuses[:Leaf][1].carbon_demand == 0.5
 
-    @test sim.statuses["Leaf"][1].node == leaf1
-    @test sim.statuses["Leaf"][2].node == leaf2
+    @test sim.statuses[:Leaf][1].node == leaf1
+    @test sim.statuses[:Leaf][2].node == leaf2
 end
 
 # A mapping with all different types of mapping (single, multi-scale, model as is, or tuple of):
 @testset "run! on MTG with complete mapping (missing init)" begin
     mapping_all = ModelMapping(
-        "Plant" =>
+        :Plant =>
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
-                    :carbon_assimilation => ["Leaf"],
-                    :carbon_demand => ["Leaf", "Internode"],
+                    :carbon_assimilation => [:Leaf],
+                    :carbon_demand => [:Leaf, :Internode],
                     # outputs
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-        "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-        "Leaf" => (
+        :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
+        :Leaf => (
             MultiScaleModel(
                 model=ToyAssimModel(),
-                mapped_variables=[:soil_water_content => "Soil",],
-                # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                # Notice we provide :Soil, not [:Soil], so a single value is expected here
             ),
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             Status(aPPFD=1300.0, TT=10.0),
         ),
-        "Soil" => (
+        :Soil => (
             ToySoilWaterModel(),
         ),
     )
@@ -443,22 +443,22 @@ end
     out = run!(sim,meteo)
     # Note that the outputs are garbage because the TT is not initialized.
 
-    @test sim.models == Dict{String,NamedTuple}(
-        "Soil" => (soil_water=ToySoilWaterModel(sim.models["Soil"].soil_water.values),),
-        "Internode" => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
-        "Plant" => (carbon_allocation=ToyCAllocationModel(),),
-        "Leaf" => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
+    @test sim.models == Dict{Symbol,NamedTuple}(
+        :Soil => (soil_water=ToySoilWaterModel(sim.models[:Soil].soil_water.values),),
+        :Internode => (carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0),),
+        :Plant => (carbon_allocation=ToyCAllocationModel(),),
+        :Leaf => (carbon_assimilation=ToyAssimModel{Float64}(0.2), carbon_demand=ToyCDemandModel{Float64}(10.0, 200.0))
     )
-    @test sim.models["Soil"].soil_water.values == [0.5]
+    @test sim.models[:Soil].soil_water.values == [0.5]
     @test length(sim.dependency_graph.roots) == 3 # 3 because the plant is not a root (its model has dependencies)
-    @test sim.statuses["Internode"][1].TT === -Inf
-    @test sim.statuses["Internode"][1].carbon_demand === -Inf
+    @test sim.statuses[:Internode][1].TT === -Inf
+    @test sim.statuses[:Internode][1].carbon_demand === -Inf
 
-    st_leaf1 = sim.statuses["Leaf"][1]
+    st_leaf1 = sim.statuses[:Leaf][1]
     @test st_leaf1.TT == 10.0
     @test st_leaf1.carbon_demand == 0.5
     # This one depends on the soil, which is random, so we test using the computation directly:
-    @test st_leaf1.carbon_assimilation == st_leaf1.aPPFD * sim.models["Leaf"].carbon_assimilation.LUE * st_leaf1.soil_water_content
+    @test st_leaf1.carbon_assimilation == st_leaf1.aPPFD * sim.models[:Leaf].carbon_assimilation.LUE * st_leaf1.soil_water_content
     @test st_leaf1.carbon_allocation == 0.0
 end
 
@@ -469,60 +469,60 @@ end
     sim = PlantSimEngine.GraphSimulation(mtg_init, mapping_1, nsteps=nsteps, check=false, outputs=nothing)
     out = run!(sim,meteo)
 
-    @test typeof(sim.statuses) == Dict{String,Vector{Status}}
-    @test length(sim.statuses["Plant"]) == 1
-    @test length(sim.statuses["Leaf"]) == 2
-    @test length(sim.statuses["Internode"]) == 2
-    @test length(sim.statuses["Soil"]) == 1
-    @test sim.statuses["Soil"][1].node == get_node(mtg_init, 2)
-    @test sim.statuses["Soil"][1].soil_water_content !== -Inf
+    @test typeof(sim.statuses) == Dict{Symbol,Vector{Status}}
+    @test length(sim.statuses[:Plant]) == 1
+    @test length(sim.statuses[:Leaf]) == 2
+    @test length(sim.statuses[:Internode]) == 2
+    @test length(sim.statuses[:Soil]) == 1
+    @test sim.statuses[:Soil][1].node == get_node(mtg_init, 2)
+    @test sim.statuses[:Soil][1].soil_water_content !== -Inf
 
     # Testing that we get the link between the node and its status:
-    @test sim.statuses["Soil"][1] == get_node(mtg_init, 2).plantsimengine_status
+    @test sim.statuses[:Soil][1] == get_node(mtg_init, 2).plantsimengine_status
     # Testing if the value in the status of the leaves is the same as the one in the status of the soil:
-    @test sim.statuses["Soil"][1].soil_water_content === sim.statuses["Leaf"][1].soil_water_content
-    @test sim.statuses["Soil"][1].soil_water_content === sim.statuses["Leaf"][2].soil_water_content
+    @test sim.statuses[:Soil][1].soil_water_content === sim.statuses[:Leaf][1].soil_water_content
+    @test sim.statuses[:Soil][1].soil_water_content === sim.statuses[:Leaf][2].soil_water_content
 
-    leaf1_status = sim.statuses["Leaf"][1]
+    leaf1_status = sim.statuses[:Leaf][1]
 
     # This is the model that computes the assimilation (testing manually that we get the right result here):
-    @test leaf1_status.carbon_assimilation == leaf1_status.aPPFD * sim.models["Leaf"].carbon_assimilation.LUE * leaf1_status.soil_water_content
+    @test leaf1_status.carbon_assimilation == leaf1_status.aPPFD * sim.models[:Leaf].carbon_assimilation.LUE * leaf1_status.soil_water_content
 
-    @test sim.statuses["Plant"][1].carbon_demand[[1, 3]] == [i.carbon_demand for i in sim.statuses["Internode"]]
-    @test sim.statuses["Plant"][1].carbon_demand[[2, 4]] == [i.carbon_demand for i in sim.statuses["Leaf"]]
+    @test sim.statuses[:Plant][1].carbon_demand[[1, 3]] == [i.carbon_demand for i in sim.statuses[:Internode]]
+    @test sim.statuses[:Plant][1].carbon_demand[[2, 4]] == [i.carbon_demand for i in sim.statuses[:Leaf]]
 
     # Testing the reference directly:
-    ref_values_cdemand = getfield(sim.statuses["Plant"][1].carbon_demand, :v)
+    ref_values_cdemand = getfield(sim.statuses[:Plant][1].carbon_demand, :v)
 
     for (j, i) in enumerate([1, 3])
-        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses["Internode"][j], :carbon_demand)
+        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses[:Internode][j], :carbon_demand)
     end
 
     for (j, i) in enumerate([2, 4])
-        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses["Leaf"][j], :carbon_demand)
+        @test ref_values_cdemand[i] === PlantSimEngine.refvalue(sim.statuses[:Leaf][j], :carbon_demand)
     end
 
     # Testing that carbon allocation in Leaf and Internode was added as a variable from the model at the Plant scale:
 
-    @test hasproperty(sim.statuses["Internode"][1], :carbon_allocation)
-    @test hasproperty(sim.statuses["Leaf"][1], :carbon_allocation)
+    @test hasproperty(sim.statuses[:Internode][1], :carbon_allocation)
+    @test hasproperty(sim.statuses[:Leaf][1], :carbon_allocation)
 
-    @test sim.statuses["Internode"][1].carbon_allocation == 0.5
-    @test sim.statuses["Leaf"][1].carbon_allocation == 0.5
+    @test sim.statuses[:Internode][1].carbon_allocation == 0.5
+    @test sim.statuses[:Leaf][1].carbon_allocation == 0.5
 
 
     # Testing that we get the link between the node and its status:
-    @test sim.statuses["Leaf"][2] == get_node(mtg_init, 7).plantsimengine_status
+    @test sim.statuses[:Leaf][2] == get_node(mtg_init, 7).plantsimengine_status
 
     # Testing the reference directly:
-    ref_values_callocation = getfield(sim.statuses["Plant"][1].carbon_allocation, :v)
+    ref_values_callocation = getfield(sim.statuses[:Plant][1].carbon_allocation, :v)
 
     for (j, i) in enumerate([1, 3])
-        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses["Internode"][j], :carbon_allocation)
+        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses[:Internode][j], :carbon_allocation)
     end
 
     for (j, i) in enumerate([2, 4])
-        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses["Leaf"][j], :carbon_allocation)
+        @test ref_values_callocation[i] === PlantSimEngine.refvalue(sim.statuses[:Leaf][j], :carbon_allocation)
     end
 end
 
@@ -530,7 +530,7 @@ end
 @testset "MTG initialisation" begin
     var1 = 1.0
     mapping = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             Process1Model(1.0),
             Process2Model(),
             Process3Model(),
@@ -545,7 +545,7 @@ end
     end
 
     mapping = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             Process1Model(1.0),
             Process2Model(),
             Process3Model(),
@@ -558,40 +558,40 @@ end
     sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=false, outputs=nothing)
     out = run!(sim,meteo)
 
-    @test sim.statuses["Leaf"][1].var1 === var1
-    @test sim.statuses["Leaf"][1].var2 === 1.0
-    @test sim.statuses["Leaf"][1].var3 === 2.0
-    @test sim.statuses["Leaf"][1].var6 === 40.4
+    @test sim.statuses[:Leaf][1].var1 === var1
+    @test sim.statuses[:Leaf][1].var2 === 1.0
+    @test sim.statuses[:Leaf][1].var3 === 2.0
+    @test sim.statuses[:Leaf][1].var6 === 40.4
 end
 
 @testset "MTG with complex mapping" begin
     mapping = ModelMapping(
-            "Plant" => (
+            :Plant => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
-                        :carbon_assimilation => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
+                        :carbon_assimilation => [:Leaf],
+                        :carbon_demand => [:Leaf, :Internode],
                         # outputs
-                        :carbon_allocation => ["Leaf", "Internode"]
+                        :carbon_allocation => [:Leaf, :Internode]
                     ]
                 ),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                    mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
             ),
-            "Internode" => (
+            :Internode => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                 Status(TT=10.0, carbon_biomass=1.0)
             ),
-            "Leaf" => (
+            :Leaf => (
                 MultiScaleModel(
                     model=ToyAssimModel(),
-                    mapped_variables=[:soil_water_content => "Soil",],
-                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                    mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                    # Notice we provide :Soil, not [:Soil], so a single value is expected here
                 ),
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
@@ -603,7 +603,7 @@ end
                 Process6Model(),
                 Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
-            "Soil" => (
+            :Soil => (
                 ToySoilWaterModel(),
             ),
         )
@@ -614,41 +614,41 @@ end
     out = run!(sim,meteo)
 
     @test length(sim.dependency_graph.roots) == 6
-    @test sim.statuses["Leaf"][1].var1 === 1.01
-    @test sim.statuses["Leaf"][1].var2 === 1.03
-    @test sim.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
-    @test sim.statuses["Leaf"][1].var5 == 32.4806
-    @test sim.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+    @test sim.statuses[:Leaf][1].var1 === 1.01
+    @test sim.statuses[:Leaf][1].var2 === 1.03
+    @test sim.statuses[:Leaf][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test sim.statuses[:Leaf][1].var5 == 32.4806
+    @test sim.statuses[:Leaf][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 end
 
 @testset "MTG with dynamic output variables" begin
     mapping = ModelMapping(
-            "Plant" => (
+            :Plant => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
-                        :carbon_assimilation => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
+                        :carbon_assimilation => [:Leaf],
+                        :carbon_demand => [:Leaf, :Internode],
                         # outputs
-                        :carbon_allocation => ["Leaf", "Internode"]
+                        :carbon_allocation => [:Leaf, :Internode]
                     ],
                 ),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                    mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
             ),
-            "Internode" => (
+            :Internode => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
                 Status(TT=10.0, carbon_biomass=1.0)
             ),
-            "Leaf" => (
+            :Leaf => (
                 MultiScaleModel(
                     model=ToyAssimModel(),
-                    mapped_variables=[:soil_water_content => "Soil",],
-                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                    mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                    # Notice we provide :Soil, not [:Soil], so a single value is expected here
                 ),
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
@@ -660,16 +660,16 @@ end
                 Process6Model(),
                 Status(aPPFD=1300.0, TT=10.0, var0=1.0, var9=1.0, carbon_biomass=1.0),
             ),
-            "Soil" => (
+            :Soil => (
                 ToySoilWaterModel(),
             ),
         )
 
     out_vars = Dict(
-        "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
-        "Internode" => (:carbon_allocation,),
-        "Plant" => (:carbon_allocation,),
-        "Soil" => (:soil_water_content,),
+        :Leaf => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
+        :Internode => (:carbon_allocation,),
+        :Plant => (:carbon_allocation,),
+        :Soil => (:soil_water_content,),
     )
     
     #out = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx())
@@ -678,27 +678,27 @@ end
     out = run!(sim,meteo)
 
     @test length(sim.dependency_graph.roots) == 6
-    @test sim.statuses["Leaf"][1].var1 === 1.01
-    @test sim.statuses["Leaf"][1].var2 === 1.03
-    @test sim.statuses["Leaf"][1].var4 ≈ 8.1612000000000013 atol = 1e-6
-    @test sim.statuses["Leaf"][1].var5 == 32.4806
-    @test sim.statuses["Leaf"][1].var8 ≈ 1321.0700490800002 atol = 1e-6
+    @test sim.statuses[:Leaf][1].var1 === 1.01
+    @test sim.statuses[:Leaf][1].var2 === 1.03
+    @test sim.statuses[:Leaf][1].var4 ≈ 8.1612000000000013 atol = 1e-6
+    @test sim.statuses[:Leaf][1].var5 == 32.4806
+    @test sim.statuses[:Leaf][1].var8 ≈ 1321.0700490800002 atol = 1e-6
 
-    @test unique([sim.outputs["Leaf"][i][:carbon_demand] == 0.5 for i in 1:4]) == [1]
-    @test sim.outputs["Leaf"][1][:soil_water_content] == sim.outputs["Soil"][1][:soil_water_content]
-    @test sim.outputs["Leaf"][2][:soil_water_content] == sim.outputs["Soil"][2][:soil_water_content]
+    @test unique([sim.outputs[:Leaf][i][:carbon_demand] == 0.5 for i in 1:4]) == [1]
+    @test sim.outputs[:Leaf][1][:soil_water_content] == sim.outputs[:Soil][1][:soil_water_content]
+    @test sim.outputs[:Leaf][2][:soil_water_content] == sim.outputs[:Soil][2][:soil_water_content]
 
-    @test all([sim.outputs["Leaf"][i][:carbon_allocation] == sim.outputs["Internode"][i][:carbon_allocation] for i in 1:4])==1
-    @test sim.outputs["Plant"][1][:carbon_allocation][1] === sim.outputs["Internode"][1][:carbon_allocation]
+    @test all([sim.outputs[:Leaf][i][:carbon_allocation] == sim.outputs[:Internode][i][:carbon_allocation] for i in 1:4])==1
+    @test sim.outputs[:Plant][1][:carbon_allocation][1] === sim.outputs[:Internode][1][:carbon_allocation]
 
     # Testing the outputs if transformed into a DataFrame:
     outs_df_dict = convert_outputs(out, DataFrame)
 
-    @test isa(outs_df_dict, Dict{String, DataFrame})
-    @test size(outs_df_dict["Leaf"]) == (4, 6)
-    @test size(outs_df_dict["Internode"]) == (4, 3)
-    @test size(outs_df_dict["Soil"]) == (2, 3)
-    @test size(outs_df_dict["Plant"]) == (2, 2)
+    @test isa(outs_df_dict, Dict{Symbol, DataFrame})
+    @test size(outs_df_dict[:Leaf]) == (4, 6)
+    @test size(outs_df_dict[:Internode]) == (4, 3)
+    @test size(outs_df_dict[:Soil]) == (2, 3)
+    @test size(outs_df_dict[:Plant]) == (2, 2)
 
     @test sort(collect(keys(outs_df_dict))) == sort(collect(keys(out_vars)))
     for organ in keys(outs_df_dict)

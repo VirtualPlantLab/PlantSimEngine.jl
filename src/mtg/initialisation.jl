@@ -59,7 +59,7 @@ end
         statuses, 
         mapped_vars, 
         reverse_multiscale_mapping,
-        vars_need_init=Dict{String,Any}(),
+        vars_need_init=Dict{Symbol,Any}(),
         type_promotion=nothing;
         check=true,
         attribute_name=:plantsimengine_status)
@@ -91,8 +91,8 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
-    node_scale = string(symbol(node))
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{Symbol,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+    node_scale = symbol(node)
 
     # Check if the node has a model defined for its symbol, if not, no need to compute
     haskey(mapped_vars, node_scale) || return
@@ -295,8 +295,8 @@ initialisation, and the (multiscale) mapping. The mapping is used to make refere
 that are defined at another scale, so that the values are automatically updated when the variable is changed at
 the other scale. Two types of multiscale variables are available: `RefVector` and `MappedVar`. The first one is
 used when the variable is mapped to a vector of nodes, and the second one when it is mapped to a single node. This 
-is given by the user through the mapping, using a string for a single node (*e.g.* `=> "Leaf"`), and a vector of strings for a vector of
-nodes (*e.g.* `=> ["Leaf"]` for one type of node or `=> ["Leaf", "Internode"]` for several). 
+is given by the user through the mapping, using a symbol for a single node (*e.g.* `=> :Leaf`), and a vector of symbols for a vector of
+nodes (*e.g.* `=> [:Leaf]` for one type of node or `=> [:Leaf, :Internode]` for several). 
 
 The function also computes the dependency graph of the models, i.e. the order in which the models should be
 called, considering the dependencies between them. The dependency graph is used to call the models in the right order
@@ -368,7 +368,7 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
-    outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
+    outputs_index = Dict{Symbol, Int}(s => 1 for s in keys(outputs))
     temporal_state = TemporalState()
     mapping_is_multirate = mapping isa ModelMapping ? is_multirate(mapping) : false
     return (;

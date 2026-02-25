@@ -2,7 +2,7 @@ dep(::T, nsteps=1) where {T<:AbstractModel} = NamedTuple()
 
 """
     dep(mapping::ModelMapping; verbose=true)
-    dep(mapping::AbstractDict{String,T}; verbose=true)
+    dep(mapping::AbstractDict{Symbol,T}; verbose=true)
     dep!(m::ModelMapping, nsteps=1)
 
 Get the model dependency graph given a ModelMapping or a multiscale model mapping. If one graph is returned, 
@@ -100,7 +100,7 @@ function dep(m::NamedTuple, nsteps=1; verbose::Bool=true)
     dep(nsteps; verbose=verbose, m...)
 end
 
-function dep(mapping::AbstractDict{String,T}; verbose::Bool=true) where {T}
+function dep(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) where {T}
     # First step, get the hard-dependency graph and create SoftDependencyNodes for each hard-dependency root. In other word, we want 
     # only the nodes that are not hard-dependency of other nodes. These nodes are taken as roots for the soft-dependency graph because they
     # are independant.

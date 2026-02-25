@@ -39,7 +39,7 @@ Unique key for one model process in one scope and scale.
 """
 struct ModelKey
     scope::ScopeId
-    scale::String
+    scale::Symbol
     process::Symbol
 end
 
@@ -50,7 +50,7 @@ Unique key for one producer output stream.
 """
 struct OutputKey
     scope::ScopeId
-    scale::String
+    scale::Symbol
     node_id::Int
     process::Symbol
     var::Symbol
@@ -224,14 +224,13 @@ end
 Compact in-memory storage for requested output rows during runtime.
 """
 mutable struct ExportBuffer{
-    S<:AbstractString,
     P<:Symbol,
     V<:Symbol,
     TI<:AbstractVector{Int},
     NI<:AbstractVector{Int},
     VV<:AbstractVector{Any},
 }
-    scale::S
+    scale::Symbol
     process::P
     var::V
     timestep::TI
@@ -239,7 +238,7 @@ mutable struct ExportBuffer{
     value::VV
 end
 
-ExportBuffer(scale::AbstractString, process::Symbol, var::Symbol) = ExportBuffer(scale, process, var, Int[], Int[], Any[])
+ExportBuffer(scale::Symbol, process::Symbol, var::Symbol) = ExportBuffer(scale, process, var, Int[], Int[], Any[])
 
 """
     TemporalState(caches, last_run, streams, producer_horizons, export_plans, export_rows)
@@ -259,7 +258,7 @@ mutable struct TemporalState{
     C<:AbstractDict{OutputKey,OutputCache},
     L<:AbstractDict{ModelKey,Float64},
     S<:AbstractDict{OutputKey,Vector{Tuple{Float64,Any}}},
-    H<:AbstractDict{Tuple{String,Symbol,Symbol},Float64},
+    H<:AbstractDict{Tuple{Symbol,Symbol,Symbol},Float64},
     P<:AbstractVector,
     R<:AbstractDict{Symbol,ExportBuffer}
 }
@@ -275,7 +274,7 @@ TemporalState() = TemporalState(
     Dict{OutputKey,OutputCache}(),
     Dict{ModelKey,Float64}(),
     Dict{OutputKey,Vector{Tuple{Float64,Any}}}(),
-    Dict{Tuple{String,Symbol,Symbol},Float64}(),
+    Dict{Tuple{Symbol,Symbol,Symbol},Float64}(),
     Any[],
     Dict{Symbol,ExportBuffer}()
 )

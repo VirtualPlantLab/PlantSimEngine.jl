@@ -5,15 +5,31 @@ Abstract type for the type of node mapping, *e.g.* single node mapping or multip
 """
 abstract type AbstractNodeMapping end
 
+@noinline function _warn_string_scale(context::Symbol)
+    Base.depwarn(
+        "String scale names are deprecated and will be removed in a future release. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`.",
+        context
+    )
+end
+
+_normalize_scale(scale::Symbol; warn::Bool=false, context::Symbol=:PlantSimEngine) = scale
+function _normalize_scale(scale::AbstractString; warn::Bool=true, context::Symbol=:PlantSimEngine)
+    warn && _warn_string_scale(context)
+    return Symbol(scale)
+end
+
 """
     SingleNodeMapping(scale)
 
-Type for the single node mapping, *e.g.* `[:soil_water_content => "Soil",]`. Note that "Soil" is given as a scalar,
-which means that `:soil_water_content` will be a scalar value taken from the unique "Soil" node in the plant graph.
+Type for the single node mapping, *e.g.* `[:soil_water_content => :Soil,]`. Note that `:Soil` is given as a scalar,
+which means that `:soil_water_content` will be a scalar value taken from the unique `:Soil` node in the plant graph.
 """
 struct SingleNodeMapping <: AbstractNodeMapping
-    scale::String
+    scale::Symbol
 end
+
+SingleNodeMapping(scale::Union{Symbol,AbstractString}) =
+    SingleNodeMapping(_normalize_scale(scale; warn=scale isa AbstractString, context=:SingleNodeMapping))
 
 """
     SelfNodeMapping()
@@ -29,14 +45,20 @@ struct SelfNodeMapping <: AbstractNodeMapping end
 """
     MultiNodeMapping(scale)
 
-Type for the multiple node mapping, *e.g.* `[:carbon_assimilation => ["Leaf"],]`. Note that "Leaf" is given as a vector,
-which means `:carbon_assimilation` will be a vector of values taken from each "Leaf" in the plant graph.
+Type for the multiple node mapping, *e.g.* `[:carbon_assimilation => [:Leaf],]`. Note that `:Leaf` is given as a vector,
+which means `:carbon_assimilation` will be a vector of values taken from each `:Leaf` in the plant graph.
 """
 struct MultiNodeMapping <: AbstractNodeMapping
-    scale::Vector{String}
+    scale::Vector{Symbol}
 end
 
-MultiNodeMapping(scale::String) = MultiNodeMapping([scale])
+MultiNodeMapping(scale::Union{Symbol,AbstractString}) = MultiNodeMapping([scale])
+function MultiNodeMapping(scale::AbstractVector{<:Union{Symbol,AbstractString}})
+    normalized = Symbol[
+        _normalize_scale(s; warn=s isa AbstractString, context=:MultiNodeMapping) for s in scale
+    ]
+    return MultiNodeMapping(normalized)
+end
 
 """
     MappedVar(source_organ, variable, source_variable, source_default)
@@ -52,13 +74,11 @@ A variable mapped to another scale.
 
 # Examples
 
-```jldoctest
+```jldoctest mylabel
 julia> using PlantSimEngine
-```
 
-```jldoctest
-julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
-PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Symbol, Float64}(PlantSimEngine.SingleNodeMapping("Leaf"), :carbon_assimilation, :carbon_assimilation, 1.0)
+julia> PlantSimEngine.MappedVar(PlantSimEngine.SingleNodeMapping(:Leaf), :carbon_assimilation, :carbon_assimilation, 1.0)
+PlantSimEngine.MappedVar{PlantSimEngine.SingleNodeMapping, Symbol, Symbol, Float64}(PlantSimEngine.SingleNodeMapping(:Leaf), :carbon_assimilation, :carbon_assimilation, 1.0)
 ```
 """
 struct MappedVar{O<:AbstractNodeMapping,V1<:Union{Symbol,PreviousTimeStep},V2<:Union{S,Vector{S}} where {S<:Symbol},T}
@@ -105,12 +125,12 @@ struct ModelMappingInfo
     validated::Bool
     is_valid::Bool
     is_multirate::Bool
-    scales::Vector{String}
-    models_per_scale::Dict{String,Int}
-    processes_per_scale::Dict{String,Vector{Symbol}}
-    declared_rates::Dict{String,Any}
+    scales::Vector{Symbol}
+    models_per_scale::Dict{Symbol,Int}
+    processes_per_scale::Dict{Symbol,Vector{Symbol}}
+    declared_rates::Dict{Symbol,Any}
     vars_need_init::Any
-    model_specs::Dict{String,Dict{Symbol,ModelSpec}}
+    model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}
     recommendations::Vector{String}
 end
 
@@ -119,12 +139,12 @@ function _empty_model_mapping_info()
         false,
         false,
         false,
-        String[],
-        Dict{String,Int}(),
-        Dict{String,Vector{Symbol}}(),
-        Dict{String,Any}(),
+        Symbol[],
+        Dict{Symbol,Int}(),
+        Dict{Symbol,Vector{Symbol}}(),
+        Dict{Symbol,Any}(),
         NamedTuple(),
-        Dict{String,Dict{Symbol,ModelSpec}}(),
+        Dict{Symbol,Dict{Symbol,ModelSpec}}(),
         String[],
     )
 end
@@ -148,10 +168,10 @@ configuration errors:
 
 # Notes
 
-The type behaves like a read-only dictionary keyed by scale name (`String`).
+The type behaves like a read-only dictionary keyed by scale name (`Symbol`).
 Use `Dict(mapping)` to recover a plain dictionary.
 """
-struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{String,Tuple} where {D<:Union{Dict{String,Tuple},ModelList}}
+struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{Symbol,Tuple} where {D<:Union{Dict{Symbol,Tuple},ModelList}}
     data::D
     info::ModelMappingInfo
 end
@@ -249,21 +269,25 @@ end
 Base.keys(mapping::ModelMapping) = keys(mapping.data)
 Base.values(mapping::ModelMapping) = values(mapping.data)
 Base.pairs(mapping::ModelMapping) = pairs(mapping.data)
-Base.keys(::ModelMapping{SingleScale}) = ("Default",)
+Base.keys(::ModelMapping{SingleScale}) = (:Default,)
 Base.values(mapping::ModelMapping{SingleScale}) = ((values(mapping.data.models)..., status(mapping.data)),)
-Base.pairs(mapping::ModelMapping{SingleScale}) = ("Default" => (values(mapping.data.models)..., status(mapping.data)),)
-Base.getindex(mapping::ModelMapping, key::String) = mapping.data[key]
-Base.getindex(mapping::ModelMapping, key::AbstractString) = mapping.data[String(key)]
-function Base.getindex(mapping::ModelMapping{SingleScale}, key::String)
-    key == "Default" || throw(KeyError(key))
-    return (values(mapping.data.models)..., status(mapping.data))
+Base.pairs(mapping::ModelMapping{SingleScale}) = (:Default => (values(mapping.data.models)..., status(mapping.data)),)
+Base.getindex(mapping::ModelMapping, key::Symbol) = mapping.data[key]
+function Base.getindex(mapping::ModelMapping, key::AbstractString)
+    sym = _normalize_scale(key; warn=true, context=:ModelMapping)
+    return mapping.data[sym]
 end
-Base.getindex(mapping::ModelMapping{SingleScale}, key::AbstractString) = getindex(mapping, String(key))
-Base.getindex(mapping::ModelMapping{SingleScale}, key::Symbol) = getindex(mapping.data, key)
+function Base.getindex(mapping::ModelMapping{SingleScale}, key::Symbol)
+    if key == :Default
+        return (values(mapping.data.models)..., status(mapping.data))
+    end
+    return getindex(mapping.data, key)
+end
+Base.getindex(mapping::ModelMapping{SingleScale}, key::AbstractString) = getindex(mapping, _normalize_scale(key; warn=true, context=:ModelMapping))
 Base.getindex(mapping::ModelMapping{SingleScale}, key::Integer) = getindex(mapping.data, key)
-Base.haskey(mapping::ModelMapping, key::String) = haskey(mapping.data, key)
-Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, String(key))
-Base.eltype(::Type{ModelMapping}) = Pair{String,Tuple}
+Base.haskey(mapping::ModelMapping, key::Symbol) = haskey(mapping.data, key)
+Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, _normalize_scale(key; warn=true, context=:ModelMapping))
+Base.eltype(::Type{ModelMapping}) = Pair{Symbol,Tuple}
 Base.copy(mapping::ModelMapping{MultiScale}) = _build_model_mapping(MultiScale, copy(mapping.data); validated=mapping.info.validated)
 Base.copy(mapping::ModelMapping{SingleScale}) = _build_model_mapping(SingleScale, copy(mapping.data); validated=mapping.info.validated)
 Base.copy(mapping::ModelMapping{SingleScale}, status) = _build_model_mapping(SingleScale, copy(mapping.data, status); validated=mapping.info.validated)
@@ -287,7 +311,7 @@ ModelMapping(mapping::ModelMapping; check::Bool=true) = check ? ModelMapping(map
 
 """
     ModelMapping(scale_mapping_pairs...; check=true)
-    ModelMapping(models...; scale="Default", status=nothing, check=true, processes...)
+    ModelMapping(models...; scale=:Default, status=nothing, check=true, processes...)
 
 Convenience constructors for [`ModelMapping`](@ref):
 
@@ -296,7 +320,7 @@ Convenience constructors for [`ModelMapping`](@ref):
 """
 function ModelMapping(
     args...;
-    scale::AbstractString="Default",
+    scale::Union{Symbol,AbstractString}=:Default,
     status=nothing,
     check::Bool=true,
     processes...
@@ -320,7 +344,10 @@ function ModelMapping(
             "`status` cannot be used with scale-level pair syntax. ",
             "Provide statuses inside each scale mapping instead."
         )
-        raw_mapping = Dict{String,Any}(String(first(pair)) => last(pair) for pair in args)
+        raw_mapping = Dict{Symbol,Any}(
+            _normalize_scale(first(pair); warn=first(pair) isa AbstractString, context=:ModelMapping) => last(pair)
+            for pair in args
+        )
         return ModelMapping{MultiScale}(raw_mapping; check=check)
     end
 
@@ -349,7 +376,7 @@ function ModelMapping(
 
     #TODO: Use the following when we merge the ModelList and ModelMapping paths (create a fake scale):
     single_scale_models = _single_scale_mapping_entries(args, processes, status)
-    # return ModelMapping{SingleScale}(Dict(String(scale) => single_scale_models), check=check)
+    # return ModelMapping{SingleScale}(Dict(_normalize_scale(scale) => single_scale_models), check=check)
 end
 
 # Canonical API dispatches for model mappings.
@@ -410,27 +437,27 @@ end
 
 function _normalize_multiscale_mapping(mapping::AbstractDict)
     isempty(mapping) && error("ModelMapping cannot be empty. Provide at least one scale with models.")
-    normalized = Dict{String,Tuple}()
+    normalized = Dict{Symbol,Tuple}()
     for (scale, scale_mapping) in pairs(mapping)
-        scale_name = String(scale)
+        scale_name = _normalize_scale(scale; warn=scale isa AbstractString, context=:ModelMapping)
         normalized[scale_name] = _normalize_scale_mapping(scale_name, scale_mapping)
     end
     return normalized
 end
 
-function _normalize_scale_mapping(scale::String, scale_mapping::ModelList)
+function _normalize_scale_mapping(scale::Symbol, scale_mapping::ModelList)
     return _normalize_scale_mapping(scale, (values(scale_mapping.models)..., status(scale_mapping)))
 end
 
-function _normalize_scale_mapping(scale::String, scale_mapping::ModelMapping{SingleScale})
+function _normalize_scale_mapping(scale::Symbol, scale_mapping::ModelMapping{SingleScale})
     return _normalize_scale_mapping(scale, scale_mapping.data)
 end
 
-function _normalize_scale_mapping(scale::String, scale_mapping::Union{AbstractModel,MultiScaleModel,ModelSpec})
+function _normalize_scale_mapping(scale::Symbol, scale_mapping::Union{AbstractModel,MultiScaleModel,ModelSpec})
     return (scale_mapping,)
 end
 
-function _normalize_scale_mapping(scale::String, scale_mapping::Tuple)
+function _normalize_scale_mapping(scale::Symbol, scale_mapping::Tuple)
     normalized_items = Any[]
     for item in scale_mapping
         if item isa ModelList
@@ -447,20 +474,20 @@ function _normalize_scale_mapping(scale::String, scale_mapping::Tuple)
     return tuple(normalized_items...)
 end
 
-function _normalize_scale_mapping(scale::String, scale_mapping)
+function _normalize_scale_mapping(scale::Symbol, scale_mapping)
     error(
         "Invalid mapping entry at scale `$scale`: expected a model/ModelSpec, tuple of models/Status, or ModelList, got $(typeof(scale_mapping))."
     )
 end
 
-function _check_multiscale_mapping!(mapping::Dict{String,Tuple})
+function _check_multiscale_mapping!(mapping::Dict{Symbol,Tuple})
     _check_scales_have_models!(mapping)
     _check_scale_process_uniqueness!(mapping)
     _check_mapped_sources_exist!(mapping)
     return mapping
 end
 
-function _check_scales_have_models!(mapping::Dict{String,Tuple})
+function _check_scales_have_models!(mapping::Dict{Symbol,Tuple})
     for (scale, scale_mapping) in mapping
         n_status = count(item -> item isa Status, scale_mapping)
         n_status > 1 && error("Scale `$scale` defines $n_status statuses. Only one Status is allowed per scale.")
@@ -472,7 +499,7 @@ function _check_scales_have_models!(mapping::Dict{String,Tuple})
     end
 end
 
-function _check_scale_process_uniqueness!(mapping::Dict{String,Tuple})
+function _check_scale_process_uniqueness!(mapping::Dict{Symbol,Tuple})
     for (scale, scale_mapping) in mapping
         process_names = [_process_name_for_mapping_check(model) for model in get_models(scale_mapping)]
         duplicates = unique(filter(p -> count(==(p), process_names) > 1, process_names))
@@ -493,7 +520,7 @@ function _process_name_for_mapping_check(model)
     end
 end
 
-function _check_mapped_sources_exist!(mapping::Dict{String,Tuple})
+function _check_mapped_sources_exist!(mapping::Dict{Symbol,Tuple})
     available_variables = _available_variables_by_scale(mapping)
     scale_rates = _declared_model_rates_by_scale(mapping)
 
@@ -510,7 +537,7 @@ function _check_mapped_sources_exist!(mapping::Dict{String,Tuple})
                 checks_source_value = (mapped_variable_name in model_inputs) && !(mapped_variable_name in model_outputs)
 
                 for (source_scale_raw, source_variable) in _as_mapping_sources(last(mapped_var))
-                    source_scale = isempty(source_scale_raw) ? target_scale : source_scale_raw
+                    source_scale = isnothing(source_scale_raw) ? target_scale : source_scale_raw
 
                     haskey(mapping, source_scale) || error(
                         "Scale `$target_scale` maps variable `$(first(mapped_var))` to missing scale `$source_scale`. ",
@@ -542,17 +569,28 @@ end
 
 _mapping_item_mapped_variables(item::ModelSpec) = mapped_variables_(item)
 _mapping_item_mapped_variables(item::MultiScaleModel) = mapped_variables_(item)
-_mapping_item_mapped_variables(::Any) = Pair{Symbol,String}[]
+_mapping_item_mapped_variables(::Any) = Pair{Symbol,Symbol}[]
 
 _mapping_item_model(item::ModelSpec) = model_(item)
 _mapping_item_model(item::MultiScaleModel) = model_(item)
 
-_as_mapping_sources(source::Pair{<:AbstractString,Symbol}) = (String(first(source)) => last(source),)
-_as_mapping_sources(source::AbstractVector{<:Pair{<:AbstractString,Symbol}}) =
-    Tuple(String(first(item)) => last(item) for item in source)
+function _as_mapping_scale(source_scale::AbstractString)
+    isempty(source_scale) && return nothing
+    return _normalize_scale(source_scale; warn=true, context=:ModelMapping)
+end
 
-function _available_variables_by_scale(mapping::Dict{String,Tuple})
-    available = Dict{String,Set{Symbol}}()
+function _as_mapping_scale(source_scale::Symbol)
+    source_scale === Symbol("") && return nothing
+    return _normalize_scale(source_scale; warn=false, context=:ModelMapping)
+end
+
+_as_mapping_sources(source::Pair{<:Union{AbstractString,Symbol},Symbol}) =
+    (_as_mapping_scale(first(source)) => last(source),)
+_as_mapping_sources(source::AbstractVector{<:Pair{<:Union{AbstractString,Symbol},Symbol}}) =
+    Tuple(_as_mapping_scale(first(item)) => last(item) for item in source)
+
+function _available_variables_by_scale(mapping::Dict{Symbol,Tuple})
+    available = Dict{Symbol,Set{Symbol}}()
     for (scale, scale_mapping) in mapping
         vars = Set{Symbol}()
         for model in get_models(scale_mapping)
@@ -575,7 +613,7 @@ function _available_variables_by_scale(mapping::Dict{String,Tuple})
                 mapped_variable_name = first(mapped_var) isa PreviousTimeStep ? first(mapped_var).variable : first(mapped_var)
                 mapped_variable_name in model_outputs || continue
                 for (target_scale_raw, target_variable) in _as_mapping_sources(last(mapped_var))
-                    target_scale = isempty(target_scale_raw) ? source_scale : target_scale_raw
+                    target_scale = isnothing(target_scale_raw) ? source_scale : target_scale_raw
                     haskey(available, target_scale) || continue
                     push!(available[target_scale], target_variable)
                 end
@@ -586,8 +624,8 @@ function _available_variables_by_scale(mapping::Dict{String,Tuple})
     return available
 end
 
-function _declared_model_rates_by_scale(mapping::Dict{String,Tuple})
-    rates = Dict{String,Any}()
+function _declared_model_rates_by_scale(mapping::Dict{Symbol,Tuple})
+    rates = Dict{Symbol,Any}()
     for (scale, scale_mapping) in mapping
         declared_rates = unique(filter(!isnothing, map(model_rate, get_models(scale_mapping))))
         if length(declared_rates) > 1
@@ -617,7 +655,7 @@ function _spec_declares_multirate(spec::ModelSpec)
     return false
 end
 
-function _mapping_declares_multirate(model_specs::Dict{String,Dict{Symbol,ModelSpec}}, declared_rates::Dict{String,Any})
+function _mapping_declares_multirate(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, declared_rates::Dict{Symbol,Any})
     any(!isnothing, values(declared_rates)) && return true
     for specs_at_scale in values(model_specs), spec in values(specs_at_scale)
         _spec_declares_multirate(spec) && return true
@@ -625,9 +663,9 @@ function _mapping_declares_multirate(model_specs::Dict{String,Dict{Symbol,ModelS
     return false
 end
 
-function _model_summary_from_mapping(mapping::Dict{String,Tuple})
-    models_per_scale = Dict{String,Int}()
-    processes_per_scale = Dict{String,Vector{Symbol}}()
+function _model_summary_from_mapping(mapping::Dict{Symbol,Tuple})
+    models_per_scale = Dict{Symbol,Int}()
+    processes_per_scale = Dict{Symbol,Vector{Symbol}}()
     for (scale, scale_mapping) in mapping
         models = get_models(scale_mapping)
         models_per_scale[scale] = length(models)
@@ -636,7 +674,7 @@ function _model_summary_from_mapping(mapping::Dict{String,Tuple})
     return models_per_scale, processes_per_scale
 end
 
-function _parse_model_specs_from_mapping(mapping::Dict{String,Tuple})
+function _parse_model_specs_from_mapping(mapping::Dict{Symbol,Tuple})
     Dict(scale => parse_model_specs(scale_mapping) for (scale, scale_mapping) in mapping)
 end
 
@@ -660,12 +698,12 @@ end
 
 function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; validated::Bool)
     specs = Dict(
-        "Default" => Dict{Symbol,ModelSpec}(
+        :Default => Dict{Symbol,ModelSpec}(
             process(model) => as_model_spec(model) for model in values(mapping.models)
         )
     )
 
-    declared_rates = Dict{String,Any}("Default" => nothing)
+    declared_rates = Dict{Symbol,Any}(:Default => nothing)
     vars_need_init = try
         to_initialize(mapping)
     catch
@@ -678,9 +716,9 @@ function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; vali
         validated,
         validated,
         is_multirate,
-        ["Default"],
-        Dict("Default" => length(mapping.models)),
-        Dict("Default" => processes),
+        [:Default],
+        Dict(:Default => length(mapping.models)),
+        Dict(:Default => processes),
         declared_rates,
         vars_need_init,
         specs,
@@ -688,23 +726,23 @@ function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; vali
     )
 end
 
-function _build_model_mapping_info(::Type{MultiScale}, mapping::Dict{String,Tuple}; validated::Bool)
+function _build_model_mapping_info(::Type{MultiScale}, mapping::Dict{Symbol,Tuple}; validated::Bool)
     scales = collect(keys(mapping))
     models_per_scale, processes_per_scale = _model_summary_from_mapping(mapping)
     declared_rates = try
         _declared_model_rates_by_scale(mapping)
     catch
-        Dict{String,Any}(scale => nothing for scale in scales)
+        Dict{Symbol,Any}(scale => nothing for scale in scales)
     end
     model_specs = try
         _parse_model_specs_from_mapping(mapping)
     catch
-        Dict{String,Dict{Symbol,ModelSpec}}()
+        Dict{Symbol,Dict{Symbol,ModelSpec}}()
     end
     vars_need_init = try
         to_initialize(mapping, nothing)
     catch
-        Dict{String,Vector{Symbol}}()
+        Dict{Symbol,Vector{Symbol}}()
     end
     is_multirate = _mapping_declares_multirate(model_specs, declared_rates)
     recommendations = _build_model_mapping_recommendations(validated, is_multirate, vars_need_init)

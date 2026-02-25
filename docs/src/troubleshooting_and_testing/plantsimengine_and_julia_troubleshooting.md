@@ -190,7 +190,7 @@ A MultiScaleModel requires two kwargs, model and mapped_variables :
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
-        mapped_variables=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => :Scene,],
     )
 ```
 
@@ -199,7 +199,7 @@ Forgetting 'model=' :
 ```julia
 models = MultiScaleModel(
         ToyLAIModel(),
-        mapped_variables=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => :Scene,],
     )
 ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
@@ -215,7 +215,7 @@ Forgetting 'mapped_variables=' :
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
-        [:TT_cu => "Scene",],
+        [:TT_cu => :Scene,],
     )
 
 ERROR: MethodError: no method matching MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
@@ -234,10 +234,10 @@ The message 'got unsupported keyword argument "model"' can be misleading, as in 
 A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :
 
 ```julia
-mapping = ModelMapping("Scale" =>
+mapping = ModelMapping(:Scale =>
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
+    mapped_variables = [should_be_symbol => :Other_Scale] # should_be_symbol is a variable, likely not found in the current module 
 ),
 ...
 ),
@@ -245,10 +245,10 @@ MultiScaleModel(
 
 Here's the correct version : 
 ```julia
-mapping = ModelMapping("Scale" =>
+mapping = ModelMapping(:Scale =>
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables=[:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
+    mapped_variables=[:should_be_symbol => :Other_Scale] # should_be_symbol is now a symbol
 ),
 ...
 ),
@@ -262,11 +262,11 @@ Here are a few examples when modifying the usual multiscale run! call in this wo
 
 ```julia
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))
 var1 = 15.0
 
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         Process1Model(1.0),
         Process2Model(),
         Process3Model(),
@@ -275,7 +275,7 @@ mapping = ModelMapping(
 )
 
 outs = Dict(
-    "Leaf" => (:var1,), # :non_existing_variable is not computed by any model
+    :Leaf => (:var1,), # :non_existing_variable is not computed by any model
 )
 
 run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)
@@ -349,15 +349,15 @@ PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 However, the model provided in the examples, Process2Model is absent from the mapping :
 
 ```julia
-simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))    
+simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))    
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         Process3Model(),
         Status(var5=15.0,)
     )
 )
 outs = Dict(
-    "Leaf" => (:var5,),
+    :Leaf => (:var5,),
 )
 run!(simple_mtg, mapping, meteo_day, tracked_outputs=outs)
 
@@ -424,16 +424,16 @@ If there is a need to collect variables at two different scales, and one scale i
 ```julia
 # No models at the E3 scale in the mapping !
 
-"E2" => (
+:E2 => (
         MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
-        mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,], 
+        mapped_variables=[:c => :E1 => :c, :e3 => :E3 => :e3, :f3 => :E3 => :f3,], 
         ),
     ),
 
 Exception has occurred: KeyError
 *
-KeyError: key "E3" not found
+KeyError: key :E3 not found
 Stacktrace:
 [1] hard_dependencies(mapping::Dict{String, Tuple{Any, Any}}; verbose::Bool)
 @ PlantSimEngine ......./src/dependencies/hard_dependencies.jl:175
@@ -470,7 +470,7 @@ often indicate a likely syntax error somewhere in the mapping definition.
 
 This situation won't trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
 
-Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the "Plant" node in the dummy MTG passed into the [`run!`](@ref)function. Without that "Plant" node, only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
+Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the :Plant node in the dummy MTG passed into the [`run!`](@ref)function. Without that :Plant node, only :Scene-scale models can run initially, and since no nodes are created, :Plant-scale models will never be run.
 
 ```julia
 PlantSimEngine.@process "tt_cu" verbose = false
@@ -491,12 +491,12 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
 end
 
 mapping_multiscale = ModelMapping(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -504,12 +504,12 @@ mapping_multiscale = ModelMapping(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 0, 0),)
+#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
-out_multiscale["Plant"][:LAI]
+out_multiscale[:Plant][:LAI]
 ```
 
-In the above code, uncommenting the second line will add a "Plant" node to the MTG, and the simulation will then behave as intuitively expected.
+In the above code, uncommenting the second line will add a :Plant node to the MTG, and the simulation will then behave as intuitively expected.

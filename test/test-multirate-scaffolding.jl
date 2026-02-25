@@ -16,10 +16,10 @@ using Test
     @test output_routing(ModelSpec(m)) == NamedTuple()
     @test model_scope(ModelSpec(m)) == :global
 
-    mapping = Dict("Leaf" => (m,))
+    mapping = Dict(:Leaf => (m,))
     resolved_specs = resolved_model_specs(mapping)
-    @test haskey(resolved_specs, "Leaf")
-    @test haskey(resolved_specs["Leaf"], :process1)
+    @test haskey(resolved_specs, :Leaf)
+    @test haskey(resolved_specs[:Leaf], :process1)
 
     io = IOBuffer()
     explained = explain_model_specs(mapping; io=io)
@@ -42,7 +42,7 @@ using Test
     @test output_routing(spec).var3 == :stream_only
     @test model_scope(spec) == :plant
 
-    mspec = ModelSpec(m) |> MultiScaleModel([:var1 => "Leaf"])
+    mspec = ModelSpec(m) |> MultiScaleModel([:var1 => (:Leaf => :var1)])
     @test length(PlantSimEngine.get_mapped_variables(mspec)) == 1
 
     ts = TemporalState()
@@ -54,7 +54,7 @@ using Test
     @test isempty(ts.export_rows)
 
     scope = ScopeId(:global, 1)
-    key = OutputKey(scope, "Leaf", 7, :process1, :var3)
+    key = OutputKey(scope, :Leaf, 7, :process1, :var3)
     ts.caches[key] = HoldLastCache(1.0, 42.0)
     @test ts.caches[key] isa HoldLastCache
     @test ts.caches[key].v == 42.0

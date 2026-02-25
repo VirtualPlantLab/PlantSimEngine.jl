@@ -45,26 +45,26 @@ end
 PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
 
 @testset "Multi-rate output export API" begin
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
     meteo4 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 4))
 
     # Stream-only producer remains exportable when process is explicit.
     mapping_stream = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
             TimeStepModel(1.0) |>
             OutputRouting(; X=:stream_only),
         ),
     )
 
-    req_hold = OutputRequest("Leaf", :X; name=:x_hold, process=:mrexportsource, policy=HoldLast())
-    req_sum2 = OutputRequest("Leaf", :X; name=:x_sum2, process=:mrexportsource, policy=Integrate(), clock=ClockSpec(2.0, 1.0))
+    req_hold = OutputRequest(:Leaf, :X; name=:x_hold, process=:mrexportsource, policy=HoldLast())
+    req_sum2 = OutputRequest(:Leaf, :X; name=:x_sum2, process=:mrexportsource, policy=Integrate(), clock=ClockSpec(2.0, 1.0))
 
-    sim_stream = PlantSimEngine.GraphSimulation(mtg, mapping_stream, nsteps=4, check=true, outputs=Dict("Leaf" => (:X,)))
+    sim_stream = PlantSimEngine.GraphSimulation(mtg, mapping_stream, nsteps=4, check=true, outputs=Dict(:Leaf => (:X,)))
     run!(
         sim_stream,
         meteo4,
@@ -83,23 +83,23 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
         sim_stream,
         meteo4,
         executor=SequentialEx(),
-        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_auto_fail)],
+        tracked_outputs=[OutputRequest(:Leaf, :X; name=:x_auto_fail)],
     )
 
     # Canonical routing allows omitting process in requests.
     mapping_canonical = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
             TimeStepModel(1.0),
         ),
     )
 
-    sim_canonical = PlantSimEngine.GraphSimulation(mtg, mapping_canonical, nsteps=4, check=true, outputs=Dict("Leaf" => (:X,)))
+    sim_canonical = PlantSimEngine.GraphSimulation(mtg, mapping_canonical, nsteps=4, check=true, outputs=Dict(:Leaf => (:X,)))
     run!(
         sim_canonical,
         meteo4,
         executor=SequentialEx(),
-        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_auto, policy=HoldLast())],
+        tracked_outputs=[OutputRequest(:Leaf, :X; name=:x_auto, policy=HoldLast())],
     )
     exported_auto = collect_outputs(sim_canonical; sink=DataFrame)
     @test exported_auto[:x_auto][:, :value] == [1.0, 2.0, 3.0, 4.0]
@@ -108,65 +108,65 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     sim_direct = PlantSimEngine.GraphSimulation(
         mtg,
         ModelMapping(
-            "Leaf" => (
+            :Leaf => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
                 TimeStepModel(1.0),
             ),
         ),
         nsteps=4,
         check=true,
-        outputs=Dict("Leaf" => (:X,)),
+        outputs=Dict(:Leaf => (:X,)),
     )
     out_status, out_requested = run!(
         sim_direct,
         meteo4,
         executor=SequentialEx(),
-        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_direct, policy=HoldLast())],
+        tracked_outputs=[OutputRequest(:Leaf, :X; name=:x_direct, policy=HoldLast())],
         return_requested_outputs=true,
     )
-    @test haskey(out_status, "Leaf")
+    @test haskey(out_status, :Leaf)
     @test out_requested[:x_direct][:, :value] == [1.0, 2.0, 3.0, 4.0]
 
     # Optional direct export return from run! on MTG + mapping entry point.
     out_status_mtg, out_requested_mtg = run!(
         mtg,
         Dict(
-            "Leaf" => (
+            :Leaf => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
                 TimeStepModel(1.0),
             ),
         ),
         meteo4;
         executor=SequentialEx(),
-        tracked_outputs=[OutputRequest("Leaf", :X; name=:x_mtg, policy=HoldLast())],
+        tracked_outputs=[OutputRequest(:Leaf, :X; name=:x_mtg, policy=HoldLast())],
         return_requested_outputs=true,
     )
-    @test haskey(out_status_mtg, "Leaf")
+    @test haskey(out_status_mtg, :Leaf)
     @test out_requested_mtg[:x_mtg][:, :value] == [1.0, 2.0, 3.0, 4.0]
 end
 
 @testset "Multi-rate output export defaults on multi-scale mapping with timespec traits" begin
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
     meteo8 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 8))
 
     mapping_defaults = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             MultiScaleModel(
                 model=MRDefaultLeafSourceModel(Ref(0)),
-                mapped_variables=[:X => "Plant"],
+                mapped_variables=[:X => (:Plant => :X)],
             ),
         ),
-        "Plant" => (
+        :Plant => (
             MultiScaleModel(
                 model=MRDefaultPlantAggModel(),
-                mapped_variables=[:XP => "Scene"],
+                mapped_variables=[:XP => (:Scene => :XP)],
             ),
         ),
-        "Scene" => (
+        :Scene => (
             MRDefaultSceneAggModel(),
         ),
     )
@@ -176,7 +176,7 @@ end
         mapping_defaults,
         nsteps=8,
         check=true,
-        outputs=Dict("Leaf" => (:X,), "Plant" => (:XP,), "Scene" => (:XS,)),
+        outputs=Dict(:Leaf => (:X,), :Plant => (:XP,), :Scene => (:XS,)),
     )
 
     run!(
@@ -184,8 +184,8 @@ end
         meteo8,
         executor=SequentialEx(),
         tracked_outputs=[
-            OutputRequest("Plant", :XP),
-            OutputRequest("Scene", :XS),
+            OutputRequest(:Plant, :XP),
+            OutputRequest(:Scene, :XS),
         ],
     )
 

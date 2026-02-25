@@ -30,7 +30,7 @@ outputs_singlescale = run!(models_singlescale, meteo_day)
 #### Direct translation of the single-scale simulation
 ##############################
 mapping_pseudo_multiscale = ModelMapping(
-    "Plant" => (
+    :Plant => (
         ToyLAIModel(),
         Beer(0.5),
         ToyRUEGrowthModel(0.2),
@@ -38,7 +38,7 @@ mapping_pseudo_multiscale = ModelMapping(
     ),
 )
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 0),)
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
 out_pseudo_multiscale = run!(mtg, mapping_pseudo_multiscale, meteo_day)
@@ -70,15 +70,15 @@ end
 ##############################
 
 mapping_multiscale = ModelMapping(
-    "Scene" => (
+    :Scene => (
         ToyTt_CuModel(),
         Status(TT_cu=0.0),
     ),
-    "Plant" => (
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => (:Scene => :TT_cu),
             ],
         ),
         Beer(0.5),
@@ -87,15 +87,15 @@ mapping_multiscale = ModelMapping(
 )
 
 # We now need two nodes for our MTG
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
 ##############################
 #### Output comparison
 ##############################
 
-computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
+computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale[:Scene][:TT_cu]))
 
 is_approx_equal_1 = true
 

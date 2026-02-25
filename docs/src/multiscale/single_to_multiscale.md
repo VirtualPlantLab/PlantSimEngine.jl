@@ -57,7 +57,7 @@ We can therefore convert this into the following mapping:
 
 ```@example usepkg
 mapping = ModelMapping(
-"Plant" => (
+:Plant => (
    ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -75,7 +75,7 @@ None of these models operate on a multi-scale tree graph, either. There is no co
 ```@example usepkg
 using MultiScaleTreeGraph
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 0, 0),)
 ```
 
 !!! note
@@ -130,28 +130,28 @@ end
 ```
 
 !!! note
-    The only accessible variables in the [`run!`](@ref) function via the status are the ones that are local to the "Scene" scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a [`MultiScaleModel`](@ref), or sometimes a more complex coupling is necessary.
+    The only accessible variables in the [`run!`](@ref) function via the status are the ones that are local to the :Scene scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a [`MultiScaleModel`](@ref), or sometimes a more complex coupling is necessary.
 
 ### Linking the new TT_cu model to a scale in the mapping
 
 We now have our model implementation. How does it fit into our mapping ?
 
-Our new model doesn't really relate to a specific organ of our plant. In fact, this model doesn't represent a physiological process of the plant, but rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we'll call "Scene". This makes sense.
+Our new model doesn't really relate to a specific organ of our plant. In fact, this model doesn't represent a physiological process of the plant, but rather an environmental process affecting its physiology. We could therefore have it operate at a different scale unrelated to the plant, which we'll call :Scene. This makes sense.
 
-Note that we now need to add a "Scene" node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it and "Plant" nodes will only call models at the "Plant" scale. See [Empty status vectors in multi-scale simulations](@ref) for more details.
+Note that we now need to add a :Scene node to our Multi-scale Tree Graph, otherwise our model will not run, since no other model calls it and :Plant nodes will only call models at the :Plant scale. See [Empty status vectors in multi-scale simulations](@ref) for more details.
 
 ```@example usepkg
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 0, 0),)
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 ```
 
 ### Mapping between scales : the MultiScaleModel wrapper
 
-The cumulated thermal time (`:TT_cu`) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the "Scene" scale level. 
+The cumulated thermal time (`:TT_cu`) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the :Scene scale level. 
 
 This is done by wrapping our ToyLAIModel in a dedicated structure called a [`MultiScaleModel`](@ref). A [`MultiScaleModel`](@ref) requires two keyword arguments : `model`, indicating the model for which some variables are mapped, and `mapped_variables`, indicating which scale link to which variables, and potentially renaming them.
 
-There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the "Scene" to the "Plant" scale.
+There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the :Scene to the :Plant scale.
 
 This gives us the following declaration with the [`MultiScaleModel`](@ref) wrapper for our LAI model: 
 
@@ -159,7 +159,7 @@ This gives us the following declaration with the [`MultiScaleModel`](@ref) wrapp
 MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         )
 ```
@@ -167,12 +167,12 @@ and the new mapping with two scales:
 
 ```@example usepkg
 mapping_multiscale = ModelMapping(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -195,10 +195,10 @@ The outputs structures are slightly different : multi-scale outputs are indexed 
 
 In our simple example, we only have one MTG scene node and one plant node, so the arrays for each variable in the multi-scale output only contain one value.
 
-We can access the output variables at the "Scene" scale by indexing our outputs:
+We can access the output variables at the :Scene scale by indexing our outputs:
 
 ```@example usepkg
-outputs_multiscale["Scene"]
+outputs_multiscale[:Scene]
 ```
 We have a `Vector{NamedTuple}`structure. Our single-scale output is a `Vector{T}`:
 ```@example usepkg
@@ -207,7 +207,7 @@ outputs_singlescale.TT_cu
 
  Let's extract the multi-scale `:TT_cu`:
 ```@example usepkg
-computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+computed_TT_cu_multiscale = [outputs_multiscale[:Scene][i].TT_cu for i in 1:length(outputs_multiscale[:Scene])]
 ```
 
 We can now compare them value-by-value and do a piecewise approximate equality test :

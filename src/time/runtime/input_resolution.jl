@@ -4,7 +4,7 @@
 Resolve one producer value through hold-last cache lookup.
 Returns `(value, found::Bool)`.
 """
-function _resolved_value_for_source(sim::GraphSimulation, source_scope::ScopeId, source_scale::String, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
+function _resolved_value_for_source(sim::GraphSimulation, source_scope::ScopeId, source_scale::Symbol, source_process::Symbol, source_var::Symbol, source_node_id::Int, t::Float64)
     key = OutputKey(source_scope, source_scale, source_node_id, source_process, source_var)
     cache = get(sim.temporal_state.caches, key, nothing)
     if cache isa HoldLastCache
@@ -24,7 +24,7 @@ Returns `(value, found::Bool)`.
 function _resolved_windowed_value_for_source(
     sim::GraphSimulation,
     source_scope::ScopeId,
-    source_scale::String,
+    source_scale::Symbol,
     source_process::Symbol,
     source_var::Symbol,
     source_node_id::Int,
@@ -61,7 +61,7 @@ Returns `(value, found::Bool)`.
 function _resolved_interpolated_value_for_source(
     sim::GraphSimulation,
     source_scope::ScopeId,
-    source_scale::String,
+    source_scale::Symbol,
     source_process::Symbol,
     source_var::Symbol,
     source_node_id::Int,
@@ -169,7 +169,7 @@ function _resolve_input_windowed(
     consumer_scope::ScopeId,
     source_model_spec,
     input_var::Symbol,
-    source_scale::String,
+    source_scale::Symbol,
     source_process::Symbol,
     source_var::Symbol,
     t_start::Float64,
@@ -248,7 +248,7 @@ function _resolve_input_interpolate(
     consumer_scope::ScopeId,
     source_model_spec,
     input_var::Symbol,
-    source_scale::String,
+    source_scale::Symbol,
     source_process::Symbol,
     source_var::Symbol,
     t::Float64,
@@ -322,7 +322,7 @@ function _resolve_input_holdlast(
     consumer_scope::ScopeId,
     source_model_spec,
     input_var::Symbol,
-    source_scale::String,
+    source_scale::Symbol,
     source_process::Symbol,
     source_var::Symbol,
     t::Float64

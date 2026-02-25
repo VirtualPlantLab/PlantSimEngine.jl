@@ -18,10 +18,10 @@ using MultiScaleTreeGraph
 using DataFrames
 using Dates
 
-mtg = Node(NodeMTG("/", "Scene", 1, 0))
-plant = Node(mtg, NodeMTG("+", "Plant", 1, 1))
-internode = Node(plant, NodeMTG("/", "Internode", 1, 2))
-Node(internode, NodeMTG("+", "Leaf", 1, 2))
+mtg = Node(NodeMTG("/", :Scene, 1, 0))
+plant = Node(mtg, NodeMTG("+", :Plant, 1, 1))
+internode = Node(plant, NodeMTG("/", :Internode, 1, 2))
+Node(internode, NodeMTG("+", :Leaf, 1, 2))
 
 PlantSimEngine.@process "tutorialmeteodriven" verbose=false
 struct TutorialMeteoDrivenModel <: AbstractTutorialmeteodrivenModel
@@ -35,7 +35,7 @@ function PlantSimEngine.run!(m::TutorialMeteoDrivenModel, models, status, meteo,
 end
 PlantSimEngine.timestep_hint(::Type{<:TutorialMeteoDrivenModel}) = (; required=(Minute(30), Hour(2)), preferred=Hour(1))
 
-mapping = ModelMapping("Leaf" => (ModelSpec(TutorialMeteoDrivenModel(Ref(0))),))
+mapping = ModelMapping(:Leaf => (ModelSpec(TutorialMeteoDrivenModel(Ref(0))),))
 meteo_30min = Weather([
     Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
     Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=21.0, Wind=1.0, Rh=0.6),
@@ -47,10 +47,10 @@ out_meteo_driven = run!(
     mapping,
     meteo_30min;
     executor=SequentialEx(),
-    tracked_outputs=Dict("Leaf" => (:count,)),
+    tracked_outputs=Dict(:Leaf => (:count,)),
 )
 out_meteo_driven_df = PlantSimEngine.convert_outputs(out_meteo_driven, DataFrame)
-out_meteo_driven_df["Leaf"][end, :count]
+out_meteo_driven_df[:Leaf][end, :count]
 ```
 
 The last value is `3.0`, showing the model ran on all three 30-minute meteo rows, even though `preferred=Hour(1)`.
@@ -79,7 +79,7 @@ function PlantSimEngine.run!(::TutorialHourlyIntegratorModel, models, status, me
 end
 
 mapping_coarse = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
         ModelSpec(TutorialHourlyIntegratorModel()) |>
         TimeStepModel(Hour(1)) |>
@@ -100,10 +100,10 @@ out_coarse = run!(
     mapping_coarse,
     meteo_30min_4;
     executor=SequentialEx(),
-    tracked_outputs=Dict("Leaf" => (:A_hourly, :T_hourly)),
+    tracked_outputs=Dict(:Leaf => (:A_hourly, :T_hourly)),
 )
 out_coarse_df = PlantSimEngine.convert_outputs(out_coarse, DataFrame)
-(out_coarse_df["Leaf"][end, :A_hourly], out_coarse_df["Leaf"][end, :T_hourly])
+(out_coarse_df[:Leaf][end, :A_hourly], out_coarse_df[:Leaf][end, :T_hourly])
 ```
 
 The final tuple is `(3600.0, 23.0)`: hourly integrated assimilation (`1.0 * 1800 s * 2`) and hourly mean temperature over the coarse window.
@@ -124,10 +124,10 @@ using Dates
 using Statistics
 
 # Minimal plant: Scene -> Plant -> Internode -> Leaf
-mtg = Node(NodeMTG("/", "Scene", 1, 0))
-plant = Node(mtg, NodeMTG("+", "Plant", 1, 1))
-internode = Node(plant, NodeMTG("/", "Internode", 1, 2))
-Node(internode, NodeMTG("+", "Leaf", 1, 2))
+mtg = Node(NodeMTG("/", :Scene, 1, 0))
+plant = Node(mtg, NodeMTG("+", :Plant, 1, 1))
+internode = Node(plant, NodeMTG("/", :Internode, 1, 2))
+Node(internode, NodeMTG("+", :Leaf, 1, 2))
 
 meteo_path = joinpath(pkgdir(PlantSimEngine), "examples", "meteo_day.csv")
 leaf_mesh_path = joinpath(pkgdir(PlantSimEngine), "examples", "leaf_with_petiole.ply")
@@ -208,15 +208,15 @@ plant_daily_proc = process(TutorialPlantDailyModel())
 plant_weekly_proc = process(TutorialPlantWeeklyModel())
 
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         ModelSpec(TutorialLeafHourlyModel()) |>
         TimeStepModel(hourly) |>
         ScopeModel(:plant),
     ),
-    "Plant" => (
+    :Plant => (
         ModelSpec(TutorialPlantDailyModel()) |>
         ScopeModel(:plant) |>
-        MultiScaleModel([:leaf_assim_h => "Leaf"]) |>
+        MultiScaleModel([:leaf_assim_h => :Leaf]) |>
         TimeStepModel(daily) |>
         MeteoBindings(
             ;
@@ -224,7 +224,7 @@ mapping = ModelMapping(
             Rh=MeanWeighted(),
             Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
         ) |>
-        InputBindings(; leaf_assim_h=(process=leaf_proc, var=:leaf_assim_h, scale="Leaf", policy=Integrate())),
+        InputBindings(; leaf_assim_h=(process=leaf_proc, var=:leaf_assim_h, scale=:Leaf, policy=Integrate())),
         ModelSpec(TutorialPlantWeeklyModel()) |>
         ScopeModel(:plant) |>
         TimeStepModel(weekly) |>
@@ -238,27 +238,27 @@ mapping = ModelMapping(
 Run directly from `mtg + mapping` and request exported series.
 
 ```@example multirate_tutorial
-req_leaf_hourly = OutputRequest("Leaf", :leaf_assim_h;
+req_leaf_hourly = OutputRequest(:Leaf, :leaf_assim_h;
     name=:leaf_assim_hourly,
     process=leaf_proc,
     policy=HoldLast(),
 )
 
-req_plant_daily = OutputRequest("Plant", :plant_assim_d;
+req_plant_daily = OutputRequest(:Plant, :plant_assim_d;
     name=:plant_assim_daily,
     process=plant_daily_proc,
     policy=HoldLast(),
     clock=daily,
 )
 
-req_plant_daily_T = OutputRequest("Plant", :T;
+req_plant_daily_T = OutputRequest(:Plant, :T;
     name=:T_daily,
     process=plant_daily_proc,
     policy=HoldLast(),
     clock=daily,
 )
 
-req_plant_weekly = OutputRequest("Plant", :plant_assim_w;
+req_plant_weekly = OutputRequest(:Plant, :plant_assim_w;
     name=:plant_assim_weekly,
     process=plant_weekly_proc,
     policy=HoldLast(),
@@ -301,7 +301,7 @@ Of course the outputs of the models are still available in the `status_outputs` 
 
 ```@example multirate_tutorial
 outs = convert_outputs(out_status, DataFrame)
-outs["Plant"][1:3,:]
+outs[:Plant][1:3,:]
 ```
 
 ## 5. Deeper notes

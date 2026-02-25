@@ -63,9 +63,9 @@ function validate_canonical_publishers(sim::GraphSimulation)
     return nothing
 end
 
-_producer_signature(scale::String, process::Symbol, var::Symbol) = (scale, process, var)
+_producer_signature(scale::Symbol, process::Symbol, var::Symbol) = (scale, process, var)
 
-function _max_horizon!(horizons::Dict{Tuple{String,Symbol,Symbol},Float64}, key::Tuple{String,Symbol,Symbol}, required::Float64)
+function _max_horizon!(horizons::Dict{Tuple{Symbol,Symbol,Symbol},Float64}, key::Tuple{Symbol,Symbol,Symbol}, required::Float64)
     horizons[key] = max(get(horizons, key, 0.0), required)
     return nothing
 end
@@ -81,7 +81,7 @@ function _required_horizon_for_policy(policy::SchedulePolicy, consumer_dt::Float
 end
 
 function _consumer_horizon_requirements(sim::GraphSimulation, timeline::TimelineContext)
-    horizons = Dict{Tuple{String,Symbol,Symbol},Float64}()
+    horizons = Dict{Tuple{Symbol,Symbol,Symbol},Float64}()
 
     dep_nodes = traverse_dependency_graph(dep(sim), false)
     for node in dep_nodes
@@ -96,7 +96,9 @@ function _consumer_horizon_requirements(sim::GraphSimulation, timeline::Timeline
             source_process = parsed.process
             source_var = isnothing(parsed.var) ? input_var : parsed.var
             source_scale = isnothing(parsed.scale) ? _source_scale_for_process(node, source_process) : parsed.scale
-            source_scale = string(source_scale)
+            source_scale = source_scale isa AbstractString ?
+                           _normalize_scale(source_scale; warn=true, context=:ModelSpec) :
+                           source_scale
             source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
             source_model = get_models(sim)[source_scale][source_process]
             source_clock = _model_clock(source_model_spec, source_model, timeline)

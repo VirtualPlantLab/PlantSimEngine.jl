@@ -32,9 +32,9 @@ function compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
     modellist_sorted = modellist_df[:, sortperm(names(modellist_df))]
 
     outputs_df = convert_outputs(graphsim.outputs, DataFrame)
-    @assert haskey(outputs_df, "Default")
-    common_cols = filter(c -> c in names(outputs_df["Default"]), names(modellist_sorted))
-    mapping_sorted = outputs_df["Default"][:, common_cols]
+    @assert haskey(outputs_df, :Default)
+    common_cols = filter(c -> c in names(outputs_df[:Default]), names(modellist_sorted))
+    mapping_sorted = outputs_df[:Default][:, common_cols]
     modellist_sorted = modellist_sorted[:, common_cols]
 
     # Keep deterministic order in case columns are provided in different orders.
@@ -260,73 +260,73 @@ end
 function get_simple_mapping_bank()
     mappings = [
         ModelMapping(
-            "Scene" => ToyDegreeDaysCumulModel(),
-            "Plant" => (
+            :Scene => ToyDegreeDaysCumulModel(),
+            :Plant => (
                 MultiScaleModel(
                     model=ToyLAIModel(),
-                    mapped_variables=[:TT_cu => "Scene",],),
+                    mapped_variables=[:TT_cu => (:Scene => :TT_cu),],),
                 Beer(0.6),
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
-                        :carbon_assimilation => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
-                        :carbon_allocation => ["Leaf", "Internode"]],),
+                        :carbon_assimilation => [:Leaf],
+                        :carbon_demand => [:Leaf, :Internode],
+                        :carbon_allocation => [:Leaf, :Internode],],),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],),),
-            "Internode" => (
+                    mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],),),
+            :Internode => (
                 MultiScaleModel(
                     model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                    mapped_variables=[:TT => "Scene",],),
+                    mapped_variables=[:TT => (:Scene => :TT),],),
                 MultiScaleModel(
                     model=ToyInternodeEmergence(TT_emergence=20.0),
-                    mapped_variables=[:TT_cu => "Scene"],),
+                    mapped_variables=[:TT_cu => (:Scene => :TT_cu)],),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                 Status(carbon_biomass=1.0)),
-            "Leaf" => (
+            :Leaf => (
                 MultiScaleModel(
                     model=ToyAssimModel(),
-                    mapped_variables=[:soil_water_content => "Soil", :aPPFD => "Plant"],),
+                    mapped_variables=[:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)],),
                 MultiScaleModel(
                     model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                    mapped_variables=[:TT => "Scene",],),
+                    mapped_variables=[:TT => (:Scene => :TT),],),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
                 Status(carbon_biomass=1.0)),
-            "Soil" => (ToySoilWaterModel(),),),
+            :Soil => (ToySoilWaterModel(),),),
         ##########
         ModelMapping(
-            "Default" => (
+            :Default => (
                 Process1Model(1.0),
                 Status(var1=15.0, var2=0.3,),),),
         ##########
         ModelMapping(
-            "Plant" => (
+            :Plant => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
-                        :carbon_assimilation => ["Leaf"],
-                        :carbon_demand => ["Leaf", "Internode"],
+                        :carbon_assimilation => [:Leaf],
+                        :carbon_demand => [:Leaf, :Internode],
                         # outputs
-                        :carbon_allocation => ["Leaf", "Internode"]],),
+                        :carbon_allocation => [:Leaf, :Internode],],),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],),),
-            "Internode" => (
+                    mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],),),
+            :Internode => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                 Status(TT=10.0, carbon_biomass=1.0)),
-            "Leaf" => (
+            :Leaf => (
                 MultiScaleModel(
                     model=ToyAssimModel(),
-                    mapped_variables=[:soil_water_content => "Soil",],
-                    # Notice we provide "Soil", not ["Soil"], so a single value is expected here
+                    mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
+                    # Notice we provide :Soil, not [:Soil], so a single value is expected here
                 ),
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 Status(aPPFD=1300.0, TT=10.0, carbon_biomass=1.0),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),),
-            "Soil" => (ToySoilWaterModel(),),),
+            :Soil => (ToySoilWaterModel(),),),
         ##################    
     ]
 
@@ -334,31 +334,31 @@ function get_simple_mapping_bank()
         [nothing,
             NamedTuple(),
             Dict(),
-            #Dict("Leaf" => NamedTuple()), # incorrect
-            Dict("Leaf" => (:carbon_allocation,),),
-            Dict("Leaf" => (:carbon_demand,),),
+            #Dict(:Leaf => NamedTuple()), # incorrect
+            Dict(:Leaf => (:carbon_allocation,),),
+            Dict(:Leaf => (:carbon_demand,),),
             Dict(
-                "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
-                "Internode" => (:carbon_allocation, :TT_cu_emergence),
-                "Plant" => (:carbon_allocation,),
-                "Soil" => (:soil_water_content,),),],
+                :Leaf => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
+                :Internode => (:carbon_allocation, :TT_cu_emergence),
+                :Plant => (:carbon_allocation,),
+                :Soil => (:soil_water_content,),),],
         #############
         [nothing,
             NamedTuple(),
-            Dict("Default" => (:var1,))
+            Dict(:Default => (:var1,))
         ],
         #############
         [
             nothing,
             NamedTuple(),
             Dict(
-                "Leaf" => (:carbon_assimilation, :carbon_demand),
-                "Soil" => (:soil_water_content,),
+                :Leaf => (:carbon_assimilation, :carbon_demand),
+                :Soil => (:soil_water_content,),
             ),],
     ]
     mtgs = [
         import_mtg_example(),
-        MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 0, 0),),
+        MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Default, 0, 0),),
         import_mtg_example()
     ]
     return mtgs, mappings, out_vars_vectors

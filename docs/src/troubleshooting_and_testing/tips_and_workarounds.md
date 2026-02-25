@@ -83,7 +83,7 @@ meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.cs
 
 # Direct translation of the single-scale simulation
 mapping_pseudo_multiscale = ModelMapping(
-"Plant" => (
+:Plant => (
    ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -91,12 +91,12 @@ mapping_pseudo_multiscale = ModelMapping(
     ),
 )
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 0),)
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
 #out_pseudo_multiscale_error = run!(mtg, mapping_pseudo_multiscale, meteo_day)
 
-mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, "Plant", PlantSimEngine.get_nsteps(meteo_day))
+mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, :Plant, PlantSimEngine.get_nsteps(meteo_day))
 
 out_pseudo_multiscale_successful = run!(mtg, mapping_pseudo_multiscale_adjusted, meteo_day)
 

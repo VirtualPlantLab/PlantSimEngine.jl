@@ -96,8 +96,8 @@ end
 
 PlantSimEngine.dep(::Msg3LvlScaleEchelle2Model) = (Msg3Lvl_echelle3=AbstractMsg3Lvl_Echelle3Model => (:E3,),)
 function PlantSimEngine.run!(::Msg3LvlScaleEchelle2Model, models, status, meteo, constants=nothing, extra_args=nothing)
-    status_E3 = extra_args.statuses["E3"][1]
-    run!(extra_args.models["E3"].Msg3Lvl_echelle3, models, status_E3, meteo, constants)
+    status_E3 = extra_args.statuses[:E3][1]
+    run!(extra_args.models[:E3].Msg3Lvl_echelle3, models, status_E3, meteo, constants)
     status.e2 = status.e3
     status.e3 = status.e3 * 2.0
     status.f2 = status.e3 * 2.0 + status.f3 + status.c
@@ -119,8 +119,8 @@ end
 PlantSimEngine.dep(::Msg3LvlScaleEchelle1Model) = (Msg3Lvl_echelle2=AbstractMsg3Lvl_Echelle2Model => (:E2,),)
 function PlantSimEngine.run!(::Msg3LvlScaleEchelle1Model, models, status, meteo, constants=nothing, extra_args=nothing)
 
-    status_E2 = extra_args.statuses["E2"][1]
-    run!(extra_args.models["E2"].Msg3Lvl_echelle2, models, status_E2, meteo, constants, extra_args)
+    status_E2 = extra_args.statuses[:E2][1]
+    run!(extra_args.models[:E2].Msg3Lvl_echelle2, models, status_E2, meteo, constants, extra_args)
     status.e1 = status.e2
     status.e2 = status.e2 * 2.0
     status.f1 = status.e2 * 2.0 + status.f2 + status.b
@@ -161,8 +161,8 @@ PlantSimEngine.dep(::Msg3LvlScaleAvalModel) = (Msg3Lvl_aval2=AbstractMsg3Lvl_Ava
 
 function PlantSimEngine.run!(::Msg3LvlScaleAvalModel, models, status, meteo, constants=nothing, extra_args=nothing)
 
-    status_E2 = extra_args.statuses["E2"][1]
-    run!(extra_args.models["E2"].Msg3Lvl_aval2, models, status_E2, meteo, constants, extra_args)
+    status_E2 = extra_args.statuses[:E2][1]
+    run!(extra_args.models[:E2].Msg3Lvl_aval2, models, status_E2, meteo, constants, extra_args)
     status.g = status.f1 + status.b2 + status_E2.g2
     status.e3 = status.e3 + 1.0
 end
@@ -172,38 +172,38 @@ end
 
 @testset "Multiscale nested hard dependencies" begin
 
-    mapping3Lvl = ModelMapping("E1" => (
+    mapping3Lvl = ModelMapping(:E1 => (
             Msg3LvlScaleAmontModel(),
             MultiScaleModel(
                 model=Msg3LvlScaleAvalModel(),
-                mapped_variables=[:e3 => "E3" => :e3, :b2 => "E2" => :b2, :g2 => "E2" => :g2],
+                mapped_variables=[:e3 => :E3 => :e3, :b2 => :E2 => :b2, :g2 => :E2 => :g2],
             ),
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle1Model(),
-                mapped_variables=[:e2 => "E2" => :e2, :f2 => "E2" => :f2,],
+                mapped_variables=[:e2 => :E2 => :e2, :f2 => :E2 => :f2,],
             ), Status(a=1.0,)# y = 1.0, z = 1.0)
         ),
-        "E2" => (
+        :E2 => (
             Msg3LvlScaleAmont2Model(),
             Msg3LvlScaleAval2Model(),
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle2Model(),
-                mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,],
+                mapped_variables=[:c => :E1 => :c, :e3 => :E3 => :e3, :f3 => :E3 => :f3,],
             ),
             Status(a2=1.0, i2=1.0,)
         ),
-        "E3" => (
+        :E3 => (
             MultiScaleModel(
                 model=Msg3LvlScaleEchelle3Model(),
-                mapped_variables=[:c => "E1" => :c,],
+                mapped_variables=[:c => :E1 => :c,],
             ),
         ),
     )
 
     outs3Lvl = Dict(
-        "E1" => (:g, :e1, :f1),
-        "E2" => (:e2, :f2,),
-        "E3" => (:e3,)
+        :E1 => (:g, :e1, :f1),
+        :E2 => (:e2, :f2,),
+        :E3 => (:e3,)
     )
 
     meteo3Lvl = Weather([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=200.0),
@@ -214,9 +214,9 @@ end
         Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
         Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)])
 
-    mtg3Lvl = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "E1", 0, 0),)
-    Node(mtg3Lvl, MultiScaleTreeGraph.NodeMTG("/", "E2", 0, 1))
-    Node(mtg3Lvl, MultiScaleTreeGraph.NodeMTG("/", "E3", 0, 2))
+    mtg3Lvl = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :E1, 0, 0),)
+    Node(mtg3Lvl, MultiScaleTreeGraph.NodeMTG("/", :E2, 0, 1))
+    Node(mtg3Lvl, MultiScaleTreeGraph.NodeMTG("/", :E3, 0, 2))
 
     #sim3Lvl = @test_nowarn PlantSimEngine.run!(mtg3Lvl, mapping3Lvl, meteo3Lvl, tracked_outputs=outs3Lvl, executor=SequentialEx())
     nsteps = PlantSimEngine.get_nsteps(meteo3Lvl)
@@ -225,10 +225,12 @@ end
 
     @test length(sim3Lvl.dependency_graph.roots) == 2
 
-    model_amont1 = last(collect(sim3Lvl.dependency_graph.roots)[2])
-    model_ech1 = model_amont1.children[1]
-
-    @test model_ech1.hard_dependency[1].children[1].parent.parent == model_ech1
+    roots = [last(x) for x in collect(sim3Lvl.dependency_graph.roots)]
+    idx = findfirst(r -> !isempty(r.children) && !isempty(r.children[1].hard_dependency), roots)
+    @test !isnothing(idx)
+    model_ech1 = roots[idx].children[1]
+    @test !isempty(model_ech1.hard_dependency)
+    @test all(hd.parent == model_ech1 for hd in model_ech1.hard_dependency)
 
 end
 
@@ -279,7 +281,7 @@ end
 
 # exta_args = sim_object
 function PlantSimEngine.run!(::HardDepSameScaleEchelle1Model, models, status, meteo, constants=nothing, sim_object=nothing)
-    #run!(sim_object.models["E3"].hard_dep_same_scale_echelle3, models, status, meteo, constants)
+    #run!(sim_object.models[:E3].hard_dep_same_scale_echelle3, models, status, meteo, constants)
     status.e1 = 1.0#status.e3
     #status.e3 = status.e3 * 2.0
     status.f1 = status.a #status.e3 * 2.0 + status.f3 + status.a
@@ -303,8 +305,8 @@ PlantSimEngine.dep(::HardDepSameScaleEchelle1bisModel) = (hard_dep_same_scale_ec
 
 # exta_args = sim_object
 function PlantSimEngine.run!(::HardDepSameScaleEchelle1bisModel, models, status, meteo, constants=nothing, sim_object=nothing)
-    status_E3 = sim_object.statuses["E3"][1]
-    run!(sim_object.models["E3"].hard_dep_same_scale_echelle3, models, status_E3, meteo, constants)
+    status_E3 = sim_object.statuses[:E3][1]
+    run!(sim_object.models[:E3].hard_dep_same_scale_echelle3, models, status_E3, meteo, constants)
     status.e2 = status_E3.e3
     status_E3.e3 = status_E3.e3 * 2.0
     status.f2 = status_E3.e3 * 2.0
@@ -333,13 +335,13 @@ end
 
 @testset "Soft dependency whose parent is a hard dependency of a parent at a different scale" begin
     mapping = ModelMapping(
-        "E1" => (HardDepSameScaleEchelle1Model(),
+        :E1 => (HardDepSameScaleEchelle1Model(),
             MultiScaleModel(
                 model=HardDepSameScaleEchelle1bisModel(),
-                mapped_variables=[:e3 => "E3" => :e3],
+                mapped_variables=[:e3 => :E3 => :e3],
             ),
             Status(a=1.0),),
-        "E3" => (
+        :E3 => (
             HardDepSameScaleEchelle3Model(),
             HardDepSameScaleAvalModel(), Status(d=1.0,),
         ),
@@ -348,16 +350,16 @@ end
     @test to_initialize(mapping) == Dict()
 
     outs = Dict(
-        "E1" => (:e1, :f1, :e2, :f2),
-        "E3" => (:e3,)
+        :E1 => (:e1, :f1, :e2, :f2),
+        :E3 => (:e3,)
     )
 
     meteo = Weather([
         Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
         Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)])
 
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "E1", 0, 0),)
-    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "E3", 0, 1))
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :E1, 0, 0),)
+    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :E3, 0, 1))
 
     #sim = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, tracked_outputs=outs, executor=SequentialEx())
     nsteps = PlantSimEngine.get_nsteps(meteo)
@@ -421,10 +423,10 @@ PlantSimEngine.dep(::SingleModelScale1) = (single_model_multiple_scales=Abstract
 
 # extra_args = sim_object
 function PlantSimEngine.run!(::SingleModelScale1, models, status, meteo, constants=nothing, sim_object=nothing)
-    status_E2 = sim_object.statuses["E2"][1]
-    status_E2b = sim_object.statuses["E2bis"][1]
-    run!(sim_object.models["E2"].single_model_multiple_scales, models, status_E2, meteo, constants)
-    run!(sim_object.models["E2bis"].single_model_multiple_scales, models, status_E2b, meteo, constants)
+    status_E2 = sim_object.statuses[:E2][1]
+    status_E2b = sim_object.statuses[:E2bis][1]
+    run!(sim_object.models[:E2].single_model_multiple_scales, models, status_E2, meteo, constants)
+    run!(sim_object.models[:E2bis].single_model_multiple_scales, models, status_E2b, meteo, constants)
     status.out = status_E2.out + status_E2b.out + status.in
     status.out1 = status_E2.out2 + status_E2b.out2bis + status.out1
 end
@@ -450,22 +452,22 @@ end
 @testset "Process/model reuse at different scales" begin
 
     mapping = ModelMapping(
-        "E1" => (
+        :E1 => (
             SingleModelScale1(),
             Status(in=1.0, in1=1.0),
         ),
-        "E2" => (
+        :E2 => (
             SingleModelScale2(),
             Status(in=1.0, in2=1.0),
         ),
-        "E2bis" => (
+        :E2bis => (
             SingleModelScale2bis(),
             Status(in=1.0, in2bis=1.0),
         ),
-        "E3" => (
+        :E3 => (
             MultiScaleModel(
                 model=SingleModelScale3(),
-                mapped_variables=[:out1 => "E1" => :out1, :out2 => "E2" => :out2,],
+                mapped_variables=[:out1 => :E1 => :out1, :out2 => :E2 => :out2,],
             ),
             Status(in=1.0, in3=1.0,),
         ),
@@ -474,20 +476,20 @@ end
     @test to_initialize(mapping) == Dict()
 
     outs = Dict(
-        "E1" => (:out, :out1),
-        "E2" => (:out, :out2),
-        "E2bis" => (:out,), # comment this line out, and remove nodes relating to E2 and E2bis to expose the issue in #103
-        "E3" => (:out3,)
+        :E1 => (:out, :out1),
+        :E2 => (:out, :out2),
+        :E2bis => (:out,), # comment this line out, and remove nodes relating to E2 and E2bis to expose the issue in #103
+        :E3 => (:out3,)
     )
 
     meteo = Weather([
         Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
         Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)])
 
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "E1", 0, 0),)
-    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "E3", 0, 1))
-    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "E2", 0, 2))
-    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "E2bis", 0, 3))
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :E1, 0, 0),)
+    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :E3, 0, 1))
+    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :E2, 0, 2))
+    Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :E2bis, 0, 3))
 
     #sim = @test_nowarn PlantSimEngine.run!(mtg, mapping, meteo, tracked_outputs=outs, executor = SequentialEx())
     nsteps = PlantSimEngine.get_nsteps(meteo)
@@ -519,7 +521,7 @@ end
     using PlantSimEngine.Examples
     mtg = import_mtg_example()
     m = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             Process1Model(1.0),
             Status(var1=10.0, var2=1.0,)
         )
@@ -527,11 +529,11 @@ end
 
     @test to_initialize(m) == Dict()
 
-    vars = Dict{String,Any}("Leaf" => (:var1,))
+    vars = Dict{Symbol,Any}(:Leaf => (:var1,))
     out = run!(mtg, m, Atmosphere(T=20.0, Wind=1.0, Rh=0.65), tracked_outputs=vars, executor=SequentialEx())
     df_dict = convert_outputs(out, DataFrame)
-    @test DataFrames.nrow(df_dict["Leaf"]) == 2
-    @test DataFrames.ncol(df_dict["Leaf"]) == 3
+    @test DataFrames.nrow(df_dict[:Leaf]) == 2
+    @test DataFrames.ncol(df_dict[:Leaf]) == 3
 end
 
 ##########################
@@ -551,11 +553,11 @@ end
         Atmosphere(T=25.0, Wind=1.0, Rh=0.6, Ri_PAR_f=200.0),
         Atmosphere(T=10.0, Wind=0.5, Rh=0.6, Ri_PAR_f=200.0)])
 
-    outs = Dict("Default" => (:var1,))
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Default", 0, 0),)
+    outs = Dict(:Default => (:var1,))
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Default, 0, 0),)
 
     mapping = ModelMapping(
-        "Default" => (
+        :Default => (
             Process1Model(1.0),
             Status(var1=15.0, var2=0.3,),
         ),
@@ -565,7 +567,7 @@ end
     sim = run!(mtg, mapping, meteo; tracked_outputs=outs)
     using DataFrames
     df_dict = convert_outputs(sim, DataFrame)
-    @test DataFrames.nrow(df_dict["Default"]) == PlantSimEngine.get_nsteps(meteo)
+    @test DataFrames.nrow(df_dict[:Default]) == PlantSimEngine.get_nsteps(meteo)
 end
 
 

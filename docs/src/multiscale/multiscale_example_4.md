@@ -63,8 +63,8 @@ using PlantGeom.Meshes
 
 cylinder() = Meshes.CylinderSurface(1.0) |> Meshes.discretize |> Meshes.simplexify
 
-refmesh_internode = PlantGeom.RefMesh("Internode", cylinder())
-refmesh_root = PlantGeom.RefMesh("Root", cylinder())
+refmesh_internode = PlantGeom.RefMesh(:Internode, cylinder())
+refmesh_root = PlantGeom.RefMesh(:Root, cylinder())
 ```
 
 A simple function to read the vertices and faces from the .ply file for our leaves:
@@ -83,7 +83,7 @@ function read_ply(fname)
 end
 
 leaf_ply = read_ply("examples/leaf_with_petiole.ply")
-refmesh_leaf = PlantGeom.RefMesh("Leaf", leaf_ply)
+refmesh_leaf = PlantGeom.RefMesh(:Leaf, leaf_ply)
 ```
 
 ```julia
