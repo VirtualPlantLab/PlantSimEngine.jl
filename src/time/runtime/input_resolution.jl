@@ -191,6 +191,13 @@ function _status_for_node_id(source_statuses, target_node_id::Int)
     return nothing
 end
 
+function _prefer_local_status_fallback(st::Status, input_var::Symbol, source_var::Symbol, prefer_local_status::Bool)
+    prefer_local_status || return false
+    source_var in keys(st) || return false
+    _assign_input_value!(st, input_var, st[source_var])
+    return true
+end
+
 """
     _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t_end, policy)
 
@@ -203,6 +210,7 @@ function _resolve_input_windowed(
     st::Status,
     consumer_scope::ScopeId,
     source_model_spec,
+    prefer_local_status::Bool,
     input_var::Symbol,
     source_scale::Symbol,
     source_process::Symbol,
@@ -236,6 +244,8 @@ function _resolve_input_windowed(
         length(vals) > 0 && _assign_input_value!(st, input_var, vals)
         return nothing
     end
+
+    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_windowed_value_for_source(
@@ -313,6 +323,7 @@ function _resolve_input_interpolate(
     st::Status,
     consumer_scope::ScopeId,
     source_model_spec,
+    prefer_local_status::Bool,
     input_var::Symbol,
     source_scale::Symbol,
     source_process::Symbol,
@@ -342,6 +353,8 @@ function _resolve_input_interpolate(
         length(vals) > 0 && _assign_input_value!(st, input_var, vals)
         return nothing
     end
+
+    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_interpolated_value_for_source(
@@ -387,6 +400,7 @@ function _resolve_input_holdlast(
     st::Status,
     consumer_scope::ScopeId,
     source_model_spec,
+    prefer_local_status::Bool,
     input_var::Symbol,
     source_scale::Symbol,
     source_process::Symbol,
@@ -415,6 +429,8 @@ function _resolve_input_holdlast(
         length(vals) > 0 && _assign_input_value!(st, input_var, vals)
         return nothing
     end
+
+    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
 
     consumer_node_id = node_id(st.node)
     v, ok = _resolved_value_for_source(sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t)
@@ -516,6 +532,7 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
                 continue
             end
         end
+        prefer_local_status = !policy_is_explicit
         source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
         source_model = get_models(sim)[source_scale][source_process]
         source_clock = _model_clock(source_model_spec, source_model, timeline)
@@ -525,9 +542,9 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
         end
 
         if policy isa HoldLast
-            _resolve_input_holdlast(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t)
+            _resolve_input_holdlast(sim, node, st, consumer_scope, source_model_spec, prefer_local_status, input_var, source_scale, source_process, source_var, t)
         elseif policy isa Interpolate
-            _resolve_input_interpolate(sim, node, st, consumer_scope, source_model_spec, input_var, source_scale, source_process, source_var, t, policy)
+            _resolve_input_interpolate(sim, node, st, consumer_scope, source_model_spec, prefer_local_status, input_var, source_scale, source_process, source_var, t, policy)
         elseif policy isa Integrate || policy isa Aggregate
             _resolve_input_windowed(
                 sim,
@@ -535,6 +552,7 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
                 st,
                 consumer_scope,
                 source_model_spec,
+                prefer_local_status,
                 input_var,
                 source_scale,
                 source_process,
