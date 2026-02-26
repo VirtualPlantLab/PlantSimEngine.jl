@@ -644,7 +644,8 @@ _rates_compatible(rate1, rate2) = isnothing(rate1) || isnothing(rate2) || rate1 
 function _spec_declares_multirate(spec::ModelSpec)
     model = model_(spec)
     !isnothing(timestep(spec)) && return true
-    !isempty(keys(input_bindings(spec))) && return true
+    # Explicit input bindings are also used for same-rate disambiguation.
+    # They should not, by themselves, force multirate runtime.
     !isempty(keys(meteo_bindings(spec))) && return true
     !isnothing(meteo_window(spec)) && return true
     !isempty(keys(output_routing(spec))) && return true
