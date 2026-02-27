@@ -124,6 +124,7 @@ export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, M
 export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
 export TemporalState
 export OutputRequest, collect_outputs
+export effective_rate_summary
 export ModelList, MultiScaleModel, ModelMapping, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
 export RMSE, NRMSE, EF, dr

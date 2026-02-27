@@ -223,32 +223,61 @@ function _isempty_vars_need_init(vars_need_init)
     return isnothing(vars_need_init)
 end
 
+function _timing_group_label_for_spec(spec::ModelSpec)
+    if !isnothing(timestep(spec))
+        return string("explicit ", timestep(spec), " (ModelSpec)")
+    end
+
+    model_clock = timespec(model_(spec))
+    if !_is_default_clock(model_clock)
+        return string("model timespec ", model_clock)
+    end
+
+    return "meteo base step (inferred at runtime)"
+end
+
+function _model_timing_groups(info::ModelMappingInfo)
+    groups = Dict{String,Int}()
+    for specs_at_scale in values(info.model_specs), spec in values(specs_at_scale)
+        label = _timing_group_label_for_spec(spec)
+        groups[label] = get(groups, label, 0) + 1
+    end
+    return groups
+end
+
 function _show_model_mapping_plain(io::IO, mapping::ModelMapping)
     info = mapping.info
     println(io, "ModelMapping")
-    println(io, "  validated: ", info.validated)
-    println(io, "  is_valid: ", info.is_valid)
-    println(io, "  multirate: ", info.is_multirate)
-    println(io, "  scales (", length(info.scales), "): ", join(info.scales, ", "))
+    println(io, "  Validated: ", info.validated, " (", info.is_valid ? "valid" : "invalid", ")")
+    println(io, "  Multirate: ", info.is_multirate)
+    println(io, "  Scales (", length(info.scales), "): ", join(info.scales, ", "))
     for scale in info.scales
         print(io, "  - ", scale, ": ", get(info.models_per_scale, scale, 0), " model(s)")
         processes = get(info.processes_per_scale, scale, Symbol[])
         if !isempty(processes)
-            print(io, ", processes=", join(string.(processes), ", "))
+            print(io, ", Processes=", join(string.(processes), ", "))
         end
         rate = get(info.declared_rates, scale, nothing)
         if !isnothing(rate)
-            print(io, ", rate=", rate)
+            print(io, ", Rate=", rate)
         end
         println(io)
     end
+    timing_groups = _model_timing_groups(info)
+    if !isempty(timing_groups)
+        println(io, "  Timing groups:")
+        for label in sort!(collect(keys(timing_groups)); by=string)
+            println(io, "  - ", label, ": ", timing_groups[label], " model(s)")
+        end
+        println(io, "  Get resolved timings with: `effective_rate_summary(modelmapping, meteo)`")
+    end
     if _isempty_vars_need_init(info.vars_need_init)
-        println(io, "  variables to initialize: none")
+        println(io, "  Variables to initialize: none")
     else
-        println(io, "  variables to initialize: ", info.vars_need_init)
+        println(io, "  Variables to initialize: ", info.vars_need_init)
     end
     if !isempty(info.recommendations)
-        println(io, "  recommendations:")
+        println(io, "  Recommendations:")
         for recommendation in info.recommendations
             println(io, "  - ", recommendation)
         end
@@ -644,15 +673,11 @@ _rates_compatible(rate1, rate2) = isnothing(rate1) || isnothing(rate2) || rate1 
 function _spec_declares_multirate(spec::ModelSpec)
     model = model_(spec)
     !isnothing(timestep(spec)) && return true
-    # Explicit input bindings are also used for same-rate disambiguation.
-    # They should not, by themselves, force multirate runtime.
-    !isempty(keys(meteo_bindings(spec))) && return true
+    # Explicit input bindings are also used for same-rate disambiguation,
+    # so they must not, by themselves, force multirate runtime.
     !isnothing(meteo_window(spec)) && return true
     !isempty(keys(output_routing(spec))) && return true
     timespec(model) != ClockSpec(1.0, 0.0) && return true
-    !isempty(keys(output_policy(model))) && return true
-    !isnothing(timestep_hint(model)) && return true
-    !isnothing(meteo_hint(model)) && return true
     return false
 end
 

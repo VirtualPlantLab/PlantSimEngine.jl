@@ -545,100 +545,12 @@ function _multirate_tracked_outputs(tracked_outputs)
     return tracked_outputs, OutputRequest[]
 end
 
-_effective_multirate(mapping::ModelMapping) = is_multirate(mapping)
-_effective_multirate(sim::GraphSimulation) = is_multirate(sim)
-
 function _active_dependency_processes(dep_graph::DependencyGraph)
     active = Set{Tuple{Symbol,Symbol}}()
     for node in traverse_dependency_graph(dep_graph, false)
         push!(active, (node.scale, node.process))
     end
     return active
-end
-
-function _runtime_clock_source_for_spec(spec::ModelSpec)
-    !isnothing(timestep(spec)) && return :modelspec
-    return _is_default_clock(timespec(model_(spec))) ? :meteo_base_step : :model_timespec
-end
-
-function _runtime_clock_rows(object::GraphSimulation, timeline::TimelineContext, dep_graph::DependencyGraph)
-    active = _active_dependency_processes(dep_graph)
-    rows = NamedTuple[]
-
-    for (scale, specs_at_scale) in pairs(get_model_specs(object))
-        for (process, spec) in pairs(specs_at_scale)
-            (scale, process) in active || continue
-            model = model_(spec)
-            clock = _model_clock(spec, model, timeline)
-            source = _runtime_clock_source_for_spec(spec)
-            push!(rows, (
-                scale=scale,
-                process=process,
-                source=source,
-                clock=clock,
-                model=model,
-            ))
-        end
-    end
-
-    return rows
-end
-
-function _validate_meteo_derived_timestep_requirements!(rows, timeline::TimelineContext)
-    base_sec = timeline.base_step_seconds
-
-    for row in rows
-        row.source == :meteo_base_step || continue
-
-        hint = _normalize_timestep_hint(row.scale, row.process, timestep_hint(row.model))
-        if !isnothing(hint.fixed)
-            required_sec = _seconds_from_period(hint.fixed)
-            isapprox(base_sec, required_sec; atol=1.0e-9, rtol=0.0) || error(
-                "Meteo timestep ($(base_sec) s) is incompatible with `timestep_hint.required=$(hint.fixed)` ",
-                "for `$(row.scale)/$(row.process)` with unset `TimeStepModel(...)`. ",
-                "Set an explicit `TimeStepModel(...)` or provide meteo with matching `duration`."
-            )
-        elseif !isnothing(hint.range)
-            lo, hi = hint.range
-            lo_sec = _seconds_from_period(lo)
-            hi_sec = _seconds_from_period(hi)
-            lo_sec <= base_sec <= hi_sec || error(
-                "Meteo timestep ($(base_sec) s) is outside `timestep_hint.required=($(lo), $(hi))` ",
-                "for `$(row.scale)/$(row.process)` with unset `TimeStepModel(...)`. ",
-                "Set an explicit `TimeStepModel(...)` or provide meteo with compatible `duration`."
-            )
-        end
-    end
-
-    return nothing
-end
-
-function _warn_if_no_model_runs_at_base_timestep(rows, timeline::TimelineContext)
-    isempty(rows) && return nothing
-    any(isapprox(float(row.clock.dt), 1.0; atol=1.0e-9, rtol=0.0) for row in rows) && return nothing
-
-    source_label(source) = source == :modelspec ? "ModelSpec" : (source == :model_timespec ? "timespec(model)" : "meteo")
-    details = sort([
-        string(
-            row.scale,
-            "/",
-            row.process,
-            "=",
-            round(float(row.clock.dt) * timeline.base_step_seconds; digits=6),
-            "s (",
-            source_label(row.source),
-            ")"
-        ) for row in rows
-    ])
-
-    @warn string(
-        "No model runs at the meteo base timestep (",
-        timeline.base_step_seconds,
-        " s). Resolved model timesteps: ",
-        join(details, ", "),
-        "."
-    ) maxlog = 1
-    return nothing
 end
 
 function run!(
@@ -655,7 +567,7 @@ function run!(
     requested_outputs_sink=DataFrames.DataFrame
 )
     _validate_meteo_duration(meteo)
-    effective_multirate = _effective_multirate(mapping)
+    effective_multirate = _effective_multirate(mapping, meteo)
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
     meteo_adjusted = if effective_multirate && meteo isa TimeStepTable{<:Atmosphere}
         # Keep TimeStepTable intact in MTG multi-rate runs so model-clock meteo
