@@ -162,16 +162,18 @@ end</code></pre><h2 id="Updating-the-mapping"><a class="docs-heading-anchor" hre
             ),
 :Leaf =&gt; ( ToyLeafCarbonCaptureModel(),),
 )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
-  validated: true
-  is_valid: true
-  multirate: false
-  scales (5): Scene, Root, Leaf, Plant, Internode
-  - Scene: 1 model(s), processes=Degreedays
-  - Root: 2 model(s), processes=root_growth, water_absorption
-  - Leaf: 1 model(s), processes=leaf_carbon_capture
-  - Plant: 1 model(s), processes=resource_stock_computation
-  - Internode: 1 model(s), processes=organ_emergence
-  variables to initialize: none
+  Validated: true (valid)
+  Multirate: false
+  Scales (5): Scene, Root, Leaf, Plant, Internode
+  - Scene: 1 model(s), Processes=Degreedays
+  - Root: 2 model(s), Processes=root_growth, water_absorption
+  - Leaf: 1 model(s), Processes=leaf_carbon_capture
+  - Plant: 1 model(s), Processes=resource_stock_computation
+  - Internode: 1 model(s), Processes=organ_emergence
+  Timing groups:
+  - meteo base step (inferred at runtime): 6 model(s)
+  Get resolved timings with: `effective_rate_summary(modelmapping, meteo)`
+  Variables to initialize: none
 </code></pre><h2 id="Running-the-simulation"><a class="docs-heading-anchor" href="#Running-the-simulation">Running the simulation</a><a id="Running-the-simulation-1"></a><a class="docs-heading-anchor-permalink" href="#Running-the-simulation" title="Permalink"></a></h2><p>Running this new simulation is almost the same as before. The weather data is unchanged, but a new :Root node was added to the MTG.</p><pre><code class="language-julia hljs">mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG(&quot;/&quot;, :Scene, 1, 0))
     plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG(&quot;+&quot;, :Plant, 1, 1))
 
@@ -215,4 +217,4 @@ mtg</code></pre><pre class="documenter-example-output"><code class="nohighlight 
    │                    ├─ + 32: Leaf
    │                    ├─ + 33: Leaf
    │                    └─ &lt; 34: Internode
-…</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Thursday 26 February 2026 08:52">Thursday 26 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
+…</code></pre><p>And that&#39;s it ! </p><p>...Or is it ?</p><p>If you inspect the code and output data closely, you may notice some distinctive problems with the way the simulation runs... Some things aren&#39;t quite right. If you wish to know more, onwards to the next chapter: <a href="../multiscale_example_3/#Fixing-bugs-in-the-plant-simulation">Fixing bugs in the plant simulation</a></p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../multiscale_example_1/">« A rudimentary plant simulation</a><a class="docs-footer-nextpage" href="../multiscale_example_3/">Fixing bugs in the plant simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Friday 27 February 2026 13:40">Friday 27 February 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
