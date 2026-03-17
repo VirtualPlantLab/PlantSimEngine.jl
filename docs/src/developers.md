@@ -95,16 +95,15 @@ were editing.
 
 ## Implementation notes
 
-### Generated models and `eval`
+### Generated models from status vectors
 
-Some multiscale helpers generate model definitions dynamically so that status
-vectors can be converted into runtime-compatible mappings. This currently relies
-on `eval()`, which means some changes only become visible again after returning
-to top-level scope.
+Some multiscale helpers turn status vectors into internal runtime models so that
+they can be used in mapping-based simulations. The implementation is kept
+deliberately data-driven to avoid top-level `eval()` and world-age issues.
 
 The relevant code lives in `src/mtg/mapping/model_generation_from_status_vectors.jl`.
-If you touch that area, be careful about world-age issues and about tests that
-intentionally split setup and execution into separate top-level calls.
+If you touch that area, preserve the ability to generate the mapping and build a
+`GraphSimulation` within the same function scope.
 
 ### Coverage gaps to keep in mind
 
