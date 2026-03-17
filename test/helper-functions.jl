@@ -44,8 +44,8 @@ function compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
     return modellist_sorted == mapping_sorted
 end
 
-# Breaking this function into two to ensure eval() state synchronisation happens (see comments around the modellist_to_mapping definition)
-# Naming could be better
+# Helper used to compare a single-scale `ModelMapping` run with its generated
+# multiscale equivalent.
 function check_multiscale_simulation_is_equivalent_begin(mapping::ModelMapping, meteo)
     _, models_at_scale = only(pairs(mapping))
     status_nt = NamedTuple(something(PlantSimEngine.get_status(models_at_scale), Status()))
@@ -66,6 +66,12 @@ function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, m
     )
 
     return compare_outputs_modellist_mapping(modellist_outputs, graph_sim)
+end
+
+function check_multiscale_simulation_is_equivalent(mapping::ModelMapping, meteo)
+    modellist_outputs = run!(mapping, meteo)
+    mtg, mapping_mt, out = check_multiscale_simulation_is_equivalent_begin(mapping, meteo)
+    return check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping_mt, out, meteo)
 end
 
 # Quick and naive first version. Doesn't check if everything is timestep parallelizable, doesn't check for nthreads etc.
@@ -365,8 +371,6 @@ function get_simple_mapping_bank()
 end
 
 
-# Split into two parts to ensure eval() syncs and that automatic generation becomes visible for later simulation
-# See world-age problems and comments around modellist_to_mapping if you don't know/remember what that's about
 function test_filtered_output_begin(m::ModelMapping, status_tuple, requested_outputs, meteo)
 
     nsteps = PlantSimEngine.get_nsteps(meteo)
@@ -400,4 +404,12 @@ function test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filt
         executor=SequentialEx()
     )
     return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
+end
+
+function test_filtered_output(m::ModelMapping, status_tuple, requested_outputs, meteo)
+    mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist =
+        test_filtered_output_begin(m, status_tuple, requested_outputs, meteo)
+
+    @test to_initialize(mapping) == Dict()
+    return test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filtered_outputs_modellist)
 end

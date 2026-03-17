@@ -56,9 +56,11 @@ This is practical for simple simulations, or when quickly prototyping, to avoid 
 
 In multi-scale simulations, this feature is also supported, though not part of the main API. The way outputs and statuses work is a little different, so that little convenience feature is not as straightforward. 
 
-It is more brittle, makes use of not-recommended Julia metaprogramming features (`eval()`), fiddles with global variables, might not work outside of a REPL environment and is not tested for more complex interactions, so it may interact badly with variables that are mapped to different scales or in bizarre dependency couplings.
+It remains a convenience path for prototyping, and it is still not tested for
+more complex interactions, so it may interact badly with variables that are
+mapped to different scales or in unusual dependency couplings.
 
-Due to, uh, implementation quirks, the way to use this is as follows:
+The way to use this is as follows:
 
 Call the function `replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)`on your mapping.
 

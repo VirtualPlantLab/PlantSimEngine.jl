@@ -235,8 +235,7 @@ end=#
     )
     outs = (:var3,)
 
-    mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(leaf, vals, outs, meteo_day)
-    @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+    @test test_filtered_output(leaf, vals, outs, meteo_day)
 
     meteos =
         [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
@@ -280,9 +279,7 @@ end=#
                 #print(i, " ", j, " ", k)
                 meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_given_length(
                     PlantSimEngine.get_status_vector_max_length(modellist.status), meteo)
-                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo_adjusted)
-                @test to_initialize(mapping) == Dict()
-                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_adjusted, filtered_outputs_modellist)
+                @test test_filtered_output(modellist, status_tuple, out_tuple, meteo_adjusted)
             end
         end
     end
