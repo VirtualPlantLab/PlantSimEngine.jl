@@ -7,9 +7,31 @@ This tutorial builds one MTG simulation that mixes three model rates:
 
 It runs for one week and exports clean series at each rate.
 
+The goal here is not to build a realistic plant model. Instead, the objective is
+to make the mechanics of multi-rate execution easy to see:
+
+- how PlantSimEngine decides when a model runs;
+- how values are transferred from a faster model to a slower one;
+- how meteorological inputs are reduced over a coarse time window;
+- how to export clean hourly, daily, and weekly series from the same run.
+
+We begin with two very small examples that isolate the scheduling rules, then we
+assemble a complete hourly/daily/weekly MTG simulation.
+
 ## Decision flow quick examples
 
-### Unset model timestep uses meteo cadence (preferred is informational)
+Before building the full example, it helps to establish two important rules:
+
+1. if a model does not declare an explicit timestep, it follows the meteo cadence;
+2. if a model is forced to run more coarsely than its inputs, then explicit input
+   and meteo binding policies determine how information is aggregated.
+
+### Simple example with implicit meteo cadence
+
+Model may define a trait calles `timestep_hint` that describes the acceptable and preferred cadences for that model. However, that trait is purely descriptive: it does not force the model to run at any particular rate. If you want to force a model to run at a specific cadence, you must declare an explicit `TimeStepModel(...)` in the mapping. Otherwise, the model will simply run whenever the meteo cadence allows it to, and the `timestep_hint` can be used for validation or explanation but does not silently reschedule the model.
+
+Let's define a tiny model that simply counts how many times it ran, then feed it
+three 30-minute weather rows:
 
 ```@example multirate_timestep_flow
 using PlantSimEngine
@@ -34,14 +56,27 @@ function PlantSimEngine.run!(m::TutorialMeteoDrivenModel, models, status, meteo,
     status.count = float(m.n[])
 end
 PlantSimEngine.timestep_hint(::Type{<:TutorialMeteoDrivenModel}) = (; required=(Minute(30), Hour(2)), preferred=Hour(1))
+```
 
-mapping = ModelMapping(:Leaf => (ModelSpec(TutorialMeteoDrivenModel(Ref(0))),))
+This model is designed to run between every 30 minutes and every 2 hours, with a preferred cadence of 1 hour. Let's make a mapping with the model but without an explicit `TimeStepModel(...)`:
+
+```@example multirate_timestep_flow
+mapping = ModelMapping(:Leaf => (TutorialMeteoDrivenModel(Ref(0)),))
+```
+
+Let's define a 30-minute weather table with three rows:
+
+```@example multirate_timestep_flow
 meteo_30min = Weather([
     Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
     Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=21.0, Wind=1.0, Rh=0.6),
     Atmosphere(date=DateTime(2025, 6, 12, 13, 0, 0), duration=Minute(30), T=22.0, Wind=1.0, Rh=0.6),
 ])
+```
 
+Now we run the model and check how many times it ran over those three 30-minute rows:
+
+```@example multirate_timestep_flow
 out_meteo_driven = run!(
     mtg,
     mapping,
@@ -49,13 +84,31 @@ out_meteo_driven = run!(
     executor=SequentialEx(),
     tracked_outputs=Dict(:Leaf => (:count,)),
 )
-out_meteo_driven_df = PlantSimEngine.convert_outputs(out_meteo_driven, DataFrame)
-out_meteo_driven_df[:Leaf][end, :count]
+out_meteo_driven[:Leaf][end]
 ```
 
-The last value is `3.0`, showing the model ran on all three 30-minute meteo rows, even though `preferred=Hour(1)`.
+The last value for `:count` is `3.0`, showing the model ran on all three 30-minute meteo rows,
+even though `preferred=Hour(1)`.
+
+That is the key point: without `TimeStepModel`, the model still follows the
+incoming meteo table. The preferred timestep can be used for validation or for
+explanation, but it does not silently reschedule the model.
 
 ### Explicit coarse `TimeStepModel` triggers integration/aggregation
+
+The second example shows the complementary case. Here we explicitly ask one model
+to run hourly, even though its source data arrives every 30 minutes. Once we do
+that, PlantSimEngine needs instructions for two distinct questions:
+
+- how to combine the 30-minute source output into an hourly model input;
+- how to combine 30-minute meteorological rows into the hourly meteo seen by the
+  coarse model.
+
+That is what `InputBindings(...)` and `MeteoBindings(...)` are for.
+In this tiny example, we keep the mapping simple by declaring the default
+reduction policy on the source model itself with `output_policy(...)`. Since `A`
+has a unique producer on the same scale, PlantSimEngine can infer the source
+automatically and reuse that policy.
 
 ```@example multirate_timestep_flow
 PlantSimEngine.@process "tutorialhalfhoursource" verbose=false
@@ -68,6 +121,7 @@ function PlantSimEngine.run!(m::TutorialHalfHourSourceModel, models, status, met
     m.n[] += 1
     status.A = 1.0 # umol m-2 s-1
 end
+PlantSimEngine.output_policy(::Type{<:TutorialHalfHourSourceModel}) = (; A=Integrate(DurationSumReducer()))
 
 PlantSimEngine.@process "tutorialhourlyintegrator" verbose=false
 struct TutorialHourlyIntegratorModel <: AbstractTutorialhourlyintegratorModel end
@@ -83,7 +137,6 @@ mapping_coarse = ModelMapping(
         ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
         ModelSpec(TutorialHourlyIntegratorModel()) |>
         TimeStepModel(Hour(1)) |>
-        InputBindings(; A=(process=:tutorialhalfhoursource, var=:A, policy=Integrate(DurationSumReducer()))) |>
         MeteoBindings(; T=MeanWeighted()),
     ),
 )
@@ -109,11 +162,20 @@ out_coarse_df = PlantSimEngine.convert_outputs(out_coarse, DataFrame)
 The final tuple is `(3600.0, 23.0)`: hourly integrated assimilation
 (`sum(A .* duration_seconds)` over two 30-minute rows) and hourly mean temperature over the coarse window.
 
+So this example already captures the core multi-rate idea: the fast model still
+runs at the fine cadence, while the coarse model sees explicitly reduced inputs
+and meteorology at its own cadence.
+
 ## 1. Setup and example data
 
-We reuse package example assets:
-- `examples/meteo_day.csv` for weather,
-- `examples/leaf_with_petiole.ply` as an available mesh asset.
+We now move to a slightly more complete tutorial example. To keep the mechanics
+readable, we work with a minimal MTG containing only one plant and one leaf. That
+way the exported tables stay small enough to inspect directly.
+
+We also reuse package example assets instead of inventing new input files.
+
+We reuse one package example asset:
+- `examples/meteo_day.csv` for weather.
 
 ```@example multirate_tutorial
 using PlantSimEngine
@@ -122,7 +184,6 @@ using MultiScaleTreeGraph
 using DataFrames
 using CSV
 using Dates
-using Statistics
 
 # Minimal plant: Scene -> Plant -> Internode -> Leaf
 mtg = Node(NodeMTG("/", :Scene, 1, 0))
@@ -131,13 +192,15 @@ internode = Node(plant, NodeMTG("/", :Internode, 1, 2))
 Node(internode, NodeMTG("+", :Leaf, 1, 2))
 
 meteo_path = joinpath(pkgdir(PlantSimEngine), "examples", "meteo_day.csv")
-leaf_mesh_path = joinpath(pkgdir(PlantSimEngine), "examples", "leaf_with_petiole.ply")
 
 @assert isfile(meteo_path)
-@assert isfile(leaf_mesh_path)
 ```
 
-If you want to visualize the mesh file, see [Visualizing our toy plant with PlantGeom](../multiscale/multiscale_example_4.md).
+The weather file bundled with the package is daily. Since this tutorial is about
+mixing several cadences, we first convert one week of daily weather into an
+hourly weather table. The values are simply repeated within each day, which is
+perfectly fine here because the purpose is to illustrate scheduling and data flow
+rather than to create a realistic forcing dataset.
 
 `meteo_day.csv` is daily. We convert one week to an hourly weather table:
 
@@ -169,6 +232,18 @@ meteo_hourly[1:3] # show the first 3 rows of the hourly weather table
 
 ## 2. Define simple tutorial models
 
+Next we define three deliberately simple models:
+
+- an hourly `Leaf` model that turns incoming radiation into an hourly
+  assimilation value;
+- a daily `Plant` model that sums hourly leaf assimilation over a day and also
+  consumes daily meteorological aggregates;
+- a weekly `Plant` model that sums daily plant assimilation into one weekly
+  value.
+
+These models are intentionally minimal. Their role is to make the rate changes
+and aggregation policies obvious.
+
 ```@example multirate_tutorial
 PlantSimEngine.@process "tutorialleafhourly" verbose=false
 struct TutorialLeafHourlyModel <: AbstractTutorialleafhourlyModel end
@@ -177,6 +252,7 @@ PlantSimEngine.outputs_(::TutorialLeafHourlyModel) = (leaf_assim_h=0.0,)
 function PlantSimEngine.run!(::TutorialLeafHourlyModel, models, status, meteo, constants=nothing, extra=nothing)
     status.leaf_assim_h = 0.004 * meteo.Ri_PAR_f
 end
+PlantSimEngine.output_policy(::Type{<:TutorialLeafHourlyModel}) = (; leaf_assim_h=Integrate())
 
 PlantSimEngine.@process "tutorialplantdaily" verbose=false
 struct TutorialPlantDailyModel <: AbstractTutorialplantdailyModel end
@@ -187,6 +263,7 @@ function PlantSimEngine.run!(::TutorialPlantDailyModel, models, status, meteo, c
     status.rad_sw_day = meteo.Ri_SW_q
     status.T = meteo.T
 end
+PlantSimEngine.output_policy(::Type{<:TutorialPlantDailyModel}) = (; plant_assim_d=Integrate())
 
 PlantSimEngine.@process "tutorialplantweekly" verbose=false
 struct TutorialPlantWeeklyModel <: AbstractTutorialplantweeklyModel end
@@ -197,16 +274,32 @@ function PlantSimEngine.run!(::TutorialPlantWeeklyModel, models, status, meteo, 
 end
 ```
 
+At this point nothing is multi-rate yet. We have simply defined three processes
+whose intended cadences are hourly, daily, and weekly. The multi-rate behavior is
+declared in the mapping.
+
 ## 3. Configure multi-rate mapping
+
+This is the heart of the tutorial. The mapping below does three things at once:
+
+1. it assigns each model to a scale;
+2. it declares the timestep at which each model should run;
+3. it defines how values move between rates and between scales.
+
+Two pieces are especially important here:
+
+- `TimeStepModel(...)` states the model cadence;
+- `MeteoBindings(...)` explains how to reduce meteorological inputs to match a
+  coarser model.
+
+For model-to-model bindings, this tutorial relies on automatic source inference
+plus `output_policy(...)` on the source models. That keeps the main example
+compact while still exercising multi-rate input aggregation.
 
 ```@example multirate_tutorial
 hourly = 1.0
 daily = ClockSpec(24.0, 0.0)
 weekly = ClockSpec(168.0, 0.0)
-
-leaf_proc = process(TutorialLeafHourlyModel())
-plant_daily_proc = process(TutorialPlantDailyModel())
-plant_weekly_proc = process(TutorialPlantWeeklyModel())
 
 mapping = ModelMapping(
     :Leaf => (
@@ -224,45 +317,66 @@ mapping = ModelMapping(
             T=MeanWeighted(),
             Rh=MeanWeighted(),
             Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
-        ) |>
-        InputBindings(; leaf_assim_h=(process=leaf_proc, var=:leaf_assim_h, scale=:Leaf, policy=Integrate())),
+        ),
         ModelSpec(TutorialPlantWeeklyModel()) |>
         ScopeModel(:plant) |>
-        TimeStepModel(weekly) |>
-        InputBindings(; plant_assim_d=(process=plant_daily_proc, var=:plant_assim_d, policy=Integrate())),
+        TimeStepModel(weekly),
     ),
 )
 ```
 
+Reading this mapping from top to bottom:
+
+- the `Leaf` model runs hourly and produces `leaf_assim_h`;
+- the daily `Plant` model receives leaf values from the `Leaf` scale through
+  `MultiScaleModel([:leaf_assim_h => :Leaf])`, then integrates them over a day;
+- that same daily model also receives daily meteorological summaries via
+  `MeteoBindings(...)`;
+- the weekly `Plant` model integrates the daily plant output into one weekly
+  value.
+
+`ScopeModel(:plant)` is included so these models belong to the same scoped plant
+instance. In a larger scene with several plants, scopes let you keep multi-rate
+model instances separated in a controlled way.
+
+!!! note
+    In this tutorial, explicit `InputBindings(...)` are omitted because each
+    input has a unique, inferable producer and the default reduction policy is
+    declared on the source model with `output_policy(...)`.
+
+    In more complex mappings, you should use explicit
+    `InputBindings(process=..., scale=..., var=..., policy=...)` when:
+    - several models can produce the same input variable;
+    - the same process exists at several reachable scales;
+    - the source variable has a different name than the consumer input;
+    - you want to override the producer's default policy for a specific mapping.
+
 ## 4. Run and export hourly/daily/weekly series
 
-Run directly from `mtg + mapping` and request exported series.
+Now we run the simulation and request three exported series. This is a good place
+to distinguish two related outputs returned by `run!`:
+
+- the regular simulation outputs (`out_status` below), which still contain the
+  model outputs tracked during the run;
+- the explicitly requested exported series (`exported` below), which are the
+  clean hourly/daily/weekly tables we asked PlantSimEngine to materialize.
+
+We use `OutputRequest(...)` to say which variable we want and on which clock.
+Here again we keep the example minimal: `process=` is omitted because each
+requested output has a unique canonical publisher.
 
 ```@example multirate_tutorial
 req_leaf_hourly = OutputRequest(:Leaf, :leaf_assim_h;
     name=:leaf_assim_hourly,
-    process=leaf_proc,
-    policy=HoldLast(),
 )
 
 req_plant_daily = OutputRequest(:Plant, :plant_assim_d;
     name=:plant_assim_daily,
-    process=plant_daily_proc,
-    policy=HoldLast(),
-    clock=daily,
-)
-
-req_plant_daily_T = OutputRequest(:Plant, :T;
-    name=:T_daily,
-    process=plant_daily_proc,
-    policy=HoldLast(),
     clock=daily,
 )
 
 req_plant_weekly = OutputRequest(:Plant, :plant_assim_w;
     name=:plant_assim_weekly,
-    process=plant_weekly_proc,
-    policy=HoldLast(),
     clock=weekly,
 )
 
@@ -271,15 +385,17 @@ out_status, exported = run!(
     mapping,
     meteo_hourly;
     executor=SequentialEx(),
-    tracked_outputs=[req_leaf_hourly, req_plant_daily, req_plant_daily_T, req_plant_weekly],
+    tracked_outputs=[req_leaf_hourly, req_plant_daily, req_plant_weekly],
     return_requested_outputs=true,
 )
 
 leaf_hourly_df = exported[:leaf_assim_hourly]
 plant_daily_df = exported[:plant_assim_daily]
-plant_daily_df_T = exported[:T_daily]
 plant_weekly_df = exported[:plant_assim_weekly]
 ```
+
+The exported tables already have the cadence we asked for, so they are much
+easier to inspect than a single mixed output table.
 
 Quick checks:
 
@@ -292,13 +408,22 @@ leaf_hourly_df.day = repeat(1:7, inner=24)
 leaf_hourly_sum = combine(groupby(leaf_hourly_df, :day), :value => sum => :leaf_assim_h_sum)
 ```
 
-Manually computing daily sums from the hourly series confirms the daily assimilation matches the sum of hourly assimilation:
+Those row counts match the intended design of the example: one hourly series for
+seven days, one daily series for seven days, and one weekly aggregate for the
+whole run.
+
+We can also manually recompute the daily sums from the hourly exported series and
+compare them with the daily model output:
 
 ```@example multirate_tutorial
 plant_daily_df
 ```
 
-Of course the outputs of the models are still available in the `status_outputs` returned by `run!`, and can be converted to DataFrames as well:
+This confirms that the daily assimilation really is the sum of the hourly leaf
+assimilation collected over each day.
+
+The regular outputs returned by `run!` are still available as well, and can be
+converted to `DataFrame`s in the usual way:
 
 ```@example multirate_tutorial
 outs = convert_outputs(out_status, DataFrame)
@@ -307,7 +432,16 @@ outs[:Plant][1:3,:]
 
 ## 5. Deeper notes
 
+The example above is enough to run a complete multi-rate simulation. The notes
+below highlight a few practical extensions that become important in more serious
+models.
+
 ### Calendar-aligned windows
+
+So far, the tutorial used fixed-duration windows. Sometimes you want the daily or
+weekly model to align to the civil calendar instead, for example "the current
+day" rather than "the trailing last 24 hours". In that case, use a
+`MeteoWindow(...)`:
 
 If your daily model must use the current civil day (instead of trailing 24h), use:
 
@@ -321,6 +455,15 @@ Likewise, use `:week` or `:month` for weekly/monthly calendar windows.
 
 ### Shared reducers
 
+The same reducer concepts appear in two places:
+
+- `InputBindings(...)` for model-to-model transfers across different cadences;
+- `MeteoBindings(...)` for meteorological aggregation.
+
+That symmetry is deliberate. Once you understand how a reducer summarizes a fast
+series into a slower one, the same reasoning applies whether the source is a
+model output or a meteorological variable.
+
 Reducer objects work for model inputs and meteo bindings:
 
 - `InputBindings(..., policy=Integrate(...)/Aggregate(...))`,
@@ -331,8 +474,14 @@ Reducer objects work for model inputs and meteo bindings:
 
 ### Inspect resolved specs
 
+When a mapping becomes more complex, it is useful to inspect the fully resolved
+multi-rate configuration rather than relying on memory. `explain_model_specs(...)`
+prints the effective timestep, input bindings, meteo bindings, and meteo window
+for each model process:
+
 ```@example multirate_tutorial
 explain_model_specs(mapping)
 ```
 
-This prints resolved timestep, input bindings, meteo bindings, and meteo window per model process.
+This is often the fastest way to debug a mapping when a model seems to run at the
+wrong cadence or receives the wrong aggregation policy.
