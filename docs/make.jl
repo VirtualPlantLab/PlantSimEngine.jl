@@ -75,9 +75,8 @@ makedocs(;
             "Public API" => "./API/API_public.md",
             "Example models" => "./API/API_examples.md",
             "Internal API" => "./API/API_private.md",],
-        "Improving our documentation" => "documentation_improvement.md",
         "Developer guidelines" => "developers.md",
-        "Planned features" => "planned_features.md",
+        "Roadmap" => "planned_features.md",
     ]
 )
 

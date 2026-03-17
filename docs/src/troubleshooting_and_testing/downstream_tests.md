@@ -4,6 +4,6 @@ PlantSimEngine is [open sourced on Github](https://github.com/VirtualPlantLab/Pl
 
 One handy CI (Continuous Integration) feature implemented for these packages is automated integration and downstream testing: after changes to a package, its known downstream dependencies are tested to ensure no breaking changes were introduced. 
 
-For instance, PlantBioPhysics uses PlantSimEngine, so an integration test ensures that PlantBioPhysics's tests don't break in an unforeseen manner after a new PlantSimEngine release. There also is a benchmark check in the downstream tests: [https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/test/downstream/test-plantbiophysics.jl]
+For instance, PlantBioPhysics uses PlantSimEngine, so the integration workflow checks that PlantBioPhysics's tests do not break unexpectedly after changes to PlantSimEngine. The repository also keeps a separate benchmark workflow and benchmark scripts in the `benchmark/` directory for performance tracking.
 
-This is something you can take advantage of if you wish to develop using PlantSimEngine, by providing us with your package name (or adding it to the CI yml file in a Pull Request); we can then add it to the list of downstream packages to test, and generate PR when breaking changes are introduced.
+If you maintain a package that depends on PlantSimEngine, you can propose adding it to the downstream integration workflow through a pull request.
