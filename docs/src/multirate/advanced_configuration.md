@@ -170,24 +170,7 @@ So `OutputRequest(...)` is not just a way to rename a column. It is also a
 declaration of which stream you want, at which cadence, and with which
 resampling policy.
 
-## 6. Scopes in larger MTGs
-
-The first two pages use a minimal MTG with one plant, so `ScopeModel(...)` is
-not needed there. In a larger scene, however, several plants may contain the
-same scales and the same processes. In that case, scopes control how streams are
-partitioned across the MTG.
-
-Typical choices are:
-
-- `ScopeModel(:global)` to share a stream across the whole simulation;
-- `ScopeModel(:plant)` to isolate streams within each plant subtree;
-- `ScopeModel(:scene)` to isolate them within each scene;
-- `ScopeModel(:self)` to keep a stream attached to each individual node.
-
-Once a mapping contains repeated scales and repeated processes, adding the right
-scope is often just as important as choosing the right timestep.
-
-## 7. Inspect resolved configuration
+## 6. Inspect resolved configuration
 
 When a mapping mixes inferred bindings, explicit bindings, custom meteo
 aggregation, scopes, and export requests, it becomes difficult to reason about
@@ -213,7 +196,7 @@ These helpers let you confirm:
 In practice, this is often the fastest way to debug a multi-rate mapping before
 running a larger simulation.
 
-## 8. How to choose between the three pages
+## 7. How to choose between the three pages
 
 Use the pages in this order:
 
