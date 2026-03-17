@@ -318,9 +318,12 @@ An example output of a multiscale simulation is shown in the documentation of Pl
 
 PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
 
-The dedicated tutorial covers the main pieces of the API, including `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest`:
+The dedicated documentation now has three pages: a short introduction to the
+core ideas, a fuller step-by-step tutorial, and an advanced configuration page:
 
-- [Hourly, daily, weekly simulation](./multirate/multirate_tutorial.md)
+- [Introduction to multi-rate execution](./multirate/introduction.md)
+- [Step-by-step hourly, daily, weekly simulation](./multirate/multirate_tutorial.md)
+- [Advanced multi-rate configuration](./multirate/advanced_configuration.md)
 
 ## State of the field
 

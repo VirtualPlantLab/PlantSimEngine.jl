@@ -64,7 +64,9 @@ makedocs(;
             "Visualizing our toy plant with PlantGeom" => "./multiscale/multiscale_example_4.md",
         ],
         "Multi-rate tutorials" => [
-            "Hourly, daily, weekly simulation" => "./multirate/multirate_tutorial.md",
+            "Introduction to multi-rate execution" => "./multirate/introduction.md",
+            "Step-by-step hourly/daily/weekly simulation" => "./multirate/multirate_tutorial.md",
+            "Advanced multi-rate configuration" => "./multirate/advanced_configuration.md",
         ],
         "Troubleshooting and testing" => [
             "Troubleshooting" => "./troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting.md",
