@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Introduction to multi-rate execution · PlantSimEngine.jl</title><meta name="title" content="Introduction to multi-rate execution · PlantSimEngine.jl"/><meta property="og:title" content="Introduction to multi-rate execution · PlantSimEngine.jl"/><meta property="twitter:title" content="Introduction to multi-rate execution · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/introduction/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/introduction/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/introduction/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Introduction</span><ul><li><a class="tocitem" href="../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../../introduction/why_julia/">Why Julia ?</a></li></ul></li><li><span class="tocitem">Prerequisites</span><ul><li><a class="tocitem" href="../../prerequisites/installing_plantsimengine/">Installing and running PlantSimEngine</a></li><li><a class="tocitem" href="../../prerequisites/key_concepts/">Key Concepts</a></li><li><a class="tocitem" href="../../prerequisites/julia_basics/">Julia language basics</a></li></ul></li><li><span class="tocitem">Step by step - Single-scale simulations</span><ul><li><a class="tocitem" href="../../step_by_step/detailed_first_example/">Detailed first simulation</a></li><li><a class="tocitem" href="../../step_by_step/simple_model_coupling/">Coupling</a></li><li><a class="tocitem" href="../../step_by_step/model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../step_by_step/quick_and_dirty_examples/">Quick examples</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_process/">Implementing a process</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model/">Implementing a model</a></li><li><a class="tocitem" href="../../step_by_step/parallelization/">Parallelization</a></li><li><a class="tocitem" href="../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model_additional/">Implementing a model : additional notes</a></li></ul></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><a class="tocitem" href="../../model_traits/">Model traits</a></li><li><span class="tocitem">Working with data</span><ul><li><a class="tocitem" href="../../working_with_data/reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../working_with_data/fitting/">Fitting</a></li><li><a class="tocitem" href="../../working_with_data/inputs/">Input types</a></li><li><a class="tocitem" href="../../working_with_data/visualising_outputs/">Visualizing outputs and data</a></li><li><a class="tocitem" href="../../working_with_data/floating_point_accumulation_error/">Floating-point considerations</a></li></ul></li><li><span class="tocitem">Moving to multiscale</span><ul><li><a class="tocitem" href="../../multiscale/multiscale_considerations/">Multiscale considerations</a></li><li><a class="tocitem" href="../../multiscale/single_to_multiscale/">Converting a simulation to multi-scale</a></li><li><a class="tocitem" href="../../multiscale/multiscale/">More variable mapping examples</a></li><li><a class="tocitem" href="../../multiscale/multiscale_cyclic/">Handling cyclic dependencies</a></li><li><a class="tocitem" href="../../multiscale/multiscale_coupling/">Multiscale coupling considerations</a></li><li><input class="collapse-toggle" id="menuitem-8-6" type="checkbox"/><label class="tocitem" for="menuitem-8-6"><span class="docs-label">Building a simple plant</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../../multiscale/multiscale_example_1/">A rudimentary plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_2/">Expanding the plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_3/">Fixing bugs in the plant simulation</a></li></ul></li><li><a class="tocitem" href="../../multiscale/multiscale_example_4/">Visualizing our toy plant with PlantGeom</a></li></ul></li><li><span class="tocitem">Multi-rate tutorials</span><ul><li class="is-active"><a class="tocitem" href>Introduction to multi-rate execution</a><ul class="internal"><li><a class="tocitem" href="#Decision-flow-quick-examples"><span>Decision flow quick examples</span></a></li></ul></li><li><a class="tocitem" href="../multirate_tutorial/">Step-by-step hourly/daily/weekly simulation</a></li><li><a class="tocitem" href="../advanced_configuration/">Advanced multi-rate configuration</a></li></ul></li><li><span class="tocitem">Troubleshooting and testing</span><ul><li><a class="tocitem" href="../../troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/">Troubleshooting</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/downstream_tests/">Automated testing</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/tips_and_workarounds/">Tips and Workarounds</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/implicit_contracts/">Implicit contracts</a></li></ul></li><li><span class="tocitem">API</span><ul><li><a class="tocitem" href="../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../API/API_examples/">Example models</a></li><li><a class="tocitem" href="../../API/API_private/">Internal API</a></li></ul></li><li><a class="tocitem" href="../../developers/">Developer guidelines</a></li><li><a class="tocitem" href="../../planned_features/">Roadmap</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Multi-rate tutorials</a></li><li class="is-active"><a href>Introduction to multi-rate execution</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Introduction to multi-rate execution</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/multirate/introduction.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Introduction-to-multi-rate-execution"><a class="docs-heading-anchor" href="#Introduction-to-multi-rate-execution">Introduction to multi-rate execution</a><a id="Introduction-to-multi-rate-execution-1"></a><a class="docs-heading-anchor-permalink" href="#Introduction-to-multi-rate-execution" title="Permalink"></a></h1><p>This page introduces the basic ideas behind multi-rate execution in PlantSimEngine.</p><p>The goal here is not to build a realistic plant model. Instead, the objective is to make the mechanics of multi-rate execution easy to see:</p><ul><li>how PlantSimEngine decides when a model runs;</li><li>how values are transferred from a faster model to a slower one;</li><li>how meteorological inputs are reduced over a coarse time window.</li></ul><p>Once those ideas are clear, the <a href="../multirate_tutorial/">step-by-step multi-rate tutorial</a> shows how to assemble a more complete hourly/daily/weekly MTG simulation.</p><h2 id="Decision-flow-quick-examples"><a class="docs-heading-anchor" href="#Decision-flow-quick-examples">Decision flow quick examples</a><a id="Decision-flow-quick-examples-1"></a><a class="docs-heading-anchor-permalink" href="#Decision-flow-quick-examples" title="Permalink"></a></h2><p>Before building a larger example, it helps to establish two important rules:</p><ol><li>if a model does not declare an explicit timestep, it follows the meteo cadence;</li><li>if a model is forced to run more coarsely than its inputs, then explicit input and meteo binding policies determine how information is aggregated.</li></ol><h3 id="Simple-example-with-implicit-meteo-cadence"><a class="docs-heading-anchor" href="#Simple-example-with-implicit-meteo-cadence">Simple example with implicit meteo cadence</a><a id="Simple-example-with-implicit-meteo-cadence-1"></a><a class="docs-heading-anchor-permalink" href="#Simple-example-with-implicit-meteo-cadence" title="Permalink"></a></h3><p>Model may define a trait calles <code>timestep_hint</code> that describes the acceptable and preferred cadences for that model. However, that trait is purely descriptive: it does not force the model to run at any particular rate. If you want to force a model to run at a specific cadence, you must declare an explicit <code>TimeStepModel(...)</code> in the mapping. Otherwise, the model will simply run whenever the meteo cadence allows it to, and the <code>timestep_hint</code> can be used for validation or explanation but does not silently reschedule the model.</p><p>Let&#39;s define a tiny model that simply counts how many times it ran, then feed it three 30-minute weather rows:</p><pre><code class="language-julia hljs">using PlantSimEngine
+using PlantMeteo
+using MultiScaleTreeGraph
+using DataFrames
+using Dates
+
+mtg = Node(NodeMTG(&quot;/&quot;, :Scene, 1, 0))
+plant = Node(mtg, NodeMTG(&quot;+&quot;, :Plant, 1, 1))
+internode = Node(plant, NodeMTG(&quot;/&quot;, :Internode, 1, 2))
+Node(internode, NodeMTG(&quot;+&quot;, :Leaf, 1, 2))
+
+PlantSimEngine.@process &quot;tutorialmeteodriven&quot; verbose=false
+struct TutorialMeteoDrivenModel &lt;: AbstractTutorialmeteodrivenModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::TutorialMeteoDrivenModel) = NamedTuple()
+PlantSimEngine.outputs_(::TutorialMeteoDrivenModel) = (count=-Inf,)
+function PlantSimEngine.run!(m::TutorialMeteoDrivenModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.count = float(m.n[])
+end
+PlantSimEngine.timestep_hint(::Type{&lt;:TutorialMeteoDrivenModel}) = (; required=(Minute(30), Hour(2)), preferred=Hour(1))</code></pre><p>This model is designed to run between every 30 minutes and every 2 hours, with a preferred cadence of 1 hour. Let&#39;s make a mapping with the model but without an explicit <code>TimeStepModel(...)</code>:</p><pre><code class="language-julia hljs">mapping = ModelMapping(:Leaf =&gt; (TutorialMeteoDrivenModel(Ref(0)),))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
+  Validated: true (valid)
+  Multirate: false
+  Scales (1): Leaf
+  - Leaf: 1 model(s), Processes=tutorialmeteodriven
+  Timing groups:
+  - meteo base step (inferred at runtime): 1 model(s)
+  Get resolved timings with: `effective_rate_summary(modelmapping, meteo)`
+  Variables to initialize: none
+</code></pre><p>Let&#39;s define a 30-minute weather table with three rows:</p><pre><code class="language-julia hljs">meteo_30min = Weather([
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=21.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 0, 0), duration=Minute(30), T=22.0, Wind=1.0, Rh=0.6),
+])</code></pre><table>
+  <thead>
+    <tr class = "title">
+      <td colspan = "23" style = "font-size: x-large; font-weight: bold; text-align: center;">TimeStepTable{Atmosphere{(:date, :duration,...}(3 x 22):</td>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "font-weight: bold; text-align: right;">date</th>
+      <th style = "font-weight: bold; text-align: right;">duration</th>
+      <th style = "font-weight: bold; text-align: right;">T</th>
+      <th style = "font-weight: bold; text-align: right;">Wind</th>
+      <th style = "font-weight: bold; text-align: right;">P</th>
+      <th style = "font-weight: bold; text-align: right;">Rh</th>
+      <th style = "font-weight: bold; text-align: right;">Precipitations</th>
+      <th style = "font-weight: bold; text-align: right;">Cₐ</th>
+      <th style = "font-weight: bold; text-align: right;">e</th>
+      <th style = "font-weight: bold; text-align: right;">eₛ</th>
+      <th style = "font-weight: bold; text-align: right;">VPD</th>
+      <th style = "font-weight: bold; text-align: right;">ρ</th>
+      <th style = "font-weight: bold; text-align: right;">λ</th>
+      <th style = "font-weight: bold; text-align: right;">γ</th>
+      <th style = "font-weight: bold; text-align: right;">ε</th>
+      <th style = "font-weight: bold; text-align: right;">Δ</th>
+      <th style = "font-weight: bold; text-align: right;">clearness</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_SW_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_PAR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_NIR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_TIR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_custom_f</th>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "text-align: right;">Dates.DateTime</th>
+      <th style = "text-align: right;">Dates.Minute</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td>
+      <td style = "text-align: right;">2025-06-12T12:00:00</td>
+      <td style = "text-align: right;">30 minutes</td>
+      <td style = "text-align: right;">20.0</td>
+      <td style = "text-align: right;">1.0</td>
+      <td style = "text-align: right;">101.325</td>
+      <td style = "text-align: right;">0.6</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">1.4082</td>
+      <td style = "text-align: right;">2.347</td>
+      <td style = "text-align: right;">0.938798</td>
+      <td style = "text-align: right;">1.20408</td>
+      <td style = "text-align: right;">2.4537e6</td>
+      <td style = "text-align: right;">0.0672534</td>
+      <td style = "text-align: right;">0.578157</td>
+      <td style = "text-align: right;">0.145734</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td>
+      <td style = "text-align: right;">2025-06-12T12:30:00</td>
+      <td style = "text-align: right;">30 minutes</td>
+      <td style = "text-align: right;">21.0</td>
+      <td style = "text-align: right;">1.0</td>
+      <td style = "text-align: right;">101.325</td>
+      <td style = "text-align: right;">0.6</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">1.4978</td>
+      <td style = "text-align: right;">2.49634</td>
+      <td style = "text-align: right;">0.998535</td>
+      <td style = "text-align: right;">1.19999</td>
+      <td style = "text-align: right;">2.45134e6</td>
+      <td style = "text-align: right;">0.0673183</td>
+      <td style = "text-align: right;">0.582991</td>
+      <td style = "text-align: right;">0.153823</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td>
+      <td style = "text-align: right;">2025-06-12T13:00:00</td>
+      <td style = "text-align: right;">30 minutes</td>
+      <td style = "text-align: right;">22.0</td>
+      <td style = "text-align: right;">1.0</td>
+      <td style = "text-align: right;">101.325</td>
+      <td style = "text-align: right;">0.6</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">1.59236</td>
+      <td style = "text-align: right;">2.65394</td>
+      <td style = "text-align: right;">1.06158</td>
+      <td style = "text-align: right;">1.19592</td>
+      <td style = "text-align: right;">2.44897e6</td>
+      <td style = "text-align: right;">0.0673833</td>
+      <td style = "text-align: right;">0.587827</td>
+      <td style = "text-align: right;">0.162289</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+  </tbody>
+</table>
+<p>Now we run the model and check how many times it ran over those three 30-minute rows:</p><pre><code class="language-julia hljs">out_meteo_driven = run!(
+    mtg,
+    mapping,
+    meteo_30min;
+    executor=SequentialEx(),
+    tracked_outputs=Dict(:Leaf =&gt; (:count,)),
+)
+out_meteo_driven[:Leaf][end]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi"><span class="sgr31">╭──── </span>Status<span class="sgr31"> ──────────────────────────────────────────────────────────────────╮</span>
+<span class="sgr31">│</span>  timestep<span class="sgr38_2" style="color:#ef5350">=</span><span class="sgr38_2" style="color:#90caf9">3</span>, node<span class="sgr38_2" style="color:#ef5350">=+</span> <span class="sgr38_2" style="color:#90caf9">4</span>: Leaf                                                  <span class="sgr31">│</span>
+<span class="sgr31">│</span>  , count<span class="sgr38_2" style="color:#ef5350">=</span><span class="sgr38_2" style="color:#90caf9">3.0</span>                                                                 <span class="sgr31">│</span>
+<span class="sgr31">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre><p>The last value for <code>:count</code> is <code>3.0</code>, showing the model ran on all three 30-minute meteo rows, even though <code>preferred=Hour(1)</code>.</p><p>That is the key point: without <code>TimeStepModel</code>, the model still follows the incoming meteo table. The preferred timestep can be used for validation or for explanation, but it does not silently reschedule the model.</p><h3 id="Using-TimeStepModel-to-manage-multi-rate-coupling"><a class="docs-heading-anchor" href="#Using-TimeStepModel-to-manage-multi-rate-coupling">Using <code>TimeStepModel</code> to manage multi-rate coupling</a><a id="Using-TimeStepModel-to-manage-multi-rate-coupling-1"></a><a class="docs-heading-anchor-permalink" href="#Using-TimeStepModel-to-manage-multi-rate-coupling" title="Permalink"></a></h3><p>The second example shows the complementary case. Here we explicitly ask one model to run hourly, even though its source data arrives every 30 minutes. Once we do that, PlantSimEngine needs instructions for two distinct questions:</p><ul><li>how to combine the 30-minute source output into an hourly model input;</li><li>how to combine 30-minute meteorological rows into the hourly meteo seen by the coarse model.</li></ul><p>That is what <code>InputBindings(...)</code> and <code>MeteoBindings(...)</code> are for. In this tiny example, we keep the mapping simple by declaring the default reduction policy on the source model itself with <code>output_policy(...)</code>. Since <code>A</code> has a unique producer on the same scale, PlantSimEngine can infer the source automatically and reuse that policy.</p><p>Let&#39;s define a simple 30-minute source model that produces a constant value <code>A=1.0</code> every time it runs, and declare that its output should be integrated when consumed by a slower model:</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tutorialhalfhoursource&quot; verbose=false
+struct TutorialHalfHourSourceModel &lt;: AbstractTutorialhalfhoursourceModel
+    n::Base.RefValue{Int}
+end
+PlantSimEngine.inputs_(::TutorialHalfHourSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::TutorialHalfHourSourceModel) = (A=-Inf,)
+function PlantSimEngine.run!(m::TutorialHalfHourSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    m.n[] += 1
+    status.A = 1.0 # umol m-2 s-1
+end
+PlantSimEngine.output_policy(::Type{&lt;:TutorialHalfHourSourceModel}) = (; A=Integrate(DurationSumReducer()))</code></pre><p>Note that <code>output_policy(...)</code> says that when a slower model consumes <code>A</code>, the default is to integrate it over the coarser time window, using the duration of each source row as weights.</p><p>Now we define a simple hourly model that consumes <code>A</code> and also reads hourly mean temperature from the meteo:</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tutorialhourlyintegrator&quot; verbose=false
+struct TutorialHourlyIntegratorModel &lt;: AbstractTutorialhourlyintegratorModel end
+PlantSimEngine.inputs_(::TutorialHourlyIntegratorModel) = (A=-Inf,)
+PlantSimEngine.outputs_(::TutorialHourlyIntegratorModel) = (A_hourly=-Inf, T_hourly=-Inf,)
+function PlantSimEngine.run!(::TutorialHourlyIntegratorModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.A_hourly = status.A
+    status.T_hourly = meteo.T
+end</code></pre><div class="admonition is-info" id="Note-f912a4b45dbb6fab"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-f912a4b45dbb6fab" title="Permalink"></a></header><div class="admonition-body"><p>We make two deliberate simplifications here to keep the example compact:</p><ol><li>The hourly model simply copies the integrated <code>A</code> value into a new variable called <code>A_hourly</code>. This is bad design in a real model because it creates unnecessary variables and makes the data flow less transparent. In a real model, you would typically consume <code>A</code> directly and let the integrated value be called <code>A</code> as well. However, here we create a separate variable to make it obvious that the hourly model is receiving an aggregated version of the original <code>A</code>.</li><li>We don&#39;t define an <code>output_policy(...)</code> for the hourly model, because it is not consumed by any slower model. Usually, developers are encouraged to define <code>output_policy(...)</code> for all models, but here we omit it for the hourly model to keep the example compact.</li></ol></div></div><p>Now we can declare a mapping that says the hourly model runs every hour, even though its source data arrives every 30 minutes. We also declare how to reduce the meteorological inputs to match the hourly cadence:</p><pre><code class="language-julia hljs">mapping_coarse = ModelMapping(
+    :Leaf =&gt; (
+        ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
+        ModelSpec(TutorialHourlyIntegratorModel()) |&gt;
+        TimeStepModel(Hour(1)) |&gt;
+        MeteoBindings(; T=MeanWeighted()),
+    ),
+)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
+  Validated: true (valid)
+  Multirate: true
+  Scales (1): Leaf
+  - Leaf: 2 model(s), Processes=tutorialhalfhoursource, tutorialhourlyintegrator
+  Timing groups:
+  - explicit 1 hour (ModelSpec): 1 model(s)
+  - meteo base step (inferred at runtime): 1 model(s)
+  Get resolved timings with: `effective_rate_summary(modelmapping, meteo)`
+  Variables to initialize: none
+  Recommendations:
+  - Multirate is enabled from mapping metadata; `run!(mtg, mapping, ...)` auto-detects it.
+</code></pre><p>Setting the <code>TimeStepModel(Hour(1))</code> forces the second model to run hourly. Since it consumes <code>A</code> from the first model, PlantSimEngine looks at the source model&#39;s <code>output_policy(...)</code> and sees that it should integrate <code>A</code> over the hour using the duration of each 30-minute row as weights.</p><div class="admonition is-info" id="Note-ebd7ae845f6561b8"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-ebd7ae845f6561b8" title="Permalink"></a></header><div class="admonition-body"><p>If we had omitted <code>TimeStepModel(Hour(1))</code>, the hourly model would have simply run on each 30-minute row, and the <code>output_policy(...)</code> on the source model would not have been triggered. The hourly model would have received the original 30-minute <code>A</code> values instead of an hourly aggregate. This illustrates the key point: <code>TimeStepModel(...)</code> is what triggers the multi-rate coupling and the use of reduction policies.</p></div></div><p>In our example, the hourly model does not declare a <code>timestep_hint</code>, so it can run at any cadence. By declaring <code>TimeStepModel(Hour(1))</code>, we explicitly force it to run hourly, which means it will receive aggregated inputs and meteo.</p><div class="admonition is-info" id="Note-6a67828ee6dc6598"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-6a67828ee6dc6598" title="Permalink"></a></header><div class="admonition-body"><p>Because our hourly model does not declare a <code>timestep_hint</code>, it is flexible and can run at any cadence. However, if we had declared a <code>timestep_hint</code> that did not include hourly as an acceptable cadence, then PlantSimEngine would have raised an error when we tried to force it to run hourly. Consequently, it is usually a good practice to declare a <code>timestep_hint</code> when writing a model, because it helps to ensure that the model is used in a way that is consistent with its design and intended use.</p></div></div><p>Let&#39;s now run the simulation:</p><pre><code class="language-julia hljs">meteo_30min_4 = Weather([
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 0, 0), duration=Minute(30), T=20.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 12, 30, 0), duration=Minute(30), T=22.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 0, 0), duration=Minute(30), T=24.0, Wind=1.0, Rh=0.6),
+    Atmosphere(date=DateTime(2025, 6, 12, 13, 30, 0), duration=Minute(30), T=26.0, Wind=1.0, Rh=0.6),
+])
+
+out_coarse = run!(
+    mtg,
+    mapping_coarse,
+    meteo_30min_4;
+    executor=SequentialEx(),
+    tracked_outputs=Dict(:Leaf =&gt; (:A_hourly, :T_hourly)),
+)
+out_coarse[:Leaf][end]</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi"><span class="sgr31">╭──── </span>Status<span class="sgr31"> ──────────────────────────────────────────────────────────────────╮</span>
+<span class="sgr31">│</span>  timestep<span class="sgr38_2" style="color:#ef5350">=</span><span class="sgr38_2" style="color:#90caf9">4</span>, node<span class="sgr38_2" style="color:#ef5350">=+</span> <span class="sgr38_2" style="color:#90caf9">4</span>: Leaf                                                  <span class="sgr31">│</span>
+<span class="sgr31">│</span>  , A_hourly<span class="sgr38_2" style="color:#ef5350">=</span><span class="sgr38_2" style="color:#90caf9">3600.0</span>, T_hourly<span class="sgr38_2" style="color:#ef5350">=</span><span class="sgr38_2" style="color:#90caf9">23.0</span>                                            <span class="sgr31">│</span>
+<span class="sgr31">╰──────────────────────────────────────────────────────────────────────────────╯</span>
+</code></pre><p>The final timestep outputs are <code>3600.0</code> for <code>A_hourly</code> and <code>23.0</code> for <code>T_hourly</code>: hourly integrated assimilation (<code>sum(A .* duration_seconds)</code> over two 30-minute rows) and hourly mean temperature over the coarse window.</p><p>So this example already captures the core multi-rate idea: the fast model still runs at the fine cadence, while the coarse model sees explicitly reduced inputs and meteorology at its own cadence.</p><p>From here, there are two natural next steps:</p><ul><li><a href="../multirate_tutorial/">Step-by-step multi-rate tutorial</a> for a more complete MTG example;</li><li><a href="../advanced_configuration/">Advanced multi-rate configuration</a> for explicit bindings, meteo windows, export requests, scopes, and debugging helpers.</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../../multiscale/multiscale_example_4/">« Visualizing our toy plant with PlantGeom</a><a class="docs-footer-nextpage" href="../multirate_tutorial/">Step-by-step hourly/daily/weekly simulation »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Tuesday 17 March 2026 15:27">Tuesday 17 March 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
