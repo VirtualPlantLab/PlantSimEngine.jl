@@ -14,6 +14,7 @@
   - [Unique Features](#unique-features)
     - [Automatic Model Coupling](#automatic-model-coupling)
     - [Flexibility with Precision Control](#flexibility-with-precision-control)
+    - [Multi-rate Execution](#multi-rate-execution)
   - [Batteries included](#batteries-included)
   - [Ask Questions](#ask-questions)
   - [Installation](#installation)
@@ -21,6 +22,7 @@
     - [Simple example](#simple-example)
     - [Model coupling](#model-coupling)
     - [Multiscale modelling](#multiscale-modelling)
+    - [Multi-rate modelling](#multi-rate-modelling)
   - [Projects that use PlantSimEngine](#projects-that-use-plantsimengine)
   - [Performance](#performance)
   - [Make it yours](#make-it-yours)
@@ -48,11 +50,18 @@
 
 **Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
 
+### Multi-rate Execution
+
+**Mix model cadences in one simulation:** PlantSimEngine can run models at different timesteps within the same MTG simulation. This makes it possible to combine, for example, hourly leaf processes with daily plant balances and weekly reporting models without writing custom scheduling glue.
+
+**Explicit bindings between rates:** `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest` let you declare how model inputs, meteorology, and exported outputs should behave when rates differ.
+
 ## Batteries included
 
 - **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
 - **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
 - **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- **Multi-Rate Scheduling**: Combine hourly, daily, and coarser models in the same simulation, with explicit policies for input aggregation and meteorological sampling.
 - **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
 - **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
 - **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
@@ -336,6 +345,14 @@ sort!(df_out, [:timestep, :node])
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
 
 ![Plant growth simulation](docs/src/www/image.png)
+
+### Multi-rate modelling
+
+PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
+
+The dedicated tutorial covers the main pieces of the API, including `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest`:
+
+- [Multi-rate tutorial](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/multirate_tutorial/)
 
 ## Projects that use PlantSimEngine
 
