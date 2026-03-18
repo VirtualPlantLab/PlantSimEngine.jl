@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Step-by-step hourly/daily/weekly simulation · PlantSimEngine.jl</title><meta name="title" content="Step-by-step hourly/daily/weekly simulation · PlantSimEngine.jl"/><meta property="og:title" content="Step-by-step hourly/daily/weekly simulation · PlantSimEngine.jl"/><meta property="twitter:title" content="Step-by-step hourly/daily/weekly simulation · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/multirate_tutorial/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/multirate_tutorial/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/multirate/multirate_tutorial/"/><script data-outdated-warner src="../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../assets/documenter.js"></script><script src="../../search_index.js"></script><script src="../../siteinfo.js"></script><script src="../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../">Home</a></li><li><span class="tocitem">Introduction</span><ul><li><a class="tocitem" href="../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../../introduction/why_julia/">Why Julia ?</a></li></ul></li><li><span class="tocitem">Prerequisites</span><ul><li><a class="tocitem" href="../../prerequisites/installing_plantsimengine/">Installing and running PlantSimEngine</a></li><li><a class="tocitem" href="../../prerequisites/key_concepts/">Key Concepts</a></li><li><a class="tocitem" href="../../prerequisites/julia_basics/">Julia language basics</a></li></ul></li><li><span class="tocitem">Step by step - Single-scale simulations</span><ul><li><a class="tocitem" href="../../step_by_step/detailed_first_example/">Detailed first simulation</a></li><li><a class="tocitem" href="../../step_by_step/simple_model_coupling/">Coupling</a></li><li><a class="tocitem" href="../../step_by_step/model_switching/">Model Switching</a></li><li><a class="tocitem" href="../../step_by_step/quick_and_dirty_examples/">Quick examples</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_process/">Implementing a process</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model/">Implementing a model</a></li><li><a class="tocitem" href="../../step_by_step/parallelization/">Parallelization</a></li><li><a class="tocitem" href="../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li><li><a class="tocitem" href="../../step_by_step/implement_a_model_additional/">Implementing a model : additional notes</a></li></ul></li><li><a class="tocitem" href="../../model_execution/">Execution</a></li><li><a class="tocitem" href="../../model_traits/">Model traits</a></li><li><span class="tocitem">Working with data</span><ul><li><a class="tocitem" href="../../working_with_data/reducing_dof/">Reducing DoF</a></li><li><a class="tocitem" href="../../working_with_data/fitting/">Fitting</a></li><li><a class="tocitem" href="../../working_with_data/inputs/">Input types</a></li><li><a class="tocitem" href="../../working_with_data/visualising_outputs/">Visualizing outputs and data</a></li><li><a class="tocitem" href="../../working_with_data/floating_point_accumulation_error/">Floating-point considerations</a></li></ul></li><li><span class="tocitem">Moving to multiscale</span><ul><li><a class="tocitem" href="../../multiscale/multiscale_considerations/">Multiscale considerations</a></li><li><a class="tocitem" href="../../multiscale/single_to_multiscale/">Converting a simulation to multi-scale</a></li><li><a class="tocitem" href="../../multiscale/multiscale/">More variable mapping examples</a></li><li><a class="tocitem" href="../../multiscale/multiscale_cyclic/">Handling cyclic dependencies</a></li><li><a class="tocitem" href="../../multiscale/multiscale_coupling/">Multiscale coupling considerations</a></li><li><input class="collapse-toggle" id="menuitem-8-6" type="checkbox"/><label class="tocitem" for="menuitem-8-6"><span class="docs-label">Building a simple plant</span><i class="docs-chevron"></i></label><ul class="collapsed"><li><a class="tocitem" href="../../multiscale/multiscale_example_1/">A rudimentary plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_2/">Expanding the plant simulation</a></li><li><a class="tocitem" href="../../multiscale/multiscale_example_3/">Fixing bugs in the plant simulation</a></li></ul></li><li><a class="tocitem" href="../../multiscale/multiscale_example_4/">Visualizing our toy plant with PlantGeom</a></li></ul></li><li><span class="tocitem">Multi-rate tutorials</span><ul><li><a class="tocitem" href="../introduction/">Introduction to multi-rate execution</a></li><li class="is-active"><a class="tocitem" href>Step-by-step hourly/daily/weekly simulation</a><ul class="internal"><li><a class="tocitem" href="#1.-Setup-and-example-data"><span>1. Setup and example data</span></a></li><li><a class="tocitem" href="#2.-Defining-simple-models"><span>2. Defining simple models</span></a></li><li><a class="tocitem" href="#3.-Configure-multi-rate-mapping"><span>3. Configure multi-rate mapping</span></a></li><li><a class="tocitem" href="#4.-Run-and-export-hourly/daily/weekly-series"><span>4. Run and export hourly/daily/weekly series</span></a></li><li><a class="tocitem" href="#5.-Where-to-go-next"><span>5. Where to go next</span></a></li></ul></li><li><a class="tocitem" href="../advanced_configuration/">Advanced multi-rate configuration</a></li></ul></li><li><span class="tocitem">Troubleshooting and testing</span><ul><li><a class="tocitem" href="../../troubleshooting_and_testing/plantsimengine_and_julia_troubleshooting/">Troubleshooting</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/downstream_tests/">Automated testing</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/tips_and_workarounds/">Tips and Workarounds</a></li><li><a class="tocitem" href="../../troubleshooting_and_testing/implicit_contracts/">Implicit contracts</a></li></ul></li><li><span class="tocitem">API</span><ul><li><a class="tocitem" href="../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../API/API_examples/">Example models</a></li><li><a class="tocitem" href="../../API/API_private/">Internal API</a></li></ul></li><li><a class="tocitem" href="../../developers/">Developer guidelines</a></li><li><a class="tocitem" href="../../planned_features/">Roadmap</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Multi-rate tutorials</a></li><li class="is-active"><a href>Step-by-step hourly/daily/weekly simulation</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Step-by-step hourly/daily/weekly simulation</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/multirate/multirate_tutorial.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Step-by-step-multi-rate-tutorial-(hourly-daily-weekly)"><a class="docs-heading-anchor" href="#Step-by-step-multi-rate-tutorial-(hourly-daily-weekly)">Step-by-step multi-rate tutorial (hourly + daily + weekly)</a><a id="Step-by-step-multi-rate-tutorial-(hourly-daily-weekly)-1"></a><a class="docs-heading-anchor-permalink" href="#Step-by-step-multi-rate-tutorial-(hourly-daily-weekly)" title="Permalink"></a></h1><p>This page builds a more complete MTG simulation that mixes three model rates:</p><ul><li>hourly at <code>Leaf</code>,</li><li>daily at <code>Plant</code>,</li><li>weekly at <code>Plant</code>.</li></ul><p>It runs for one week and exports clean series at each rate.</p><p>If you want the conceptual overview first, start with <a href="../introduction/">Introduction to multi-rate execution</a>. This page assumes you already understand the two basic ideas introduced there:</p><ol><li>without <code>TimeStepModel(...)</code>, a model follows the meteo cadence;</li><li>once a model is forced to run more coarsely than its inputs, PlantSimEngine must reduce both model outputs and meteorological inputs to match that slower cadence.</li></ol><p>The goal of this second page is to put those ideas into a more contextualized MTG example, where we mix hourly, daily, and weekly models in the same simulation and export clean time series at each rate.</p><h2 id="1.-Setup-and-example-data"><a class="docs-heading-anchor" href="#1.-Setup-and-example-data">1. Setup and example data</a><a id="1.-Setup-and-example-data-1"></a><a class="docs-heading-anchor-permalink" href="#1.-Setup-and-example-data" title="Permalink"></a></h2><p>This tutorial is more contextualized than the previous one. To keep the mechanics readable, we work with a minimal MTG containing only one plant and one leaf. That way the exported tables stay small enough to inspect directly.</p><p>We also reuse package example assets instead of inventing new input files. In particular, we use a weather file available from the package examples:</p><ul><li><code>examples/meteo_day.csv</code> for weather.</li></ul><p>We start by importing the packages we need and by creating a very small MTG with only four nodes: a <code>Scene</code>, a <code>Plant</code>, one <code>Internode</code>, and one <code>Leaf</code>.</p><pre><code class="language-julia hljs">using PlantSimEngine
+using PlantMeteo
+using MultiScaleTreeGraph
+using DataFrames
+using CSV
+using Dates
+
+# Minimal plant: Scene -&gt; Plant -&gt; Internode -&gt; Leaf
+mtg = Node(NodeMTG(&quot;/&quot;, :Scene, 1, 0))
+plant = Node(mtg, NodeMTG(&quot;+&quot;, :Plant, 1, 1))
+internode = Node(plant, NodeMTG(&quot;/&quot;, :Internode, 1, 2))
+Node(internode, NodeMTG(&quot;+&quot;, :Leaf, 1, 2))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">+ 4: Leaf
+</code></pre><p>Next, we point to the bundled weather file and confirm that it exists:</p><pre><code class="language-julia hljs">meteo_path = joinpath(pkgdir(PlantSimEngine), &quot;examples&quot;, &quot;meteo_day.csv&quot;)
+@assert isfile(meteo_path)</code></pre><p>The weather file bundled with the package is daily. Since this tutorial is about mixing several rates, we first convert one week of daily weather into an hourly weather table. The values are simply repeated within each day, which is perfectly fine here because the purpose is to illustrate scheduling and data flow rather than to create a realistic forcing dataset.</p><p>The first step is to read the file and keep only one week of rows:</p><pre><code class="language-julia hljs">daily_df = CSV.read(meteo_path, DataFrame, header=18)
+week_df = first(daily_df, 7)</code></pre><div><div style = "float: left;"><span>7×16 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">year</th><th style = "text-align: left;">dayofyear</th><th style = "text-align: left;">date</th><th style = "text-align: left;">duration</th><th style = "text-align: left;">Tmin</th><th style = "text-align: left;">Tmax</th><th style = "text-align: left;">T</th><th style = "text-align: left;">Precipitations</th><th style = "text-align: left;">Wind</th><th style = "text-align: left;">P</th><th style = "text-align: left;">Rh</th><th style = "text-align: left;">Ca</th><th style = "text-align: left;">Ri_SW_f</th><th style = "text-align: left;">Ri_PAR_f</th><th style = "text-align: left;">Ri_NIR_f</th><th style = "text-align: left;">TT</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Dates.Date" style = "text-align: left;">Date</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">1</td><td style = "text-align: left;">2021-01-01</td><td style = "text-align: right;">1</td><td style = "text-align: right;">3.9</td><td style = "text-align: right;">9.2</td><td style = "text-align: right;">5.95</td><td style = "text-align: right;">0.5</td><td style = "text-align: right;">4.29042</td><td style = "text-align: right;">100.15</td><td style = "text-align: right;">0.754583</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">6.5304</td><td style = "text-align: right;">3.13459</td><td style = "text-align: right;">3.39581</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">2</td><td style = "text-align: left;">2021-01-02</td><td style = "text-align: right;">1</td><td style = "text-align: right;">3.5</td><td style = "text-align: right;">6.0</td><td style = "text-align: right;">4.42083</td><td style = "text-align: right;">1.0</td><td style = "text-align: right;">6.74083</td><td style = "text-align: right;">100.177</td><td style = "text-align: right;">0.622083</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">3.5748</td><td style = "text-align: right;">1.7159</td><td style = "text-align: right;">1.8589</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">3</td><td style = "text-align: left;">2021-01-03</td><td style = "text-align: right;">1</td><td style = "text-align: right;">3.3</td><td style = "text-align: right;">6.4</td><td style = "text-align: right;">4.32917</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">6.15708</td><td style = "text-align: right;">100.513</td><td style = "text-align: right;">0.5975</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">5.1804</td><td style = "text-align: right;">2.48659</td><td style = "text-align: right;">2.69381</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">4</td><td style = "text-align: left;">2021-01-04</td><td style = "text-align: right;">1</td><td style = "text-align: right;">1.0</td><td style = "text-align: right;">5.8</td><td style = "text-align: right;">3.22083</td><td style = "text-align: right;">1.1</td><td style = "text-align: right;">1.79917</td><td style = "text-align: right;">100.478</td><td style = "text-align: right;">0.822917</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">6.4296</td><td style = "text-align: right;">3.08621</td><td style = "text-align: right;">3.34339</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">5</td><td style = "text-align: left;">2021-01-05</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">7.0</td><td style = "text-align: right;">2.825</td><td style = "text-align: right;">0.6</td><td style = "text-align: right;">3.535</td><td style = "text-align: right;">100.602</td><td style = "text-align: right;">0.76125</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">7.4772</td><td style = "text-align: right;">3.58906</td><td style = "text-align: right;">3.88814</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">6</td><td style = "text-align: left;">2021-01-06</td><td style = "text-align: right;">1</td><td style = "text-align: right;">-0.8</td><td style = "text-align: right;">6.4</td><td style = "text-align: right;">2.09583</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">3.36875</td><td style = "text-align: right;">100.996</td><td style = "text-align: right;">0.7</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">7.776</td><td style = "text-align: right;">3.73248</td><td style = "text-align: right;">4.04352</td><td style = "text-align: right;">0.0</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: right;">2021</td><td style = "text-align: right;">7</td><td style = "text-align: left;">2021-01-07</td><td style = "text-align: right;">1</td><td style = "text-align: right;">-1.7</td><td style = "text-align: right;">5.7</td><td style = "text-align: right;">1.69167</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">2.99625</td><td style = "text-align: right;">101.067</td><td style = "text-align: right;">0.694583</td><td style = "text-align: right;">400.0</td><td style = "text-align: right;">7.1496</td><td style = "text-align: right;">3.43181</td><td style = "text-align: right;">3.71779</td><td style = "text-align: right;">0.0</td></tr></tbody></table></div><p>We then expand each day into 24 hourly <code>Atmosphere</code> rows:</p><pre><code class="language-julia hljs">hourly_rows = Atmosphere[]
+for row in eachrow(week_df)
+    for h in 0:23
+        push!(hourly_rows,
+            Atmosphere(
+                date=DateTime(row.date) + Hour(h),
+                duration=Hour(1),
+                T=row.T,
+                Wind=row.Wind,
+                P=row.P,
+                Rh=row.Rh,
+                Ri_PAR_f=row.Ri_PAR_f,
+                Ri_SW_f=row.Ri_SW_f,
+            )
+        )
+    end
+end</code></pre><p>Finally, we wrap those rows into a <code>Weather</code> object, which is what <code>run!</code> expects:</p><pre><code class="language-julia hljs">meteo_hourly = Weather(hourly_rows)
+meteo_hourly[1:3] # show the first 3 rows of the hourly weather table</code></pre><table>
+  <thead>
+    <tr class = "title">
+      <td colspan = "23" style = "font-size: x-large; font-weight: bold; text-align: center;">TimeStepTable{Atmosphere}(3 x 22):</td>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "font-weight: bold; text-align: right;">date</th>
+      <th style = "font-weight: bold; text-align: right;">duration</th>
+      <th style = "font-weight: bold; text-align: right;">T</th>
+      <th style = "font-weight: bold; text-align: right;">Wind</th>
+      <th style = "font-weight: bold; text-align: right;">P</th>
+      <th style = "font-weight: bold; text-align: right;">Rh</th>
+      <th style = "font-weight: bold; text-align: right;">Precipitations</th>
+      <th style = "font-weight: bold; text-align: right;">Cₐ</th>
+      <th style = "font-weight: bold; text-align: right;">e</th>
+      <th style = "font-weight: bold; text-align: right;">eₛ</th>
+      <th style = "font-weight: bold; text-align: right;">VPD</th>
+      <th style = "font-weight: bold; text-align: right;">ρ</th>
+      <th style = "font-weight: bold; text-align: right;">λ</th>
+      <th style = "font-weight: bold; text-align: right;">γ</th>
+      <th style = "font-weight: bold; text-align: right;">ε</th>
+      <th style = "font-weight: bold; text-align: right;">Δ</th>
+      <th style = "font-weight: bold; text-align: right;">clearness</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_SW_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_PAR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_NIR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_TIR_f</th>
+      <th style = "font-weight: bold; text-align: right;">Ri_custom_f</th>
+    </tr>
+    <tr class = "columnLabelRow">
+      <th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th>
+      <th style = "text-align: right;">Dates.DateTime</th>
+      <th style = "text-align: right;">Dates.Hour</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+      <th style = "text-align: right;">Float64</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td>
+      <td style = "text-align: right;">2021-01-01T00:00:00</td>
+      <td style = "text-align: right;">1 hour</td>
+      <td style = "text-align: right;">5.95</td>
+      <td style = "text-align: right;">4.29042</td>
+      <td style = "text-align: right;">100.15</td>
+      <td style = "text-align: right;">0.754583</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">0.706089</td>
+      <td style = "text-align: right;">0.935734</td>
+      <td style = "text-align: right;">0.229645</td>
+      <td style = "text-align: right;">1.25004</td>
+      <td style = "text-align: right;">2.48693e6</td>
+      <td style = "text-align: right;">0.0655856</td>
+      <td style = "text-align: right;">0.52755</td>
+      <td style = "text-align: right;">0.0649258</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">6.5304</td>
+      <td style = "text-align: right;">3.13459</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td>
+      <td style = "text-align: right;">2021-01-01T01:00:00</td>
+      <td style = "text-align: right;">1 hour</td>
+      <td style = "text-align: right;">5.95</td>
+      <td style = "text-align: right;">4.29042</td>
+      <td style = "text-align: right;">100.15</td>
+      <td style = "text-align: right;">0.754583</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">0.706089</td>
+      <td style = "text-align: right;">0.935734</td>
+      <td style = "text-align: right;">0.229645</td>
+      <td style = "text-align: right;">1.25004</td>
+      <td style = "text-align: right;">2.48693e6</td>
+      <td style = "text-align: right;">0.0655856</td>
+      <td style = "text-align: right;">0.52755</td>
+      <td style = "text-align: right;">0.0649258</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">6.5304</td>
+      <td style = "text-align: right;">3.13459</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+    <tr class = "dataRow">
+      <td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td>
+      <td style = "text-align: right;">2021-01-01T02:00:00</td>
+      <td style = "text-align: right;">1 hour</td>
+      <td style = "text-align: right;">5.95</td>
+      <td style = "text-align: right;">4.29042</td>
+      <td style = "text-align: right;">100.15</td>
+      <td style = "text-align: right;">0.754583</td>
+      <td style = "text-align: right;">0.0</td>
+      <td style = "text-align: right;">400.0</td>
+      <td style = "text-align: right;">0.706089</td>
+      <td style = "text-align: right;">0.935734</td>
+      <td style = "text-align: right;">0.229645</td>
+      <td style = "text-align: right;">1.25004</td>
+      <td style = "text-align: right;">2.48693e6</td>
+      <td style = "text-align: right;">0.0655856</td>
+      <td style = "text-align: right;">0.52755</td>
+      <td style = "text-align: right;">0.0649258</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">6.5304</td>
+      <td style = "text-align: right;">3.13459</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+      <td style = "text-align: right;">Inf</td>
+    </tr>
+  </tbody>
+</table>
+<h2 id="2.-Defining-simple-models"><a class="docs-heading-anchor" href="#2.-Defining-simple-models">2. Defining simple models</a><a id="2.-Defining-simple-models-1"></a><a class="docs-heading-anchor-permalink" href="#2.-Defining-simple-models" title="Permalink"></a></h2><p>Next we define three deliberately simple models:</p><ul><li>an hourly <code>Leaf</code> model that turns incoming radiation into an hourly assimilation value;</li><li>a daily <code>Plant</code> model that sums hourly leaf assimilation over a day and also consumes daily meteorological aggregates;</li><li>a weekly <code>Plant</code> model that sums daily plant assimilation into one weekly value.</li></ul><p>These models are intentionally minimal. Their role is to make the rate changes and aggregation policies obvious.</p><p>We begin with the hourly leaf model. It reads hourly meteorological radiation and produces an hourly assimilation value:</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tutorialleafhourly&quot; verbose=false
+struct TutorialLeafHourlyModel &lt;: AbstractTutorialleafhourlyModel end
+PlantSimEngine.inputs_(::TutorialLeafHourlyModel) = NamedTuple()
+PlantSimEngine.outputs_(::TutorialLeafHourlyModel) = (leaf_assim_h=0.0,)
+function PlantSimEngine.run!(::TutorialLeafHourlyModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.leaf_assim_h = 0.004 * meteo.Ri_PAR_f
+end
+PlantSimEngine.output_policy(::Type{&lt;:TutorialLeafHourlyModel}) = (; leaf_assim_h=Integrate())</code></pre><p>The <code>output_policy(...)</code> declaration matters for multi-rate use: it says that when a slower model consumes <code>leaf_assim_h</code>, the natural default is to integrate it over the coarser time window.</p><p>Now we define the daily plant model. It receives leaf assimilation values, aggregates them over a day, and also reads daily reduced meteo variables:</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tutorialplantdaily&quot; verbose=false
+struct TutorialPlantDailyModel &lt;: AbstractTutorialplantdailyModel end
+PlantSimEngine.inputs_(::TutorialPlantDailyModel) = (leaf_assim_h=[0.0],)
+PlantSimEngine.outputs_(::TutorialPlantDailyModel) = (plant_assim_d=0.0, rad_sw_day=0.0, T=0.0)
+function PlantSimEngine.run!(::TutorialPlantDailyModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.plant_assim_d = sum(status.leaf_assim_h)
+    status.rad_sw_day = meteo.Ri_SW_q
+    status.T = meteo.T
+end
+PlantSimEngine.output_policy(::Type{&lt;:TutorialPlantDailyModel}) = (; plant_assim_d=Integrate())</code></pre><p>Again, <code>output_policy(...)</code> is used so that a coarser consumer can infer the appropriate default behavior for <code>plant_assim_d</code>.</p><p>Finally, we define the weekly plant model. It simply sums the daily plant assimilation values over one week:</p><pre><code class="language-julia hljs">PlantSimEngine.@process &quot;tutorialplantweekly&quot; verbose=false
+struct TutorialPlantWeeklyModel &lt;: AbstractTutorialplantweeklyModel end
+PlantSimEngine.inputs_(::TutorialPlantWeeklyModel) = (plant_assim_d=[0.0],)
+PlantSimEngine.outputs_(::TutorialPlantWeeklyModel) = (plant_assim_w=0.0,)
+function PlantSimEngine.run!(::TutorialPlantWeeklyModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.plant_assim_w = sum(status.plant_assim_d)
+end</code></pre><p>At this point nothing is multi-rate yet. We have simply defined three processes whose intended cadences are hourly, daily, and weekly. The multi-rate behavior is declared in the mapping.</p><h2 id="3.-Configure-multi-rate-mapping"><a class="docs-heading-anchor" href="#3.-Configure-multi-rate-mapping">3. Configure multi-rate mapping</a><a id="3.-Configure-multi-rate-mapping-1"></a><a class="docs-heading-anchor-permalink" href="#3.-Configure-multi-rate-mapping" title="Permalink"></a></h2><p>This is the heart of the tutorial. The mapping below does three things at once:</p><ol><li>it assigns each model to a scale;</li><li>it declares the timestep at which each model should run;</li><li>it defines how values move between rates and between scales.</li></ol><p>Two pieces are especially important here:</p><ul><li><code>TimeStepModel(...)</code> states the model cadence;</li><li>PlantMeteo reduces meteorological inputs automatically when a model runs more coarsely than the weather data.</li></ul><p>For model-to-model bindings, this tutorial relies on automatic source inference plus <code>output_policy(...)</code> on the source models. That keeps the main example compact while still exercising multi-rate input aggregation.</p><p>We start by defining the three clocks used in the simulation. These are the cadences that will later be assigned to the three models:</p><pre><code class="language-julia hljs">hourly = 1.0
+daily = ClockSpec(24.0, 0.0)
+weekly = ClockSpec(168.0, 0.0)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ClockSpec{Float64}(168.0, 0.0)</code></pre><p>The leaf model is straightforward: it runs hourly and is scoped to the current plant. There is no multiscale mapping or meteo reduction to declare here, because the leaf model is the fastest model in this example and directly consumes the hourly weather rows:</p><pre><code class="language-julia hljs">leaf_spec = TutorialLeafHourlyModel() |&gt; ModelSpec |&gt; TimeStepModel(hourly)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelSpec{Main.TutorialLeafHourlyModel, Nothing, Float64, @NamedTuple{}, @NamedTuple{}, Nothing, @NamedTuple{}, Symbol}(Main.TutorialLeafHourlyModel(), nothing, 1.0, NamedTuple(), NamedTuple(), nothing, NamedTuple(), :global)</code></pre><p>So at this point we have simply said: &quot;run the leaf model every hour&quot;</p><p>The daily plant model is where multi-rate coupling becomes visible. It:</p><ul><li>receives <code>leaf_assim_h</code> from the <code>:Leaf</code> scale through <code>MultiScaleModel(...)</code>;</li><li>runs daily;</li><li>receives daily meteorological aggregates from the hourly weather automatically.</li></ul><p>The important idea is that this model does not read the raw hourly values directly. Instead, it sees a daily view of those data:</p><ul><li><code>leaf_assim_h</code> is integrated over the daily window because of the source model&#39;s <code>output_policy(...)</code>;</li><li><code>T</code> is turned into a daily mean by the default PlantMeteo sampling rules;</li><li><code>Ri_SW_q</code> is computed by integrating <code>Ri_SW_f</code> over the day.</li></ul><pre><code class="language-julia hljs">plant_daily_spec =
+    TutorialPlantDailyModel() |&gt;
+    ModelSpec |&gt;
+    MultiScaleModel([:leaf_assim_h =&gt; :Leaf]) |&gt;
+    TimeStepModel(daily)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelSpec{Main.TutorialPlantDailyModel, Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{Symbol, Symbol}, Vector{Pair{Symbol, Symbol}}}}}, ClockSpec{Float64}, @NamedTuple{}, @NamedTuple{}, Nothing, @NamedTuple{}, Symbol}(Main.TutorialPlantDailyModel(), Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{Symbol, Symbol}, Vector{Pair{Symbol, Symbol}}}}[:leaf_assim_h =&gt; (:Leaf =&gt; :leaf_assim_h)], ClockSpec{Float64}(24.0, 0.0), NamedTuple(), NamedTuple(), nothing, NamedTuple(), :global)</code></pre><p>This block is the first place where the &quot;multi-rate&quot; behavior is really visible: one model consumes fine-grained biological outputs and fine-grained meteorology, but only after both have been reduced to the model&#39;s own daily cadence.</p><p>The weekly plant model is simpler again: it only needs to run weekly and receive the daily plant output automatically. Since <code>plant_assim_d</code> has a unique producer and already declares its own <code>output_policy(...)</code>, we do not need to add any explicit binding here:</p><pre><code class="language-julia hljs">plant_weekly_spec =
+    TutorialPlantWeeklyModel() |&gt;
+    ModelSpec |&gt;
+    TimeStepModel(weekly)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelSpec{Main.TutorialPlantWeeklyModel, Nothing, ClockSpec{Float64}, @NamedTuple{}, @NamedTuple{}, Nothing, @NamedTuple{}, Symbol}(Main.TutorialPlantWeeklyModel(), nothing, ClockSpec{Float64}(168.0, 0.0), NamedTuple(), NamedTuple(), nothing, NamedTuple(), :global)</code></pre><p>So this weekly model effectively says: &quot;take the daily plant assimilation stream, reduce it again to my weekly cadence, and run once per week.&quot;</p><p>We can now assemble the full mapping:</p><pre><code class="language-julia hljs">mapping = ModelMapping(
+    :Leaf =&gt; (leaf_spec,),
+    :Plant =&gt; (plant_daily_spec, plant_weekly_spec),
+)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelMapping
+  validated: true (valid)
+  multirate: true
+  scales (2): Leaf, Plant
+  - Leaf: 1 model(s), Processes=tutorialleafhourly
+  - Plant: 2 model(s), Processes=tutorialplantdaily, tutorialplantweekly
+  Timing groups:
+  - explicit 1.0 (ModelSpec): 1 model(s)
+  - explicit ClockSpec{Float64}(168.0, 0.0) (ModelSpec): 1 model(s)
+  - explicit ClockSpec{Float64}(24.0, 0.0) (ModelSpec): 1 model(s)
+  Get resolved timings with: `effective_rate_summary(modelmapping, meteo)`
+  Variables to initialize: none
+  Recommendations:
+  - Multirate is enabled from mapping metadata; `run!(mtg, mapping, ...)` auto-detects it.
+</code></pre><p>Reading this mapping from top to bottom:</p><ul><li>the <code>Leaf</code> model runs hourly and produces <code>leaf_assim_h</code>;</li><li>the daily <code>Plant</code> model receives leaf values from the <code>Leaf</code> scale through <code>MultiScaleModel([:leaf_assim_h =&gt; :Leaf])</code>, then integrates them over a day;</li><li>that same daily model also receives daily meteorological summaries through the default PlantMeteo sampling rules;</li><li>the weekly <code>Plant</code> model integrates the daily plant output into one weekly value.</li></ul><div class="admonition is-info" id="Note-1c0bbbe5355baa2f"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-1c0bbbe5355baa2f" title="Permalink"></a></header><div class="admonition-body"><p>In this tutorial, explicit <code>InputBindings(...)</code> are omitted because each input has a unique, inferable producer and the default reduction policy is declared on the source model with <code>output_policy(...)</code>.</p><p>In more complex mappings, you should use explicit <code>InputBindings(process=..., scale=..., var=..., policy=...)</code> when:</p><ul><li>several models can produce the same input variable;</li><li>the same process exists at several reachable scales;</li><li>the source variable has a different name than the consumer input;</li><li>you want to override the producer&#39;s default policy for a specific mapping.</li></ul></div></div><div class="admonition is-info" id="Note-406f5e7afe4bed32"><header class="admonition-header">Note<a class="admonition-anchor" href="#Note-406f5e7afe4bed32" title="Permalink"></a></header><div class="admonition-body"><p><code>MeteoBindings(...)</code> is also omitted on purpose in the main example. PlantSimEngine delegates weather sampling to PlantMeteo, which already defines default transformations for common <code>Atmosphere</code> variables such as <code>T</code>, <code>Rh</code>, and radiation aliases like <code>Ri_SW_q</code>.</p><p>Add explicit <code>MeteoBindings(...)</code> when:</p><ul><li>you want a non-default reducer;</li><li>the model expects a target variable with a different source name;</li><li>the variable is not covered by PlantMeteo default transforms;</li><li>you want the mapping to state the weather aggregation rule explicitly.</li></ul><pre><code class="language-julia hljs"># The same daily model, with weather aggregation rules written explicitly.
+plant_daily_spec_explicit_meteo = ModelSpec(TutorialPlantDailyModel()) |&gt;
+    MultiScaleModel([:leaf_assim_h =&gt; :Leaf]) |&gt;
+    TimeStepModel(daily) |&gt;
+    MeteoBindings(
+        ;
+        T=MeanWeighted(),
+        Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
+    )</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">ModelSpec{Main.TutorialPlantDailyModel, Vector{Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{Symbol, Symbol}, Vector{Pair{Symbol, Symbol}}}}}, ClockSpec{Float64}, @NamedTuple{}, @NamedTuple{T::MeanWeighted, Ri_SW_q::@NamedTuple{source::Symbol, reducer::RadiationEnergy}}, Nothing, @NamedTuple{}, Symbol}(Main.TutorialPlantDailyModel(), Pair{Union{Symbol, PreviousTimeStep}, Union{Pair{Symbol, Symbol}, Vector{Pair{Symbol, Symbol}}}}[:leaf_assim_h =&gt; (:Leaf =&gt; :leaf_assim_h)], ClockSpec{Float64}(24.0, 0.0), NamedTuple(), (T = MeanWeighted(), Ri_SW_q = (source = :Ri_SW_f, reducer = RadiationEnergy())), nothing, NamedTuple(), :global)</code></pre></div></div><h2 id="4.-Run-and-export-hourly/daily/weekly-series"><a class="docs-heading-anchor" href="#4.-Run-and-export-hourly/daily/weekly-series">4. Run and export hourly/daily/weekly series</a><a id="4.-Run-and-export-hourly/daily/weekly-series-1"></a><a class="docs-heading-anchor-permalink" href="#4.-Run-and-export-hourly/daily/weekly-series" title="Permalink"></a></h2><p>Now we run the simulation and request three exported series. This is a good place to distinguish two related outputs returned by <code>run!</code>:</p><ul><li>the regular simulation outputs (<code>out_status</code> below), which still contain the model outputs tracked during the run;</li><li>the explicitly requested exported series (<code>exported</code> below), which are the clean hourly/daily/weekly tables we asked PlantSimEngine to materialize.</li></ul><p>We use <code>OutputRequest(...)</code> to say which variable we want and on which clock. Here again we keep the example minimal: <code>process=</code> is omitted because each requested output has a unique canonical publisher.</p><p>We first declare the export requests. One request keeps the hourly leaf series, another exports the daily plant series, and the last one exports the weekly plant series.</p><p>The point of these requests is to obtain three clean tables that each live at a single rate, instead of having to reconstruct those time series manually from the full simulation outputs:</p><pre><code class="language-julia hljs">req_leaf_hourly = OutputRequest(:Leaf, :leaf_assim_h;
+    name=:leaf_assim_hourly,
+)
+
+req_plant_daily = OutputRequest(:Plant, :plant_assim_d;
+    name=:plant_assim_daily,
+    clock=daily,
+)
+
+req_plant_weekly = OutputRequest(:Plant, :plant_assim_w;
+    name=:plant_assim_weekly,
+    clock=weekly,
+)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">OutputRequest{Nothing, HoldLast, ClockSpec{Float64}}(:Plant, :plant_assim_w, :plant_assim_weekly, nothing, HoldLast(), ClockSpec{Float64}(168.0, 0.0))</code></pre><p>Then we run the simulation and ask PlantSimEngine to return both the regular simulation outputs and the explicitly requested exported series:</p><ul><li><code>out_status</code> contains the regular tracked outputs of the simulation;</li><li><code>exported</code> contains the resampled, per-request tables defined above.</li></ul><pre><code class="language-julia hljs">out_status, exported = run!(
+    mtg,
+    mapping,
+    meteo_hourly;
+    executor=SequentialEx(),
+    tracked_outputs=[req_leaf_hourly, req_plant_daily, req_plant_weekly],
+    return_requested_outputs=true,
+)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(Dict{Symbol, Vector}(:Leaf =&gt; Status{(:timestep, :node, :leaf_assim_h), Tuple{Base.RefValue{Int64}, Base.RefValue{MultiScaleTreeGraph.Node{MultiScaleTreeGraph.NodeMTG, MultiScaleTreeGraph.ColumnarAttrs}}, Base.RefValue{Float64}}}[Status(timestep = 1, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 2, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 3, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 4, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 5, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 6, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 7, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 8, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 9, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001), Status(timestep = 10, node = + 4: Leaf
+, leaf_assim_h = 0.012538368000000001)  …  Status(timestep = 159, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 160, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 161, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 162, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 163, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 164, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 165, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 166, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 167, node = + 4: Leaf
+, leaf_assim_h = 0.013727232), Status(timestep = 168, node = + 4: Leaf
+, leaf_assim_h = 0.32945356799999986)], :Plant =&gt; Status{(:timestep, :node, :T, :rad_sw_day, :plant_assim_d, :plant_assim_w, :leaf_assim_h), Tuple{Base.RefValue{Int64}, Base.RefValue{MultiScaleTreeGraph.Node{MultiScaleTreeGraph.NodeMTG, MultiScaleTreeGraph.ColumnarAttrs}}, Vararg{Base.RefValue{Float64}, 5}}}[Status(timestep = 1, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 2, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 3, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 4, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 5, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 6, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 7, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 8, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 9, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001), Status(timestep = 10, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 0.0, rad_sw_day = 0.0, plant_assim_d = 0.0, plant_assim_w = 0.0, leaf_assim_h = 0.012538368000000001)  …  Status(timestep = 159, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 160, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 161, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 162, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 163, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 164, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 165, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 166, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 167, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 2.095833333333333, rad_sw_day = 0.6718463999999996, plant_assim_d = 0.3583180799999999, plant_assim_w = 0.0, leaf_assim_h = 0.013727232), Status(timestep = 168, node = + 2: Plant
+└─ / 3: Internode
+   └─ + 4: Leaf
+, T = 1.6916666666666664, rad_sw_day = 0.6177254400000002, plant_assim_d = 2.03295744, plant_assim_w = 2.03295744, leaf_assim_h = 0.32945356799999986)]), Dict{Symbol, Any}(:leaf_assim_hourly =&gt; <span class="sgr1">168×6 DataFrame</span>
+<span class="sgr1"> Row </span>│<span class="sgr1"> timestep  scale   process             var           node   value   </span>
+<span class="sgr1">     </span>│<span class="sgr90"> Int64     Symbol  Symbol              Symbol        Int64  Any     </span>
+─────┼────────────────────────────────────────────────────────────────────
+   1 │        1  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   2 │        2  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   3 │        3  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   4 │        4  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   5 │        5  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   6 │        6  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   7 │        7  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+   8 │        8  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+  ⋮  │    ⋮        ⋮             ⋮                ⋮          ⋮       ⋮
+ 162 │      162  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 163 │      163  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 164 │      164  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 165 │      165  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 166 │      166  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 167 │      167  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+ 168 │      168  Leaf    tutorialleafhourly  leaf_assim_h      4 <span class="sgr90"> missing </span>
+<span class="sgr36">                                                          153 rows omitted</span>, :plant_assim_daily =&gt; <span class="sgr1">7×6 DataFrame</span>
+<span class="sgr1"> Row </span>│<span class="sgr1"> timestep  scale   process             var            node   value   </span>
+<span class="sgr1">     </span>│<span class="sgr90"> Int64     Symbol  Symbol              Symbol         Int64  Any     </span>
+─────┼─────────────────────────────────────────────────────────────────────
+   1 │       24  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   2 │       48  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   3 │       72  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   4 │       96  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   5 │      120  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   6 │      144  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>
+   7 │      168  Plant   tutorialplantdaily  plant_assim_d      2 <span class="sgr90"> missing </span>, :plant_assim_weekly =&gt; <span class="sgr1">1×6 DataFrame</span>
+<span class="sgr1"> Row </span>│<span class="sgr1"> timestep  scale   process              var            node   value   </span>
+<span class="sgr1">     </span>│<span class="sgr90"> Int64     Symbol  Symbol               Symbol         Int64  Any     </span>
+─────┼──────────────────────────────────────────────────────────────────────
+   1 │      168  Plant   tutorialplantweekly  plant_assim_w      2  2.03296))</code></pre><p>Finally, we extract the exported tables we want to inspect. At this point we are no longer dealing with abstract stream definitions: we now have actual <code>DataFrame</code> objects containing hourly, daily, and weekly series.</p><pre><code class="language-julia hljs">leaf_hourly_df = exported[:leaf_assim_hourly]
+plant_daily_df = exported[:plant_assim_daily]
+plant_weekly_df = exported[:plant_assim_weekly]</code></pre><div><div style = "float: left;"><span>1×6 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">timestep</th><th style = "text-align: left;">scale</th><th style = "text-align: left;">process</th><th style = "text-align: left;">var</th><th style = "text-align: left;">node</th><th style = "text-align: left;">value</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Any" style = "text-align: left;">Any</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">168</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantweekly</td><td style = "text-align: left;">plant_assim_w</td><td style = "text-align: right;">2</td><td style = "text-align: left;">2.03296</td></tr></tbody></table></div><p>The exported tables already have the cadence we asked for, so they are much easier to inspect than a single mixed output table.</p><p>We can start with a few basic checks on the number of rows. These checks are a simple way to confirm that the export clocks did what we expected:</p><pre><code class="language-julia hljs">@show nrow(leaf_hourly_df)    # 168 (1 leaf x 168 hours)
+@show nrow(plant_daily_df)    # 7   (1 plant x 7 days)
+@show nrow(plant_weekly_df)   # 1   (1 plant x 1 week)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">1</code></pre><p>The hourly table has one row per hour, the daily table one row per day, and the weekly table one row for the whole run.</p><p>To compare the hourly and daily outputs directly, we group the hourly series by day and sum it manually. This lets us check that the daily plant model really did receive the integrated hourly leaf assimilation:</p><pre><code class="language-julia hljs">leaf_hourly_df.day = repeat(1:7, inner=24)
+leaf_hourly_sum = combine(groupby(leaf_hourly_df, :day), :value =&gt; sum =&gt; :leaf_assim_h_sum)</code></pre><div><div style = "float: left;"><span>7×2 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">day</th><th style = "text-align: left;">leaf_assim_h_sum</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Missing" style = "text-align: left;">Missing</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">1</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">3</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: right;">4</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: right;">5</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: right;">6</td><td style = "font-style: italic; text-align: right;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: right;">7</td><td style = "font-style: italic; text-align: right;">missing</td></tr></tbody></table></div><p>Those row counts match the intended design of the example: one hourly series for seven days, one daily series for seven days, and one weekly aggregate for the whole run.</p><p>We can also manually recompute the daily sums from the hourly exported series and compare them with the daily model output:</p><pre><code class="language-julia hljs">plant_daily_df</code></pre><div><div style = "float: left;"><span>7×6 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">timestep</th><th style = "text-align: left;">scale</th><th style = "text-align: left;">process</th><th style = "text-align: left;">var</th><th style = "text-align: left;">node</th><th style = "text-align: left;">value</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Any" style = "text-align: left;">Any</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">24</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">48</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">72</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">4</td><td style = "text-align: right;">96</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">5</td><td style = "text-align: right;">120</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">6</td><td style = "text-align: right;">144</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">7</td><td style = "text-align: right;">168</td><td style = "text-align: left;">Plant</td><td style = "text-align: left;">tutorialplantdaily</td><td style = "text-align: left;">plant_assim_d</td><td style = "text-align: right;">2</td><td style = "font-style: italic; text-align: left;">missing</td></tr></tbody></table></div><p>This confirms that the daily assimilation values correspond to the sum of the hourly leaf assimilation collected over each day.</p><p>The regular outputs returned by <code>run!</code> are still available as well, and can be converted to <code>DataFrame</code>s in the usual way. This is useful when you want both:</p><ul><li>clean resampled exports for analysis;</li><li>the usual simulation outputs for debugging or broader inspection.</li></ul><pre><code class="language-julia hljs">outs = convert_outputs(out_status, DataFrame)
+outs[:Plant][1:3,:]</code></pre><div><div style = "float: left;"><span>3×7 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">node</th><th style = "text-align: left;">timestep</th><th style = "text-align: left;">T</th><th style = "text-align: left;">rad_sw_day</th><th style = "text-align: left;">plant_assim_d</th><th style = "text-align: left;">plant_assim_w</th><th style = "text-align: left;">leaf_assim_h</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Int64" style = "text-align: left;">Int64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th><th title = "Float64" style = "text-align: left;">Float64</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: right;">2</td><td style = "text-align: right;">1</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0125384</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: right;">2</td><td style = "text-align: right;">2</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0125384</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">3</td><td style = "text-align: right;">2</td><td style = "text-align: right;">3</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0</td><td style = "text-align: right;">0.0125384</td></tr></tbody></table></div><h2 id="5.-Where-to-go-next"><a class="docs-heading-anchor" href="#5.-Where-to-go-next">5. Where to go next</a><a id="5.-Where-to-go-next-1"></a><a class="docs-heading-anchor-permalink" href="#5.-Where-to-go-next" title="Permalink"></a></h2><p>This page keeps the main walkthrough focused on a complete but still compact example. Once that example is clear, the next step is usually to learn the explicit configuration tools that become useful in larger mappings:</p><ul><li><code>InputBindings(...)</code> when inference is ambiguous or too implicit;</li><li><code>MeteoBindings(...)</code> when PlantMeteo defaults are not enough;</li><li><code>MeteoWindow(...)</code> for calendar-aligned aggregation;</li><li><code>OutputRequest(...)</code> when you want explicit export-time clocks and policies;</li><li><code>ScopeModel(...)</code>, <code>explain_model_specs(...)</code>, and <code>resolved_model_specs(...)</code> for larger and harder-to-debug MTGs.</li></ul><p>Those topics are grouped in <a href="../advanced_configuration/">Advanced multi-rate configuration</a>.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../introduction/">« Introduction to multi-rate execution</a><a class="docs-footer-nextpage" href="../advanced_configuration/">Advanced multi-rate configuration »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Wednesday 18 March 2026 11:23">Wednesday 18 March 2026</span>. Using Julia version 1.12.5.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
