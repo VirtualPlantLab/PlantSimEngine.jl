@@ -9,23 +9,27 @@ If several time-steps are given, the models are run sequentially for each time-s
 
 # Arguments
 
-- `object`: a [`ModelList`](@ref), an array or dict of `ModelList`, or a plant graph (MTG).
+- `object`: a [`ModelMapping`](@ref) for single-scale runs, or a plant graph (MTG) for multiscale runs.
 - `meteo`: a [`PlantMeteo.TimeStepTable`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.TimeStepTable) of 
 [`PlantMeteo.Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Atmosphere) or a single `PlantMeteo.Atmosphere`.
+  When meteo is provided, `duration` must be present and strictly positive.
 - `constants`: a [`PlantMeteo.Constants`](https://palmstudio.github.io/PlantMeteo.jl/stable/API/#PlantMeteo.Constants) object, or a `NamedTuple` of constant keys and values.
 - `extra`: extra parameters, not available for simulation of plant graphs (the simulation object is passed using this).
 - `check`: if `true`, check the validity of the model list before running the simulation (takes a little bit of time), and return more information while running.
 - `executor`: the [`Floops`](https://juliafolds.github.io/FLoops.jl/stable/) executor used to run the simulation either in sequential (`executor=SequentialEx()`), in a 
 multi-threaded way (`executor=ThreadedEx()`, the default), or in a distributed way (`executor=DistributedEx()`).
-- `mapping`: a mapping between the MTG and the model list.
+- `mapping`: a [`ModelMapping`](@ref) between MTG scales and models.
 - `nsteps`: the number of time-steps to run, only needed if no meteo is given (else it is infered from it).
 - `outputs`: the outputs to get in dynamic for each node type of the MTG.
+- `return_requested_outputs`: when `true` in MTG multi-rate runs, return requested resampled outputs directly
+  as second return value.
+- `requested_outputs_sink`: sink used to materialize requested outputs when `return_requested_outputs=true`.
 
 # Returns 
 
-Modifies the status of the object in-place. Users may retrieve the results from the object using 
-the [`status`](https://virtualplantlab.github.io/PlantSimEngine.jl/stable/API/#PlantSimEngine.status-Tuple{Any}) 
-function (see examples).
+Returns status outputs (and optionally requested exports).
+For MTG multi-rate runs with `return_requested_outputs=true`, returns
+`(status_outputs, requested_outputs)`.
 
 # Details 
 
@@ -59,10 +63,10 @@ Load the dummy models given as example in the `Examples` sub-module:
 julia> using PlantSimEngine.Examples;
 ```
 
-Create a model list:
+Create a model mapping:
 
 ```jldoctest run
-julia> models = ModelList(Process1Model(1.0), Process2Model(), Process3Model(), status = (var1=1.0, var2=2.0));
+julia> mapping = ModelMapping(Process1Model(1.0), Process2Model(), Process3Model(); status = (var1=1.0, var2=2.0));
 ```
 
 Create meteo data:
@@ -74,7 +78,7 @@ julia> meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0);
 Run the simulation:
 
 ```jldoctest run
-julia> outputs_sim = run!(models, meteo);
+julia> outputs_sim = run!(mapping, meteo);
 ```
 
 Get the results:
@@ -86,15 +90,12 @@ julia> (outputs_sim[:var4],outputs_sim[:var6])
 """
 run!
 
-
-
 function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     # This isn't ideal in terms of codeflow, but check_dimensions will kick in later
     # And determine whether there is a status vector length discrepancy
 
-    meteo_adjusted = meteo
-
-    if DataFormat(meteo_adjusted) == TableAlike()
+    if DataFormat(meteo) == TableAlike()
+        meteo_adjusted = TimeStepTable{Atmosphere}(meteo)
         if get_nsteps(meteo) == 1
             return Tables.rows(meteo_adjusted)[1]
         end
@@ -102,16 +103,77 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
     end
 
     if isnothing(meteo)
-        meteo_adjusted = Weather(repeat([Atmosphere(NamedTuple())], desired_length))
+        return Weather(repeat([Atmosphere(NamedTuple())], desired_length))
     elseif get_nsteps(meteo) == 1 && desired_length > 1
         if isa(meteo, Atmosphere)
-            meteo_adjusted = Weather(repeat([meteo], desired_length))
+            return Weather(repeat([meteo], desired_length))
         end
+    else
+        return meteo # If e.g. single Atmosphere
     end
-
-    return meteo_adjusted
 end
 
+
+function _all_modellists_collection(object)
+    if isa(object, AbstractArray)
+        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, object)
+    elseif isa(object, AbstractDict)
+        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, values(object))
+    end
+    return false
+end
+
+_single_scale_runtime_object(object) = object
+_single_scale_runtime_object(mapping::ModelMapping) = _modellist_from_model_mapping(mapping)
+
+function _modellist_from_model_mapping(mapping::ModelMapping{SingleScale})
+    mapping.data
+end
+
+function _modellist_from_model_mapping(::ModelMapping{MultiScale})
+    error("This `ModelMapping` is a multiscale mapping. ", "Use `run!(mtg, mapping, ...)` for multiscale mappings.")
+end
+
+_modellist_from_model_mapping(mapping::ModelList) = mapping
+
+function run!(
+    mapping::M,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+) where {M<:Union{ModelMapping{SingleScale},ModelList}}
+    _validate_meteo_duration(meteo)
+    model_list = _modellist_from_model_mapping(mapping)
+    _run_modellist_singleton(
+        model_list,
+        meteo,
+        constants,
+        extra;
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs
+    )
+end
+
+function run!(
+    ::ModelMapping{MultiScale},
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+)
+    error("This `ModelMapping` is a multiscale mapping. ", "Use `run!(mtg, mapping, ...)` for multiscale mappings.")
+end
 
 # User entry point, which uses traits to dispatch to the correct method. 
 # The traits are defined in table_traits.jl
@@ -123,8 +185,11 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
+    _validate_meteo_duration(meteo)
     run!(
         DataFormat(object),
         object,
@@ -133,7 +198,35 @@ function run!(
         extra;
         tracked_outputs,
         check,
-        executor
+        executor,
+        return_requested_outputs,
+        requested_outputs_sink
+    )
+end
+
+function run!(
+    object::GraphSimulation,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+)
+    _validate_meteo_duration(meteo)
+    run!(
+        TreeAlike(),
+        object,
+        meteo,
+        constants,
+        extra;
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink,
     )
 end
 
@@ -150,8 +243,20 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict},A}
+    if _all_modellists_collection(object)
+        Base.depwarn(
+            "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
+            :run!
+        )
+    end
+
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
 
     if executor != SequentialEx()
         @warn string(
@@ -184,8 +289,66 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelList}
+    Base.depwarn(
+        "`run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)` instead.",
+        :run!
+    )
+    _run_modellist_singleton(
+        object,
+        meteo,
+        constants,
+        extra;
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs
+    )
+end
+
+function run!(
+    ::SingletonAlike,
+    object::T,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+) where {T<:ModelMapping{SingleScale}}
+    model_list = _modellist_from_model_mapping(object)
+
+    _run_modellist_singleton(
+        model_list,
+        meteo,
+        constants,
+        extra;
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs
+    )
+end
+
+function _run_modellist_singleton(
+    object::ModelList,
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false
+)
+
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
 
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
@@ -231,7 +394,7 @@ function run!(
                     run_node!(object, node, i, status_flattened, meteo_i, constants, extra)
                 end
                 for var in vars
-                    outputs_preallocated_mt[i][var] = status_flattened[var]
+                    setproperty!(outputs_preallocated_mt[i], var, status_flattened[var])
                 end
             end
             return outputs_preallocated_mt
@@ -275,10 +438,22 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:Union{AbstractArray,AbstractDict}}
+    if _all_modellists_collection(object)
+        Base.depwarn(
+            "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
+            :run!
+        )
+    end
 
-    dep_graphs = [dep(obj) for obj in collect(values(object))]
+    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
+    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
+    runtime_objects = [_single_scale_runtime_object(obj) for obj in collect(values(object))]
+    dep_graphs = [dep(obj) for obj in runtime_objects]
     #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
 
     # Check if the simulation can be parallelized over objects:
@@ -289,7 +464,7 @@ function run!(
     end
 
     # Each object:
-    for (i, obj) in enumerate(collect(values(object)))
+    for (i, obj) in enumerate(runtime_objects)
 
         if check
             # Check if the meteo data and the status have the same length (or length 1)
@@ -359,33 +534,106 @@ end
 # Another user entry point
 # If we pass an MTG and a mapping, then we use them to compute a GraphSimulation object 
 # that we then use with the generic run! entry point.
+function _multirate_tracked_outputs(tracked_outputs)
+    if isnothing(tracked_outputs)
+        return nothing, OutputRequest[]
+    elseif tracked_outputs isa OutputRequest
+        return nothing, OutputRequest[tracked_outputs]
+    elseif tracked_outputs isa AbstractVector{<:OutputRequest}
+        return nothing, collect(tracked_outputs)
+    end
+    return tracked_outputs, OutputRequest[]
+end
+
+function _active_dependency_processes(dep_graph::DependencyGraph)
+    active = Set{Tuple{Symbol,Symbol}}()
+    for node in traverse_dependency_graph(dep_graph, false)
+        push!(active, (node.scale, node.process))
+    end
+    return active
+end
+
 function run!(
     object::MultiScaleTreeGraph.Node,
-    mapping::Dict{String,T} where {T},
+    mapping::ModelMapping,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
     nsteps=nothing,
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
+    _validate_meteo_duration(meteo)
+    effective_multirate = _effective_multirate(mapping, meteo)
     isnothing(nsteps) && (nsteps = get_nsteps(meteo))
-    meteo_adjusted = adjust_weather_timesteps_to_given_length(nsteps, meteo)
+    meteo_adjusted = if effective_multirate && meteo isa TimeStepTable{<:Atmosphere}
+        # Keep TimeStepTable intact in MTG multi-rate runs so model-clock meteo
+        # sampling/aggregation can use PlantMeteo sampler APIs.
+        meteo
+    elseif DataFormat(meteo) == TableAlike()
+        nsteps == 1 ? Tables.rows(meteo)[1] : meteo
+    else
+        adjust_weather_timesteps_to_given_length(nsteps, meteo)
+    end
+    status_outputs, output_requests = _multirate_tracked_outputs(tracked_outputs)
+    !effective_multirate && !isempty(output_requests) && error("`OutputRequest` requires a multirate `ModelMapping`.")
+    return_requested_outputs && !effective_multirate && error("`return_requested_outputs=true` requires a multirate `ModelMapping`.")
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=tracked_outputs)
-    run!(
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=status_outputs)
+    result = run!(
         sim,
         meteo_adjusted,
         constants,
         extra;
         check=check,
-        executor=executor
+        executor=executor,
+        tracked_outputs=output_requests,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink
     )
 
+    if return_requested_outputs
+        return result
+    end
+
     return outputs(sim)
+end
+
+function run!(
+    object::MultiScaleTreeGraph.Node,
+    mapping::AbstractDict{Symbol,T} where {T},
+    meteo=nothing,
+    constants=PlantMeteo.Constants(),
+    extra=nothing;
+    nsteps=nothing,
+    tracked_outputs=nothing,
+    check=true,
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
+)
+    Base.depwarn(
+        "`run!(mtg, mapping::AbstractDict, ...)` is deprecated. Use `run!(mtg, ModelMapping(mapping), ...)` or construct `ModelMapping(...)` directly.",
+        :run!
+    )
+    run!(
+        object,
+        ModelMapping(mapping),
+        meteo,
+        constants,
+        extra;
+        nsteps=nsteps,
+        tracked_outputs=tracked_outputs,
+        check=check,
+        executor=executor,
+        return_requested_outputs=return_requested_outputs,
+        requested_outputs_sink=requested_outputs_sink
+    )
 end
 
 function run!(
@@ -396,12 +644,37 @@ function run!(
     extra=nothing;
     tracked_outputs=nothing,
     check=true,
-    executor=ThreadedEx()
+    executor=ThreadedEx(),
+    return_requested_outputs=false,
+    requested_outputs_sink=DataFrames.DataFrame
 )
 
+    effective_multirate = _effective_multirate(object)
     dep_graph = object.dependency_graph
     models = get_models(object)
+    _validate_meteo_duration(meteo)
+    timeline = _timeline_context(meteo)
+    meteo_sampler = effective_multirate ? _prepare_meteo_sampler(meteo) : nothing
+    runtime_clock_rows = _runtime_clock_rows(object, timeline, dep_graph)
+    effective_executor = executor
     # st = status(object)
+    _validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)
+    if effective_multirate
+        if executor != SequentialEx()
+            @warn string(
+                "Multi-rate MTG runs currently execute sequentially. ",
+                "Provided `executor=$(executor)` is ignored in this mode. ",
+                "Use `executor=SequentialEx()` to silence this warning."
+            ) maxlog = 1
+            effective_executor = SequentialEx()
+        end
+        _warn_if_no_model_runs_at_base_timestep(runtime_clock_rows, timeline)
+        validate_canonical_publishers(object)
+        prepare_output_requests!(object, tracked_outputs, timeline)
+        configure_temporal_buffers!(object, timeline)
+    elseif return_requested_outputs
+        error("`return_requested_outputs=true` requires a multirate `ModelMapping`.")
+    end
 
     !isnothing(extra) && error("Extra parameters are not allowed for the simulation of an MTG (already used for statuses).")
 
@@ -411,15 +684,17 @@ function run!(
     if nsteps == 1
         roots = collect(dep_graph.roots)
         for (process_key, dependency_node) in roots
-            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, executor)
+            run_node_multiscale!(object, dependency_node, 1, models, meteo, constants, object, check, effective_executor, effective_multirate, timeline, meteo_sampler)
         end
+        effective_multirate && update_requested_outputs!(object, _time_from_step(1, timeline))
         save_results!(object, 1)
     else
         for (i, meteo_i) in enumerate(Tables.rows(meteo))
             roots = collect(dep_graph.roots)
             for (process_key, dependency_node) in roots
-                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, executor)
+                run_node_multiscale!(object, dependency_node, i, models, meteo_i, constants, object, check, effective_executor, effective_multirate, timeline, meteo_sampler)
             end
+            effective_multirate && update_requested_outputs!(object, _time_from_step(i, timeline))
             # At the end of the time-step, we save the results of the simulation in the object:
             save_results!(object, i)
         end
@@ -429,6 +704,10 @@ function run!(
     # if models create organs, so shrink it down to the final size here
     for (organ, index) in object.outputs_index
         resize!(outputs(object)[organ], index - 1)
+    end
+
+    if return_requested_outputs
+        return outputs(object), collect_outputs(object; sink=requested_outputs_sink)
     end
 
     return outputs(object)
@@ -445,7 +724,10 @@ function run_node_multiscale!(
     constants,
     extra::T, # we pass the simulation object as extra so we can access its parameters during simulation
     check,
-    executor
+    executor,
+    multirate,
+    timeline::TimelineContext,
+    meteo_sampler
 ) where {T<:GraphSimulation} # T is the status of each node by organ type
 
     # run!(status(object), dependency_node, meteo, constants, extra)
@@ -457,10 +739,23 @@ function run_node_multiscale!(
 
     node_statuses = status(object)[node.scale] # Get the status of the nodes at the current scale
     models_at_scale = models[node.scale]
+    model_specs_at_scale = get_model_specs(object)[node.scale]
+    model_spec = get(model_specs_at_scale, node.process, as_model_spec(node.value))
+    model_clock = _model_clock(model_spec, node.value, timeline)
+    t = _time_from_step(i, timeline)
 
     for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
+        should_run = !multirate || _should_run_at_time(model_clock, t)
+        !should_run && continue
+        if multirate
+            resolve_inputs_from_temporal_state!(object, node, st, t, model_spec, timeline)
+        end
+        meteo_for_model = multirate ? _sample_meteo_for_model(meteo_sampler, meteo, i, model_clock, model_spec) : meteo
         # Actual call to the model:
-        run!(node.value, models_at_scale, st, meteo, constants, extra)
+        run!(node.value, models_at_scale, st, meteo_for_model, constants, extra)
+        if multirate
+            update_temporal_state_outputs!(object, node, model_spec, st, t)
+        end
     end
 
     node.simulation_id[1] += 1 # increment the simulation id, to remember that the model has been called already
@@ -470,6 +765,6 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor)
+        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate, timeline, meteo_sampler)
     end
 end

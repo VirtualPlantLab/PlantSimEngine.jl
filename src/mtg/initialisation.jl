@@ -59,7 +59,7 @@ end
         statuses, 
         mapped_vars, 
         reverse_multiscale_mapping,
-        vars_need_init=Dict{String,Any}(),
+        vars_need_init=Dict{Symbol,Any}(),
         type_promotion=nothing;
         check=true,
         attribute_name=:plantsimengine_status)
@@ -91,20 +91,22 @@ The `check` argument is a boolean indicating if variables initialisation should 
 in the node attributes (using the variable name). If `true`, the function returns an error if the attribute is missing, otherwise it uses the default value from the model.
 
 """
-function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{String,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init=Dict{Symbol,Any}(), type_promotion=nothing; check=true, attribute_name=:plantsimengine_status)
+    node_scale = symbol(node)
+
     # Check if the node has a model defined for its symbol, if not, no need to compute
-    symbol(node) ∉ collect(keys(mapped_vars)) && return
+    haskey(mapped_vars, node_scale) || return
 
     # We make a copy of the template status for this node:
-    st_template = copy(mapped_vars[symbol(node)])
+    st_template = copy(mapped_vars[node_scale])
 
     # We add a reference to the node into the status, so that we can access it from the models if needed.
     push!(st_template, :node => Ref(node))
 
     # If some variables still need to be instantiated in the status, look into the MTG node if we can find them,
     # and if so, use their value in the status:
-    if haskey(vars_need_init, symbol(node)) && length(vars_need_init[symbol(node)]) > 0
-        for var in vars_need_init[symbol(node)] # e.g. var = :carbon_biomass
+    if haskey(vars_need_init, node_scale) && length(vars_need_init[node_scale]) > 0
+        for var in vars_need_init[node_scale] # e.g. var = :carbon_biomass
             if !haskey(node, var)
                 if !check
                     # If we don't check, we use the default value from the model (and if it's an UninitializedVar we take its default value):
@@ -148,12 +150,12 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # Make the node status from the template:
     st = status_from_template(st_template)
 
-    push!(statuses[symbol(node)], st)
+    push!(statuses[node_scale], st)
 
     # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
     # add a reference to the value of any variable that is used by another scale into its RefVector:
-    if haskey(reverse_multiscale_mapping, symbol(node))
-        for (organ, vars) in reverse_multiscale_mapping[symbol(node)] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
+    if haskey(reverse_multiscale_mapping, node_scale)
+        for (organ, vars) in reverse_multiscale_mapping[node_scale] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
             for (var_source, var_target_) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
                 var_target = var_target_ isa PreviousTimeStep ? var_target_.variable : var_target_
                 push!(mapped_vars[organ][var_target], refvalue(st, var_source))
@@ -259,6 +261,7 @@ Base.RefValue{PlantSimEngine.RefVector{Float64}}(RefVector{Float64}[1.0, 2.0, 3.
 """
 ref_var(v) = Base.Ref(copy(v))
 ref_var(v::T) where {T<:AbstractString} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
+ref_var(v::T) where {T<:Symbol} = Base.Ref(v) # No copy method for strings, so directly making a Ref out of it
 ref_var(v::T) where {T<:Base.RefValue} = v
 ref_var(v::T) where {T<:RefVector} = Base.Ref(v)
 ref_var(v::T) where {T<:RefVariable} = v
@@ -278,7 +281,7 @@ Initialise the simulation. Returns:
 # Arguments
 
 - `mtg`: the MTG
-- `mapping::Dict{String,Any}`: a dictionary of model mapping
+- `mapping::ModelMapping` (or dictionary-like mapping): associates scales to models/status.
 - `nsteps`: the number of steps of the simulation
 - `outputs`: the dynamic outputs needed for the simulation
 - `type_promotion`: the type promotion to use for the variables
@@ -293,8 +296,8 @@ initialisation, and the (multiscale) mapping. The mapping is used to make refere
 that are defined at another scale, so that the values are automatically updated when the variable is changed at
 the other scale. Two types of multiscale variables are available: `RefVector` and `MappedVar`. The first one is
 used when the variable is mapped to a vector of nodes, and the second one when it is mapped to a single node. This 
-is given by the user through the mapping, using a string for a single node (*e.g.* `=> "Leaf"`), and a vector of strings for a vector of
-nodes (*e.g.* `=> ["Leaf"]` for one type of node or `=> ["Leaf", "Internode"]` for several). 
+is given by the user through the mapping, using a symbol for a single node (*e.g.* `=> :Leaf`), and a vector of symbols for a vector of
+nodes (*e.g.* `=> [:Leaf]` for one type of node or `=> [:Leaf, :Internode]` for several). 
 
 The function also computes the dependency graph of the models, i.e. the order in which the models should be
 called, considering the dependencies between them. The dependency graph is used to call the models in the right order
@@ -314,7 +317,25 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
         @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
     end
 
+    models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
+    model_specs = if mapping isa ModelMapping && !isempty(mapping.info.model_specs)
+        deepcopy(mapping.info.model_specs)
+    else
+        Dict(first(m) => parse_model_specs(last(m)) for m in mapping)
+    end
+
     soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
+
+    scale_reachability = _scale_reachability_from_mtg(mtg)
+    _infer_timestep_hints!(model_specs)
+    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(model_specs, soft_dep_graphs_roots)
+    active_processes_by_scale = _active_processes_for_inference(model_specs, ignored_same_rate_hard_children)
+    infer_model_specs_configuration!(
+        model_specs;
+        scale_reachability=scale_reachability,
+        active_processes_by_scale=active_processes_by_scale
+    )
+    validate_model_specs_configuration(model_specs)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =
@@ -339,17 +360,30 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     iscyclic && error("Cyclic dependency detected in the graph. Cycle: \n $(print_cycle(cycle_vec)) \n You can break the cycle using the `PreviousTimeStep` variable in the mapping.")
     # Third step, we identify which 
-    
+
     # Print an info if models are declared for nodes that don't exist in the MTG:
     if check && any(x -> length(last(x)) == 0, statuses)
         model_no_node = join(findall(x -> length(x) == 0, statuses), ", ")
         @info "Models given for $model_no_node, but no node with this symbol was found in the MTG." maxlog = 1
     end
 
-    models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)
-
     outputs = pre_allocate_outputs(statuses, status_templates, reverse_multiscale_mapping, vars_need_init, outputs, nsteps, type_promotion=type_promotion, check=check)
 
-    outputs_index = Dict{String, Int}(s => 1 for s in keys(outputs))
-    return (; mtg, statuses, status_templates, reverse_multiscale_mapping, vars_need_init, dependency_graph=dep_graph, models, outputs, outputs_index)
+    outputs_index = Dict{Symbol,Int}(s => 1 for s in keys(outputs))
+    temporal_state = TemporalState()
+    mapping_is_multirate = mapping isa ModelMapping ? is_multirate(mapping) : false
+    return (;
+        mtg,
+        statuses,
+        status_templates,
+        reverse_multiscale_mapping,
+        vars_need_init,
+        dependency_graph=dep_graph,
+        models,
+        model_specs,
+        outputs,
+        outputs_index,
+        temporal_state,
+        is_multirate=mapping_is_multirate
+    )
 end

@@ -3,21 +3,21 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, CSV, DataFrames
+using PlantMeteo, Dates
 using MultiScaleTreeGraph
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return MultiScaleTreeGraph.traverse(root, x->x, symbol="Root", filter_fun = MultiScaleTreeGraph.isleaf)
+    return MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root, filter_fun = MultiScaleTreeGraph.isleaf)
 end
 
 function get_roots_count(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol="Root"))
+    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root))
 end
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol=:Leaf))
     return nleaves
 end
 
@@ -58,9 +58,9 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
   
     if length(MultiScaleTreeGraph.children(status.node)) == 2 && 
         status.TT_cu - status.TT_cu_emergence >= m.TT_emergence            
-        status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, "<", :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
@@ -116,7 +116,7 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
         end
         root_len = get_roots_count(root_end[1])
         if root_len < m.root_max_len
-            st = add_organ!(root_end[1], extra, "<", "Root", 2, index=1)
+            st = add_organ!(root_end[1], extra, "<", :Root, 2, index=1)
             status.carbon_root_creation_consumed = m.carbon_root_creation_cost
         end
     else
@@ -175,59 +175,59 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsObjectIndependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsTimeStepIndependent()
 
-mapping = Dict(
-"Scene" => ToyDegreeDaysCumulModel(),
-"Plant" => (
+mapping = ModelMapping(
+:Scene => ToyDegreeDaysCumulModel(),
+:Plant => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :water_absorbed=>["Root"],
-            :carbon_root_creation_consumed=>["Root"],
-            :carbon_organ_creation_consumed=>["Internode"]
+            :carbon_captured=>[:Leaf],
+            :water_absorbed=>[:Root],
+            :carbon_root_creation_consumed=>[:Root],
+            :carbon_organ_creation_consumed=>[:Internode]
 
         ],
         ),
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
-"Internode" => (        
+:Internode => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene",
-            PreviousTimeStep(:water_stock)=>"Plant",
-            PreviousTimeStep(:carbon_stock)=>"Plant"],
+            mapped_variables=[:TT_cu => :Scene,
+            PreviousTimeStep(:water_stock)=>:Plant,
+            PreviousTimeStep(:carbon_stock)=>:Plant],
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-"Root" => ( MultiScaleModel(
+:Root => ( MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
-            mapped_variables=[PreviousTimeStep(:carbon_stock)=>"Plant",
-            PreviousTimeStep(:water_stock)=>"Plant"],
+            mapped_variables=[PreviousTimeStep(:carbon_stock)=>:Plant,
+            PreviousTimeStep(:water_stock)=>:Plant],
         ),       
             ToyWaterAbsorptionModel(),
             Status(carbon_root_creation_consumed=0.0, root_water_assimilation=1.0),
             ),
-"Leaf" => ( ToyLeafCarbonCaptureModel(),),
+:Leaf => ( ToyLeafCarbonCaptureModel(),),
 )
 
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))   
 
-    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    
-    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
-    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-    plant_root_start = MultiScaleTreeGraph.Node(
-        plant, 
-        MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3), 
-    )
+internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+plant_root_start = MultiScaleTreeGraph.Node(
+    plant, 
+    MultiScaleTreeGraph.NodeMTG("+", :Root, 1, 3), 
+)
+
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     
 ```
 
@@ -250,9 +250,9 @@ You can notice this by looking at the simulation's state during the first two ti
 outs = run!(mtg, mapping, first(meteo_day, 2))
 
 root_nodes_per_timestep = [0, 0]
-for i in 1:length(outs["Root"])
-    if outs["Root"][i].timestep < 3
-        root_nodes_per_timestep[outs["Root"][i].timestep] += 1    
+for i in 1:length(outs[:Root])
+    if outs[:Root][i].timestep < 3
+        root_nodes_per_timestep[outs[:Root][i].timestep] += 1    
     end
 end
 
@@ -301,7 +301,7 @@ We'll go for the first option and couple the root growth and internode emission 
 
 ### Internode emission adjustments
 
-The only change required for our internode emission model is to take into account `carbon_root_creation_consumed` as a new input, map that variable from the "Root" scale in our mapping, and compute the adjusted carbon stock. Here's the relevant excerpt in the [`run!`](@ref) function.
+The only change required for our internode emission model is to take into account `carbon_root_creation_consumed` as a new input, map that variable from the :Root scale in our mapping, and compute the adjusted carbon stock. Here's the relevant excerpt in the [`run!`](@ref) function.
 
 ```julia
  # take into account that the stock may already be depleted 
@@ -319,28 +319,28 @@ Our root growth decision model inherits some of the responsibility from last cha
 
 Since the decision model is now directly responsible for calling the actual root growth model, we need to declare that it requires a root growth model as a hard dependency and cannot be run standalone. 
 
-This hard dependency is in fact multiscale, since both models operate at different scales, "Plant" and "Root". You can read more about multi-scale hard dependencies in the [Handling dependencies in a multiscale context](@ref) page.
+This hard dependency is in fact multiscale, since both models operate at different scales, :Plant and :Root. You can read more about multi-scale hard dependencies in the [Handling dependencies in a multiscale context](@ref) page.
 
 Compared to the single-scale equivalent, the multi-scale declaration additionally requires mapping the scale:
 
 ```julia
-PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>[:Root],)
 ```
 
-The `status` argument [`run!`](@ref) function of the root growth decision model only contains variables from the "Plant" scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the [`status`](@ref) at the "Root" scale. It is accessible from the `extra` argument in [`run!`](@ref)'s signature. 
+The `status` argument [`run!`](@ref) function of the root growth decision model only contains variables from the :Plant scale, or explicitely mapped to this scale, which isn't the case for the root growth's variables. To make use of the root growth model's variables, we need to recover the [`status`](@ref) at the :Root scale. It is accessible from the `extra` argument in [`run!`](@ref)'s signature. 
 
 In multi-scale simulations, this `extra` argument implicitely contains an object storing the simulation state. It contains the statuses at various scales, and all the models indexed per scale and process name.
 
-Access to the "Root" status within the root growth decision model [`run!`](@ref) function is done like so:
+Access to the :Root status within the root growth decision model [`run!`](@ref) function is done like so:
 
 ```julia
-status_Root= extra_args.statuses["Root"][1]
+status_Root= extra_args.statuses[:Root][1]
 ```
 
 It is then possible to call the root growth model from the parent's [`run!`](@ref) function:
 
 ```julia
-PlantSimEngine.run!(extra.models["Root"].root_growth, models, status_Root, meteo, constants, extra)
+PlantSimEngine.run!(extra.models[:Root].root_growth, models, status_Root, meteo, constants, extra)
 ```
 
 Which will enable writing the rest of the [`run!`](@ref) function.
@@ -362,16 +362,16 @@ PlantSimEngine.inputs_(::ToyRootGrowthDecisionModel) =
 
 PlantSimEngine.outputs_(::ToyRootGrowthDecisionModel) = NamedTuple()
 
-PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>["Root"],)
+PlantSimEngine.dep(::ToyRootGrowthDecisionModel) = (root_growth=AbstractRoot_GrowthModel=>[:Root],)
 
-# "status" is at the "Plant" scale
+# "status" is at the :Plant scale
 function PlantSimEngine.run!(m::ToyRootGrowthDecisionModel, models, status, meteo, constants=nothing, extra=nothing)
 
     if status.water_stock < m.water_threshold && status.carbon_stock > m.carbon_root_creation_cost
-        # Obtain "status" at "Root" scale
-        status_Root= extra_args.statuses["Root"][1]
+        # Obtain "status" at :Root scale
+        status_Root= extra_args.statuses[:Root][1]
         # Call the hard dependency model directly with its status
-        PlantSimEngine.run!(extra.models["Root"].root_growth, models, status_Root, meteo, constants, extra)
+        PlantSimEngine.run!(extra.models[:Root].root_growth, models, status_Root, meteo, constants, extra)
     end
 end
 ```
@@ -405,7 +405,7 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
     
     root_len = get_roots_count(root_end[1])
     if root_len < m.root_max_len
-        st = add_organ!(root_end[1], extra, "<", "Root", 2, index=1)
+        st = add_organ!(root_end[1], extra, "<", :Root, 2, index=1)
         status.carbon_root_creation_consumed = m.carbon_root_creation_cost
     end
 end
@@ -416,16 +416,16 @@ end
 The new mapping only has straightforward changes. Some models cease to be multi-scale, others require new variables to be mapped for them. `carbon_root_creation_consumed` ceases to be a vector mapping and is a scalar variable.
 
 ```julia
-mapping = Dict(
-"Scene" => ToyDegreeDaysCumulModel(),
-"Plant" => (
+mapping = ModelMapping(
+:Scene => ToyDegreeDaysCumulModel(),
+:Plant => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :water_absorbed=>["Root"],
-            :carbon_root_creation_consumed=>"Root",
-            :carbon_organ_creation_consumed=>["Internode"]
+            :carbon_captured=>[:Leaf],
+            :water_absorbed=>[:Root],
+            :carbon_root_creation_consumed=>:Root,
+            :carbon_organ_creation_consumed=>[:Internode]
 
         ],
         ),
@@ -434,21 +434,21 @@ mapping = Dict(
     ),
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
-"Internode" => (        
+:Internode => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene",
-            :water_stock=>"Plant",
-            :carbon_stock=>"Plant", 
-            :carbon_root_creation_consumed=>"Root"],
+            mapped_variables=[:TT_cu => :Scene,
+            :water_stock=>:Plant,
+            :carbon_stock=>:Plant, 
+            :carbon_root_creation_consumed=>:Root],
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-"Root" =>   (ToyRootGrowthModel(10),       
+:Root =>   (ToyRootGrowthModel(10),       
             ToyWaterAbsorptionModel(),
             Status(carbon_root_creation_consumed=0.0, root_water_assimilation=1.0),
             ),
-"Leaf" => ( ToyLeafCarbonCaptureModel(),),
+:Leaf => ( ToyLeafCarbonCaptureModel(),),
 )
 ```
 
@@ -471,16 +471,16 @@ The solution is hopefully quite intuitive : when we compute resource stocks, we 
 The relevant part of the mapping that needs to be updated is the following:
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
 ...
-"Plant" => (
+:Plant => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :water_absorbed=>["Root"],
-            PreviousTimeStep(:carbon_root_creation_consumed)=>"Root",
-            PreviousTimeStep(:carbon_organ_creation_consumed)=>["Internode"],
+            :carbon_captured=>[:Leaf],
+            :water_absorbed=>[:Root],
+            PreviousTimeStep(:carbon_root_creation_consumed)=>:Root,
+            PreviousTimeStep(:carbon_organ_creation_consumed)=>[:Internode],
         ],
         ),
         ToyRootGrowthDecisionModel(10.0, 50.0),

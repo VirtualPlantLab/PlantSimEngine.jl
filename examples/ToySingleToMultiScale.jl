@@ -17,7 +17,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 ### Single-scale simulation
 ##############################
 
-models_singlescale = ModelList(
+models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -29,16 +29,16 @@ outputs_singlescale = run!(models_singlescale, meteo_day)
 ##############################
 #### Direct translation of the single-scale simulation
 ##############################
-mapping_pseudo_multiscale = Dict(
-"Plant" => (
-   ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    Status(TT_cu=cumsum(meteo_day.TT),)
+mapping_pseudo_multiscale = ModelMapping(
+    :Plant => (
+        ToyLAIModel(),
+        Beer(0.5),
+        ToyRUEGrowthModel(0.2),
+        Status(TT_cu=cumsum(meteo_day.TT),)
     ),
 )
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 0),)
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
 out_pseudo_multiscale = run!(mtg, mapping_pseudo_multiscale, meteo_day)
@@ -69,16 +69,16 @@ end
 #### Actual multiscale version of the single-scale simulation
 ##############################
 
-mapping_multiscale = Dict(
-    "Scene" => (
+mapping_multiscale = ModelMapping(
+    :Scene => (
         ToyTt_CuModel(),
         Status(TT_cu=0.0),
     ),
-    "Plant" => (
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => (:Scene => :TT_cu),
             ],
         ),
         Beer(0.5),
@@ -87,15 +87,15 @@ mapping_multiscale = Dict(
 )
 
 # We now need two nodes for our MTG
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
 ##############################
 #### Output comparison
 ##############################
 
-computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale["Scene"][:TT_cu]))
+computed_TT_cu_multiscale = collect(Base.Iterators.flatten(outputs_multiscale[:Scene][:TT_cu]))
 
 is_approx_equal_1 = true
 
@@ -116,5 +116,5 @@ is_approx_equal_2 = length(unique(computed_TT_cu_multiscale .≈ outputs_singles
 
 is_perfectly_equal = length(unique(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)) == 1
 
-(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)[104]
-(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)[105]
+(computed_TT_cu_multiscale.==outputs_singlescale.TT_cu)[104]
+(computed_TT_cu_multiscale.==outputs_singlescale.TT_cu)[105]

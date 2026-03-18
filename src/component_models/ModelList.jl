@@ -87,14 +87,7 @@ julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
 ```jldoctest 1
-julia> outputs_sim = run!(models,meteo)
-TimeStepTable{Status{(:var5, :var4, :var6, ...}(1 x 6):
-╭─────┬─────────┬─────────┬─────────┬─────────┬─────────┬─────────╮
-│ Row │    var5 │    var4 │    var6 │    var1 │    var3 │    var2 │
-│     │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │ Float64 │
-├─────┼─────────┼─────────┼─────────┼─────────┼─────────┼─────────┤
-│   1 │ 36.0139 │    22.0 │ 58.0139 │    15.0 │     5.5 │     0.3 │
-╰─────┴─────────┴─────────┴─────────┴─────────┴─────────┴─────────╯
+julia> outputs_sim = run!(models,meteo);
 ```
 
 ```jldoctest 1
@@ -106,7 +99,7 @@ julia> outputs_sim[:var6]
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
 ```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = Dict(Float64 => Float32));
+julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = ModelMapping(Float64 => Float32));
 ```
 
 We used `type_promotion` to force the status into Float32:
@@ -163,7 +156,6 @@ function ModelList(
     variables_check::Bool=true,
     kwargs...
 )
-
     # Get all the variables needed by the models and their default values:
     if length(args) > 0
         args = parse_models(args)
@@ -449,19 +441,19 @@ function convert_vars(ref_vars, type_promotion::Nothing)
     return ref_vars
 end
 
-function convert_vars!(ref_vars::Dict{String,Dict{Symbol,Any}}, type_promotion::Nothing)
+function convert_vars!(ref_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion::Nothing)
     return ref_vars
 end
 
 """
-    convert_vars!(mapped_vars::Dict{String,Dict{String,Any}}, type_promotion)
+    convert_vars!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion)
 
 Converts the types of the variables in a mapping (`mapped_vars`) using the `type_promotion` dictionary.
 
 The mapping should be a dictionary with organ name as keys and a dictionary of variables as values,
 with variable names as symbols and variable value as value.
 """
-function convert_vars!(mapped_vars::Dict{String,Dict{Symbol,Any}}, type_promotion)
+function convert_vars!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotion)
     for (organ, vars) in mapped_vars
         convert_vars!(vars, type_promotion)
     end

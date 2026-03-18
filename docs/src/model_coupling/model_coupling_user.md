@@ -1,11 +1,11 @@
 # Model coupling for users
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 # Import the example models defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -44,7 +44,7 @@ using PlantSimEngine.Examples
 Here is how we can make the model coupling:
 
 ```@example usepkg
-m = ModelList(Process1Model(2.0), Process2Model(), Process3Model())
+m = ModelMapping(Process1Model(2.0), Process2Model(), Process3Model())
 nothing # hide
 ```
 
@@ -75,7 +75,7 @@ outputs(Process2Model())
 So considering those two models, we only need `var1` and `var2` to be initialized, as `var3` is computed. This is why we recommend [`to_initialize`](@ref) instead of [`inputs`](@ref), because it returns only the variables that need to be initialized, considering that some inputs are duplicated between models, and some are computed by other models (they are outputs of a model):
 
 ```@example usepkg
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -88,7 +88,7 @@ to_initialize(m)
 The most straightforward way of initializing a model list is by giving the initializations to the `status` keyword argument during instantiation:
 
 ```@example usepkg
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -118,7 +118,7 @@ All following models (`Process4Model` to `Process7Model`) do not call explicitly
 Let's make a new model list including the soft-coupled models:
 
 ```@example usepkg
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -139,7 +139,7 @@ to_initialize(m)
 We can initialize it like so:
 
 ```@example usepkg
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),

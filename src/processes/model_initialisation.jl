@@ -1,8 +1,9 @@
 """
     to_initialize(; verbose=true, vars...)
-    to_initialize(m::T)  where T <: ModelList
+    to_initialize(m::T)  where T <: ModelMapping
     to_initialize(m::DependencyGraph)
-    to_initialize(mapping::Dict{String,T}, graph=nothing)
+    to_initialize(mapping::ModelMapping, graph=nothing)
+    to_initialize(mapping::AbstractDict{Symbol,T}, graph=nothing)
 
 Return the variables that must be initialized providing a set of models and processes. The
 function takes into account model coupling and only returns the variables that are needed
@@ -12,9 +13,9 @@ considering that some variables that are outputs of some models are used as inpu
 
 - `verbose`: if `true`, print information messages.
 - `vars...`: the models and processes to consider.
-- `m::T`: a [`ModelList`](@ref).
+- `m::T`: a [`ModelMapping`](@ref).
 - `m::DependencyGraph`: a [`DependencyGraph`](@ref).
-- `mapping::Dict{String,T}`: a mapping that associates models to organs.
+- `mapping::ModelMapping` (or dictionary-like mapping): associates models to organs/scales.
 - `graph`: a graph representing a plant or a scene, *e.g.* a multiscale tree graph. The graph
   is used to check if variables that are not initialized can be found in the graph nodes attributes.
 
@@ -29,10 +30,10 @@ using PlantSimEngine.Examples
 to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
 # Or using a component directly:
-models = ModelList(process1=Process1Model(1.0), process2=Process2Model())
+models = ModelMapping(process1=Process1Model(1.0), process2=Process2Model())
 to_initialize(models)
 
-m = ModelList(
+m = ModelMapping(
     (
         process1=Process1Model(1.0),
         process2=Process2Model()
@@ -51,13 +52,13 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-mapping = Dict(
-    "Leaf" => ModelList(
+mapping = ModelMapping(
+    "Leaf" => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "Internode" => ModelList(
+    "Internode" => ModelMapping(
         process1=Process1Model(1.0),
     )
 )
@@ -108,13 +109,13 @@ end
 #Return the variables that must be initialized providing a set of models and processes. The
 #function just returns the inputs and outputs of each model, with their default values.
 #To take into account model coupling, use the function at an upper-level instead, *i.e.* 
-# `to_initialize(m::ModelList)` or `to_initialize(m::DependencyGraph)`.
+# `to_initialize(m::ModelMapping)` or `to_initialize(m::DependencyGraph)`.
 function to_initialize(m::AbstractDependencyNode)
     return (inputs=inputs_(m.value), outputs=outputs_(m.value))
 end
 
-function to_initialize(m::T) where {T<:Dict{String,ModelList}}
-    toinit = Dict{String,NamedTuple}()
+function to_initialize(m::T) where {T<:Dict{Symbol,ModelMapping}}
+    toinit = Dict{Symbol,NamedTuple}()
     for (key, value) in m
         # key = "Leaf"; value = m[key]
         toinit_ = to_initialize(value)
@@ -139,7 +140,7 @@ function to_initialize(; verbose=true, vars...)
 end
 
 # For the list of mapping given to an MTG:
-function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
+function to_initialize(mapping::AbstractDict{Symbol,T}, graph=nothing) where {T}
     # Get the variables in the MTG:
     if isnothing(graph)
         vars_in_mtg = Symbol[]
@@ -163,8 +164,8 @@ function to_initialize(mapping::Dict{String,T}, graph=nothing) where {T}
 end
 
 """
-    init_status!(object::Dict{String,ModelList};vars...)
-    init_status!(component::ModelList;vars...)
+    init_status!(object::Dict{Symbol,ModelMapping};vars...)
+    init_status!(component::ModelMapping;vars...)
 
 Initialise model variables for components with user input.
 
@@ -177,21 +178,21 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 models = Dict(
-    "Leaf" => ModelList(
+    :Leaf => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "InterNode" => ModelList(
+    :InterNode => ModelMapping(
         process1=Process1Model(1.0),
     )
 )
 
 init_status!(models, var1=1.0 , var2=2.0)
-status(models["Leaf"])
+status(models[:Leaf])
 ```
 """
-function init_status!(object::Dict{String,ModelList}; vars...)
+function init_status!(object::Dict{Symbol,ModelMapping}; vars...)
     new_vals = (; vars...)
 
     for (component_name, component) in object
@@ -205,7 +206,7 @@ function init_status!(object::Dict{String,ModelList}; vars...)
     end
 end
 
-function init_status!(component::T; vars...) where {T<:ModelList}
+function init_status!(component::T; vars...) where {T<:ModelMapping}
     new_vals = (; vars...)
     for j in keys(new_vals)
         if !in(j, keys(component.status))
@@ -269,8 +270,8 @@ function init_variables(models::T; verbose::Bool=true) where {T<:NamedTuple}
 end
 
 """
-    is_initialized(m::T) where T <: ModelList
-    is_initialized(m::T, models...) where T <: ModelList
+    is_initialized(m::T) where T <: ModelMapping
+    is_initialized(m::T, models...) where T <: ModelMapping
 
 Check if the variables that must be initialized are, and return `true` if so, and `false` and
 an information message if not.
@@ -290,7 +291,7 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()
@@ -365,7 +366,7 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()

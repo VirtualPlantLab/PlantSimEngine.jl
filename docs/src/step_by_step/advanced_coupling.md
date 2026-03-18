@@ -1,11 +1,11 @@
 # Coupling more complex models
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 # Import the example models defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
-m = ModelList(
+m = ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -43,7 +43,7 @@ end
 `Process2Model` is coupled to another process (`process1`), and calls its model's `run` function. The [`run!`](@ref) function is called with the same arguments as the [`run!`](@ref) function of the model that calls it, except that we pass the process we want to simulate as the first argument.
 
 !!! note
-    We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the [`ModelList`](@ref).
+    We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the [`ModelMapping`](@ref).
 
 A hard-dependency must always be declared to PlantSimEngine. This is done by adding a method to the `dep` function when implementing the model. For example, the hard-dependency to `process1` into `Process2Model` is declared as follows:
 

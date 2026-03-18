@@ -63,8 +63,8 @@ using PlantGeom.Meshes
 
 cylinder() = Meshes.CylinderSurface(1.0) |> Meshes.discretize |> Meshes.simplexify
 
-refmesh_internode = PlantGeom.RefMesh("Internode", cylinder())
-refmesh_root = PlantGeom.RefMesh("Root", cylinder())
+refmesh_internode = PlantGeom.RefMesh(:Internode, cylinder())
+refmesh_root = PlantGeom.RefMesh(:Root, cylinder())
 ```
 
 A simple function to read the vertices and faces from the .ply file for our leaves:
@@ -83,7 +83,7 @@ function read_ply(fname)
 end
 
 leaf_ply = read_ply("examples/leaf_with_petiole.ply")
-refmesh_leaf = PlantGeom.RefMesh("Leaf", leaf_ply)
+refmesh_leaf = PlantGeom.RefMesh(:Leaf, leaf_ply)
 ```
 
 ```julia
@@ -116,7 +116,7 @@ function add_geometry!(mtg, refmesh_internode)
     internode_length = 1.0
 
     traverse!(mtg) do node
-        if symbol(node) == "Internode"
+        if symbol(node) == :Internode
             # Set to scale, then translate by the total height
             mesh_transformation = Meshes.Scale(internode_width, internode_width, internode_length) → Meshes.Translate(0.0, 0.0, internode_height)
             node.geometry = PlantGeom.Geometry(ref_mesh=refmesh_internode, transformation=mesh_transformation)
@@ -177,7 +177,7 @@ function add_geometry!(mtg, refmesh_internode, refmesh_root, refmesh_leaf)
     i = 0
 
     traverse!(mtg) do node
-        if symbol(node) == "Internode"
+        if symbol(node) == :Internode
             # Set to scale, then translate by the total height
             mesh_transformation = Meshes.Scale(internode_width, internode_width, internode_length) → Meshes.Translate(0.0, 0.0, internode_height)
             node.geometry = PlantGeom.Geometry(ref_mesh=refmesh_internode, transformation=mesh_transformation)
@@ -186,7 +186,7 @@ function add_geometry!(mtg, refmesh_internode, refmesh_root, refmesh_leaf)
 
             # Leaves are placed relatively to the parent internode, halfway along it
             for chnode in children(node)               
-                if symbol(chnode) == "Leaf" 
+                if symbol(chnode) == :Leaf 
                     mesh_transformation = Meshes.Scale(leaf_scale_width, leaf_scale_width, leaf_scale_height) → Meshes.Rotate(RotX(-MathConstants.pi / 6.0)) → Meshes.Translate(0.0, -internode_width, internode_height - internode_length / 2.0) → Meshes.Rotate(RotZ(leaf_rotation))
                     chnode.geometry = PlantGeom.Geometry(ref_mesh=refmesh_leaf, transformation=mesh_transformation)
                     # Set the second leaf in a pair opposite to the first one => add a 180° rotation
@@ -202,7 +202,7 @@ function add_geometry!(mtg, refmesh_internode, refmesh_root, refmesh_leaf)
                 leaf_rotation = MathConstants.pi
             end
 
-        elseif symbol(node) == "Root"
+        elseif symbol(node) == :Root
             mesh_transformation = Meshes.Scale(root_width, root_width, root_length) → Meshes.Translate(0.0, 0.0, root_depth) → Meshes.Rotate(RotZ(MathConstants.pi))
             node.geometry = PlantGeom.Geometry(ref_mesh=refmesh_root, transformation=mesh_transformation)
             root_depth -= root_length

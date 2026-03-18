@@ -14,6 +14,7 @@
   - [Unique Features](#unique-features)
     - [Automatic Model Coupling](#automatic-model-coupling)
     - [Flexibility with Precision Control](#flexibility-with-precision-control)
+    - [Multi-rate Execution](#multi-rate-execution)
   - [Batteries included](#batteries-included)
   - [Ask Questions](#ask-questions)
   - [Installation](#installation)
@@ -21,6 +22,7 @@
     - [Simple example](#simple-example)
     - [Model coupling](#model-coupling)
     - [Multiscale modelling](#multiscale-modelling)
+    - [Multi-rate modelling](#multi-rate-modelling)
   - [Projects that use PlantSimEngine](#projects-that-use-plantsimengine)
   - [Performance](#performance)
   - [Make it yours](#make-it-yours)
@@ -48,11 +50,18 @@
 
 **Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
 
+### Multi-rate Execution
+
+**Mix model cadences in one simulation:** PlantSimEngine can run models at different timesteps within the same MTG simulation. This makes it possible to combine, for example, hourly leaf processes with daily plant balances and weekly reporting models without writing custom scheduling glue.
+
+**Explicit bindings between rates:** `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest` let you declare how model inputs, meteorology, and exported outputs should behave when rates differ.
+
 ## Batteries included
 
 - **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
 - **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
 - **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- **Multi-Rate Scheduling**: Combine hourly, daily, and coarser models in the same simulation, with explicit policies for input aggregation and meteorological sampling.
 - **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
 - **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
 - **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
@@ -92,7 +101,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 # Define the model:
-model = ModelList(
+model = ModelMapping(
     ToyLAIModel(),
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
@@ -136,27 +145,27 @@ lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)",
 
 ### Model coupling
 
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
 
 ```julia
-# ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+# ] add PlantSimEngine, PlantMeteo, Dates
+using PlantSimEngine, PlantMeteo, Dates
 
 # Include the model definition from the examples folder:
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Define the list of models for coupling:
-model = ModelList(
+model = ModelMapping(
     ToyLAIModel(),
     Beer(0.6),
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 ```
 
-The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
 
 ```
 ╭──── Dependency graph ──────────────────────────────────────────╮
@@ -223,7 +232,7 @@ fig
 The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
 
 ```julia
-mapping = Dict(
+mapping = ModelMapping(
     "Scene" => ToyDegreeDaysCumulModel(),
     "Plant" => (
         MultiScaleModel(
@@ -295,7 +304,7 @@ meteo = Weather(
 And run the simulation:
 
 ```julia
-out_vars = Dict(
+out_vars = ModelMapping(
     "Scene" => (:TT_cu,),
     "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
     "Leaf" => (:carbon_demand, :carbon_allocation),
@@ -336,6 +345,17 @@ sort!(df_out, [:timestep, :node])
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
 
 ![Plant growth simulation](docs/src/www/image.png)
+
+### Multi-rate modelling
+
+PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
+
+The dedicated documentation now has three pages: a short introduction to the
+core ideas, a fuller step-by-step tutorial, and an advanced configuration page:
+
+- [Introduction to multi-rate execution](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/introduction/)
+- [Step-by-step hourly, daily, weekly simulation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/multirate_tutorial/)
+- [Advanced multi-rate configuration](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/advanced_configuration/)
 
 ## Projects that use PlantSimEngine
 

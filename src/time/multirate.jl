@@ -1,0 +1,284 @@
+"""
+    ScopeId(kind, id)
+
+Identifier for a simulation scope (e.g. global scene or plant).
+"""
+struct ScopeId
+    kind::Symbol
+    id::Int
+end
+
+"""
+    ClockSpec(dt, phase)
+
+Clock definition for a model/process.
+
+# Details
+
+`dt` is the execution interval and `phase` is the offset of the execution grid.
+In the current runtime, simulation steps are indexed as `t = 1, 2, 3, ...` (1-based).
+A model runs when `t` is aligned with its clock.
+
+# Examples
+
+With `dt=24`:
+- `ClockSpec(24.0, 1.0)` runs at `t = 1, 25, 49, ...`
+- `ClockSpec(24.0, 0.0)` runs at `t = 24, 48, 72, ...`
+"""
+struct ClockSpec{T<:Real}
+    dt::T
+    phase::T
+end
+
+ClockSpec(dt::T) where {T<:Real} = ClockSpec{T}(dt, zero(T))
+
+"""
+    ModelKey(scope, scale, process)
+
+Unique key for one model process in one scope and scale.
+"""
+struct ModelKey
+    scope::ScopeId
+    scale::Symbol
+    process::Symbol
+end
+
+"""
+    OutputKey(scope, scale, node_id, process, var)
+
+Unique key for one producer output stream.
+"""
+struct OutputKey
+    scope::ScopeId
+    scale::Symbol
+    node_id::Int
+    process::Symbol
+    var::Symbol
+end
+
+abstract type SchedulePolicy end
+
+"""
+    HoldLast()
+
+Use the latest available producer value.
+"""
+struct HoldLast <: SchedulePolicy end
+
+function _as_schedule_policy(policy; context::AbstractString="schedule policy")
+    if policy isa DataType
+        policy <: SchedulePolicy || error(
+            "Unsupported $(context) type `$(policy)`. ",
+            "Expected a `SchedulePolicy` type or instance."
+        )
+        return try
+            policy()
+        catch
+            error(
+                "Unsupported $(context) type `$(policy)`: ",
+                "this policy type cannot be instantiated without arguments. ",
+                "Provide a policy instance instead."
+            )
+        end
+    elseif policy isa SchedulePolicy
+        return policy
+    end
+
+    error(
+        "Unsupported $(context) value `$(policy)` of type `$(typeof(policy))`. ",
+        "Expected a `SchedulePolicy` type or instance."
+    )
+end
+
+const _INTERPOLATE_MODES = (:linear, :hold)
+
+"""
+    Interpolate()
+    Interpolate(mode)
+    Interpolate(mode, extrapolation)
+    Interpolate(; mode=:linear, extrapolation=:linear)
+
+Interpolation policy for fast consumers reading slower producer streams.
+
+Supported modes:
+- `:linear`: linear interpolation between bracket points for real values
+- `:hold`: left-hold (previous sample)
+
+Supported extrapolation modes when no future sample exists:
+- `:linear`: linear extrapolation from last two samples when possible
+- `:hold`: keep the latest sample
+"""
+struct Interpolate{M<:Symbol,E<:Symbol} <: SchedulePolicy
+    mode::M
+    extrapolation::E
+end
+
+Interpolate(mode::Symbol) = Interpolate(mode, :linear)
+Interpolate(; mode::Symbol=:linear, extrapolation::Symbol=:linear) = Interpolate(mode, extrapolation)
+
+"""
+    Integrate()
+    Integrate(reducer)
+
+Windowed policy for consumers running at coarser clocks.
+Values in the consumer window are reduced with `reducer`.
+
+Intended meaning: integrate/accumulate quantities over a window (for example
+hourly flux to daily total). Default reducer is `SumReducer()`.
+
+Important: `Integrate(r)` and `Aggregate(r)` are runtime-equivalent when they
+use the same reducer `r`; they only differ by default reducer and naming intent.
+
+Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
+`LastReducer()`.
+You can also provide a callable taking either:
+- `values`
+- `values, durations_seconds`
+"""
+struct Integrate{R} <: SchedulePolicy
+    reducer::R
+    function Integrate(reducer)
+        normalized = _normalize_policy_reducer(reducer)
+        return new{typeof(normalized)}(normalized)
+    end
+end
+
+"""
+    Aggregate()
+    Aggregate(reducer)
+
+Windowed aggregation policy for consumers running at coarser clocks.
+Values in the consumer window are reduced with `reducer`.
+
+Intended meaning: summarize window values as a statistic (for example mean/max).
+Default reducer is `MeanReducer()`.
+
+Important: `Aggregate(r)` and `Integrate(r)` are runtime-equivalent when they
+use the same reducer `r`; they only differ by default reducer and naming intent.
+
+Built-in reducers can be shared with meteo sampling from `PlantMeteo`:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`,
+`LastReducer()`.
+You can also provide a callable taking either:
+- `values`
+- `values, durations_seconds`
+"""
+struct Aggregate{R} <: SchedulePolicy
+    reducer::R
+    function Aggregate(reducer)
+        normalized = _normalize_policy_reducer(reducer)
+        return new{typeof(normalized)}(normalized)
+    end
+end
+
+function _normalize_policy_reducer(reducer)
+    if reducer isa DataType
+        reducer <: PlantMeteo.AbstractTimeReducer || error(
+            "Unsupported reducer type `$(reducer)`. ",
+            "Use a PlantMeteo reducer type/instance or a callable."
+        )
+        return reducer()
+    elseif reducer isa PlantMeteo.AbstractTimeReducer
+        return reducer
+    elseif reducer isa Function
+        return reducer
+    end
+
+    error(
+        "Unsupported reducer value `$(reducer)` of type `$(typeof(reducer))`. ",
+        "Use a PlantMeteo reducer type/instance or a callable."
+    )
+end
+
+Integrate() = Integrate(PlantMeteo.SumReducer())
+
+Aggregate() = Aggregate(PlantMeteo.MeanReducer())
+
+abstract type OutputCache end
+
+mutable struct HoldLastCache{T} <: OutputCache
+    t::Float64
+    v::T
+end
+
+mutable struct InterpolateCache{T} <: OutputCache
+    t_prev::Float64
+    v_prev::T
+    t_curr::Float64
+    v_curr::T
+end
+
+mutable struct IntegrateCache{T<:Real} <: OutputCache
+    t_prev::Float64
+    v_prev::T
+    acc::T
+    window_start::Float64
+end
+
+mutable struct AggregateCache{T<:Real} <: OutputCache
+    acc::T
+    n::Int
+    window_start::Float64
+end
+
+"""
+    ExportBuffer()
+
+Compact in-memory storage for requested output rows during runtime.
+"""
+mutable struct ExportBuffer{
+    P<:Symbol,
+    V<:Symbol,
+    TI<:AbstractVector{Int},
+    NI<:AbstractVector{Int},
+    VV<:AbstractVector{Any},
+}
+    scale::Symbol
+    process::P
+    var::V
+    timestep::TI
+    node::NI
+    value::VV
+end
+
+ExportBuffer(scale::Symbol, process::Symbol, var::Symbol) = ExportBuffer(scale, process, var, Int[], Int[], Any[])
+
+"""
+    TemporalState(caches, last_run, streams, producer_horizons, export_plans, export_rows)
+    TemporalState()
+
+Temporal storage for multi-rate simulations.
+`caches` stores producer hold-last outputs.
+`last_run` stores last execution time per model key.
+`streams` stores bounded producer `(time, value)` samples used for windowed and
+interpolated policies.
+`producer_horizons` stores required retention horizon per producer
+`(scale, process, var)`.
+`export_plans` stores resolved online export requests prepared before the run.
+`export_rows` stores online-exported rows keyed by request name.
+"""
+mutable struct TemporalState{
+    C<:AbstractDict{OutputKey,OutputCache},
+    L<:AbstractDict{ModelKey,Float64},
+    S<:AbstractDict{OutputKey,Vector{Tuple{Float64,Any}}},
+    H<:AbstractDict{Tuple{Symbol,Symbol,Symbol},Float64},
+    P<:AbstractVector,
+    R<:AbstractDict{Symbol,ExportBuffer}
+}
+    caches::C
+    last_run::L
+    streams::S
+    producer_horizons::H
+    export_plans::P
+    export_rows::R
+end
+
+TemporalState() = TemporalState(
+    Dict{OutputKey,OutputCache}(),
+    Dict{ModelKey,Float64}(),
+    Dict{OutputKey,Vector{Tuple{Float64,Any}}}(),
+    Dict{Tuple{Symbol,Symbol,Symbol},Float64}(),
+    Any[],
+    Dict{Symbol,ExportBuffer}()
+)

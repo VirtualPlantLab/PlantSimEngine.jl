@@ -5,7 +5,7 @@ Get the variables for each organ type from a dependency graph, with `MappedVar`s
 
 # Arguments
 
-- `mapping::Dict{String,T}`: the mapping between models and scales.
+- `mapping::ModelMapping` (or dictionary-like mapping): the mapping between models and scales.
 - `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
 However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
 nodes under other models.
@@ -42,7 +42,7 @@ Get the variables for each organ type from a dependency graph, without the varia
 
 # Arguments
 
-- `mapping::Dict{String,T}`: the mapping between models and scales.
+- `mapping::ModelMapping` (or dictionary-like mapping): the mapping between models and scales.
 - `dependency_graph::DependencyGraph`: the first-order dependency graph where each model in the mapping is assigned a node. 
 However, models that are identified as hard-dependencies are not given individual nodes. Instead, they are nested as child 
 nodes under other models.
@@ -56,8 +56,8 @@ see `mapped_variables_with_outputs_as_inputs` for that.
  """
 function mapped_variables_no_outputs_from_other_scale(mapping, dependency_graph=first(hard_dependencies(mapping; verbose=false)))
     nodes_insouts = Dict(organ => (inputs=ins, outputs=outs) for (organ, (soft_dep_graph, ins, outs)) in dependency_graph.roots)
-    ins = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
-    outs = Dict{String,NamedTuple}(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
+    ins = Dict{Symbol,NamedTuple}(organ => flatten_vars(vcat(values(ins)...)) for (organ, (ins, outs)) in nodes_insouts)
+    outs = Dict{Symbol,NamedTuple}(organ => flatten_vars(vcat(values(outs)...)) for (organ, (ins, outs)) in nodes_insouts)
 
     return Dict(:inputs => ins, :outputs => outs)
 end
@@ -69,15 +69,16 @@ For each organ in the `mapped_vars`, find the variables that are outputs from an
 This function is used with mapped_variables
 """
 function variables_outputs_from_other_scale(mapped_vars)
-    vars_outputs_from_scales = Dict{String,Vector{Pair{Symbol,Any}}}()
+    vars_outputs_from_scales = Dict{Symbol,Vector{Pair{Symbol,Any}}}()
     # Scale at which we have to add a variable => [(source_process, source_scale, variable), ...]
     for (organ, outs) in mapped_vars[:outputs] # organ = "Leaf" ; outs = mapped_vars[:outputs][organ]
         for (var, val) in pairs(outs) # var = :carbon_biomass ; val = outs[1]
             if isa(val, MappedVar)
                 orgs = mapped_organ(val)
-                orgs_iterable = isa(orgs, AbstractString) ? [orgs] : orgs
+                isnothing(orgs) && continue
+                orgs_iterable = isa(orgs, Symbol) ? Symbol[orgs] : Symbol[orgs...]
 
-                filter!(o -> length(o) > 0, orgs_iterable)
+                filter!(o -> o != Symbol(""), orgs_iterable)
                 length(orgs_iterable) == 0 && continue # This can happen when we use a PreviousTimeStep alone
 
                 for o in orgs_iterable
@@ -157,14 +158,14 @@ end
 Find variables that are inputs to other scales as a `SingleNodeMapping` and declare them as MappedVar from themselves in the source scale.
 This helps us declare it as a reference when we create the template status objects.
 
-These node are found in the mapping as `[:variable_name => "Plant"]` (notice that "Plant" is a scalar value).
+These node are found in the mapping as `[:variable_name => :Plant]` (notice that `:Plant` is a scalar value).
 """
 function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
     for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs][organ]
         for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
-                source_organ == "" && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
+                source_organ == Symbol("") && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
                 @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
 
                 @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
@@ -202,7 +203,7 @@ Get the default value of a variable from a mapping.
 
 # Arguments
 
-- `mapped_vars::Dict{String,Dict{Symbol,Any}}`: the variables mapped to each organ.
+- `mapped_vars::Dict{Symbol,Dict{Symbol,Any}}`: the variables mapped to each organ.
 - `val::Any`: the variable to get the default value of.
 - `mapping_stacktrace::Vector{Any}`: the stacktrace of the search for the value in ascendind the mapping.
 """
@@ -213,9 +214,9 @@ function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], l
         level += 1
         # Find the default value of the variable from the scale it is mapping into (upper scale):
         m_organ = mapped_organ(val)
-        m_organ == "" && return mapped_default(val) # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
+        m_organ == Symbol("") && return mapped_default(val) # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
 
-        if isa(m_organ, AbstractString)
+        if isa(m_organ, Symbol)
             m_organ = [m_organ]
         end
         default_vals = []
@@ -250,14 +251,14 @@ Get the default values for the mapped variables by recursively searching from th
 
 # Arguments
 
-- `mapped_vars::Dict{String,Dict{Symbol,Any}}`: the variables mapped to each organ.
+- `mapped_vars::Dict{Symbol,Dict{Symbol,Any}}`: the variables mapped to each organ.
 - `verbose::Bool`: whether to print the stacktrace of the search for the default value in the mapping.
 """
 function default_variables_from_mapping(mapped_vars, verbose=true)
-    mapped_vars_mutable = Dict{String,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
+    mapped_vars_mutable = Dict{Symbol,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
     for (organ, vars) in mapped_vars # organ = "Leaf"; vars = mapped_vars[organ]
         for (var, val) in pairs(vars) # var = :carbon_biomass; val = getproperty(vars,var)
-            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && mapped_organ(val) != ""
+            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && mapped_organ(val) != Symbol("")
                 mapping_stacktrace = Any[(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][var]), level=1)]
                 default_value = get_multiscale_default_value(mapped_vars, val, mapping_stacktrace)
                 mapped_vars_mutable[organ][var] = MappedVar(source_organs(val), mapped_variable(val), source_variable(val), default_value)
@@ -280,13 +281,13 @@ end
 
 
 """
-    convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+    convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
 
 Convert the variables that are `MappedVar{SelfNodeMapping}` or `MappedVar{SingleNodeMapping}` to RefValues that reference a 
 common value for the variable; and convert `MappedVar{MultiNodeMapping}` to RefVectors that reference the values for the
 variable in the source organs.
 """
-function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
+function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
     # For the variables that will be RefValues, i.e. referencing a value that exists for different scales, we need to first 
     # create a common reference to the value that we use wherever we need this value. These values are created in the dict_mapped_vars
     # Dict, and then referenced from there every time we point to it.
@@ -298,7 +299,7 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
         for (k, v) in vars # e.g.: k = :aPPFD_larger_scale; v = vars[k]
             if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
                 mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
-                mapped_org == "" && continue
+                mapped_org == Symbol("") && continue
                 key = mapped_org => source_variable(v)
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
@@ -338,7 +339,7 @@ function convert_reference_values!(mapped_vars::Dict{String,Dict{Symbol,Any}})
     # Third pass: getting the same reference for the variables that are mapped at the same scale to another variable (changing its name):
     for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
-            if isa(v, MappedVar) && mapped_organ(v) == ""
+            if isa(v, MappedVar) && mapped_organ(v) == Symbol("")
                 mapped_var = mapped_variable(v)
                 isa(mapped_var, PreviousTimeStep) && (mapped_var = mapped_var.variable)
                 if mapped_var == source_variable(v)

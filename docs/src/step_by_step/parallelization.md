@@ -12,6 +12,7 @@ That means that you can provide any compatible executor to the `executor` argume
 ### Parallel traits
 
 `PlantSimEngine.jl` uses [Holy traits](https://invenia.github.io/blog/2019/11/06/julialang-features-part-2/) to define if a model can be run in parallel.
+See also [Model traits](../model_traits.md) for a full inventory of model-level traits.
 
 !!! note
     A model is executable in parallel over time-steps if it does not uses or set values from other time-steps, and over objects if it does not uses or set values from other objects.

@@ -3,13 +3,13 @@
 ```@setup usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, MultiScaleTreeGraph, CSV
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using PlantMeteo, Dates, MultiScaleTreeGraph
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
@@ -22,16 +22,17 @@ In the [Converting a single-scale simulation to multi-scale](@ref) page, a singl
 ### Single-scale simulation
 
 ```@example usepkg
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models_singlescale = ModelList(
+models_singlescale = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyRUEGrowthModel(0.2),
+    ToyRUEGrowthModel(0.2);
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 outputs_singlescale = run!(models_singlescale, meteo_day)
+outputs_singlescale[1:3,:] # show the first 3 rows of the output
 ```
 
 ### Multi-scale equivalent 
@@ -54,13 +55,13 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=0.0,)
 end
 
-mapping_multiscale = Dict(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+mapping_multiscale = ModelMapping(
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -68,8 +69,8 @@ mapping_multiscale = Dict(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
@@ -77,13 +78,13 @@ outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ### Output comparison
 
 ```@setup usepkg
-mapping_multiscale = Dict(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+mapping_multiscale = ModelMapping(
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -91,15 +92,15 @@ mapping_multiscale = Dict(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 0, 0),)
-    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 0, 0),)
+    plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ```
 
 ```@example usepkg
 
-computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+computed_TT_cu_multiscale = [outputs_multiscale[:Scene][i].TT_cu for i in 1:length(outputs_multiscale[:Scene])]
 is_approx_equal = length(unique(computed_TT_cu_multiscale .≈ outputs_singlescale.TT_cu)) == 1
 ```
 
@@ -108,7 +109,7 @@ Why was the comparison only approximate ? Why `≈` instead of `==`?
 Let's try it out. What if write instead:
 
 ```@example usepkg
-computed_TT_cu_multiscale = [outputs_multiscale["Scene"][i].TT_cu for i in 1:length(outputs_multiscale["Scene"])]
+computed_TT_cu_multiscale = [outputs_multiscale[:Scene][i].TT_cu for i in 1:length(outputs_multiscale[:Scene])]
 is_perfectly_equal = length(unique(computed_TT_cu_multiscale .== outputs_singlescale.TT_cu)) == 1
 ```
 

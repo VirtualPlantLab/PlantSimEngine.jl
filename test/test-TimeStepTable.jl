@@ -54,8 +54,11 @@
     end
     @test ts.Ra_SW_f == [4.0, 4.0]
 
-    # Setting all values in a column at once:
-    ts.Ra_SW_f = [5.0, 5.0]
+    # Setting all values in a column at once through row access:
+    # PlantMeteo.TimeStepTable no longer supports direct vector assignment for Status-backed rows.
+    for (row, value) in zip(Tables.rows(ts), [5.0, 5.0])
+        row.Ra_SW_f = value
+    end
     @test ts.Ra_SW_f == [5.0, 5.0]
 
     # Testing transforming into a DataFrame:

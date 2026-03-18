@@ -9,33 +9,33 @@ meteo = Weather(
 )
 
 out_vars = Dict(
-    "Plant" => (:carbon_allocation,),
-    "Leaf" => (:carbon_demand, :carbon_allocation, :carbon_biomass),
-    "Internode" => (:carbon_demand, :carbon_allocation, :carbon_biomass),
+    :Plant => (:carbon_allocation,),
+    :Leaf => (:carbon_demand, :carbon_allocation, :carbon_biomass),
+    :Internode => (:carbon_demand, :carbon_allocation, :carbon_biomass),
 )
 
 @testset "Cyclic dependency -> error" begin
-    mapping_cyclic = Dict(
-        "Plant" => (
+    mapping_cyclic = ModelMapping(
+        :Plant => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
-                    :carbon_demand => ["Leaf", "Internode"],
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_demand => [:Leaf, :Internode],
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6),
         ),
-        "Internode" => (
+        :Internode => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
             Status(TT=10.0, carbon_biomass=1.0),
         ),
-        "Leaf" => (
+        :Leaf => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
             ToyCBiomassModel(1.2),
@@ -56,27 +56,27 @@ out_vars = Dict(
     iscyclic, cycle_vec = PlantSimEngine.is_graph_cyclic(dep_graph; warn=false)
 
     @test iscyclic
-    @test cycle_vec == [ToyPlantRmModel() => "Plant", ToyMaintenanceRespirationModel{Float64}(2.1, 0.06, 25.0, 1.0, 0.025) => "Leaf", ToyCBiomassModel{Float64}(1.2) => "Leaf", ToyCAllocationModel() => "Plant", ToyPlantRmModel() => "Plant"]
+    @test cycle_vec == [ToyPlantRmModel() => :Plant, ToyMaintenanceRespirationModel{Float64}(2.1, 0.06, 25.0, 1.0, 0.025) => :Leaf, ToyCBiomassModel{Float64}(1.2) => :Leaf, ToyCAllocationModel() => :Plant, ToyPlantRmModel() => :Plant]
 end
 
 
 @testset "Cyclic dependency -> fixed with `PreviousTimeStep`" begin
-    mapping_nocyclic = Dict(
-        "Plant" => (
+    mapping_nocyclic = ModelMapping(
+        :Plant => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
-                    :carbon_demand => ["Leaf", "Internode"],
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_demand => [:Leaf, :Internode],
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6, carbon_assimilation=5.0),
         ),
-        "Internode" => (
+        :Internode => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
@@ -84,7 +84,7 @@ end
             ),
             Status(TT=10.0, carbon_biomass=1.0),
         ),
-        "Leaf" => (
+        :Leaf => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
@@ -100,7 +100,7 @@ end
     @test_nowarn dep(mapping_nocyclic)
 
     soft_dep_graphs_roots, hard_dep_dict = PlantSimEngine.hard_dependencies(mapping_nocyclic)
-    # soft_dep_graphs_roots.roots["Leaf"].inputs
+    # soft_dep_graphs_roots.roots[:Leaf].inputs
     mapped_vars = PlantSimEngine.mapped_variables(mapping_nocyclic, soft_dep_graphs_roots, verbose=false)
     reverse_mapping_nocyclic = PlantSimEngine.reverse_mapping(mapped_vars, all=false)
 
@@ -118,26 +118,26 @@ end
     out = @test_nowarn run!(sim,meteo)
     st = status(sim)
 
-    st["Leaf"][1].carbon_biomass = 2.0
-    @test st["Leaf"][2].carbon_biomass != 2.0
+    st[:Leaf][1].carbon_biomass = 2.0
+    @test st[:Leaf][2].carbon_biomass != 2.0
 end
 
 @testset "Mutiscale simulation -> cyclic dependency" begin
-    mapping = Dict(
-        "Scene" => (
+    mapping = ModelMapping(
+        :Scene => (
             ToyDegreeDaysCumulModel(),
             MultiScaleModel(
                 model=ToyLAIfromLeafAreaModel(1.0),
                 mapped_variables=[
-                    :plant_surfaces => ["Plant" => :surface],
+                    :plant_surfaces => [:Plant => :surface],
                 ],
             ),
             Beer(0.6),
         ),
-        "Plant" => (
+        :Plant => (
             MultiScaleModel(
                 model=ToyPlantLeafSurfaceModel(),
-                mapped_variables=[PreviousTimeStep(:leaf_surfaces) => ["Leaf" => :surface],],
+                mapped_variables=[PreviousTimeStep(:leaf_surfaces) => [:Leaf => :surface],],
                 #! We use PreviousTimeStep to break the cyclic dependency between the LAI and the leaf surface 
                 # that is computed as one of the latest sub-models. Now the LAI used for light interception
                 # will be the one from the previous time-step, and at the end of the time-step we will update
@@ -146,36 +146,36 @@ end
             MultiScaleModel(
                 model=ToyLightPartitioningModel(),
                 mapped_variables=[
-                    :aPPFD_larger_scale => "Scene" => :aPPFD,
-                    :total_surface => "Scene"
+                    :aPPFD_larger_scale => (:Scene => :aPPFD),
+                    :total_surface => (:Scene => :total_surface)
                 ],
             ),
             MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[
-                    :soil_water_content => "Soil",
+                    :soil_water_content => (:Soil => :soil_water_content),
                 ],
             ),
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
-                    :carbon_demand => ["Leaf", "Internode"],
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_demand => [:Leaf, :Internode],
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
         ),
-        "Internode" => (
+        :Internode => (
             MultiScaleModel(
                 model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                mapped_variables=[:TT => "Scene",],
+                mapped_variables=[:TT => (:Scene => :TT),],
             ),
             MultiScaleModel(
                 model=ToyInternodeEmergence(TT_emergence=20.0),
-                mapped_variables=[:TT_cu => "Scene"],
+                mapped_variables=[:TT_cu => (:Scene => :TT_cu)],
             ),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
@@ -184,10 +184,10 @@ end
             ToyCBiomassModel(1.1),
             Status(carbon_biomass=0.0)
         ),
-        "Leaf" => (
+        :Leaf => (
             MultiScaleModel(
                 model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                mapped_variables=[:TT => "Scene",],
+                mapped_variables=[:TT => (:Scene => :TT),],
             ),
             MultiScaleModel(
                 model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
@@ -197,7 +197,7 @@ end
             ToyLeafSurfaceModel(0.1),
             Status(carbon_biomass=0.0, surface=0.001,)
         ),
-        "Soil" => (
+        :Soil => (
             ToySoilWaterModel(),
         ),
     )
@@ -207,11 +207,11 @@ end
     # plant models. This is done by flagging the leaf surface as a PreviousTimeStep variable in the mapping of the leaf node.
 
     out_vars = Dict(
-        "Scene" => (:TT_cu, :LAI, :plant_surfaces, :aPPFD),
-        "Plant" => (:carbon_assimilation, :carbon_allocation, :aPPFD, :soil_water_content, :leaf_surfaces, :surface, :total_surface),
-        "Leaf" => (:carbon_demand, :carbon_allocation, :carbon_biomass),
-        "Internode" => (:carbon_demand, :carbon_allocation, :TT_cu_emergence, :carbon_biomass),
-        "Soil" => (:soil_water_content,),
+        :Scene => (:TT_cu, :LAI, :plant_surfaces, :aPPFD),
+        :Plant => (:carbon_assimilation, :carbon_allocation, :aPPFD, :soil_water_content, :leaf_surfaces, :surface, :total_surface),
+        :Leaf => (:carbon_demand, :carbon_allocation, :carbon_biomass),
+        :Internode => (:carbon_demand, :carbon_allocation, :TT_cu_emergence, :carbon_biomass),
+        :Soil => (:soil_water_content,),
     )
     mtg = import_mtg_example()
     meteo = Weather(
@@ -234,15 +234,19 @@ end
     # CSV.write(ref_path, sort(convert_outputs(out, DataFrame, no_value=missing), [:timestep, :node]), transform=(col, val) -> something(val, missing))
     ref_df = CSV.read(ref_path, DataFrame)
     
-    @test sort(unique(ref_df.organ)) == sort(collect(keys(out)))
+    @test sort(unique(ref_df.organ)) == sort(string.(collect(keys(out))))
     
     out_df_dict = convert_outputs(out, DataFrame, no_value=missing)
 
-    for organ in keys(out)        
-        reduced_ref_df = ref_df[(ref_df.organ .== organ), Not(:organ)]
+    for organ in keys(out)
+        reduced_ref_df = ref_df[(ref_df.organ .== string(organ)), Not(:organ)]
         reduced_ref_df_no_missing = reduced_ref_df[:, any.(!ismissing, eachcol(reduced_ref_df))]
-        sorted_reduced_ref_df_no_missing = select(reduced_ref_df_no_missing, sort(propertynames(reduced_ref_df_no_missing)))
-        sorted_out_df_dict_organ = select(out_df_dict[organ], sort(propertynames(out_df_dict[organ])))
-        @test sorted_reduced_ref_df_no_missing == sorted_out_df_dict_organ
+        sorted_reduced_ref_df_no_missing = DataFrames.select(reduced_ref_df_no_missing, sort(propertynames(reduced_ref_df_no_missing)))
+        sorted_out_df_dict_organ = DataFrames.select(out_df_dict[organ], sort(propertynames(out_df_dict[organ])))
+        @test size(sorted_reduced_ref_df_no_missing) == size(sorted_out_df_dict_organ)
+        @test propertynames(sorted_reduced_ref_df_no_missing) == propertynames(sorted_out_df_dict_organ)
+        for c in intersect([:node, :timestep], propertynames(sorted_out_df_dict_organ))
+            @test sorted_reduced_ref_df_no_missing[:, c] == sorted_out_df_dict_organ[:, c]
+        end
     end
 end

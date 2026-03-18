@@ -3,10 +3,9 @@
 # (Write the actual finalised model explicitely instead)
 
 
-# The way we generate models from status vectors is to eval() code at runtime.
-# A simple custom timestep model provides the correct index to the generated models
-# This approach feels a little brittle but works. A (possible ?) improvement would be to directly fiddle with the AST, but it's a little more involved
-# Another approach might be to generate a string to be included with include_string, that might avoid awkward global variables and world age problems
+# Status vectors are turned into regular runtime models so they can participate in
+# dependency inference without relying on top-level eval or world-age-sensitive
+# method generation.
 
 # There will still be brittleness given that it's not trivial to handle user/modeler errors : 
 # For instance, providing a vector that is called in a scale mapping is likely to cause things to go badly
@@ -44,19 +43,44 @@ function PlantSimEngine.run!(m::HelperCurrentTimestepModel, models, status, mete
 PlantSimEngine.ObjectDependencyTrait(::Type{<:HelperNextTimestepModel}) = PlantSimEngine.IsObjectDependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:HelperNextTimestepModel}) = PlantSimEngine.IsTimeStepDependent()
 
+struct GeneratedStatusVectorModel{V<:AbstractVector} <: AbstractModel
+    process_name::Symbol
+    output_name::Symbol
+    values::V
+end
+
+process(model::GeneratedStatusVectorModel) = model.process_name
+PlantSimEngine.inputs_(::GeneratedStatusVectorModel) = (current_timestep=1,)
+PlantSimEngine.outputs_(model::GeneratedStatusVectorModel) = NamedTuple{(model.output_name,)}((first(model.values),))
+
+function PlantSimEngine.run!(model::GeneratedStatusVectorModel, models, status, meteo, constants=nothing, extra_args=nothing)
+    status[model.output_name] = model.values[status.current_timestep]
+end
+
+PlantSimEngine.ObjectDependencyTrait(::Type{<:GeneratedStatusVectorModel}) = PlantSimEngine.IsObjectDependent()
+PlantSimEngine.TimeStepDependencyTrait(::Type{<:GeneratedStatusVectorModel}) = PlantSimEngine.IsTimeStepDependent()
+
 
 # TODO should the new_status be copied ?
 # Note : User specifies at which level they want the basic timestep model to be inserted at, as well as the meteo length
 function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)
+    timestep_model_organ_level = _normalize_scale(
+        timestep_model_organ_level;
+        warn=timestep_model_organ_level isa AbstractString,
+        context=:ModelMapping
+    )
     
     (organ, check) = check_statuses_contain_no_remaining_vectors(mapping_with_vectors_in_status)
         if check
         @warn "No vectors, or types deriving from AbstractVector found in statuses, returning mapping as is."
-        return mapping_with_vectors_in_status
+        return mapping_with_vectors_in_status isa ModelMapping ? mapping_with_vectors_in_status : ModelMapping(mapping_with_vectors_in_status)
     end
 
     # we are now certain a model will be generated, and that the timestep models need to be inserted
-    mapping = Dict(organ => models for (organ, models) in mapping_with_vectors_in_status)
+    mapping = Dict(
+        _normalize_scale(organ; warn=organ isa AbstractString, context=:ModelMapping) => models
+        for (organ, models) in mapping_with_vectors_in_status
+    )
     for (organ,models) in mapping
         for status in models           
             if isa(status, Status)                
@@ -81,7 +105,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
         # insert timestep models wherever they're required
         if organ == timestep_model_organ_level
             # mapping at a given level can be a tuple or a single model
-            if isa(mapping[organ], AbstractModel) || isa(mapping[organ], MultiScaleModel)
+            if isa(mapping[organ], AbstractModel) || isa(mapping[organ], MultiScaleModel) || isa(mapping[organ], ModelSpec)
                 mapping[organ] = (
                     HelperNextTimestepModel(),
                     MultiScaleModel(
@@ -101,92 +125,64 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
         end
     end
 
-    return mapping
+    return ModelMapping(mapping)
 end
 
-# Note : eval works in global scope, and state synchronisation doesn't occur until one returns to top-level
-# This is to enable optimisations. See 'world-age problem'. The doc for eval currently isn't detailed enough.
-# Essentially, generating a struct with a process_ method and then immediately creating a simulation graph
-# that calls process_ will fail as it won't yet be defined since state hasn't synchronised. 
-# Returning a new mapping to top-level and *then* creating the graph will work.
-# The fact that eval works in global scope is also why we make use of some global variables here
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ, nsteps)
-    
-    # Note : 534f1c161f91bb346feba1a84a55e8251f5ad446 is a prefix to reduce likelihood of global variable name conflicts
-    # it is the hash generated by bytes2hex(sha1("PlantSimEngine_prototype"))
-    # If this function is hard to read, copy it into a temporary file and remove the hash suffix
+    timestep_scale = _normalize_scale(timestep_scale; warn=timestep_scale isa AbstractString, context=:ModelMapping)
+    organ = _normalize_scale(organ; warn=organ isa AbstractString, context=:ModelMapping)
 
     # Ah, another point that remains to be seen is that those CSV.SentinelArrays.ChainedVector obtained from the meteo file isn't an AbstractVector
     # meaning currently we won't generate models from them unless the conversion is made before that
     # So another minor potential improvement would be to return a warning to the user and do the conversion when generating the model
     # See the test code in test-mapping.jl : cumsum(meteo_day.TT) returns such a data structure
 
-    global generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = ()
-    global new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = Status(NamedTuple())
-   
-    for symbol in keys(status)
-        global value_534f1c161f91bb346feba1a84a55e8251f5ad446 = getproperty(status, symbol)
-        if isa(value_534f1c161f91bb346feba1a84a55e8251f5ad446, AbstractVector)
-            @assert length(value_534f1c161f91bb346feba1a84a55e8251f5ad446) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
-            # TODO : Might need to fiddle with timesteps here in the future in case of varying timestep models
-            @assert nsteps == length(value_534f1c161f91bb346feba1a84a55e8251f5ad446) "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector length doesn't match the expected # of timesteps"
-            var_type = eltype(value_534f1c161f91bb346feba1a84a55e8251f5ad446)
-            base_name = string(symbol) * bytes2hex(sha1(join(value_534f1c161f91bb346feba1a84a55e8251f5ad446)))
-            process_name = lowercase(base_name)
-  
-            var_titlecase::String = titlecase(base_name)
-            model_name = "My$(var_titlecase)Model"
-            process_abstract_name = "Abstract$(var_titlecase)Model"
-            var_vector = "$(symbol)_vector"
+    generated_models = Any[]
+    new_status_names = Symbol[]
+    new_status_values = Any[]
 
-            abstract_process_decl = "abstract type $process_abstract_name <: PlantSimEngine.AbstractModel end"
-            eval(Meta.parse(abstract_process_decl))
-            
-            process_name_decl = "PlantSimEngine.process_(::Type{$process_abstract_name}) = :$process_name"
-            eval(Meta.parse(process_name_decl))
-    
-            struct_decl::String = "struct $model_name <: $process_abstract_name \n$var_vector::Vector{$var_type} \nend\n"
-            eval(Meta.parse(struct_decl))
-            
-            inputs_decl::String = "function PlantSimEngine.inputs_(::$model_name)\n(current_timestep=1,)\nend\n"
-            eval(Meta.parse(inputs_decl))
-    
-            default_value = value_534f1c161f91bb346feba1a84a55e8251f5ad446[1]
-            outputs_decl::String = "function PlantSimEngine.outputs_(::$model_name)\n($symbol=$default_value,)\nend\n"
-            eval(Meta.parse(outputs_decl))
-    
-            constructor_decl =  "$model_name(; $var_vector = Vector{$var_type}()) = $model_name($var_vector)\n"
-            eval(Meta.parse(constructor_decl))
-    
-            run_decl = "function PlantSimEngine.run!(m::$model_name, models, status, meteo, constants=nothing, extra_args=nothing)\nstatus.$symbol = m.$var_vector[status.current_timestep]\nend\n"
-            eval(Meta.parse(run_decl))
-    
-            model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., $model_name($var_vector=$value_534f1c161f91bb346feba1a84a55e8251f5ad446),)"
+    for symbol in keys(status)
+        value = getproperty(status, symbol)
+        if isa(value, AbstractVector)
+            @assert length(value) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
+            # TODO : Might need to fiddle with timesteps here in the future in case of varying timestep models
+            @assert nsteps == length(value) "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector length doesn't match the expected # of timesteps"
+
+            process_name = Symbol(lowercase(string(symbol) * bytes2hex(sha1(repr(value)))))
+            model = GeneratedStatusVectorModel(process_name, symbol, value)
 
             # if :current_timestep is not in the same scale
             if timestep_scale != organ
-                model_add_decl = "generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446 = (generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446..., MultiScaleModel(model=$model_name($value_534f1c161f91bb346feba1a84a55e8251f5ad446), mapped_variables=[:current_timestep=>\"$timestep_scale\"],),)"
-            end 
-       
-        eval(Meta.parse(model_add_decl))
+                push!(
+                    generated_models,
+                    MultiScaleModel(
+                        model=model,
+                        mapped_variables=[:current_timestep => (timestep_scale => :current_timestep)],
+                    )
+                )
+            else
+                push!(generated_models, model)
+            end
         else
-            new_status_decl = "new_status_534f1c161f91bb346feba1a84a55e8251f5ad446 = Status(; NamedTuple(new_status_534f1c161f91bb346feba1a84a55e8251f5ad446)..., $symbol=$value_534f1c161f91bb346feba1a84a55e8251f5ad446)"
-            eval(Meta.parse(new_status_decl))
+            push!(new_status_names, symbol)
+            push!(new_status_values, value)
         end
     end
-    
-    @assert length(status) == length(new_status_534f1c161f91bb346feba1a84a55e8251f5ad446) + length(generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446) "Error during generation of models from vector values provided at the $organ-level status"
-    return new_status_534f1c161f91bb346feba1a84a55e8251f5ad446, generated_models_534f1c161f91bb346feba1a84a55e8251f5ad446
+
+    new_status = Status(NamedTuple{Tuple(new_status_names)}(Tuple(new_status_values)))
+    generated_models_tuple = Tuple(generated_models)
+
+    @assert length(status) == length(new_status) + length(generated_models_tuple) "Error during generation of models from vector values provided at the $organ-level status"
+    return new_status, generated_models_tuple
 end
 
 
-# This is a helper function only for testing purposes, but it makes sense to include it here since it calls 
-# generate_model_from_status_vector_variable, which has those awkward global variables
+# This is a helper function only for testing purposes.
 function modellist_to_mapping(modellist_original::ModelList, modellist_status; nsteps=nothing, outputs=nothing)
     
     modellist = Base.copy(modellist_original, modellist_original.status)
 
-    default_scale = "Default"
+    default_scale = :Default
     mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", default_scale, 0, 0),)
 
     models = modellist.models
@@ -214,11 +210,11 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
         ),
     )
     )
-    timestep_scale = "Default"
-    organ = "Default"
+    timestep_scale = :Default
+    organ = :Default
  
     # todo improve on this
-    st = (last(mapping_incomplete["Default"]))
+    st = last(mapping_incomplete[:Default])
     new_status, generated_models = generate_model_from_status_vector_variable(mapping_incomplete, timestep_scale, st, organ, nsteps)
 
     mapping = Dict(default_scale => (
@@ -251,14 +247,18 @@ function modellist_to_mapping(modellist_original::ModelList, modellist_status; n
         # TODO sanity check
     end
 
-    return mtg, mapping, Dict(default_scale => all_vars)
+    return mtg, ModelMapping(mapping), Dict(default_scale => all_vars)
+end
+
+function modellist_to_mapping(mapping::ModelMapping{SingleScale}, modellist_status; nsteps=nothing, outputs=nothing)
+    modellist_to_mapping(mapping.data, modellist_status; nsteps=nsteps, outputs=outputs)
 end
 
 function check_statuses_contain_no_remaining_vectors(mapping)
     for (organ,models) in mapping
 
         # Special case (scales that map to a single-model don't need to be declared as a tuple for user-convenience)
-        if isa(models, AbstractModel) || isa(models, MultiScaleModel)
+        if isa(models, AbstractModel) || isa(models, MultiScaleModel) || isa(models, ModelSpec)
             continue
         end
 
@@ -273,5 +273,5 @@ function check_statuses_contain_no_remaining_vectors(mapping)
             end
         end
     end
-    return ("", true)
+    return (Symbol(""), true)
 end

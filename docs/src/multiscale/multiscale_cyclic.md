@@ -10,27 +10,27 @@ For example the following mapping will raise an error:
     <summary>Example mapping</summary>
     
     ```julia
-    mapping_cyclic = Dict(
-        "Plant" => (
+    mapping_cyclic = ModelMapping(
+        :Plant => (
             MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
-                    :carbon_demand => ["Leaf", "Internode"],
-                    :carbon_allocation => ["Leaf", "Internode"]
+                    :carbon_demand => [:Leaf, :Internode],
+                    :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
             MultiScaleModel(
                 model=ToyPlantRmModel(),
-                mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
             Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6),
         ),
-        "Internode" => (
+        :Internode => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
             Status(TT=10.0, carbon_biomass=1.0),
         ),
-        "Leaf" => (
+        :Leaf => (
             ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
             ToyCBiomassModel(1.2),
@@ -72,22 +72,22 @@ We can fix our previous mapping by computing the organs respiration using the ca
 
 !!! details
     ```@julia
-    mapping_nocyclic = Dict(
-            "Plant" => (
+    mapping_nocyclic = ModelMapping(
+            :Plant => (
                 MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapping=[
-                        :carbon_demand => ["Leaf", "Internode"],
-                        :carbon_allocation => ["Leaf", "Internode"]
+                        :carbon_demand => [:Leaf, :Internode],
+                        :carbon_allocation => [:Leaf, :Internode]
                     ],
                 ),
                 MultiScaleModel(
                     model=ToyPlantRmModel(),
-                    mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+                    mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
                 Status(total_surface=0.001, aPPFD=1300.0, soil_water_content=0.6, carbon_assimilation=5.0),
             ),
-            "Internode" => (
+            :Internode => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
@@ -95,7 +95,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
                 ),
                 Status(TT=10.0, carbon_biomass=1.0),
             ),
-            "Leaf" => (
+            :Leaf => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                 MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
@@ -112,4 +112,4 @@ The `ToyMaintenanceRespirationModel` models are now defined as [`MultiScaleModel
 
 !!! note
     [`PreviousTimeStep`](@ref) tells PlantSimEngine to take the value of the previous time step for the variable it wraps, or the value at initialization for the first time step. The value at initialization is the one provided by default in the models inputs, but is usually provided in the [`Status`](@ref) structure to override this default.
-    A [`PreviousTimeStep`](@ref) is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `PreviousTimeStep(:carbon_biomass) => "Leaf"`.
+    A [`PreviousTimeStep`](@ref) is used to wrap the **input** variable of a model, with or without a mapping to another scale *e.g.* `PreviousTimeStep(:carbon_biomass) => :Leaf`.

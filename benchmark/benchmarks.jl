@@ -1,11 +1,3 @@
-using Pkg
-Pkg.activate(dirname(@__FILE__))
-#Pkg.develop(PackageSpec(path=dirname(dirname(@__DIR__))))
-Pkg.add(url="https://github.com/VEZY/PlantBiophysics.jl", rev="master")
-Pkg.add(url="https://github.com/PalmStudio/XPalm.jl", rev="main")
-Pkg.resolve()
-Pkg.instantiate()
-
 using PlantSimEngine
 using PlantSimEngine.Examples
 using DataFrames, CSV
@@ -31,6 +23,12 @@ SUITE[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
 include("test-PSE-benchmark.jl")
 SUITE[suite_name]["PSE"] = @benchmarkable do_benchmark_on_heavier_mtg()
 
+if isdefined(PlantSimEngine, :ModelSpec) # Only in new versions
+    include("test-multirate-buffer-benchmark.jl")
+    mtg_mr, mapping_mr, meteo_mr, reqs_mr, tracked_mr, nsteps_mr = setup_multirate_buffer_benchmark()
+    SUITE[suite_name]["PSE_multirate_status_tracked_run"] = @benchmarkable benchmark_multirate_status_tracked_run($mtg_mr, $mapping_mr, $meteo_mr, $tracked_mr, $nsteps_mr)
+    SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run($mtg_mr, $mapping_mr, $meteo_mr, $reqs_mr, $tracked_mr, $nsteps_mr)
+end
 # "PBP benchmark"
 include("test-plantbiophysics.jl")
 SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()

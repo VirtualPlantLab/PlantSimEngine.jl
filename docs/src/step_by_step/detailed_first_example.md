@@ -7,10 +7,10 @@ A working trimmed-down script can be found further down in the [Example simulati
 If you simply wish to copy-paste examples and tinker with them, you can find a few examples on the [Quick examples](@ref) page.
 
 ```@setup usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 out_sim = run!(leaf, meteo)
 ```
 
@@ -31,7 +31,7 @@ A process in this package defines a biological or physical phenomena. Think of a
 
 A process is "declared", meaning we define a process, and then implement models for its simulation. In this example, we will make use of a process that was already defined, and for which there already is a model implementation.
 
-### Models (ModelList)
+### Models (ModelMapping)
 
 A process is simulated using a particular implementation, or **a model**. Each model is implemented using a structure that lists the parameters of the model. For example, PlantBiophysics provides the [`Beer`](https://vezy.github.io/PlantBiophysics.jl/stable/functions/#PlantBiophysics.Beer) structure for the implementation of the Beer-Lambert law of light extinction. The process of `light_interception` and the `Beer` model are provided as an example 
 script in this package too at [`examples/Beer.jl`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl).
@@ -44,19 +44,19 @@ Models can use several types of entries:
 - Constants
 - Extras
 
-**Parameters** are constant values that are used by the model to compute its outputs, and are exclusive to that model. 
+**Parameters** are constant values that are used by the model to compute its outputs, and are exclusive to that model.
 
-**Meteorological information** contains values that are provided by the user and are used as inputs to the model. It is defined for one time-step, and `PlantSimEngine.jl` takes care of applying the model to each time-steps given by the user. 
+**Meteorological information** contains values that are provided by the user and are used as inputs to the model. It is defined for one time-step, and `PlantSimEngine.jl` takes care of applying the model to each time-steps given by the user.
 
-**Variables** are either used or computed by the model and can optionally be initialized before the simulation. They can be part of multiple models, computed by one and then used as an input by another. They can also be a global simulation output, or be provided at the start of a simulation by the user. 
+**Variables** are either used or computed by the model and can optionally be initialized before the simulation. They can be part of multiple models, computed by one and then used as an input by another. They can also be a global simulation output, or be provided at the start of a simulation by the user.
 
-**Constants** are constant values, usually common between models, *e.g.* the universal gas constant. 
+**Constants** are constant values, usually common between models, *e.g.* the universal gas constant.
 
 And **extras** are just extra values that can be used by a model, or serves as a placeholder for internal data.
 
-Users declare a set of models used for simulation, as well as the necessary parameters for each model, and whatever variables need to be initialized. This is done using a [`ModelList`](@ref) structure. 
+Users declare a set of models used for simulation, as well as the necessary parameters for each model, and whatever variables need to be initialized. This is done using a [`ModelMapping`](@ref) structure.
 
-For example let's instantiate a [`ModelList`](@ref) with a single model : the Beer-Lambert model of light extinction, used to simulate the light interception process. The model is implemented with the [`Beer`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl) structure and only has one parameter: the extinction coefficient (`k`).
+For example let's instantiate a [`ModelMapping`](@ref) with a single model : the Beer-Lambert model of light extinction, used to simulate the light interception process. The model is implemented with the [`Beer`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/master/examples/Beer.jl) structure and only has one parameter: the extinction coefficient (`k`).
 
 Importing the package:
 
@@ -70,13 +70,13 @@ Import the examples defined in the [`Examples`](https://github.com/VirtualPlantL
 using PlantSimEngine.Examples
 ```
 
-And then declare a [`ModelList`](@ref) with the `Beer` model:
+And then declare a [`ModelMapping`](@ref) with the `Beer` model:
 
 ```@example usepkg
-m = ModelList(Beer(0.5))
+m = ModelMapping(Beer(0.5))
 ```
 
-What happened here? We provided an instance of the `Beer` model to a [`ModelList`](@ref) to simulate the light interception process.
+What happened here? We provided an instance of the `Beer` model to a [`ModelMapping`](@ref) to simulate the light interception process.
 
 ## Parameters
 
@@ -88,7 +88,7 @@ fieldnames(Beer)
 
 ## Variables (inputs, outputs)
 
-Variables are either inputs or outputs (*i.e.* computed) of models. Variables and their values are stored in the [`ModelList`](@ref) structure, and are initialized automatically or manually.
+Variables are either inputs or outputs (*i.e.* computed) of models. Variables and their values are stored in the [`ModelMapping`](@ref) structure, and are initialized automatically or manually.
 
 For example, the `Beer` model needs the leaf area index (`LAI`, m² m⁻²) to run.
 
@@ -104,17 +104,17 @@ and which are computed outputs of the model using [`outputs`](@ref):
 outputs(Beer(0.5))
 ```
 
-The [`ModelList`](@ref) structure will keep track of every variable's current state when running the simulation, storing them in a field called `status`. We can inspect that field with the [`status`](@ref) function and see that in our example it has two variables: `LAI` and `PPFD`. The first is an input, the second an output (*i.e.* it is computed by the model).
+The [`ModelMapping`](@ref) structure will keep track of every variable's current state when running the simulation, storing them in a field called `status`. We can inspect that field with the [`status`](@ref) function and see that in our example it has two variables: `LAI` and `PPFD`. The first is an input, the second an output (*i.e.* it is computed by the model).
 
 ```@example usepkg
-m = ModelList(Beer(0.5))
+m = ModelMapping(Beer(0.5))
 keys(status(m))
 ```
 
 To know which variables should be initialized, we can use [`to_initialize`](@ref):
 
 ```@example usepkg
-m = ModelList(Beer(0.5))
+m = ModelMapping(Beer(0.5))
 to_initialize(m)
 ```
 
@@ -127,18 +127,18 @@ Their values are uninitialized though (hence the warnings):
 Uninitialized variables are initialized to the value given in the [`inputs`](@ref) or [`outputs`](@ref) methods in the model's implementation code, which is usually equal to `typemin()`, *e.g.* `-Inf` for `Float64`.
 
 !!! tip
-    Prefer using [`to_initialize`](@ref) rather than [`inputs`](@ref) to check which variables should be initialized. [`inputs`](@ref) returns every variable that is needed by the model to run, but in multi-model simulations, some of them may already be computed by other models and not require initialization. [`to_initialize`](@ref) returns **only** the variables that are needed by the model to run and that are not initialized in the [`ModelList`](@ref).
+    Prefer using [`to_initialize`](@ref) rather than [`inputs`](@ref) to check which variables should be initialized. [`inputs`](@ref) returns every variable that is needed by the model to run, but in multi-model simulations, some of them may already be computed by other models and not require initialization. [`to_initialize`](@ref) returns **only** the variables that are needed by the model to run and that are not initialized in the [`ModelMapping`](@ref).
 
-We can initialize the required variables by providing their starting values to the status when declaring the `ModelList`:
+We can initialize the required variables by providing their starting values to the status when declaring the `ModelMapping`:
 
 ```@example usepkg
-m = ModelList(Beer(0.5), status = (LAI = 2.0,))
+m = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 ```
 
 Or after instantiation using [`init_status!`](@ref):
 
 ```@example usepkg
-m = ModelList(Beer(0.5))
+m = ModelMapping(Beer(0.5))
 
 init_status!(m, LAI = 2.0)
 ```
@@ -172,7 +172,7 @@ More details are available from the [package documentation](https://vezy.github.
 
 ### Simulation of processes
 
-To run a simulation, you can call the [`run!`](@ref) method on the [`ModelList`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
+To run a simulation, you can call the [`run!`](@ref) method on the [`ModelMapping`](@ref). If some meteorological data is required for models to be simulated over several timesteps, that can be passed in as an optional argument as well.
 
 Your call to the function would then look like this:
 
@@ -180,23 +180,23 @@ Your call to the function would then look like this:
 run!(model_list, meteo)
 ```
 
-The first argument is the model list (see [`ModelList`](@ref)), and the second defines the micro-climatic conditions.
+The first argument is the model mapping (see [`ModelMapping`](@ref)), and the second defines the micro-climatic conditions.
 
-The [`ModelList`](@ref) should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
+The [`ModelMapping`](@ref) should already be initialized for the given process before calling the function. Refer to the earlier subsection [Variables (inputs, outputs)](@ref) for more details.
 
 ### Example simulation
 
 For example we can simulate the `light_interception` of a leaf like so:
 
 ```@example usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
 
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 
 outputs_example = run!(leaf, meteo)
 
@@ -205,12 +205,11 @@ outputs_example[:aPPFD]
 
 ### Outputs
 
-The [`status`](@ref) field of a [`ModelList`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
+The [`status`](@ref) field of a [`ModelMapping`](@ref) is used to initialize the variables before simulation and then to keep track of their values during and after the simulation. We can extract outputs of the very last timestep of a simulation using the [`status`](@ref) function.
 
 The actual full output data is returned by the [`run!`](@ref) function. Data is usually stored in a [`TimeStepTable`](@ref) structure from `PlantMeteo.jl`, which is a fast DataFrame-like structure with each time step being a [`Status`](@ref). It can be also be any `Tables.jl` structure, such as a regular `DataFrame`. The weather is also usually stored in a [`TimeStepTable`](@ref) but with each time step being an `Atmosphere`.
 
-In our example, the simulation was only provided one weather timestep, so the outputs returned by [`run!`](@ref) and the ModelList's [`status`](@ref) field are identical.
-
+In our example, the simulation was only provided one weather timestep, so the outputs returned by [`run!`](@ref) and the ModelMapping's [`status`](@ref) field are identical.
 Let's look at the outputs structure of our previous simulated leaf:
 
 ```@setup usepkg

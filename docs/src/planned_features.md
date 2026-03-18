@@ -1,55 +1,51 @@
 # Roadmap
 
-## Planned major features
+This page summarizes work that is still in progress or intentionally left for
+future releases. It is not a guarantee of delivery order.
 
-### Varying timesteps
+## Current focus areas
 
-Currently, all models are required to make use of the same timestep. Some physiological phenomenae within a plant tend to run on an hourly basis, others are slower. Weather data is often provided daily. Enabling different timesteps depending on the model is on the roadmap, and is planned as the next milestone.
+### Multi-rate MTG simulations
 
-### Multi-plant/Multi-species simulations
+Model-level varying timesteps are available experimentally for MTG simulations
+through mapping-declared multi-rate execution and `ModelSpec` transforms such as
+`TimeStepModel`, `InputBindings`, `OutputRouting`, and `ScopeModel`.
 
-A goal for PlantSimEngine down the line is to be able to simulate complex scenes with data comprising several plants, possibly of different species, for agroforestry purposes.
+Known gaps in the current implementation:
 
-Its current state doesn't enable practical declaration of several plant species, or multiple plants relying on similar subsets of models with partially different models or parameters.
+- no sub-step execution below the meteorological base-step duration;
+- no dedicated event scheduler for irregular or non-fixed calendar execution;
+- no threaded or distributed multi-rate MTG execution path yet.
 
-## Minor features
+### Multi-plant and multi-species simulations
 
-- Implement a trait or a prepass that checks whether weather data is needed, and if so, if it is properly provided to a simulation
-- Better dependency graph visualization and information printing
+PlantSimEngine can already express multi-scale simulations, but practical support
+for scenes containing several plants or several species with overlapping model
+sets is still limited. Future work in this area is expected to focus on more
+flexible mapping and parameter declaration.
 
-## Minor planned improvements and QOL features
+## API and ergonomics
 
-- A reworked and more consistent mapping API, and multiscale dependency declaration
-- Improved user errors
-- More examples
-- Better dependency graph traversal functions
-- Ensure cyclic dependency checking and PreviousTimestep is active for ModelLists
+- a more consistent mapping API and clearer multiscale dependency declaration;
+- improved user-facing errors and diagnostics;
+- better dependency graph visualization and traversal helpers;
+- broader examples for fitting, type conversion, and error propagation;
+- clearer weather-data validation when a simulation requires meteorological inputs.
 
-## Improvements on the testing side
+## Testing and release engineering
 
-- Better tracking of memory usage and type stability
-- Working CI/Downstream tests
-- state machine checker, validating output invariants
-- graph fuzzing for improved corner-case testing
+- broader downstream coverage and better release gating;
+- additional checks for memory usage and type stability;
+- state-machine or invariant-style validation for runtime outputs;
+- graph fuzzing for multiscale corner cases.
 
-## Possible features (likely not a priority)
+## Lower-priority ideas
 
-- API enabling iterative builds and validation of mappings and ModelLists
-- Build step for the models, *i.e.* a function that would write a mapping or ModelList into a Julia script for validation, improved readability and (maybe) performance (no need to traverse the dependency graph anymore).
-- Improved parallelisation
-- Reintroduce multi-object parallelisation in single-scale
+- API support for iterative construction and validation of `ModelMapping`;
+- optional code-generation or build steps for validated mappings;
+- improved parallel execution strategies;
+- reintroducing multi-object parallelism in single-scale runs if the execution
+  model can stay predictable and testable.
 
-## Other minor points
-
-- Examples/solutions for floating-point accumulation errors
-- More examples for fitting/type conversion/error propagation
-- MTG couple of new features #106
-- Other minor bugs
-- Unrolling the run! function
-
-## Other
-
-- Reproducing another FSPM?
-- Diffusion model example?
-
-The full list of issues can be found [here](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
+The full list of open issues is available on
+[GitHub](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues).

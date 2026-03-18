@@ -1,10 +1,39 @@
 """
     hard_dependencies(models; verbose::Bool=true)
-    hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true)
+    hard_dependencies(mapping::ModelMapping; verbose::Bool=true)
+    hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true)
 
 Compute the hard dependencies between models.
 """
-function hard_dependencies(models; scale="", verbose::Bool=true)
+function _normalize_hard_dependency_scales(scales, process::Symbol, dependency_process::Symbol)
+    if scales isa Symbol || scales isa AbstractString
+        return [Symbol(scales)]
+    elseif scales isa Tuple || scales isa AbstractVector
+        normalized = Symbol[]
+        for s in scales
+            if s isa Symbol || s isa AbstractString
+                push!(normalized, Symbol(s))
+            else
+                error(
+                    "Invalid hard dependency scale declaration for process `$(process)` dependency `$(dependency_process)`: ",
+                    "expected Symbol or String scales, got `$(typeof(s))`."
+                )
+            end
+        end
+        isempty(normalized) && error(
+            "Invalid hard dependency scale declaration for process `$(process)` dependency `$(dependency_process)`: ",
+            "at least one target scale must be provided."
+        )
+        return normalized
+    end
+
+    error(
+        "Invalid hard dependency scale declaration for process `$(process)` dependency `$(dependency_process)`: ",
+        "expected Symbol/String or a tuple/vector of them, got `$(typeof(scales))`."
+    )
+end
+
+function hard_dependencies(models; scale=nothing, verbose::Bool=true)
     dep_graph = initialise_all_as_hard_dependency_node(models, scale)
     dep_not_found = Dict{Symbol,Any}()
     for (process, i) in pairs(models) # for each model in the model list. process=:state; i=pairs(models)[process]
@@ -16,9 +45,10 @@ function hard_dependencies(models; scale="", verbose::Bool=true)
             # This means we should search this model in another scale. This is not done here, but after the call to this 
             # function in the other method for `hard_dependencies` below.
             if isa(depend, Pair) 
-                if scale != ""
+                if !isnothing(scale)
                     # We skip this hard-dependency if it is multiscale, we compute this afterwards in this case
-                    push!(dep_not_found, p => (parent_process=process, type=first(depend), scales=last(depend)))
+                    target_scales = _normalize_hard_dependency_scales(last(depend), process, p)
+                    push!(dep_not_found, p => (parent_process=process, type=first(depend), scales=target_scales))
                     continue
                 else
                     # If we are not in a multi-scale setup e.g. in a ModelList, we shouldn't use a multiscale model.
@@ -39,7 +69,7 @@ function hard_dependencies(models; scale="", verbose::Bool=true)
                     if verbose
                         @info string(
                             "Model ", typeof(i).name.name, " from process ", process,
-                            scale == "" ? "" : " at scale $scale",
+                            isnothing(scale) ? "" : " at scale $scale",
                             " needs a model that is a subtype of ", depend, " in process ",
                             p
                         )
@@ -57,7 +87,7 @@ function hard_dependencies(models; scale="", verbose::Bool=true)
                 if verbose
                     @info string(
                         "Model ", typeof(i).name.name, " from process ", process,
-                        scale == "" ? "" : " at scale $scale",
+                            isnothing(scale) ? "" : " at scale $scale",
                         " needs a model that is a subtype of ", depend, " in process ",
                         p, ", but the process is not parameterized in the ModelList."
                     )
@@ -93,13 +123,14 @@ Take a set of models and initialise them all as a hard dependency node, and
 return a dictionary of `:process => HardDependencyNode`.
 """
 function initialise_all_as_hard_dependency_node(models, scale)
+    node_scale = isnothing(scale) ? :Default : Symbol(scale)
     dep_graph = Dict(
         p => HardDependencyNode(
             i,
             p,
             NamedTuple(),
             Int[],
-            scale,
+            node_scale,
             inputs_(i),
             outputs_(i),
             nothing,
@@ -112,9 +143,9 @@ end
 
 
 # When we use a mapping (multiscale), we return the set of soft-dependencies (we put the hard-dependencies as their children):
-function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T}
+function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) where {T}
     full_vars_mapping = Dict(first(mod) => Dict(get_mapped_variables(last(mod))) for mod in mapping)
-    soft_dep_graphs = Dict{String,Any}()
+    soft_dep_graphs = Dict{Symbol,Any}()
     not_found = Dict{Symbol,DataType}()
 
     mods = Dict(organ => parse_models(get_models(model)) for (organ, model) in mapping)
@@ -124,7 +155,7 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     # Since the hard dependencies are inserted into the soft dependency graph as children and aren't referenced elsewhere
     # it becomes harder to keep track of them as needed without traversing the graph
     # so keep tabs on them during initialisation until they're no longer needed
-    hard_dependency_dict = Dict{Pair{Symbol, String}, HardDependencyNode}()
+    hard_dependency_dict = Dict{Pair{Symbol,Symbol}, HardDependencyNode}()
     
     hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
 
@@ -134,8 +165,8 @@ function hard_dependencies(mapping::Dict{String,T}; verbose::Bool=true) where {T
     #* Note that we compute this before computing the multiscale hard dependencies because the inputs/outputs
     #* of hard-dependency models should remain in their own scale. Note that the variables from the hard 
     #* dependency may not appear in its own scale, but this is treated in the soft-dependency computation
-    inputs_process = Dict{String,Dict{Symbol,Vector}}()
-    outputs_process = Dict{String,Dict{Symbol,Vector}}()
+    inputs_process = Dict{Symbol,Dict{Symbol,Vector}}()
+    outputs_process = Dict{Symbol,Dict{Symbol,Vector}}()
     for (organ, model) in mapping
         # Get the status given by the user, that is used to set the default values of the variables in the mapping:
         st_scale_user = get_status(model)

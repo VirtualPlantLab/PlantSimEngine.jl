@@ -22,10 +22,10 @@ These examples assume you have a working Julia environment with PlantSimengine a
 ## Example with a single light interception model and a single weather timestep
 
 ```@example usepkg
-using PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 using PlantSimEngine.Examples
 meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelList(Beer(0.5), status = (LAI = 2.0,))
+leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
 out = run!(leaf, meteo)
 ```
 
@@ -35,19 +35,19 @@ The weather data in this example contains data over 365 days, meaning the simula
 
 ```@example usepkg
 using PlantSimEngine
-using PlantMeteo, CSV, DataFrames
-
+using PlantMeteo, Dates
 using PlantSimEngine.Examples
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 
 outputs_coupled = run!(models, meteo_day)
+outputs_coupled[1:3,:] # show the first 3 rows of the output
 ```
 
 ## Coupling the light interception and Leaf Area Index models with a biomass increment model
@@ -55,13 +55,12 @@ outputs_coupled = run!(models, meteo_day)
 
 ```@example usepkg
 using PlantSimEngine
-using PlantMeteo, CSV, DataFrames
-
+using PlantMeteo, Dates
 using PlantSimEngine.Examples
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models = ModelList(
+models = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -69,6 +68,7 @@ models = ModelList(
 )
 
 outputs_coupled = run!(models, meteo_day)
+outputs_coupled[1:3,:] # show the first 3 rows of the output
 ```
 
 ## Example using PlantBioPhysics
@@ -84,7 +84,7 @@ using PlantBiophysics, PlantSimEngine
 
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
-leaf = ModelList(
+leaf = ModelMapping(
         Monteith(),
         Fvcb(),
         Medlyn(0.03, 12.0),

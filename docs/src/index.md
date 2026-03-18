@@ -3,26 +3,26 @@ CurrentModule = PlantSimEngine
 ```
 
 ```@setup readme
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module:
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-# Define the model:
-model = ModelList(
-    ToyLAIModel(),
+# Define the model mapping:
+model = ModelMapping(
+    ToyLAIModel();
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 out = run!(model)
 
-# Define the list of models for coupling:
-model2 = ModelList(
+# Define the mapping for coupled models:
+model2 = ModelMapping(
     ToyLAIModel(),
-    Beer(0.6),
+    Beer(0.6);
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 out2 = run!(model2, meteo_day)
@@ -66,11 +66,18 @@ Depth = 5
 
 **Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
 
+### Multi-rate Execution
+
+**Mix model cadences in one simulation:** PlantSimEngine can run models at different timesteps within the same MTG simulation. This makes it possible to combine, for example, hourly leaf processes with daily plant balances and weekly reporting models without writing custom scheduling glue.
+
+**Explicit bindings between rates:** `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest` let you declare how model inputs, meteorology, and exported outputs should behave when rates differ.
+
 ## Batteries included
 
 - **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
 - **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
 - **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
+- **Multi-Rate Scheduling**: Combine hourly, daily, and coarser models in the same simulation, with explicit policies for input aggregation and meteorological sampling.
 - **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
 - **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
 - **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
@@ -118,13 +125,15 @@ using PlantSimEngine
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
-# Define the model:
-model = ModelList(
-    ToyLAIModel(),
+# Define the model mapping:
+model = ModelMapping(
+    ToyLAIModel();
     status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
 )
 
 out = run!(model) # run the model and extract its outputs
+
+out[1:3,:]
 ```
 
 > **Note**  
@@ -141,30 +150,31 @@ lines(out[:TT_cu], out[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xla
 
 ### Model coupling
 
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelList`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
+Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
 
 ```@example readme
-# ] add PlantSimEngine, DataFrames, CSV
-using PlantSimEngine, PlantMeteo, DataFrames, CSV
+# ] add PlantSimEngine, PlantMeteo
+using PlantSimEngine, PlantMeteo, Dates
 
 # Import the examples defined in the `Examples` sub-module
 using PlantSimEngine.Examples
 
 # Import the example meteorological data:
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-# Define the list of models for coupling:
-model2 = ModelList(
+# Define the mapping for coupled models:
+model2 = ModelMapping(
     ToyLAIModel(),
-    Beer(0.6),
+    Beer(0.6);
     status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
 )
 
 # Run the simulation:
 out2 = run!(model2, meteo_day)
+out2[1:3,:]
 ```
 
-The `ModelList` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
 
 ```
 ╭──── Dependency graph ──────────────────────────────────────────╮
@@ -205,53 +215,53 @@ fig
 The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
 
 ```@example readme
-mapping = Dict(
-    "Scene" => ToyDegreeDaysCumulModel(),
-    "Plant" => (
+mapping = ModelMapping(
+    :Scene => ToyDegreeDaysCumulModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.6),
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil"],
+            mapped_variables=[:soil_water_content => :Soil],
         ),
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
-                :carbon_demand => ["Leaf", "Internode"],
-                :carbon_allocation => ["Leaf", "Internode"]
+                :carbon_demand => [:Leaf, :Internode],
+                :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
-    "Internode" => (
+    :Internode => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         MultiScaleModel(
             model=ToyInternodeEmergence(TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene"],
+            mapped_variables=[:TT_cu => :Scene],
         ),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(carbon_biomass=1.0)
     ),
-    "Leaf" => (
+    :Leaf => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
         Status(carbon_biomass=1.0)
     ),
-    "Soil" => (
+    :Soil => (
         ToySoilWaterModel(),
     ),
 );
@@ -280,11 +290,11 @@ And run the simulation:
 
 ```@example readme
 out_vars = Dict(
-    "Scene" => (:TT_cu,),
-    "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
-    "Leaf" => (:carbon_demand, :carbon_allocation),
-    "Internode" => (:carbon_demand, :carbon_allocation),
-    "Soil" => (:soil_water_content,),
+    :Scene => (:TT_cu,),
+    :Plant => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
+    :Leaf => (:carbon_demand, :carbon_allocation),
+    :Internode => (:carbon_demand, :carbon_allocation),
+    :Soil => (:soil_water_content,),
 )
 
 out = run!(mtg, mapping, meteo, tracked_outputs=out_vars, executor=SequentialEx());
@@ -295,13 +305,25 @@ We can then extract the outputs and convert them to a `DataFrame` for each scale
 
 ```@example readme
 using DataFrames
-df_dict = convert_outputs(out, DataFrame)
-sort!(df_dict["Leaf"], [:timestep, :node])
+df_outputs = convert_outputs(out, DataFrame)
+leaf_df = df_outputs isa AbstractDict ? df_outputs[:Leaf] : df_outputs
+sort!(leaf_df, [:timestep, :node])
 ```
 
 An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
 
 ![Plant growth simulation](www/image.png)
+
+### Multi-rate modeling
+
+PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
+
+The dedicated documentation now has three pages: a short introduction to the
+core ideas, a fuller step-by-step tutorial, and an advanced configuration page:
+
+- [Introduction to multi-rate execution](./multirate/introduction.md)
+- [Step-by-step hourly, daily, weekly simulation](./multirate/multirate_tutorial.md)
+- [Advanced multi-rate configuration](./multirate/advanced_configuration.md)
 
 ## State of the field
 
