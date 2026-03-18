@@ -18,22 +18,22 @@ function xpalm_default_param_create()
     #meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
     m = Weather(meteo)
 
-    out_vars = Dict{String,Any}(
-        "Scene" => (:lai,),
-        # "Scene" => (:LAI, :scene_leaf_area, :aPPFD, :TEff),
-        # "Plant" => (:plant_age, :ftsw, :newPhytomerEmergence, :aPPFD, :plant_leaf_area, :carbon_assimilation, :carbon_offer_after_rm, :Rm, :TT_since_init, :TEff, :phytomer_count, :newPhytomerEmergence),
-        "Leaf" => (:Rm, :potential_area, :TT_since_init, :TEff, :biomass, :carbon_demand, :carbon_allocation,),
-        # "Leaf" => (:Rm, :potential_area),
-        # "Internode" => (:Rm, :carbon_allocation, :carbon_demand),
-        "Male" => (:Rm,),
-        # "Female" => (:biomass,),
-        # "Soil" => (:TEff, :ftsw, :root_depth),
+    out_vars = Dict{Symbol,Any}(
+        :Scene => (:lai,),
+        # :Scene => (:LAI, :scene_leaf_area, :aPPFD, :TEff),
+        # :Plant => (:plant_age, :ftsw, :newPhytomerEmergence, :aPPFD, :plant_leaf_area, :carbon_assimilation, :carbon_offer_after_rm, :Rm, :TT_since_init, :TEff, :phytomer_count, :newPhytomerEmergence),
+        :Leaf => (:Rm, :potential_area, :TT_since_init, :TEff, :biomass, :carbon_demand, :carbon_allocation,),
+        # :Leaf => (:Rm, :potential_area),
+        # :Internode => (:Rm, :carbon_allocation, :carbon_demand),
+        :Male => (:Rm,),
+        # :Female => (:biomass,),
+        # :Soil => (:TEff, :ftsw, :root_depth),
     )
 
     # Example 1: Run the model with the default parameters (but output as a DataFrame):
     palm = XPalm.Palm(initiation_age=0, parameters=XPalm.default_parameters())
     models = XPalm.model_mapping(palm)
-    return palm, models, out_vars, meteo
+    return palm, models, out_vars, m
 end
 
 function xpalm_default_param_run(palm, models, out_vars, meteo)

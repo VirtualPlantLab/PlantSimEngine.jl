@@ -248,9 +248,9 @@ end
 function _show_model_mapping_plain(io::IO, mapping::ModelMapping)
     info = mapping.info
     println(io, "ModelMapping")
-    println(io, "  Validated: ", info.validated, " (", info.is_valid ? "valid" : "invalid", ")")
-    println(io, "  Multirate: ", info.is_multirate)
-    println(io, "  Scales (", length(info.scales), "): ", join(info.scales, ", "))
+    println(io, "  validated: ", info.validated, " (", info.is_valid ? "valid" : "invalid", ")")
+    println(io, "  multirate: ", info.is_multirate)
+    println(io, "  scales (", length(info.scales), "): ", join(info.scales, ", "))
     for scale in info.scales
         print(io, "  - ", scale, ": ", get(info.models_per_scale, scale, 0), " model(s)")
         processes = get(info.processes_per_scale, scale, Symbol[])

@@ -80,7 +80,6 @@ function benchmark_multirate_status_tracked_run(mtg, mapping, meteo, tracked, ns
         meteo,
         nsteps=nsteps,
         check=true,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=tracked
     )
@@ -93,7 +92,6 @@ function benchmark_multirate_output_request_run(mtg, mapping, meteo, reqs, track
         meteo,
         nsteps=nsteps,
         check=true,
-        multirate=true,
         executor=SequentialEx(),
         tracked_outputs=reqs
     )

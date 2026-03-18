@@ -655,9 +655,10 @@ function run!(
     _validate_meteo_duration(meteo)
     timeline = _timeline_context(meteo)
     meteo_sampler = effective_multirate ? _prepare_meteo_sampler(meteo) : nothing
-    runtime_clock_rows = effective_multirate ? _runtime_clock_rows(object, timeline, dep_graph) : NamedTuple[]
+    runtime_clock_rows = _runtime_clock_rows(object, timeline, dep_graph)
     effective_executor = executor
     # st = status(object)
+    _validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)
     if effective_multirate
         if executor != SequentialEx()
             @warn string(
@@ -667,7 +668,6 @@ function run!(
             ) maxlog = 1
             effective_executor = SequentialEx()
         end
-        _validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)
         _warn_if_no_model_runs_at_base_timestep(runtime_clock_rows, timeline)
         validate_canonical_publishers(object)
         prepare_output_requests!(object, tracked_outputs, timeline)

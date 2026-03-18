@@ -250,39 +250,39 @@ function _resolve_meteo_hint_clock(scale::Symbol, process::Symbol, model, timeli
     reason = nothing
 
     if !isnothing(hint.fixed)
-        desired_sec = _seconds_from_period(hint.fixed)
-        if !isapprox(desired_sec, base_sec; atol=1.0e-9, rtol=0.0)
+        required_sec = _seconds_from_period(hint.fixed)
+        if !isapprox(required_sec, base_sec; atol=1.0e-9, rtol=0.0)
             reason = string(
-                "`timestep_hint.required=", hint.fixed,
-                "` differs from meteo base step ", _format_seconds_label(base_sec), "."
+                "Meteo base step ",
+                _format_seconds_label(base_sec),
+                " is outside `timestep_hint.required=",
+                hint.fixed,
+                "` for `",
+                scale,
+                "/",
+                process,
+                "`."
             )
         end
     elseif !isnothing(hint.range)
         lo, hi = hint.range
         lo_sec = _seconds_from_period(lo)
         hi_sec = _seconds_from_period(hi)
-        if base_sec < lo_sec
-            desired_sec = lo_sec
+        if base_sec < lo_sec || base_sec > hi_sec
             reason = string(
-                "meteo base step ", _format_seconds_label(base_sec),
-                " is finer than required lower bound ", lo,
-                "; using ", lo, "."
-            )
-        elseif base_sec > hi_sec
-            desired_sec = hi_sec
-            reason = string(
-                "meteo base step ", _format_seconds_label(base_sec),
-                " is coarser than required upper bound ", hi,
-                "; attempting ", hi, "."
+                "Meteo base step ",
+                _format_seconds_label(base_sec),
+                " is outside `timestep_hint.required=(",
+                lo,
+                ", ",
+                hi,
+                ")` for `",
+                scale,
+                "/",
+                process,
+                "`."
             )
         end
-    end
-
-    if desired_sec < base_sec
-        reason = isnothing(reason) ?
-                 string("required timestep ", _format_seconds_label(desired_sec), " is shorter than meteo; using meteo base step.") :
-                 string(reason, " Runtime does not support sub-step execution; using meteo base step.")
-        desired_sec = base_sec
     end
 
     dt = desired_sec / base_sec
@@ -400,17 +400,7 @@ function _validate_meteo_derived_timestep_requirements!(rows, timeline::Timeline
         row.source == :meteo_base_step || continue
 
         if !isnothing(row.hint_reason)
-            @warn string(
-                "Adjusted runtime timestep for `",
-                row.scale,
-                "/",
-                row.process,
-                "` from meteo-derived default: ",
-                row.hint_reason,
-                " Effective timestep is ",
-                _format_seconds_label(float(row.clock.dt) * timeline.base_step_seconds),
-                "."
-            ) maxlog = 1
+            error(row.hint_reason)
         end
     end
 
