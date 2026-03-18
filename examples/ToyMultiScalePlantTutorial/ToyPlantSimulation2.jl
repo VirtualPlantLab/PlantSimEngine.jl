@@ -8,17 +8,17 @@
 
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return MultiScaleTreeGraph.traverse(root, x -> x, symbol="Root", filter_fun=MultiScaleTreeGraph.isleaf)
+    return MultiScaleTreeGraph.traverse(root, x -> x, symbol=:Root, filter_fun=MultiScaleTreeGraph.isleaf)
 end
 
 function get_roots_count(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return length(MultiScaleTreeGraph.traverse(root, x -> x, symbol="Root"))
+    return length(MultiScaleTreeGraph.traverse(root, x -> x, symbol=:Root))
 end
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x -> 1, symbol=:Leaf))
     return nleaves
 end
 
@@ -59,9 +59,9 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
 
     if length(MultiScaleTreeGraph.children(status.node)) == 2 &&
        status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-        status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, "<", :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
@@ -117,7 +117,7 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
         end
         root_len = get_roots_count(root_end[1])
         if root_len < m.root_max_len
-            st = add_organ!(root_end[1], extra, "<", "Root", 2, index=1)
+            st = add_organ!(root_end[1], extra, "<", :Root, 2, index=1)
             status.carbon_root_creation_consumed = m.carbon_root_creation_cost
         end
     else
@@ -176,54 +176,54 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsObjectIndependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsTimeStepIndependent()
 
-mapping = Dict(
-    "Scene" => ToyDegreeDaysCumulModel(),
-    "Plant" => (
+mapping = ModelMapping(
+    :Scene => ToyDegreeDaysCumulModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyStockComputationModel(),
             mapped_variables=[
-                :carbon_captured => ["Leaf"],
-                :water_absorbed => ["Root"],
-                :carbon_root_creation_consumed => ["Root"],
-                :carbon_organ_creation_consumed => ["Internode"]],
+                :carbon_captured => [:Leaf],
+                :water_absorbed => [:Root],
+                :carbon_root_creation_consumed => [:Root],
+                :carbon_organ_creation_consumed => [:Internode]],
         ),
         Status(water_stock=0.0, carbon_stock=0.0)
     ),
-    "Internode" => (
+    :Internode => (
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene",
-                PreviousTimeStep(:water_stock) => "Plant",
-                PreviousTimeStep(:carbon_stock) => "Plant"],
+            mapped_variables=[:TT_cu => (:Scene => :TT_cu),
+                PreviousTimeStep(:water_stock) => (:Plant => :water_stock),
+                PreviousTimeStep(:carbon_stock) => (:Plant => :carbon_stock)],
         ),
         Status(carbon_organ_creation_consumed=0.0),
     ),
-    "Root" => (MultiScaleModel(
+    :Root => (MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
-            mapped_variables=[PreviousTimeStep(:carbon_stock) => "Plant",
-                PreviousTimeStep(:water_stock) => "Plant"],
+            mapped_variables=[PreviousTimeStep(:carbon_stock) => (:Plant => :carbon_stock),
+                PreviousTimeStep(:water_stock) => (:Plant => :water_stock)],
         ),
         ToyWaterAbsorptionModel(),
         Status(carbon_root_creation_consumed=0.0, root_water_assimilation=1.0),
     ),
-    "Leaf" => (ToyLeafCarbonCaptureModel(),),
+    :Leaf => (ToyLeafCarbonCaptureModel(),),
 )
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
 
-plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
-internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
 plant_root_start = MultiScaleTreeGraph.Node(
     plant,
-    MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3),
+    MultiScaleTreeGraph.NodeMTG("+", :Root, 1, 3),
 )
 
 meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
@@ -232,4 +232,4 @@ outs = run!(mtg, mapping, meteo_day)
 mtg
 
 
-length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol="Leaf"))
+length(MultiScaleTreeGraph.traverse(mtg, x -> x, symbol=:Leaf))

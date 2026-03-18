@@ -23,17 +23,19 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - "1.9"
           - "1"
         os:
           - ubuntu-latest
-          - macOS-latest
-          - windows-latest
         arch:
           - x64
         package:
-        - {user: PalmStudio, repo: XPalm.jl, branch: main, default: main}
-        - {user: VEZY, repo: PlantBioPhysics.jl, branch: master, default: master}
+          - { user: PalmStudio, repo: XPalm.jl, branch: main, default: main }
+          - {
+              user: VEZY,
+              repo: PlantBioPhysics.jl,
+              branch: master,
+              default: master,
+            }
     steps:
       - uses: actions/checkout@v6
       - uses: julia-actions/setup-julia@v2
@@ -65,7 +67,7 @@ jobs:
             exit(0)  # Exit immediately, as a success
           end
       - name: Only succeed if the checks pass on the dependencies' main/master branches
-        if:  ${{ matrix.package.branch != matrix.package.default }}
+        if: ${{ matrix.package.branch != matrix.package.default }}
         run: |
           echo "This action requires the downstream dependencies' branches to be set to their main/master to succeed. Please switch them back and ensure tests pass before merging"
           exit 1

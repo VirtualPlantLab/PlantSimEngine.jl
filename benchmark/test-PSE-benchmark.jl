@@ -27,16 +27,16 @@ function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, mete
     #end
 
     if length(MultiScaleTreeGraph.children(status.node)) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-       
+
         status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
         add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
+    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
         status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=4)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=5)
         status_new_internode.TT_cu_emergence = status.TT_cu
-    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence 
+    elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=6)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=7)
         add_organ!(status.node, sim_object, "+", "Leaf", 2, index=8)
@@ -53,13 +53,13 @@ end
 # Wrapped this into a function so that it doesn't plague the benchmark with variables on a global scope
 #@check_allocs
 function do_benchmark_on_heavier_mtg()
-    mtg = import_mtg_example();
- 
+    mtg = import_mtg_example()
+
     # Example meteo, 365 timesteps :
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
-    
+
     #similar to the mtg growth test but with a much lower emergence threshold
-    mapping = Dict(
+    mapping = ModelMapping(
         "Scene" => ToyDegreeDaysCumulModel(),
         "Plant" => (
             MultiScaleModel(
@@ -110,13 +110,13 @@ function do_benchmark_on_heavier_mtg()
             ToySoilWaterModel(),
         ),
     )
-    
+
     out_vars = Dict(
         "Leaf" => (:carbon_assimilation, :carbon_demand, :soil_water_content, :carbon_allocation),
         "Internode" => (:carbon_allocation, :TT_cu_emergence),
         "Plant" => (:carbon_allocation,),
         "Soil" => (:soil_water_content,),
     )
-    
-    out = run!(mtg, mapping, meteo_day, tracked_outputs=out_vars, executor=SequentialEx());
+
+    out = run!(mtg, mapping, meteo_day, tracked_outputs=out_vars, executor=SequentialEx())
 end

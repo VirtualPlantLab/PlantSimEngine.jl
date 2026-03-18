@@ -14,22 +14,29 @@ A type that holds all information for a simulation over a graph.
 - `var_need_init`: a dictionary indicating if a variable needs to be initialized
 - `dependency_graph`: the dependency graph of the models applied to the graph
 - `models`: a dictionary of models
+- `model_specs`: a dictionary of normalized model usage specifications
 - `outputs`: a dictionary of outputs
+- `temporal_state`: multi-rate temporal storage used at runtime for producer streams,
+  input resolution caches, run clocks, and requested output export buffers
 """
-struct GraphSimulation{T,S,U,O,V}
+struct GraphSimulation{T,S,U,O,V,TS,MS}
     graph::T
     statuses::S
-    status_templates::Dict{String,Dict{Symbol,Any}}
-    reverse_multiscale_mapping::Dict{String,Dict{String,Dict{Symbol,Any}}}
-    var_need_init::Dict{String,V}
+    status_templates::Dict{Symbol,Dict{Symbol,Any}}
+    reverse_multiscale_mapping::Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}
+    var_need_init::Dict{Symbol,V}
     dependency_graph::DependencyGraph
-    models::Dict{String,U}
-    outputs::Dict{String,O}
-    outputs_index::Dict{String, Int}
+    models::Dict{Symbol,U}
+    model_specs::MS
+    outputs::Dict{Symbol,O}
+    outputs_index::Dict{Symbol, Int}
+    temporal_state::TS
+    is_multirate::Bool
 end
 
 function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
-    GraphSimulation(init_simulation(graph, mapping; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
+    mapping_checked = mapping isa ModelMapping ? mapping : ModelMapping(mapping)
+    GraphSimulation(init_simulation(graph, mapping_checked; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
 
 dep(g::GraphSimulation) = g.dependency_graph
@@ -38,10 +45,13 @@ status_template(g::GraphSimulation) = g.status_templates
 reverse_mapping(g::GraphSimulation) = g.reverse_multiscale_mapping
 var_need_init(g::GraphSimulation) = g.var_need_init
 get_models(g::GraphSimulation) = g.models
+get_model_specs(g::GraphSimulation) = g.model_specs
 outputs(g::GraphSimulation) = g.outputs
+temporal_state(g::GraphSimulation) = g.temporal_state
+is_multirate(g::GraphSimulation) = g.is_multirate
 
 """
-    convert_outputs(sim_outputs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
+    convert_outputs(sim_outputs::Dict{Symbol,O} where O, sink; refvectors=false, no_value=nothing)
     convert_outputs(sim_outputs::TimeStepTable{T} where T, sink)
 
 Convert the outputs returned by a simulation made on a plant graph into another format.
@@ -92,8 +102,8 @@ convert_outputs(out, DataFrames)
 """
 # Another, possibly better way would be to just create the DataFrame directly from the outputs 
 # and then remove the RefVector columns and replace the node one, hmm
-function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, no_value=nothing)
-    ret = Dict{String, sink}()
+function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, no_value=nothing)
+    ret = Dict{Symbol, sink}()
     for (organ, status_vector) in outs
         # remove RefVector variables
         refv = ()
@@ -132,11 +142,11 @@ function convert_outputs(outs::Dict{String,O} where O, sink; refvectors=false, n
 end
 
 # TODO adapt these to new output structure or remove them
-function outputs(outs::Dict{String, O} where O, key::Symbol)
+function outputs(outs::Dict{Symbol, O} where O, key::Symbol)
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
 end
 
-function outputs(outs::Dict{String, O} where O, i::T) where {T<:Integer}
+function outputs(outs::Dict{Symbol, O} where O, i::T) where {T<:Integer}
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
 end
 

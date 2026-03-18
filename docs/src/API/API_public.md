@@ -12,3 +12,154 @@ Pages = ["API_public.md"]
 Modules = [PlantSimEngine]
 Private = false
 ```
+
+## Multi-rate policy examples
+
+For mapping-level multi-rate configuration, combine:
+
+- `ModelSpec(...)`
+- `TimeStepModel(...)`
+- `InputBindings(...)`
+- `MeteoBindings(...)`
+- `MeteoWindow(...)`
+- `OutputRouting(...)`
+- `ScopeModel(...)`
+- `timespec(::Type{<:AbstractModel})` (optional trait)
+- `output_policy(::Type{<:AbstractModel})` (optional trait)
+- `timestep_hint(::Type{<:AbstractModel})` (optional trait)
+- `meteo_hint(::Type{<:AbstractModel})` (optional trait)
+- `resolved_model_specs(mapping)` (utility)
+- `explain_model_specs(mapping_or_sim)` (utility)
+- `OutputRequest(...)` in `tracked_outputs` for resampled exports
+
+`TimeStepModel(...)` accepts:
+- `Real` step counts
+- `ClockSpec`
+- fixed `Dates` periods (`Dates.Second`, `Dates.Minute`, `Dates.Hour`, `Dates.Day`, ...)
+
+Period conversion detail:
+- Period-based timesteps are converted using the meteo base step `duration`.
+- Example: `TimeStepModel(Dates.Day(1))` with hourly meteo (`Dates.Hour(1)`) maps to `ClockSpec(24.0, 1.0)`,
+  so execution times are `t = 1, 25, 49, ...`.
+
+Trait-based inference detail:
+- If `TimeStepModel(...)` is omitted, runtime resolves timestep from:
+: `timespec(model)` when non-default, otherwise meteo `duration`.
+- `timestep_hint(::Type{<:Model})` is then interpreted as:
+: `required` = hard compatibility constraint, `preferred` = informational only.
+- If `InputBindings(...)` is omitted, same-name sources are inferred automatically from
+: unique producers (same scale first, then cross-scale). Ambiguous cases require explicit bindings.
+- For inferred bindings, policy defaults to producer `output_policy` when defined, otherwise `HoldLast()`.
+- Explicit `InputBindings(..., policy=...)` always overrides trait defaults.
+- `output_policy` is hint-only: it is applied only when an output is actually consumed/exported.
+- If `MeteoBindings(...)` / `MeteoWindow(...)` are omitted, `meteo_hint(::Type{<:Model})`
+: may provide `(; bindings=..., window=...)`.
+- Explicit mapping-level configuration always overrides hints.
+
+Compatibility checks:
+- Meteo `duration` is mandatory when meteo is provided.
+- For models with meteo-derived timestep, runtime enforces `timestep_hint.required`.
+- `timestep_hint.preferred` never sets runtime timestep by itself.
+
+Scope selection detail:
+- `ScopeModel(:global)` is the default and shares streams across the whole simulation.
+- `ScopeModel(:plant)` isolates streams within each plant subtree.
+- `ScopeModel(:scene)` isolates by scene ancestor.
+- `ScopeModel(:self)` isolates by node id.
+
+### Exporting variables at requested rates
+
+```julia
+req_hold = OutputRequest("Leaf", :A; name=:A_hourly, process=:assim, policy=HoldLast())
+req_day = OutputRequest("Leaf", :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
+run!(sim, meteo; tracked_outputs=[req_hold, req_day], executor=SequentialEx())
+out = collect_outputs(sim; sink=DataFrame)
+
+# or directly:
+out_status, out = run!(
+    sim,
+    meteo;
+    tracked_outputs=[req_hold, req_day],
+    return_requested_outputs=true,
+)
+```
+
+- `process` is optional when the source is canonical and unique.
+- `policy` defines how source streams are resampled at export time.
+- `clock` defines the export schedule; omit it to export every simulation step.
+
+### Default hold-last
+
+```julia
+ModelSpec(ConsumerModel()) |>
+TimeStepModel(ClockSpec(2.0, 1.0)) |>
+InputBindings(; x=(process=:producer, var=:x))
+```
+
+### Meteo aggregation bindings
+
+```julia
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict)) |>
+MeteoBindings(
+    T=MeanWeighted(),                     # default source is :T
+    Ri_SW_f=RadiationEnergy(),            # integrate W m-2 to MJ m-2 over the model window
+    custom_peak=(source=:custom_var, reducer=MaxReducer()),
+)
+```
+
+`MeteoWindow(...)` options:
+- `RollingWindow()` (default): trailing rolling window driven by `dt`.
+- `CalendarWindow(period; anchor, week_start, completeness)` with:
+: `period` in `:day`, `:week`, `:month`
+: `anchor` in `:current_period`, `:previous_complete_period`
+: `week_start` in `1:7` (1 = Monday)
+: `completeness` in `:allow_partial`, `:strict`
+
+### Parameterized window reducers
+
+`Integrate()` defaults to `SumReducer()`; `Aggregate()` defaults to `MeanReducer()`.
+With the same reducer, they are runtime-equivalent.
+Use `Integrate` for accumulation semantics and `Aggregate` for summary-statistics semantics.
+
+```julia
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(SumReducer())))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Aggregate(MaxReducer())))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(vals -> maximum(vals) - minimum(vals))))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate((vals, durations) -> sum(vals .* durations))))
+
+ModelSpec(DailyModel()) |>
+TimeStepModel(ClockSpec(24.0, 1.0)) |>
+InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(PlantMeteo.DurationSumReducer())))
+```
+
+Built-in reducer types are:
+`SumReducer()`, `MeanReducer()`, `MaxReducer()`, `MinReducer()`, `FirstReducer()`, `LastReducer()`.
+The same reducer objects are also used by `MeteoBindings(...)`.
+Custom reducers/callables can accept either `(values)` or `(values, durations_seconds)`.
+
+### Parameterized interpolation mode
+
+`Interpolate()` defaults to `mode=:linear, extrapolation=:linear`.
+
+```julia
+ModelSpec(FastModel()) |>
+TimeStepModel(1.0) |>
+InputBindings(; x=(process=:slow_source, var=:x, policy=Interpolate()))
+
+ModelSpec(FastModel()) |>
+TimeStepModel(1.0) |>
+InputBindings(; x=(process=:slow_source, var=:x, policy=Interpolate(; mode=:hold, extrapolation=:hold)))
+```

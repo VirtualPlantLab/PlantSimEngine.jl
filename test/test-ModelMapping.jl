@@ -1,8 +1,8 @@
 # Tests:
 # Defining a list of models without status:
 
-@testset "ModelList with no status" begin
-    leaf = ModelList(
+@testset "ModelMapping with no status" begin
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model()
     )
@@ -15,7 +15,7 @@
     @test length(status(leaf)) == 5
 
     # Requiring 3 steps for initialization:
-    leaf = ModelList(
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
     )
@@ -45,13 +45,13 @@ end;
     @test [(process(i), i) for i in models_named] == [(process(i), i) for i in models]
 end
 
-@testset "ModelList with no process names" begin
-    with_names = ModelList(
+@testset "ModelMapping with no process names" begin
+    with_names = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model()
     )
 
-    without_names = ModelList(
+    without_names = ModelMapping(
         Process1Model(1.0),
         Process2Model()
     )
@@ -61,8 +61,8 @@ end
     @test with_names.status.var2 == without_names.status.var2
 end;
 
-@testset "ModelList with a partially initialized status" begin
-    leaf = ModelList(
+@testset "ModelMapping with a partially initialized status" begin
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=15.0,)
@@ -76,7 +76,7 @@ end;
     @test to_initialize(leaf) == (process1=(:var2,),)
 
     # Requiring 3 steps for initialization:
-    leaf = ModelList(
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=15.0,),
@@ -86,9 +86,9 @@ end;
     @test status(leaf, :var1) == 15.0
 end;
 
-@testset "ModelList with fully initialized status" begin
+@testset "ModelMapping with fully initialized status" begin
     vals = (var1=15.0, var2=0.3)
-    leaf = ModelList(
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=vals
@@ -107,9 +107,9 @@ end;
 end;
 
 
-@testset "ModelList with independant models (and missing one in the middle)" begin
+@testset "ModelMapping with independant models (and missing one in the middle)" begin
     vals = (var1=15.0, var2=0.3)
-    leaf = ModelList(
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process3=Process3Model(),
         status=vals
@@ -124,10 +124,10 @@ end;
     @test [getfield(inits.process3, i) for i in sorted_vars] == fill(-Inf, 3)
 end;
 
-@testset "Copy a ModelList" begin
+@testset "Copy a ModelMapping" begin
     vars = (var1=15.0, var2=0.3)
     # Create a model list:
-    models = ModelList(
+    models = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -154,7 +154,7 @@ end;
     @test cp_models == Dict("models" => models, "ml3" => ml3)
 end;
 
-@testset "Convert ModelList status variables into new types" begin
+@testset "Convert ModelMapping status variables into new types" begin
     ref_vars = init_variables(
         process1=Process1Model(1.0),
         process2=Process2Model(),
@@ -171,9 +171,9 @@ end;
 end
 
 
-@testset "ModelList dependencies" begin
+@testset "ModelMapping dependencies" begin
 
-    models = ModelList(
+    models = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -225,18 +225,17 @@ end=#
 
 
 
-@testset "ModelList outputs preallocation" begin
+@testset "ModelMapping outputs preallocation" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
-    leaf = ModelList(
+    leaf = ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=vals
     )
     outs = (:var3,)
 
-    mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(leaf, vals, outs, meteo_day)
-    @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_day, filtered_outputs_modellist)
+    @test test_filtered_output(leaf, vals, outs, meteo_day)
 
     meteos =
         [Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0),
@@ -280,9 +279,7 @@ end=#
                 #print(i, " ", j, " ", k)
                 meteo_adjusted = PlantSimEngine.adjust_weather_timesteps_to_given_length(
                     PlantSimEngine.get_status_vector_max_length(modellist.status), meteo)
-                mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist = test_filtered_output_begin(modellist, status_tuple, out_tuple, meteo_adjusted)
-                @test to_initialize(mapping) == Dict()
-                @test test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo_adjusted, filtered_outputs_modellist)
+                @test test_filtered_output(modellist, status_tuple, out_tuple, meteo_adjusted)
             end
         end
     end
@@ -311,6 +308,6 @@ function PlantSimEngine.outputs_(::Reeb)
     (LAI=-Inf,)
 end
 
-@testset "ModelList simple cyclic dependency detection" begin
-    @test_throws "Cyclic" m = ModelList(Beer(0.5), Reeb(0.5))
+@testset "ModelMapping simple cyclic dependency detection" begin
+    @test_throws "Cyclic" m = ModelMapping(Beer(0.5), Reeb(0.5))
 end

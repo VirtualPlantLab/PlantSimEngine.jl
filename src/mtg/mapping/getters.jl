@@ -5,7 +5,7 @@ Get the models of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
 Returns a vector of models
 
@@ -27,9 +27,9 @@ If we just give a MultiScaleModel, we get its model as a one-element vector:
 julia> models = MultiScaleModel( \
             model=ToyCAllocationModel(), \
             mapped_variables=[ \
-                :carbon_assimilation => ["Leaf"], \
-                :carbon_demand => ["Leaf", "Internode"], \
-                :carbon_allocation => ["Leaf", "Internode"] \
+                :carbon_assimilation => [:Leaf], \
+                :carbon_demand => [:Leaf, :Internode], \
+                :carbon_allocation => [:Leaf, :Internode] \
             ], \
         );
 ```
@@ -46,14 +46,14 @@ If we give a tuple of models, we get each model in a vector:
 julia> models2 = (  \
         MultiScaleModel( \
             model=ToyAssimModel(), \
-            mapped_variables=[:soil_water_content => "Soil",], \
+            mapped_variables=[:soil_water_content => :Soil,], \
         ), \
         ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
         Status(aPPFD=1300.0, TT=10.0), \
     );
 ```
 
-Notice that we provide "Soil", not ["Soil"] in the mapping because a single value is expected for the mapping here.
+Notice that we provide `:Soil`, not `[:Soil]` in the mapping because a single value is expected for the mapping here.
 
 ```jldoctest mylabel
 julia> PlantSimEngine.get_models(models2)
@@ -63,6 +63,24 @@ julia> PlantSimEngine.get_models(models2)
 ```
 """
 get_models(m) = [model_(i) for i in m if !isa(i, Status)]
+
+"""
+    get_model_specs(m)
+
+Normalize model declarations to `ModelSpec`.
+Plain models and `MultiScaleModel` entries are converted to `ModelSpec`.
+"""
+get_model_specs(m::ModelSpec) = [m]
+get_model_specs(m::AbstractModel) = [as_model_spec(m)]
+get_model_specs(m::MultiScaleModel) = [as_model_spec(m)]
+get_model_specs(m) = [as_model_spec(i) for i in m if !isa(i, Status)]
+
+"""
+    parse_model_specs(m)
+
+Return a process-indexed dictionary of normalized `ModelSpec`.
+"""
+parse_model_specs(m) = Dict{Symbol,ModelSpec}(process(model_(spec)) => spec for spec in get_model_specs(m))
 
 
 # Same, for the status (if any provided):
@@ -74,7 +92,7 @@ Get the status of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
 Returns a [`Status`](@ref) or `nothing`.
 
@@ -96,16 +114,16 @@ Get the mapping of a dictionary of model mapping.
 
 # Arguments
 
-- `m::Dict{String,Any}`: a dictionary of model mapping
+- `m`: a scale mapping entry (for example one value from a [`ModelMapping`](@ref))
 
-Returns a vector of pairs of symbols and strings or vectors of strings
+Returns a vector of mapped-variable declarations using symbol scales.
 
 # Examples
 
 See [`get_models`](@ref) for examples.
 """
 function get_mapped_variables(m)
-    mod_mapping = [mapped_variables_(i) for i in m if isa(i, MultiScaleModel)]
+    mod_mapping = [get_mapped_variables(i) for i in m if !isa(i, Status)]
     if length(mod_mapping) == 0
         return Pair{Symbol,String}[]
     end

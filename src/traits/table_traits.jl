@@ -49,6 +49,7 @@ PlantSimEngine.SingletonAlike()
 """
 DataFormat(::Type{<:DataFrames.AbstractDataFrame}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepTable}) = TableAlike()
+DataFormat(::Type{<:PlantMeteo.TimeStepRows}) = TableAlike()
 
 # Giving a ModelList as a vector or a dict of objects:
 DataFormat(::Type{<:AbstractVector}) = TableAlike()
@@ -57,6 +58,7 @@ DataFormat(::Type{<:Dict}) = TableAlike()
 DataFormat(::Type{<:NamedTuple}) = SingletonAlike()
 DataFormat(::Type{<:Status}) = SingletonAlike()
 DataFormat(::Type{<:ModelList{Mo,S} where {Mo,S}}) = SingletonAlike()
+DataFormat(::Type{<:ModelMapping{SingleScale}}) = SingletonAlike()
 DataFormat(::Type{<:GraphSimulation}) = TreeAlike()
 
 DataFormat(::Type{<:PlantMeteo.AbstractAtmosphere}) = SingletonAlike()

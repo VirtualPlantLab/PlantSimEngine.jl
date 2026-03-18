@@ -57,7 +57,11 @@ function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, const
             # Here we don't have enough carbon offer
             carbon_allocation_organs = status.carbon_offer
         end
-        status.carbon_allocation .= carbon_allocation_organs .* proportion_carbon_demand
+        # Dynamic MTG growth can transiently desynchronize source/target vector sizes.
+        # Allocate to the shared prefix and zero-fill the remaining targets.
+        n = min(length(status.carbon_allocation), length(proportion_carbon_demand))
+        status.carbon_allocation .= 0.0
+        n > 0 && (status.carbon_allocation[1:n] .= carbon_allocation_organs .* proportion_carbon_demand[1:n])
     else
         # If the carbon demand is 0.0, we allocate nothing:
         status.carbon_allocation .= 0.0

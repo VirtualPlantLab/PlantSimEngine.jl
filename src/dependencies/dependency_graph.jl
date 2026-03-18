@@ -5,7 +5,7 @@ mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     process::Symbol
     dependency::NamedTuple
     missing_dependency::Vector{Int}
-    scale::String
+    scale::Symbol
     inputs
     outputs
     parent::Union{Nothing,<:AbstractDependencyNode}
@@ -15,7 +15,7 @@ end
 mutable struct SoftDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
-    scale::String
+    scale::Symbol
     inputs
     outputs
     hard_dependency::Vector{HardDependencyNode}
@@ -144,7 +144,7 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
     end
 end
 
-function _node_mapping(var_mapping::Pair{String,Symbol})
+function _node_mapping(var_mapping::Pair{<:Union{AbstractString,Symbol},Symbol})
     # One organ is mapped to the variable:
     return SingleNodeMapping(first(var_mapping)), last(var_mapping)
 end

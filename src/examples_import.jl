@@ -62,13 +62,13 @@ julia> import_mtg_example()
 ```
 """
 function import_mtg_example()
-    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("/", "Soil", 1, 1))
-    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("/", :Soil, 1, 1))
+    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
     return mtg
 end

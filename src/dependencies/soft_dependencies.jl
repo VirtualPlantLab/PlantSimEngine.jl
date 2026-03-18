@@ -63,7 +63,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
         process_ => SoftDependencyNode(
             soft_dep_vars.value,
             process_, # process name
-            "",
+            soft_dep_vars.scale,
             inputs_(soft_dep_vars.value),
             outputs_(soft_dep_vars.value),
             AbstractTrees.children(soft_dep_vars), # hard dependencies
@@ -139,9 +139,9 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
 end
 
 # For multiscale mapping:
-function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{String,Any}}, reverse_multiscale_mapping, hard_dep_dict::Dict{Pair{Symbol,String},HardDependencyNode})
+function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{Symbol,Any}}, reverse_multiscale_mapping, hard_dep_dict::Dict{Pair{Symbol,Symbol},HardDependencyNode})
     
-    independant_process_root = Dict{Pair{String,Symbol},SoftDependencyNode}()
+    independant_process_root = Dict{Pair{Symbol,Symbol},SoftDependencyNode}()
     for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
             # proc = :leaf_surface; i = soft_dep_graph[proc]
@@ -466,14 +466,14 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
     # proc, organ, ins, soft_dep_graphs=soft_dep_graphs_roots.roots
     vars_input = flatten_vars(inputs[process])
 
-    inputs_as_output_of_other_scale = Dict{String,Dict{Symbol,Vector{Symbol}}}()
+    inputs_as_output_of_other_scale = Dict{Symbol,Dict{Symbol,Vector{Symbol}}}()
     for (var, val) in pairs(vars_input) # e.g. var = :leaf_surfaces;val = vars_input[var]
         # The variable is a multiscale variable:
         if isa(val, MappedVar)
             var_organ = mapped_organ(val)
-            var_organ == "" && continue # If the variable maps to nothing we skip it (e.g. [PreviousTimeStep(:var1)] or [:var => :new_var])
+            (isnothing(var_organ) || var_organ == Symbol("")) && continue # If the variable maps to nothing we skip it (e.g. [PreviousTimeStep(:var1)] or [:var => :new_var])
             if !isa(var_organ, AbstractVector)
-                # In case the organ is given as a singleton (e.g. "Soil" instead of ["Soil"])
+                # In case the organ is given as a singleton (e.g. :Soil instead of [:Soil])
                 var_organ = [var_organ]
             end
 

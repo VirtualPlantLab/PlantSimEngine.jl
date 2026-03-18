@@ -20,7 +20,7 @@ Depth = 3
 
 Some errors are very specific as to their cause, and the PlantSimEngine errors tend to be explicit about which parameter / variable / organ is causing the error, helping narrow down its origin.
 
-Some generic-looking errors usually do contain some extra information to help focus the debugging hunt. For instance, a dispatch failure on run! caused by some issue with args/kwargs may highlight explicitely indicate which arguments are currently causing conflict. In VSCode, such arguments are highlighted in red (the first and last arguments in the example below) : 
+Some generic-looking errors usually do contain some extra information to help focus the debugging hunt. For instance, a dispatch failure on run! caused by some issue with args/kwargs may highlight explicitely indicate which arguments are currently causing conflict. In VSCode, such arguments are highlighted in red (the first and last arguments in the example below):
 
 ```julia
 a = 1
@@ -99,10 +99,10 @@ The syntax for an empty NamedTuple is `NamedTuple()`. If instead one types `()` 
 
 Most of the following errors occur exclusively in multi-scale simulations, which has a slightly more complex API, but some are common to both single- and multi-scale simulations.
 
-### ModelList/Mapping : providing a type name instead of an constructed instance
+### ModelMapping: providing a type name instead of a constructed instance
 
 ```julia
-m = ModelList(day=MyToyModel, week=MyToyModel2)
+m = ModelMapping(day=MyToyModel, week=MyToyModel2)
 ```
 This line is incorrect and will return
 ```julia
@@ -111,7 +111,7 @@ MethodError: no method matching inputs_(::Type{MyToyDayModel})
 
 The correct syntax is (assuming the corresponding constructor exists) :
 ```julia
-m = ModelList(day=MyToyModel(), week=MyToyModel2())
+m = ModelMapping(day=MyToyModel(), week=MyToyModel2())
 ```
 
 ### Implementing a model: forgetting to import or prefix functions
@@ -148,7 +148,7 @@ meteo = Weather([
         Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
 ])
 
-model = ModelList(
+model = ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -160,7 +160,7 @@ If you declare these functions without importing them first, or prefixing them w
 
 Forgetting to prefix the [`run!`](@ref) function definition gives the following error : 
 ```julia
-ERROR: MethodError: no method matching run!(::ModelList{@NamedTuple{…}, Status{…}}, ::TimeStepTable{Atmosphere{…}})
+ERROR: MethodError: no method matching run!(::ModelMapping{...}, ::TimeStepTable{Atmosphere{…}})
 The function [`run!`](@ref) exists, but no method is defined for this combination of argument types.
 
 Closest candidates are:
@@ -168,7 +168,7 @@ Closest candidates are:
    @ Main ~/path/to/file.jl:20
 ```
 
-Forgetting to prefix the `inputs_`or `outputs_` functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your ModelList or mapping's corresponding Status.
+Forgetting to prefix the `inputs_`or `outputs_` functions for your model might not always generate an error, depending on whether the variables declared in this function are present in your mapping's corresponding Status.
 
 In cases where they do throw an error, you may get the following kind of output:
 ```julia
@@ -190,7 +190,7 @@ A MultiScaleModel requires two kwargs, model and mapped_variables :
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
-        mapped_variables=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => :Scene,],
     )
 ```
 
@@ -199,7 +199,7 @@ Forgetting 'model=' :
 ```julia
 models = MultiScaleModel(
         ToyLAIModel(),
-        mapped_variables=[:TT_cu => "Scene",],
+        mapped_variables=[:TT_cu => :Scene,],
     )
 ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
@@ -215,7 +215,7 @@ Forgetting 'mapped_variables=' :
 ```julia
 models = MultiScaleModel(
         model=ToyLAIModel(),
-        [:TT_cu => "Scene",],
+        [:TT_cu => :Scene,],
     )
 
 ERROR: MethodError: no method matching MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
@@ -234,10 +234,10 @@ The message 'got unsupported keyword argument "model"' can be misleading, as in 
 A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :
 
 ```julia
-mapping = Dict("Scale" =>
+mapping = ModelMapping(:Scale =>
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables = [should_be_symbol => "Other_Scale"] # should_be_symbol is a variable, likely not found in the current module 
+    mapped_variables = [should_be_symbol => :Other_Scale] # should_be_symbol is a variable, likely not found in the current module 
 ),
 ...
 ),
@@ -245,10 +245,10 @@ MultiScaleModel(
 
 Here's the correct version : 
 ```julia
-mapping = Dict("Scale" =>
+mapping = ModelMapping(:Scale =>
 MultiScaleModel(
     model = ToyModel(),
-    mapped_variables=[:should_be_symbol => "Other_Scale"] # should_be_symbol is now a symbol
+    mapped_variables=[:should_be_symbol => :Other_Scale] # should_be_symbol is now a symbol
 ),
 ...
 ),
@@ -256,27 +256,27 @@ MultiScaleModel(
 
 ### Kwarg and arg parameter issues when calling run!
 
-There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine's end and may be improved upon in the future. 
+There are, unfortunately, multiple ways of passing in arguments to the run! functions that will confuse dynamic dispatch. Some of it is due to imperfections in type declarations on PlantSimEngine's end and may be improved upon in the future.
 
-Here are a few examples when modifying the usual multiscale run! call in this working example : 
+Here are a few examples when modifying the usual multiscale run! call in this working example:
 
 ```julia
-    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))
-    var1 = 15.0
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
+mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))
+var1 = 15.0
 
-    mapping = Dict(
-        "Leaf" => (
-            Process1Model(1.0),
-            Process2Model(),
-            Process3Model(),
-            Status(var1=var1,)
-        )
+mapping = ModelMapping(
+    :Leaf => (
+        Process1Model(1.0),
+        Process2Model(),
+        Process3Model(),
+        Status(var1=var1,)
     )
+)
 
-    outs = Dict(
-        "Leaf" => (:var1,), # :non_existing_variable is not computed by any model
-    )
+outs = Dict(
+    :Leaf => (:var1,), # :non_existing_variable is not computed by any model
+)
 
 run!(mtg, mapping, meteo_day, PlantMeteo.Constants(), tracked_outputs=outs)
 ```
@@ -285,7 +285,7 @@ The exact signature is this :
 ```julia
 function run!(
     object::MultiScaleTreeGraph.Node,
-    mapping::Dict{String,T} where {T},
+    mapping::ModelMapping,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
@@ -349,15 +349,15 @@ PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 However, the model provided in the examples, Process2Model is absent from the mapping :
 
 ```julia
-simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 1))    
-mapping = Dict(
-    "Leaf" => (
+simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))    
+mapping = ModelMapping(
+    :Leaf => (
         Process3Model(),
         Status(var5=15.0,)
     )
 )
 outs = Dict(
-    "Leaf" => (:var5,),
+    :Leaf => (:var5,),
 )
 run!(simple_mtg, mapping, meteo_day, tracked_outputs=outs)
 
@@ -375,10 +375,10 @@ The fix is to add Process2Model() -or another model for the same process- to the
 
 One current problem with PlantSimEngine's API is that declaring a simulation's Status or Statuses differs between single- and multi-scale.
 
-Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the `ModelList` status was declared like this:
+Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the single-scale mapping status was declared like this:
 
 ```julia
-model = ModelList(
+model = ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -424,16 +424,16 @@ If there is a need to collect variables at two different scales, and one scale i
 ```julia
 # No models at the E3 scale in the mapping !
 
-"E2" => (
+:E2 => (
         MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
-        mapped_variables=[:c => "E1" => :c, :e3 => "E3" => :e3, :f3 => "E3" => :f3,], 
+        mapped_variables=[:c => :E1 => :c, :e3 => :E3 => :e3, :f3 => :E3 => :f3,], 
         ),
     ),
 
 Exception has occurred: KeyError
 *
-KeyError: key "E3" not found
+KeyError: key :E3 not found
 Stacktrace:
 [1] hard_dependencies(mapping::Dict{String, Tuple{Any, Any}}; verbose::Bool)
 @ PlantSimEngine ......./src/dependencies/hard_dependencies.jl:175
@@ -447,12 +447,15 @@ An unintuitive error encountered in the past when defining a mapping :
 ```julia
 ERROR: ArgumentError: AbstractDict(kv): kv needs to be an iterator of 2-tuples or pairs
 ```
+
 may occur when forgetting the parenthesis after '=>' in a mapping declaration, and combining it with another parenthesis error.
+
 ```julia
-mapping = Dict( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
+mapping = ModelMapping( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
 ```
 
-Other errors such as : 
+Other errors such as:
+
 ```julia
 ERROR: MethodError: no method matching Dict(::Pair{String, ToyAssimGrowthModel{Float64}}, ::ToyCAllocationModel, ::Status{(:TT_cu,), Tuple{Base.RefValue{…}}})
 The type `Dict` exists, but no method is defined for this combination of argument types when trying to construct it.
@@ -460,13 +463,14 @@ The type `Dict` exists, but no method is defined for this combination of argumen
 Closest candidates are:
   Dict(::Pair{K, V}...) where {K, V}
 ```
+
 often indicate a likely syntax error somewhere in the mapping definition.
 
 ### Empty status vectors in multi-scale simulations
 
 This situation won't trigger an error. Unexpectedly empty vectors can be returned as outputs if you happen to forget to a node at the corresponding scale in the MTG, and no organ creation occurs for that node.
 
-Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the "Plant" node in the dummy MTG passed into the [`run!`](@ref)function. Without that "Plant" node, only "Scene"-scale models can run initially, and since no nodes are created, "Plant"-scale models will never be run.
+Here's an example taken from the [Converting a single-scale simulation to multi-scale](@ref) page. It was modified by removing the :Plant node in the dummy MTG passed into the [`run!`](@ref)function. Without that :Plant node, only :Scene-scale models can run initially, and since no nodes are created, :Plant-scale models will never be run.
 
 ```julia
 PlantSimEngine.@process "tt_cu" verbose = false
@@ -486,13 +490,13 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=-Inf,)
 end
 
-mapping_multiscale = Dict(
-    "Scene" => ToyTt_CuModel(),
-    "Plant" => (
+mapping_multiscale = ModelMapping(
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.5),
@@ -500,12 +504,12 @@ mapping_multiscale = Dict(
     ),
 )
 
-mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 0, 0),)
-#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 0, 0),)
+#plant = MultiScaleTreeGraph.Node(mtg_multiscale, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
 
 out_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 
-out_multiscale["Plant"][:LAI]
+out_multiscale[:Plant][:LAI]
 ```
 
-In the above code, uncommenting the second line will add a "Plant" node to the MTG, and the simulation will then behave as intuitively expected.
+In the above code, uncommenting the second line will add a :Plant node to the MTG, and the simulation will then behave as intuitively expected.

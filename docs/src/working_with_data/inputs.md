@@ -1,6 +1,6 @@
 # Input types
 
-[`run!`](@ref) usually takes two inputs: a [`ModelList`](@ref) and data for the meteorology. The data for the meteorology is usually provided for one time step using an `Atmosphere`, or for several time-steps using a `TimeStepTable{Atmosphere}`. The [`ModelList`](@ref) can also be provided as a singleton, or as a vector or dictionary of.
+[`run!`](@ref) usually takes two inputs: a [`ModelMapping`](@ref) and data for the meteorology. The data for the meteorology is usually provided for one time step using an `Atmosphere`, or for several time-steps using a `TimeStepTable{Atmosphere}`. The [`ModelMapping`](@ref) can also be provided as a singleton, or as a vector or dictionary of.
 
 [`run!`](@ref) knows how to handle these data formats via the [`PlantSimEngine.DataFormat`](@ref) trait (see [this blog post](https://www.juliabloggers.com/the-emergent-features-of-julialang-part-ii-traits/) to learn more about traits). For example, we tell PlantSimEngine that a `TimeStepTable` should be handled like a table by implementing the following trait:
 
@@ -37,7 +37,7 @@ To do so, you need to implement the following methods for your structure that de
 Here's a quick example showcasing how to export the example weather data to your own file :
 
 ```julia 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 PlantMeteo.write_weather("examples/meteo_day.csv", meteo_day, duration = Dates.Day)
 ```
 

@@ -4,6 +4,7 @@ module PlantSimEngine
 import DataFrames
 import Tables
 import DataAPI
+import Dates
 
 import CSV # For reading csv files with variables()
 
@@ -36,6 +37,9 @@ include("doc_templates/mtg-related.jl")
 # Models:
 include("Abstract_model_structs.jl")
 
+# Multi-rate scaffolding:
+include("time/multirate.jl")
+
 # Simulation row (status):
 include("component_models/Status.jl")
 include("component_models/RefVector.jl")
@@ -47,8 +51,10 @@ include("component_models/TimeStepTable.jl")
 include("dependencies/dependency_graph.jl")
 
 # List of models:
-include("component_models/ModelList.jl")
+include("component_models/ModelList.jl") # deprecated, to be removed in favor of ModelMapping
 include("mtg/MultiScaleModel.jl")
+include("mtg/ModelSpec.jl")
+include("mtg/mapping/mapping.jl")
 
 # Getters / setters for status:
 include("component_models/get_status.jl")
@@ -68,9 +74,10 @@ include("dependencies/get_model_in_dependency_graph.jl")
 # MTG compatibility:
 include("mtg/GraphSimulation.jl")
 include("mtg/mapping/getters.jl")
-include("mtg/mapping/mapping.jl")
 include("mtg/mapping/compute_mapping.jl")
 include("mtg/mapping/reverse_mapping.jl")
+include("mtg/model_spec_inference.jl")
+include("mtg/model_spec_validation.jl")
 include("mtg/initialisation.jl")
 include("mtg/save_results.jl")
 include("mtg/add_organ.jl")
@@ -88,6 +95,15 @@ include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
 include("checks/dimensions.jl")
 
+# Multi-rate runtime:
+include("time/runtime/clocks.jl")
+include("time/runtime/scopes.jl")
+include("time/runtime/bindings.jl")
+include("time/runtime/input_resolution.jl")
+include("time/runtime/publishers.jl")
+include("time/runtime/output_export.jl")
+include("time/runtime/meteo_sampling.jl")
+
 # Simulation:
 include("run.jl")
 
@@ -102,7 +118,15 @@ include("examples_import.jl")
 
 export PreviousTimeStep
 export AbstractModel
-export ModelList, MultiScaleModel
+export ScopeId, ClockSpec, ModelKey, OutputKey
+export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
+export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, MaxReducer, FirstReducer, LastReducer, RadiationEnergy
+export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
+export TemporalState
+export OutputRequest, collect_outputs
+export effective_rate_summary
+export ModelList, MultiScaleModel, ModelMapping, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export resolved_model_specs, explain_model_specs
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
@@ -110,6 +134,8 @@ export add_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
+export timespec, output_policy, timestep_hint, meteo_hint
+export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
 export fit
 

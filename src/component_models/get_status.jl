@@ -16,7 +16,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples;
 
 # Create a ModelList
-models = ModelList(
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -43,6 +43,10 @@ models[:var1]
 function status(m)
     m.status
 end
+
+status(m::ModelMapping{SingleScale}) = status(m.data)
+status(m::ModelMapping{SingleScale}, key::Symbol) = status(m.data, key)
+status(m::ModelMapping{SingleScale}, key::T) where {T<:Integer} = status(m.data, key)
 
 function status(m::T) where {T<:AbstractArray{M} where {M}}
     [status(i) for i in m]

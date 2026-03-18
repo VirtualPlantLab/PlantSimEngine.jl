@@ -49,16 +49,18 @@ This change in design avoids model order ambiguity and also improves readability
 
 !!! note
     This section is a little more advanced and not recommended for beginners
-    
-You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelList`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
+
+You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelMapping`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
 
 This is practical for simple simulations, or when quickly prototyping, to avoid having to write a model specifically for it. Whatever models make use of that variable are provided with one element corresponding to the current timestep every iteration.
 
 In multi-scale simulations, this feature is also supported, though not part of the main API. The way outputs and statuses work is a little different, so that little convenience feature is not as straightforward. 
 
-It is more brittle, makes use of not-recommended Julia metaprogramming features (`eval()`), fiddles with global variables, might not work outside of a REPL environment and is not tested for more complex interactions, so it may interact badly with variables that are mapped to different scales or in bizarre dependency couplings.
+It remains a convenience path for prototyping, and it is still not tested for
+more complex interactions, so it may interact badly with variables that are
+mapped to different scales or in unusual dependency couplings.
 
-Due to, uh, implementation quirks, the way to use this is as follows : 
+The way to use this is as follows:
 
 Call the function `replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)`on your mapping.
 
@@ -67,25 +69,23 @@ It will parse your mapping, generate custom models to store and feed the vector 
 !!! warning
     Only subtypes of AbstractVector present in statuses will be affected. In some cases, meteo values might need a small conversion. For instance :
     ```
-    meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+    meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     status(TT_cu=cumsum(meteo_day.TT),)```
 
     cumsum(meteo_day.TT) actually returns a CSV.SentinelArray.ChainedVectors{T, Vector{T}}, which is not a subtype of AbstractVector. 
     Replacing it with Vector(cumsum(meteo_day.TT)) will provide an adequate type.
 
-Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale
-](@ref):
-
+Here's an example usage, fixing the first attempt at [Converting a single-scale simulation to multi-scale](@ref):
 
 ```julia
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo, CSV, DataFrames
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using PlantMeteo, Dates
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Direct translation of the single-scale simulation
-mapping_pseudo_multiscale = Dict(
-"Plant" => (
+mapping_pseudo_multiscale = ModelMapping(
+:Plant => (
    ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -93,12 +93,12 @@ mapping_pseudo_multiscale = Dict(
     ),
 )
 
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Plant", 1, 0),)
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 0),)
 
 # will generate an error as vectors can't be directly passed into a Status in multi-scale simulations
 #out_pseudo_multiscale_error = run!(mtg, mapping_pseudo_multiscale, meteo_day)
 
-mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, "Plant", PlantSimEngine.get_nsteps(meteo_day))
+mapping_pseudo_multiscale_adjusted = PlantSimEngine.replace_mapping_status_vectors_with_generated_models(mapping_pseudo_multiscale, :Plant, PlantSimEngine.get_nsteps(meteo_day))
 
 out_pseudo_multiscale_successful = run!(mtg, mapping_pseudo_multiscale_adjusted, meteo_day)
 

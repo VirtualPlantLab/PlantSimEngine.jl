@@ -1,9 +1,8 @@
 """
-    DataFrame(components <: AbstractArray{<:ModelList})
-    DataFrame(components <: AbstractDict{N,<:ModelList})
+    DataFrame(components <: AbstractArray{<:ModelMapping})
+    DataFrame(components <: AbstractDict{N,<:ModelMapping})
 
-Fetch the data from a [`ModelList`](@ref) (or an Array/Dict of) status into
-a DataFrame.
+Fetch the data from a [`ModelMapping`](@ref) (or an Array/Dict of) status into a DataFrame.
 
 # Examples
 
@@ -11,8 +10,8 @@ a DataFrame.
 using PlantSimEngine
 using DataFrames
 
-# Creating a ModelList
-models = ModelList(
+# Creating a ModelMapping
+models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -22,14 +21,14 @@ models = ModelList(
 # Converting to a DataFrame
 df = DataFrame(models)
 
-# Converting to a Dict of ModelLists
-models = Dict(
-    "Leaf" => ModelList(
+# Converting to a Dict of ModelMappings
+models = ModelMapping(
+    "Leaf" => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "InterNode" => ModelList(
+    "InterNode" => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
@@ -40,7 +39,7 @@ models = Dict(
 df = DataFrame(models)
 ```
 """
-function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelList}}
+function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelMapping}}
     df = DataFrame[]
     for (k, v) in enumerate(components)
         df_c = DataFrames.DataFrame(v)
@@ -50,7 +49,7 @@ function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelList
     reduce(vcat, df)
 end
 
-function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelList} where {N}}
+function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelMapping} where {N}}
     df = DataFrames.DataFrame[]
     for (k, v) in components
         df_c = DataFrames.DataFrame(v)
@@ -61,10 +60,10 @@ function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelLis
 end
 
 """
-    DataFrame(components::ModelList{T,S}) where {T,S<:Status}
+    DataFrame(components::ModelMapping{T,S}) where {T,S<:Status}
 
-Implementation of `DataFrame` for a `ModelList` model with one time step.
+Implementation of `DataFrame` for a `ModelMapping` model with one time step.
 """
-function DataFrames.DataFrame(components::ModelList{T,S}) where {T,S<:Status}
+function DataFrames.DataFrame(components::ModelMapping{T}) where {T}
     DataFrames.DataFrame([NamedTuple(status(components)[1])])
 end

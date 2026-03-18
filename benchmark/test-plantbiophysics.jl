@@ -64,7 +64,7 @@ function benchmark_plantbiophysics()
     constants = Constants()
     #time_PB = Vector{Float64}(undef, N*microbenchmark_steps)
     for i = 1:N
-        leaf = ModelList(
+        leaf = ModelMapping(
             energy_balance=Monteith(),
             photosynthesis=Fvcb(
                 VcMaxRef=set.VcMaxRef[i],
@@ -138,9 +138,9 @@ function setup_benchmark_plantbiophysics_multitimestep()
     @. set[!, :vpd] = e_sat(set.T) - vapor_pressure(set.T, set.Rh)
     @. set[!, :aPPFD] = set.Ra_SW_f * 0.48 * 4.57
 
-    leaf = Vector{ModelList}(undef, N)
+    leaf = Vector{ModelMapping}(undef, N)
     for i = 1:N
-        leaf[i] = ModelList(
+        leaf[i] = ModelMapping(
             energy_balance=Monteith(),
             photosynthesis=Fvcb(
                 VcMaxRef=set.VcMaxRef[i],

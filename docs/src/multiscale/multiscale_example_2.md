@@ -16,9 +16,8 @@ Once again, with a properly set-up Julia environment:
 ```@example usepkg
 using PlantSimEngine
 using PlantSimEngine.Examples
-using PlantMeteo
+using PlantMeteo, Dates, Dates
 using MultiScaleTreeGraph
-using CSV, DataFrames
 
 PlantSimEngine.@process "leaf_carbon_capture" verbose = false
 
@@ -38,7 +37,7 @@ end
 
 function get_n_leaves(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol="Leaf"))
+    nleaves = length(MultiScaleTreeGraph.traverse(root, x->1, symbol=:Leaf))
     return nleaves
 end
 ```
@@ -47,7 +46,7 @@ end
 
 We'll add a root that extracts water and adds it to the stock. Initial water stocks are low, so root growth is prioritized, then the plant also grows leaves and a new internode like it did before. Roots only grow up to a certain point, and don't branch.
 
-This leads to adding a new scale, "Root" to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged, and so is the `get_n_leaves` helper function.
+This leads to adding a new scale, :Root to the mapping, as well as two more models, one for water absorption, the other for root growth. Other models are updated here and there to account for water. The carbon capture model remains unchanged, and so is the `get_n_leaves` helper function.
 
 ## Root models
 
@@ -78,12 +77,12 @@ It also makes use of a couple of helper functions to find the end root and compu
 ```@example usepkg
 function get_root_end_node(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return MultiScaleTreeGraph.traverse(root, x->x, symbol="Root", filter_fun = MultiScaleTreeGraph.isleaf)
+    return MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root, filter_fun = MultiScaleTreeGraph.isleaf)
 end
 
 function get_roots_count(node::MultiScaleTreeGraph.Node)
     root = MultiScaleTreeGraph.get_root(node)
-    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol="Root"))
+    return length(MultiScaleTreeGraph.traverse(root, x->x, symbol=:Root))
 end
 
 PlantSimEngine.@process "root_growth" verbose = false
@@ -107,7 +106,7 @@ function PlantSimEngine.run!(m::ToyRootGrowthModel, models, status, meteo, const
         end
         root_len = get_roots_count(root_end[1])
         if root_len < m.root_max_len
-            st = add_organ!(root_end[1], extra, "<", "Root", 2, index=1)
+            st = add_organ!(root_end[1], extra, "<", :Root, 2, index=1)
             status.carbon_root_creation_consumed = m.carbon_root_creation_cost
         end
     else
@@ -179,9 +178,9 @@ function PlantSimEngine.run!(m::ToyCustomInternodeEmergence, models, status, met
   
     if length(MultiScaleTreeGraph.children(status.node)) == 2 && 
         status.TT_cu - status.TT_cu_emergence >= m.TT_emergence            
-        status_new_internode = add_organ!(status.node, sim_object, "<", "Internode", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
-        add_organ!(status_new_internode.node, sim_object, "+", "Leaf", 2, index=1)
+        status_new_internode = add_organ!(status.node, sim_object, "<", :Internode, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
+        add_organ!(status_new_internode.node, sim_object, "+", :Leaf, 2, index=1)
 
         status_new_internode.TT_cu_emergence = m.TT_emergence - status.TT_cu
         status.carbon_organ_creation_consumed = m.carbon_internode_creation_cost
@@ -194,67 +193,67 @@ end
 ## Updating the mapping
 
 The resource storage and internode emergence models now need a couple of extra water-related mapped variables. 
-The "Root" organ is added to the mapping with its own models. New parameters need to be initialized.
+The :Root organ is added to the mapping with its own models. New parameters need to be initialized.
 
 ```@example usepkg
-mapping = Dict(
-"Scene" => ToyDegreeDaysCumulModel(),
-"Plant" => (
+mapping = ModelMapping(
+:Scene => ToyDegreeDaysCumulModel(),
+:Plant => (
     MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
-            :carbon_captured=>["Leaf"],
-            :water_absorbed=>["Root"],
-            :carbon_root_creation_consumed=>["Root"],
-            :carbon_organ_creation_consumed=>["Internode"]
+            :carbon_captured=>[:Leaf],
+            :water_absorbed=>[:Root],
+            :carbon_root_creation_consumed=>[:Root],
+            :carbon_organ_creation_consumed=>[:Internode]
 
         ],
         ),
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
-"Internode" => (        
+:Internode => (        
         MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene",
-            PreviousTimeStep(:water_stock)=>"Plant",
-            PreviousTimeStep(:carbon_stock)=>"Plant"],
+            mapped_variables=[:TT_cu => :Scene,
+            PreviousTimeStep(:water_stock)=>:Plant,
+            PreviousTimeStep(:carbon_stock)=>:Plant],
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-"Root" => ( MultiScaleModel(
+:Root => ( MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
-            mapped_variables=[PreviousTimeStep(:carbon_stock)=>"Plant",
-            PreviousTimeStep(:water_stock)=>"Plant"],
+            mapped_variables=[PreviousTimeStep(:carbon_stock)=>:Plant,
+            PreviousTimeStep(:water_stock)=>:Plant],
         ),       
             ToyWaterAbsorptionModel(),
             Status(carbon_root_creation_consumed=0.0, root_water_assimilation=1.0),
             ),
-"Leaf" => ( ToyLeafCarbonCaptureModel(),),
+:Leaf => ( ToyLeafCarbonCaptureModel(),),
 )
 ```
 
 ## Running the simulation
 
-Running this new simulation is almost the same as before. The weather data is unchanged, but a new "Root" node was added to the MTG.
+Running this new simulation is almost the same as before. The weather data is unchanged, but a new :Root node was added to the MTG.
 
 ```@example usepkg
-mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))   
-    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
+mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))   
+    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     
-    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    internode1 = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", "Internode", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
-    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", "Leaf", 1, 2))
+    internode2 = MultiScaleTreeGraph.Node(internode1, MultiScaleTreeGraph.NodeMTG("<", :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    MultiScaleTreeGraph.Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
     plant_root_start = MultiScaleTreeGraph.Node(
         plant, 
-        MultiScaleTreeGraph.NodeMTG("+", "Root", 1, 3), 
+        MultiScaleTreeGraph.NodeMTG("+", :Root, 1, 3), 
     )
 
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
     
 outs = run!(mtg, mapping, meteo_day)
 mtg

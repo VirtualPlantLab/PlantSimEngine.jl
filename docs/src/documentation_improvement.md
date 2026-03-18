@@ -1,7 +1,11 @@
-# Help improve our documentation !
+# Help Improve The Documentation
 
-One goal for PlantSimEngine is to ensure testing ecophysiological hypotheses, or building plant simulations is as easy as can be for a wider range of people than previous frameworks.
+Good documentation is essential if PlantSimEngine is meant to stay usable for
+both new users and contributors.
 
-Good documentation is essential for that purpose.
+If a page is unclear, incomplete, or out of date, the preferred way to report it
+is to open an issue or submit a pull request on
+[GitHub](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues).
 
-If parts of the documentation are unclear to you, you are very welcome to send a PR, an email, or a message (either [on Github](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or [on the FSPM Discourse](https://fspm.discourse.group/latest)) so that we can improve upon it.
+Documentation fixes do not need to be large. Small corrections, clarified
+examples, and reports of missing release notes are all useful contributions.

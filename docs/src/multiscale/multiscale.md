@@ -24,7 +24,7 @@ It resembles the ToyAssimGrowth model used in the single-scale simulation [Model
 Our mapping between scale and model is therefore:
 
 ```@example usepkg
-mapping = Dict("Leaf" => ToyAssimModel())
+mapping = ModelMapping(:Leaf => ToyAssimModel())
 ```
 
 Just like in single-scale simulations, we can call `to_initialize` to check whether variables need to be initialised. It will this time index by scale:
@@ -38,8 +38,8 @@ In this example, the ToyAssimModel needs `:aPPFD` and `:soil_water_content` as i
 The initialization values for the variables can be passed along via a [`Status`](@ref) object:
 
 ```@example usepkg
-mapping = Dict(
-    "Leaf" => (
+mapping = ModelMapping(
+    :Leaf => (
         ToyAssimModel(),
         Status(aPPFD=1300.0, soil_water_content=0.5),
     ),
@@ -56,17 +56,17 @@ to_initialize(mapping)
 
 The `soil_water_content` variable was provided via the mapping. No model affects it, so it is constant in the above example. We could instead provide a model that computes it based on weather data, and/or a more realistic physical process. 
 
-It also makes sense to have that model operate at a different scale than the "Leaf" scale. There is a dummy soil model called `ToySoilModel` in the examples folder. Let's put it at a new "Soil" scale level.
+It also makes sense to have that model operate at a different scale than the :Leaf scale. There is a dummy soil model called `ToySoilModel` in the examples folder. Let's put it at a new :Soil scale level.
 
-ToyAssimModel is now makes use of the `soil_water_content` variable from the `"Soil"` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the "Soil" to the "Leaf" scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
+ToyAssimModel is now makes use of the `soil_water_content` variable from the `:Soil` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the :Soil to the :Leaf scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
 
 ```@example usepkg
-mapping = Dict(
-    "Soil" => ToySoilWaterModel(),
-    "Leaf" => (
+mapping = ModelMapping(
+    :Soil => ToySoilWaterModel(),
+    :Leaf => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil" => :soil_water_content,],
+            mapped_variables=[:soil_water_content => :Soil => :soil_water_content,],
         ),
         Status(aPPFD=1300.0),        
     ),
@@ -74,7 +74,7 @@ mapping = Dict(
 nothing # hide
 ```
 
-In this example, we map the `soil_water_content` variable at scale "Leaf" to the `soil_water_content` variable at the `"Soil"` scale. If the name of the variable is the same between both scales, we can omit the variable name at the origin scale, *e.g.* `[:soil_water_content => "Soil"]`.
+In this example, we map the `soil_water_content` variable at scale :Leaf to the `soil_water_content` variable at the `:Soil` scale. If the name of the variable is the same between both scales, we can omit the variable name at the origin scale, *e.g.* `[:soil_water_content => :Soil]`.
 
 The variable `aPPFD` is still provided in the `Status` type as a constant value.
 
@@ -91,50 +91,50 @@ Once again, `to_initialize` returns an empty dictionary, meaning the mapping is 
 Let's now expand this mapping, to showcase other ways in which variables can be mapped from one scale to another. We'll keep the first two models, and add several more to simulate a couple of other processes within our plant.
 
 ```@example usepkg
-mapping = Dict(
-    "Scene" => ToyDegreeDaysCumulModel(),
-    "Plant" => (
+mapping = ModelMapping(
+    :Scene => ToyDegreeDaysCumulModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.6),
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
-                :carbon_assimilation => ["Leaf"],
-                :carbon_demand => ["Leaf", "Internode"],
-                :carbon_allocation => ["Leaf", "Internode"]
+                :carbon_assimilation => [:Leaf],
+                :carbon_demand => [:Leaf, :Internode],
+                :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
-    "Internode" => (
+    :Internode => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(carbon_biomass=1.0),
     ),
-    "Leaf" => (
+    :Leaf => (
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil", :aPPFD => "Plant"],
+            mapped_variables=[:soil_water_content => :Soil, :aPPFD => :Plant],
         ),
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
         Status(carbon_biomass=0.5),
     ),
-    "Soil" => (
+    :Soil => (
         ToySoilWaterModel(),
     ),
 );
@@ -144,49 +144,49 @@ nothing # hide
 This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Model switching](@ref) subsection.
 
 ```julia
-models2 = ModelList(
+models2 = ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
-    ToyAssimGrowthModel(),
+    ToyAssimGrowthModel();
     status=(TT_cu=cumsum(meteo_day.TT),),
 )
 ```
 
 The multi-scale models simulate carbon capture via photosynthesis and carbon allocation for the plant organs' maintenance respiration and development.
 
-The LAI and photosynthesis models are the same as in the ModelList example. The [`ToyDegreeDaysCumulModel`](@ref) provides the Cumulative Thermal Time to the plant. 
+The LAI and photosynthesis models are the same as in the single-scale mapping example. The [`ToyDegreeDaysCumulModel`](@ref) provides the Cumulative Thermal Time to the plant. 
 
 The newly introduced models have the following dynamic : 
 
-Carbon allocation is determined (ToyCAllocationModel) for the different organs of the plant (`"Leaf"` and `"Internode"`) from the assimilation at the `"Leaf"` scale (*i.e.* the offer) and their carbon demand (ToyCDemandModel). The `"Soil"` scale is used to compute the soil water content (`ToySoilWaterModel`](@ref)), which is needed to calculate the assimilation at the `"Leaf"` scale (ToyAssimModel). Also note that maintenance respiration at computed at the `"Leaf"` and `"Internode"` scales (ToyMaintenanceRespirationModel), and aggregated to compute the total maintenance respiration at the `"Plant"` scale (ToyPlantRmModel). 
+Carbon allocation is determined (ToyCAllocationModel) for the different organs of the plant (`:Leaf` and `:Internode`) from the assimilation at the `:Leaf` scale (*i.e.* the offer) and their carbon demand (ToyCDemandModel). The `:Soil` scale is used to compute the soil water content (`ToySoilWaterModel`](@ref)), which is needed to calculate the assimilation at the `:Leaf` scale (ToyAssimModel). Also note that maintenance respiration at computed at the `:Leaf` and `:Internode` scales (ToyMaintenanceRespirationModel), and aggregated to compute the total maintenance respiration at the `:Plant` scale (ToyPlantRmModel). 
 
 ## Different possible variable mappings
 
 The above mapping showcases the different ways to define how the variables are mapped in a `MultiScaleModel` :
 
 ```julia
- mapped_variables=[:TT_cu => "Scene",],
+ mapped_variables=[:TT_cu => :Scene,],
 ```
 
-- At the "Plant" scale, the TT_cu variable is mapped as a scalar from the "Scene" scale. There is only a single "Scene" node in the MTG, and only a single "TT_cu" value per timestep for the simulation.
+- At the :Plant scale, the TT_cu variable is mapped as a scalar from the :Scene scale. There is only a single :Scene node in the MTG, and only a single "TT_cu" value per timestep for the simulation.
 
 ```julia
-:carbon_allocation => ["Leaf"]
+:carbon_allocation => [:Leaf]
 ```
 
-- On the other hand, we have `:carbon_allocation => ["Leaf"]` at the plant scale for `ToyCAllocationModel`. The `carbon_assimilation` variable is mapped as a vector: there are multiple "Leaf" nodes, but only one "Plant" node, which aggregrates the value over every single leaf. This gives us a 'many-to-one' vector mapping, and in the [`run!`](@ref) functions for models at that scale `carbon_allocation` will be available in the `status` as a vector.
+- On the other hand, we have `:carbon_allocation => [:Leaf]` at the plant scale for `ToyCAllocationModel`. The `carbon_assimilation` variable is mapped as a vector: there are multiple :Leaf nodes, but only one :Plant node, which aggregrates the value over every single leaf. This gives us a 'many-to-one' vector mapping, and in the [`run!`](@ref) functions for models at that scale `carbon_allocation` will be available in the `status` as a vector.
 
 ```julia
-:carbon_allocation => ["Leaf", "Internode"]
+:carbon_allocation => [:Leaf, :Internode]
 ```
 
-- A third type of the mapping would be `:carbon_allocation => ["Leaf", "Internode"]`, which provides values for a variable from several other scales simultaneously. In this case, the values are also available as a vector in the `carbon_assimilation` variable of the [`status`](@ref) inside the model, sorted in the same order as nodes are traversed in the graph.
+- A third type of the mapping would be `:carbon_allocation => [:Leaf, :Internode]`, which provides values for a variable from several other scales simultaneously. In this case, the values are also available as a vector in the `carbon_assimilation` variable of the [`status`](@ref) inside the model, sorted in the same order as nodes are traversed in the graph.
 
 ```julia
-:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]
+:Rm_organs => [:Leaf => :Rm, :Internode => :Rm]
 ```
 
-- Finally, to map to a specific variable name at the target scale, *e.g.* `:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm]`. This syntax is useful when the variable name is different between scales, and we want to map to a specific variable name at the target scale. In this example, the variable `Rm_organs` at plant scale takes its values (is mapped) from the variable `Rm` at the `"Leaf"` and `"Internode"` scales.
+- Finally, to map to a specific variable name at the target scale, *e.g.* `:Rm_organs => [:Leaf => :Rm, :Internode => :Rm]`. This syntax is useful when the variable name is different between scales, and we want to map to a specific variable name at the target scale. In this example, the variable `Rm_organs` at plant scale takes its values (is mapped) from the variable `Rm` at the `:Leaf` and `:Internode` scales.
 
 ## Running a simulation
 
@@ -211,11 +211,11 @@ For long simulations on plants with many organs, the output data can be very sig
 
 ```@example usepkg
 outs = Dict(
-    "Scene" => (:TT, :TT_cu,),
-    "Plant" => (:aPPFD, :LAI),
-    "Leaf" => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),
-    "Internode" => (:carbon_allocation,),
-    "Soil" => (:soil_water_content,),
+    :Scene => (:TT, :TT_cu,),
+    :Plant => (:aPPFD, :LAI),
+    :Leaf => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),
+    :Internode => (:carbon_allocation,),
+    :Soil => (:soil_water_content,),
 )
 ```
 

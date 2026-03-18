@@ -1,6 +1,7 @@
 """
-    reverse_mapping(mapping::Dict{String,Tuple{Any,Vararg{Any}}}; all=true)
-    reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}})
+    reverse_mapping(mapping::ModelMapping; all=true)
+    reverse_mapping(mapping::AbstractDict{Symbol,Tuple{Any,Vararg{Any}}}; all=true)
+    reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
 
 Get the reverse mapping of a dictionary of model mapping, *i.e.* the variables that are mapped to other scales, or in other words,
 what variables are given to other scales from a given scale.
@@ -8,7 +9,7 @@ This is used for *e.g.* knowing which scales are needed to add values to others.
 
 # Arguments
 
-- `mapping::Dict{String,Any}`: A dictionary of model mapping.
+- `mapping::ModelMapping` (or dictionary-like mapping): the model mapping.
 - `all::Bool`: Whether to get all the variables that are mapped to other scales, including the ones that are mapped as single values.
 
 # Returns
@@ -30,51 +31,53 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
-julia> mapping = Dict( \
-            "Plant" => \
+julia> mapping = ModelMapping( \
+            :Plant => \
                 MultiScaleModel( \
                     model=ToyCAllocationModel(), \
                     mapped_variables=[ \
-                        :carbon_assimilation => ["Leaf"], \
-                        :carbon_demand => ["Leaf", "Internode"], \
-                        :carbon_allocation => ["Leaf", "Internode"] \
+                        :carbon_assimilation => [:Leaf], \
+                        :carbon_demand => [:Leaf, :Internode], \
+                        :carbon_allocation => [:Leaf, :Internode] \
                     ], \
                 ), \
-            "Internode" => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
-            "Leaf" => ( \
+            :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
+            :Leaf => ( \
                 MultiScaleModel( \
                     model=ToyAssimModel(), \
-                    mapped_variables=[:soil_water_content => "Soil",], \
+                    mapped_variables=[:soil_water_content => :Soil => :soil_water_content,], \
                 ), \
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
                 Status(aPPFD=1300.0, TT=10.0), \
             ), \
-            "Soil" => ( \
+            :Soil => ( \
                 ToySoilWaterModel(), \
             ), \
         );
 ```
 
-Notice we provide "Soil", not ["Soil"] in the mapping of the `ToyAssimModel` for the `Leaf`. This is because
+Notice we provide `:Soil`, not `[:Soil]` in the mapping of the `ToyAssimModel` for the `Leaf`. This is because
 we expect a single value for the `soil_water_content` to be mapped here (there is only one soil). This allows 
 to get the value as a singleton instead of a vector of values.
 
 ```jldoctest mylabel
-julia> PlantSimEngine.reverse_mapping(mapping)
-Dict{String, Dict{String, Dict{Symbol, Any}}} with 3 entries:
-  "Soil"      => Dict("Leaf"=>Dict(:soil_water_content=>:soil_water_content))
-  "Internode" => Dict("Plant"=>Dict(:carbon_allocation=>:carbon_allocation, :ca…
-  "Leaf"      => Dict("Plant"=>Dict(:carbon_allocation=>:carbon_allocation, :ca…
+julia> rm = PlantSimEngine.reverse_mapping(mapping);
+
+julia> Set(keys(rm)) == Set([:Soil, :Internode, :Leaf])
+true
+
+julia> rm[:Soil][:Leaf][:soil_water_content] == :soil_water_content
+true
 ```
 """
-function reverse_mapping(mapping::Dict{String,T}; all=true) where {T<:Any}
+function reverse_mapping(mapping::AbstractDict{Symbol,T}; all=true) where {T<:Any}
     # Method for the reverse mapping applied directly on the mapping (not used in the code base)
     mapped_vars = mapped_variables(mapping, first(hard_dependencies(mapping; verbose=false)), verbose=false)
     reverse_mapping(mapped_vars, all=all)
 end
 
-function reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}}; all=true)
-    reverse_multiscale_mapping = Dict{String,Dict{String,Dict{Symbol,Any}}}(org => Dict{String,Dict{Symbol,Any}}() for org in keys(mapped_vars))
+function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
+    reverse_multiscale_mapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}(org => Dict{Symbol,Dict{Symbol,Any}}() for org in keys(mapped_vars))
     for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
         for (var, val) in vars # e.g. var = :Rm_organs; val = vars[var]
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && (all || !isa(val, MappedVar{SingleNodeMapping}))
@@ -84,11 +87,14 @@ function reverse_mapping(mapped_vars::Dict{String,Dict{Symbol,Any}}; all=true)
 
                 mapped_orgs = mapped_organ(val)
                 isnothing(mapped_orgs) && continue
-                if mapped_orgs isa String
+                if mapped_orgs isa Symbol
                     mapped_orgs = [mapped_orgs]
+                elseif mapped_orgs isa AbstractString
+                    mapped_orgs = [_normalize_scale(mapped_orgs; warn=true, context=:ModelMapping)]
                 end
 
                 for mapped_o in mapped_orgs # e.g.: mapped_o = "Leaf"
+                    mapped_o == Symbol("") && continue
                     # if !haskey(reverse_multiscale_mapping, mapped_o)
                     #     reverse_multiscale_mapping[mapped_o] = Dict{Symbol,Vector{MappedVar}}()
                     # end
