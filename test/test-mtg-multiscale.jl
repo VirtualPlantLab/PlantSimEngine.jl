@@ -157,6 +157,18 @@ end
     @test isa(organs_statuses[:Internode][1][:carbon_allocation], Float32)
     @test isa(organs_statuses[:Leaf][1][:carbon_demand], Float32)
     @test isa(organs_statuses[:Soil][1][:soil_water_content], Float32)
+
+    mapping_promoted = ModelMapping(Dict(mapping_1); type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
+    sim_promoted = PlantSimEngine.GraphSimulation(
+        mtg_init,
+        mapping_promoted;
+        nsteps=1,
+        outputs=Dict(:Soil => (:soil_water_content,)),
+        check=true,
+    )
+
+    @test sim_promoted.statuses[:Soil][1][:soil_water_content] isa Float32
+    @test sim_promoted.outputs[:Soil][1][:soil_water_content] isa Float32
 end
 
 

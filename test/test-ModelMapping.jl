@@ -168,6 +168,16 @@ end;
 
     process3_same = PlantSimEngine.convert_vars(ref_vars.process3, nothing)
     @test process3_same == ref_vars.process3
+
+    mapping = ModelMapping(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model();
+        type_promotion=type_promotion,
+    )
+
+    @test mapping.type_promotion == type_promotion
+    @test all(isa(status(mapping)[var], Float32) for var in keys(status(mapping)))
 end
 
 
