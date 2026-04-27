@@ -118,6 +118,8 @@ end
     @test occursin("function compiled_mtg_model!(sim, meteo, constants)", script)
     @test occursin("Mode: same-rate multiscale MTG", script)
     @test occursin("variables are scale-scoped through each Status", script)
+    @test occursin("PlantSimEngine._assert_compiled_sim_compatible", script)
+    @test occursin("Model compatibility signature", script)
     @test occursin("while idx <= length(statuses[:Leaf])", script)
     @test occursin("scale: Leaf | initial_statuses: 2", script)
     @test occursin("model: ToyCAllocationModel | process: carbon_allocation | scale: Plant", script)
@@ -146,17 +148,128 @@ end
     @test getfield(sim.statuses[:Plant][1].carbon_assimilation, :v)[1] === PlantSimEngine.refvalue(sim.statuses[:Leaf][1], :carbon_assimilation)
 
     @test convert_outputs(compiled_outputs, DataFrames.DataFrame) == convert_outputs(normal_outputs, DataFrames.DataFrame)
+
+    mtg_wrong = import_mtg_example()
+    meteo_wrong = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
+    mapping_wrong = ModelMapping(:Soil => (ToySoilWaterModel(),))
+    sim_wrong = PlantSimEngine.GraphSimulation(mtg_wrong, mapping_wrong, nsteps=1, check=true, outputs=Dict(:Soil => (:soil_water_content,)))
+    @test_throws "Compiled model was generated for a different model mapping" Core.eval(compiled_mod, :compiled_mtg_model!)(
+        sim_wrong,
+        meteo_wrong,
+        PlantMeteo.Constants(),
+    )
 end
 
-@testset "Merged multiscale model compiler rejects multirate" begin
-    mtg = import_mtg_example()
+function compiled_model_multirate_fixture()
+    mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    MultiScaleTreeGraph.Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Soil, 1, 1))
+    internode = MultiScaleTreeGraph.Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
+    MultiScaleTreeGraph.Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    MultiScaleTreeGraph.Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+
+    daily = ClockSpec(24.0, 1.0)
+    hourly = 1.0
     mapping = ModelMapping(
+        :Scene => (
+            ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStepModel(daily),
+        ),
+        :Plant => (
+            ModelSpec(ToyLAIModel()) |>
+            MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
+            TimeStepModel(daily),
+            ModelSpec(Beer(0.6)) |> TimeStepModel(hourly),
+            ModelSpec(ToyCAllocationModel()) |>
+            MultiScaleModel([
+                :carbon_assimilation => [:Leaf],
+                :carbon_demand => [:Leaf, :Internode],
+                :carbon_allocation => [:Leaf, :Internode],
+            ]) |>
+            InputBindings(; carbon_assimilation=(process=process(ToyAssimModel()), var=:carbon_assimilation, scale=:Leaf, policy=Integrate())) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyPlantRmModel()) |>
+            MultiScaleModel([:Rm_organs => [:Leaf => :Rm, :Internode => :Rm]]) |>
+            TimeStepModel(daily),
+        ),
+        :Internode => (
+            ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
+            MultiScaleModel([:TT => (:Scene => :TT)]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyInternodeEmergence(TT_emergence=1.0e6)) |>
+            MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004)) |> TimeStepModel(daily),
+            Status(carbon_biomass=1.0),
+        ),
+        :Leaf => (
+            ModelSpec(ToyAssimModel()) |>
+            MultiScaleModel([:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)]) |>
+            TimeStepModel(hourly),
+            ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
+            MultiScaleModel([:TT => (:Scene => :TT)]) |>
+            TimeStepModel(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025)) |> TimeStepModel(daily),
+            Status(carbon_biomass=1.0),
+        ),
         :Soil => (
-            ModelSpec(ToySoilWaterModel()) |> TimeStepModel(2.0),
+            ModelSpec(ToySoilWaterModel()) |> TimeStepModel(daily),
         ),
     )
-    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=2, check=true, outputs=Dict(:Soil => (:soil_water_content,)))
-    @test_throws "same-rate MTG simulations only" compile_model(sim)
+
+    outputs = Dict(
+        :Leaf => (:carbon_assimilation, :aPPFD, :carbon_demand),
+        :Plant => (:LAI, :carbon_offer, :Rm),
+        :Scene => (:TT, :TT_cu),
+        :Soil => (:soil_water_content,),
+        :Internode => (:carbon_demand, :TT_cu_emergence),
+    )
+    meteo = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0)], 26))
+
+    return mtg, meteo, mapping, outputs
+end
+
+@testset "Merged multiscale model compiler supports multirate" begin
+    mtg, meteo, mapping, outputs = compiled_model_multirate_fixture()
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=PlantSimEngine.get_nsteps(meteo), check=true, outputs=outputs)
+    script = compile_model(sim; function_name=:compiled_multirate_mtg_model!)
+
+    @test occursin("Mode: multi-rate multiscale MTG", script)
+    @test occursin("tracked_outputs = nothing", script)
+    @test occursin("PlantSimEngine.resolve_inputs_from_temporal_state!", script)
+    @test occursin("PlantSimEngine.update_temporal_state_outputs!", script)
+    @test occursin("PlantSimEngine.update_requested_outputs!", script)
+    @test occursin("_mr_Leaf_carbon_assimilation_model = (models_by_scale[:Leaf]).carbon_assimilation", script)
+    @test occursin("_mr_Leaf_carbon_assimilation_model_clock = PlantSimEngine._model_clock", script)
+    @test occursin("while idx <= length(statuses[:Leaf])", script)
+
+    compiled_mod = Module(gensym(:CompiledMultirateMTGModelTest))
+    script_path = tempname() * ".jl"
+    write(script_path, script)
+    Base.include(compiled_mod, script_path)
+    tracked = OutputRequest(:Leaf, :carbon_assimilation; name=:leaf_assimilation, process=process(ToyAssimModel()))
+    compiled_outputs, compiled_requested = Core.eval(compiled_mod, :compiled_multirate_mtg_model!)(
+        sim,
+        meteo,
+        PlantMeteo.Constants();
+        tracked_outputs=tracked,
+        return_requested_outputs=true,
+        requested_outputs_sink=DataFrames.DataFrame,
+    )
+
+    mtg_normal, meteo_normal, mapping_normal, outputs_normal = compiled_model_multirate_fixture()
+    sim_normal = PlantSimEngine.GraphSimulation(mtg_normal, mapping_normal, nsteps=PlantSimEngine.get_nsteps(meteo_normal), check=true, outputs=outputs_normal)
+    normal_outputs, normal_requested = run!(
+        sim_normal,
+        meteo_normal;
+        executor=SequentialEx(),
+        tracked_outputs=tracked,
+        return_requested_outputs=true,
+        requested_outputs_sink=DataFrames.DataFrame,
+    )
+
+    @test sim.temporal_state.last_run == sim_normal.temporal_state.last_run
+    @test convert_outputs(compiled_outputs, DataFrames.DataFrame) == convert_outputs(normal_outputs, DataFrames.DataFrame)
+    @test compiled_requested[:leaf_assimilation] == normal_requested[:leaf_assimilation]
 end
 
 PlantSimEngine.@process "compiled_child" verbose = false

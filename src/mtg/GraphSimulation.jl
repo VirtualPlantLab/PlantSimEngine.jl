@@ -34,7 +34,7 @@ struct GraphSimulation{T,S,U,O,V,TS,MS}
     is_multirate::Bool
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, check=true, verbose=false)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
     mapping_checked = mapping isa ModelMapping ? mapping : ModelMapping(mapping)
     GraphSimulation(init_simulation(graph, mapping_checked; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end

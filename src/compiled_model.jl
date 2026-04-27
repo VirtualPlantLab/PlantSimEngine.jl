@@ -55,12 +55,18 @@ function compile_model(model_list::ModelList; function_name::Symbol=:compiled_mo
 end
 
 function compile_model(sim::GraphSimulation; function_name::Symbol=:compiled_model!)
-    is_multirate(sim) && error("`compile_model(::GraphSimulation)` currently supports same-rate MTG simulations only. Multi-rate compilation is not implemented yet.")
     dep_graph = dep(sim)
     length(dep_graph.not_found) > 0 && error("Cannot compile model with missing dependencies: $(dep_graph.not_found)")
 
     nodes = _topological_soft_nodes(dep_graph)
     ctx = _ModelCompilationContext(get_models(sim), Dict{Tuple{Symbol,Symbol,DataType},_CompiledModelSource}(), Set{Module}(), _initial_status_counts(sim))
+    return is_multirate(sim) ?
+           _compile_multirate_graph_simulation(sim, nodes, ctx, function_name) :
+           _compile_same_rate_graph_simulation(sim, nodes, ctx, function_name)
+end
+
+function _compile_same_rate_graph_simulation(sim::GraphSimulation, nodes::Vector{SoftDependencyNode}, ctx, function_name::Symbol)
+    signature = _compiled_model_signature_expr(_compiled_model_signature(sim))
     step_statements = Any[]
     for node in nodes
         append!(step_statements, _multiscale_node_loop(ctx, sim, node))
@@ -71,6 +77,7 @@ function compile_model(sim::GraphSimulation; function_name::Symbol=:compiled_mod
         :block,
         :(statuses = PlantSimEngine.status(sim)),
         :(models_by_scale = PlantSimEngine.get_models(sim)),
+        :(PlantSimEngine._assert_compiled_sim_compatible(sim, $signature, false)),
         :(nsteps = PlantSimEngine.get_nsteps(meteo)),
         Expr(
             :if,
@@ -112,6 +119,110 @@ function compile_model(sim::GraphSimulation; function_name::Symbol=:compiled_mod
         "# Cross-scale sharing comes from initialized Refs and RefVectors in sim.statuses.\n",
         "# Initial statuses by scale: $(_initial_status_counts(sim)).\n",
         "# Processes by scale: $(_processes_by_scale(sim)).\n\n",
+        "# Model compatibility signature: $(_compiled_model_signature(sim)).\n\n",
+        _compiled_module_imports(ctx.source_modules),
+        _sprint_expr(fexpr),
+        "\n"
+    )
+end
+
+function _compile_multirate_graph_simulation(sim::GraphSimulation, nodes::Vector{SoftDependencyNode}, ctx, function_name::Symbol)
+    signature = _compiled_model_signature_expr(_compiled_model_signature(sim))
+    setup_statements = Any[]
+    step_statements = Any[]
+    for node in nodes
+        locals = _multirate_node_locals(node)
+        append!(setup_statements, _multirate_node_setup(node, locals))
+        append!(step_statements, _multirate_node_loop(ctx, sim, node, locals))
+    end
+
+    one_step_body = Expr(
+        :block,
+        :(t = PlantSimEngine._time_from_step(i, timeline)),
+        step_statements...,
+        :(PlantSimEngine.update_requested_outputs!(sim, t)),
+        :(PlantSimEngine.save_results!(sim, i))
+    )
+    body = Expr(
+        :block,
+        :(PlantSimEngine._validate_meteo_duration(meteo)),
+        :(dep_graph = PlantSimEngine.dep(sim)),
+        :(statuses = PlantSimEngine.status(sim)),
+        :(models_by_scale = PlantSimEngine.get_models(sim)),
+        :(PlantSimEngine._assert_compiled_sim_compatible(sim, $signature, true)),
+        :(compiled_nodes = PlantSimEngine._compiled_dependency_nodes_by_key(sim)),
+        :(timeline = PlantSimEngine._timeline_context(meteo)),
+        :(meteo_sampler = PlantSimEngine._prepare_meteo_sampler(meteo)),
+        :(runtime_clock_rows = PlantSimEngine._runtime_clock_rows(sim, timeline, dep_graph)),
+        :(PlantSimEngine._validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)),
+        :(PlantSimEngine._warn_if_no_model_runs_at_base_timestep(runtime_clock_rows, timeline)),
+        :(PlantSimEngine.validate_canonical_publishers(sim)),
+        :(PlantSimEngine.prepare_output_requests!(sim, tracked_outputs, timeline)),
+        :(PlantSimEngine.configure_temporal_buffers!(sim, timeline)),
+        setup_statements...,
+        :(nsteps = PlantSimEngine.get_nsteps(meteo)),
+        Expr(
+            :if,
+            :(nsteps == 1),
+            Expr(
+                :block,
+                :(i = 1),
+                :(meteo_i = meteo),
+                one_step_body
+            ),
+            Expr(
+                :block,
+                :(i = 1),
+                Expr(
+                    :for,
+                    :(meteo_i = PlantSimEngine.Tables.rows(meteo)),
+                    Expr(
+                        :block,
+                        one_step_body,
+                        :(i += 1)
+                    )
+                )
+            )
+        ),
+        Expr(
+            :for,
+            :((organ, index) = sim.outputs_index),
+            :(resize!(PlantSimEngine.outputs(sim)[organ], index - 1))
+        ),
+        Expr(
+            :if,
+            :return_requested_outputs,
+            :(return PlantSimEngine.outputs(sim), PlantSimEngine.collect_outputs(sim; sink=requested_outputs_sink)),
+            :(return PlantSimEngine.outputs(sim))
+        )
+    )
+    fexpr = Expr(
+        :function,
+        Expr(
+            :call,
+            function_name,
+            Expr(
+                :parameters,
+                Expr(:kw, :tracked_outputs, :nothing),
+                Expr(:kw, :return_requested_outputs, false),
+                Expr(:kw, :requested_outputs_sink, :(PlantSimEngine.DataFrames.DataFrame))
+            ),
+            :sim,
+            :meteo,
+            :constants
+        ),
+        body
+    )
+
+    return string(
+        "# This file was generated by PlantSimEngine.compile_model.\n",
+        "# It expects `sim` to be the initialized GraphSimulation used for compilation.\n",
+        "# Mode: multi-rate multiscale MTG; variables are scale-scoped through each Status.\n",
+        "# Temporal inputs, meteo sampling, output routing, scopes, and online exports use PlantSimEngine runtime helpers.\n",
+        "# Cross-scale sharing comes from initialized Refs and RefVectors in sim.statuses.\n",
+        "# Initial statuses by scale: $(_initial_status_counts(sim)).\n",
+        "# Processes by scale: $(_processes_by_scale(sim)).\n\n",
+        "# Model compatibility signature: $(_compiled_model_signature(sim)).\n\n",
         _compiled_module_imports(ctx.source_modules),
         _sprint_expr(fexpr),
         "\n"
@@ -222,6 +333,117 @@ function _multiscale_node_loop(ctx::_ModelCompilationContext, sim::GraphSimulati
         )
     ]
     return Any[Expr(:let, Expr(:block), Expr(:block, statements...))]
+end
+
+function _multirate_node_locals(node::SoftDependencyNode)
+    prefix = string("_mr_", _identifier_part(node.scale), "_", _identifier_part(node.process))
+    return (
+        node=Symbol(prefix, "_node"),
+        model=Symbol(prefix, "_model"),
+        model_spec=Symbol(prefix, "_model_spec"),
+        model_clock=Symbol(prefix, "_model_clock"),
+    )
+end
+
+function _multirate_node_setup(node::SoftDependencyNode, locals)
+    model_expr = :((models_by_scale[$(QuoteNode(node.scale))]).$(node.process))
+    return Any[
+        LineNumberNode(0, Symbol("multirate setup: $(node.scale) | process: $(node.process)")),
+        :($(locals.node) = compiled_nodes[($(QuoteNode(node.scale)), $(QuoteNode(node.process)))]),
+        :($(locals.model) = $model_expr),
+        :($(locals.model_spec) = PlantSimEngine._model_spec_for_process(sim, $(QuoteNode(node.scale)), $(QuoteNode(node.process)))),
+        :($(locals.model_clock) = PlantSimEngine._model_clock($(locals.model_spec), $(locals.model), timeline)),
+    ]
+end
+
+function _multirate_node_loop(ctx::_ModelCompilationContext, sim::GraphSimulation, node::SoftDependencyNode, locals)
+    model_expr = locals.model
+    call = _CompiledRunCall(
+        model_expr,
+        :(models_by_scale[$(QuoteNode(node.scale))]),
+        :status,
+        :meteo_for_model,
+        :constants,
+        :sim
+    )
+    body = _inline_model_node(ctx, node, call, Set{Tuple{Symbol,Symbol}}())
+    statements = Any[
+        LineNumberNode(0, Symbol("multirate scale loop: $(node.scale) | process: $(node.process) | initial_statuses: $(length(status(sim)[node.scale]))")),
+        Expr(
+            :if,
+            :(PlantSimEngine._should_run_at_time($(locals.model_clock), t)),
+            Expr(
+                :block,
+                :(idx = 1),
+                Expr(
+                    :while,
+                    :(idx <= length(statuses[$(QuoteNode(node.scale))])),
+                    Expr(
+                        :block,
+                        :(status = statuses[$(QuoteNode(node.scale))][idx]),
+                        :(PlantSimEngine.resolve_inputs_from_temporal_state!(sim, $(locals.node), status, t, $(locals.model_spec), timeline)),
+                        :(meteo_for_model = PlantSimEngine._sample_meteo_for_model(meteo_sampler, meteo_i, i, $(locals.model_clock), $(locals.model_spec))),
+                        body...,
+                        :(PlantSimEngine.update_temporal_state_outputs!(sim, $(locals.node), $(locals.model_spec), status, t)),
+                        :(idx += 1)
+                    )
+                )
+            ),
+            nothing
+        )
+    ]
+    return Any[Expr(:let, Expr(:block), Expr(:block, statements...))]
+end
+
+function _identifier_part(x)
+    raw = string(x)
+    chars = map(collect(raw)) do c
+        isletter(c) || isdigit(c) ? c : '_'
+    end
+    cleaned = String(chars)
+    isempty(cleaned) && return "unnamed"
+    return isdigit(first(cleaned)) ? string("_", cleaned) : cleaned
+end
+
+function _compiled_dependency_nodes_by_key(sim::GraphSimulation)
+    nodes = Dict{Tuple{Symbol,Symbol},SoftDependencyNode}()
+    for node in _topological_soft_nodes(dep(sim))
+        nodes[(node.scale, node.process)] = node
+    end
+    return nodes
+end
+
+function _compiled_model_signature(sim::GraphSimulation)
+    entries = Tuple{Symbol,Symbol,String}[]
+    for scale in sort!(collect(keys(get_models(sim))); by=string)
+        models_at_scale = get_models(sim)[scale]
+        for process in sort!(collect(keys(models_at_scale)); by=string)
+            push!(entries, (scale, process, string(typeof(getproperty(models_at_scale, process)))))
+        end
+    end
+    return Tuple(entries)
+end
+
+function _compiled_model_signature_expr(signature)
+    return Expr(:tuple, (Expr(:tuple, QuoteNode(scale), QuoteNode(process), type_name) for (scale, process, type_name) in signature)...)
+end
+
+function _assert_compiled_sim_compatible(sim::GraphSimulation, expected_signature, expected_multirate::Bool)
+    is_multirate(sim) == expected_multirate || error(
+        "Compiled model was generated for ",
+        expected_multirate ? "a multi-rate" : "a same-rate",
+        " GraphSimulation, but received ",
+        is_multirate(sim) ? "a multi-rate" : "a same-rate",
+        " GraphSimulation."
+    )
+    actual_signature = _compiled_model_signature(sim)
+    actual_signature == expected_signature && return nothing
+
+    error(
+        "Compiled model was generated for a different model mapping. ",
+        "Expected signature: $(expected_signature). ",
+        "Received signature: $(actual_signature)."
+    )
 end
 
 function _compiled_model_source(ctx::_ModelCompilationContext, model)
