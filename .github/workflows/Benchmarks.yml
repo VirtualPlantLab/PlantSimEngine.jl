@@ -24,3 +24,6 @@ jobs:
         with:
           julia-version: ${{ matrix.version }}
           bench-on: ${{ github.event.pull_request.head.sha }}
+          extra-pkgs: |
+            https://github.com/PalmStudio/XPalm.jl#main
+            https://github.com/VEZY/PlantBiophysics.jl#master
