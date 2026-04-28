@@ -12,11 +12,18 @@
     @test occursin("using PlantSimEngine", script)
     @test occursin("using PlantSimEngine.Examples", script)
     @test occursin("model: Process4Model | process: process4 | scale: Default", script)
+    @test occursin("inputs: var0 | outputs: var1, var2", script)
+    @test occursin("process4_model = models.process4", script)
     @test occursin("source: " * joinpath(pkgdir(PlantSimEngine), "examples", "dummy.jl"), script)
     @test occursin("method: run!(::Process1Model", script)
-    @test occursin("status.var1 = status.var0 + 0.01", script)
-    @test occursin("status.var3 = models.process1.a + status.var1 * status.var2", script)
+    @test occursin("process4_status.var1 = process4_status.var0 + 0.01", script)
+    @test occursin("process1_status.var3 = process1_model.a + process1_status.var1 * process1_status.var2", script)
     @test !occursin("PlantSimEngine.run!(models.process", script)
+
+    fast_script = compile_model(mapping; function_name=:compiled_dummy_model_fast!, mode=:fast)
+    @test occursin("status.var1 = status.var0 + 0.01", fast_script)
+    @test !occursin("process4_model = models.process4", fast_script)
+    @test_throws "Unsupported compiled model mode" compile_model(mapping; mode=:compact)
 
     module_name = gensym(:CompiledModelTest)
     compiled_mod = Module(module_name)
@@ -43,6 +50,86 @@
     path = tempname() * ".jl"
     @test write_compiled_model(path, mapping; function_name=:compiled_dummy_model!) == path
     @test read(path, String) == script
+end
+
+PlantSimEngine.@process "compiled_default_child" verbose = false
+struct CompiledDefaultChildModel <: AbstractCompiled_Default_ChildModel end
+PlantSimEngine.inputs_(::CompiledDefaultChildModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::CompiledDefaultChildModel) = (y=-Inf,)
+function PlantSimEngine.run!(::CompiledDefaultChildModel, models, status, meteo, constants=nothing, extra=nothing)
+    begin
+        tmp = status.x + 2.0
+        status.y = tmp
+    end
+end
+
+PlantSimEngine.@process "compiled_default_parent" verbose = false
+struct CompiledDefaultParentModel <: AbstractCompiled_Default_ParentModel end
+PlantSimEngine.dep(::CompiledDefaultParentModel) = (compiled_default_child=AbstractCompiled_Default_ChildModel,)
+PlantSimEngine.inputs_(::CompiledDefaultParentModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::CompiledDefaultParentModel) = (z=-Inf,)
+function PlantSimEngine.run!(::CompiledDefaultParentModel, models, status, meteo, constants=nothing, extra=nothing)
+    let offset = 3.0
+        child_model = getproperty(models, :compiled_default_child)
+        child_runner = PlantSimEngine.run!
+        child_runner(child_model, models, status, meteo)
+        status.z = status.y + offset
+    end
+end
+
+@testset "Merged single-scale compiler handles default args and nested blocks" begin
+    mapping = ModelMapping(
+        compiled_default_parent=CompiledDefaultParentModel(),
+        compiled_default_child=CompiledDefaultChildModel();
+        status=(x=5.0,)
+    )
+
+    script = compile_model(mapping; function_name=:compiled_default_model!)
+    @test occursin("tmp = compiled_default_child_status.x + 2.0", script)
+    @test occursin("compiled_default_child_status.y = tmp", script)
+    @test !occursin("run!(models.compiled_default_child", script)
+
+    compiled_mod = Module(gensym(:CompiledDefaultShapeTest))
+    script_path = tempname() * ".jl"
+    write(script_path, script)
+    Base.include(compiled_mod, script_path)
+
+    model_list = PlantSimEngine._modellist_from_model_mapping(mapping)
+    compiled_status = deepcopy(status(model_list))
+    meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
+    Core.eval(compiled_mod, :compiled_default_model!)(model_list.models, compiled_status, meteo, PlantMeteo.Constants(), nothing)
+
+    @test compiled_status.y == 7.0
+    @test compiled_status.z == 10.0
+end
+
+PlantSimEngine.@process "compiled_alias_child" verbose = false
+struct CompiledAliasChildModel <: AbstractCompiled_Alias_ChildModel end
+PlantSimEngine.inputs_(::CompiledAliasChildModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::CompiledAliasChildModel) = (y=-Inf,)
+function PlantSimEngine.run!(::CompiledAliasChildModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.y = status.x + 1.0
+end
+
+PlantSimEngine.@process "compiled_alias_parent" verbose = false
+struct CompiledAliasParentModel <: AbstractCompiled_Alias_ParentModel end
+PlantSimEngine.dep(::CompiledAliasParentModel) = (compiled_alias_child=AbstractCompiled_Alias_ChildModel,)
+PlantSimEngine.inputs_(::CompiledAliasParentModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::CompiledAliasParentModel) = (z=-Inf,)
+function PlantSimEngine.run!(::CompiledAliasParentModel, models, status, meteo, constants=nothing, extra=nothing)
+    dep_process = Symbol("compiled_alias_child")
+    run!(getfield(models, dep_process), models, status, meteo, constants, extra)
+    status.z = status.y + 1.0
+end
+
+@testset "Merged compiler rejects unsupported hard dependency call shapes" begin
+    mapping = ModelMapping(
+        compiled_alias_parent=CompiledAliasParentModel(),
+        compiled_alias_child=CompiledAliasChildModel();
+        status=(x=1.0,)
+    )
+
+    @test_throws "Failed to compile process `compiled_alias_parent`" compile_model(mapping; function_name=:compiled_alias_model!)
 end
 
 function compiled_model_dynamic_fixture()
@@ -120,7 +207,8 @@ end
     @test occursin("variables are scale-scoped through each Status", script)
     @test occursin("PlantSimEngine._assert_compiled_sim_compatible", script)
     @test occursin("Model compatibility signature", script)
-    @test occursin("while idx <= length(statuses[:Leaf])", script)
+    @test occursin("idx_limit = length(statuses[:Leaf])", script)
+    @test occursin("while idx <= idx_limit", script)
     @test occursin("scale: Leaf | initial_statuses: 2", script)
     @test occursin("model: ToyCAllocationModel | process: carbon_allocation | scale: Plant", script)
 
@@ -240,7 +328,8 @@ end
     @test occursin("PlantSimEngine.update_requested_outputs!", script)
     @test occursin("_mr_Leaf_carbon_assimilation_model = (models_by_scale[:Leaf]).carbon_assimilation", script)
     @test occursin("_mr_Leaf_carbon_assimilation_model_clock = PlantSimEngine._model_clock", script)
-    @test occursin("while idx <= length(statuses[:Leaf])", script)
+    @test occursin("idx_limit = length(statuses[:Leaf])", script)
+    @test occursin("while idx <= idx_limit", script)
 
     compiled_mod = Module(gensym(:CompiledMultirateMTGModelTest))
     script_path = tempname() * ".jl"
