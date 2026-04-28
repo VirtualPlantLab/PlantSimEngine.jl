@@ -107,6 +107,9 @@ include("time/runtime/meteo_sampling.jl")
 # Simulation:
 include("run.jl")
 
+# Dependency graph visualisation:
+include("visualization/dependency_graph_view.jl")
+
 # Fitting
 include("evaluation/fit.jl")
 
@@ -138,6 +141,9 @@ export timespec, output_policy, timestep_hint, meteo_hint
 export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
 export fit
+export GraphPort, GraphNode, GraphEdge, DependencyGraphView
+export graph_view, graph_view_json, write_graph_view
+export AbstractGraphEdit, MarkPreviousTimeStep, apply_graph_edit
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

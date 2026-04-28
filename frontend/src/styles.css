@@ -1,0 +1,283 @@
+:root {
+  --bg: #f6f1e8;
+  --ink: #16202a;
+  --muted: #667085;
+  --panel: rgba(255, 255, 255, 0.78);
+  --line: rgba(102, 112, 133, 0.22);
+  --green: #1f6f5b;
+  --blue: #285f9f;
+  --red: #b13c4a;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--ink);
+  background:
+    linear-gradient(140deg, rgba(31, 111, 91, 0.15), transparent 35%),
+    radial-gradient(circle at top right, rgba(40, 95, 159, 0.14), transparent 30%),
+    var(--bg);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.app-shell {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  height: 100vh;
+}
+
+.graph-panel {
+  position: relative;
+  min-width: 0;
+}
+
+.topbar {
+  position: absolute;
+  z-index: 10;
+  top: 18px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 46px rgba(22, 32, 42, 0.12);
+  backdrop-filter: blur(14px);
+}
+
+.eyebrow {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  letter-spacing: 0;
+}
+
+h1 {
+  font-size: 19px;
+}
+
+.metrics {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.metrics span,
+.node-meta span {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.82);
+  font-size: 12px;
+}
+
+.metrics .warn {
+  color: var(--red);
+  border-color: rgba(177, 60, 74, 0.35);
+}
+
+.icon-button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.react-flow {
+  background: transparent;
+}
+
+.model-node {
+  width: 312px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid rgba(102, 112, 133, 0.26);
+  box-shadow: 0 20px 50px rgba(22, 32, 42, 0.16);
+}
+
+.model-node.selected {
+  border-color: rgba(22, 32, 42, 0.65);
+}
+
+.model-node.hard_dependency {
+  border-style: dashed;
+}
+
+.node-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 13px 14px;
+  color: white;
+  background: linear-gradient(92deg, var(--green), var(--blue));
+}
+
+.process {
+  font-weight: 750;
+  font-size: 15px;
+}
+
+.model-type {
+  margin-top: 2px;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.node-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 10px 12px 0;
+}
+
+.ports-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 12px;
+}
+
+.port-title {
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.port {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  margin: 4px 0;
+  padding: 4px 7px;
+  border: 1px solid rgba(102, 112, 133, 0.14);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 12px;
+}
+
+.port.output {
+  justify-content: flex-end;
+}
+
+.port.previous {
+  color: var(--red);
+}
+
+.port.mapped {
+  border-color: rgba(40, 95, 159, 0.32);
+}
+
+.react-flow__handle {
+  width: 9px;
+  height: 9px;
+  border: 0;
+  background: #475467;
+}
+
+.react-flow__edge.multiscale path {
+  stroke-dasharray: 7 5;
+}
+
+.react-flow__edge.mapped_variable path {
+  stroke: var(--blue);
+}
+
+.react-flow__edge.hard_dependency path {
+  stroke: var(--red);
+}
+
+.inspector {
+  border-left: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.62);
+  backdrop-filter: blur(14px);
+  padding: 18px;
+  overflow: auto;
+}
+
+.inspector header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.inspector h2 {
+  font-size: 17px;
+}
+
+.inspector h3 {
+  margin-top: 22px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.row {
+  display: grid;
+  grid-template-columns: 84px minmax(0, 1fr);
+  gap: 8px;
+  padding: 8px 0;
+  border-top: 1px solid rgba(102, 112, 133, 0.16);
+}
+
+.row span {
+  color: var(--muted);
+}
+
+.row strong {
+  overflow-wrap: anywhere;
+  font-weight: 620;
+}
+
+.diagnostic,
+.edit-suggestion,
+.empty-state {
+  border: 1px solid rgba(102, 112, 133, 0.18);
+  background: rgba(255, 255, 255, 0.62);
+  padding: 10px;
+  color: var(--muted);
+}
+
+.diagnostic,
+.edit-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--red);
+  border-color: rgba(177, 60, 74, 0.26);
+  background: rgba(177, 60, 74, 0.08);
+}
+
+@media (max-width: 900px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .inspector {
+    display: none;
+  }
+}
