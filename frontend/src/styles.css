@@ -523,13 +523,13 @@ h1 {
 }
 
 .edge-terminal.target[data-side="left"]::after {
-  left: 0;
-  border-right: 7px solid var(--terminal-color);
+  right: 0;
+  border-left: 7px solid var(--terminal-color);
 }
 
 .edge-terminal.target[data-side="right"]::after {
-  right: 0;
-  border-left: 7px solid var(--terminal-color);
+  left: 0;
+  border-right: 7px solid var(--terminal-color);
 }
 
 .edge-terminal.highlighted::before {
