@@ -1,12 +1,13 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Clock3, GitBranch, Layers3, Link2 } from "lucide-react";
+import { Clock3, GitBranch, Layers3, Link2, PhoneCall } from "lucide-react";
 import type { GraphPort, RuntimeGraphNodeData } from "./types";
 
 type ModelFlowNode = Node<RuntimeGraphNodeData, "model">;
 
 export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
+  const cyclic = Boolean(data.cyclic);
   return (
-    <section className={`model-node ${data.role} ${selected ? "selected" : ""}`} data-scale={data.scale}>
+    <section className={`model-node ${data.role} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""}`} data-scale={data.scale}>
       <header className="node-header">
         <div>
           <div className="process">{data.process}</div>
@@ -15,6 +16,11 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
         {data.role === "hard_dependency" ? <GitBranch size={18} /> : <Layers3 size={18} />}
       </header>
       <div className="node-meta">
+        {data.role === "hard_dependency" && (
+          <span className="meta-chip hard-chip" data-tooltip="Hard dependency: this model is called from its parent model run!, not independently scheduled." aria-label="Hard dependency called by parent model">
+            <PhoneCall size={13} /> called by parent
+          </span>
+        )}
         <span className="meta-chip" data-tooltip={`Scale: ${data.scale}. This is the ModelMapping scale where the model runs.`} title={`Scale: ${data.scale}. This is the ModelMapping scale where the model runs.`} aria-label={`Scale: ${data.scale}. This is the ModelMapping scale where the model runs.`}>
           <Layers3 size={13} />{data.scale}
         </span>
@@ -40,7 +46,8 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
         <div
           className={`port ${port.mappingMode ? "mapped" : ""} ${port.previousTimeStep ? "previous" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
           key={port.id}
-          title={port.default}
+          data-default={`${portValueLabel(port)}: ${port.default}`}
+          aria-label={`${port.name}, ${side}, ${portValueLabel(port).toLowerCase()} ${port.default}`}
           onMouseEnter={() => data.onPortEnter?.(port)}
           onMouseLeave={() => data.onPortLeave?.()}
           onPointerEnter={() => data.onPortEnter?.(port)}
@@ -58,4 +65,8 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
       ))}
     </div>
   );
+}
+
+function portValueLabel(port: GraphPort) {
+  return port.role === "input" ? "Default" : "Declaration";
 }

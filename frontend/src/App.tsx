@@ -14,6 +14,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import { AlertTriangle, GitPullRequestArrow, RotateCcw, ScissorsLineDashed } from "lucide-react";
+import { DependencyEdge } from "./DependencyEdge";
 import { ModelNode } from "./ModelNode";
 import { layoutGraph } from "./layout";
 import { sampleGraph } from "./sampleGraph";
@@ -21,9 +22,12 @@ import type { DependencyGraphView, GraphEdgeData, GraphNodeData, GraphPort, Runt
 import "./styles.css";
 
 const nodeTypes = { model: ModelNode };
+const edgeTypes = { dependency: DependencyEdge };
 const edgeColors = {
   base: "#a99a8c",
   accent: "#1f7a53",
+  mapped: "#4f8d69",
+  hard: "#bf6a54",
 };
 
 export default function App() {
@@ -39,7 +43,7 @@ export default function App() {
       id: node.id,
       type: "model",
       position: { x: 0, y: 0 },
-      data: runtimeNodeData(node, null, new Set<string>(), setActivePort),
+      data: runtimeNodeData(node, null, new Set<string>(), new Set(graph.cycleNodes), setActivePort),
     }));
     const nextEdges = graph.edges.map((edge) => flowEdge(edge, new Set<string>(), false));
     layoutGraph(nextNodes, nextEdges).then((layouted) => {
@@ -51,7 +55,7 @@ export default function App() {
   useEffect(() => {
     setNodes((current) => current.map((node) => ({
       ...node,
-      data: runtimeNodeData(node.data, activePort, highlight.ports, setActivePort),
+      data: runtimeNodeData(node.data, activePort, highlight.ports, new Set(graph.cycleNodes), setActivePort),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, highlight.edges, Boolean(activePort)) : edge));
   }, [activePort, highlight.edges, highlight.ports, setEdges, setNodes]);
@@ -59,11 +63,11 @@ export default function App() {
   const onConnect = useCallback((connection: Connection) => {
     setEdges((current) => addEdge({
       ...connection,
-      type: "smoothstep",
-      animated: true,
-      markerEnd: edgeMarker(false),
-      style: edgeStyle(false),
-      zIndex: 30,
+      type: "dependency",
+    animated: true,
+    markerEnd: edgeMarker(edgeColors.base),
+    style: edgeStyle(edgeColors.base, false),
+      zIndex: 5,
     }, current));
   }, [setEdges]);
 
@@ -92,6 +96,7 @@ export default function App() {
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
@@ -123,6 +128,21 @@ export default function App() {
         ) : (
           <div className="empty-state">Select a model node.</div>
         )}
+        <h3>Variable</h3>
+        {activePort ? (
+          <div className="variable-card">
+            <div className="variable-card-title">
+              <span>{activePort.name}</span>
+              <small>{activePort.role}</small>
+            </div>
+            <Row label={activePort.role === "input" ? "Default" : "Decl."} value={activePort.default} />
+            {activePort.mappingMode && <Row label="Mapping" value={activePort.mappingMode} />}
+            {activePort.sourceScale && <Row label="Source" value={`${activePort.sourceScale}.${activePort.sourceVariable ?? activePort.name}`} />}
+            {activePort.previousTimeStep && <div className="edit-suggestion"><ScissorsLineDashed size={14} /> uses previous timestep</div>}
+          </div>
+        ) : (
+          <div className="empty-state">Hover or click a variable to see its computed default.</div>
+        )}
         <h3>Diagnostics</h3>
         {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
       </aside>
@@ -145,10 +165,12 @@ function runtimeNodeData(
   node: GraphNodeData,
   activePort: GraphPort | null,
   highlightedPortIds: Set<string>,
+  cycleNodeIds: Set<string>,
   setActivePort: (port: GraphPort | null) => void,
 ): RuntimeGraphNodeData {
   return {
     ...node,
+    cyclic: cycleNodeIds.has(node.id),
     activePortId: activePort?.id ?? null,
     highlightedPortIds: [...highlightedPortIds],
     onPortEnter: setActivePort,
@@ -165,44 +187,38 @@ function flowEdge(edge: GraphEdgeData, highlightedEdgeIds: Set<string>, hasActiv
     target: edge.target,
     sourceHandle: edge.sourcePort ?? undefined,
     targetHandle: edge.targetPort ?? undefined,
-    label: edge.label,
-    labelBgBorderRadius: 7,
-    labelBgPadding: [7, 4],
-    labelBgStyle: {
-      fill: highlighted ? "#fffaf2" : "#fffdfa",
-      stroke: highlighted ? edgeColors.accent : "#ded2c3",
-      strokeWidth: highlighted ? 1.25 : 1,
-    },
-    labelStyle: {
-      fill: "#312721",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-      fontSize: 12,
-      fontWeight: 560,
-    },
-    markerEnd: edgeMarker(highlighted),
-    type: "smoothstep",
+    markerEnd: edgeMarker(edgeColor(edge, highlighted)),
+    type: "dependency",
     animated: edge.scaleRelation === "multiscale",
     className: `${edge.kind} ${edge.scaleRelation} ${highlighted ? "highlighted" : hasActivePort ? "dimmed" : ""}`,
-    style: edgeStyle(highlighted),
-    zIndex: highlighted ? 40 : 30,
-    data: edge,
+    style: edgeStyle(edgeColor(edge, highlighted), highlighted),
+    selected: highlighted,
+    zIndex: highlighted ? 120 : 5,
+    data: { ...edge, highlighted, dimmed: hasActivePort && !highlighted },
   };
 }
 
-function edgeMarker(highlighted: boolean) {
+function edgeColor(edge: GraphEdgeData, highlighted: boolean) {
+  if (highlighted) return edgeColors.accent;
+  if (edge.kind === "hard_dependency") return edgeColors.hard;
+  if (edge.kind === "mapped_variable" || edge.scaleRelation === "multiscale") return edgeColors.mapped;
+  return edgeColors.base;
+}
+
+function edgeMarker(color: string) {
   return {
     type: MarkerType.ArrowClosed,
-    color: highlighted ? edgeColors.accent : edgeColors.base,
-    width: highlighted ? 10 : 9,
-    height: highlighted ? 10 : 9,
+    color,
+    width: 9,
+    height: 9,
     markerUnits: "userSpaceOnUse",
     strokeWidth: 1.2,
   };
 }
 
-function edgeStyle(highlighted: boolean) {
+function edgeStyle(color: string, highlighted: boolean) {
   return {
-    stroke: highlighted ? edgeColors.accent : edgeColors.base,
+    stroke: color,
     strokeWidth: highlighted ? 3 : 2.2,
   };
 }
