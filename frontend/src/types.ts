@@ -25,6 +25,7 @@ export type GraphNodeData = {
 export type RuntimeGraphNodeData = GraphNodeData & {
   activePortId?: string | null;
   highlightedPortIds?: string[];
+  requiredInputPortIds?: string[];
   onPortEnter?: (port: GraphPort) => void;
   onPortLeave?: () => void;
 };

@@ -39,15 +39,16 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
 
 function PortColumn({ title, ports, side, data }: { title: string; ports: GraphPort[]; side: "input" | "output"; data: RuntimeGraphNodeData }) {
   const highlighted = new Set(data.highlightedPortIds ?? []);
+  const requiredInputs = new Set(data.requiredInputPortIds ?? []);
   return (
     <div className={`port-column ${side}`}>
       <div className="port-title">{title}</div>
       {ports.map((port) => (
         <div
-          className={`port ${port.mappingMode ? "mapped" : ""} ${port.previousTimeStep ? "previous" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
+          className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${port.previousTimeStep ? "previous" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
           key={port.id}
-          data-default={`${portValueLabel(port)}: ${port.default}`}
-          aria-label={`${port.name}, ${side}, ${portValueLabel(port).toLowerCase()} ${port.default}`}
+          data-default={`${requiredInputs.has(port.id) ? "Required initialization" : portValueLabel(port)}: ${port.default}`}
+          aria-label={`${port.name}, ${side}, ${requiredInputs.has(port.id) ? "required initialization" : portValueLabel(port).toLowerCase()} ${port.default}`}
           onMouseEnter={() => data.onPortEnter?.(port)}
           onMouseLeave={() => data.onPortLeave?.()}
           onPointerEnter={() => data.onPortEnter?.(port)}

@@ -35,13 +35,16 @@ export function DependencyEdge({
 
   const label = data?.label;
   const renamed = data?.sourceVariable && data?.targetVariable && data.sourceVariable !== data.targetVariable;
+  const showPrimaryLabel = Boolean(label) && !renamed;
+  const showScaleTag = data?.scaleRelation === "multiscale";
+  const showChip = showPrimaryLabel || showScaleTag;
   const highlighted = Boolean(data?.highlighted);
   const dimmed = Boolean(data?.dimmed);
 
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} interactionWidth={18} />
-      {label && (
+      {showChip && (
         <EdgeLabelRenderer>
           <EdgeTerminal
             className={`edge-terminal source ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${dimmed ? "dimmed" : ""}`}
@@ -63,9 +66,8 @@ export function DependencyEdge({
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 14}px)`,
             }}
           >
-            <span>{label}</span>
-            {renamed && <small>{data.sourceVariable} → {data.targetVariable}</small>}
-            {data.scaleRelation === "multiscale" && <small>multiscale</small>}
+            {showPrimaryLabel && <span>{label}</span>}
+            {showScaleTag && <small>multiscale</small>}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -74,12 +76,21 @@ export function DependencyEdge({
 }
 
 function EdgeTerminal({ className, x, y, side, color }: { className: string; x: number; y: number; side: Position; color: string }) {
+  const xOffset =
+    className.includes("target")
+      ? side === Position.Left
+        ? -9
+        : 9
+      : side === Position.Left
+        ? 9
+        : -9;
+
   return (
     <div
       className={className}
       data-side={side}
       style={{
-        transform: `translate(-50%, -50%) translate(${x}px, ${y}px)`,
+        transform: `translate(-50%, -50%) translate(${x + xOffset}px, ${y}px)`,
         ["--terminal-color" as string]: color,
       }}
     />

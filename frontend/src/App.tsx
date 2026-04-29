@@ -13,7 +13,7 @@ import {
   type Node,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import { AlertTriangle, GitPullRequestArrow, RotateCcw, ScissorsLineDashed } from "lucide-react";
+import { AlertTriangle, CircleAlert, GitPullRequestArrow, RotateCcw, ScissorsLineDashed } from "lucide-react";
 import { DependencyEdge } from "./DependencyEdge";
 import { ModelNode } from "./ModelNode";
 import { layoutGraph } from "./layout";
@@ -34,16 +34,23 @@ export default function App() {
   const [graph] = useState<DependencyGraphView>(loadInitialGraph());
   const [selected, setSelected] = useState<GraphNodeData | null>(null);
   const [activePort, setActivePort] = useState<GraphPort | null>(null);
+  const [showRequiredPanel, setShowRequiredPanel] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
   const highlight = useMemo(() => deriveHighlight(graph, activePort), [activePort, graph]);
+  const requiredInputPortIds = useMemo(() => deriveRequiredInputPorts(graph), [graph]);
+  const requiredInputs = useMemo(() => graph.nodes.flatMap((node) => (
+    node.inputs
+      .filter((port) => requiredInputPortIds.has(port.id))
+      .map((port) => ({ node, port }))
+  )), [graph, requiredInputPortIds]);
 
   useEffect(() => {
     const nextNodes = graph.nodes.map((node) => ({
       id: node.id,
       type: "model",
       position: { x: 0, y: 0 },
-      data: runtimeNodeData(node, null, new Set<string>(), new Set(graph.cycleNodes), setActivePort),
+      data: runtimeNodeData(node, null, new Set<string>(), requiredInputPortIds, new Set(graph.cycleNodes), setActivePort),
     }));
     const nextEdges = graph.edges.map((edge) => flowEdge(edge, new Set<string>(), false));
     layoutGraph(nextNodes, nextEdges).then((layouted) => {
@@ -55,10 +62,10 @@ export default function App() {
   useEffect(() => {
     setNodes((current) => current.map((node) => ({
       ...node,
-      data: runtimeNodeData(node.data, activePort, highlight.ports, new Set(graph.cycleNodes), setActivePort),
+      data: runtimeNodeData(node.data, activePort, highlight.ports, requiredInputPortIds, new Set(graph.cycleNodes), setActivePort),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, highlight.edges, Boolean(activePort)) : edge));
-  }, [activePort, highlight.edges, highlight.ports, setEdges, setNodes]);
+  }, [activePort, graph.cycleNodes, highlight.edges, highlight.ports, requiredInputPortIds, setEdges, setNodes]);
 
   const onConnect = useCallback((connection: Connection) => {
     setEdges((current) => addEdge({
@@ -86,12 +93,53 @@ export default function App() {
           <div className="metrics">
             <span>{graph.nodes.length} models</span>
             <span>{graph.edges.length} links</span>
+            {requiredInputs.length > 0 && (
+              <button
+                className={`metric-button warn ${showRequiredPanel ? "active" : ""}`}
+                title={`${requiredInputs.length} required initializations`}
+                onClick={() => setShowRequiredPanel((open) => !open)}
+              >
+                <CircleAlert size={14} /> {requiredInputs.length} init
+              </button>
+            )}
             {graph.cyclic && <span className="warn"><AlertTriangle size={14} /> cycle</span>}
           </div>
           <button className="icon-button" onClick={relayout} title="Run layout">
             <RotateCcw size={17} />
           </button>
         </div>
+        {showRequiredPanel && (
+          <div className="required-panel">
+            <div className="required-panel-header">
+              <div>
+                <div className="eyebrow">Required Initializations</div>
+                <h2>{requiredInputs.length} inputs</h2>
+              </div>
+              <button className="icon-button compact" onClick={() => setShowRequiredPanel(false)} title="Close required initializations">
+                x
+              </button>
+            </div>
+            {requiredInputs.length > 0 ? (
+              <div className="initialization-list">
+                {requiredInputs.map(({ node, port }) => (
+                  <button
+                    className="initialization-item"
+                    key={port.id}
+                    onClick={() => {
+                      setSelected(node);
+                      setActivePort(port);
+                    }}
+                  >
+                    <span>{node.scale}.{node.process}</span>
+                    <strong>{port.name}</strong>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="empty-state">Every input is computed by another model.</div>
+            )}
+          </div>
+        )}
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -121,6 +169,9 @@ export default function App() {
             <Row label="Rate" value={selected.rate} />
             <Row label="Inputs" value={selected.inputs.map((port) => port.name).join(", ") || "none" } />
             <Row label="Outputs" value={selected.outputs.map((port) => port.name).join(", ") || "none" } />
+            {selected.inputs.filter((port) => requiredInputPortIds.has(port.id)).map((port) => (
+              <div className="initialization-note" key={port.id}><CircleAlert size={14} /> {port.name} must be initialized</div>
+            ))}
             {selected.inputs.filter((port) => port.previousTimeStep).map((port) => (
               <div className="edit-suggestion" key={port.id}><ScissorsLineDashed size={14} /> {port.name} uses previous timestep</div>
             ))}
@@ -138,10 +189,24 @@ export default function App() {
             <Row label={activePort.role === "input" ? "Default" : "Decl."} value={activePort.default} />
             {activePort.mappingMode && <Row label="Mapping" value={activePort.mappingMode} />}
             {activePort.sourceScale && <Row label="Source" value={`${activePort.sourceScale}.${activePort.sourceVariable ?? activePort.name}`} />}
+            {requiredInputPortIds.has(activePort.id) && <div className="initialization-note"><CircleAlert size={14} /> required initialization</div>}
             {activePort.previousTimeStep && <div className="edit-suggestion"><ScissorsLineDashed size={14} /> uses previous timestep</div>}
           </div>
         ) : (
           <div className="empty-state">Hover or click a variable to see its computed default.</div>
+        )}
+        <h3>Required Initializations</h3>
+        {requiredInputs.length > 0 ? (
+          <div className="initialization-list">
+            {requiredInputs.map(({ node, port }) => (
+              <button className="initialization-item" key={port.id} onClick={() => setActivePort(port)}>
+                <span>{node.scale}.{node.process}</span>
+                <strong>{port.name}</strong>
+              </button>
+            ))}
+          </div>
+        ) : (
+          <div className="empty-state">Every input is computed by another model.</div>
         )}
         <h3>Diagnostics</h3>
         {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
@@ -165,6 +230,7 @@ function runtimeNodeData(
   node: GraphNodeData,
   activePort: GraphPort | null,
   highlightedPortIds: Set<string>,
+  requiredInputPortIds: Set<string>,
   cycleNodeIds: Set<string>,
   setActivePort: (port: GraphPort | null) => void,
 ): RuntimeGraphNodeData {
@@ -173,9 +239,17 @@ function runtimeNodeData(
     cyclic: cycleNodeIds.has(node.id),
     activePortId: activePort?.id ?? null,
     highlightedPortIds: [...highlightedPortIds],
+    requiredInputPortIds: [...requiredInputPortIds],
     onPortEnter: setActivePort,
     onPortLeave: () => setActivePort(null),
   };
+}
+
+function deriveRequiredInputPorts(graph: DependencyGraphView) {
+  const computedInputPortIds = new Set(graph.edges.map((edge) => edge.targetPort).filter(Boolean));
+  return new Set(graph.nodes.flatMap((node) => (
+    node.inputs.filter((port) => !computedInputPortIds.has(port.id)).map((port) => port.id)
+  )));
 }
 
 function flowEdge(edge: GraphEdgeData, highlightedEdgeIds: Set<string>, hasActivePort: boolean): Edge<GraphEdgeData> {
