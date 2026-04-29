@@ -157,15 +157,15 @@ graph_view_json(mapping::ModelMapping; kwargs...) = graph_view_json(graph_view(m
 graph_view_json(sim::GraphSimulation; kwargs...) = graph_view_json(graph_view(sim; kwargs...))
 
 """
-    write_graph_view(path, view)
-    write_graph_view(path, mapping)
+    write_graph_view(path, view; renderer=:react)
+    write_graph_view(path, mapping; renderer=:react)
 
 Write a standalone HTML dependency graph visualisation.
 """
-function write_graph_view(path::AbstractString, view::DependencyGraphView)
+function write_graph_view(path::AbstractString, view::DependencyGraphView; renderer::Symbol=:react)
     mkpath(dirname(abspath(path)))
     open(path, "w") do io
-        write(io, _graph_view_html(view))
+        write(io, _graph_view_html(view; renderer=renderer))
     end
     return abspath(path)
 end
@@ -542,7 +542,93 @@ function _escape_json(s::AbstractString)
     return replace(escaped, "</" => "<\\/")
 end
 
-function _graph_view_html(view::DependencyGraphView)
+function _graph_view_html(view::DependencyGraphView; renderer::Symbol=:react)
+    if renderer == :react
+        react_html = _react_graph_view_html(view)
+        isnothing(react_html) || return react_html
+    elseif renderer != :standalone
+        error("Unsupported dependency graph viewer renderer `$(renderer)`. Use `:react` or `:standalone`.")
+    end
+    return _standalone_graph_view_html(view)
+end
+
+function _react_graph_view_html(view::DependencyGraphView)
+    assets_dir = _react_graph_viewer_assets_dir()
+    manifest_path = joinpath(assets_dir, ".vite", "manifest.json")
+    isfile(manifest_path) || return nothing
+
+    manifest = _read_vite_manifest(manifest_path)
+    entry = _vite_entry(manifest)
+    isnothing(entry) && return nothing
+
+    js_file = get(entry, "file", nothing)
+    isnothing(js_file) && return nothing
+    css_files = get(entry, "css", String[])
+    js = read(joinpath(assets_dir, js_file), String)
+    css = join([read(joinpath(assets_dir, css_file), String) for css_file in css_files], "\n")
+    json = graph_view_json(view)
+
+    html = raw"""
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>PlantSimEngine Dependency Graph</title>
+<script type="application/json" id="pse-graph-data">__PSE_GRAPH_JSON__</script>
+<style>__PSE_GRAPH_CSS__</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">__PSE_GRAPH_JS__</script>
+</body>
+</html>
+"""
+    return replace(
+        html,
+        "__PSE_GRAPH_JSON__" => json,
+        "__PSE_GRAPH_CSS__" => css,
+        "__PSE_GRAPH_JS__" => js,
+    )
+end
+
+_react_graph_viewer_assets_dir() = joinpath(dirname(dirname(@__DIR__)), "frontend", "dist")
+
+function _read_vite_manifest(path::AbstractString)
+    text = read(path, String)
+    entries = Dict{String,Dict{String,Any}}()
+    entry_regex = Regex("\"([^\"]+)\"\\s*:\\s*\\{([^{}]*)\\}")
+    for entry_match in eachmatch(entry_regex, text)
+        key = entry_match.captures[1]
+        body = entry_match.captures[2]
+        entries[key] = _parse_flat_vite_manifest_entry(body)
+    end
+    return entries
+end
+
+function _parse_flat_vite_manifest_entry(body::AbstractString)
+    entry = Dict{String,Any}()
+    string_field_regex = Regex("\"([^\"]+)\"\\s*:\\s*\"([^\"]*)\"")
+    array_field_regex = Regex("\"([^\"]+)\"\\s*:\\s*\\[([^\\]]*)\\]")
+    quoted_string_regex = Regex("\"([^\"]+)\"")
+    for m in eachmatch(string_field_regex, body)
+        entry[m.captures[1]] = m.captures[2]
+    end
+    for m in eachmatch(array_field_regex, body)
+        values = String[item.captures[1] for item in eachmatch(quoted_string_regex, m.captures[2])]
+        entry[m.captures[1]] = values
+    end
+    return entry
+end
+
+function _vite_entry(manifest)
+    for value in values(manifest)
+        get(value, "isEntry", "") == "true" && return value
+    end
+    return get(manifest, "index.html", nothing)
+end
+
+function _standalone_graph_view_html(view::DependencyGraphView)
     json = graph_view_json(view)
     html = raw"""
 <!doctype html>

@@ -1,10 +1,11 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
-import type { GraphEdgeData, GraphNodeData } from "./types";
+import type { GraphEdgeData, GraphPort, RuntimeGraphNodeData } from "./types";
 
 const elk = new ELK();
+const NODE_WIDTH = 312;
 
-export async function layoutGraph(nodes: Node<GraphNodeData>[], edges: Edge<GraphEdgeData>[]) {
+export async function layoutGraph(nodes: Node<RuntimeGraphNodeData>[], edges: Edge<GraphEdgeData>[]) {
   const graph = {
     id: "root",
     layoutOptions: {
@@ -13,17 +14,22 @@ export async function layoutGraph(nodes: Node<GraphNodeData>[], edges: Edge<Grap
       "elk.spacing.nodeNode": "58",
       "elk.layered.spacing.nodeNodeBetweenLayers": "110",
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+      "elk.layered.crossingMinimization.semiInteractive": "true",
       "elk.edgeRouting": "ORTHOGONAL",
     },
     children: nodes.map((node) => ({
       id: node.id,
-      width: 312,
-      height: Math.max(160, 112 + Math.max(node.data.inputs.length, node.data.outputs.length) * 28),
+      width: NODE_WIDTH,
+      height: nodeHeight(node.data),
+      ports: [...node.data.inputs.map((port, index) => elkPort(port, index)), ...node.data.outputs.map((port, index) => elkPort(port, index))],
+      layoutOptions: {
+        "org.eclipse.elk.portConstraints": "FIXED_ORDER",
+      },
     })),
     edges: edges.map((edge) => ({
       id: edge.id,
-      sources: [edge.source],
-      targets: [edge.target],
+      sources: [edge.sourceHandle ?? edge.source],
+      targets: [edge.targetHandle ?? edge.target],
     })),
   };
 
@@ -34,4 +40,20 @@ export async function layoutGraph(nodes: Node<GraphNodeData>[], edges: Edge<Grap
     ...node,
     position: positions.get(node.id) ?? node.position,
   }));
+}
+
+function nodeHeight(node: RuntimeGraphNodeData) {
+  return Math.max(160, 112 + Math.max(node.inputs.length, node.outputs.length) * 28);
+}
+
+function elkPort(port: GraphPort, index: number) {
+  return {
+    id: port.id,
+    width: 9,
+    height: 9,
+    layoutOptions: {
+      "org.eclipse.elk.port.side": port.role === "input" ? "WEST" : "EAST",
+      "org.eclipse.elk.port.index": String(index),
+    },
+  };
 }

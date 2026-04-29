@@ -25,6 +25,15 @@
     html = read(html_path, String)
     @test occursin("PlantSimEngine Dependency Graph", html)
     @test occursin("pse-graph-data", html)
+    if isfile(joinpath(dirname(dirname(@__DIR__)), "frontend", "dist", ".vite", "manifest.json"))
+        @test occursin("react-flow", html)
+    end
+
+    fallback_html_path = write_graph_view(joinpath(mktempdir(), "dependency_graph_fallback.html"), view; renderer=:standalone)
+    @test isfile(fallback_html_path)
+    fallback_html = read(fallback_html_path, String)
+    @test occursin("PlantSimEngine Dependency Graph", fallback_html)
+    @test occursin("canvas", fallback_html)
 
     multiscale_mapping = ModelMapping(
         :Plant => MultiScaleModel(

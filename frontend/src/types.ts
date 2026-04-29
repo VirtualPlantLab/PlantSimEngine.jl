@@ -22,6 +22,13 @@ export type GraphNodeData = {
   diagnostics: string[];
 } & Record<string, unknown>;
 
+export type RuntimeGraphNodeData = GraphNodeData & {
+  activePortId?: string | null;
+  highlightedPortIds?: string[];
+  onPortEnter?: (port: GraphPort) => void;
+  onPortLeave?: () => void;
+};
+
 export type GraphEdgeData = {
   id: string;
   source: string;
