@@ -64,7 +64,7 @@ outputs = run!(
 )
 ```
 
-In multiscale runs, type promotion is used by [`GraphSimulation`](@ref) during status template creation, `RefVector` creation, output preallocation, and initialization from MTG node attributes.
+In multiscale runs, type promotion is used by `GraphSimulation` during status template creation, `RefVector` creation, output preallocation, and initialization from MTG node attributes.
 
 
 ## Special considerations for new input types
