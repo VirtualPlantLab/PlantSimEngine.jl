@@ -1,13 +1,13 @@
 name: Benchmarks
 on:
   pull_request_target:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 permissions:
   pull-requests: write
 jobs:
   bench:
-    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     strategy:
@@ -17,8 +17,6 @@ jobs:
           - "1"
         os:
           - ubuntu-latest
-        arch:
-          - x64
     steps:
       - uses: MilesCranmer/AirspeedVelocity.jl@action-v1
         with:
