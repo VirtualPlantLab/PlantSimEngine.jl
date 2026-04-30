@@ -29,12 +29,12 @@ struct GraphSimulation{T,S,U,O,V,TS,MS}
     models::Dict{Symbol,U}
     model_specs::MS
     outputs::Dict{Symbol,O}
-    outputs_index::Dict{Symbol, Int}
+    outputs_index::Dict{Symbol,Int}
     temporal_state::TS
     is_multirate::Bool
 end
 
-function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=nothing, check=true, verbose=false)
+function GraphSimulation(graph, mapping; nsteps=1, outputs=nothing, type_promotion=_type_promotion(mapping), check=true, verbose=false)
     mapping_checked = mapping isa ModelMapping ? mapping : ModelMapping(mapping)
     GraphSimulation(init_simulation(graph, mapping_checked; nsteps=nsteps, outputs=outputs, type_promotion=type_promotion, check=check, verbose=verbose)...)
 end
@@ -103,7 +103,7 @@ convert_outputs(out, DataFrames)
 # Another, possibly better way would be to just create the DataFrame directly from the outputs 
 # and then remove the RefVector columns and replace the node one, hmm
 function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, no_value=nothing)
-    ret = Dict{Symbol, sink}()
+    ret = Dict{Symbol,sink}()
     for (organ, status_vector) in outs
         # remove RefVector variables
         refv = ()
@@ -120,7 +120,7 @@ function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, n
             @warn "No instance found at the $organ scale, no output available, removing it from the Dict"
             continue
         end
-       
+
         # Get the new NamedTuple type
         refv_nt = NamedTuple{refv}
 
@@ -128,12 +128,12 @@ function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, n
         vector_named_tuple_1 = NamedTuple(status_vector[1])
 
         # replace the MTG node var with the id (MTG nodes aren't CSV-friendly)
-        filtered_named_tuple = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple_1.node),Base.structdiff(vector_named_tuple_1, refv_nt)...)
+        filtered_named_tuple = (; node=MultiScaleTreeGraph.node_id(vector_named_tuple_1.node), Base.structdiff(vector_named_tuple_1, refv_nt)...)
         filtered_vector_named_tuple = Vector{typeof(filtered_named_tuple)}(undef, length(status_vector))
 
         for i in 1:length(status_vector)
             vector_named_tuple_i = NamedTuple(status_vector[i])
-            filtered_vector_named_tuple[i] = (;node=MultiScaleTreeGraph.node_id(vector_named_tuple_i.node), Base.structdiff(vector_named_tuple_i, refv_nt)...)
+            filtered_vector_named_tuple[i] = (; node=MultiScaleTreeGraph.node_id(vector_named_tuple_i.node), Base.structdiff(vector_named_tuple_i, refv_nt)...)
         end
 
         ret[organ] = sink(filtered_vector_named_tuple)
@@ -142,16 +142,16 @@ function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, n
 end
 
 # TODO adapt these to new output structure or remove them
-function outputs(outs::Dict{Symbol, O} where O, key::Symbol)
+function outputs(outs::Dict{Symbol,O} where O, key::Symbol)
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
 end
 
-function outputs(outs::Dict{Symbol, O} where O, i::T) where {T<:Integer}
+function outputs(outs::Dict{Symbol,O} where O, i::T) where {T<:Integer}
     Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
 end
 
 # ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
 function convert_outputs(out::TimeStepTable{T} where T, sink)
-    @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"      
+    @assert Tables.istable(sink) "The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)"
     return sink(out)
 end

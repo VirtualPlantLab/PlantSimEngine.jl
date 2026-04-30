@@ -561,6 +561,7 @@ function run!(
     extra=nothing;
     nsteps=nothing,
     tracked_outputs=nothing,
+    type_promotion=_type_promotion(mapping),
     check=true,
     executor=ThreadedEx(),
     return_requested_outputs=false,
@@ -584,7 +585,7 @@ function run!(
 
     # NOTE : replace_mapping_status_vectors_with_generated_models is assumed to have already run if used
     # otherwise there might be vector length conflicts with timesteps
-    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=status_outputs)
+    sim = GraphSimulation(object, mapping, nsteps=nsteps, check=check, outputs=status_outputs, type_promotion=type_promotion)
     result = run!(
         sim,
         meteo_adjusted,
@@ -612,6 +613,7 @@ function run!(
     extra=nothing;
     nsteps=nothing,
     tracked_outputs=nothing,
+    type_promotion=nothing,
     check=true,
     executor=ThreadedEx(),
     return_requested_outputs=false,
@@ -623,12 +625,13 @@ function run!(
     )
     run!(
         object,
-        ModelMapping(mapping),
+        ModelMapping(mapping; type_promotion=type_promotion),
         meteo,
         constants,
         extra;
         nsteps=nsteps,
         tracked_outputs=tracked_outputs,
+        type_promotion=type_promotion,
         check=check,
         executor=executor,
         return_requested_outputs=return_requested_outputs,
