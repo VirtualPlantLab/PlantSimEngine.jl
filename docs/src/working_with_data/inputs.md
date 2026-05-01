@@ -16,6 +16,56 @@ DataFormat(::Type{<:MyTableFormat}) = TableAlike()
 
 There are two other traits available: `SingletonAlike` for a data format representing one time-step only, and `TreeAlike` for trees, which is used for MultiScaleTreeGraphs nodes (not generic at this time).
 
+## Promoting status variable types
+
+Use the `type_promotion` keyword on [`ModelMapping`](@ref) when the default input and output values declared by models should be converted to another type:
+
+```julia
+models = ModelMapping(
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2);
+    status=(TT_cu=cumsum(meteo_day.TT),),
+    type_promotion=Dict(Real => Float32),
+)
+```
+
+For single-scale mappings, `type_promotion` is applied while the backing status is constructed. It follows the same semantics as the deprecated [`ModelList`](@ref): model-provided default values are converted, while values explicitly passed in `status` keep the type chosen by the user. If those values should also be `Float32`, pass them as `Float32` values directly.
+
+For multiscale mappings, the per-node statuses do not exist when [`ModelMapping`](@ref) is constructed. The promotion map is stored on the mapping and applied when the MTG simulation is initialized:
+
+```julia
+mapping = ModelMapping(
+    :Scene => ToyTt_CuModel(),
+    :Plant => (
+        MultiScaleModel(
+            model=ToyLAIModel(),
+            mapped_variables=[
+                :TT_cu => :Scene,
+            ],
+        ),
+        Beer(0.5),
+        ToyRUEGrowthModel(0.2),
+    );
+    type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}),
+)
+
+outputs = run!(mtg, mapping, meteo_day)
+```
+
+The same promotion can also be passed at MTG run time:
+
+```julia
+outputs = run!(
+    mtg,
+    mapping,
+    meteo_day;
+    type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}),
+)
+```
+
+In multiscale runs, type promotion is used by [`GraphSimulation`](@ref) during status template creation, `RefVector` creation, output preallocation, and initialization from MTG node attributes.
+
 
 ## Special considerations for new input types
 
