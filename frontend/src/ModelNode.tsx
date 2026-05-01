@@ -8,6 +8,8 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
   const cyclic = Boolean(data.cyclic);
   return (
     <section className={`model-node ${data.role} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""}`} data-scale={data.scale}>
+      <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
+      <Handle className="call-handle call-source" id={`${data.id}:call-source`} type="source" position={Position.Right} />
       <header className="node-header">
         <div>
           <div className="process">{data.process}</div>

@@ -35,8 +35,9 @@ export function DependencyEdge({
 
   const label = data?.label;
   const renamed = data?.sourceVariable && data?.targetVariable && data.sourceVariable !== data.targetVariable;
-  const showPrimaryLabel = Boolean(label) && !renamed;
-  const showScaleTag = data?.scaleRelation === "multiscale";
+  const isCallEdge = data?.kind === "hard_dependency" && !data.sourcePort && !data.targetPort;
+  const showPrimaryLabel = Boolean(label) && !renamed && !isCallEdge;
+  const showScaleTag = data?.scaleRelation === "multiscale" && !isCallEdge;
   const showChip = showPrimaryLabel || showScaleTag;
   const highlighted = Boolean(data?.highlighted);
   const dimmed = Boolean(data?.dimmed);

@@ -106,44 +106,215 @@ function graph_view(graph::DependencyGraph, context=nothing; diagnostics::Vector
     node_ids = IdDict{AbstractDependencyNode,String}()
     nodes = GraphNode[]
     edges = GraphEdge[]
+    edge_ids = Set{String}()
 
     for node in traverse_dependency_graph(graph)
         id = _graph_node_id(node, node_ids)
         push!(nodes, _graph_node(node, id, context, node_ids))
     end
 
-    for node in traverse_dependency_graph(graph, false)
+    for node in traverse_dependency_graph(graph)
         child_id = node_ids[node]
-        if node.parent !== nothing
+        if node isa SoftDependencyNode && node.parent !== nothing
             for parent in node.parent
                 parent_id = _graph_node_id(parent, node_ids)
                 append!(edges, _soft_edges(parent, node, parent_id, child_id))
             end
         end
 
-        for hard_child in node.hard_dependency
+        if node isa SoftDependencyNode
+            hard_children = node.hard_dependency
+        elseif node isa HardDependencyNode
+            hard_children = node.children
+        else
+            hard_children = HardDependencyNode[]
+        end
+
+        for hard_child in hard_children
             parent_id = child_id
             child_hard_id = _graph_node_id(hard_child, node_ids)
-            push!(edges, GraphEdge(
-                "edge:hard:$(parent_id):$(child_hard_id)",
-                parent_id,
-                child_hard_id,
-                nothing,
-                nothing,
-                nothing,
-                nothing,
-                :hard_dependency,
-                node.scale == hard_child.scale ? :same_scale : :multiscale,
-                "hard dependency",
-                String[],
-            ))
+            _push_edge!(edges, edge_ids, _hard_edge(node, hard_child, parent_id, child_hard_id))
+        end
+
+        if node isa HardDependencyNode && node.parent isa AbstractDependencyNode
+            parent_id = _graph_node_id(node.parent, node_ids)
+            _push_edge!(edges, edge_ids, _hard_edge(node.parent, node, parent_id, child_id))
         end
     end
+
+    _add_spec_mapped_input_edges!(edges, edge_ids, nodes, context)
+    _add_hard_input_edges!(edges, edge_ids, nodes)
+    _add_hard_output_edges!(edges, edge_ids, nodes)
 
     cyclic, cycle_vec = is_graph_cyclic(graph; warn=false)
     cycle_nodes = cyclic ? [_model_node_id(last(pair), process(first(pair))) for pair in cycle_vec] : String[]
     scales = sort!(unique([node.scale for node in nodes]); by=string)
     return DependencyGraphView(nodes, edges, scales, cyclic, cycle_nodes, diagnostics)
+end
+
+function _push_edge!(edges::Vector{GraphEdge}, edge_ids::Set{String}, edge::GraphEdge)
+    edge.id in edge_ids && return edges
+    push!(edges, edge)
+    push!(edge_ids, edge.id)
+    return edges
+end
+
+function _hard_edge(parent::AbstractDependencyNode, child::HardDependencyNode, parent_id::String, child_id::String)
+    return GraphEdge(
+        "edge:hard:$(parent_id):$(child_id)",
+        parent_id,
+        child_id,
+        nothing,
+        nothing,
+        nothing,
+        nothing,
+        :hard_dependency,
+        parent.scale == child.scale ? :same_scale : :multiscale,
+        "hard dependency",
+        String[],
+    )
+end
+
+function _add_hard_output_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode})
+    computed_inputs = Set(edge.target_port for edge in edges if !isnothing(edge.target_port))
+    hard_outputs = Dict{Tuple{Symbol,Symbol},Vector{Tuple{GraphNode,GraphPort}}}()
+    for node in nodes
+        node.role == :hard_dependency || continue
+        for port in node.outputs
+            push!(get!(hard_outputs, (node.scale, port.name), Tuple{GraphNode,GraphPort}[]), (node, port))
+        end
+    end
+
+    for node in nodes
+        for input in node.inputs
+            input.id in computed_inputs && continue
+            producers = get(hard_outputs, (node.scale, input.name), Tuple{GraphNode,GraphPort}[])
+            for (producer_node, output) in producers
+                producer_node.id == node.id && continue
+                edge = GraphEdge(
+                    "edge:hard-output:$(producer_node.id):$(output.id):$(node.id):$(input.id)",
+                    producer_node.id,
+                    node.id,
+                    output.id,
+                    input.id,
+                    output.name,
+                    input.name,
+                    :soft_dependency,
+                    :same_scale,
+                    string(input.name),
+                    ["Computed by a hard dependency during an explicit model call."],
+                )
+                _push_edge!(edges, edge_ids, edge)
+                push!(computed_inputs, input.id)
+            end
+        end
+    end
+
+    return edges
+end
+
+function _add_spec_mapped_input_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode}, context)
+    isnothing(context) && return edges
+    computed_inputs = Set(edge.target_port for edge in edges if !isnothing(edge.target_port))
+
+    for node in nodes
+        spec = _model_spec(context, node.scale, node.process)
+        isnothing(spec) && continue
+        for mapped in mapped_variables_(spec)
+            target_var = first(mapped)
+            target_var isa PreviousTimeStep && continue
+            target_var = Symbol(target_var)
+            target_input = _find_port(node.inputs, target_var)
+            isnothing(target_input) && continue
+            target_input.id in computed_inputs && continue
+
+            for (source_scale, source_var) in _mapping_sources(last(mapped))
+                source_output = _find_output_port(nodes, source_scale, source_var)
+                isnothing(source_output) && continue
+                source_node, source_port = source_output
+                scale_relation = source_node.scale == node.scale ? :same_scale : :multiscale
+                label = source_var == target_var ? string(target_var) : string(source_var, " -> ", target_var)
+                if scale_relation == :multiscale
+                    label = string(source_node.scale, ".", label, " -> ", node.scale)
+                end
+                edge = GraphEdge(
+                    "edge:mapped-spec:$(source_node.id):$(source_port.id):$(node.id):$(target_input.id)",
+                    source_node.id,
+                    node.id,
+                    source_port.id,
+                    target_input.id,
+                    source_var,
+                    target_var,
+                    scale_relation == :multiscale ? :mapped_variable : :soft_dependency,
+                    scale_relation,
+                    label,
+                    ["Mapped input declared on the model specification."],
+                )
+                _push_edge!(edges, edge_ids, edge)
+                push!(computed_inputs, target_input.id)
+            end
+        end
+    end
+
+    return edges
+end
+
+_mapping_sources(source::Pair{Symbol,Symbol}) = (source,)
+_mapping_sources(sources::AbstractVector) = sources
+
+function _add_hard_input_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode})
+    node_by_id = Dict(node.id => node for node in nodes)
+    input_edge_by_target = Dict(edge.target_port => edge for edge in edges if !isnothing(edge.target_port))
+    computed_inputs = Set(keys(input_edge_by_target))
+
+    for node in nodes
+        node.role == :hard_dependency || continue
+        isnothing(node.parent) && continue
+        parent = get(node_by_id, node.parent, nothing)
+        isnothing(parent) && continue
+
+        for input in node.inputs
+            input.id in computed_inputs && continue
+            parent_input = _find_port(parent.inputs, input.name)
+            isnothing(parent_input) && continue
+            source_edge = get(input_edge_by_target, parent_input.id, nothing)
+            isnothing(source_edge) && continue
+            isnothing(source_edge.source_port) && continue
+
+            edge = GraphEdge(
+                "edge:hard-input:$(source_edge.source):$(source_edge.source_port):$(node.id):$(input.id)",
+                source_edge.source,
+                node.id,
+                source_edge.source_port,
+                input.id,
+                source_edge.source_variable,
+                input.name,
+                source_edge.kind,
+                source_edge.scale_relation,
+                source_edge.label,
+                ["Forwarded to a hard dependency input through the owning model status."],
+            )
+            _push_edge!(edges, edge_ids, edge)
+            input_edge_by_target[input.id] = edge
+            push!(computed_inputs, input.id)
+        end
+    end
+
+    return edges
+end
+
+function _find_port(ports::Vector{GraphPort}, name::Symbol)
+    index = findfirst(port -> port.name == name, ports)
+    isnothing(index) ? nothing : ports[index]
+end
+
+function _find_output_port(nodes::Vector{GraphNode}, scale::Symbol, name::Symbol)
+    for node in nodes
+        node.scale == scale || continue
+        port = _find_port(node.outputs, name)
+        isnothing(port) || return (node, port)
+    end
+    return nothing
 end
 
 """

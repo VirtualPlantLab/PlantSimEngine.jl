@@ -1,3 +1,30 @@
+abstract type AbstractGraphViewPlantAgeModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewPhytomerEmissionModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewInitiationAgeModel <: PlantSimEngine.AbstractModel end
+
+PlantSimEngine.process_(::Type{AbstractGraphViewPlantAgeModel}) = :graph_view_plant_age
+PlantSimEngine.process_(::Type{AbstractGraphViewPhytomerEmissionModel}) = :graph_view_phytomer_emission
+PlantSimEngine.process_(::Type{AbstractGraphViewInitiationAgeModel}) = :graph_view_initiation_age
+
+struct GraphViewPlantAgeModel <: AbstractGraphViewPlantAgeModel
+end
+
+PlantSimEngine.inputs_(::GraphViewPlantAgeModel) = (day=-Inf,)
+PlantSimEngine.outputs_(::GraphViewPlantAgeModel) = (plant_age=-Inf,)
+
+struct GraphViewPhytomerEmissionModel <: AbstractGraphViewPhytomerEmissionModel
+end
+
+PlantSimEngine.inputs_(::GraphViewPhytomerEmissionModel) = NamedTuple()
+PlantSimEngine.outputs_(::GraphViewPhytomerEmissionModel) = (last_phytomer=-Inf,)
+PlantSimEngine.dep(::GraphViewPhytomerEmissionModel) = (graph_view_initiation_age=AbstractGraphViewInitiationAgeModel => (:Phytomer,),)
+
+struct GraphViewInitiationAgeModel <: AbstractGraphViewInitiationAgeModel
+end
+
+PlantSimEngine.inputs_(::GraphViewInitiationAgeModel) = (plant_age=-Inf,)
+PlantSimEngine.outputs_(::GraphViewInitiationAgeModel) = (initiation_age=-Inf,)
+
 @testset "Dependency graph view" begin
     mapping = ModelMapping(
         ToyLAIModel(),
@@ -72,4 +99,23 @@
                 edge.source != edge.target,
         edited_view.edges,
     )
+
+    hard_mapped_mapping = ModelMapping(
+        :Plant => (
+            GraphViewPlantAgeModel(),
+            GraphViewPhytomerEmissionModel(),
+            Status(day=1.0),
+        ),
+        :Phytomer => MultiScaleModel(
+            model=GraphViewInitiationAgeModel(),
+            mapped_variables=[:plant_age => :Plant],
+        ),
+    )
+    hard_mapped_view = graph_view(hard_mapped_mapping)
+    initiation_node = only(node for node in hard_mapped_view.nodes if node.process == :graph_view_initiation_age && node.scale == :Phytomer)
+    plant_age_input = only(port for port in initiation_node.inputs if port.name == :plant_age)
+    plant_age_edges = [edge for edge in hard_mapped_view.edges if edge.target_port == plant_age_input.id]
+    @test any(edge -> edge.kind == :mapped_variable && edge.source_variable == :plant_age && edge.target_variable == :plant_age, plant_age_edges)
+    @test !any(edge -> edge.source_variable == :last_phytomer, plant_age_edges)
+    @test any(edge -> edge.kind == :hard_dependency && isnothing(edge.source_port) && isnothing(edge.target_port), hard_mapped_view.edges)
 end

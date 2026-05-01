@@ -21,7 +21,12 @@ export async function layoutGraph(nodes: Node<RuntimeGraphNodeData>[], edges: Ed
       id: node.id,
       width: NODE_WIDTH,
       height: nodeHeight(node.data),
-      ports: [...node.data.inputs.map((port, index) => elkPort(port, index)), ...node.data.outputs.map((port, index) => elkPort(port, index))],
+      ports: [
+        elkCallPort(node.id, "target"),
+        ...node.data.inputs.map((port, index) => elkPort(port, index)),
+        ...node.data.outputs.map((port, index) => elkPort(port, index)),
+        elkCallPort(node.id, "source"),
+      ],
       layoutOptions: {
         "org.eclipse.elk.portConstraints": "FIXED_ORDER",
       },
@@ -54,6 +59,18 @@ function elkPort(port: GraphPort, index: number) {
     layoutOptions: {
       "org.eclipse.elk.port.side": port.role === "input" ? "WEST" : "EAST",
       "org.eclipse.elk.port.index": String(index),
+    },
+  };
+}
+
+function elkCallPort(nodeId: string, role: "source" | "target") {
+  return {
+    id: `${nodeId}:call-${role}`,
+    width: 12,
+    height: 36,
+    layoutOptions: {
+      "org.eclipse.elk.port.side": role === "target" ? "WEST" : "EAST",
+      "org.eclipse.elk.port.index": role === "target" ? "-1" : "9999",
     },
   };
 }

@@ -473,6 +473,13 @@ h1 {
   box-shadow: 0 0 0 3px rgba(255, 250, 242, 0.92);
 }
 
+.react-flow__handle.call-handle {
+  width: 12px;
+  height: 36px;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .react-flow__edge.multiscale path {
   stroke-dasharray: 7 5;
 }
@@ -483,6 +490,12 @@ h1 {
 
 .react-flow__edge.hard_dependency path {
   stroke: var(--clay);
+}
+
+.react-flow__edge.call_edge path {
+  stroke-width: 1.7;
+  stroke-dasharray: 3 6;
+  opacity: 0.7;
 }
 
 .react-flow__edge.highlighted path {

@@ -150,6 +150,9 @@ export default function App() {
           onConnect={onConnect}
           onNodeClick={(_, node) => setSelected(node.data)}
           fitView
+          fitViewOptions={{ padding: 0.08, minZoom: 0.03, maxZoom: 1 }}
+          minZoom={0.03}
+          maxZoom={2}
         >
           <Background color="transparent" />
           <Controls />
@@ -254,20 +257,21 @@ function deriveRequiredInputPorts(graph: DependencyGraphView) {
 
 function flowEdge(edge: GraphEdgeData, highlightedEdgeIds: Set<string>, hasActivePort: boolean): Edge<GraphEdgeData> {
   const highlighted = highlightedEdgeIds.has(edge.id);
+  const isCallEdge = edge.kind === "hard_dependency" && !edge.sourcePort && !edge.targetPort;
 
   return {
     id: edge.id,
     source: edge.source,
     target: edge.target,
-    sourceHandle: edge.sourcePort ?? undefined,
-    targetHandle: edge.targetPort ?? undefined,
-    markerEnd: edgeMarker(edgeColor(edge, highlighted)),
+    sourceHandle: edge.sourcePort ?? (isCallEdge ? `${edge.source}:call-source` : undefined),
+    targetHandle: edge.targetPort ?? (isCallEdge ? `${edge.target}:call-target` : undefined),
+    markerEnd: isCallEdge ? undefined : edgeMarker(edgeColor(edge, highlighted)),
     type: "dependency",
-    animated: edge.scaleRelation === "multiscale",
-    className: `${edge.kind} ${edge.scaleRelation} ${highlighted ? "highlighted" : hasActivePort ? "dimmed" : ""}`,
+    animated: !isCallEdge && edge.scaleRelation === "multiscale",
+    className: `${edge.kind} ${isCallEdge ? "call_edge" : "variable_edge"} ${edge.scaleRelation} ${highlighted ? "highlighted" : hasActivePort ? "dimmed" : ""}`,
     style: edgeStyle(edgeColor(edge, highlighted), highlighted),
     selected: highlighted,
-    zIndex: highlighted ? 120 : 5,
+    zIndex: highlighted ? 120 : isCallEdge ? 3 : 5,
     data: { ...edge, highlighted, dimmed: hasActivePort && !highlighted },
   };
 }
