@@ -7,4 +7,5 @@ docs/Manifest.toml
 test/Manifest.toml
 docs/build/
 benchmark/Manifest.toml
-frontend
+frontend/node_modules/
+frontend/dist/

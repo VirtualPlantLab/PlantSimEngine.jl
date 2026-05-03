@@ -106,6 +106,7 @@ include("time/runtime/meteo_sampling.jl")
 
 # Simulation:
 include("run.jl")
+include("compiled_model.jl")
 
 # Fitting
 include("evaluation/fit.jl")
@@ -137,6 +138,7 @@ export inputs, outputs, variables, convert_outputs
 export timespec, output_policy, timestep_hint, meteo_hint
 export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
+export compile_model, write_compiled_model
 export fit
 
 # Re-exporting PlantMeteo main functions:

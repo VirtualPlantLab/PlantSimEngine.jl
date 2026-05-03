@@ -58,6 +58,10 @@ include("helper-functions.jl")
         include("test-simulation.jl")
     end
 
+    @testset "Compiled model source" begin
+        include("test-compiled-model.jl")
+    end
+
     @testset "Statistics" begin
         include("test-statistics.jl")
     end
