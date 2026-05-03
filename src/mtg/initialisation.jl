@@ -155,7 +155,7 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     # Instantiate the RefVectors on the fly for other scales that map into this scale, *i.e.*
     # add a reference to the value of any variable that is used by another scale into its RefVector:
     if haskey(reverse_multiscale_mapping, node_scale)
-        for (organ, vars) in reverse_multiscale_mapping[node_scale] # e.g.: organ = "Leaf"; vars = reverse_multiscale_mapping[symbol(node)][organ]
+        for (organ, vars) in reverse_multiscale_mapping[node_scale] # e.g.: organ = :Leaf; vars = reverse_multiscale_mapping[symbol(node)][organ]
             for (var_source, var_target_) in vars # e.g.: var_source = :soil_water_content; var_target = vars[var_source]
                 var_target = var_target_ isa PreviousTimeStep ? var_target_.variable : var_target_
                 push!(mapped_vars[organ][var_target], refvalue(st, var_source))

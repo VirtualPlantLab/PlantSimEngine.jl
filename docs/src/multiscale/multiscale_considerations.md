@@ -44,7 +44,7 @@ Some models, like the ones we've seen in single-scale simulations, work on a ver
 
 More fine-grained models can be tied to a specific plant organ. 
 
-For instance, a model computing a leaf's surface area depending on its age would operate at the "leaf" scale, and be called **for every leaf** at every timestep. On the other hand, a model computing the plant's total leaf area only needs to be run once per timestep, and can be run at the :Plant scale.
+For instance, a model computing a leaf's surface area depending on its age would operate at the `:Leaf` scale, and be called **for every leaf** at every timestep. On the other hand, a model computing the plant's total leaf area only needs to be run once per timestep, and can be run at the `:Plant` scale.
 
 This is a major difference between a single-scale simulation and a multi-scale one. By default, any model in a single-scale simulation will only run **once** per timestep. However, in multi-scale, if a plant has several instances of an organ type -say it has a hundred leaves- then any model operating at the :Leaf scale will by default run one hundred times per timestep, unless it is explicitely controlled by another model (which can happen in hard dependency configurations).
 

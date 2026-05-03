@@ -233,52 +233,52 @@ The package is designed to be easily scalable, and can be used to simulate model
 
 ```julia
 mapping = ModelMapping(
-    "Scene" => ToyDegreeDaysCumulModel(),
-    "Plant" => (
+    :Scene => ToyDegreeDaysCumulModel(),
+    :Plant => (
         MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
-                :TT_cu => "Scene",
+                :TT_cu => :Scene,
             ],
         ),
         Beer(0.6),
         MultiScaleModel(
             model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => "Soil"],
+            mapped_variables=[:soil_water_content => :Soil],
         ),
         MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
-                :carbon_demand => ["Leaf", "Internode"],
-                :carbon_allocation => ["Leaf", "Internode"]
+                :carbon_demand => [:Leaf, :Internode],
+                :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
         MultiScaleModel(
             model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => ["Leaf" => :Rm, "Internode" => :Rm],],
+            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
-    "Internode" => (
+    :Internode => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         MultiScaleModel(
             model=ToyInternodeEmergence(TT_emergence=20.0),
-            mapped_variables=[:TT_cu => "Scene"],
+            mapped_variables=[:TT_cu => :Scene],
         ),
         ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
         Status(carbon_biomass=1.0)
     ),
-    "Leaf" => (
+    :Leaf => (
         MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => "Scene",],
+            mapped_variables=[:TT => :Scene,],
         ),
         ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
         Status(carbon_biomass=1.0)
     ),
-    "Soil" => (
+    :Soil => (
         ToySoilWaterModel(),
     ),
 );
@@ -305,11 +305,11 @@ And run the simulation:
 
 ```julia
 out_vars = ModelMapping(
-    "Scene" => (:TT_cu,),
-    "Plant" => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
-    "Leaf" => (:carbon_demand, :carbon_allocation),
-    "Internode" => (:carbon_demand, :carbon_allocation),
-    "Soil" => (:soil_water_content,),
+    :Scene => (:TT_cu,),
+    :Plant => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
+    :Leaf => (:carbon_demand, :carbon_allocation),
+    :Internode => (:carbon_demand, :carbon_allocation),
+    :Soil => (:soil_water_content,),
 )
 
 out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());

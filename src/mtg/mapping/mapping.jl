@@ -174,15 +174,16 @@ Use `Dict(mapping)` to recover a plain dictionary.
 struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{Symbol,Tuple} where {D<:Union{Dict{Symbol,Tuple},ModelList}}
     data::D
     info::ModelMappingInfo
+    type_promotion::Union{Nothing,Dict}
 end
 
-function _build_model_mapping(::Type{S}, data; validated::Bool) where {S<:AbstractScaleSetup}
+function _build_model_mapping(::Type{S}, data; validated::Bool, type_promotion::Union{Nothing,Dict}=nothing) where {S<:AbstractScaleSetup}
     info = try
         _build_model_mapping_info(S, data; validated=validated)
     catch
         _empty_model_mapping_info()
     end
-    ModelMapping{S,typeof(data)}(data, info)
+    ModelMapping{S,typeof(data)}(data, info, type_promotion)
 end
 
 ModelMapping{S}(data) where {S<:AbstractScaleSetup} = _build_model_mapping(S, data; validated=false)
@@ -317,40 +318,59 @@ Base.getindex(mapping::ModelMapping{SingleScale}, key::Integer) = getindex(mappi
 Base.haskey(mapping::ModelMapping, key::Symbol) = haskey(mapping.data, key)
 Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, _normalize_scale(key; warn=true, context=:ModelMapping))
 Base.eltype(::Type{ModelMapping}) = Pair{Symbol,Tuple}
-Base.copy(mapping::ModelMapping{MultiScale}) = _build_model_mapping(MultiScale, copy(mapping.data); validated=mapping.info.validated)
-Base.copy(mapping::ModelMapping{SingleScale}) = _build_model_mapping(SingleScale, copy(mapping.data); validated=mapping.info.validated)
-Base.copy(mapping::ModelMapping{SingleScale}, status) = _build_model_mapping(SingleScale, copy(mapping.data, status); validated=mapping.info.validated)
+Base.copy(mapping::ModelMapping{MultiScale}) = _build_model_mapping(MultiScale, copy(mapping.data); validated=mapping.info.validated, type_promotion=deepcopy(mapping.type_promotion))
+Base.copy(mapping::ModelMapping{SingleScale}) = _build_model_mapping(SingleScale, copy(mapping.data); validated=mapping.info.validated, type_promotion=deepcopy(mapping.type_promotion))
+Base.copy(mapping::ModelMapping{SingleScale}, status) = _build_model_mapping(SingleScale, copy(mapping.data, status); validated=mapping.info.validated, type_promotion=deepcopy(mapping.type_promotion))
 Base.Dict(mapping::ModelMapping) = copy(mapping.data)
-Base.:(==)(left::ModelMapping{SingleScale}, right::ModelMapping{SingleScale}) = left.data == right.data
+Base.:(==)(left::ModelMapping{SingleScale}, right::ModelMapping{SingleScale}) = left.data == right.data && left.type_promotion == right.type_promotion
 
 function Base.getproperty(mapping::ModelMapping{SingleScale}, name::Symbol)
-    (name === :data || name === :info) && return getfield(mapping, name)
+    (name === :data || name === :info || name === :type_promotion) && return getfield(mapping, name)
     return getproperty(getfield(mapping, :data), name)
 end
 
-function ModelMapping{MultiScale}(mapping::T; check::Bool=true) where {T<:AbstractDict}
+function ModelMapping{MultiScale}(mapping::T; check::Bool=true, type_promotion::Union{Nothing,Dict}=nothing) where {T<:AbstractDict}
     normalized = _normalize_multiscale_mapping(mapping)
     check && _check_multiscale_mapping!(normalized)
-    _build_model_mapping(MultiScale, normalized; validated=check)
+    _build_model_mapping(MultiScale, normalized; validated=check, type_promotion=type_promotion)
 end
 
-ModelMapping(mapping::AbstractDict; check::Bool=true) = ModelMapping{MultiScale}(mapping; check=check)
+ModelMapping(mapping::AbstractDict; check::Bool=true, type_promotion::Union{Nothing,Dict}=nothing) =
+    ModelMapping{MultiScale}(mapping; check=check, type_promotion=type_promotion)
 
-ModelMapping(mapping::ModelMapping; check::Bool=true) = check ? ModelMapping(mapping.data; check=true) : mapping
+function ModelMapping(mapping::ModelMapping{MultiScale}; check::Bool=true, type_promotion::Union{Nothing,Dict}=mapping.type_promotion)
+    if check || type_promotion != mapping.type_promotion
+        return ModelMapping(mapping.data; check=check, type_promotion=type_promotion)
+    end
+    return mapping
+end
+
+function ModelMapping(mapping::ModelMapping{SingleScale}; check::Bool=true, type_promotion::Union{Nothing,Dict}=mapping.type_promotion)
+    if type_promotion != mapping.type_promotion
+        error("Cannot change `type_promotion` on an already constructed single-scale `ModelMapping`; rebuild it from models and status.")
+    end
+    return check ? _build_model_mapping(SingleScale, mapping.data; validated=true, type_promotion=mapping.type_promotion) : mapping
+end
 
 """
-    ModelMapping(scale_mapping_pairs...; check=true)
-    ModelMapping(models...; scale=:Default, status=nothing, check=true, processes...)
+    ModelMapping(scale_mapping_pairs...; check=true, type_promotion=nothing)
+    ModelMapping(models...; scale=:Default, status=nothing, type_promotion=nothing, check=true, processes...)
 
 Convenience constructors for [`ModelMapping`](@ref):
 
 - pass `scale => models` pairs directly (dict-like syntax),
 - or pass models/processes directly for a single scale (old `ModelList` syntax).
+
+`type_promotion` may be a dictionary of source type to target type, for example
+`Dict(Float64 => Float32)`. In single-scale mappings it is applied when the
+backing status is constructed. In multiscale mappings it is stored on the
+mapping and applied when a `GraphSimulation` is initialized.
 """
 function ModelMapping(
     args...;
     scale::Union{Symbol,AbstractString}=:Default,
     status=nothing,
+    type_promotion::Union{Nothing,Dict}=nothing,
     check::Bool=true,
     processes...
 )
@@ -377,7 +397,7 @@ function ModelMapping(
             _normalize_scale(first(pair); warn=first(pair) isa AbstractString, context=:ModelMapping) => last(pair)
             for pair in args
         )
-        return ModelMapping{MultiScale}(raw_mapping; check=check)
+        return ModelMapping{MultiScale}(raw_mapping; check=check, type_promotion=type_promotion)
     end
 
     _contains_scale_like_pair(args) && error(
@@ -399,8 +419,9 @@ function ModelMapping(
 
     return _build_model_mapping(
         SingleScale,
-        ModelList(flat_args...; status=status, type_promotion=nothing, variables_check=check, processes...);
-        validated=check
+        ModelList(flat_args...; status=status, type_promotion=type_promotion, variables_check=check, processes...);
+        validated=check,
+        type_promotion=type_promotion
     )
 
     #TODO: Use the following when we merge the ModelList and ModelMapping paths (create a fake scale):
@@ -430,6 +451,9 @@ pre_allocate_outputs(mapping::ModelMapping{SingleScale}, outs, nsteps; type_prom
 mapping_info(mapping::ModelMapping) = mapping.info
 is_multirate(mapping::ModelMapping) = mapping.info.is_multirate
 is_valid(mapping::ModelMapping) = mapping.info.is_valid
+type_promotion(mapping::ModelMapping) = mapping.type_promotion
+type_promotion(::Any) = nothing
+_type_promotion(mapping) = type_promotion(mapping)
 
 function _all_scale_pairs(args)
     !isempty(args) && all(arg -> arg isa Pair && first(arg) isa Union{AbstractString,Symbol}, args)
