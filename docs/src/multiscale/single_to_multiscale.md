@@ -51,7 +51,7 @@ outputs_singlescale = run!(models_singlescale, meteo_day)
 outputs_singlescale[1:3,:] # show the first 3 rows of the output
 ```
 
-Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that "plant" scale, so there is no need to map any variable to other scales.
+Those models all operate on a simplified model of a single plant, without any organ-local information. We can therefore consider them to be working at the 'whole plant' scale. Their variables also operate at that `:Plant` scale, so there is no need to map any variable to other scales.
 
 We can therefore convert this into the following mapping:
 

@@ -140,9 +140,9 @@ end
 
 # For multiscale mapping:
 function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dict{Symbol,Any}}, reverse_multiscale_mapping, hard_dep_dict::Dict{Pair{Symbol,Symbol},HardDependencyNode})
-    
+
     independant_process_root = Dict{Pair{Symbol,Symbol},SoftDependencyNode}()
-    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = "Plant"; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
+    for (organ, (soft_dep_graph, ins, outs)) in soft_dep_graphs_roots.roots # e.g. organ = :Plant; soft_dep_graph, ins, outs = soft_dep_graphs_roots.roots[organ]
         for (proc, i) in soft_dep_graph
             # proc = :leaf_surface; i = soft_dep_graph[proc]
             # Search if the process has soft dependencies:
@@ -157,8 +157,8 @@ function soft_dependencies_multiscale(soft_dep_graphs_roots::DependencyGraph{Dic
 
             # Check if the process has soft dependencies at other scales:
             soft_deps_multiscale = search_inputs_in_multiscale_output(proc, organ, ins, soft_dep_graphs_roots.roots, reverse_multiscale_mapping, hard_dependencies_from_other_scale)
-            # Example output: "Soil" => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
-            # is computed by the process :soil_water at the scale "Soil".
+            # Example output: :Soil => Dict(:soil_water=>[:soil_water_content]), which means that the variable :soil_water_content
+            # is computed by the process :soil_water at the scale :Soil.
 
             if length(soft_deps_not_hard) == 0 && i.process in keys(soft_dep_graph) && length(soft_deps_multiscale) == 0
                 # If the process has no soft (multiscale) dependencies, then it is independant (so it is a root)
@@ -438,9 +438,9 @@ end
 # Arguments
 
 - `process::Symbol`: the process for which we want to find the soft dependencies at other scales.
-- `organ::String`: the organ for which we want to find the soft dependencies.
+- `organ::Symbol`: the organ for which we want to find the soft dependencies.
 - `inputs::Dict{Symbol, Vector{Pair{Symbol}, Tuple{Symbol, Vararg{Symbol}}}}`: a dict of process => [:subprocess => (:var1, :var2)].
-- `soft_dep_graphs::Dict{String, ...}`: a dict of organ => (soft_dep_graph, inputs, outputs).
+- `soft_dep_graphs::Dict{Symbol, ...}`: a dict of organ => (soft_dep_graph, inputs, outputs).
 - `rev_mapping::Dict{Symbol, Symbol}`: a dict of mapped variable => source variable (this is the reverse mapping).
 - 'hard_dependencies_from_other_scale' : a vector of HardDependencyNode to provide access to the hard dependencies without traversing the whole graph
 
@@ -454,13 +454,13 @@ come from itself (its own inputs), or from another process that is a hard-depend
 A dictionary with the soft dependencies variables found in outputs of other scales for each process, e.g.:
     
 ```julia
-Dict{String, Dict{Symbol, Vector{Symbol}}} with 2 entries:
-    "Internode" => Dict(:carbon_demand=>[:carbon_demand])
-    "Leaf"      => Dict(:carbon_assimilation=>[:carbon_assimilation], :carbon_demand=>[:carbon_demand])
+Dict{Symbol, Dict{Symbol, Vector{Symbol}}} with 2 entries:
+    :Internode => Dict(:carbon_demand=>[:carbon_demand])
+    :Leaf      => Dict(:carbon_assimilation=>[:carbon_assimilation], :carbon_demand=>[:carbon_demand])
 ```
 
-This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale "Internode", and the variable `:carbon_assimilation` 
-is computed by the process `:carbon_assimilation` at the scale "Leaf". Those variables are used as inputs for the process that we just passed.
+This means that the variable `:carbon_demand` is computed by the process `:carbon_demand` at the scale `:Internode`, and the variable `:carbon_assimilation` 
+is computed by the process `:carbon_assimilation` at the scale `:Leaf`. Those variables are used as inputs for the process that we just passed.
 """
 function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_graphs, rev_mapping, hard_dependencies_from_other_scale)
     # proc, organ, ins, soft_dep_graphs=soft_dep_graphs_roots.roots
@@ -478,7 +478,7 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
             end
 
             @assert all(var_o != organ for var_o in var_organ) "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
-            for org in var_organ # e.g. org = "Leaf"
+            for org in var_organ # e.g. org = :Leaf
                 # The variable is a multiscale variable:
                 haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")
                 mapped_var = mapped_variable(val)

@@ -167,7 +167,7 @@ function _normalize_mapped_scale(scale::AbstractString)
     return Symbol(scale)
 end
 
-# Case 1: [:variable_name => "Plant"] (deprecated, coerced to symbol scale)
+# Case 1: [:variable_name => :Plant] (deprecated, coerced to symbol scale)
 function _get_var(i::Pair{Symbol,S}, proc::Symbol=:unknown) where {S<:AbstractString}
     scale = _normalize_mapped_scale(last(i))
     return first(i) => scale => first(i)

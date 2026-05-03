@@ -142,7 +142,7 @@ aggregates over that civil day (including later timesteps from that day when ava
 
 ```julia
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         ModelSpec(LeafSourceModel()) |> TimeStepModel(1.0),
         ModelSpec(LeafConsumerModel()) |>
         TimeStepModel(ClockSpec(2.0, 1.0)) |>
@@ -155,13 +155,13 @@ mapping = ModelMapping(
 
 ```julia
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         ModelSpec(HourlyAssimModel()) |> TimeStepModel(1.0),
     ),
-    "Plant" => (
+    :Plant => (
         ModelSpec(DailyCarbonOfferModel()) |>
         TimeStepModel(ClockSpec(24.0, 1.0)) |>
-        InputBindings(; A=(process=:hourlyassim, var=:A, scale="Leaf", policy=Integrate())),
+        InputBindings(; A=(process=:hourlyassim, var=:A, scale=:Leaf, policy=Integrate())),
     ),
 )
 ```
@@ -170,7 +170,7 @@ mapping = ModelMapping(
 
 ```julia
 mapping = ModelMapping(
-    "Leaf" => (
+    :Leaf => (
         ModelSpec(SlowSourceModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
         ModelSpec(FastConsumerModel()) |>
         TimeStepModel(1.0) |>
@@ -195,7 +195,7 @@ on each `ModelSpec`.
 You can export selected variables at a requested rate from temporal streams:
 
 ```julia
-req = OutputRequest("Leaf", :carbon_assimilation;
+req = OutputRequest(:Leaf, :carbon_assimilation;
     name=:A_daily,
     process=:toyassim,
     policy=Integrate(),
