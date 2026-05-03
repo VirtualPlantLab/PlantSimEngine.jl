@@ -124,7 +124,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
             outs_[i] = []
         end
     else
-        for i in keys(outs) # i = "Plant"
+        for i in keys(outs) # i = :Plant
             i isa Symbol || error("Output scale keys must be `Symbol`, got `$(typeof(i))` for key `$(repr(i))`.")
             @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `$i => (:a, :b)`, found `$i => $(outs[i])` instead."""
             outs_[i] = [outs[i]...]
@@ -165,7 +165,7 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     end
 
     # Checking that variables in outputs exist in the statuses, and adding the :node variable:
-    for (organ, vars) in outs_ # organ = "Leaf"; vars = outs_[organ]
+    for (organ, vars) in outs_ # organ = :Leaf; vars = outs_[organ]
         if length(statuses[organ]) == 0
             # The organ is not found in the mtg, we return an info and get along (it might be created during the simulation):
             check && @info "You required outputs for organ $organ, but this organ is not found in the provided MTG at this point."

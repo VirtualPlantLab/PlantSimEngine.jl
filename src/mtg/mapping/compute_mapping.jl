@@ -71,7 +71,7 @@ This function is used with mapped_variables
 function variables_outputs_from_other_scale(mapped_vars)
     vars_outputs_from_scales = Dict{Symbol,Vector{Pair{Symbol,Any}}}()
     # Scale at which we have to add a variable => [(source_process, source_scale, variable), ...]
-    for (organ, outs) in mapped_vars[:outputs] # organ = "Leaf" ; outs = mapped_vars[:outputs][organ]
+    for (organ, outs) in mapped_vars[:outputs] # organ = :Leaf ; outs = mapped_vars[:outputs][organ]
         for (var, val) in pairs(outs) # var = :carbon_biomass ; val = outs[1]
             if isa(val, MappedVar)
                 orgs = mapped_organ(val)
@@ -161,7 +161,7 @@ This helps us declare it as a reference when we create the template status objec
 These node are found in the mapping as `[:variable_name => :Plant]` (notice that `:Plant` is a scalar value).
 """
 function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars)
-    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = "Leaf"; vars = mapped_vars[:inputs][organ]
+    for (organ, vars) in mapped_vars[:inputs] # e.g. organ = :Leaf; vars = mapped_vars[:inputs][organ]
         for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
@@ -175,7 +175,7 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
                 # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
                 isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue
                 # Note: this happens when a variable is mapped to several scales, e.g. soil_water_content computed at soil scale can be 
-                # mapped at "Leaf" and "Internode" scale.
+                # mapped at :Leaf and :Internode scale.
 
                 # Transforming the variable into a MappedVar pointing to itself:
                 self_mapped_var = (;
@@ -220,7 +220,7 @@ function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], l
             m_organ = [m_organ]
         end
         default_vals = []
-        for o in m_organ # e.g. o = "Leaf"
+        for o in m_organ # e.g. o = :Leaf
             haskey(mapped_vars[o], source_variable(val, o)) || error("Variable `$(source_variable(val, o))` is mapped from scale `$o` to another scale, but is not computed by any model at `$o` scale.")
             upper_value = mapped_vars[o][source_variable(val, o)]
             push!(mapping_stacktrace, (mapped_organ=o, mapped_variable=source_variable(val, o), mapped_value=mapped_default(upper_value), level=level))
@@ -256,7 +256,7 @@ Get the default values for the mapped variables by recursively searching from th
 """
 function default_variables_from_mapping(mapped_vars, verbose=true)
     mapped_vars_mutable = Dict{Symbol,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
-    for (organ, vars) in mapped_vars # organ = "Leaf"; vars = mapped_vars[organ]
+    for (organ, vars) in mapped_vars # organ = :Leaf; vars = mapped_vars[organ]
         for (var, val) in pairs(vars) # var = :carbon_biomass; val = getproperty(vars,var)
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && mapped_organ(val) != Symbol("")
                 mapping_stacktrace = Any[(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][var]), level=1)]
@@ -295,7 +295,7 @@ function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
     dict_mapped_vars = Dict{Pair,Any}()
 
     # First pass: converting the MappedVar{SelfNodeMapping} and MappedVar{SingleNodeMapping} to RefValues:
-    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+    for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :aPPFD_larger_scale; v = vars[k]
             if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
                 mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
@@ -314,7 +314,7 @@ function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
     end
 
     # Second pass: converting the MappedVar{MultiNodeMapping} to RefVectors:
-    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+    for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
             if isa(v, MappedVar{MultiNodeMapping})
                 # We have to create a RefVector for the target organ:
@@ -337,7 +337,7 @@ function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
     end
 
     # Third pass: getting the same reference for the variables that are mapped at the same scale to another variable (changing its name):
-    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+    for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
             if isa(v, MappedVar) && mapped_organ(v) == Symbol("")
                 mapped_var = mapped_variable(v)
