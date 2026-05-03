@@ -13,7 +13,7 @@ This function should be called from a model that implements organ emergence, for
     * `"<"`: the new node is following the parent organ
     * `"+"`: the new node is branching the parent organ
     * `"/"`: the new node is decomposing the parent organ, *i.e.* we change scale
-* `symbol`: the symbol of the organ, *e.g.* `"Leaf"`
+* `symbol`: the symbol of the organ, *e.g.* `:Leaf`
 * `scale`: the scale of the organ, *e.g.* `2`.
 * `index`: the index of the organ, *e.g.* `1`. The index may be used to easily identify branching order, or growth unit index on the axis. It is different from the node `id` that is unique.
 * `id`: the unique id of the new node. If not provided, a new id is generated.

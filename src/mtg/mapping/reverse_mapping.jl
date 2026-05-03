@@ -78,7 +78,7 @@ end
 
 function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
     reverse_multiscale_mapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}(org => Dict{Symbol,Dict{Symbol,Any}}() for org in keys(mapped_vars))
-    for (organ, vars) in mapped_vars # e.g.: organ = "Plant"; vars = mapped_vars[organ]
+    for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (var, val) in vars # e.g. var = :Rm_organs; val = vars[var]
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && (all || !isa(val, MappedVar{SingleNodeMapping}))
                 # Note: We skip the MappedVar{SelfNodeMapping} because it is a special case where the variable is mapped to itself
@@ -93,7 +93,7 @@ function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
                     mapped_orgs = [_normalize_scale(mapped_orgs; warn=true, context=:ModelMapping)]
                 end
 
-                for mapped_o in mapped_orgs # e.g.: mapped_o = "Leaf"
+                for mapped_o in mapped_orgs # e.g.: mapped_o = :Leaf
                     mapped_o == Symbol("") && continue
                     # if !haskey(reverse_multiscale_mapping, mapped_o)
                     #     reverse_multiscale_mapping[mapped_o] = Dict{Symbol,Vector{MappedVar}}()

@@ -53,12 +53,12 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 mapping = ModelMapping(
-    "Leaf" => ModelMapping(
+    :Leaf => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "Internode" => ModelMapping(
+    :Internode => ModelMapping(
         process1=Process1Model(1.0),
     )
 )
@@ -117,7 +117,7 @@ end
 function to_initialize(m::T) where {T<:Dict{Symbol,ModelMapping}}
     toinit = Dict{Symbol,NamedTuple}()
     for (key, value) in m
-        # key = "Leaf"; value = m[key]
+        # key = :Leaf; value = m[key]
         toinit_ = to_initialize(value)
 
         if length(toinit_) > 0
@@ -183,7 +183,7 @@ models = Dict(
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    :InterNode => ModelMapping(
+    :Internode => ModelMapping(
         process1=Process1Model(1.0),
     )
 )

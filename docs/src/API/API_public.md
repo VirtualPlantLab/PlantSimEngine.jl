@@ -70,8 +70,8 @@ Scope selection detail:
 ### Exporting variables at requested rates
 
 ```julia
-req_hold = OutputRequest("Leaf", :A; name=:A_hourly, process=:assim, policy=HoldLast())
-req_day = OutputRequest("Leaf", :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
+req_hold = OutputRequest(:Leaf, :A; name=:A_hourly, process=:assim, policy=HoldLast())
+req_day = OutputRequest(:Leaf, :A; name=:A_daily_sum, process=:assim, policy=Integrate(), clock=ClockSpec(24.0, 1.0))
 run!(sim, meteo; tracked_outputs=[req_hold, req_day], executor=SequentialEx())
 out = collect_outputs(sim; sink=DataFrame)
 
@@ -126,23 +126,23 @@ Use `Integrate` for accumulation semantics and `Aggregate` for summary-statistic
 ```julia
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(SumReducer())))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale=:Leaf, policy=Integrate(SumReducer())))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Aggregate(MaxReducer())))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale=:Leaf, policy=Aggregate(MaxReducer())))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(vals -> maximum(vals) - minimum(vals))))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale=:Leaf, policy=Integrate(vals -> maximum(vals) - minimum(vals))))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate((vals, durations) -> sum(vals .* durations))))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale=:Leaf, policy=Integrate((vals, durations) -> sum(vals .* durations))))
 
 ModelSpec(DailyModel()) |>
 TimeStepModel(ClockSpec(24.0, 1.0)) |>
-InputBindings(; a=(process=:hourly_assim, var=:A, scale="Leaf", policy=Integrate(PlantMeteo.DurationSumReducer())))
+InputBindings(; a=(process=:hourly_assim, var=:A, scale=:Leaf, policy=Integrate(PlantMeteo.DurationSumReducer())))
 ```
 
 Built-in reducer types are:

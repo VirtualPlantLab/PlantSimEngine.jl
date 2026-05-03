@@ -31,12 +31,12 @@ function PlantSimEngine.run!(::MRBenchConsumer24Model, models, status, meteo, co
 end
 
 function _build_multirate_benchmark_mtg(nleaves::Int)
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", "Scene", 1, 0))
-    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", "Plant", 1, 1))
-    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", "Internode", 1, 2))
+    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
 
     for i in 1:nleaves
-        Node(internode, MultiScaleTreeGraph.NodeMTG("+", "Leaf", i, 2))
+        Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, i, 2))
     end
 
     return mtg
@@ -46,18 +46,18 @@ function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     mtg = _build_multirate_benchmark_mtg(nleaves)
 
     mapping = ModelMapping(
-        "Leaf" => (
+        :Leaf => (
             ModelSpec(MRBenchSourceModel(Ref(0))) |> TimeStepModel(1.0),
         ),
-        "Plant" => (
+        :Plant => (
             ModelSpec(MRBenchConsumer4Model()) |>
-            MultiScaleModel([:X => ["Leaf"]]) |>
+            MultiScaleModel([:X => [:Leaf]]) |>
             TimeStepModel(ClockSpec(4.0, 1.0)) |>
-            InputBindings(; X=(process=:mrbenchsource, var=:X, scale="Leaf", policy=Integrate())),
+            InputBindings(; X=(process=:mrbenchsource, var=:X, scale=:Leaf, policy=Integrate())),
             ModelSpec(MRBenchConsumer24Model()) |>
-            MultiScaleModel([:X => ["Leaf"]]) |>
+            MultiScaleModel([:X => [:Leaf]]) |>
             TimeStepModel(ClockSpec(24.0, 1.0)) |>
-            InputBindings(; X=(process=:mrbenchsource, var=:X, scale="Leaf", policy=Integrate())),
+            InputBindings(; X=(process=:mrbenchsource, var=:X, scale=:Leaf, policy=Integrate())),
         ),
     )
 
@@ -65,11 +65,11 @@ function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     meteo = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], nsteps))
 
     reqs = [
-        OutputRequest("Leaf", :X; name=:x_hourly, process=:mrbenchsource, policy=HoldLast()),
-        OutputRequest("Leaf", :X; name=:x_daily_sum, process=:mrbenchsource, policy=Integrate(), clock=ClockSpec(24.0, 1.0)),
+        OutputRequest(:Leaf, :X; name=:x_hourly, process=:mrbenchsource, policy=HoldLast()),
+        OutputRequest(:Leaf, :X; name=:x_daily_sum, process=:mrbenchsource, policy=Integrate(), clock=ClockSpec(24.0, 1.0)),
     ]
 
-    tracked = Dict("Plant" => (:Y4, :Y24), "Leaf" => (:X,))
+    tracked = Dict(:Plant => (:Y4, :Y24), :Leaf => (:X,))
     return mtg, mapping, meteo, reqs, tracked, nsteps
 end
 

@@ -47,6 +47,8 @@ function xpalm_default_param_convert_outputs(sim_outputs)
 end
 
 
+println(Pkg.status("XPalm"))
+
 #=@testset "XPalm simple test" begin
     # default number of seconds is 5
     b_XP = @benchmark xpalm_default_param_run() seconds = 120

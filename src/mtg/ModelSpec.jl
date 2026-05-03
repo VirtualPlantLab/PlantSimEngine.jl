@@ -285,7 +285,7 @@ explicit `InputBindings(...)`.
 ```julia
 ModelSpec(ConsumerModel()) |>
 TimeStepModel(ClockSpec(24.0, 0.0)) |>
-InputBindings(; A=(process=:assim, var=:carbon_assimilation, scale="Leaf", policy=Integrate()))
+InputBindings(; A=(process=:assim, var=:carbon_assimilation, scale=:Leaf, policy=Integrate()))
 ```
 """
 InputBindings(bindings) = x -> with_input_bindings(x, bindings)

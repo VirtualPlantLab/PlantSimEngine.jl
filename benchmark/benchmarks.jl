@@ -44,8 +44,8 @@ SUITE[suite_name]["XPalm_setup"] = @benchmarkable xpalm_default_param_create() s
 palm, models, out_vars, meteo = xpalm_default_param_create()
 sim_outputs = xpalm_default_param_run(palm, models, out_vars, meteo)
 
-SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run($palm, $models, $out_vars, $meteo) seconds = 120
-SUITE[suite_name]["XPalm_convert_outputs"] = @benchmarkable xpalm_default_param_convert_outputs($sim_outputs) seconds = 120
+SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run(palm, models, out_vars, meteo) setup = ((palm, models, out_vars, meteo) = xpalm_default_param_create())
+SUITE[suite_name]["XPalm_convert_outputs"] = @benchmarkable xpalm_default_param_convert_outputs($sim_outputs)
 
 #tune!(SUITE)
 #results = run(SUITE, verbose=true)

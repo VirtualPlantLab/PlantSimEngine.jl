@@ -114,12 +114,12 @@ PlantSimEngine documentation tends to use the terms "organ" and "scale" mostly i
 When working with multi-scale data, the scale will often need to be specified to map variables, or to indicate at what scale level models work out. You will see some code resembling this :
 
 ```julia
-"Root" => (RootGrowthModel(), OrganAgeModel()),
-"Leaf" => (LightInterceptionModel(), OrganAgeModel()),
-"Plant" => (TotalBiomassModel(),),
+:Root => (RootGrowthModel(), OrganAgeModel()),
+:Leaf => (LightInterceptionModel(), OrganAgeModel()),
+:Plant => (TotalBiomassModel(),),
 ```
 
-This example excerpt links from specific models to a specific scale. Note that one model is reused at two different scales, and note that "Plant" isn't an actual organ, hence the preferred usage of the term "scale".
+This example excerpt links from specific models to a specific scale. Note that one model is reused at two different scales, and note that `:Plant` isn't an actual organ, hence the preferred usage of the term "scale".
 
 ### Multiscale modeling
 
@@ -154,7 +154,7 @@ You can see a basic display of an MTG by simply typing its name in the REPL:
 
 Multi-scale tree graphs have different terminology (see [Organ/Scale](@ref)):
 
-- the MTG node **symbol** represents "something" like a "Plant", "Root", "Scene" or "Leaf". It corresponds to a PlantSimEngine *scale* and has nothing to do with the Julia programming language's definition of symbol (*e.g.* `:var`)
+- the MTG node **symbol** represents "something" like a `:Plant`, `:Root`, `:Scene` or `:Leaf`. It corresponds to a PlantSimEngine *scale* and has nothing to do with the Julia programming language's definition of symbol (*e.g.* `:var`)
 - the MTG node **scale**, is an integer passed to the Node constructor, and describes the level of description of the tree graph object. They don't always have a one-to-one correspondence to the symbol (or PlantSimEngine's scale), but are similar.
 
 ![Three scale levels on an MTG, which differ from typical PlantSimEngine concept of scale](../www/Grassy_plant_scales.svg)
