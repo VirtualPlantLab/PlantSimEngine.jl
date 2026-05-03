@@ -44,7 +44,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
             # The dependency can be given as multiscale, e.g. `leaf_area=AbstractLeaf_AreaModel => [m.leaf_symbol],`
             # This means we should search this model in another scale. This is not done here, but after the call to this 
             # function in the other method for `hard_dependencies` below.
-            if isa(depend, Pair) 
+            if isa(depend, Pair)
                 if !isnothing(scale)
                     # We skip this hard-dependency if it is multiscale, we compute this afterwards in this case
                     target_scales = _normalize_hard_dependency_scales(last(depend), process, p)
@@ -87,7 +87,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
                 if verbose
                     @info string(
                         "Model ", typeof(i).name.name, " from process ", process,
-                            isnothing(scale) ? "" : " at scale $scale",
+                        isnothing(scale) ? "" : " at scale $scale",
                         " needs a model that is a subtype of ", depend, " in process ",
                         p, ", but the process is not parameterized in the ModelList."
                     )
@@ -155,8 +155,8 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
     # Since the hard dependencies are inserted into the soft dependency graph as children and aren't referenced elsewhere
     # it becomes harder to keep track of them as needed without traversing the graph
     # so keep tabs on them during initialisation until they're no longer needed
-    hard_dependency_dict = Dict{Pair{Symbol,Symbol}, HardDependencyNode}()
-    
+    hard_dependency_dict = Dict{Pair{Symbol,Symbol},HardDependencyNode}()
+
     hard_deps = Dict(organ => hard_dependencies(mods_scale, scale=organ, verbose=false) for (organ, mods_scale) in mods)
 
     # Compute the inputs and outputs of all "root" node of the hard dependencies, so the root 
@@ -189,7 +189,7 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
 
     # If some models needed as hard-dependency are not found in their own scale, check the other scales:
     for (organ, model) in mapping
-        # organ = "Plant"; model = mapping[organ]
+        # organ = :Plant; model = mapping[organ]
         # filtering the hard dependency that were defined as multiscale (NamedTuple with information)
         multiscale_hard_dep = filter(x -> isa(last(x), NamedTuple), hard_deps[organ].not_found)
         for (p, (parent_process, model_type, scales)) in multiscale_hard_dep
@@ -219,7 +219,7 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
                 end
 
                 # We make a new node out of the previous one:
-               new_node = HardDependencyNode(
+                new_node = HardDependencyNode(
                     dep_node_model.value,
                     dep_node_model.process,
                     dep_node_model.dependency,
@@ -230,7 +230,7 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
                     parent_node,
                     dep_node_model.children
                 )
-                
+
                 # Add our new node as a child of the parent node (the one that requires it as a hard dependency)
                 push!(parent_node.children, new_node)
 

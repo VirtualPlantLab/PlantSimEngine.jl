@@ -92,7 +92,7 @@ Return a NamedTuple with the variables and their default values.
 # Arguments
 
 - `node::HardDependencyNode`: the node to get the variables from.
-- `organ::String`: the organ type, *e.g.* "Leaf".
+- `organ::Symbol`: the organ type, *e.g.* :`Leaf`.
 - `vars_mapping::Dict{String,T}`: the mapping of the models (see details below).
 - `st::NamedTuple`: an optional named tuple with default values for the variables.
 

@@ -23,12 +23,12 @@ df = DataFrame(models)
 
 # Converting to a Dict of ModelMappings
 models = ModelMapping(
-    "Leaf" => ModelMapping(
+    :Leaf => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    "InterNode" => ModelMapping(
+    :InterNode => ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
