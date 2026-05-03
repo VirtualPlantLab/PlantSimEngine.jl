@@ -43,6 +43,7 @@ makedocs(;
         ],
         "Execution" => "model_execution.md",
         "Model traits" => "model_traits.md",
+        "AI agent skill" => "agent_skill.md",
         "Working with data" => [
             "Reducing DoF" => "./working_with_data/reducing_dof.md",
             "Fitting" => "./working_with_data/fitting.md",
