@@ -33,6 +33,10 @@ export function DependencyEdge({
     offset: 28,
   });
 
+  if (!data) {
+    return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} interactionWidth={18} />;
+  }
+
   const label = data?.label;
   const renamed = data?.sourceVariable && data?.targetVariable && data.sourceVariable !== data.targetVariable;
   const isCallEdge = data?.kind === "hard_dependency" && !data.sourcePort && !data.targetPort;

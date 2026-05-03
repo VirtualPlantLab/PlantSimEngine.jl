@@ -1,13 +1,20 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Clock3, GitBranch, Layers3, Link2, PhoneCall } from "lucide-react";
 import type { GraphPort, RuntimeGraphNodeData } from "./types";
+import { nodeWidth } from "./nodeSizing";
 
 type ModelFlowNode = Node<RuntimeGraphNodeData, "model">;
 
 export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
   const cyclic = Boolean(data.cyclic);
+  const dimmed = Boolean(data.dimmed);
+  const focused = Boolean(data.focused);
   return (
-    <section className={`model-node ${data.role} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""}`} data-scale={data.scale}>
+    <section
+      className={`model-node ${data.role} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
+      data-scale={data.scale}
+      style={{ width: nodeWidth(data) }}
+    >
       <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
       <Handle className="call-handle call-source" id={`${data.id}:call-source`} type="source" position={Position.Right} />
       <header className="node-header">
@@ -41,13 +48,14 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
 
 function PortColumn({ title, ports, side, data }: { title: string; ports: GraphPort[]; side: "input" | "output"; data: RuntimeGraphNodeData }) {
   const highlighted = new Set(data.highlightedPortIds ?? []);
+  const focused = new Set(data.focusedPortIds ?? []);
   const requiredInputs = new Set(data.requiredInputPortIds ?? []);
   return (
     <div className={`port-column ${side}`}>
       <div className="port-title">{title}</div>
       {ports.map((port) => (
         <div
-          className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${port.previousTimeStep ? "previous" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
+          className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${port.previousTimeStep ? "previous" : ""} ${focused.has(port.id) ? "focused" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
           key={port.id}
           data-default={`${requiredInputs.has(port.id) ? "Required initialization" : portValueLabel(port)}: ${port.default}`}
           aria-label={`${port.name}, ${side}, ${requiredInputs.has(port.id) ? "required initialization" : portValueLabel(port).toLowerCase()} ${port.default}`}
