@@ -54,10 +54,14 @@ type RequiredInput = {
 
 type ValidationWarning = {
   id: string;
+  severity: "error" | "warning" | "info";
+  category: "init" | "mapping" | "ownership" | "hard_dependency" | "cross_scale";
   title: string;
   detail: string;
   nodeId?: string;
+  nodeIds?: string[];
   portId?: string;
+  portIds?: string[];
   edgeId?: string;
 };
 
@@ -108,6 +112,7 @@ export default function App() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("data_flow");
   const [focusMode, setFocusMode] = useState<FocusMode>("neighborhood");
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(defaultEdgeFilters);
+  const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<RuntimeGraphNodeData>, Edge<GraphEdgeData>> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
@@ -119,13 +124,15 @@ export default function App() {
   const requiredInputPortIds = useMemo(() => deriveRequiredInputPorts(graph), [graph]);
   const requiredInputs = useMemo(() => deriveRequiredInputs(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const warningItems = useMemo(() => deriveValidationWarnings(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
+  const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
   const searchResults = useMemo(() => deriveSearchResults(graph, searchQuery), [graph, searchQuery]);
   const visibleEdgeData = useMemo(() => graph.edges.filter((edge) => edgeMatchesFilters(edge, edgeFilters)), [edgeFilters, graph.edges]);
   const hoverHighlight = useMemo(() => deriveHighlight(graph, activePort), [activePort, graph]);
-  const focus = useMemo(
+  const traversalFocus = useMemo(
     () => deriveFocus(graph, selected?.id ?? null, activePort, focusMode),
     [activePort, focusMode, graph, selected?.id],
   );
+  const focus = useMemo(() => pinnedFocus?.active ? pinnedFocus : traversalFocus, [pinnedFocus, traversalFocus]);
 
   useEffect(() => {
     const nextNodes = graph.nodes.map((node) => ({
@@ -184,6 +191,7 @@ export default function App() {
   }, [edges, layoutMode, nodes, setNodes]);
 
   const focusNode = useCallback((node: GraphNodeData, port?: GraphPort | null) => {
+    setPinnedFocus(null);
     setSelected(node);
     setActivePort(port ?? null);
     const renderedNode = nodes.find((item) => item.id === node.id);
@@ -201,6 +209,55 @@ export default function App() {
   const toggleEdgeFilter = useCallback((key: EdgeFilterKey) => {
     setEdgeFilters((current) => ({ ...current, [key]: !current[key] }));
   }, []);
+
+  const focusWarning = useCallback((warning: ValidationWarning) => {
+    if (warning.portIds?.length) {
+      const nextFocus = emptyFocusState();
+      nextFocus.active = true;
+      for (const portId of warning.portIds) {
+        const target = portById.get(portId);
+        if (!target) continue;
+        nextFocus.ports.add(portId);
+        nextFocus.nodes.add(target.node.id);
+      }
+      setPinnedFocus(nextFocus);
+      const first = portById.get(warning.portIds[0]);
+      if (first) {
+        setSelected(null);
+        setActivePort(null);
+        if (flowInstance && warning.nodeIds && warning.nodeIds.length > 1) {
+          flowInstance.fitView({
+            nodes: warning.nodeIds.map((id) => ({ id })),
+            padding: 0.28,
+            duration: 520,
+            maxZoom: 0.95,
+          });
+        } else {
+          const renderedNode = nodes.find((item) => item.id === first.node.id);
+          if (renderedNode && flowInstance) {
+            flowInstance.setCenter(renderedNode.position.x + 156, renderedNode.position.y + 90, { zoom: 0.9, duration: 520 });
+          }
+        }
+      }
+      return;
+    }
+
+    setPinnedFocus(null);
+    if (warning.edgeId) {
+      const edge = graph.edges.find((item) => item.id === warning.edgeId);
+      if (edge) focusEdge(edge);
+      return;
+    }
+    if (warning.portId) {
+      const target = portById.get(warning.portId);
+      if (target) focusNode(target.node, target.port);
+      return;
+    }
+    if (warning.nodeId) {
+      const node = nodeById.get(warning.nodeId);
+      if (node) focusNode(node);
+    }
+  }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
 
   return (
     <main className="app-shell">
@@ -259,13 +316,13 @@ export default function App() {
                 <CircleAlert size={14} /> {requiredInputs.length} init
               </button>
             )}
-            {warningItems.length > 0 && (
+            {actionableWarningItems.length > 0 && (
               <button
                 className={`metric-button caution ${showWarningsPanel ? "active" : ""}`}
-                title={`${warningItems.length} graph warnings`}
+                title={`${actionableWarningItems.length} actionable graph warnings`}
                 onClick={() => setShowWarningsPanel((open) => !open)}
               >
-                <AlertTriangle size={14} /> {warningItems.length} warn
+                <AlertTriangle size={14} /> {actionableWarningItems.length} warn
               </button>
             )}
             {graph.cyclic && <span className="warn"><AlertTriangle size={14} /> cycle</span>}
@@ -299,8 +356,8 @@ export default function App() {
         )}
 
         {showWarningsPanel && (
-          <FloatingPanel className="warnings-panel" title="Validation Warnings" subtitle={`${warningItems.length} checks`} onClose={() => setShowWarningsPanel(false)}>
-            <WarningList warnings={warningItems} nodeById={nodeById} portById={portById} edgeById={new Map(graph.edges.map((edge) => [edge.id, edge]))} onFocusNode={focusNode} onFocusEdge={focusEdge} />
+          <FloatingPanel className="warnings-panel" title="Validation Warnings" subtitle={`${actionableWarningItems.length} warnings, ${warningItems.length - actionableWarningItems.length} info`} onClose={() => setShowWarningsPanel(false)}>
+            <WarningList warnings={warningItems} onFocusWarning={focusWarning} />
           </FloatingPanel>
         )}
 
@@ -403,47 +460,34 @@ function RequiredInputList({ groups, onSelect, compact = false }: { groups: Map<
 
 function WarningList({
   warnings,
-  nodeById,
-  portById,
-  edgeById,
-  onFocusNode,
-  onFocusEdge,
+  onFocusWarning,
 }: {
   warnings: ValidationWarning[];
-  nodeById: Map<string, GraphNodeData>;
-  portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
-  edgeById: Map<string, GraphEdgeData>;
-  onFocusNode: (node: GraphNodeData, port?: GraphPort | null) => void;
-  onFocusEdge: (edge: GraphEdgeData) => void;
+  onFocusWarning: (warning: ValidationWarning) => void;
 }) {
   if (warnings.length === 0) return <div className="empty-state">No validation warnings.</div>;
+  const grouped = groupValidationWarnings(warnings);
   return (
     <div className="warning-list">
-      {warnings.map((warning) => (
-        <button
-          key={warning.id}
-          className="warning-item"
-          onClick={() => {
-            if (warning.edgeId) {
-              const edge = edgeById.get(warning.edgeId);
-              if (edge) onFocusEdge(edge);
-              return;
-            }
-            if (warning.portId) {
-              const target = portById.get(warning.portId);
-              if (target) onFocusNode(target.node, target.port);
-              return;
-            }
-            if (warning.nodeId) {
-              const node = nodeById.get(warning.nodeId);
-              if (node) onFocusNode(node);
-            }
-          }}
-        >
-          <strong>{warning.title}</strong>
-          <span>{warning.detail}</span>
-        </button>
-      ))}
+      {(["error", "warning", "info"] as const).map((severity) => {
+        const items = grouped.get(severity) ?? [];
+        if (items.length === 0) return null;
+        return (
+          <section className="warning-group" key={severity}>
+            <h4>{validationSeverityLabel(severity)} ({items.length})</h4>
+            {items.map((warning) => (
+              <button
+                key={warning.id}
+                className={`warning-item ${warning.severity} ${warning.category}`}
+                onClick={() => onFocusWarning(warning)}
+              >
+                <strong>{warning.title}</strong>
+                <span>{warning.detail}</span>
+              </button>
+            ))}
+          </section>
+        );
+      })}
     </div>
   );
 }
@@ -884,6 +928,8 @@ function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortI
       if (requiredInputPortIds.has(port.id) && incoming.length > 0) {
         warnings.push({
           id: `required-with-edge:${port.id}`,
+          severity: "error",
+          category: "init",
           title: "Input marked init but connected",
           detail: `${node.scale}.${node.process}.${port.name} has incoming data-flow edges and should not be required.`,
           nodeId: node.id,
@@ -893,6 +939,8 @@ function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortI
       if (port.mappingMode && requiredInputPortIds.has(port.id) && !port.previousTimeStep) {
         warnings.push({
           id: `unresolved-mapping:${port.id}`,
+          severity: "warning",
+          category: "mapping",
           title: "Mapped input has no producer",
           detail: `${node.scale}.${node.process}.${port.name} declares mapping metadata but no source output was found.`,
           nodeId: node.id,
@@ -905,12 +953,17 @@ function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortI
   for (const [key, group] of outputs) {
     if (group.length <= 1) continue;
     const [scale, variable] = key.split(":");
+    const producerLabels = group.map(({ node }) => `${node.scale}.${node.process}`).join(", ");
     warnings.push({
       id: `multiple-producers:${key}`,
+      severity: "warning",
+      category: "ownership",
       title: "Multiple producers",
-      detail: `${scale}.${variable} is output by ${group.length} models; check whether ownership is intentional.`,
+      detail: `${scale}.${variable} is output by ${group.length} models at the same scale: ${producerLabels}.`,
       nodeId: group[0].node.id,
+      nodeIds: group.map(({ node }) => node.id),
       portId: group[0].port.id,
+      portIds: group.map(({ port }) => port.id),
     });
   }
 
@@ -918,22 +971,52 @@ function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortI
     if (edge.diagnostics.some((item) => item.includes("Forwarded to a hard dependency"))) {
       warnings.push({
         id: `hard-forward:${edge.id}`,
+        severity: "info",
+        category: "hard_dependency",
         title: "Hard input forwarding",
-        detail: `${edge.targetVariable ?? "input"} is satisfied through the owning model status before a hard dependency call.`,
+        detail: `${edge.targetVariable ?? "input"} is satisfied through the owning model status before a hard dependency call. This is expected for declared hard dependencies.`,
         edgeId: edge.id,
       });
     }
     if (edge.scaleRelation === "multiscale" && edge.kind !== "mapped_variable" && !isCallEdge(edge)) {
       warnings.push({
         id: `implicit-cross-scale:${edge.id}`,
-        title: "Implicit cross-scale edge",
-        detail: `${edge.sourceVariable ?? "source"} -> ${edge.targetVariable ?? "target"} crosses scales without a mapped-variable edge kind.`,
+        severity: "info",
+        category: "cross_scale",
+        title: "Inferred cross-scale edge",
+        detail: `${edge.sourceVariable ?? "source"} -> ${edge.targetVariable ?? "target"} crosses scales through graph inference rather than a direct mapped-variable edge.`,
         edgeId: edge.id,
       });
     }
   }
 
   return warnings;
+}
+
+function groupValidationWarnings(warnings: ValidationWarning[]) {
+  const grouped = new Map<ValidationWarning["severity"], ValidationWarning[]>();
+  for (const warning of warnings) {
+    const group = grouped.get(warning.severity) ?? [];
+    group.push(warning);
+    grouped.set(warning.severity, group);
+  }
+  return grouped;
+}
+
+function validationSeverityLabel(severity: ValidationWarning["severity"]) {
+  if (severity === "error") return "Likely bugs";
+  if (severity === "warning") return "Review";
+  return "Information";
+}
+
+function mergeFocusStates(primary: FocusState, secondary: FocusState | null): FocusState {
+  if (!secondary?.active) return primary;
+  return {
+    active: primary.active || secondary.active,
+    edges: new Set([...primary.edges, ...secondary.edges]),
+    nodes: new Set([...primary.nodes, ...secondary.nodes]),
+    ports: new Set([...primary.ports, ...secondary.ports]),
+  };
 }
 
 function buildPortIndex(graph: DependencyGraphView) {

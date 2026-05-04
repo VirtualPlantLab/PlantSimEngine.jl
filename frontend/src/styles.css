@@ -1022,6 +1022,19 @@ h1 {
   gap: 8px;
 }
 
+.warning-group {
+  display: grid;
+  gap: 7px;
+}
+
+.warning-group h4 {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-weight: 700;
+}
+
 .warning-item,
 .provenance-edge {
   display: grid;
@@ -1036,6 +1049,18 @@ h1 {
   font: inherit;
   text-align: left;
   cursor: pointer;
+}
+
+.warning-item.error {
+  border-color: rgba(191, 106, 84, 0.34);
+  border-left-color: var(--clay);
+  background: rgba(191, 106, 84, 0.08);
+}
+
+.warning-item.info {
+  border-color: rgba(127, 143, 115, 0.26);
+  border-left-color: var(--sage);
+  background: rgba(127, 143, 115, 0.08);
 }
 
 .provenance-edge {
