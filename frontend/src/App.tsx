@@ -915,9 +915,11 @@ function deriveSearchResults(graph: DependencyGraphView, query: string): SearchR
 function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortIds: Set<string>, incomingByPort: Map<string, GraphEdgeData[]>): ValidationWarning[] {
   const warnings: ValidationWarning[] = [];
   const outputs = new Map<string, Array<{ node: GraphNodeData; port: GraphPort }>>();
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
 
   for (const node of graph.nodes) {
     for (const port of node.outputs) {
+      if (!isOwnOutput(node, port)) continue;
       const key = `${node.scale}:${port.name}`;
       const group = outputs.get(key) ?? [];
       group.push({ node, port });
@@ -978,19 +980,46 @@ function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortI
         edgeId: edge.id,
       });
     }
-    if (edge.scaleRelation === "multiscale" && edge.kind !== "mapped_variable" && !isCallEdge(edge)) {
+    const sourceNode = nodeById.get(edge.source);
+    const targetNode = nodeById.get(edge.target);
+    const crossesScale = Boolean(sourceNode && targetNode && sourceNode.scale !== targetNode.scale);
+    if (
+      crossesScale &&
+      edge.kind !== "mapped_variable" &&
+      !isCallEdge(edge) &&
+      !hasSameScaleProducerForTarget(edge, targetNode, nodeById, incomingByPort)
+    ) {
       warnings.push({
         id: `implicit-cross-scale:${edge.id}`,
         severity: "info",
         category: "cross_scale",
         title: "Inferred cross-scale edge",
-        detail: `${edge.sourceVariable ?? "source"} -> ${edge.targetVariable ?? "target"} crosses scales through graph inference rather than a direct mapped-variable edge.`,
+        detail: `${sourceNode?.scale}.${sourceNode?.process}.${edge.sourceVariable ?? "source"} -> ${targetNode?.scale}.${targetNode?.process}.${edge.targetVariable ?? "target"} crosses scales through graph inference rather than a direct mapped-variable edge.`,
         edgeId: edge.id,
       });
     }
   }
 
   return warnings;
+}
+
+function hasSameScaleProducerForTarget(
+  edge: GraphEdgeData,
+  targetNode: GraphNodeData | undefined,
+  nodeById: Map<string, GraphNodeData>,
+  incomingByPort: Map<string, GraphEdgeData[]>,
+) {
+  if (!targetNode || !edge.targetPort) return false;
+  const incoming = incomingByPort.get(edge.targetPort) ?? [];
+  return incoming.some((candidate) => {
+    if (candidate.id === edge.id || !candidate.sourcePort || !candidate.targetPort) return false;
+    const candidateSource = nodeById.get(candidate.source);
+    return candidateSource?.scale === targetNode.scale;
+  });
+}
+
+function isOwnOutput(node: GraphNodeData, port: GraphPort) {
+  return !node.ownOutputIds || node.ownOutputIds.includes(port.id);
 }
 
 function groupValidationWarnings(warnings: ValidationWarning[]) {

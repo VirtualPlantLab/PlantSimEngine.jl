@@ -28,6 +28,7 @@ struct GraphNode
     rate::String
     inputs::Vector{GraphPort}
     outputs::Vector{GraphPort}
+    own_output_ids::Vector{String}
     parent::Union{Nothing,String}
     diagnostics::Vector{String}
 end
@@ -426,6 +427,7 @@ function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
                 _rate_label(spec),
                 _ports(id, :input, inputs_(model)),
                 _ports(id, :output, outputs_(model)),
+                [_port_id(id, :output, name) for name in keys(outputs_(model))],
                 nothing,
                 String[],
             ))
@@ -449,6 +451,7 @@ function _graph_node(node::AbstractDependencyNode, id::String, context, node_ids
         rate,
         _ports(id, :input, _flatten_node_vars(node.inputs)),
         _ports(id, :output, _flatten_node_vars(node.outputs)),
+        _own_output_ids(node, id),
         parent,
         _node_diagnostics(node),
     )
@@ -480,6 +483,11 @@ end
 _flatten_node_vars(vars::NamedTuple) = vars
 _flatten_node_vars(vars::AbstractVector{<:Pair}) = flatten_vars(vars)
 _flatten_node_vars(vars) = NamedTuple()
+
+function _own_output_ids(node::AbstractDependencyNode, node_id::String)
+    own_outputs = _flatten_node_vars(outputs_(node.value))
+    return [_port_id(node_id, :output, name) for name in keys(own_outputs)]
+end
 
 function _ports(node_id::String, role::Symbol, vars::NamedTuple)
     ports = GraphPort[]
@@ -639,6 +647,7 @@ function _node_dict(node::GraphNode)
         "rate" => node.rate,
         "inputs" => [_port_dict(port) for port in node.inputs],
         "outputs" => [_port_dict(port) for port in node.outputs],
+        "ownOutputIds" => node.own_output_ids,
         "parent" => node.parent,
         "diagnostics" => node.diagnostics,
     )

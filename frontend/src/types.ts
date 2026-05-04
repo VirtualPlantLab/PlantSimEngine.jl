@@ -18,6 +18,7 @@ export type GraphNodeData = {
   rate: string;
   inputs: GraphPort[];
   outputs: GraphPort[];
+  ownOutputIds?: string[];
   parent: string | null;
   diagnostics: string[];
 } & Record<string, unknown>;
