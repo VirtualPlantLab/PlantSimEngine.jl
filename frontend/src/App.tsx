@@ -112,7 +112,9 @@ export default function App() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("data_flow");
   const [focusMode, setFocusMode] = useState<FocusMode>("neighborhood");
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(defaultEdgeFilters);
+  const [collapsedScales, setCollapsedScales] = useState<Set<string>>(() => new Set());
   const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
+  const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<RuntimeGraphNodeData>, Edge<GraphEdgeData>> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
@@ -126,7 +128,13 @@ export default function App() {
   const warningItems = useMemo(() => deriveValidationWarnings(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
   const searchResults = useMemo(() => deriveSearchResults(graph, searchQuery), [graph, searchQuery]);
-  const visibleEdgeData = useMemo(() => graph.edges.filter((edge) => edgeMatchesFilters(edge, edgeFilters)), [edgeFilters, graph.edges]);
+  const visibleNodeData = useMemo(() => graph.nodes.filter((node) => !collapsedScales.has(node.scale)), [collapsedScales, graph.nodes]);
+  const visibleNodeIds = useMemo(() => new Set(visibleNodeData.map((node) => node.id)), [visibleNodeData]);
+  const visibleEdgeData = useMemo(() => graph.edges.filter((edge) => (
+    edgeMatchesFilters(edge, edgeFilters) &&
+    visibleNodeIds.has(edge.source) &&
+    visibleNodeIds.has(edge.target)
+  )), [edgeFilters, graph.edges, visibleNodeIds]);
   const hoverHighlight = useMemo(() => deriveHighlight(graph, activePort), [activePort, graph]);
   const traversalFocus = useMemo(
     () => deriveFocus(graph, selected?.id ?? null, activePort, focusMode),
@@ -135,7 +143,7 @@ export default function App() {
   const focus = useMemo(() => pinnedFocus?.active ? pinnedFocus : traversalFocus, [pinnedFocus, traversalFocus]);
 
   useEffect(() => {
-    const nextNodes = graph.nodes.map((node) => ({
+    const nextNodes = visibleNodeData.map((node) => ({
       id: node.id,
       type: "model",
       position: { x: 0, y: 0 },
@@ -155,7 +163,7 @@ export default function App() {
       setNodes(layouted);
       setEdges(nextEdges);
     });
-  }, [graph, layoutMode, requiredInputPortIds, setEdges, setNodes, visibleEdgeData]);
+  }, [graph.cycleNodes, layoutMode, requiredInputPortIds, setEdges, setNodes, visibleEdgeData, visibleNodeData]);
 
   useEffect(() => {
     const focusEdges = focus.active ? focus.edges : new Set<string>();
@@ -192,8 +200,15 @@ export default function App() {
 
   const focusNode = useCallback((node: GraphNodeData, port?: GraphPort | null) => {
     setPinnedFocus(null);
+    setSelectedEdge(null);
     setSelected(node);
     setActivePort(port ?? null);
+    setCollapsedScales((current) => {
+      if (!current.has(node.scale)) return current;
+      const next = new Set(current);
+      next.delete(node.scale);
+      return next;
+    });
     const renderedNode = nodes.find((item) => item.id === node.id);
     if (renderedNode && flowInstance) {
       flowInstance.setCenter(renderedNode.position.x + 156, renderedNode.position.y + 90, { zoom: 0.85, duration: 520 });
@@ -210,6 +225,21 @@ export default function App() {
     setEdgeFilters((current) => ({ ...current, [key]: !current[key] }));
   }, []);
 
+  const toggleScale = useCallback((scale: string) => {
+    setSelected(null);
+    setSelectedEdge(null);
+    setActivePort(null);
+    setPinnedFocus(null);
+    setCollapsedScales((current) => {
+      const next = new Set(current);
+      if (next.has(scale)) next.delete(scale);
+      else next.add(scale);
+      return next;
+    });
+  }, []);
+
+  const expandAllScales = useCallback(() => setCollapsedScales(new Set()), []);
+
   const focusWarning = useCallback((warning: ValidationWarning) => {
     if (warning.portIds?.length) {
       const nextFocus = emptyFocusState();
@@ -224,6 +254,7 @@ export default function App() {
       const first = portById.get(warning.portIds[0]);
       if (first) {
         setSelected(null);
+        setSelectedEdge(null);
         setActivePort(null);
         if (flowInstance && warning.nodeIds && warning.nodeIds.length > 1) {
           flowInstance.fitView({
@@ -243,6 +274,7 @@ export default function App() {
     }
 
     setPinnedFocus(null);
+    setSelectedEdge(null);
     if (warning.edgeId) {
       const edge = graph.edges.find((item) => item.id === warning.edgeId);
       if (edge) focusEdge(edge);
@@ -305,7 +337,7 @@ export default function App() {
           </div>
 
           <div className="metrics">
-            <span>{graph.nodes.length} models</span>
+            <span>{visibleNodeData.length}/{graph.nodes.length} models</span>
             <span>{visibleEdgeData.length}/{graph.edges.length} links</span>
             {requiredInputs.length > 0 && (
               <button
@@ -348,6 +380,7 @@ export default function App() {
         </div>
 
         <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />
+        <ScaleControls scales={graph.scales} collapsedScales={collapsedScales} onToggle={toggleScale} onExpandAll={expandAllScales} />
 
         {showRequiredPanel && (
           <FloatingPanel className="required-panel" title="Required Initializations" subtitle={`${requiredInputs.length} inputs`} onClose={() => setShowRequiredPanel(false)}>
@@ -371,7 +404,16 @@ export default function App() {
           onConnect={onConnect}
           onInit={setFlowInstance}
           onPaneClick={() => setShowSearchResults(false)}
+          onEdgeClick={(_, edge) => {
+            if (edge.data) {
+              setSelectedEdge(edge.data);
+              setSelected(null);
+              setActivePort(null);
+              setPinnedFocus(null);
+            }
+          }}
           onNodeClick={(_, node) => {
+            setSelectedEdge(null);
             setSelected(node.data);
           }}
           fitView
@@ -392,6 +434,7 @@ export default function App() {
         </header>
         <InspectorDetails
           selected={selected}
+          selectedEdge={selectedEdge}
           activePort={activePort}
           requiredInputPortIds={requiredInputPortIds}
           incomingEdges={activePort ? incomingByPort.get(activePort.id) ?? [] : []}
@@ -417,6 +460,36 @@ function RelationshipLegend({ filters, onToggle }: { filters: EdgeFilters; onTog
       <button className={filters.mapped ? "active" : ""} onClick={() => onToggle("mapped")}><span className="legend-line mapped" /> mapped</button>
       <button className={filters.callStack ? "active" : ""} onClick={() => onToggle("callStack")}><span className="legend-line call" /> call stack</button>
       <div className="legend-note"><CircleAlert size={12} /> red inputs need initialization</div>
+    </div>
+  );
+}
+
+function ScaleControls({
+  scales,
+  collapsedScales,
+  onToggle,
+  onExpandAll,
+}: {
+  scales: string[];
+  collapsedScales: Set<string>;
+  onToggle: (scale: string) => void;
+  onExpandAll: () => void;
+}) {
+  return (
+    <div className="scale-controls">
+      <div className="legend-title"><Network size={13} /> Scales</div>
+      <div className="scale-list">
+        {scales.map((scale) => {
+          const collapsed = collapsedScales.has(scale);
+          return (
+            <button key={scale} className={collapsed ? "collapsed" : "active"} onClick={() => onToggle(scale)}>
+              <span>{scale}</span>
+              <small>{collapsed ? "collapsed" : "visible"}</small>
+            </button>
+          );
+        })}
+      </div>
+      {collapsedScales.size > 0 && <button className="scale-reset" onClick={onExpandAll}>Show all scales</button>}
     </div>
   );
 }
@@ -494,6 +567,7 @@ function WarningList({
 
 function InspectorDetails({
   selected,
+  selectedEdge,
   activePort,
   requiredInputPortIds,
   incomingEdges,
@@ -503,6 +577,7 @@ function InspectorDetails({
   onFocusEdge,
 }: {
   selected: GraphNodeData | null;
+  selectedEdge: GraphEdgeData | null;
   activePort: GraphPort | null;
   requiredInputPortIds: Set<string>;
   incomingEdges: GraphEdgeData[];
@@ -513,6 +588,9 @@ function InspectorDetails({
 }) {
   return (
     <>
+      {selectedEdge && (
+        <EdgeDetails edge={selectedEdge} nodeById={nodeById} portById={portById} />
+      )}
       {selected ? (
         <div className="details">
           <Row label="Process" value={selected.process} />
@@ -528,9 +606,9 @@ function InspectorDetails({
             <div className="edit-suggestion" key={port.id}><ScissorsLineDashed size={14} /> {port.name} uses previous timestep</div>
           ))}
         </div>
-      ) : (
+      ) : !selectedEdge ? (
         <div className="empty-state">Select a model node.</div>
-      )}
+      ) : null}
 
       <h3>Variable Provenance</h3>
       {activePort ? (
@@ -551,6 +629,38 @@ function InspectorDetails({
         <div className="empty-state">Hover, click, or search a variable to see where it comes from and where it goes.</div>
       )}
     </>
+  );
+}
+
+function EdgeDetails({
+  edge,
+  nodeById,
+  portById,
+}: {
+  edge: GraphEdgeData;
+  nodeById: Map<string, GraphNodeData>;
+  portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
+}) {
+  const source = nodeById.get(edge.source);
+  const target = nodeById.get(edge.target);
+  const sourcePort = edge.sourcePort ? portById.get(edge.sourcePort)?.port : null;
+  const targetPort = edge.targetPort ? portById.get(edge.targetPort)?.port : null;
+  return (
+    <div className="edge-detail-card">
+      <div className="variable-card-title">
+        <span>{edgeKindLabel(edge)}</span>
+        <small>{edge.scaleRelation}</small>
+      </div>
+      <Row label="Source" value={source ? `${source.scale}.${source.process}` : edge.source} />
+      <Row label="Source var" value={sourcePort?.name ?? edge.sourceVariable ?? "model call"} />
+      <Row label="Target" value={target ? `${target.scale}.${target.process}` : edge.target} />
+      <Row label="Target var" value={targetPort?.name ?? edge.targetVariable ?? "model call"} />
+      <Row label="Kind" value={edge.kind} />
+      <Row label="Label" value={edge.label || "none"} />
+      {edge.diagnostics.length > 0 ? edge.diagnostics.map((item) => (
+        <div className="diagnostic" key={item}>{item}</div>
+      )) : <div className="empty-state compact">No edge diagnostics.</div>}
+    </div>
   );
 }
 
