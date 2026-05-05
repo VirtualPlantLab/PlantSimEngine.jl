@@ -182,9 +182,9 @@ function _parse_parameter_value(value)
     value isa AbstractDict || return value
     choice = Symbol(get(value, "type", "julia"))
     raw = get(value, "value", nothing)
-    choice == :float && return Float64(raw)
-    choice == :integer && return Int(raw)
-    choice == :boolean && return Bool(raw)
+    choice == :float && return parse(Float64, raw)
+    choice == :integer && return parse(Int, raw)
+    choice == :boolean && return parse(Bool, raw)
     choice == :symbol && return Symbol(raw)
     choice == :string && return String(raw)
     choice == :nothing && return nothing

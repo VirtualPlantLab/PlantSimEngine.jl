@@ -34,6 +34,7 @@ makedocs(;
             "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
             "Coupling" => "./step_by_step/simple_model_coupling.md",
             "Model Switching" => "./step_by_step/model_switching.md",
+            "Graph visualization and editing" => "./step_by_step/graph_visualization_editor.md",
             "Quick examples" => "./step_by_step/quick_and_dirty_examples.md",
             "Implementing a process" => "./step_by_step/implement_a_process.md",
             "Implementing a model" => "./step_by_step/implement_a_model.md",

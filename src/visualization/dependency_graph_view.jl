@@ -67,6 +67,15 @@ struct DependencyGraphView
     diagnostics::Vector{String}
 end
 
+"""
+    AbstractGraphEdit
+
+Abstract supertype for declarative dependency-graph editor commands.
+
+Concrete edits such as `AddModel`, `RemoveModel`, `ReplaceModel`,
+`SetMappedVariable`, `MarkPreviousTimeStep`, and `UnmarkPreviousTimeStep` are
+applied with `apply_graph_edit`.
+"""
 abstract type AbstractGraphEdit end
 
 struct AddModel{P} <: AbstractGraphEdit
