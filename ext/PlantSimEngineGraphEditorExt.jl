@@ -1,12 +1,11 @@
-module PlantSimEngineGraphEditor
+module PlantSimEngineGraphEditorExt
 
 import HTTP
 import JSON
 import PlantSimEngine
+import PlantSimEngine: edit_graph, current_mapping, apply_edit!, undo!, redo!
 
-export GraphEditorSession, edit_graph, current_mapping, apply_edit!, undo!, redo!, close
-
-mutable struct GraphEditorSession{M,G,S}
+mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSession
     mapping::M
     mtg::G
     history::Vector{M}
@@ -25,8 +24,11 @@ Base.close(session::GraphEditorSession) = close(session.server)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
+
+This method is provided by the `PlantSimEngineGraphEditorExt` package extension.
+Load `HTTP` in the active session to make it available.
 """
-function edit_graph(mapping; mtg=nothing, host::AbstractString="127.0.0.1", port::Integer=8765)
+function edit_graph(mapping::PlantSimEngine.ModelMapping; mtg=nothing, host::AbstractString="127.0.0.1", port::Integer=8765)
     session_ref = Ref{Any}()
     handler = http -> _handle_http(session_ref[], http)
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
@@ -280,6 +282,6 @@ function _react_editor_html(session::GraphEditorSession)
 """
 end
 
-_frontend_dist_dir() = normpath(joinpath(@__DIR__, "..", "..", "..", "frontend", "dist"))
+_frontend_dist_dir() = normpath(joinpath(@__DIR__, "..", "frontend", "dist"))
 
 end

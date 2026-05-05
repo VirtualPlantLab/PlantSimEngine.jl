@@ -112,6 +112,7 @@ include("run.jl")
 
 # Dependency graph visualisation:
 include("visualization/dependency_graph_view.jl")
+include("visualization/graph_editor_api.jl")
 
 # Fitting
 include("evaluation/fit.jl")
@@ -146,6 +147,7 @@ export run!
 export fit
 export GraphPort, GraphNode, GraphEdge, DependencyGraphView
 export graph_view, graph_view_json, write_graph_view, compile_graph_view
+export AbstractGraphEditorSession, edit_graph, current_mapping, apply_edit!, undo!, redo!
 export available_processes, available_models, model_descriptor, model_constructor_descriptor
 export AbstractGraphEdit, AddModel, RemoveModel, ReplaceModel, SetMappedVariable, MarkPreviousTimeStep, UnmarkPreviousTimeStep, apply_graph_edit
 
