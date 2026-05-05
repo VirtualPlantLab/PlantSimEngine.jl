@@ -78,23 +78,30 @@ applied with `apply_graph_edit`.
 """
 abstract type AbstractGraphEdit end
 
-struct AddModel{P} <: AbstractGraphEdit
+struct AddModel{P,R} <: AbstractGraphEdit
     scale::Symbol
     model_type::Type
     parameters::P
+    timestep::R
 end
+
+AddModel(scale::Symbol, model_type::Type, parameters) = AddModel(scale, model_type, parameters, nothing)
 
 struct RemoveModel <: AbstractGraphEdit
     scale::Symbol
     process::Symbol
 end
 
-struct ReplaceModel{P} <: AbstractGraphEdit
+struct ReplaceModel{P,R} <: AbstractGraphEdit
     scale::Symbol
     process::Symbol
     model_type::Type
     parameters::P
+    timestep::R
 end
+
+ReplaceModel(scale::Symbol, process::Symbol, model_type::Type, parameters) =
+    ReplaceModel(scale, process, model_type, parameters, nothing)
 
 struct SetMappedVariable <: AbstractGraphEdit
     scale::Symbol
@@ -457,6 +464,7 @@ end
 function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
     model = _construct_graph_edit_model(edit.model_type, edit.parameters)
     process_name = process(model)
+    item = _graph_edit_model_item(model, edit.timestep)
     if haskey(mapping, edit.scale)
         any(existing -> process(existing) == process_name, get_models(mapping[edit.scale])) && error(
             "Cannot add `$(typeof(model))` at scale `$(edit.scale)`: process `$process_name` already exists at this scale."
@@ -465,9 +473,9 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
 
     data = Dict{Symbol,Any}()
     for (scale, entry) in pairs(mapping)
-        data[scale] = scale == edit.scale ? _insert_model_entry(entry, model) : entry
+        data[scale] = scale == edit.scale ? _insert_model_entry(entry, item) : entry
     end
-    haskey(data, edit.scale) || (data[edit.scale] = (model,))
+    haskey(data, edit.scale) || (data[edit.scale] = (item,))
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
@@ -491,7 +499,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::ReplaceModel)
     found = Ref(false)
     data = Dict{Symbol,Any}()
     for (scale, entry) in pairs(mapping)
-        data[scale] = scale == edit.scale ? _replace_model_entry(entry, edit.process, model, found) : entry
+        data[scale] = scale == edit.scale ? _replace_model_entry(entry, edit.process, model, edit.timestep, found) : entry
     end
     found[] || error("Cannot replace model: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
@@ -532,6 +540,9 @@ end
 _construct_graph_edit_model(model_type::Type, parameters::AbstractDict) =
     _construct_graph_edit_model(model_type, (; (Symbol(k) => v for (k, v) in pairs(parameters))...))
 
+_graph_edit_model_item(model, timestep::Nothing) = model
+_graph_edit_model_item(model, timestep) = ModelSpec(model) |> TimeStepModel(timestep)
+
 function _insert_model_entry(entry::Tuple, model)
     items = Any[]
     inserted = false
@@ -563,22 +574,23 @@ end
 _remove_model_entry(entry, process_name::Symbol, found::Base.RefValue{Bool}) =
     _remove_model_entry((entry,), process_name, found)
 
-function _replace_model_entry(entry::Tuple, process_name::Symbol, model, found::Base.RefValue{Bool})
-    return tuple((_replace_model_item(item, process_name, model, found) for item in entry)...)
+function _replace_model_entry(entry::Tuple, process_name::Symbol, model, timestep, found::Base.RefValue{Bool})
+    return tuple((_replace_model_item(item, process_name, model, timestep, found) for item in entry)...)
 end
 
-_replace_model_entry(entry, process_name::Symbol, model, found::Base.RefValue{Bool}) =
-    _replace_model_item(entry, process_name, model, found)
+_replace_model_entry(entry, process_name::Symbol, model, timestep, found::Base.RefValue{Bool}) =
+    _replace_model_item(entry, process_name, model, timestep, found)
 
-function _replace_model_item(item::Status, ::Symbol, model, ::Base.RefValue{Bool})
+function _replace_model_item(item::Status, ::Symbol, model, timestep, ::Base.RefValue{Bool})
     return item
 end
 
-function _replace_model_item(item, process_name::Symbol, model, found::Base.RefValue{Bool})
+function _replace_model_item(item, process_name::Symbol, model, timestep, found::Base.RefValue{Bool})
     spec = as_model_spec(item)
     process(model_(spec)) == process_name || return item
     found[] = true
-    return ModelSpec(spec; model=model)
+    isnothing(timestep) && return ModelSpec(spec; model=model)
+    return ModelSpec(spec; model=model, timestep=timestep)
 end
 
 function _set_mapped_variable_entry(entry::Tuple, edit::SetMappedVariable, found::Base.RefValue{Bool})

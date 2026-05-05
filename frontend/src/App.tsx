@@ -946,6 +946,9 @@ function ModelParameterForm({
   const initialTypes = useMemo(() => Object.fromEntries(model.constructor.fields.map((field) => [field.name, field.inferredChoice])), [model]);
   const [values, setValues] = useState<Record<string, string>>(initialValues);
   const [types, setTypes] = useState<Record<string, string>>(initialTypes);
+  const [rateMode, setRateMode] = useState<"default" | "clock">("default");
+  const [rateDt, setRateDt] = useState("1.0");
+  const [ratePhase, setRatePhase] = useState("0.0");
 
   const setSharedType = useCallback((fieldName: string, nextType: string) => {
     const field = model.constructor.fields.find((item) => item.name === fieldName);
@@ -958,13 +961,37 @@ function ModelParameterForm({
       field.name,
       { type: types[field.name] ?? field.inferredChoice, value: values[field.name] ?? "" },
     ]));
-    onCommand({ action: "edit", kind: "add_model", scale, modelType: model.type, parameters });
-  }, [model, onCommand, scale, types, values]);
+    const timestep = rateMode === "clock" ? { mode: "clock", dt: rateDt, phase: ratePhase } : { mode: "default" };
+    onCommand({ action: "edit", kind: "add_model", scale, modelType: model.type, parameters, timestep });
+  }, [model, onCommand, rateDt, rateMode, ratePhase, scale, types, values]);
 
   return (
-    <div className="model-browser-item">
+      <div className="model-browser-item">
       <strong>{model.name}</strong>
       <span>{model.process ?? "unknown process"}</span>
+      <div className="rate-editor">
+        <label className="model-browser-control">
+          <span>Rate</span>
+          <select value={rateMode} onChange={(event) => setRateMode(event.target.value as "default" | "clock")}>
+            <option value="default">Default rate</option>
+            <option value="clock">Custom ClockSpec</option>
+          </select>
+        </label>
+        {rateMode === "default" ? (
+          <div className="rate-summary">Uses model default: {model.timespec ?? "default rate"}</div>
+        ) : (
+          <div className="rate-clock-row">
+            <label>
+              <span>dt</span>
+              <input value={rateDt} onChange={(event) => setRateDt(event.target.value)} inputMode="decimal" />
+            </label>
+            <label>
+              <span>phase</span>
+              <input value={ratePhase} onChange={(event) => setRatePhase(event.target.value)} inputMode="decimal" />
+            </label>
+          </div>
+        )}
+      </div>
       {model.constructor.fields.map((field) => (
         <div className="parameter-row" key={field.name}>
           <label>{field.name}</label>

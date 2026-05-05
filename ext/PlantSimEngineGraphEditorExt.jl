@@ -226,13 +226,28 @@ function _edit_from_command(command)
     if kind in ("add_model", "replace_model")
         model_type = _resolve_model_type(command["modelType"])
         parameters = _parameters_from_command(get(command, "parameters", Dict()))
+        timestep = _timestep_from_command(get(command, "timestep", nothing))
         if kind == "add_model"
-            return PlantSimEngine.AddModel(Symbol(command["scale"]), model_type, parameters)
+            return PlantSimEngine.AddModel(Symbol(command["scale"]), model_type, parameters, timestep)
         end
-        return PlantSimEngine.ReplaceModel(Symbol(command["scale"]), Symbol(command["process"]), model_type, parameters)
+        return PlantSimEngine.ReplaceModel(Symbol(command["scale"]), Symbol(command["process"]), model_type, parameters, timestep)
     end
     error("Unsupported graph edit kind `$kind`.")
 end
+
+function _timestep_from_command(timestep)
+    isnothing(timestep) && return nothing
+    timestep isa AbstractDict || error("Unsupported timestep payload `$(timestep)`.")
+    mode = String(get(timestep, "mode", "default"))
+    mode == "default" && return nothing
+    mode == "clock" || error("Unsupported timestep mode `$mode`. Use `default` or `clock`.")
+    dt = _parse_real(get(timestep, "dt", "1.0"))
+    phase = _parse_real(get(timestep, "phase", "0.0"))
+    return PlantSimEngine.ClockSpec(dt, phase)
+end
+
+_parse_real(value::Real) = Float64(value)
+_parse_real(value) = parse(Float64, String(value))
 
 function _resolve_model_type(label)
     for model_type in PlantSimEngine.available_models()
@@ -386,13 +401,25 @@ end
 _scale_items(entry) = entry isa Tuple ? entry : (entry,)
 
 function _mapping_item_to_code(item)
-    if item isa PlantSimEngine.MultiScaleModel
-        model_code = repr(PlantSimEngine.model_(item))
-        mapped_code = _mapped_variables_to_code(PlantSimEngine.mapped_variables_(item))
-        return "MultiScaleModel(model=$(model_code), mapped_variables=$(mapped_code))"
+    if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
+        return _model_spec_to_code(PlantSimEngine.as_model_spec(item))
     end
     return repr(item)
 end
+
+function _model_spec_to_code(spec::PlantSimEngine.ModelSpec)
+    code = "ModelSpec($(repr(PlantSimEngine.model_(spec))))"
+    mapped_variables = PlantSimEngine.mapped_variables_(spec)
+    isempty(mapped_variables) || (code *= " |> MultiScaleModel($(_mapped_variables_to_code(mapped_variables)))")
+    isnothing(PlantSimEngine.timestep(spec)) || (code *= " |> TimeStepModel($(_timestep_to_code(PlantSimEngine.timestep(spec))))")
+    return code
+end
+
+function _timestep_to_code(timestep::PlantSimEngine.ClockSpec)
+    return "ClockSpec($(repr(timestep.dt)), $(repr(timestep.phase)))"
+end
+
+_timestep_to_code(timestep) = repr(timestep)
 
 function _mapped_variables_to_code(mapped_variables)
     isempty(mapped_variables) && return "[]"

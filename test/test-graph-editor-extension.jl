@@ -33,6 +33,13 @@ using HTTP
     models_after_replace = PlantSimEngine.get_models(replaced[:Default])
     beer_model = first(m for m in models_after_replace if PlantSimEngine.process(m) == :light_interception)
     @test beer_model.k == 0.7
+
+    rated = PlantSimEngine.apply_graph_edit(
+        mapping_multiscale,
+        PlantSimEngine.AddModel(:Fruit, ToyLAIModel, NamedTuple(), ClockSpec(2.0, 1.0)),
+    )
+    rated_spec = only(values(PlantSimEngine.parse_model_specs(rated[:Fruit])))
+    @test PlantSimEngine.timestep(rated_spec) == ClockSpec(2.0, 1.0)
 end
 
 @testset "HTTP extension loading and WebSocket edits" begin
@@ -90,11 +97,15 @@ end
                 "scale" => "Fruit",
                 "modelType" => string(ToyLAIModel),
                 "parameters" => Dict{String,Any}(),
+                "timestep" => Dict("mode" => "clock", "dt" => "2.0", "phase" => "1.0"),
             ))
             HTTP.WebSockets.send(ws, add_new_scale)
             added = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
             @test added["ok"]
             @test :Fruit in keys(current_mapping(session))
+            rated_spec = only(values(PlantSimEngine.parse_model_specs(current_mapping(session)[:Fruit])))
+            @test PlantSimEngine.timestep(rated_spec) == ClockSpec(2.0, 1.0)
+            @test occursin("TimeStepModel", added["mappingCode"])
 
             output_path = tempname() * ".jl"
             save_code = PlantSimEngine.JSON.json(Dict(

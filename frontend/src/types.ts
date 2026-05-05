@@ -76,6 +76,10 @@ export type ModelDescriptor = {
   processType: string | null;
   inputs: Record<string, unknown>;
   outputs: Record<string, unknown>;
+  timespec?: string;
+  timestepHint?: string;
+  meteoHint?: string;
+  outputPolicy?: string;
   constructor: {
     fields: ModelConstructorField[];
     parameterGroups: Record<string, string[]>;

@@ -1358,6 +1358,46 @@ h1 {
   font-size: 12px;
 }
 
+.rate-editor {
+  display: grid;
+  gap: 6px;
+  padding: 7px;
+  border: 1px solid rgba(183, 166, 150, 0.28);
+  border-radius: 8px;
+  background: rgba(252, 249, 244, 0.72);
+}
+
+.rate-summary {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.rate-clock-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.rate-clock-row label {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.rate-clock-row input {
+  min-width: 0;
+  height: 28px;
+  border: 1px solid rgba(183, 166, 150, 0.44);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  font: inherit;
+  padding: 0 7px;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;
