@@ -5,8 +5,10 @@ import DataFrames
 import Tables
 import DataAPI
 import Dates
+import InteractiveUtils
 
 import CSV # For reading csv files with variables()
+import JSON # For graph JSON serialization
 
 # For graph dependency:
 import AbstractTrees
@@ -94,6 +96,7 @@ include("processes/model_initialisation.jl")
 include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
 include("checks/dimensions.jl")
+include("model_discovery.jl")
 
 # Multi-rate runtime:
 include("time/runtime/clocks.jl")
@@ -142,8 +145,9 @@ export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
 export run!
 export fit
 export GraphPort, GraphNode, GraphEdge, DependencyGraphView
-export graph_view, graph_view_json, write_graph_view
-export AbstractGraphEdit, MarkPreviousTimeStep, apply_graph_edit
+export graph_view, graph_view_json, write_graph_view, compile_graph_view
+export available_processes, available_models, model_descriptor, model_constructor_descriptor
+export AbstractGraphEdit, AddModel, RemoveModel, ReplaceModel, SetMappedVariable, MarkPreviousTimeStep, UnmarkPreviousTimeStep, apply_graph_edit
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

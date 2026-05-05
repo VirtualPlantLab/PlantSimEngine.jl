@@ -30,7 +30,7 @@ import { DependencyEdge } from "./DependencyEdge";
 import { ModelNode } from "./ModelNode";
 import { layoutGraph, type LayoutMode } from "./layout";
 import { sampleGraph } from "./sampleGraph";
-import type { DependencyGraphView, GraphEdgeData, GraphNodeData, GraphPort, RuntimeGraphNodeData } from "./types";
+import type { DependencyGraphView, GraphEdgeData, GraphEditorState, GraphNodeData, GraphPort, ModelDescriptor, RuntimeGraphNodeData } from "./types";
 import "./styles.css";
 
 type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
@@ -102,7 +102,12 @@ const layoutLabels: Record<LayoutMode, string> = {
 };
 
 export default function App() {
-  const [graph] = useState<DependencyGraphView>(loadInitialGraph());
+  const [graph, setGraph] = useState<DependencyGraphView>(loadInitialGraph());
+  const [editorModels, setEditorModels] = useState<ModelDescriptor[]>([]);
+  const [editorSocket, setEditorSocket] = useState<WebSocket | null>(null);
+  const [editorConnected, setEditorConnected] = useState(false);
+  const [canUndo, setCanUndo] = useState(false);
+  const [canRedo, setCanRedo] = useState(false);
   const [selected, setSelected] = useState<GraphNodeData | null>(null);
   const [activePort, setActivePort] = useState<GraphPort | null>(null);
   const [showRequiredPanel, setShowRequiredPanel] = useState(false);
@@ -141,6 +146,29 @@ export default function App() {
     [activePort, focusMode, graph, selected?.id],
   );
   const focus = useMemo(() => pinnedFocus?.active ? pinnedFocus : traversalFocus, [pinnedFocus, traversalFocus]);
+
+  useEffect(() => {
+    const config = loadEditorConfig();
+    if (!config?.websocketUrl) return;
+
+    const socket = new WebSocket(config.websocketUrl);
+    setEditorSocket(socket);
+    socket.addEventListener("open", () => setEditorConnected(true));
+    socket.addEventListener("close", () => setEditorConnected(false));
+    socket.addEventListener("message", (event) => {
+      const payload = JSON.parse(event.data) as GraphEditorState;
+      if (payload.graph) setGraph(payload.graph);
+      if (payload.models) setEditorModels(payload.models);
+      setCanUndo(Boolean(payload.canUndo));
+      setCanRedo(Boolean(payload.canRedo));
+    });
+    return () => socket.close();
+  }, []);
+
+  const sendEditorCommand = useCallback((command: Record<string, unknown>) => {
+    if (!editorSocket || editorSocket.readyState !== WebSocket.OPEN) return;
+    editorSocket.send(JSON.stringify(command));
+  }, [editorSocket]);
 
   useEffect(() => {
     const nextNodes = visibleNodeData.map((node) => ({
@@ -377,6 +405,13 @@ export default function App() {
               <RotateCcw size={17} />
             </button>
           </div>
+          {editorSocket && (
+            <div className="toolbar-group live-session">
+              <span className={editorConnected ? "live-pill connected" : "live-pill"}>{editorConnected ? "live" : "offline"}</span>
+              <button className="metric-button" disabled={!canUndo} onClick={() => sendEditorCommand({ action: "undo" })}>Undo</button>
+              <button className="metric-button" disabled={!canRedo} onClick={() => sendEditorCommand({ action: "redo" })}>Redo</button>
+            </div>
+          )}
         </div>
 
         <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />
@@ -447,6 +482,12 @@ export default function App() {
         <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} compact />
         <h3>Diagnostics</h3>
         {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
+        {editorModels.length > 0 && (
+          <>
+            <h3>Available Models</h3>
+            <ModelBrowser models={editorModels} scales={graph.scales} onCommand={sendEditorCommand} disabled={!editorConnected} />
+          </>
+        )}
       </aside>
     </main>
   );
@@ -706,11 +747,114 @@ function Row({ label, value }: { label: string; value: string }) {
   return <div className="row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
+function ModelBrowser({
+  models,
+  scales,
+  onCommand,
+  disabled,
+}: {
+  models: ModelDescriptor[];
+  scales: string[];
+  onCommand: (command: Record<string, unknown>) => void;
+  disabled: boolean;
+}) {
+  const [modelType, setModelType] = useState(models[0]?.type ?? "");
+  const [scale, setScale] = useState(scales[0] ?? "Default");
+  const selected = models.find((model) => model.type === modelType) ?? models[0];
+
+  useEffect(() => {
+    if (!models.some((model) => model.type === modelType)) setModelType(models[0]?.type ?? "");
+  }, [modelType, models]);
+
+  useEffect(() => {
+    if (!scales.includes(scale)) setScale(scales[0] ?? "Default");
+  }, [scale, scales]);
+
+  if (!selected) return <div className="empty-state">No model type is available.</div>;
+  return (
+    <div className="model-browser">
+      <label className="model-browser-control">
+        <span>Scale</span>
+        <select value={scale} onChange={(event) => setScale(event.target.value)}>
+          {scales.map((item) => <option key={item} value={item}>{item}</option>)}
+        </select>
+      </label>
+      <label className="model-browser-control">
+        <span>Model</span>
+        <select value={selected.type} onChange={(event) => setModelType(event.target.value)}>
+          {models.map((model) => <option key={model.type} value={model.type}>{model.name} ({model.process ?? "unknown"})</option>)}
+        </select>
+      </label>
+      <ModelParameterForm key={selected.type} model={selected} scale={scale} disabled={disabled} onCommand={onCommand} />
+    </div>
+  );
+}
+
+function ModelParameterForm({
+  model,
+  scale,
+  disabled,
+  onCommand,
+}: {
+  model: ModelDescriptor;
+  scale: string;
+  disabled: boolean;
+  onCommand: (command: Record<string, unknown>) => void;
+}) {
+  const initialValues = useMemo(() => Object.fromEntries(model.constructor.fields.map((field) => [field.name, parameterDefaultValue(field.default)])), [model]);
+  const initialTypes = useMemo(() => Object.fromEntries(model.constructor.fields.map((field) => [field.name, field.inferredChoice])), [model]);
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [types, setTypes] = useState<Record<string, string>>(initialTypes);
+
+  const setSharedType = useCallback((fieldName: string, nextType: string) => {
+    const field = model.constructor.fields.find((item) => item.name === fieldName);
+    const group = field?.typeParameter ? model.constructor.parameterGroups[field.typeParameter] ?? [fieldName] : [fieldName];
+    setTypes((current) => ({ ...current, ...Object.fromEntries(group.map((name) => [name, nextType])) }));
+  }, [model]);
+
+  const addModel = useCallback(() => {
+    const parameters = Object.fromEntries(model.constructor.fields.map((field) => [
+      field.name,
+      { type: types[field.name] ?? field.inferredChoice, value: values[field.name] ?? "" },
+    ]));
+    onCommand({ action: "edit", kind: "add_model", scale, modelType: model.type, parameters });
+  }, [model, onCommand, scale, types, values]);
+
+  return (
+    <div className="model-browser-item">
+      <strong>{model.name}</strong>
+      <span>{model.process ?? "unknown process"}</span>
+      {model.constructor.fields.map((field) => (
+        <div className="parameter-row" key={field.name}>
+          <label>{field.name}</label>
+          <input value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+          <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
+            {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+          </select>
+        </div>
+      ))}
+      <button className="metric-button" disabled={disabled} onClick={addModel}>Add model</button>
+    </div>
+  );
+}
+
+function parameterDefaultValue(value: unknown) {
+  if (value === null || typeof value === "undefined") return "";
+  if (typeof value === "string" && value.startsWith(":")) return value.slice(1);
+  return String(value);
+}
+
 function loadInitialGraph() {
   const embedded = document.getElementById("pse-graph-data");
   if (embedded?.textContent) return JSON.parse(embedded.textContent) as DependencyGraphView;
   const fromWindow = (window as Window & { PlantSimEngineGraph?: DependencyGraphView }).PlantSimEngineGraph;
   return fromWindow ?? sampleGraph;
+}
+
+function loadEditorConfig() {
+  const embedded = document.getElementById("pse-editor-config");
+  if (!embedded?.textContent) return null;
+  return JSON.parse(embedded.textContent) as { websocketUrl?: string };
 }
 
 function runtimeNodeData(

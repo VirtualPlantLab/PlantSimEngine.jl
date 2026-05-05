@@ -1,0 +1,16 @@
+name = "PlantSimEngineGraphEditor"
+uuid = "7cf0a04e-a9b1-4d1f-a906-d86a8c54d709"
+version = "0.1.0"
+authors = ["Rémi Vezy <VEZY@users.noreply.github.com>"]
+
+[deps]
+HTTP = "cd3eb016-35fb-5094-929b-558a96fad6f3"
+JSON = "682c06a0-de6a-54ab-a142-c8b1cf79cde6"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+
+[sources]
+PlantSimEngine = {path = "../.."}
+
+[compat]
+HTTP = "1"
+JSON = "1"

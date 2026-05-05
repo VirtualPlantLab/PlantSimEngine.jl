@@ -54,5 +54,40 @@ export type DependencyGraphView = {
   scales: string[];
   cyclic: boolean;
   cycleNodes: string[];
+  cycleEdges?: string[];
   diagnostics: string[];
+};
+
+export type ModelConstructorField = {
+  name: string;
+  declaredType: string;
+  hasDefault: boolean;
+  default: unknown;
+  defaultType: string | null;
+  typeParameter: string | null;
+  inferredChoice: string;
+  choices: string[];
+};
+
+export type ModelDescriptor = {
+  type: string;
+  name: string;
+  process: string | null;
+  processType: string | null;
+  inputs: Record<string, unknown>;
+  outputs: Record<string, unknown>;
+  constructor: {
+    fields: ModelConstructorField[];
+    parameterGroups: Record<string, string[]>;
+    hasZeroArgConstructor: boolean;
+  };
+};
+
+export type GraphEditorState = {
+  ok: boolean;
+  graph: DependencyGraphView;
+  models: ModelDescriptor[];
+  canUndo: boolean;
+  canRedo: boolean;
+  url: string;
 };

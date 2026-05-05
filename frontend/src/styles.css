@@ -1193,6 +1193,102 @@ h1 {
   font-size: 11px;
 }
 
+.live-session {
+  border-left: 1px solid rgba(183, 166, 150, 0.36);
+  padding-left: 10px;
+}
+
+.live-pill {
+  display: inline-flex;
+  align-items: center;
+  height: 28px;
+  padding: 0 9px;
+  border: 1px solid rgba(191, 106, 84, 0.38);
+  border-radius: 999px;
+  color: var(--clay);
+  background: rgba(191, 106, 84, 0.08);
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.live-pill.connected {
+  border-color: rgba(31, 122, 83, 0.34);
+  color: var(--accent);
+  background: rgba(31, 122, 83, 0.09);
+}
+
+.metric-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.42;
+}
+
+.model-browser {
+  display: grid;
+  gap: 7px;
+}
+
+.model-browser-control {
+  display: grid;
+  gap: 4px;
+}
+
+.model-browser-control span,
+.parameter-row label {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.model-browser-control select,
+.parameter-row input,
+.parameter-row select {
+  min-width: 0;
+  border: 1px solid rgba(183, 166, 150, 0.44);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  font: inherit;
+}
+
+.model-browser-control select {
+  height: 32px;
+  padding: 0 8px;
+}
+
+.model-browser-item {
+  display: grid;
+  gap: 7px;
+  padding: 8px 9px;
+  border: 1px solid rgba(183, 166, 150, 0.34);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.62);
+}
+
+.model-browser-item strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.model-browser-item span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.parameter-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.75fr) minmax(0, 1fr) minmax(78px, 0.8fr);
+  gap: 6px;
+  align-items: center;
+}
+
+.parameter-row input,
+.parameter-row select {
+  height: 28px;
+  padding: 0 7px;
+  font-size: 12px;
+}
+
 @media (max-width: 900px) {
   .app-shell {
     grid-template-columns: 1fr;

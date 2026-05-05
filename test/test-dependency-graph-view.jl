@@ -1,10 +1,16 @@
 abstract type AbstractGraphViewPlantAgeModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractGraphViewPhytomerEmissionModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractGraphViewInitiationAgeModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewParamModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewCyclePlantModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewCycleLeafModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractGraphViewPlantAgeModel}) = :graph_view_plant_age
 PlantSimEngine.process_(::Type{AbstractGraphViewPhytomerEmissionModel}) = :graph_view_phytomer_emission
 PlantSimEngine.process_(::Type{AbstractGraphViewInitiationAgeModel}) = :graph_view_initiation_age
+PlantSimEngine.process_(::Type{AbstractGraphViewParamModel}) = :graph_view_param
+PlantSimEngine.process_(::Type{AbstractGraphViewCyclePlantModel}) = :graph_view_cycle_plant
+PlantSimEngine.process_(::Type{AbstractGraphViewCycleLeafModel}) = :graph_view_cycle_leaf
 
 struct GraphViewPlantAgeModel <: AbstractGraphViewPlantAgeModel
 end
@@ -24,6 +30,35 @@ end
 
 PlantSimEngine.inputs_(::GraphViewInitiationAgeModel) = (plant_age=-Inf,)
 PlantSimEngine.outputs_(::GraphViewInitiationAgeModel) = (initiation_age=-Inf,)
+
+struct GraphViewParamModel{T} <: AbstractGraphViewParamModel
+    a::T
+    b::T
+end
+
+PlantSimEngine.inputs_(::GraphViewParamModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::GraphViewParamModel) = (y=-Inf,)
+
+struct GraphViewDefaultParamModel <: AbstractGraphViewParamModel
+    alpha::Float64
+    mode::Symbol
+end
+
+GraphViewDefaultParamModel() = GraphViewDefaultParamModel(1.5, :fast)
+PlantSimEngine.inputs_(::GraphViewDefaultParamModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::GraphViewDefaultParamModel) = (z=-Inf,)
+
+struct GraphViewCyclePlantModel <: AbstractGraphViewCyclePlantModel
+end
+
+PlantSimEngine.inputs_(::GraphViewCyclePlantModel) = (y=-Inf,)
+PlantSimEngine.outputs_(::GraphViewCyclePlantModel) = (x=-Inf,)
+
+struct GraphViewCycleLeafModel <: AbstractGraphViewCycleLeafModel
+end
+
+PlantSimEngine.inputs_(::GraphViewCycleLeafModel) = (x=-Inf,)
+PlantSimEngine.outputs_(::GraphViewCycleLeafModel) = (y=-Inf,)
 
 @testset "Dependency graph view" begin
     mapping = ModelMapping(
@@ -118,4 +153,57 @@ PlantSimEngine.outputs_(::GraphViewInitiationAgeModel) = (initiation_age=-Inf,)
     @test any(edge -> edge.kind == :mapped_variable && edge.source_variable == :plant_age && edge.target_variable == :plant_age, plant_age_edges)
     @test !any(edge -> edge.source_variable == :last_phytomer, plant_age_edges)
     @test any(edge -> edge.kind == :hard_dependency && isnothing(edge.source_port) && isnothing(edge.target_port), hard_mapped_view.edges)
+
+    @test AbstractGraphViewParamModel in available_processes()
+    @test GraphViewParamModel in available_models(:graph_view_param)
+    descriptor = model_constructor_descriptor(GraphViewParamModel)
+    fields = descriptor["fields"]
+    @test length(fields) == 2
+    @test fields[1]["typeParameter"] == "T"
+    @test fields[2]["typeParameter"] == "T"
+    @test descriptor["parameterGroups"]["T"] == ["a", "b"]
+    @test fields[1]["inferredChoice"] == "float"
+
+    default_descriptor = model_constructor_descriptor(GraphViewDefaultParamModel)
+    default_fields = default_descriptor["fields"]
+    @test default_descriptor["hasZeroArgConstructor"]
+    @test default_fields[1]["default"] == 1.5
+    @test default_fields[1]["inferredChoice"] == "float"
+    @test default_fields[2]["default"] == ":fast"
+    @test default_fields[2]["inferredChoice"] == "symbol"
+
+    add_mapping = ModelMapping(:Plant => (GraphViewPlantAgeModel(), Status(day=1.0)))
+    added_mapping = apply_graph_edit(add_mapping, AddModel(:Plant, GraphViewPhytomerEmissionModel, NamedTuple()))
+    @test any(m -> process(m) == :graph_view_phytomer_emission, PlantSimEngine.get_models(added_mapping[:Plant]))
+    @test_throws "already exists" apply_graph_edit(added_mapping, AddModel(:Plant, GraphViewPhytomerEmissionModel, NamedTuple()))
+    removed_mapping = apply_graph_edit(added_mapping, RemoveModel(:Plant, :graph_view_phytomer_emission))
+    @test !any(m -> process(m) == :graph_view_phytomer_emission, PlantSimEngine.get_models(removed_mapping[:Plant]))
+    replaced_mapping = apply_graph_edit(add_mapping, ReplaceModel(:Plant, :graph_view_plant_age, GraphViewPlantAgeModel, NamedTuple()))
+    @test only(PlantSimEngine.get_models(replaced_mapping[:Plant])) isa GraphViewPlantAgeModel
+
+    mapped_edit_mapping = apply_graph_edit(
+        hard_mapped_mapping,
+        SetMappedVariable(:Phytomer, :graph_view_initiation_age, :plant_age, :Plant, :plant_age, :single),
+    )
+    mapped_spec = PlantSimEngine.parse_model_specs(mapped_edit_mapping[:Phytomer])[:graph_view_initiation_age]
+    @test first(PlantSimEngine.mapped_variables_(mapped_spec)) == (:plant_age => (:Plant => :plant_age))
+
+    unmarked_mapping = apply_graph_edit(edited_mapping, UnmarkPreviousTimeStep(:Leaf, :carbon_assimilation, :soil_water_content))
+    unmarked_view = graph_view(unmarked_mapping)
+    @test any(
+        edge -> edge.source_variable == :soil_water_content &&
+                edge.target_variable == :soil_water_content &&
+                edge.source != edge.target,
+        unmarked_view.edges,
+    )
+
+    cyclic_mapping = ModelMapping(
+        :Plant => MultiScaleModel(GraphViewCyclePlantModel(), [:y => [:Leaf]]),
+        :Leaf => MultiScaleModel(GraphViewCycleLeafModel(), [:x => :Plant]),
+    )
+    @test_throws "Cyclic dependency detected" dep(cyclic_mapping)
+    cyclic_view = graph_view(cyclic_mapping)
+    @test cyclic_view.cyclic
+    @test !isempty(cyclic_view.cycle_nodes)
+    @test occursin("Cyclic dependency detected", join(cyclic_view.diagnostics, "\n"))
 end

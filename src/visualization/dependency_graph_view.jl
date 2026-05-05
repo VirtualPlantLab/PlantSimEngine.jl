@@ -63,10 +63,38 @@ struct DependencyGraphView
     scales::Vector{Symbol}
     cyclic::Bool
     cycle_nodes::Vector{String}
+    cycle_edges::Vector{String}
     diagnostics::Vector{String}
 end
 
 abstract type AbstractGraphEdit end
+
+struct AddModel{P} <: AbstractGraphEdit
+    scale::Symbol
+    model_type::Type
+    parameters::P
+end
+
+struct RemoveModel <: AbstractGraphEdit
+    scale::Symbol
+    process::Symbol
+end
+
+struct ReplaceModel{P} <: AbstractGraphEdit
+    scale::Symbol
+    process::Symbol
+    model_type::Type
+    parameters::P
+end
+
+struct SetMappedVariable <: AbstractGraphEdit
+    scale::Symbol
+    process::Symbol
+    variable::Symbol
+    source_scale::Symbol
+    source_variable::Symbol
+    mode::Symbol
+end
 
 """
     MarkPreviousTimeStep(scale, process, variable)
@@ -80,24 +108,52 @@ struct MarkPreviousTimeStep <: AbstractGraphEdit
     variable::Symbol
 end
 
+struct UnmarkPreviousTimeStep <: AbstractGraphEdit
+    scale::Symbol
+    process::Symbol
+    variable::Symbol
+end
+
 """
+    compile_graph_view(mapping; strict=false)
     graph_view(mapping)
     graph_view(sim::GraphSimulation)
 
 Build a renderer-independent view of a dependency graph.
 """
-function graph_view(mapping::ModelMapping; verbose::Bool=false)
+function compile_graph_view(mapping::ModelMapping; verbose::Bool=false, strict::Bool=false)
     diagnostics = String[]
-    graph = try
+    graph, diagnostics = try
         dep(mapping; verbose=verbose)
     catch err
+        strict && rethrow()
         msg = sprint(showerror, err)
         push!(diagnostics, msg)
-        return _graph_view_from_mapping_only(mapping, diagnostics)
-    end
+        graph_for_view = _dependency_graph_for_view(mapping, diagnostics)
+        isnothing(graph_for_view) && return _graph_view_from_mapping_only(mapping, diagnostics)
+        graph_for_view
+    end, diagnostics
 
     return graph_view(graph, mapping; diagnostics=diagnostics)
 end
+
+function graph_view(mapping::ModelMapping; kwargs...)
+    return compile_graph_view(mapping; kwargs...)
+end
+
+function _dependency_graph_for_view(mapping::ModelMapping{MultiScale}, diagnostics)
+    try
+        soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
+        mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
+        reverse_multiscale_mapping = reverse_mapping(mapped_vars, all=false)
+        return soft_dependencies_multiscale(soft_dep_graphs_roots, reverse_multiscale_mapping, hard_dep_dict)
+    catch err
+        push!(diagnostics, sprint(showerror, err))
+        return nothing
+    end
+end
+
+_dependency_graph_for_view(::ModelMapping, diagnostics) = nothing
 
 function graph_view(sim::GraphSimulation; diagnostics::Vector{String}=String[])
     return graph_view(sim.dependency_graph, sim; diagnostics=diagnostics)
@@ -149,8 +205,23 @@ function graph_view(graph::DependencyGraph, context=nothing; diagnostics::Vector
 
     cyclic, cycle_vec = is_graph_cyclic(graph; warn=false)
     cycle_nodes = cyclic ? [_model_node_id(last(pair), process(first(pair))) for pair in cycle_vec] : String[]
+    cycle_edges = cyclic ? _cycle_edge_ids(edges, cycle_nodes) : String[]
     scales = sort!(unique([node.scale for node in nodes]); by=string)
-    return DependencyGraphView(nodes, edges, scales, cyclic, cycle_nodes, diagnostics)
+    return DependencyGraphView(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
+end
+
+function _cycle_edge_ids(edges::Vector{GraphEdge}, cycle_nodes::Vector{String})
+    ids = String[]
+    length(cycle_nodes) < 2 && return ids
+    for i in 1:(length(cycle_nodes)-1)
+        source = cycle_nodes[i + 1]
+        target = cycle_nodes[i]
+        for edge in edges
+            edge.source == source && edge.target == target || continue
+            push!(ids, edge.id)
+        end
+    end
+    return unique(ids)
 end
 
 function _push_edge!(edges::Vector{GraphEdge}, edge_ids::Set{String}, edge::GraphEdge)
@@ -361,8 +432,179 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::MarkPreviousT
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UnmarkPreviousTimeStep)
+    haskey(mapping, edit.scale) || error("Cannot unmark `$(edit.variable)` as previous timestep: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+
+    found = Ref(false)
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _unmark_previous_timestep_entry(entry, edit, found) : entry
+    end
+
+    found[] || error("Cannot unmark `$(edit.variable)` as previous timestep: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
+    haskey(mapping, edit.scale) || error("Cannot add model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    model = _construct_graph_edit_model(edit.model_type, edit.parameters)
+    process_name = process(model)
+    any(existing -> process(existing) == process_name, get_models(mapping[edit.scale])) && error(
+        "Cannot add `$(typeof(model))` at scale `$(edit.scale)`: process `$process_name` already exists at this scale."
+    )
+
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _insert_model_entry(entry, model) : entry
+    end
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::RemoveModel)
+    haskey(mapping, edit.scale) || error("Cannot remove model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    found = Ref(false)
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _remove_model_entry(entry, edit.process, found) : entry
+    end
+    found[] || error("Cannot remove model: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::ReplaceModel)
+    haskey(mapping, edit.scale) || error("Cannot replace model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    model = _construct_graph_edit_model(edit.model_type, edit.parameters)
+    process(model) == edit.process || error(
+        "Cannot replace process `$(edit.process)` with `$(typeof(model))`: replacement model implements process `$(process(model))`."
+    )
+    found = Ref(false)
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _replace_model_entry(entry, edit.process, model, found) : entry
+    end
+    found[] || error("Cannot replace model: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::SetMappedVariable)
+    haskey(mapping, edit.scale) || error("Cannot set mapping: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    found = Ref(false)
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _set_mapped_variable_entry(entry, edit, found) : entry
+    end
+    found[] || error("Cannot set mapping for `$(edit.variable)`: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
 function apply_graph_edit(mapping::ModelMapping, edit::AbstractGraphEdit)
     error("Graph edit `$(typeof(edit))` is not supported for `$(typeof(mapping))`.")
+end
+
+function _construct_graph_edit_model(model_type::Type, parameters::NamedTuple)
+    names = fieldnames(model_type)
+    if isempty(parameters)
+        try
+            return model_type()
+        catch
+        end
+    end
+    isempty(names) && isempty(parameters) && return model_type()
+    values = Any[]
+    for name in names
+        haskey(parameters, name) || error("Missing constructor parameter `$name` for model `$(model_type)`.")
+        push!(values, parameters[name])
+    end
+    return model_type(values...)
+end
+
+_construct_graph_edit_model(model_type::Type, parameters::AbstractDict) =
+    _construct_graph_edit_model(model_type, (; (Symbol(k) => v for (k, v) in pairs(parameters))...))
+
+function _insert_model_entry(entry::Tuple, model)
+    items = Any[]
+    inserted = false
+    for item in entry
+        if !inserted && item isa Status
+            push!(items, model)
+            inserted = true
+        end
+        push!(items, item)
+    end
+    inserted || push!(items, model)
+    return tuple(items...)
+end
+
+_insert_model_entry(entry, model) = _insert_model_entry((entry,), model)
+
+function _remove_model_entry(entry::Tuple, process_name::Symbol, found::Base.RefValue{Bool})
+    items = Any[]
+    for item in entry
+        if !(item isa Status) && process(model_(as_model_spec(item))) == process_name
+            found[] = true
+            continue
+        end
+        push!(items, item)
+    end
+    return tuple(items...)
+end
+
+_remove_model_entry(entry, process_name::Symbol, found::Base.RefValue{Bool}) =
+    _remove_model_entry((entry,), process_name, found)
+
+function _replace_model_entry(entry::Tuple, process_name::Symbol, model, found::Base.RefValue{Bool})
+    return tuple((_replace_model_item(item, process_name, model, found) for item in entry)...)
+end
+
+_replace_model_entry(entry, process_name::Symbol, model, found::Base.RefValue{Bool}) =
+    _replace_model_item(entry, process_name, model, found)
+
+function _replace_model_item(item::Status, ::Symbol, model, ::Base.RefValue{Bool})
+    return item
+end
+
+function _replace_model_item(item, process_name::Symbol, model, found::Base.RefValue{Bool})
+    spec = as_model_spec(item)
+    process(model_(spec)) == process_name || return item
+    found[] = true
+    return ModelSpec(spec; model=model)
+end
+
+function _set_mapped_variable_entry(entry::Tuple, edit::SetMappedVariable, found::Base.RefValue{Bool})
+    return tuple((_set_mapped_variable_item(item, edit, found) for item in entry)...)
+end
+
+_set_mapped_variable_entry(entry, edit::SetMappedVariable, found::Base.RefValue{Bool}) =
+    _set_mapped_variable_item(entry, edit, found)
+
+_set_mapped_variable_item(item::Status, ::SetMappedVariable, ::Base.RefValue{Bool}) = item
+
+function _set_mapped_variable_item(item, edit::SetMappedVariable, found::Base.RefValue{Bool})
+    spec = as_model_spec(item)
+    process(model_(spec)) == edit.process || return item
+    edit.variable in keys(variables(model_(spec))) || error(
+        "Cannot map `$(edit.variable)` for process `$(edit.process)` at scale `$(edit.scale)`: ",
+        "the variable is not declared as an input or output of `$(typeof(model_(spec)))`."
+    )
+    found[] = true
+    source = edit.mode in (:multi, :multi_node, :vector) ?
+        [edit.source_scale => edit.source_variable] :
+        edit.source_scale => edit.source_variable
+    return ModelSpec(spec; multiscale=_set_mapping_item(spec.multiscale, edit.variable, source))
+end
+
+function _set_mapping_item(mapping, variable::Symbol, source)
+    mapped = isnothing(mapping) ? Any[] : Any[collect(mapping)...]
+    for i in eachindex(mapped)
+        item = mapped[i]
+        lhs = item isa Pair ? first(item) : item
+        lhs_var = lhs isa PreviousTimeStep ? lhs.variable : lhs
+        lhs_var == variable || continue
+        mapped[i] = lhs isa PreviousTimeStep ? PreviousTimeStep(variable) => source : variable => source
+        return mapped
+    end
+    push!(mapped, variable => source)
+    return mapped
 end
 
 function _mark_previous_timestep_entry(entry::Tuple, edit::MarkPreviousTimeStep, found::Base.RefValue{Bool})
@@ -411,6 +653,41 @@ function _mark_previous_timestep_mapping(mapping, variable::Symbol)
     return mapped
 end
 
+function _unmark_previous_timestep_entry(entry::Tuple, edit::UnmarkPreviousTimeStep, found::Base.RefValue{Bool})
+    return tuple((_unmark_previous_timestep_item(item, edit, found) for item in entry)...)
+end
+
+_unmark_previous_timestep_entry(entry, edit::UnmarkPreviousTimeStep, found::Base.RefValue{Bool}) =
+    _unmark_previous_timestep_item(entry, edit, found)
+
+_unmark_previous_timestep_item(item::Status, ::UnmarkPreviousTimeStep, ::Base.RefValue{Bool}) = item
+
+function _unmark_previous_timestep_item(item, edit::UnmarkPreviousTimeStep, found::Base.RefValue{Bool})
+    spec = as_model_spec(item)
+    process(model_(spec)) == edit.process || return item
+    found[] = true
+    return ModelSpec(spec; multiscale=_unmark_previous_timestep_mapping(spec.multiscale, edit.variable))
+end
+
+function _unmark_previous_timestep_mapping(mapping, variable::Symbol)
+    isnothing(mapping) && return mapping
+    mapped = Any[]
+    for item in mapping
+        if item isa Pair && first(item) isa PreviousTimeStep && first(item).variable == variable
+            source = last(item)
+            if source == (Symbol("") => variable)
+                continue
+            end
+            push!(mapped, variable => source)
+        elseif item isa PreviousTimeStep && item.variable == variable
+            continue
+        else
+            push!(mapped, item)
+        end
+    end
+    return mapped
+end
+
 function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
     nodes = GraphNode[]
     for (scale, entry) in pairs(mapping)
@@ -434,7 +711,9 @@ function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
         end
     end
     scales = sort!(unique([node.scale for node in nodes]); by=string)
-    return DependencyGraphView(nodes, GraphEdge[], scales, any(occursin.("Cyclic", diagnostics)), String[], diagnostics)
+    cyclic = any(occursin.("Cyclic", diagnostics))
+    cycle_nodes = cyclic ? [node.id for node in nodes] : String[]
+    return DependencyGraphView(nodes, GraphEdge[], scales, cyclic, cycle_nodes, String[], diagnostics)
 end
 
 function _graph_node(node::AbstractDependencyNode, id::String, context, node_ids)
@@ -633,6 +912,7 @@ function _graph_view_dict(view::DependencyGraphView)
         "scales" => string.(view.scales),
         "cyclic" => view.cyclic,
         "cycleNodes" => view.cycle_nodes,
+        "cycleEdges" => view.cycle_edges,
         "diagnostics" => view.diagnostics,
     )
 end
@@ -682,45 +962,7 @@ function _edge_dict(edge::GraphEdge)
     )
 end
 
-function _json(value)
-    io = IOBuffer()
-    _write_json(io, value)
-    return String(take!(io))
-end
-
-function _write_json(io, value::AbstractDict)
-    print(io, "{")
-    first_item = true
-    for (key, val) in value
-        first_item || print(io, ",")
-        first_item = false
-        _write_json(io, string(key))
-        print(io, ":")
-        _write_json(io, val)
-    end
-    print(io, "}")
-end
-
-function _write_json(io, value::AbstractVector)
-    print(io, "[")
-    for (i, val) in pairs(value)
-        i == firstindex(value) || print(io, ",")
-        _write_json(io, val)
-    end
-    print(io, "]")
-end
-
-_write_json(io, value::Nothing) = print(io, "null")
-_write_json(io, value::Bool) = print(io, value ? "true" : "false")
-_write_json(io, value::Real) = isfinite(value) ? print(io, value) : _write_json(io, string(value))
-_write_json(io, value::Symbol) = _write_json(io, string(value))
-_write_json(io, value::AbstractString) = print(io, "\"", _escape_json(value), "\"")
-_write_json(io, value) = _write_json(io, string(value))
-
-function _escape_json(s::AbstractString)
-    escaped = replace(s, "\\" => "\\\\", "\"" => "\\\"", "\n" => "\\n", "\r" => "\\r", "\t" => "\\t")
-    return replace(escaped, "</" => "<\\/")
-end
+_json(value) = replace(JSON.json(value), "</" => "<\\/")
 
 function _graph_view_html(view::DependencyGraphView; renderer::Symbol=:react)
     if renderer == :react
