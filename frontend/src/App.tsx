@@ -36,6 +36,7 @@ import "./styles.css";
 type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
 type EdgeFilters = Record<EdgeFilterKey, boolean>;
 type FocusMode = "none" | "upstream" | "downstream" | "neighborhood";
+type SidePanel = "inspector" | "add_model" | "mapping_code" | null;
 
 type SearchResult = {
   id: string;
@@ -108,6 +109,12 @@ export default function App() {
   const [editorConnected, setEditorConnected] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
+  const [activePanel, setActivePanel] = useState<SidePanel>("inspector");
+  const [mappingCode, setMappingCode] = useState("");
+  const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
+  const [editorFeedback, setEditorFeedback] = useState<{ kind: "error" | "info"; text: string } | null>(null);
+  const [savePath, setSavePath] = useState("mapping.generated.jl");
+  const [customScales, setCustomScales] = useState<string[]>([]);
   const [selected, setSelected] = useState<GraphNodeData | null>(null);
   const [activePort, setActivePort] = useState<GraphPort | null>(null);
   const [showRequiredPanel, setShowRequiredPanel] = useState(false);
@@ -134,6 +141,10 @@ export default function App() {
   const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
   const searchResults = useMemo(() => deriveSearchResults(graph, searchQuery), [graph, searchQuery]);
   const visibleNodeData = useMemo(() => graph.nodes.filter((node) => !collapsedScales.has(node.scale)), [collapsedScales, graph.nodes]);
+  const editorScales = useMemo(() => {
+    const merged = [...graph.scales, ...customScales];
+    return [...new Set(merged)];
+  }, [customScales, graph.scales]);
   const visibleNodeIds = useMemo(() => new Set(visibleNodeData.map((node) => node.id)), [visibleNodeData]);
   const visibleEdgeData = useMemo(() => graph.edges.filter((edge) => (
     edgeMatchesFilters(edge, edgeFilters) &&
@@ -153,22 +164,51 @@ export default function App() {
 
     const socket = new WebSocket(config.websocketUrl);
     setEditorSocket(socket);
-    socket.addEventListener("open", () => setEditorConnected(true));
-    socket.addEventListener("close", () => setEditorConnected(false));
+    socket.addEventListener("open", () => {
+      setEditorConnected(true);
+      setEditorFeedback(null);
+    });
+    socket.addEventListener("close", () => {
+      setEditorConnected(false);
+      setEditorFeedback({ kind: "error", text: "Graph editor connection closed. Refresh the page or restart the Julia session." });
+    });
     socket.addEventListener("message", (event) => {
       const payload = JSON.parse(event.data) as GraphEditorState;
       if (payload.graph) setGraph(payload.graph);
       if (payload.models) setEditorModels(payload.models);
+      if (typeof payload.mappingCode === "string") setMappingCode(payload.mappingCode);
+      if (typeof payload.lastSavedPath === "string") setLastSavedPath(payload.lastSavedPath);
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
+      if (payload.ok === false) {
+        const message = payload.diagnostics?.[0] ?? "Graph editor command failed.";
+        setEditorFeedback({ kind: "error", text: message });
+      } else if (payload.diagnostics?.length) {
+        setEditorFeedback({ kind: "info", text: payload.diagnostics[0] });
+      } else {
+        setEditorFeedback(null);
+      }
     });
     return () => socket.close();
   }, []);
 
   const sendEditorCommand = useCallback((command: Record<string, unknown>) => {
-    if (!editorSocket || editorSocket.readyState !== WebSocket.OPEN) return;
+    if (!editorSocket || editorSocket.readyState !== WebSocket.OPEN) {
+      setEditorFeedback({ kind: "error", text: "Graph editor is offline; command was not sent." });
+      return;
+    }
     editorSocket.send(JSON.stringify(command));
   }, [editorSocket]);
+
+  const togglePanel = useCallback((panel: Exclude<SidePanel, null>) => {
+    setActivePanel((current) => current === panel ? null : panel);
+  }, []);
+
+  const addCustomScale = useCallback((rawScale: string) => {
+    const scale = rawScale.trim();
+    if (!scale) return;
+    setCustomScales((current) => current.includes(scale) || graph.scales.includes(scale) ? current : [...current, scale]);
+  }, [graph.scales]);
 
   useEffect(() => {
     const nextNodes = visibleNodeData.map((node) => ({
@@ -405,6 +445,13 @@ export default function App() {
               <RotateCcw size={17} />
             </button>
           </div>
+
+          <div className="toolbar-group panel-switch">
+            <button className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
+            <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={() => togglePanel("add_model")}>Add model</button>
+            <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
+          </div>
+
           {editorSocket && (
             <div className="toolbar-group live-session">
               <span className={editorConnected ? "live-pill connected" : "live-pill"}>{editorConnected ? "live" : "offline"}</span>
@@ -413,6 +460,12 @@ export default function App() {
             </div>
           )}
         </div>
+
+        {editorFeedback && (
+          <div className={`editor-feedback ${editorFeedback.kind}`} role="status" aria-live="polite">
+            {editorFeedback.text}
+          </div>
+        )}
 
         <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />
         <ScaleControls scales={graph.scales} collapsedScales={collapsedScales} onToggle={toggleScale} onExpandAll={expandAllScales} />
@@ -462,33 +515,67 @@ export default function App() {
         </ReactFlow>
       </section>
 
-      <aside className="inspector">
-        <header>
-          <GitPullRequestArrow size={19} />
-          <h2>Inspector</h2>
-        </header>
-        <InspectorDetails
-          selected={selected}
-          selectedEdge={selectedEdge}
-          activePort={activePort}
-          requiredInputPortIds={requiredInputPortIds}
-          incomingEdges={activePort ? incomingByPort.get(activePort.id) ?? [] : []}
-          outgoingEdges={activePort ? outgoingByPort.get(activePort.id) ?? [] : []}
-          nodeById={nodeById}
-          portById={portById}
-          onFocusEdge={focusEdge}
-        />
-        <h3>Required Initializations</h3>
-        <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} compact />
-        <h3>Diagnostics</h3>
-        {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
-        {editorModels.length > 0 && (
-          <>
-            <h3>Available Models</h3>
-            <ModelBrowser models={editorModels} scales={graph.scales} onCommand={sendEditorCommand} disabled={!editorConnected} />
-          </>
-        )}
-      </aside>
+      {activePanel && (
+        <aside className="inspector">
+          {activePanel === "inspector" && (
+            <>
+              <header>
+                <GitPullRequestArrow size={19} />
+                <h2>Inspector</h2>
+              </header>
+              <InspectorDetails
+                selected={selected}
+                selectedEdge={selectedEdge}
+                activePort={activePort}
+                requiredInputPortIds={requiredInputPortIds}
+                incomingEdges={activePort ? incomingByPort.get(activePort.id) ?? [] : []}
+                outgoingEdges={activePort ? outgoingByPort.get(activePort.id) ?? [] : []}
+                nodeById={nodeById}
+                portById={portById}
+                onFocusEdge={focusEdge}
+              />
+              <h3>Required Initializations</h3>
+              <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} compact />
+              <h3>Diagnostics</h3>
+              {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
+            </>
+          )}
+
+          {activePanel === "add_model" && (
+            <>
+              <header>
+                <GitPullRequestArrow size={19} />
+                <h2>Add Model</h2>
+              </header>
+              {editorModels.length > 0 ? (
+                <ModelBrowser
+                  models={editorModels}
+                  scales={editorScales}
+                  onAddScale={addCustomScale}
+                  onCommand={sendEditorCommand}
+                  disabled={!editorConnected}
+                />
+              ) : <div className="empty-state">No model type is available.</div>}
+            </>
+          )}
+
+          {activePanel === "mapping_code" && (
+            <>
+              <header>
+                <GitPullRequestArrow size={19} />
+                <h2>Mapping Code</h2>
+              </header>
+              <MappingCodePanel
+                code={mappingCode}
+                savePath={savePath}
+                lastSavedPath={lastSavedPath}
+                onSavePathChange={setSavePath}
+                onSave={() => sendEditorCommand({ action: "write_mapping_code", path: savePath })}
+              />
+            </>
+          )}
+        </aside>
+      )}
     </main>
   );
 }
@@ -747,19 +834,57 @@ function Row({ label, value }: { label: string; value: string }) {
   return <div className="row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
+function MappingCodePanel({
+  code,
+  savePath,
+  lastSavedPath,
+  onSavePathChange,
+  onSave,
+}: {
+  code: string;
+  savePath: string;
+  lastSavedPath: string | null;
+  onSavePathChange: (path: string) => void;
+  onSave: () => void;
+}) {
+  const copyCode = useCallback(async () => {
+    if (!code) return;
+    await navigator.clipboard.writeText(code);
+  }, [code]);
+
+  return (
+    <div className="mapping-code-panel">
+      <div className="row-with-actions">
+        <strong>Current Julia mapping</strong>
+        <button className="metric-button" onClick={() => { void copyCode(); }}>Copy</button>
+      </div>
+      <textarea className="mapping-code" readOnly value={code} />
+      <label className="model-browser-control">
+        <span>Write to file</span>
+        <input value={savePath} onChange={(event) => onSavePathChange(event.target.value)} placeholder="mapping.generated.jl" />
+      </label>
+      <button className="metric-button" onClick={onSave}>Save mapping code</button>
+      {lastSavedPath ? <div className="diagnostic">Saved to {lastSavedPath}</div> : <div className="empty-state compact">No mapping code saved yet.</div>}
+    </div>
+  );
+}
+
 function ModelBrowser({
   models,
   scales,
+  onAddScale,
   onCommand,
   disabled,
 }: {
   models: ModelDescriptor[];
   scales: string[];
+  onAddScale: (scale: string) => void;
   onCommand: (command: Record<string, unknown>) => void;
   disabled: boolean;
 }) {
   const [modelType, setModelType] = useState(models[0]?.type ?? "");
   const [scale, setScale] = useState(scales[0] ?? "Default");
+  const [newScale, setNewScale] = useState("");
   const selected = models.find((model) => model.type === modelType) ?? models[0];
 
   useEffect(() => {
@@ -773,6 +898,22 @@ function ModelBrowser({
   if (!selected) return <div className="empty-state">No model type is available.</div>;
   return (
     <div className="model-browser">
+      <label className="model-browser-control">
+        <span>Define scale</span>
+        <div className="inline-field">
+          <input value={newScale} onChange={(event) => setNewScale(event.target.value)} placeholder="Leaf, Plant, Scene" />
+          <button
+            className="metric-button"
+            onClick={() => {
+              onAddScale(newScale);
+              if (newScale.trim()) setScale(newScale.trim());
+              setNewScale("");
+            }}
+          >
+            Add scale
+          </button>
+        </div>
+      </label>
       <label className="model-browser-control">
         <span>Scale</span>
         <select value={scale} onChange={(event) => setScale(event.target.value)}>

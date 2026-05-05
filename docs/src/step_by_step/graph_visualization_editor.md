@@ -30,9 +30,22 @@ mapping = ModelMapping(
 
 session = edit_graph(mapping)
 session.url
+session
 ```
 
-Open `session.url` in a browser to use the live editor. The browser sends edit commands to Julia over a WebSocket. Julia remains the source of truth: it applies the edit, rebuilds the [`ModelMapping`](@ref), recompiles graph diagnostics, and sends the updated graph back to the browser.
+By default, `edit_graph` opens `session.url` in the system default browser. Pass `open_browser=false` to keep the session headless, for example in scripts or tests:
+
+```julia
+session = edit_graph(mapping; open_browser=false)
+```
+
+The browser sends edit commands to Julia over a WebSocket. Julia remains the source of truth: it applies the edit, rebuilds the [`ModelMapping`](@ref), recompiles graph diagnostics, and sends the updated graph back to the browser.
+
+To stop the HTTP/WebSocket session, run:
+
+```julia
+close(session)
+```
 
 Use [`current_mapping`](@ref) to recover the latest mapping from the session:
 
@@ -40,6 +53,8 @@ Use [`current_mapping`](@ref) to recover the latest mapping from the session:
 edited_mapping = current_mapping(session)
 close(session)
 ```
+
+The web editor also exposes a dedicated "Mapping code" panel. It shows the current [`ModelMapping`](@ref) as Julia code, and can write that code to a `.jl` file so it can be copied/pasted or reused in scripts.
 
 The editor extension currently supports the same edit operations as the Julia API:
 

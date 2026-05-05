@@ -85,9 +85,12 @@ export type ModelDescriptor = {
 
 export type GraphEditorState = {
   ok: boolean;
+  diagnostics: string[];
   graph: DependencyGraphView;
   models: ModelDescriptor[];
   canUndo: boolean;
   canRedo: boolean;
   url: string;
+  mappingCode: string;
+  lastSavedPath: string | null;
 };

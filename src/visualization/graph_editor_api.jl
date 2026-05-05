@@ -19,6 +19,8 @@ using HTTP
 
 session = edit_graph(mapping)
 ```
+
+Pass `open_browser=false` to keep the session headless.
 """
 function edit_graph(args...; kwargs...)
     _graph_editor_missing_http()

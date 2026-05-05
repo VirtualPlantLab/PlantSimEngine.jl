@@ -14,21 +14,53 @@ mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSe
     host::String
     port::Int
     url::String
+    last_saved_path::Union{Nothing,String}
 end
 
 current_mapping(session::GraphEditorSession) = session.mapping
-Base.close(session::GraphEditorSession) = close(session.server)
+function Base.close(session::GraphEditorSession)
+    isopen(session.server) || return nothing
+    return HTTP.forceclose(session.server)
+end
+
+function Base.show(io::IO, session::GraphEditorSession)
+    print(io, "GraphEditorSession(url=\"$(session.url)\", host=\"$(session.host)\", port=$(session.port))")
+end
+
+function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
+    println(io, "PlantSimEngineGraphEditorExt.GraphEditorSession")
+    println(io, "  Open in browser: $(session.url)")
+    println(io, "  Local state JSON: $(session.url)/state")
+    println(io, "  Quit session: close(session)")
+    println(io, "  Current mapping: current_mapping(session)")
+    println(io, "  Save mapping code: use the \"Mapping code\" panel in the web editor")
+end
+
+current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
 
 """
-    edit_graph(mapping; mtg=nothing, host="127.0.0.1", port=8765)
+    edit_graph(mapping; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
 
+Single-scale mappings are automatically normalized to multiscale form at the :Default scale.
+By default, the session URL is opened with the system default browser. Pass
+`open_browser=false` to disable this, for example in scripts or tests.
+
 This method is provided by the `PlantSimEngineGraphEditorExt` package extension.
 Load `HTTP` in the active session to make it available.
 """
-function edit_graph(mapping::PlantSimEngine.ModelMapping; mtg=nothing, host::AbstractString="127.0.0.1", port::Integer=8765)
+function edit_graph(
+    mapping::PlantSimEngine.ModelMapping;
+    mtg=nothing,
+    host::AbstractString="127.0.0.1",
+    port::Integer=8765,
+    open_browser::Bool=true,
+)
+    # Normalize single-scale to multiscale form for uniform handling downstream
+    mapping = _normalize_to_multiscale(mapping)
+
     session_ref = Ref{Any}()
     handler = http -> _handle_http(session_ref[], http)
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
@@ -42,9 +74,30 @@ function edit_graph(mapping::PlantSimEngine.ModelMapping; mtg=nothing, host::Abs
         String(host),
         actual_port,
         "http://$(host):$(actual_port)",
+        nothing,
     )
     session_ref[] = session
+    open_browser && _open_in_default_browser(session.url)
     return session
+end
+
+function _open_in_default_browser(url::AbstractString)
+    try
+        if Sys.isapple()
+            run(`open $url`)
+        elseif Sys.iswindows()
+            run(`cmd /c start "" $url`)
+        elseif !isnothing(Sys.which("xdg-open"))
+            run(`xdg-open $url`)
+        else
+            @warn "Could not open graph editor automatically because no supported default-browser command was found." url
+            return false
+        end
+        return true
+    catch err
+        @warn "Could not open graph editor automatically. Open the session URL manually." url exception = (err, catch_backtrace())
+        return false
+    end
 end
 
 function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractGraphEdit)
@@ -95,6 +148,22 @@ function _handle_http(session::GraphEditorSession, http::HTTP.Stream)
     return nothing
 end
 
+"""
+    _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.SingleScale})
+
+Convert a single-scale ModelMapping to multiscale form at the :Default scale.
+This ensures all downstream logic only deals with MultiScale mappings.
+"""
+function _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.SingleScale})
+    entry = mapping[:Default]  # Returns tuple of (models..., status)
+    return PlantSimEngine.ModelMapping(:Default => entry; check=true, type_promotion=PlantSimEngine.type_promotion(mapping))
+end
+
+function _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimEngine.MultiScale})
+    # Already multiscale, return as is
+    return mapping
+end
+
 function _handle_websocket(session::GraphEditorSession, ws)
     HTTP.WebSockets.send(ws, _state_json(session))
     try
@@ -118,6 +187,9 @@ function _handle_command!(session::GraphEditorSession, command)
         elseif action == "edit"
             edit = _edit_from_command(command)
             apply_edit!(session, edit)
+        elseif action == "write_mapping_code"
+            raw_path = get(command, "path", "")
+            _write_mapping_code!(session, String(raw_path))
         else
             error("Unsupported graph editor command action `$action`.")
         end
@@ -197,11 +269,14 @@ function _state_payload(session::GraphEditorSession; ok::Bool=true, diagnostics:
     append!(graph["diagnostics"], diagnostics)
     return Dict(
         "ok" => ok,
+        "diagnostics" => diagnostics,
         "graph" => graph,
         "models" => [PlantSimEngine.model_descriptor(T) for T in PlantSimEngine.available_models()],
         "canUndo" => !isempty(session.history),
         "canRedo" => !isempty(session.future),
         "url" => session.url,
+        "mappingCode" => current_mapping_code(session),
+        "lastSavedPath" => session.last_saved_path,
     )
 end
 
@@ -283,5 +358,80 @@ function _react_editor_html(session::GraphEditorSession)
 end
 
 _frontend_dist_dir() = normpath(joinpath(@__DIR__, "..", "frontend", "dist"))
+
+function _write_mapping_code!(session::GraphEditorSession, raw_path::AbstractString)
+    path = strip(String(raw_path))
+    isempty(path) && error("The output path is empty. Provide a .jl file path.")
+    full_path = isabspath(path) ? normpath(path) : normpath(joinpath(pwd(), path))
+    mkpath(dirname(full_path))
+    write(full_path, current_mapping_code(session) * "\n")
+    session.last_saved_path = full_path
+    return full_path
+end
+
+function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
+    io = IOBuffer()
+    println(io, "mapping = ModelMapping(")
+    for scale in keys(mapping)
+        println(io, "    :$(scale) => (")
+        for item in _scale_items(mapping[scale])
+            println(io, "        $(_mapping_item_to_code(item)),")
+        end
+        println(io, "    ),")
+    end
+    print(io, ")")
+    return String(take!(io))
+end
+
+_scale_items(entry) = entry isa Tuple ? entry : (entry,)
+
+function _mapping_item_to_code(item)
+    if item isa PlantSimEngine.MultiScaleModel
+        model_code = repr(PlantSimEngine.model_(item))
+        mapped_code = _mapped_variables_to_code(PlantSimEngine.mapped_variables_(item))
+        return "MultiScaleModel(model=$(model_code), mapped_variables=$(mapped_code))"
+    end
+    return repr(item)
+end
+
+function _mapped_variables_to_code(mapped_variables)
+    isempty(mapped_variables) && return "[]"
+    return "[" * join((_mapped_variable_to_code(i) for i in mapped_variables), ", ") * "]"
+end
+
+function _mapped_variable_to_code(mapping)
+    lhs = first(mapping)
+    rhs = last(mapping)
+    lhs_code = _mapped_lhs_to_code(lhs)
+    variable = _mapped_variable_symbol(lhs)
+    rhs_code = _mapped_rhs_to_code(rhs, variable)
+    return "$(lhs_code) => $(rhs_code)"
+end
+
+_mapped_variable_symbol(variable::Symbol) = variable
+_mapped_variable_symbol(variable::PlantSimEngine.PreviousTimeStep) = variable.variable
+
+_mapped_lhs_to_code(variable::Symbol) = string(":", variable)
+_mapped_lhs_to_code(variable::PlantSimEngine.PreviousTimeStep) = "PreviousTimeStep(:$(variable.variable))"
+
+function _mapped_rhs_to_code(rhs::Pair{Symbol,Symbol}, variable::Symbol)
+    source_scale = first(rhs)
+    source_variable = last(rhs)
+    if source_scale == Symbol("")
+        return "(Symbol(\"\") => :$(source_variable))"
+    end
+    if source_variable == variable
+        return ":$(source_scale)"
+    end
+    return "(:$(source_scale) => :$(source_variable))"
+end
+
+function _mapped_rhs_to_code(rhs::AbstractVector{<:Pair{Symbol,Symbol}}, variable::Symbol)
+    compact = all(last(i) == variable for i in rhs)
+    if compact
+        return "[" * join((":" * string(first(i)) for i in rhs), ", ") * "]"
+    end
+    return "[" * join(("(:$(first(i)) => :$(last(i)))" for i in rhs), ", ") * "]"
+end
 
 end

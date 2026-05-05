@@ -223,7 +223,7 @@ function _cycle_edge_ids(edges::Vector{GraphEdge}, cycle_nodes::Vector{String})
     ids = String[]
     length(cycle_nodes) < 2 && return ids
     for i in 1:(length(cycle_nodes)-1)
-        source = cycle_nodes[i + 1]
+        source = cycle_nodes[i+1]
         target = cycle_nodes[i]
         for edge in edges
             edge.source == source && edge.target == target || continue
@@ -455,17 +455,19 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UnmarkPreviou
 end
 
 function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
-    haskey(mapping, edit.scale) || error("Cannot add model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     model = _construct_graph_edit_model(edit.model_type, edit.parameters)
     process_name = process(model)
-    any(existing -> process(existing) == process_name, get_models(mapping[edit.scale])) && error(
-        "Cannot add `$(typeof(model))` at scale `$(edit.scale)`: process `$process_name` already exists at this scale."
-    )
+    if haskey(mapping, edit.scale)
+        any(existing -> process(existing) == process_name, get_models(mapping[edit.scale])) && error(
+            "Cannot add `$(typeof(model))` at scale `$(edit.scale)`: process `$process_name` already exists at this scale."
+        )
+    end
 
     data = Dict{Symbol,Any}()
     for (scale, entry) in pairs(mapping)
         data[scale] = scale == edit.scale ? _insert_model_entry(entry, model) : entry
     end
+    haskey(data, edit.scale) || (data[edit.scale] = (model,))
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
@@ -597,8 +599,8 @@ function _set_mapped_variable_item(item, edit::SetMappedVariable, found::Base.Re
     )
     found[] = true
     source = edit.mode in (:multi, :multi_node, :vector) ?
-        [edit.source_scale => edit.source_variable] :
-        edit.source_scale => edit.source_variable
+             [edit.source_scale => edit.source_variable] :
+             edit.source_scale => edit.source_variable
     return ModelSpec(spec; multiscale=_set_mapping_item(spec.multiscale, edit.variable, source))
 end
 
