@@ -533,6 +533,11 @@ export default function App() {
                 nodeById={nodeById}
                 portById={portById}
                 onFocusEdge={focusEdge}
+                models={editorModels}
+                scales={editorScales}
+                onAddScale={addCustomScale}
+                onCommand={sendEditorCommand}
+                editorConnected={editorConnected}
               />
               <h3>Required Initializations</h3>
               <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} compact />
@@ -703,6 +708,11 @@ function InspectorDetails({
   nodeById,
   portById,
   onFocusEdge,
+  models,
+  scales,
+  onAddScale,
+  onCommand,
+  editorConnected,
 }: {
   selected: GraphNodeData | null;
   selectedEdge: GraphEdgeData | null;
@@ -713,6 +723,11 @@ function InspectorDetails({
   nodeById: Map<string, GraphNodeData>;
   portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
   onFocusEdge: (edge: GraphEdgeData) => void;
+  models: ModelDescriptor[];
+  scales: string[];
+  onAddScale: (scale: string) => void;
+  onCommand: (command: Record<string, unknown>) => void;
+  editorConnected: boolean;
 }) {
   return (
     <>
@@ -733,6 +748,17 @@ function InspectorDetails({
           {selected.inputs.filter((port) => port.previousTimeStep).map((port) => (
             <div className="edit-suggestion" key={port.id}><ScissorsLineDashed size={14} /> {port.name} uses previous timestep</div>
           ))}
+          {selected.role === "model" && (
+            <ExistingModelEditor
+              key={selected.id}
+              node={selected}
+              models={models}
+              scales={scales}
+              onAddScale={onAddScale}
+              onCommand={onCommand}
+              disabled={!editorConnected}
+            />
+          )}
         </div>
       ) : !selectedEdge ? (
         <div className="empty-state">Select a model node.</div>
@@ -832,6 +858,196 @@ function EdgeList({
 
 function Row({ label, value }: { label: string; value: string }) {
   return <div className="row"><span>{label}</span><strong>{value}</strong></div>;
+}
+
+function RateEditor({
+  mode,
+  dt,
+  phase,
+  defaultLabel,
+  onModeChange,
+  onDtChange,
+  onPhaseChange,
+}: {
+  mode: "default" | "clock";
+  dt: string;
+  phase: string;
+  defaultLabel: string;
+  onModeChange: (mode: "default" | "clock") => void;
+  onDtChange: (value: string) => void;
+  onPhaseChange: (value: string) => void;
+}) {
+  return (
+    <div className="rate-editor">
+      <label className="model-browser-control">
+        <span>Rate</span>
+        <select value={mode} onChange={(event) => onModeChange(event.target.value as "default" | "clock")}>
+          <option value="default">Default rate</option>
+          <option value="clock">Custom ClockSpec</option>
+        </select>
+      </label>
+      {mode === "default" ? (
+        <div className="rate-summary">Uses model default: {defaultLabel}</div>
+      ) : (
+        <div className="rate-clock-row">
+          <label>
+            <span>dt</span>
+            <input value={dt} onChange={(event) => onDtChange(event.target.value)} inputMode="decimal" />
+          </label>
+          <label>
+            <span>phase</span>
+            <input value={phase} onChange={(event) => onPhaseChange(event.target.value)} inputMode="decimal" />
+          </label>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ExistingModelEditor({
+  node,
+  models,
+  scales,
+  onAddScale,
+  onCommand,
+  disabled,
+}: {
+  node: GraphNodeData;
+  models: ModelDescriptor[];
+  scales: string[];
+  onAddScale: (scale: string) => void;
+  onCommand: (command: Record<string, unknown>) => void;
+  disabled: boolean;
+}) {
+  const matchingModels = useMemo(() => {
+    const sameProcess = models.filter((model) => model.process === node.process);
+    return sameProcess.length > 0 ? sameProcess : models;
+  }, [models, node.process]);
+  const initialModel = matchingModels.find((model) => model.name === node.modelType || model.type === node.modelType) ?? matchingModels[0];
+  const [modelType, setModelType] = useState(initialModel?.type ?? node.modelType);
+  const selectedModel = matchingModels.find((model) => model.type === modelType) ?? initialModel;
+  const [targetScale, setTargetScale] = useState(node.scale);
+  const [newScale, setNewScale] = useState("");
+  const initialValues = useMemo(() => {
+    if (!selectedModel) return {};
+    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
+      field.name,
+      node.modelParameters?.[field.name]?.value ?? parameterDefaultValue(field.default),
+    ]));
+  }, [node.modelParameters, selectedModel]);
+  const initialTypes = useMemo(() => {
+    if (!selectedModel) return {};
+    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
+      field.name,
+      node.modelParameters?.[field.name]?.type ?? field.inferredChoice,
+    ]));
+  }, [node.modelParameters, selectedModel]);
+  const [values, setValues] = useState<Record<string, string>>(initialValues);
+  const [types, setTypes] = useState<Record<string, string>>(initialTypes);
+  const initialTimestep = node.timestep ?? { mode: "default" as const, dt: "1.0", phase: "0.0" };
+  const [rateMode, setRateMode] = useState<"default" | "clock">(initialTimestep.mode === "clock" ? "clock" : "default");
+  const [rateDt, setRateDt] = useState(initialTimestep.dt ?? "1.0");
+  const [ratePhase, setRatePhase] = useState(initialTimestep.phase ?? "0.0");
+
+  useEffect(() => {
+    setValues(initialValues);
+    setTypes(initialTypes);
+  }, [initialTypes, initialValues]);
+
+  const setSharedType = useCallback((fieldName: string, nextType: string) => {
+    if (!selectedModel) return;
+    const field = selectedModel.constructor.fields.find((item) => item.name === fieldName);
+    const group = field?.typeParameter ? selectedModel.constructor.parameterGroups[field.typeParameter] ?? [fieldName] : [fieldName];
+    setTypes((current) => ({ ...current, ...Object.fromEntries(group.map((name) => [name, nextType])) }));
+  }, [selectedModel]);
+
+  const parameters = useCallback(() => {
+    if (!selectedModel) return {};
+    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
+      field.name,
+      { type: types[field.name] ?? field.inferredChoice, value: values[field.name] ?? "" },
+    ]));
+  }, [selectedModel, types, values]);
+
+  if (!selectedModel) return null;
+  const timestep = rateMode === "clock" ? { mode: "clock", dt: rateDt, phase: ratePhase } : { mode: "default" };
+
+  return (
+    <div className="existing-model-editor">
+      <h3>Edit Model</h3>
+      <label className="model-browser-control">
+        <span>Scale</span>
+        <select value={targetScale} onChange={(event) => setTargetScale(event.target.value)}>
+          {scales.map((scale) => <option key={scale} value={scale}>{scale}</option>)}
+        </select>
+      </label>
+      <label className="model-browser-control">
+        <span>New scale</span>
+        <div className="inline-field">
+          <input value={newScale} onChange={(event) => setNewScale(event.target.value)} placeholder="Leaf, Fruit, Soil" />
+          <button
+            className="metric-button"
+            onClick={() => {
+              onAddScale(newScale);
+              if (newScale.trim()) setTargetScale(newScale.trim());
+              setNewScale("");
+            }}
+          >
+            Add
+          </button>
+        </div>
+      </label>
+      <label className="model-browser-control">
+        <span>Model</span>
+        <select value={selectedModel.type} onChange={(event) => setModelType(event.target.value)}>
+          {matchingModels.map((model) => <option key={model.type} value={model.type}>{model.name}</option>)}
+        </select>
+      </label>
+      <RateEditor
+        mode={rateMode}
+        dt={rateDt}
+        phase={ratePhase}
+        defaultLabel={selectedModel.timespec ?? "default rate"}
+        onModeChange={setRateMode}
+        onDtChange={setRateDt}
+        onPhaseChange={setRatePhase}
+      />
+      {selectedModel.constructor.fields.map((field) => (
+        <div className="parameter-row" key={field.name}>
+          <label>{field.name}</label>
+          <input value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+          <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
+            {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+          </select>
+        </div>
+      ))}
+      <div className="row-with-actions">
+        <button
+          className="metric-button"
+          disabled={disabled}
+          onClick={() => onCommand({
+            action: "edit",
+            kind: "update_model",
+            scale: node.scale,
+            process: node.process,
+            targetScale,
+            modelType: selectedModel.type,
+            parameters: parameters(),
+            timestep,
+          })}
+        >
+          Update model
+        </button>
+        <button
+          className="metric-button danger"
+          disabled={disabled}
+          onClick={() => onCommand({ action: "edit", kind: "remove_model", scale: node.scale, process: node.process })}
+        >
+          Remove
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function MappingCodePanel({

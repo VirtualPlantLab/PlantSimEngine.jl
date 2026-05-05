@@ -34,6 +34,23 @@ using HTTP
     beer_model = first(m for m in models_after_replace if PlantSimEngine.process(m) == :light_interception)
     @test beer_model.k == 0.7
 
+    updated = PlantSimEngine.apply_graph_edit(
+        mapping_multiscale,
+        PlantSimEngine.UpdateModel(:Default, :light_interception, :Default, Beer, (k=0.8,), ClockSpec(3.0, 1.0)),
+    )
+    updated_spec = PlantSimEngine.parse_model_specs(updated[:Default])[:light_interception]
+    @test PlantSimEngine.model_(updated_spec).k == 0.8
+    @test PlantSimEngine.timestep(updated_spec) == ClockSpec(3.0, 1.0)
+
+    moved = PlantSimEngine.apply_graph_edit(
+        updated,
+        PlantSimEngine.UpdateModel(:Default, :light_interception, :Fruit, Beer, (k=0.9,), :default),
+    )
+    @test !haskey(PlantSimEngine.parse_model_specs(moved[:Default]), :light_interception)
+    moved_spec = PlantSimEngine.parse_model_specs(moved[:Fruit])[:light_interception]
+    @test PlantSimEngine.model_(moved_spec).k == 0.9
+    @test isnothing(PlantSimEngine.timestep(moved_spec))
+
     rated = PlantSimEngine.apply_graph_edit(
         mapping_multiscale,
         PlantSimEngine.AddModel(:Fruit, ToyLAIModel, NamedTuple(), ClockSpec(2.0, 1.0)),
@@ -74,6 +91,25 @@ end
             initial = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
             @test initial["ok"]
             @test haskey(initial, "graph")
+            node = only(item for item in initial["graph"]["nodes"] if item["process"] == "light_interception")
+            @test node["modelParameters"]["k"]["value"] == "0.5"
+
+            update_command = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "update_model",
+                "scale" => "Leaf",
+                "process" => "light_interception",
+                "targetScale" => "Leaf",
+                "modelType" => string(Beer),
+                "parameters" => Dict("k" => Dict("type" => "float", "value" => "0.8")),
+                "timestep" => Dict("mode" => "clock", "dt" => "3.0", "phase" => "1.0"),
+            ))
+            HTTP.WebSockets.send(ws, update_command)
+            updated = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test updated["ok"]
+            updated_spec = PlantSimEngine.parse_model_specs(current_mapping(session)[:Leaf])[:light_interception]
+            @test PlantSimEngine.model_(updated_spec).k == 0.8
+            @test PlantSimEngine.timestep(updated_spec) == ClockSpec(3.0, 1.0)
 
             command = PlantSimEngine.JSON.json(Dict(
                 "action" => "edit",

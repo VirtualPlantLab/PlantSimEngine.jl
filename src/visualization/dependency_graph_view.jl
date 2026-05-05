@@ -26,6 +26,8 @@ struct GraphNode
     model_type::String
     role::Symbol
     rate::String
+    model_parameters::Dict{String,Any}
+    timestep::Any
     inputs::Vector{GraphPort}
     outputs::Vector{GraphPort}
     own_output_ids::Vector{String}
@@ -73,8 +75,8 @@ end
 Abstract supertype for declarative dependency-graph editor commands.
 
 Concrete edits such as `AddModel`, `RemoveModel`, `ReplaceModel`,
-`SetMappedVariable`, `MarkPreviousTimeStep`, and `UnmarkPreviousTimeStep` are
-applied with `apply_graph_edit`.
+`UpdateModel`, `SetMappedVariable`, `MarkPreviousTimeStep`, and
+`UnmarkPreviousTimeStep` are applied with `apply_graph_edit`.
 """
 abstract type AbstractGraphEdit end
 
@@ -102,6 +104,15 @@ end
 
 ReplaceModel(scale::Symbol, process::Symbol, model_type::Type, parameters) =
     ReplaceModel(scale, process, model_type, parameters, nothing)
+
+struct UpdateModel{P,R} <: AbstractGraphEdit
+    scale::Symbol
+    process::Symbol
+    target_scale::Symbol
+    model_type::Type
+    parameters::P
+    timestep::R
+end
 
 struct SetMappedVariable <: AbstractGraphEdit
     scale::Symbol
@@ -223,10 +234,60 @@ function graph_view(graph::DependencyGraph, context=nothing; diagnostics::Vector
     cycle_nodes = cyclic ? [_model_node_id(last(pair), process(first(pair))) for pair in cycle_vec] : String[]
     cycle_edges = cyclic ? _cycle_edge_ids(edges, cycle_nodes) : String[]
     scales = sort!(unique([node.scale for node in nodes]); by=string)
-    return DependencyGraphView(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
+    return _dependency_graph_view(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
 end
 
-function _cycle_edge_ids(edges::Vector{GraphEdge}, cycle_nodes::Vector{String})
+function _dependency_graph_view(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
+    try
+        return Base.invokelatest(
+            DependencyGraphView,
+            _view_vector(fieldtype(DependencyGraphView, :nodes), nodes),
+            _view_vector(fieldtype(DependencyGraphView, :edges), edges),
+            scales,
+            cyclic,
+            cycle_nodes,
+            cycle_edges,
+            diagnostics,
+        )
+    catch err
+        err isa MethodError || rethrow()
+        return (;
+            nodes,
+            edges,
+            scales,
+            cyclic,
+            cycle_nodes,
+            cycle_edges,
+            diagnostics,
+        )
+    end
+end
+
+function _view_vector(::Type{Vector{T}}, items) where {T}
+    eltype(items) === T && return items
+    return T[_view_item(T, item) for item in items]
+end
+
+_view_vector(::Type, items) = items
+
+function _view_item(::Type{T}, item) where {T}
+    item isa T && return item
+    names = fieldnames(T)
+    values = map(enumerate(names)) do pair
+        index, name = pair
+        _view_field_value(fieldtype(T, index), getproperty(item, name))
+    end
+    return Base.invokelatest(T, values...)
+end
+
+function _view_field_value(::Type{Vector{T}}, value) where {T}
+    eltype(value) === T && return value
+    return T[_view_item(T, item) for item in value]
+end
+
+_view_field_value(::Type, value) = value
+
+function _cycle_edge_ids(edges, cycle_nodes::Vector{String})
     ids = String[]
     length(cycle_nodes) < 2 && return ids
     for i in 1:(length(cycle_nodes)-1)
@@ -240,7 +301,7 @@ function _cycle_edge_ids(edges::Vector{GraphEdge}, cycle_nodes::Vector{String})
     return unique(ids)
 end
 
-function _push_edge!(edges::Vector{GraphEdge}, edge_ids::Set{String}, edge::GraphEdge)
+function _push_edge!(edges, edge_ids::Set{String}, edge)
     edge.id in edge_ids && return edges
     push!(edges, edge)
     push!(edge_ids, edge.id)
@@ -263,7 +324,7 @@ function _hard_edge(parent::AbstractDependencyNode, child::HardDependencyNode, p
     )
 end
 
-function _add_hard_output_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode})
+function _add_hard_output_edges!(edges, edge_ids::Set{String}, nodes)
     computed_inputs = Set(edge.target_port for edge in edges if !isnothing(edge.target_port))
     hard_outputs = Dict{Tuple{Symbol,Symbol},Vector{Tuple{GraphNode,GraphPort}}}()
     for node in nodes
@@ -301,7 +362,7 @@ function _add_hard_output_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}
     return edges
 end
 
-function _add_spec_mapped_input_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode}, context)
+function _add_spec_mapped_input_edges!(edges, edge_ids::Set{String}, nodes, context)
     isnothing(context) && return edges
     computed_inputs = Set(edge.target_port for edge in edges if !isnothing(edge.target_port))
 
@@ -350,7 +411,7 @@ end
 _mapping_sources(source::Pair{Symbol,Symbol}) = (source,)
 _mapping_sources(sources::AbstractVector) = sources
 
-function _add_hard_input_edges!(edges::Vector{GraphEdge}, edge_ids::Set{String}, nodes::Vector{GraphNode})
+function _add_hard_input_edges!(edges, edge_ids::Set{String}, nodes)
     node_by_id = Dict(node.id => node for node in nodes)
     input_edge_by_target = Dict(edge.target_port => edge for edge in edges if !isnothing(edge.target_port))
     computed_inputs = Set(keys(input_edge_by_target))
@@ -396,7 +457,7 @@ function _find_port(ports::Vector{GraphPort}, name::Symbol)
     isnothing(index) ? nothing : ports[index]
 end
 
-function _find_output_port(nodes::Vector{GraphNode}, scale::Symbol, name::Symbol)
+function _find_output_port(nodes, scale::Symbol, name::Symbol)
     for node in nodes
         node.scale == scale || continue
         port = _find_port(node.outputs, name)
@@ -411,7 +472,7 @@ end
 
 Return the graph view as JSON for browser renderers.
 """
-graph_view_json(view::DependencyGraphView) = _json(_graph_view_dict(view))
+graph_view_json(view) = _json(_graph_view_dict(view))
 graph_view_json(mapping::ModelMapping; kwargs...) = graph_view_json(graph_view(mapping; kwargs...))
 graph_view_json(sim::GraphSimulation; kwargs...) = graph_view_json(graph_view(sim; kwargs...))
 
@@ -422,6 +483,14 @@ graph_view_json(sim::GraphSimulation; kwargs...) = graph_view_json(graph_view(si
 Write a standalone HTML dependency graph visualisation.
 """
 function write_graph_view(path::AbstractString, view::DependencyGraphView; renderer::Symbol=:react)
+    mkpath(dirname(abspath(path)))
+    open(path, "w") do io
+        write(io, _graph_view_html(view; renderer=renderer))
+    end
+    return abspath(path)
+end
+
+function write_graph_view(path::AbstractString, view; renderer::Symbol=:react)
     mkpath(dirname(abspath(path)))
     open(path, "w") do io
         write(io, _graph_view_html(view; renderer=renderer))
@@ -505,6 +574,42 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::ReplaceModel)
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
+function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UpdateModel)
+    haskey(mapping, edit.scale) || error("Cannot update model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    model = _construct_graph_edit_model(edit.model_type, edit.parameters)
+    process(model) == edit.process || error(
+        "Cannot update process `$(edit.process)` with `$(typeof(model))`: replacement model implements process `$(process(model))`."
+    )
+
+    if edit.target_scale != edit.scale && haskey(mapping, edit.target_scale)
+        any(existing -> process(existing) == edit.process, get_models(mapping[edit.target_scale])) && error(
+            "Cannot move process `$(edit.process)` to scale `$(edit.target_scale)`: that process already exists at the target scale."
+        )
+    end
+
+    found = Ref(false)
+    moved_item = Ref{Any}()
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        if scale == edit.scale
+            data[scale] = _remove_updated_model_entry(entry, edit.process, model, edit.timestep, found, moved_item)
+        else
+            data[scale] = entry
+        end
+    end
+    found[] || error("Cannot update model: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
+
+    if edit.target_scale == edit.scale
+        data[edit.scale] = _insert_model_entry(data[edit.scale], moved_item[])
+    elseif haskey(data, edit.target_scale)
+        data[edit.target_scale] = _insert_model_entry(data[edit.target_scale], moved_item[])
+    else
+        data[edit.target_scale] = (moved_item[],)
+    end
+
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
 function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::SetMappedVariable)
     haskey(mapping, edit.scale) || error("Cannot set mapping: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     found = Ref(false)
@@ -541,6 +646,7 @@ _construct_graph_edit_model(model_type::Type, parameters::AbstractDict) =
     _construct_graph_edit_model(model_type, (; (Symbol(k) => v for (k, v) in pairs(parameters))...))
 
 _graph_edit_model_item(model, timestep::Nothing) = model
+_graph_edit_model_item(model, timestep::Symbol) = timestep === :default ? model : (ModelSpec(model) |> TimeStepModel(timestep))
 _graph_edit_model_item(model, timestep) = ModelSpec(model) |> TimeStepModel(timestep)
 
 function _insert_model_entry(entry::Tuple, model)
@@ -590,6 +696,29 @@ function _replace_model_item(item, process_name::Symbol, model, timestep, found:
     process(model_(spec)) == process_name || return item
     found[] = true
     isnothing(timestep) && return ModelSpec(spec; model=model)
+    timestep === :default && return ModelSpec(spec; model=model, timestep=nothing)
+    return ModelSpec(spec; model=model, timestep=timestep)
+end
+
+function _remove_updated_model_entry(entry::Tuple, process_name::Symbol, model, timestep, found::Base.RefValue{Bool}, moved_item::Base.RefValue)
+    items = Any[]
+    for item in entry
+        if !(item isa Status) && process(model_(as_model_spec(item))) == process_name
+            found[] = true
+            moved_item[] = _updated_model_spec(as_model_spec(item), model, timestep)
+            continue
+        end
+        push!(items, item)
+    end
+    return tuple(items...)
+end
+
+_remove_updated_model_entry(entry, process_name::Symbol, model, timestep, found::Base.RefValue{Bool}, moved_item::Base.RefValue) =
+    _remove_updated_model_entry((entry,), process_name, model, timestep, found, moved_item)
+
+function _updated_model_spec(spec::ModelSpec, model, timestep)
+    isnothing(timestep) && return ModelSpec(spec; model=model)
+    timestep === :default && return ModelSpec(spec; model=model, timestep=nothing)
     return ModelSpec(spec; model=model, timestep=timestep)
 end
 
@@ -725,6 +854,8 @@ function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
                 _type_label(typeof(model)),
                 :model,
                 _rate_label(spec),
+                _model_parameters(model),
+                _timestep_payload(timestep(spec)),
                 _ports(id, :input, inputs_(model)),
                 _ports(id, :output, outputs_(model)),
                 [_port_id(id, :output, name) for name in keys(outputs_(model))],
@@ -736,7 +867,7 @@ function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
     scales = sort!(unique([node.scale for node in nodes]); by=string)
     cyclic = any(occursin.("Cyclic", diagnostics))
     cycle_nodes = cyclic ? [node.id for node in nodes] : String[]
-    return DependencyGraphView(nodes, GraphEdge[], scales, cyclic, cycle_nodes, String[], diagnostics)
+    return _dependency_graph_view(nodes, GraphEdge[], scales, cyclic, cycle_nodes, String[], diagnostics)
 end
 
 function _graph_node(node::AbstractDependencyNode, id::String, context, node_ids)
@@ -751,6 +882,8 @@ function _graph_node(node::AbstractDependencyNode, id::String, context, node_ids
         _type_label(typeof(node.value)),
         role,
         rate,
+        _model_parameters(node.value),
+        isnothing(spec) ? _timestep_payload(nothing) : _timestep_payload(timestep(spec)),
         _ports(id, :input, _flatten_node_vars(node.inputs)),
         _ports(id, :output, _flatten_node_vars(node.outputs)),
         _own_output_ids(node, id),
@@ -895,6 +1028,36 @@ function _rate_label(model::AbstractModel)
     return ts == ClockSpec(1.0, 0.0) ? "default rate" : string("model timespec: ", ts)
 end
 
+function _model_parameters(model)
+    fields = fieldnames(Base.unwrap_unionall(typeof(model)))
+    return Dict(string(name) => _parameter_payload(getfield(model, name)) for name in fields)
+end
+
+function _parameter_payload(value)
+    return Dict(
+        "value" => _parameter_value_string(value),
+        "type" => _parameter_choice(value),
+    )
+end
+
+_parameter_value_string(value::Symbol) = string(value)
+_parameter_value_string(value::AbstractString) = value
+_parameter_value_string(value) = string(value)
+
+_parameter_choice(value::Bool) = "boolean"
+_parameter_choice(value::AbstractFloat) = "float"
+_parameter_choice(value::Integer) = "integer"
+_parameter_choice(value::Symbol) = "symbol"
+_parameter_choice(value::AbstractString) = "string"
+_parameter_choice(value::Nothing) = "nothing"
+_parameter_choice(value) = "julia"
+
+_timestep_payload(::Nothing) = Dict("mode" => "default", "dt" => "1.0", "phase" => "0.0")
+function _timestep_payload(clock::ClockSpec)
+    return Dict("mode" => "clock", "dt" => string(clock.dt), "phase" => string(clock.phase))
+end
+_timestep_payload(value) = Dict("mode" => "julia", "value" => string(value))
+
 _mapping_mode(value) = nothing
 _mapping_mode(value::MappedVar{SingleNodeMapping}) = "single-node"
 _mapping_mode(value::MappedVar{MultiNodeMapping}) = "multi-node"
@@ -928,7 +1091,7 @@ function _short_value(value)
     return string(typeof(value))
 end
 
-function _graph_view_dict(view::DependencyGraphView)
+function _graph_view_dict(view)
     return Dict(
         "nodes" => [_node_dict(node) for node in view.nodes],
         "edges" => [_edge_dict(edge) for edge in view.edges],
@@ -940,7 +1103,7 @@ function _graph_view_dict(view::DependencyGraphView)
     )
 end
 
-function _node_dict(node::GraphNode)
+function _node_dict(node)
     return Dict(
         "id" => node.id,
         "process" => string(node.process),
@@ -948,6 +1111,8 @@ function _node_dict(node::GraphNode)
         "modelType" => node.model_type,
         "role" => string(node.role),
         "rate" => node.rate,
+        "modelParameters" => _property_or(node, :model_parameters, Dict{String,Any}()),
+        "timestep" => _property_or(node, :timestep, _timestep_payload(nothing)),
         "inputs" => [_port_dict(port) for port in node.inputs],
         "outputs" => [_port_dict(port) for port in node.outputs],
         "ownOutputIds" => node.own_output_ids,
@@ -956,7 +1121,11 @@ function _node_dict(node::GraphNode)
     )
 end
 
-function _port_dict(port::GraphPort)
+function _property_or(item, name::Symbol, default)
+    return name in fieldnames(typeof(item)) ? getfield(item, name) : default
+end
+
+function _port_dict(port)
     return Dict(
         "id" => port.id,
         "name" => string(port.name),
@@ -969,7 +1138,7 @@ function _port_dict(port::GraphPort)
     )
 end
 
-function _edge_dict(edge::GraphEdge)
+function _edge_dict(edge)
     return Dict(
         "id" => edge.id,
         "source" => edge.source,
@@ -987,7 +1156,7 @@ end
 
 _json(value) = replace(JSON.json(value), "</" => "<\\/")
 
-function _graph_view_html(view::DependencyGraphView; renderer::Symbol=:react)
+function _graph_view_html(view; renderer::Symbol=:react)
     if renderer == :react
         react_html = _react_graph_view_html(view)
         isnothing(react_html) || return react_html
@@ -997,7 +1166,7 @@ function _graph_view_html(view::DependencyGraphView; renderer::Symbol=:react)
     return _standalone_graph_view_html(view)
 end
 
-function _react_graph_view_html(view::DependencyGraphView)
+function _react_graph_view_html(view)
     assets_dir = _react_graph_viewer_assets_dir()
     manifest_path = joinpath(assets_dir, ".vite", "manifest.json")
     isfile(manifest_path) || return nothing
@@ -1073,7 +1242,7 @@ function _vite_entry(manifest)
     return get(manifest, "index.html", nothing)
 end
 
-function _standalone_graph_view_html(view::DependencyGraphView)
+function _standalone_graph_view_html(view)
     json = graph_view_json(view)
     html = raw"""
 <!doctype html>

@@ -59,6 +59,7 @@ The web editor also exposes a dedicated "Mapping code" panel. It shows the curre
 The editor extension currently supports the same edit operations as the Julia API:
 
 - add, remove, and replace a model at a scale;
+- update an existing model's parameter values, scale, or rate from the inspector;
 - keep the model default rate, or set a custom `ClockSpec(dt, phase)` when adding a model;
 - set a mapped input variable;
 - mark or unmark a variable as [`PreviousTimeStep`](@ref);

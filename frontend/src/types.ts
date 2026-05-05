@@ -16,6 +16,8 @@ export type GraphNodeData = {
   modelType: string;
   role: "model" | "hard_dependency";
   rate: string;
+  modelParameters?: Record<string, { value: string; type: string }>;
+  timestep?: { mode: "default" | "clock" | "julia"; dt?: string; phase?: string; value?: string };
   inputs: GraphPort[];
   outputs: GraphPort[];
   ownOutputIds?: string[];

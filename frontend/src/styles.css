@@ -1344,6 +1344,14 @@ h1 {
   font-size: 11px;
 }
 
+.existing-model-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(183, 166, 150, 0.32);
+}
+
 .parameter-row {
   display: grid;
   grid-template-columns: minmax(0, 0.75fr) minmax(0, 1fr) minmax(78px, 0.8fr);
@@ -1396,6 +1404,12 @@ h1 {
   color: var(--ink);
   font: inherit;
   padding: 0 7px;
+}
+
+.metric-button.danger {
+  border-color: rgba(191, 106, 84, 0.42);
+  color: #9b3f2e;
+  background: rgba(255, 242, 236, 0.86);
 }
 
 @media (max-width: 900px) {

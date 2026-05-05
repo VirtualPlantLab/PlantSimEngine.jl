@@ -165,16 +165,34 @@ function _normalize_to_multiscale(mapping::PlantSimEngine.ModelMapping{PlantSimE
 end
 
 function _handle_websocket(session::GraphEditorSession, ws)
-    HTTP.WebSockets.send(ws, _state_json(session))
+    _websocket_send(ws, _state_json(session)) || return nothing
     try
         for message in ws
             command = JSON.parse(String(message))
             response = _handle_command!(session, command)
-            HTTP.WebSockets.send(ws, JSON.json(response))
+            _websocket_send(ws, JSON.json(response)) || return nothing
         end
     catch err
-        HTTP.WebSockets.send(ws, JSON.json(_error_payload(err)))
+        _is_websocket_close_error(err) && return nothing
+        _websocket_send(ws, JSON.json(_error_payload(err)))
     end
+    return nothing
+end
+
+function _websocket_send(ws, payload::AbstractString)
+    try
+        HTTP.WebSockets.send(ws, payload)
+        return true
+    catch err
+        _is_websocket_close_error(err) && return false
+        rethrow()
+    end
+end
+
+function _is_websocket_close_error(err)
+    err isa EOFError && return true
+    err isa Base.IOError && return true
+    return false
 end
 
 function _handle_command!(session::GraphEditorSession, command)
@@ -215,6 +233,19 @@ function _edit_from_command(command)
         Symbol(command["scale"]),
         Symbol(command["process"]),
     )
+    if kind == "update_model"
+        model_type = _resolve_model_type(command["modelType"])
+        parameters = _parameters_from_command(get(command, "parameters", Dict()))
+        timestep = _timestep_from_command(get(command, "timestep", nothing); default_sentinel=true)
+        return PlantSimEngine.UpdateModel(
+            Symbol(command["scale"]),
+            Symbol(command["process"]),
+            Symbol(get(command, "targetScale", command["scale"])),
+            model_type,
+            parameters,
+            timestep,
+        )
+    end
     kind == "set_mapped_variable" && return PlantSimEngine.SetMappedVariable(
         Symbol(command["scale"]),
         Symbol(command["process"]),
@@ -235,11 +266,11 @@ function _edit_from_command(command)
     error("Unsupported graph edit kind `$kind`.")
 end
 
-function _timestep_from_command(timestep)
+function _timestep_from_command(timestep; default_sentinel::Bool=false)
     isnothing(timestep) && return nothing
     timestep isa AbstractDict || error("Unsupported timestep payload `$(timestep)`.")
     mode = String(get(timestep, "mode", "default"))
-    mode == "default" && return nothing
+    mode == "default" && return (default_sentinel ? :default : nothing)
     mode == "clock" || error("Unsupported timestep mode `$mode`. Use `default` or `clock`.")
     dt = _parse_real(get(timestep, "dt", "1.0"))
     phase = _parse_real(get(timestep, "phase", "0.0"))
