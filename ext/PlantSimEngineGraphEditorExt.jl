@@ -418,11 +418,16 @@ end
 
 function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
     io = IOBuffer()
+    required_status_variables = _required_status_variables(mapping)
     println(io, "mapping = ModelMapping(")
     for scale in keys(mapping)
         println(io, "    :$(scale) => (")
-        for item in _scale_items(mapping[scale])
-            println(io, "        $(_mapping_item_to_code(item)),")
+        items = _scale_items(mapping[scale])
+        required = get(required_status_variables, scale, Set{Symbol}())
+        for item in items
+            code = _mapping_item_to_code(item, required)
+            isnothing(code) && continue
+            println(io, "        $(code),")
         end
         println(io, "    ),")
     end
@@ -432,11 +437,55 @@ end
 
 _scale_items(entry) = entry isa Tuple ? entry : (entry,)
 
-function _mapping_item_to_code(item)
+function _required_status_variables(mapping::PlantSimEngine.ModelMapping)
+    stripped = Dict{Symbol,Any}()
+    status_only_scales = Set{Symbol}()
+    for scale in keys(mapping)
+        items = [item for item in _scale_items(mapping[scale]) if !(item isa PlantSimEngine.Status)]
+        if isempty(items)
+            push!(status_only_scales, scale)
+        else
+            stripped[scale] = tuple(items...)
+        end
+    end
+
+    required = isempty(stripped) ?
+               Dict{Symbol,Vector{Symbol}}() :
+               PlantSimEngine.to_initialize(PlantSimEngine.ModelMapping(stripped; check=true, type_promotion=PlantSimEngine.type_promotion(mapping)))
+
+    required_by_scale = Dict{Symbol,Set{Symbol}}(
+        scale => Set{Symbol}(variables)
+        for (scale, variables) in pairs(required)
+    )
+    for scale in status_only_scales
+        required_by_scale[scale] = Set{Symbol}()
+        for item in _scale_items(mapping[scale])
+            item isa PlantSimEngine.Status || continue
+            union!(required_by_scale[scale], keys(item))
+        end
+    end
+    return required_by_scale
+end
+
+function _mapping_item_to_code(item, required_status_variables=nothing)
+    if item isa PlantSimEngine.Status
+        return _status_to_code(item, required_status_variables)
+    end
     if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
         return _model_spec_to_code(PlantSimEngine.as_model_spec(item))
     end
     return repr(item)
+end
+
+function _status_to_code(status::PlantSimEngine.Status, required_variables)
+    isnothing(required_variables) && (required_variables = Set{Symbol}(keys(status)))
+    kept = Pair{Symbol,Any}[
+        name => status[name]
+        for name in keys(status)
+        if name in required_variables
+    ]
+    isempty(kept) && return nothing
+    return "Status(" * join(("$(first(item)) = $(repr(last(item)))" for item in kept), ", ") * ")"
 end
 
 function _model_spec_to_code(spec::PlantSimEngine.ModelSpec)

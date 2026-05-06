@@ -85,6 +85,8 @@ end
         @test haskey(state, "models")
         @test haskey(state, "mappingCode")
         @test occursin("ModelMapping", state["mappingCode"])
+        @test occursin("Status(TT_cu = 1.0)", state["mappingCode"])
+        @test !occursin("LAI = 2.0", state["mappingCode"])
 
         websocket_url = replace(session.url, "http://" => "ws://") * "/ws"
         HTTP.WebSockets.open(websocket_url) do ws
@@ -167,6 +169,7 @@ end
             HTTP.WebSockets.send(ws, set_mapped_tt)
             mapped_tt = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
             @test mapped_tt["ok"]
+            @test !occursin("TT_cu = 1.0", mapped_tt["mappingCode"])
             lai_spec = PlantSimEngine.parse_model_specs(current_mapping(session)[:Leaf])[:LAI_Dynamic]
             @test first(PlantSimEngine.mapped_variables_(lai_spec)) == (:TT_cu => (:Plant => :TT_cu))
             @test any(
@@ -187,7 +190,10 @@ end
             @test saved["ok"]
             @test saved["lastSavedPath"] == output_path
             @test isfile(output_path)
-            @test occursin("mapping = ModelMapping", read(output_path, String))
+            saved_code = read(output_path, String)
+            @test occursin("mapping = ModelMapping", saved_code)
+            @test !occursin("LAI = 2.0", saved_code)
+            @test !occursin("TT_cu = 1.0", saved_code)
         end
     finally
         close(session)
