@@ -29,13 +29,13 @@ import { DependencyEdge } from "./DependencyEdge";
 import { ModelNode } from "./ModelNode";
 import { layoutGraph, type LayoutMode } from "./layout";
 import { sampleGraph } from "./sampleGraph";
-import type { DependencyGraphView, GraphEdgeData, GraphEditorState, GraphNodeData, GraphPort, ModelDescriptor, RuntimeGraphNodeData } from "./types";
+import type { DependencyGraphView, GraphEdgeData, GraphEditorState, GraphNodeData, GraphPort, InitializationDescriptor, ModelDescriptor, RuntimeGraphNodeData } from "./types";
 import "./styles.css";
 
 type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
 type EdgeFilters = Record<EdgeFilterKey, boolean>;
 type FocusMode = "none" | "upstream" | "downstream" | "neighborhood";
-type SidePanel = "inspector" | "add_model" | "mapping_code" | null;
+type SidePanel = "inspector" | "add_model" | "initializations" | "mapping_code" | null;
 
 type PendingMappingConnection = {
   sourceNode: GraphNodeData;
@@ -119,6 +119,8 @@ const layoutLabels: Record<LayoutMode, string> = {
   call_stack: "Call stack",
 };
 
+const valueTypeChoices = ["float", "integer", "boolean", "symbol", "string", "nothing", "julia"];
+
 export default function App() {
   const [graph, setGraph] = useState<DependencyGraphView>(loadInitialGraph());
   const [editorModels, setEditorModels] = useState<ModelDescriptor[]>([]);
@@ -128,6 +130,7 @@ export default function App() {
   const [canRedo, setCanRedo] = useState(false);
   const [activePanel, setActivePanel] = useState<SidePanel>("inspector");
   const [mappingCode, setMappingCode] = useState("");
+  const [initializations, setInitializations] = useState<InitializationDescriptor[]>([]);
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
   const [editorFeedback, setEditorFeedback] = useState<{ kind: "error" | "info"; text: string } | null>(null);
   const [savePath, setSavePath] = useState("mapping.generated.jl");
@@ -222,6 +225,7 @@ export default function App() {
       if (payload.graph) setGraph(payload.graph);
       if (payload.models) setEditorModels(payload.models);
       if (typeof payload.mappingCode === "string") setMappingCode(payload.mappingCode);
+      if (Array.isArray(payload.initializations)) setInitializations(payload.initializations);
       if (typeof payload.lastSavedPath === "string") setLastSavedPath(payload.lastSavedPath);
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
@@ -511,6 +515,7 @@ export default function App() {
           <div className="toolbar-group panel-switch">
             <button className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
             <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={() => togglePanel("add_model")}>Add model</button>
+            <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
             <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
           </div>
 
@@ -650,6 +655,20 @@ export default function App() {
                   disabled={!editorConnected}
                 />
               ) : <div className="empty-state">No model type is available.</div>}
+            </>
+          )}
+
+          {activePanel === "initializations" && (
+            <>
+              <header>
+                <GitPullRequestArrow size={19} />
+                <h2>Initializations</h2>
+              </header>
+              <InitializationPanel
+                initializations={initializations}
+                disabled={!editorConnected}
+                onCommand={sendEditorCommand}
+              />
             </>
           )}
 
@@ -1438,6 +1457,94 @@ function VariableMappingEditor({
           <button className="metric-button" disabled={disabled || !selected} onClick={apply}>Apply mapping</button>
         </>
       )}
+    </div>
+  );
+}
+
+function InitializationPanel({
+  initializations,
+  disabled,
+  onCommand,
+}: {
+  initializations: InitializationDescriptor[];
+  disabled: boolean;
+  onCommand: (command: Record<string, unknown>) => void;
+}) {
+  const grouped = useMemo(() => {
+    const groups = new Map<string, InitializationDescriptor[]>();
+    for (const item of initializations) {
+      const group = groups.get(item.scale) ?? [];
+      group.push(item);
+      groups.set(item.scale, group);
+    }
+    return groups;
+  }, [initializations]);
+
+  if (initializations.length === 0) {
+    return <div className="empty-state">No explicit status initialization is required by the current ModelMapping.</div>;
+  }
+
+  return (
+    <div className="initialization-editor">
+      {[...grouped.entries()].map(([scale, items]) => (
+        <section className="initialization-editor-group" key={scale}>
+          <h3>{scale}</h3>
+          {items.map((item) => (
+            <InitializationRow
+              key={`${item.scale}:${item.name}`}
+              item={item}
+              disabled={disabled}
+              onCommand={onCommand}
+            />
+          ))}
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function InitializationRow({
+  item,
+  disabled,
+  onCommand,
+}: {
+  item: InitializationDescriptor;
+  disabled: boolean;
+  onCommand: (command: Record<string, unknown>) => void;
+}) {
+  const [value, setValue] = useState(item.value);
+  const [type, setType] = useState(item.type);
+
+  useEffect(() => {
+    setValue(item.value);
+    setType(item.type);
+  }, [item]);
+
+  return (
+    <div className={`initialization-editor-row ${item.provided ? "provided" : ""}`}>
+      <label>{item.name}</label>
+      <input
+        value={value}
+        onChange={(event) => setValue(event.target.value)}
+        placeholder={item.provided ? "" : "initial value"}
+      />
+      <select value={type} onChange={(event) => setType(event.target.value)}>
+        {valueTypeChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
+      </select>
+      <button
+        className="metric-button"
+        disabled={disabled}
+        onClick={() => onCommand({
+          action: "edit",
+          kind: "set_initialization",
+          scale: item.scale,
+          variable: item.name,
+          value: { type, value },
+        })}
+      >
+        Apply
+      </button>
+      <small>{item.provided ? "Stored in Status" : "Missing from Status"}</small>
     </div>
   );
 }

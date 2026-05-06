@@ -89,6 +89,10 @@ end
         @test occursin("ModelMapping", state["mappingCode"])
         @test occursin("Status(TT_cu = 1.0)", state["mappingCode"])
         @test !occursin("LAI = 2.0", state["mappingCode"])
+        @test haskey(state, "initializations")
+        initial_tt = only(item for item in state["initializations"] if item["scale"] == "Leaf" && item["name"] == "TT_cu")
+        @test initial_tt["provided"]
+        @test initial_tt["value"] == "1.0"
 
         websocket_url = replace(session.url, "http://" => "ws://") * "/ws"
         HTTP.WebSockets.open(websocket_url) do ws
@@ -97,6 +101,20 @@ end
             @test haskey(initial, "graph")
             node = only(item for item in initial["graph"]["nodes"] if item["process"] == "light_interception")
             @test node["modelParameters"]["k"]["value"] == "0.5"
+
+            init_command = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "set_initialization",
+                "scale" => "Leaf",
+                "variable" => "TT_cu",
+                "value" => Dict("type" => "float", "value" => "2.5"),
+            ))
+            HTTP.WebSockets.send(ws, init_command)
+            initialized = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test initialized["ok"]
+            leaf_status = only(item for item in current_mapping(session)[:Leaf] if item isa Status)
+            @test leaf_status[:TT_cu] == 2.5
+            @test occursin("Status(TT_cu = 2.5)", initialized["mappingCode"])
 
             update_command = PlantSimEngine.JSON.json(Dict(
                 "action" => "edit",

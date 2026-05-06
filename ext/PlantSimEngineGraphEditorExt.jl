@@ -255,6 +255,11 @@ function _edit_from_command(command)
         Symbol(get(command, "mode", "single")),
         Symbol.(get(command, "extraSourceScales", [])),
     )
+    kind == "set_initialization" && return PlantSimEngine.SetStatusVariable(
+        Symbol(command["scale"]),
+        Symbol(command["variable"]),
+        _parse_parameter_value(get(command, "value", Dict("type" => "julia", "value" => "nothing"))),
+    )
     if kind in ("add_model", "replace_model")
         model_type = _resolve_model_type(command["modelType"])
         parameters = _parameters_from_command(get(command, "parameters", Dict()))
@@ -323,6 +328,7 @@ function _state_payload(session::GraphEditorSession; ok::Bool=true, diagnostics:
         "canRedo" => !isempty(session.future),
         "url" => session.url,
         "mappingCode" => current_mapping_code(session),
+        "initializations" => _initialization_payload(session.mapping),
         "lastSavedPath" => session.last_saved_path,
     )
 end
@@ -415,6 +421,49 @@ function _write_mapping_code!(session::GraphEditorSession, raw_path::AbstractStr
     session.last_saved_path = full_path
     return full_path
 end
+
+function _initialization_payload(mapping::PlantSimEngine.ModelMapping)
+    required_by_scale = _required_status_variables(mapping)
+    payload = Any[]
+    for scale in sort!(collect(keys(required_by_scale)); by=string)
+        status = _scale_status(mapping, scale)
+        for variable in sort!(collect(required_by_scale[scale]); by=string)
+            value_payload = isnothing(status) || !(variable in keys(status)) ?
+                            _status_value_payload(nothing; provided=false) :
+                            _status_value_payload(status[variable]; provided=true)
+            push!(payload, merge(Dict(
+                "scale" => string(scale),
+                "name" => string(variable),
+            ), value_payload))
+        end
+    end
+    return payload
+end
+
+function _scale_status(mapping::PlantSimEngine.ModelMapping, scale::Symbol)
+    haskey(mapping, scale) || return nothing
+    for item in _scale_items(mapping[scale])
+        item isa PlantSimEngine.Status && return item
+    end
+    return nothing
+end
+
+function _status_value_payload(value; provided::Bool)
+    choice, label = _status_value_choice(value, provided)
+    return Dict(
+        "value" => label,
+        "type" => choice,
+        "provided" => provided,
+    )
+end
+
+_status_value_choice(::Nothing, provided::Bool) = provided ? ("nothing", "") : ("julia", "")
+_status_value_choice(value::Bool, ::Bool) = ("boolean", string(value))
+_status_value_choice(value::Integer, ::Bool) = ("integer", string(value))
+_status_value_choice(value::AbstractFloat, ::Bool) = ("float", string(value))
+_status_value_choice(value::Symbol, ::Bool) = ("symbol", string(value))
+_status_value_choice(value::AbstractString, ::Bool) = ("string", String(value))
+_status_value_choice(value, ::Bool) = ("julia", repr(value))
 
 function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
     io = IOBuffer()

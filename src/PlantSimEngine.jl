@@ -149,7 +149,7 @@ export GraphPort, GraphNode, GraphEdge, DependencyGraphView
 export graph_view, graph_view_json, write_graph_view, compile_graph_view
 export AbstractGraphEditorSession, edit_graph, current_mapping, apply_edit!, undo!, redo!
 export available_processes, available_models, model_descriptor, model_constructor_descriptor
-export AbstractGraphEdit, AddModel, RemoveModel, ReplaceModel, UpdateModel, SetMappedVariable, MarkPreviousTimeStep, UnmarkPreviousTimeStep, apply_graph_edit
+export AbstractGraphEdit, AddModel, RemoveModel, ReplaceModel, UpdateModel, SetMappedVariable, SetStatusVariable, MarkPreviousTimeStep, UnmarkPreviousTimeStep, apply_graph_edit
 
 # Re-exporting PlantMeteo main functions:
 export Atmosphere, TimeStepTable, Constants, Weather

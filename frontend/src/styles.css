@@ -1478,6 +1478,65 @@ h1 {
   font-weight: 700;
 }
 
+.initialization-editor {
+  display: grid;
+  gap: 12px;
+}
+
+.initialization-editor-group {
+  display: grid;
+  gap: 8px;
+}
+
+.initialization-editor-group h3 {
+  margin: 0;
+}
+
+.initialization-editor-row {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1fr) minmax(82px, 0.72fr) auto;
+  gap: 7px;
+  align-items: center;
+  padding: 9px;
+  border: 1px solid rgba(191, 106, 84, 0.26);
+  border-left: 4px solid var(--clay);
+  border-radius: 8px;
+  background: rgba(255, 250, 242, 0.78);
+}
+
+.initialization-editor-row.provided {
+  border-color: rgba(31, 122, 83, 0.24);
+  border-left-color: var(--accent);
+}
+
+.initialization-editor-row label {
+  overflow-wrap: anywhere;
+  font-weight: 700;
+}
+
+.initialization-editor-row input,
+.initialization-editor-row select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid rgba(183, 166, 150, 0.44);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.78);
+  color: var(--ink);
+  font: inherit;
+}
+
+.initialization-editor-row input {
+  padding: 0 8px;
+}
+
+.initialization-editor-row small {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
 .parameter-row {
   display: grid;
   grid-template-columns: minmax(0, 0.75fr) minmax(0, 1fr) minmax(78px, 0.8fr);

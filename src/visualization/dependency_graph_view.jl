@@ -75,8 +75,9 @@ end
 Abstract supertype for declarative dependency-graph editor commands.
 
 Concrete edits such as `AddModel`, `RemoveModel`, `ReplaceModel`,
-`UpdateModel`, `SetMappedVariable`, `MarkPreviousTimeStep`, and
-`UnmarkPreviousTimeStep` are applied with `apply_graph_edit`.
+`UpdateModel`, `SetMappedVariable`, `SetStatusVariable`,
+`MarkPreviousTimeStep`, and `UnmarkPreviousTimeStep` are applied with
+`apply_graph_edit`.
 """
 abstract type AbstractGraphEdit end
 
@@ -127,6 +128,12 @@ end
 # Backward-compatible constructor without extra_source_scales
 SetMappedVariable(scale, process, variable, source_scale, source_variable, mode) =
     SetMappedVariable(scale, process, variable, source_scale, source_variable, mode, Symbol[])
+
+struct SetStatusVariable{V} <: AbstractGraphEdit
+    scale::Symbol
+    variable::Symbol
+    value::V
+end
 
 """
     MarkPreviousTimeStep(scale, process, variable)
@@ -626,6 +633,15 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::SetMapp
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::SetStatusVariable)
+    haskey(mapping, edit.scale) || error("Cannot set initialization: scale `$(edit.scale)` is not present in the `ModelMapping`.")
+    data = Dict{Symbol,Any}()
+    for (scale, entry) in pairs(mapping)
+        data[scale] = scale == edit.scale ? _set_status_variable_entry(entry, edit) : entry
+    end
+    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+end
+
 function apply_graph_edit(mapping::ModelMapping, edit::AbstractGraphEdit)
     error("Graph edit `$(typeof(edit))` is not supported for `$(typeof(mapping))`.")
 end
@@ -669,6 +685,35 @@ function _insert_model_entry(entry::Tuple, model)
 end
 
 _insert_model_entry(entry, model) = _insert_model_entry((entry,), model)
+
+function _set_status_variable_entry(entry::Tuple, edit::SetStatusVariable)
+    items = Any[]
+    updated = false
+    for item in entry
+        if item isa Status
+            push!(items, _set_status_variable_item(item, edit))
+            updated = true
+        else
+            push!(items, item)
+        end
+    end
+    updated || push!(items, _status_variable_item(edit.variable, edit.value))
+    return tuple(items...)
+end
+
+_set_status_variable_entry(entry, edit::SetStatusVariable) =
+    _set_status_variable_entry((entry,), edit)
+
+_status_variable_item(variable::Symbol, value) = Status(NamedTuple{Tuple([variable])}((value,)))
+
+function _set_status_variable_item(status::Status, edit::SetStatusVariable)
+    pairs = Pair{Symbol,Any}[
+        name => (name == edit.variable ? edit.value : status[name])
+        for name in keys(status)
+    ]
+    edit.variable in keys(status) || push!(pairs, edit.variable => edit.value)
+    return Status((; pairs...))
+end
 
 function _remove_model_entry(entry::Tuple, process_name::Symbol, found::Base.RefValue{Bool})
     items = Any[]

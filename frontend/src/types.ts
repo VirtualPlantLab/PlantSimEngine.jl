@@ -91,6 +91,14 @@ export type ModelDescriptor = {
   };
 };
 
+export type InitializationDescriptor = {
+  scale: string;
+  name: string;
+  value: string;
+  type: string;
+  provided: boolean;
+};
+
 export type GraphEditorState = {
   ok: boolean;
   diagnostics: string[];
@@ -100,5 +108,6 @@ export type GraphEditorState = {
   canRedo: boolean;
   url: string;
   mappingCode: string;
+  initializations: InitializationDescriptor[];
   lastSavedPath: string | null;
 };
