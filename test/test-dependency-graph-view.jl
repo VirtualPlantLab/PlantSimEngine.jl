@@ -183,7 +183,15 @@ PlantSimEngine.outputs_(::GraphViewHardChildModel) = (child_output=-Inf,)
     hard_child_node = only(node for node in hard_internal_view.nodes if node.process == :graph_view_hard_child && node.role == :hard_dependency)
     @test !any(port -> port.name == :Cₛ, hard_parent_node.inputs)
     @test any(port -> port.name == :Cₛ, hard_parent_node.outputs)
-    @test any(port -> port.name == :Cₛ, hard_child_node.inputs)
+    hard_child_cs_input = only(port for port in hard_child_node.inputs if port.name == :Cₛ)
+    @test any(
+        edge -> edge.source == hard_parent_node.id &&
+                edge.target == hard_child_node.id &&
+                edge.target_port == hard_child_cs_input.id &&
+                edge.source_variable == :Cₛ &&
+                edge.target_variable == :Cₛ,
+        hard_internal_view.edges,
+    )
 
     @test AbstractGraphViewParamModel in available_processes()
     @test GraphViewParamModel in available_models(:graph_view_param)

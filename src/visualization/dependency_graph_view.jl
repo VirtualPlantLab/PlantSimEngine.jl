@@ -436,6 +436,29 @@ function _add_hard_input_edges!(edges, edge_ids::Set{String}, nodes)
 
         for input in node.inputs
             input.id in computed_inputs && continue
+            if parent.scale == node.scale
+                parent_output = _find_port(parent.outputs, input.name)
+                if !isnothing(parent_output)
+                    edge = GraphEdge(
+                        "edge:hard-parent-output:$(parent.id):$(parent_output.id):$(node.id):$(input.id)",
+                        parent.id,
+                        node.id,
+                        parent_output.id,
+                        input.id,
+                        parent_output.name,
+                        input.name,
+                        :soft_dependency,
+                        :same_scale,
+                        string(input.name),
+                        ["Computed by the owning model and passed to its hard dependency through the shared status."],
+                    )
+                    _push_edge!(edges, edge_ids, edge)
+                    input_edge_by_target[input.id] = edge
+                    push!(computed_inputs, input.id)
+                    continue
+                end
+            end
+
             parent_input = _find_port(parent.inputs, input.name)
             isnothing(parent_input) && continue
             source_edge = get(input_edge_by_target, parent_input.id, nothing)
