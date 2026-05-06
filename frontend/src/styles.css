@@ -729,6 +729,10 @@ h1 {
   transform: translate(-50%, 0);
 }
 
+.app-shell.has-candidate-popover .port.active::after {
+  opacity: 0;
+}
+
 .port.output {
   justify-content: flex-end;
 }
@@ -739,6 +743,112 @@ h1 {
 
 .port.mapped {
   border-color: rgba(31, 122, 83, 0.38);
+}
+
+.port-candidate-button {
+  position: relative;
+  z-index: 8;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  color: var(--accent);
+  background: rgba(255, 253, 247, 0.94);
+  border: 1px solid rgba(31, 122, 83, 0.34);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.port-candidate-button:hover,
+.port-candidate-button:focus-visible {
+  color: #fffdfa;
+  background: var(--accent);
+  outline: none;
+}
+
+.port.active .port-candidate-button {
+  color: var(--accent);
+  background: #fffdfa;
+}
+
+.candidate-popover {
+  position: fixed;
+  z-index: 1200;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  overflow: hidden;
+  color: var(--ink);
+  border: 1px solid rgba(31, 122, 83, 0.28);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(31, 122, 83, 0.08), transparent 42%),
+    rgba(255, 253, 247, 0.98);
+  box-shadow: 0 18px 42px rgba(56, 43, 35, 0.18);
+}
+
+.candidate-popover-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 12px 9px;
+  border-bottom: 1px solid rgba(183, 166, 150, 0.32);
+}
+
+.candidate-popover-header h3 {
+  margin: 3px 0 0;
+  overflow-wrap: anywhere;
+  font-size: 15px;
+}
+
+.candidate-popover-list {
+  display: grid;
+  gap: 8px;
+  overflow: auto;
+  padding: 10px;
+}
+
+.candidate-model-card {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  padding: 9px 10px;
+  color: var(--ink);
+  border: 1px solid rgba(183, 166, 150, 0.38);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.7);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.candidate-model-card:hover,
+.candidate-model-card:focus-visible {
+  background: rgba(255, 253, 247, 0.96);
+  border-color: rgba(31, 122, 83, 0.42);
+  outline: none;
+}
+
+.candidate-model-card strong {
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+
+.candidate-model-card span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.candidate-model-card small {
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .port.required-input {
@@ -1350,6 +1460,22 @@ h1 {
   margin-top: 12px;
   padding-top: 10px;
   border-top: 1px solid rgba(183, 166, 150, 0.32);
+}
+
+.variable-mapping-editor {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(183, 166, 150, 0.32);
+}
+
+.variable-mapping-editor h4 {
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-weight: 700;
 }
 
 .parameter-row {

@@ -30,10 +30,12 @@ export type RuntimeGraphNodeData = GraphNodeData & {
   highlightedPortIds?: string[];
   focusedPortIds?: string[];
   requiredInputPortIds?: string[];
+  candidatePortIds?: string[];
   dimmed?: boolean;
   focused?: boolean;
   onPortEnter?: (port: GraphPort) => void;
-  onPortLeave?: () => void;
+  onPortLeave?: (port: GraphPort) => void;
+  onCandidateClick?: (port: GraphPort, anchor: { x: number; y: number }) => void;
 };
 
 export type GraphEdgeData = {

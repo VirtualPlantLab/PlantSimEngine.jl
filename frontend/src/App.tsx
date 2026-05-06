@@ -44,6 +44,17 @@ type PendingMappingConnection = {
   targetPort: GraphPort;
 };
 
+type CandidatePopover = {
+  portId: string;
+  anchor: { x: number; y: number };
+};
+
+type AddModelSelection = {
+  modelType: string;
+  scale: string;
+  requestId: number;
+};
+
 type SearchResult = {
   id: string;
   kind: "model" | "input" | "output";
@@ -134,6 +145,8 @@ export default function App() {
   const [collapsedScales, setCollapsedScales] = useState<Set<string>>(() => new Set());
   const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
+  const [candidatePopover, setCandidatePopover] = useState<CandidatePopover | null>(null);
+  const [addModelSelection, setAddModelSelection] = useState<AddModelSelection | null>(null);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<RuntimeGraphNodeData>, Edge<GraphEdgeData>> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
@@ -143,6 +156,7 @@ export default function App() {
   const incomingByPort = useMemo(() => groupEdgesByPort(graph.edges, "targetPort"), [graph.edges]);
   const outgoingByPort = useMemo(() => groupEdgesByPort(graph.edges, "sourcePort"), [graph.edges]);
   const requiredInputPortIds = useMemo(() => deriveRequiredInputPorts(graph), [graph]);
+  const candidatePortIds = useMemo(() => deriveCandidatePortIds(graph, editorModels, incomingByPort, outgoingByPort), [editorModels, graph, incomingByPort, outgoingByPort]);
   const requiredInputs = useMemo(() => deriveRequiredInputs(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const warningItems = useMemo(() => deriveValidationWarnings(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
@@ -164,6 +178,30 @@ export default function App() {
     [activePort, focusMode, graph, selected?.id],
   );
   const focus = useMemo(() => pinnedFocus?.active ? pinnedFocus : traversalFocus, [pinnedFocus, traversalFocus]);
+  const activeCandidatePortId = candidatePopover?.portId ?? null;
+  const candidatePopoverInfo = useMemo(() => {
+    if (!candidatePopover) return null;
+    const portInfo = portById.get(candidatePopover.portId);
+    if (!portInfo || !candidatePortIds.has(candidatePopover.portId)) return null;
+    const { port } = portInfo;
+    const field = port.role === "input" ? "outputs" : "inputs";
+    const models = editorModels
+      .filter((model) => Object.prototype.hasOwnProperty.call(modelVariableDeclarations(model, field), port.name))
+      .sort((left, right) => left.name.localeCompare(right.name));
+    if (models.length === 0) return null;
+    return {
+      anchor: candidatePopover.anchor,
+      node: portInfo.node,
+      port,
+      title: port.role === "input" ? "Models That Compute" : "Models That Consume",
+      models,
+    };
+  }, [candidatePopover, candidatePortIds, editorModels, portById]);
+
+  const toggleCandidatePopover = useCallback((port: GraphPort, anchor: { x: number; y: number }) => {
+    setActivePort(port);
+    setCandidatePopover((current) => current?.portId === port.id ? null : { portId: port.id, anchor });
+  }, []);
 
   useEffect(() => {
     const config = loadEditorConfig();
@@ -227,10 +265,13 @@ export default function App() {
         highlightedPortIds: new Set<string>(),
         focusedPortIds: new Set<string>(),
         requiredInputPortIds,
+        candidatePortIds,
         cycleNodeIds: new Set(graph.cycleNodes),
         focusedNodeIds: new Set<string>(),
         hasActiveFocus: false,
+        activeCandidatePortId,
         setActivePort,
+        setCandidatePopover: toggleCandidatePopover,
       }),
     }));
     const nextEdges = visibleEdgeData.map((edge) => flowEdge(edge, new Set<string>(), new Set<string>(), false, false));
@@ -238,7 +279,7 @@ export default function App() {
       setNodes(layouted);
       setEdges(nextEdges);
     });
-  }, [graph.cycleNodes, layoutMode, requiredInputPortIds, setEdges, setNodes, visibleEdgeData, visibleNodeData]);
+  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, visibleEdgeData, visibleNodeData]);
 
   useEffect(() => {
     const focusEdges = focus.active ? focus.edges : new Set<string>();
@@ -249,14 +290,21 @@ export default function App() {
         highlightedPortIds: hoverHighlight.ports,
         focusedPortIds: focus.ports,
         requiredInputPortIds,
+        candidatePortIds,
         cycleNodeIds: new Set(graph.cycleNodes),
         focusedNodeIds: focus.nodes,
         hasActiveFocus: focus.active,
+        activeCandidatePortId,
         setActivePort,
+        setCandidatePopover: toggleCandidatePopover,
       }),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, hoverHighlight.edges, focusEdges, Boolean(activePort), focus.active) : edge));
-  }, [activePort, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, requiredInputPortIds, setEdges, setNodes]);
+  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover]);
+
+  useEffect(() => {
+    if (candidatePopover && !candidatePortIds.has(candidatePopover.portId)) setCandidatePopover(null);
+  }, [candidatePopover, candidatePortIds]);
 
   const onConnect = useCallback((connection: Connection) => {
     if (!editorConnected) return;
@@ -374,7 +422,7 @@ export default function App() {
   }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
 
   return (
-    <main className="app-shell">
+    <main className={`app-shell ${candidatePopover ? "has-candidate-popover" : ""}`}>
       <section className="graph-panel">
         <div className="topbar graph-workbench">
           <div className="brand-block">
@@ -505,9 +553,13 @@ export default function App() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onInit={setFlowInstance}
-          onPaneClick={() => setShowSearchResults(false)}
+          onPaneClick={() => {
+            setShowSearchResults(false);
+            setCandidatePopover(null);
+          }}
           onEdgeClick={(_, edge) => {
             if (edge.data) {
+              setCandidatePopover(null);
               setSelectedEdge(edge.data);
               setSelected(null);
               setActivePort(null);
@@ -515,6 +567,7 @@ export default function App() {
             }
           }}
           onNodeClick={(_, node) => {
+            setCandidatePopover(null);
             setSelectedEdge(null);
             setSelected(node.data);
           }}
@@ -527,6 +580,26 @@ export default function App() {
           <Controls />
           <MiniMap pannable zoomable nodeStrokeWidth={3} />
         </ReactFlow>
+
+        {candidatePopoverInfo && (
+          <ModelCandidatePopover
+            anchor={candidatePopoverInfo.anchor}
+            title={candidatePopoverInfo.title}
+            variable={candidatePopoverInfo.port.name}
+            role={candidatePopoverInfo.port.role}
+            models={candidatePopoverInfo.models}
+            onSelectModel={(model) => {
+              setAddModelSelection({
+                modelType: model.type,
+                scale: candidatePopoverInfo.node.scale,
+                requestId: Date.now(),
+              });
+              setActivePanel("add_model");
+              setCandidatePopover(null);
+            }}
+            onClose={() => setCandidatePopover(null)}
+          />
+        )}
       </section>
 
       {activePanel && (
@@ -571,6 +644,7 @@ export default function App() {
                 <ModelBrowser
                   models={editorModels}
                   scales={editorScales}
+                  selection={addModelSelection}
                   onAddScale={addCustomScale}
                   onCommand={sendEditorCommand}
                   disabled={!editorConnected}
@@ -994,6 +1068,86 @@ function EdgeList({
   );
 }
 
+function ModelCandidatePopover({
+  anchor,
+  title,
+  variable,
+  role,
+  models,
+  onSelectModel,
+  onClose,
+}: {
+  anchor: { x: number; y: number };
+  title: string;
+  variable: string;
+  role: "input" | "output";
+  models: ModelDescriptor[];
+  onSelectModel: (model: ModelDescriptor) => void;
+  onClose: () => void;
+}) {
+  const field = role === "input" ? "outputs" : "inputs";
+  const fieldLabel = role === "input" ? "Outputs" : "Inputs";
+  return (
+    <div className="candidate-popover" style={candidatePopoverStyle(anchor)} onClick={(event) => event.stopPropagation()}>
+      <div className="candidate-popover-header">
+        <div>
+          <div className="eyebrow">{title}</div>
+          <h3>{variable}</h3>
+        </div>
+        <button className="icon-button compact" onClick={(event) => {
+          event.stopPropagation();
+          onClose();
+        }} title="Close model suggestions" aria-label="Close model suggestions">
+          <X size={14} />
+        </button>
+      </div>
+      <div className="candidate-popover-list">
+        {models.map((model) => {
+          const declarations = modelVariableDeclarations(model, field);
+          return (
+            <button
+              className="candidate-model-card"
+              type="button"
+              key={`${model.type}:${model.process ?? ""}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onSelectModel(model);
+              }}
+            >
+              <strong>{model.name}</strong>
+              <span>{model.process ?? model.processType ?? "unknown process"}</span>
+              <small>{fieldLabel}: {Object.keys(declarations).join(", ") || variable}</small>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function candidatePopoverStyle(anchor: { x: number; y: number }) {
+  if (typeof window === "undefined") return { left: anchor.x, top: anchor.y };
+  const margin = 12;
+  const width = Math.min(360, window.innerWidth - margin * 2);
+  const maxHeight = Math.min(420, window.innerHeight - margin * 2);
+  const opensLeft = anchor.x + width + margin > window.innerWidth;
+  const left = Math.min(
+    Math.max(opensLeft ? anchor.x - width - 10 : anchor.x + 10, margin),
+    Math.max(margin, window.innerWidth - width - margin),
+  );
+  const top = Math.min(
+    Math.max(anchor.y - 28, margin),
+    Math.max(margin, window.innerHeight - maxHeight - margin),
+  );
+  return { left, top, width, maxHeight };
+}
+
+function modelVariableDeclarations(model: ModelDescriptor, field: "inputs" | "outputs"): Record<string, unknown> {
+  const declarations = model[field];
+  if (!declarations || typeof declarations !== "object" || Array.isArray(declarations)) return {};
+  return declarations;
+}
+
 function Row({ label, value }: { label: string; value: string }) {
   return <div className="row"><span>{label}</span><strong>{value}</strong></div>;
 }
@@ -1188,6 +1342,106 @@ function ExistingModelEditor({
   );
 }
 
+function VariableMappingEditor({
+  target,
+  graphNodes,
+  disabled,
+  onCommand,
+}: {
+  target: { node: GraphNodeData; port: GraphPort } | null;
+  graphNodes: GraphNodeData[];
+  disabled: boolean;
+  onCommand: (command: Record<string, unknown>) => void;
+}) {
+  const sourceOptions = useMemo(() => {
+    if (!target) return [];
+    return graphNodes
+      .flatMap((node) => node.outputs.map((port) => ({ node, port })))
+      .filter(({ node, port }) => node.id !== target.node.id || port.name !== target.port.name)
+      .sort((left, right) => `${left.node.scale}.${left.node.process}.${left.port.name}`.localeCompare(`${right.node.scale}.${right.node.process}.${right.port.name}`));
+  }, [graphNodes, target]);
+  const [sourceId, setSourceId] = useState("");
+  const [mode, setMode] = useState<"single" | "multi">("single");
+  const [extraScales, setExtraScales] = useState<string[]>([]);
+
+  useEffect(() => {
+    setSourceId(sourceOptions[0]?.port.id ?? "");
+    setMode("single");
+    setExtraScales([]);
+  }, [sourceOptions]);
+
+  if (!target) return null;
+  const selected = sourceOptions.find((item) => item.port.id === sourceId) ?? sourceOptions[0] ?? null;
+  const candidateExtraScales = selected
+    ? [...new Set(sourceOptions
+      .filter((item) => item.port.name === selected.port.name && item.node.scale !== selected.node.scale)
+      .map((item) => item.node.scale))]
+    : [];
+
+  const toggleExtraScale = (scale: string) => {
+    setExtraScales((current) =>
+      current.includes(scale) ? current.filter((item) => item !== scale) : [...current, scale]
+    );
+  };
+
+  const apply = () => {
+    if (!selected) return;
+    const command: Record<string, unknown> = {
+      action: "edit",
+      kind: "set_mapped_variable",
+      scale: target.node.scale,
+      process: target.node.process,
+      variable: target.port.name,
+      sourceScale: selected.node.scale,
+      sourceVariable: selected.port.name,
+      mode: mode === "single" && selected.node.scale === target.node.scale ? "same_scale" : mode,
+    };
+    if (mode === "multi" && extraScales.length > 0) command.extraSourceScales = extraScales;
+    onCommand(command);
+  };
+
+  return (
+    <div className="variable-mapping-editor">
+      <h4>Set Mapping</h4>
+      {sourceOptions.length === 0 ? (
+        <div className="empty-state compact">No output variable is available as a source.</div>
+      ) : (
+        <>
+          <label className="model-browser-control">
+            <span>Source output</span>
+            <select value={selected?.port.id ?? ""} onChange={(event) => setSourceId(event.target.value)}>
+              {sourceOptions.map(({ node, port }) => (
+                <option key={port.id} value={port.id}>{node.scale}.{node.process}.{port.name}</option>
+              ))}
+            </select>
+          </label>
+          <div className="mapping-mode-section">
+            <label className="mapping-radio">
+              <input type="radio" name={`${target.port.id}-mapping-mode`} checked={mode === "single"} onChange={() => setMode("single")} />
+              <span>Scalar</span>
+            </label>
+            <label className="mapping-radio">
+              <input type="radio" name={`${target.port.id}-mapping-mode`} checked={mode === "multi"} onChange={() => setMode("multi")} />
+              <span>Vector</span>
+            </label>
+          </div>
+          {mode === "multi" && candidateExtraScales.length > 0 && (
+            <div className="mapping-scale-picker">
+              {candidateExtraScales.map((scale) => (
+                <label className="mapping-checkbox" key={scale}>
+                  <input type="checkbox" checked={extraScales.includes(scale)} onChange={() => toggleExtraScale(scale)} />
+                  <span>{scale}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <button className="metric-button" disabled={disabled || !selected} onClick={apply}>Apply mapping</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function MappingCodePanel({
   code,
   savePath,
@@ -1226,12 +1480,14 @@ function MappingCodePanel({
 function ModelBrowser({
   models,
   scales,
+  selection,
   onAddScale,
   onCommand,
   disabled,
 }: {
   models: ModelDescriptor[];
   scales: string[];
+  selection: AddModelSelection | null;
   onAddScale: (scale: string) => void;
   onCommand: (command: Record<string, unknown>) => void;
   disabled: boolean;
@@ -1248,6 +1504,12 @@ function ModelBrowser({
   useEffect(() => {
     if (!scales.includes(scale)) setScale(scales[0] ?? "Default");
   }, [scale, scales]);
+
+  useEffect(() => {
+    if (!selection) return;
+    if (models.some((model) => model.type === selection.modelType)) setModelType(selection.modelType);
+    if (selection.scale) setScale(selection.scale);
+  }, [models, selection]);
 
   if (!selected) return <div className="empty-state">No model type is available.</div>;
   return (
@@ -1386,10 +1648,13 @@ function runtimeNodeData(
     highlightedPortIds: Set<string>;
     focusedPortIds: Set<string>;
     requiredInputPortIds: Set<string>;
+    candidatePortIds: Set<string>;
     cycleNodeIds: Set<string>;
     focusedNodeIds: Set<string>;
     hasActiveFocus: boolean;
+    activeCandidatePortId: string | null;
     setActivePort: (port: GraphPort | null) => void;
+    setCandidatePopover: (port: GraphPort, anchor: { x: number; y: number }) => void;
   },
 ): RuntimeGraphNodeData {
   return {
@@ -1399,10 +1664,14 @@ function runtimeNodeData(
     highlightedPortIds: [...options.highlightedPortIds],
     focusedPortIds: [...options.focusedPortIds],
     requiredInputPortIds: [...options.requiredInputPortIds],
+    candidatePortIds: [...options.candidatePortIds],
     focused: options.focusedNodeIds.has(node.id),
     dimmed: options.hasActiveFocus && !options.focusedNodeIds.has(node.id),
     onPortEnter: options.setActivePort,
-    onPortLeave: () => options.setActivePort(null),
+    onPortLeave: (port) => {
+      if (options.activeCandidatePortId !== port.id) options.setActivePort(null);
+    },
+    onCandidateClick: options.setCandidatePopover,
   };
 }
 
@@ -1424,6 +1693,33 @@ function deriveRequiredInputPorts(graph: DependencyGraphView) {
   }
 
   return required;
+}
+
+function deriveCandidatePortIds(
+  graph: DependencyGraphView,
+  models: ModelDescriptor[],
+  incomingByPort: Map<string, GraphEdgeData[]>,
+  outgoingByPort: Map<string, GraphEdgeData[]>,
+) {
+  const producerVariables = new Set<string>();
+  const consumerVariables = new Set<string>();
+  for (const model of models) {
+    Object.keys(modelVariableDeclarations(model, "outputs")).forEach((name) => producerVariables.add(name));
+    Object.keys(modelVariableDeclarations(model, "inputs")).forEach((name) => consumerVariables.add(name));
+  }
+
+  const candidates = new Set<string>();
+  for (const node of graph.nodes) {
+    for (const port of node.inputs) {
+      const isUncomputed = (incomingByPort.get(port.id) ?? []).length === 0;
+      if (isUncomputed && producerVariables.has(port.name)) candidates.add(port.id);
+    }
+    for (const port of node.outputs) {
+      const isUnused = (outgoingByPort.get(port.id) ?? []).length === 0;
+      if (isUnused && consumerVariables.has(port.name)) candidates.add(port.id);
+    }
+  }
+  return candidates;
 }
 
 function deriveRequiredInputs(graph: DependencyGraphView, requiredInputPortIds: Set<string>, incomingByPort: Map<string, GraphEdgeData[]>) {
