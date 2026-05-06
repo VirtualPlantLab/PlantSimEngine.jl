@@ -178,9 +178,13 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
 
         status_scale = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
         for (procname, node) in hard_deps[organ].roots # procname = :leaf_surface ; node = hard_deps.roots[procname]
-            var = Pair{Symbol,NamedTuple}[]
-            traverse_dependency_graph!(node, x -> variables_multiscale(x, organ, full_vars_mapping, st_scale_user), var)
-            push!(status_scale, procname => var)
+            push!(
+                status_scale,
+                procname => hard_dependency_variables(
+                    node,
+                    x -> variables_multiscale(x, organ, full_vars_mapping, st_scale_user),
+                ),
+            )
         end
 
         inputs_process[organ] = Dict(key => [j.first => j.second.inputs for j in val] for (key, val) in status_scale)

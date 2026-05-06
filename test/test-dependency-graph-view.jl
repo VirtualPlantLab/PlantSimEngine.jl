@@ -4,6 +4,8 @@ abstract type AbstractGraphViewInitiationAgeModel <: PlantSimEngine.AbstractMode
 abstract type AbstractGraphViewParamModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractGraphViewCyclePlantModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractGraphViewCycleLeafModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewHardParentModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractGraphViewHardChildModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractGraphViewPlantAgeModel}) = :graph_view_plant_age
 PlantSimEngine.process_(::Type{AbstractGraphViewPhytomerEmissionModel}) = :graph_view_phytomer_emission
@@ -11,6 +13,8 @@ PlantSimEngine.process_(::Type{AbstractGraphViewInitiationAgeModel}) = :graph_vi
 PlantSimEngine.process_(::Type{AbstractGraphViewParamModel}) = :graph_view_param
 PlantSimEngine.process_(::Type{AbstractGraphViewCyclePlantModel}) = :graph_view_cycle_plant
 PlantSimEngine.process_(::Type{AbstractGraphViewCycleLeafModel}) = :graph_view_cycle_leaf
+PlantSimEngine.process_(::Type{AbstractGraphViewHardParentModel}) = :graph_view_hard_parent
+PlantSimEngine.process_(::Type{AbstractGraphViewHardChildModel}) = :graph_view_hard_child
 
 struct GraphViewPlantAgeModel <: AbstractGraphViewPlantAgeModel
 end
@@ -59,6 +63,19 @@ end
 
 PlantSimEngine.inputs_(::GraphViewCycleLeafModel) = (x=-Inf,)
 PlantSimEngine.outputs_(::GraphViewCycleLeafModel) = (y=-Inf,)
+
+struct GraphViewHardParentModel <: AbstractGraphViewHardParentModel
+end
+
+PlantSimEngine.inputs_(::GraphViewHardParentModel) = (external_driver=-Inf,)
+PlantSimEngine.outputs_(::GraphViewHardParentModel) = (Cₛ=-Inf, parent_output=-Inf)
+PlantSimEngine.dep(::GraphViewHardParentModel) = (graph_view_hard_child=AbstractGraphViewHardChildModel,)
+
+struct GraphViewHardChildModel <: AbstractGraphViewHardChildModel
+end
+
+PlantSimEngine.inputs_(::GraphViewHardChildModel) = (Cₛ=-Inf, child_driver=-Inf)
+PlantSimEngine.outputs_(::GraphViewHardChildModel) = (child_output=-Inf,)
 
 @testset "Dependency graph view" begin
     mapping = ModelMapping(
@@ -153,6 +170,20 @@ PlantSimEngine.outputs_(::GraphViewCycleLeafModel) = (y=-Inf,)
     @test any(edge -> edge.kind == :mapped_variable && edge.source_variable == :plant_age && edge.target_variable == :plant_age, plant_age_edges)
     @test !any(edge -> edge.source_variable == :last_phytomer, plant_age_edges)
     @test any(edge -> edge.kind == :hard_dependency && isnothing(edge.source_port) && isnothing(edge.target_port), hard_mapped_view.edges)
+
+    hard_internal_mapping = ModelMapping(
+        :Leaf => (
+            GraphViewHardParentModel(),
+            GraphViewHardChildModel(),
+            Status(external_driver=1.0, child_driver=2.0),
+        ),
+    )
+    hard_internal_view = graph_view(hard_internal_mapping)
+    hard_parent_node = only(node for node in hard_internal_view.nodes if node.process == :graph_view_hard_parent && node.role == :model)
+    hard_child_node = only(node for node in hard_internal_view.nodes if node.process == :graph_view_hard_child && node.role == :hard_dependency)
+    @test !any(port -> port.name == :Cₛ, hard_parent_node.inputs)
+    @test any(port -> port.name == :Cₛ, hard_parent_node.outputs)
+    @test any(port -> port.name == :Cₛ, hard_child_node.inputs)
 
     @test AbstractGraphViewParamModel in available_processes()
     @test GraphViewParamModel in available_models(:graph_view_param)
