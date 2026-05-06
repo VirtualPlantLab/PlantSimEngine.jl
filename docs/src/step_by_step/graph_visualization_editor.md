@@ -61,7 +61,8 @@ The editor extension currently supports the same edit operations as the Julia AP
 - add, remove, and replace a model at a scale;
 - update an existing model's parameter values, scale, or rate from the inspector;
 - keep the model default rate, or set a custom `ClockSpec(dt, phase)` when adding a model;
-- set a mapped input variable;
+- set a mapped input variable, either from the inspector or by drawing a connection from an output port to an input port;
+- map a scalar source value or a vector of values from one or several source scales;
 - mark or unmark a variable as [`PreviousTimeStep`](@ref);
 - undo and redo edits inside the live session.
 

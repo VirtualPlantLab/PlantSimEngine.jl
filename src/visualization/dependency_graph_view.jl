@@ -121,7 +121,12 @@ struct SetMappedVariable <: AbstractGraphEdit
     source_scale::Symbol
     source_variable::Symbol
     mode::Symbol
+    extra_source_scales::Vector{Symbol}
 end
+
+# Backward-compatible constructor without extra_source_scales
+SetMappedVariable(scale, process, variable, source_scale, source_variable, mode) =
+    SetMappedVariable(scale, process, variable, source_scale, source_variable, mode, Symbol[])
 
 """
     MarkPreviousTimeStep(scale, process, variable)
@@ -168,7 +173,7 @@ function graph_view(mapping::ModelMapping; kwargs...)
     return compile_graph_view(mapping; kwargs...)
 end
 
-function _dependency_graph_for_view(mapping::ModelMapping{MultiScale}, diagnostics)
+function _dependency_graph_for_view(mapping::ModelMapping{MultiScale,<:Any}, diagnostics)
     try
         soft_dep_graphs_roots, hard_dep_dict = hard_dependencies(mapping; verbose=false)
         mapped_vars = mapped_variables(mapping, soft_dep_graphs_roots, verbose=false)
@@ -504,7 +509,7 @@ write_graph_view(path::AbstractString, mapping::ModelMapping; kwargs...) =
 write_graph_view(path::AbstractString, sim::GraphSimulation; kwargs...) =
     write_graph_view(path, graph_view(sim; kwargs...))
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::MarkPreviousTimeStep)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::MarkPreviousTimeStep)
     haskey(mapping, edit.scale) || error("Cannot mark `$(edit.variable)` as previous timestep: scale `$(edit.scale)` is not present in the `ModelMapping`.")
 
     found = Ref(false)
@@ -517,7 +522,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::MarkPreviousT
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UnmarkPreviousTimeStep)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::UnmarkPreviousTimeStep)
     haskey(mapping, edit.scale) || error("Cannot unmark `$(edit.variable)` as previous timestep: scale `$(edit.scale)` is not present in the `ModelMapping`.")
 
     found = Ref(false)
@@ -530,7 +535,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UnmarkPreviou
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::AddModel)
     model = _construct_graph_edit_model(edit.model_type, edit.parameters)
     process_name = process(model)
     item = _graph_edit_model_item(model, edit.timestep)
@@ -548,7 +553,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::AddModel)
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::RemoveModel)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::RemoveModel)
     haskey(mapping, edit.scale) || error("Cannot remove model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     found = Ref(false)
     data = Dict{Symbol,Any}()
@@ -559,7 +564,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::RemoveModel)
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::ReplaceModel)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::ReplaceModel)
     haskey(mapping, edit.scale) || error("Cannot replace model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     model = _construct_graph_edit_model(edit.model_type, edit.parameters)
     process(model) == edit.process || error(
@@ -574,7 +579,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::ReplaceModel)
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UpdateModel)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::UpdateModel)
     haskey(mapping, edit.scale) || error("Cannot update model: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     model = _construct_graph_edit_model(edit.model_type, edit.parameters)
     process(model) == edit.process || error(
@@ -610,7 +615,7 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::UpdateModel)
     return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
 end
 
-function apply_graph_edit(mapping::ModelMapping{MultiScale}, edit::SetMappedVariable)
+function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::SetMappedVariable)
     haskey(mapping, edit.scale) || error("Cannot set mapping: scale `$(edit.scale)` is not present in the `ModelMapping`.")
     found = Ref(false)
     data = Dict{Symbol,Any}()
@@ -739,9 +744,17 @@ function _set_mapped_variable_item(item, edit::SetMappedVariable, found::Base.Re
         "the variable is not declared as an input or output of `$(typeof(model_(spec)))`."
     )
     found[] = true
-    source = edit.mode in (:multi, :multi_node, :vector) ?
-             [edit.source_scale => edit.source_variable] :
-             edit.source_scale => edit.source_variable
+    source = if edit.mode in (:multi, :multi_node, :vector)
+        pairs = [edit.source_scale => edit.source_variable]
+        for extra in edit.extra_source_scales
+            push!(pairs, extra => edit.source_variable)
+        end
+        pairs
+    elseif edit.mode in (:same, :same_scale, :alias)
+        Symbol("") => edit.source_variable
+    else
+        edit.source_scale => edit.source_variable
+    end
     return ModelSpec(spec; multiscale=_set_mapping_item(spec.multiscale, edit.variable, source))
 end
 

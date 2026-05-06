@@ -188,6 +188,28 @@ PlantSimEngine.outputs_(::GraphViewCycleLeafModel) = (y=-Inf,)
     mapped_spec = PlantSimEngine.parse_model_specs(mapped_edit_mapping[:Phytomer])[:graph_view_initiation_age]
     @test first(PlantSimEngine.mapped_variables_(mapped_spec)) == (:plant_age => (:Plant => :plant_age))
 
+    vector_mapping = ModelMapping(
+        :Leaf => (ToyAssimModel(), Status(aPPFD=1300.0)),
+        :Soil => ToySoilWaterModel(),
+        :Internode => ToySoilWaterModel(),
+    )
+    vector_edit_mapping = apply_graph_edit(
+        vector_mapping,
+        SetMappedVariable(
+            :Leaf,
+            :carbon_assimilation,
+            :soil_water_content,
+            :Soil,
+            :soil_water_content,
+            :multi,
+            [:Internode],
+        ),
+    )
+    vector_spec = PlantSimEngine.parse_model_specs(vector_edit_mapping[:Leaf])[:carbon_assimilation]
+    vector_mapped_variable = first(PlantSimEngine.mapped_variables_(vector_spec))
+    @test first(vector_mapped_variable) == :soil_water_content
+    @test last(vector_mapped_variable) == [:Soil => :soil_water_content, :Internode => :soil_water_content]
+
     unmarked_mapping = apply_graph_edit(edited_mapping, UnmarkPreviousTimeStep(:Leaf, :carbon_assimilation, :soil_water_content))
     unmarked_view = graph_view(unmarked_mapping)
     @test any(

@@ -143,6 +143,40 @@ end
             @test PlantSimEngine.timestep(rated_spec) == ClockSpec(2.0, 1.0)
             @test occursin("TimeStepModel", added["mappingCode"])
 
+            add_degree_days = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "add_model",
+                "scale" => "Plant",
+                "modelType" => string(ToyDegreeDaysCumulModel),
+                "parameters" => Dict{String,Any}(),
+            ))
+            HTTP.WebSockets.send(ws, add_degree_days)
+            degree_days_added = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test degree_days_added["ok"]
+
+            set_mapped_tt = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "set_mapped_variable",
+                "scale" => "Leaf",
+                "process" => "LAI_Dynamic",
+                "variable" => "TT_cu",
+                "sourceScale" => "Plant",
+                "sourceVariable" => "TT_cu",
+                "mode" => "single",
+            ))
+            HTTP.WebSockets.send(ws, set_mapped_tt)
+            mapped_tt = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test mapped_tt["ok"]
+            lai_spec = PlantSimEngine.parse_model_specs(current_mapping(session)[:Leaf])[:LAI_Dynamic]
+            @test first(PlantSimEngine.mapped_variables_(lai_spec)) == (:TT_cu => (:Plant => :TT_cu))
+            @test any(
+                edge -> edge["kind"] == "mapped_variable" &&
+                        edge["sourceVariable"] == "TT_cu" &&
+                        edge["targetVariable"] == "TT_cu" &&
+                        edge["scaleRelation"] == "multiscale",
+                mapped_tt["graph"]["edges"],
+            )
+
             output_path = tempname() * ".jl"
             save_code = PlantSimEngine.JSON.json(Dict(
                 "action" => "write_mapping_code",

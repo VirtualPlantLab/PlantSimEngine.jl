@@ -253,6 +253,7 @@ function _edit_from_command(command)
         Symbol(command["sourceScale"]),
         Symbol(command["sourceVariable"]),
         Symbol(get(command, "mode", "single")),
+        Symbol.(get(command, "extraSourceScales", [])),
     )
     if kind in ("add_model", "replace_model")
         model_type = _resolve_model_type(command["modelType"])

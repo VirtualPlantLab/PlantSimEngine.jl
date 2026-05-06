@@ -4,7 +4,6 @@ import {
   Controls,
   MiniMap,
   ReactFlow,
-  addEdge,
   MarkerType,
   useEdgesState,
   useNodesState,
@@ -37,6 +36,13 @@ type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
 type EdgeFilters = Record<EdgeFilterKey, boolean>;
 type FocusMode = "none" | "upstream" | "downstream" | "neighborhood";
 type SidePanel = "inspector" | "add_model" | "mapping_code" | null;
+
+type PendingMappingConnection = {
+  sourceNode: GraphNodeData;
+  sourcePort: GraphPort;
+  targetNode: GraphNodeData;
+  targetPort: GraphPort;
+};
 
 type SearchResult = {
   id: string;
@@ -117,6 +123,7 @@ export default function App() {
   const [customScales, setCustomScales] = useState<string[]>([]);
   const [selected, setSelected] = useState<GraphNodeData | null>(null);
   const [activePort, setActivePort] = useState<GraphPort | null>(null);
+  const [pendingConnection, setPendingConnection] = useState<PendingMappingConnection | null>(null);
   const [showRequiredPanel, setShowRequiredPanel] = useState(false);
   const [showWarningsPanel, setShowWarningsPanel] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
@@ -252,15 +259,22 @@ export default function App() {
   }, [activePort, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, requiredInputPortIds, setEdges, setNodes]);
 
   const onConnect = useCallback((connection: Connection) => {
-    setEdges((current) => addEdge({
-      ...connection,
-      type: "dependency",
-      animated: true,
-      markerEnd: edgeMarker(edgeColors.base),
-      style: edgeStyle(edgeColors.base, false),
-      zIndex: 5,
-    }, current));
-  }, [setEdges]);
+    if (!editorConnected) return;
+    const sourcePortId = connection.sourceHandle;
+    const targetPortId = connection.targetHandle;
+    if (!sourcePortId || !targetPortId) return;
+    const sourceInfo = portById.get(sourcePortId);
+    const targetInfo = portById.get(targetPortId);
+    if (!sourceInfo || !targetInfo) return;
+    // Only handle output-to-input connections.
+    if (sourceInfo.port.role !== "output" || targetInfo.port.role !== "input") return;
+    setPendingConnection({
+      sourceNode: sourceInfo.node,
+      sourcePort: sourceInfo.port,
+      targetNode: targetInfo.node,
+      targetPort: targetInfo.port,
+    });
+  }, [editorConnected, portById]);
 
   const relayout = useCallback(() => {
     layoutGraph(nodes, edges, layoutMode).then(setNodes);
@@ -532,6 +546,7 @@ export default function App() {
                 outgoingEdges={activePort ? outgoingByPort.get(activePort.id) ?? [] : []}
                 nodeById={nodeById}
                 portById={portById}
+                graphNodes={graph.nodes}
                 onFocusEdge={focusEdge}
                 models={editorModels}
                 scales={editorScales}
@@ -581,7 +596,119 @@ export default function App() {
           )}
         </aside>
       )}
+
+      {pendingConnection && (
+        <MappingDialog
+          connection={pendingConnection}
+          scales={editorScales}
+          onConfirm={(command) => {
+            sendEditorCommand(command);
+            setPendingConnection(null);
+          }}
+          onCancel={() => setPendingConnection(null)}
+        />
+      )}
     </main>
+  );
+}
+
+function MappingDialog({
+  connection,
+  scales,
+  onConfirm,
+  onCancel,
+}: {
+  connection: PendingMappingConnection;
+  scales: string[];
+  onConfirm: (command: Record<string, unknown>) => void;
+  onCancel: () => void;
+}) {
+  const [mode, setMode] = useState<"single" | "multi">("single");
+  const [selectedScales, setSelectedScales] = useState<string[]>([connection.sourceNode.scale]);
+
+  const toggleScale = (scale: string) => {
+    setSelectedScales((current) =>
+      current.includes(scale) ? current.filter((s) => s !== scale) : [...current, scale]
+    );
+  };
+
+  const handleConfirm = () => {
+    const command: Record<string, unknown> = {
+      action: "edit",
+      kind: "set_mapped_variable",
+      scale: connection.targetNode.scale,
+      process: connection.targetNode.process,
+      variable: connection.targetPort.name,
+      sourceScale: connection.sourceNode.scale,
+      sourceVariable: connection.sourcePort.name,
+      mode: mode === "single" && connection.sourceNode.scale === connection.targetNode.scale ? "same_scale" : mode,
+    };
+    if (mode === "multi") {
+      const extras = selectedScales.filter((s) => s !== connection.sourceNode.scale);
+      if (extras.length > 0) command.extraSourceScales = extras;
+    }
+    onConfirm(command);
+  };
+
+  return (
+    <div className="mapping-dialog-overlay" onClick={onCancel} role="dialog" aria-modal="true" aria-label="Map variable">
+      <div className="mapping-dialog" onClick={(e) => e.stopPropagation()}>
+        <div className="mapping-dialog-header">
+          <div className="eyebrow">Variable Mapping</div>
+          <button className="icon-button compact" onClick={onCancel} title="Cancel"><X size={14} /></button>
+        </div>
+
+        <div className="mapping-dialog-body">
+          <div className="mapping-port-summary">
+            <div className="mapping-port source">
+              <small>Source</small>
+              <strong>{connection.sourceNode.scale}</strong>
+              <span>{connection.sourceNode.process}.{connection.sourcePort.name}</span>
+            </div>
+            <div className="mapping-arrow">-&gt;</div>
+            <div className="mapping-port target">
+              <small>Target</small>
+              <strong>{connection.targetNode.scale}</strong>
+              <span>{connection.targetNode.process}.{connection.targetPort.name}</span>
+            </div>
+          </div>
+
+          <div className="mapping-mode-section">
+            <div className="mapping-mode-label">Mapping mode</div>
+            <label className="mapping-radio">
+              <input type="radio" name="mode" value="single" checked={mode === "single"} onChange={() => setMode("single")} />
+              <span>Scalar - single node at :{connection.sourceNode.scale}</span>
+            </label>
+            <label className="mapping-radio">
+              <input type="radio" name="mode" value="multi" checked={mode === "multi"} onChange={() => setMode("multi")} />
+              <span>Vector - all nodes from selected scales</span>
+            </label>
+          </div>
+
+          {mode === "multi" && (
+            <div className="mapping-scale-picker">
+              <div className="mapping-mode-label">Source scales</div>
+              {scales.map((scale) => (
+                <label className="mapping-checkbox" key={scale}>
+                  <input
+                    type="checkbox"
+                    checked={selectedScales.includes(scale)}
+                    disabled={scale === connection.sourceNode.scale}
+                    onChange={() => toggleScale(scale)}
+                  />
+                  <span>{scale}</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="mapping-dialog-footer">
+          <button className="metric-button" onClick={onCancel}>Cancel</button>
+          <button className="metric-button accent-button" onClick={handleConfirm}>Apply mapping</button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -707,6 +834,7 @@ function InspectorDetails({
   outgoingEdges,
   nodeById,
   portById,
+  graphNodes,
   onFocusEdge,
   models,
   scales,
@@ -722,6 +850,7 @@ function InspectorDetails({
   outgoingEdges: GraphEdgeData[];
   nodeById: Map<string, GraphNodeData>;
   portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
+  graphNodes: GraphNodeData[];
   onFocusEdge: (edge: GraphEdgeData) => void;
   models: ModelDescriptor[];
   scales: string[];
@@ -778,6 +907,15 @@ function InspectorDetails({
           {activePort.previousTimeStep && <div className="edit-suggestion"><ScissorsLineDashed size={14} /> uses previous timestep</div>}
           <EdgeList title="Produced by" edges={incomingEdges} direction="incoming" nodeById={nodeById} portById={portById} onFocusEdge={onFocusEdge} />
           <EdgeList title="Consumed by" edges={outgoingEdges} direction="outgoing" nodeById={nodeById} portById={portById} onFocusEdge={onFocusEdge} />
+          {activePort.role === "input" && (
+            <VariableMappingEditor
+              key={activePort.id}
+              target={portById.get(activePort.id) ?? null}
+              graphNodes={graphNodes}
+              disabled={!editorConnected}
+              onCommand={onCommand}
+            />
+          )}
         </div>
       ) : (
         <div className="empty-state">Hover, click, or search a variable to see where it comes from and where it goes.</div>
