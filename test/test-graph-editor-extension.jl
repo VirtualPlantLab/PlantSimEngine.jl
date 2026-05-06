@@ -84,6 +84,8 @@ end
         @test haskey(state, "graph")
         @test haskey(state, "models")
         @test haskey(state, "mappingCode")
+        @test startswith(state["mappingCode"], "using PlantSimEngine\n")
+        @test occursin("using PlantSimEngine.Examples", state["mappingCode"])
         @test occursin("ModelMapping", state["mappingCode"])
         @test occursin("Status(TT_cu = 1.0)", state["mappingCode"])
         @test !occursin("LAI = 2.0", state["mappingCode"])
@@ -191,6 +193,8 @@ end
             @test saved["lastSavedPath"] == output_path
             @test isfile(output_path)
             saved_code = read(output_path, String)
+            @test startswith(saved_code, "using PlantSimEngine\n")
+            @test occursin("using PlantSimEngine.Examples", saved_code)
             @test occursin("mapping = ModelMapping", saved_code)
             @test !occursin("LAI = 2.0", saved_code)
             @test !occursin("TT_cu = 1.0", saved_code)

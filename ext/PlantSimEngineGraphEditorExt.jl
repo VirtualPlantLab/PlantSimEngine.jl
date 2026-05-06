@@ -418,6 +418,10 @@ end
 
 function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
     io = IOBuffer()
+    for statement in _using_statements(mapping)
+        println(io, statement)
+    end
+    println(io)
     required_status_variables = _required_status_variables(mapping)
     println(io, "mapping = ModelMapping(")
     for scale in keys(mapping)
@@ -436,6 +440,40 @@ function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
 end
 
 _scale_items(entry) = entry isa Tuple ? entry : (entry,)
+
+function _using_statements(mapping::PlantSimEngine.ModelMapping)
+    modules = Set{Module}([PlantSimEngine])
+    for scale in keys(mapping)
+        for item in _scale_items(mapping[scale])
+            _collect_mapping_modules!(modules, item)
+        end
+    end
+    return ["using $(_module_name(module_))" for module_ in sort!(collect(modules); by=_module_sort_key)]
+end
+
+function _collect_mapping_modules!(modules::Set{Module}, item)
+    item isa PlantSimEngine.Status && return modules
+    if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
+        return _collect_model_modules!(modules, PlantSimEngine.model_(PlantSimEngine.as_model_spec(item)))
+    end
+    item isa PlantSimEngine.AbstractModel && return _collect_model_modules!(modules, item)
+    return modules
+end
+
+function _collect_model_modules!(modules::Set{Module}, model::PlantSimEngine.AbstractModel)
+    module_ = parentmodule(typeof(model))
+    module_ in (Base, Core, Main) || push!(modules, module_)
+    return modules
+end
+
+function _module_name(module_::Module)
+    return join(string.(Base.fullname(module_)), ".")
+end
+
+function _module_sort_key(module_::Module)
+    module_ === PlantSimEngine && return ""
+    return _module_name(module_)
+end
 
 function _required_status_variables(mapping::PlantSimEngine.ModelMapping)
     stripped = Dict{Symbol,Any}()
