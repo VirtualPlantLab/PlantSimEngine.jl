@@ -52,21 +52,21 @@ export function DependencyEdge({
       {showChip && (
         <EdgeLabelRenderer>
           <EdgeTerminal
-            className={`edge-terminal source ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${dimmed ? "dimmed" : ""}`}
+            className={`edge-terminal source ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
             x={sourceX}
             y={sourceY}
             side={sourcePosition}
             color={terminalColor(data, highlighted)}
           />
           <EdgeTerminal
-            className={`edge-terminal target ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${dimmed ? "dimmed" : ""}`}
+            className={`edge-terminal target ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
             x={targetX}
             y={targetY}
             side={targetPosition}
             color={terminalColor(data, highlighted)}
           />
           <div
-            className={`edge-chip ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${dimmed ? "dimmed" : ""}`}
+            className={`edge-chip ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
             style={{
               transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 14}px)`,
             }}

@@ -8,6 +8,7 @@ const PORT_HORIZONTAL_PADDING = 26;
 const MONO_CHAR_WIDTH = 8.1;
 
 export function nodeWidth(node: RuntimeGraphNodeData) {
+  if (node.viewMode === "overview") return 184;
   const longestInput = longestPortName(node.inputs);
   const longestOutput = longestPortName(node.outputs);
   const inputWidth = portColumnWidth(longestInput);

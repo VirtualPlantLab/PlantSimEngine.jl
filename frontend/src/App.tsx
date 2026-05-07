@@ -37,6 +37,7 @@ type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
 type EdgeFilters = Record<EdgeFilterKey, boolean>;
 type FocusMode = "none" | "upstream" | "downstream" | "neighborhood";
 type SidePanel = "inspector" | "add_model" | "initializations" | "mapping_code" | null;
+type GraphViewMode = "overview" | "detail";
 
 type PendingMappingConnection = {
   sourceNode: GraphNodeData;
@@ -118,6 +119,7 @@ const layoutLabels: Record<LayoutMode, string> = {
   compact: "Compact",
   scale_grouped: "Scale grouped",
   call_stack: "Call stack",
+  overview: "Overview",
 };
 
 const valueTypeChoices = ["float", "integer", "boolean", "symbol", "string", "nothing", "julia"];
@@ -146,10 +148,14 @@ export default function App() {
   const [showRequiredPanel, setShowRequiredPanel] = useState(false);
   const [showWarningsPanel, setShowWarningsPanel] = useState(false);
   const [showOpenPanel, setShowOpenPanel] = useState(false);
+  const [showRelationshipsPanel, setShowRelationshipsPanel] = useState(false);
+  const [showScalesPanel, setShowScalesPanel] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("data_flow");
   const [focusMode, setFocusMode] = useState<FocusMode>("neighborhood");
+  const [viewMode, setViewMode] = useState<GraphViewMode>(() => defaultGraphViewMode(loadInitialGraph()));
+  const [viewModeTouched, setViewModeTouched] = useState(false);
   const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(defaultEdgeFilters);
   const [collapsedScales, setCollapsedScales] = useState<Set<string>>(() => new Set());
   const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
@@ -306,6 +312,10 @@ export default function App() {
   }, [activePanel, highlightAddModelPanel, addModelFocusRequest]);
 
   useEffect(() => {
+    if (!viewModeTouched) setViewMode(defaultGraphViewMode(graph));
+  }, [graph, viewModeTouched]);
+
+  useEffect(() => {
     const nextNodes = visibleNodeData.map((node) => ({
       id: node.id,
       type: "model",
@@ -323,14 +333,15 @@ export default function App() {
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
         removeGraphModel,
+        viewMode,
       }),
     }));
     const nextEdges = visibleEdgeData.map((edge) => flowEdge(edge, new Set<string>(), new Set<string>(), false, false));
-    layoutGraph(nextNodes, nextEdges, layoutMode).then((layouted) => {
+    layoutGraph(nextNodes, nextEdges, effectiveLayoutMode(viewMode, layoutMode)).then((layouted) => {
       setNodes(layouted);
       setEdges(nextEdges);
     });
-  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, visibleEdgeData, visibleNodeData]);
+  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode, visibleEdgeData, visibleNodeData]);
 
   useEffect(() => {
     const focusEdges = focus.active ? focus.edges : new Set<string>();
@@ -349,10 +360,11 @@ export default function App() {
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
         removeGraphModel,
+        viewMode,
       }),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, hoverHighlight.edges, focusEdges, Boolean(activePort), focus.active) : edge));
-  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover]);
+  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode]);
 
   useEffect(() => {
     if (candidatePopover && !candidatePortIds.has(candidatePopover.portId)) setCandidatePopover(null);
@@ -377,8 +389,8 @@ export default function App() {
   }, [editorConnected, portById]);
 
   const relayout = useCallback(() => {
-    layoutGraph(nodes, edges, layoutMode).then(setNodes);
-  }, [edges, layoutMode, nodes, setNodes]);
+    layoutGraph(nodes, edges, effectiveLayoutMode(viewMode, layoutMode)).then(setNodes);
+  }, [edges, layoutMode, nodes, setNodes, viewMode]);
 
   const focusNode = useCallback((node: GraphNodeData, port?: GraphPort | null) => {
     setPinnedFocus(null);
@@ -474,7 +486,7 @@ export default function App() {
   }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
 
   return (
-    <main className={`app-shell ${candidatePopover ? "has-candidate-popover" : ""}`}>
+    <main className={`app-shell ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""}`}>
       <section className="graph-panel">
         <div className="topbar graph-workbench">
           <button
@@ -552,10 +564,22 @@ export default function App() {
           </div>
 
           <div className="toolbar-group">
+            <button
+              className={`metric-button view-mode-button ${viewMode === "overview" ? "active overview-cta" : ""}`}
+              onClick={() => {
+                setViewModeTouched(true);
+                setViewMode((mode) => mode === "overview" ? "detail" : "overview");
+              }}
+              title={viewMode === "overview" ? "Show full model inputs and outputs" : "Show compact cards for large graphs"}
+            >
+              {viewMode === "overview" ? "Overview Mode - Show Detailed View" : "Show Overview"}
+            </button>
             <label className="select-control" title="Choose how the graph should be arranged">
               <Network size={14} />
               <select value={layoutMode} onChange={(event) => setLayoutMode(event.target.value as LayoutMode)}>
-                {(Object.keys(layoutLabels) as LayoutMode[]).map((mode) => <option key={mode} value={mode}>{layoutLabels[mode]}</option>)}
+                {(Object.keys(layoutLabels) as LayoutMode[])
+                  .filter((mode) => mode !== "overview")
+                  .map((mode) => <option key={mode} value={mode}>{layoutLabels[mode]}</option>)}
               </select>
             </label>
             <label className="select-control" title="Dim graph context around the current selection">
@@ -569,11 +593,32 @@ export default function App() {
             </button>
           </div>
 
+          <div className="toolbar-group graph-filter-buttons">
+            <button
+              className={`metric-button ${showRelationshipsPanel ? "active" : ""}`}
+              onClick={() => setShowRelationshipsPanel((open) => !open)}
+              title="Show relationship filters"
+            >
+              <Filter size={14} /> Relationships
+            </button>
+            <button
+              className={`metric-button ${showScalesPanel ? "active" : ""}`}
+              onClick={() => setShowScalesPanel((open) => !open)}
+              title="Show scale visibility controls"
+            >
+              <Network size={14} /> Scales {collapsedScales.size > 0 ? `${graph.scales.length - collapsedScales.size}/${graph.scales.length}` : graph.scales.length}
+            </button>
+          </div>
+
           <div className="toolbar-group panel-switch">
             <button className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
-            <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
-            <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
-            <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
+            {editorSocket && (
+              <>
+                <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
+                <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
+                <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
+              </>
+            )}
           </div>
 
           {editorSocket && (
@@ -591,8 +636,8 @@ export default function App() {
           </div>
         )}
 
-        <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />
-        <ScaleControls scales={graph.scales} collapsedScales={collapsedScales} onToggle={toggleScale} onExpandAll={expandAllScales} />
+        {showRelationshipsPanel && <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />}
+        {showScalesPanel && <ScaleControls scales={graph.scales} collapsedScales={collapsedScales} onToggle={toggleScale} onExpandAll={expandAllScales} />}
 
         {showRequiredPanel && (
           <FloatingPanel className="required-panel" title="Required Initializations" subtitle={`${requiredInputs.length} inputs`} onClose={() => setShowRequiredPanel(false)}>
@@ -631,6 +676,8 @@ export default function App() {
             setShowSearchResults(false);
             setCandidatePopover(null);
             setShowOpenPanel(false);
+            setShowRelationshipsPanel(false);
+            setShowScalesPanel(false);
           }}
           onEdgeClick={(_, edge) => {
             if (edge.data) {
@@ -647,7 +694,7 @@ export default function App() {
             setSelected(node.data);
           }}
           fitView
-          fitViewOptions={{ padding: 0.08, minZoom: 0.03, maxZoom: 1 }}
+          fitViewOptions={{ padding: viewMode === "overview" ? 0.14 : 0.08, minZoom: 0.03, maxZoom: viewMode === "overview" ? 1.25 : 1 }}
           minZoom={0.03}
           maxZoom={2}
         >
@@ -1938,6 +1985,14 @@ function loadInitialGraph() {
   return fromWindow ?? sampleGraph;
 }
 
+function defaultGraphViewMode(graph: DependencyGraphView): GraphViewMode {
+  return graph.nodes.length > 45 || graph.edges.length > 110 ? "overview" : "detail";
+}
+
+function effectiveLayoutMode(viewMode: GraphViewMode, layoutMode: LayoutMode): LayoutMode {
+  return viewMode === "overview" ? "overview" : layoutMode === "overview" ? "data_flow" : layoutMode;
+}
+
 function loadEditorConfig() {
   const embedded = document.getElementById("pse-editor-config");
   if (!embedded?.textContent) return null;
@@ -1959,10 +2014,12 @@ function runtimeNodeData(
     setActivePort: (port: GraphPort | null) => void;
     setCandidatePopover: (port: GraphPort, anchor: { x: number; y: number }) => void;
     removeGraphModel: (node: GraphNodeData) => void;
+    viewMode: GraphViewMode;
   },
 ): RuntimeGraphNodeData {
   return {
     ...node,
+    viewMode: options.viewMode,
     cyclic: options.cycleNodeIds.has(node.id),
     activePortId: options.activePort?.id ?? null,
     highlightedPortIds: [...options.highlightedPortIds],

@@ -26,6 +26,7 @@ export type GraphNodeData = {
 } & Record<string, unknown>;
 
 export type RuntimeGraphNodeData = GraphNodeData & {
+  viewMode?: "overview" | "detail";
   activePortId?: string | null;
   highlightedPortIds?: string[];
   focusedPortIds?: string[];

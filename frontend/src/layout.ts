@@ -4,7 +4,7 @@ import type { GraphEdgeData, GraphPort, RuntimeGraphNodeData } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
 const elk = new ELK();
-export type LayoutMode = "data_flow" | "compact" | "scale_grouped" | "call_stack";
+export type LayoutMode = "data_flow" | "compact" | "scale_grouped" | "call_stack" | "overview";
 
 export async function layoutGraph(nodes: Node<RuntimeGraphNodeData>[], edges: Edge<GraphEdgeData>[], mode: LayoutMode = "data_flow") {
   const layoutEdges = mode === "call_stack" ? edges.filter((edge) => isCallEdge(edge.data)) : edges;
@@ -34,7 +34,10 @@ export async function layoutGraph(nodes: Node<RuntimeGraphNodeData>[], edges: Ed
 
   const result = await elk.layout(graph);
   const positions = new Map((result.children ?? []).map((child) => [child.id, { x: child.x ?? 0, y: child.y ?? 0 }]));
-  const scaleOffsets = mode === "scale_grouped" ? scaleBandOffsets(nodes) : new Map<string, number>();
+  const scaleOffsets =
+    mode === "scale_grouped" ? scaleBandOffsets(nodes, 260) :
+      mode === "overview" ? scaleBandOffsets(nodes, 130) :
+        new Map<string, number>();
 
   return nodes.map((node) => {
     const position = positions.get(node.id) ?? node.position;
@@ -55,6 +58,18 @@ function layoutOptions(mode: LayoutMode): Record<string, string> {
       "elk.direction": "RIGHT",
       "elk.spacing.nodeNode": "28",
       "elk.layered.spacing.nodeNodeBetweenLayers": "52",
+      "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
+      "elk.layered.crossingMinimization.semiInteractive": "true",
+      "elk.edgeRouting": "ORTHOGONAL",
+    };
+  }
+
+  if (mode === "overview") {
+    return {
+      "elk.algorithm": "layered",
+      "elk.direction": "RIGHT",
+      "elk.spacing.nodeNode": "24",
+      "elk.layered.spacing.nodeNodeBetweenLayers": "46",
       "elk.layered.nodePlacement.strategy": "BRANDES_KOEPF",
       "elk.layered.crossingMinimization.semiInteractive": "true",
       "elk.edgeRouting": "ORTHOGONAL",
@@ -83,9 +98,9 @@ function layoutOptions(mode: LayoutMode): Record<string, string> {
   };
 }
 
-function scaleBandOffsets(nodes: Node<RuntimeGraphNodeData>[]) {
+function scaleBandOffsets(nodes: Node<RuntimeGraphNodeData>[], spacing: number) {
   const scales = [...new Set(nodes.map((node) => node.data.scale))].sort();
-  return new Map(scales.map((scale, index) => [scale, index * 260]));
+  return new Map(scales.map((scale, index) => [scale, index * spacing]));
 }
 
 function isCallEdge(edge?: GraphEdgeData) {
@@ -93,6 +108,7 @@ function isCallEdge(edge?: GraphEdgeData) {
 }
 
 function nodeHeight(node: RuntimeGraphNodeData) {
+  if (node.viewMode === "overview") return 108;
   return Math.max(160, 112 + Math.max(node.inputs.length, node.outputs.length) * 28);
 }
 

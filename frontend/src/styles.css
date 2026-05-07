@@ -112,10 +112,18 @@ body {
 
 .graph-workbench {
   flex-wrap: wrap;
+  align-items: flex-start;
+  max-height: min(36vh, 250px);
+  overflow: auto;
+  scrollbar-width: thin;
 }
 
 .brand-block {
-  min-width: 164px;
+  min-width: 150px;
+}
+
+.brand-block h1 {
+  font-size: clamp(16px, 2.2vw, 20px);
 }
 
 .search-box {
@@ -224,6 +232,7 @@ h1 {
 
 .metrics {
   display: flex;
+  flex-wrap: wrap;
   gap: 8px;
   margin-left: auto;
 }
@@ -252,6 +261,14 @@ h1 {
 .metric-button:focus-visible {
   outline: none;
   background: #fff6f0;
+}
+
+.view-mode-button.overview-cta {
+  border-color: rgba(31, 122, 83, 0.38);
+  color: var(--accent);
+  background: rgba(31, 122, 83, 0.1);
+  box-shadow: 0 8px 18px rgba(31, 122, 83, 0.1);
+  font-weight: 800;
 }
 
 .meta-chip {
@@ -392,6 +409,8 @@ h1 {
   background: rgba(255, 250, 242, 0.92);
   box-shadow: 0 18px 45px var(--shadow);
   backdrop-filter: blur(10px);
+  max-height: min(480px, calc(100vh - 142px));
+  overflow: auto;
 }
 
 .legend-title,
@@ -443,8 +462,8 @@ h1 {
 .scale-controls {
   position: absolute;
   z-index: 35;
-  top: 314px;
-  left: 18px;
+  top: 116px;
+  left: 220px;
   display: grid;
   gap: 8px;
   width: 190px;
@@ -454,6 +473,8 @@ h1 {
   background: rgba(255, 250, 242, 0.92);
   box-shadow: 0 18px 45px var(--shadow);
   backdrop-filter: blur(10px);
+  max-height: min(560px, calc(100vh - 142px));
+  overflow: auto;
 }
 
 .scale-list {
@@ -661,6 +682,63 @@ h1 {
 .model-node.hard_dependency .process::before {
   content: "↳ ";
   color: var(--clay);
+}
+
+.model-node.overview-node {
+  border-radius: 12px;
+  box-shadow: 0 10px 24px rgba(56, 43, 35, 0.1);
+}
+
+.model-node.overview-node .node-header {
+  min-height: 64px;
+  padding: 9px 10px;
+  border-radius: 12px 12px 0 0;
+}
+
+.model-node.overview-node .process {
+  font-size: 12px;
+  line-height: 1.18;
+  overflow-wrap: anywhere;
+}
+
+.model-node.overview-node .model-type {
+  font-size: 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-node-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 8px 10px 10px;
+}
+
+.overview-node-summary span {
+  min-width: 0;
+  max-width: 100%;
+  padding: 3px 6px;
+  border: 1px solid rgba(183, 166, 150, 0.35);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 253, 247, 0.76);
+  font-size: 10px;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-port-handles .react-flow__handle {
+  width: 7px;
+  height: 7px;
+  border-color: rgba(255, 250, 242, 0.9);
+  background: var(--line-strong);
+}
+
+.overview-port-handles .react-flow__handle-right {
+  background: var(--accent);
 }
 
 .hard-chip {
@@ -973,6 +1051,22 @@ h1 {
   opacity: 0.04;
 }
 
+.overview-mode .react-flow__edge.variable_edge path {
+  stroke-width: 1.45 !important;
+  opacity: 0.74;
+}
+
+.overview-mode .react-flow__edge.call_edge path {
+  stroke-width: 1.15 !important;
+  opacity: 0.4;
+}
+
+.overview-mode .react-flow__edge.highlighted path,
+.overview-mode .react-flow__edge.focused path {
+  stroke-width: 2.8 !important;
+  opacity: 1;
+}
+
 .edge-chip {
   position: absolute;
   z-index: -1;
@@ -1024,6 +1118,17 @@ h1 {
 
 .edge-chip.dimmed {
   opacity: 0.04;
+}
+
+.overview-mode .edge-chip:not(.highlighted):not(.focused),
+.overview-mode .edge-terminal:not(.highlighted):not(.focused) {
+  display: none;
+}
+
+.edge-chip.focused {
+  z-index: 70;
+  border-color: rgba(31, 122, 83, 0.36);
+  box-shadow: 0 10px 22px rgba(31, 122, 83, 0.14);
 }
 
 .edge-terminal {
@@ -1764,6 +1869,51 @@ h1 {
 
   .scale-controls {
     left: 220px;
+  }
+}
+
+@media (max-width: 720px) {
+  .topbar {
+    top: 10px;
+    left: 10px;
+    right: 10px;
+    gap: 8px;
+    padding: 9px 10px;
+  }
+
+  .topbar::before {
+    display: none;
+  }
+
+  .brand-block {
+    min-width: 128px;
+  }
+
+  .search-box {
+    flex-basis: 100%;
+    max-width: none;
+    min-width: 0;
+  }
+
+  .metrics {
+    margin-left: 0;
+  }
+
+  .relationship-legend,
+  .scale-controls,
+  .floating-panel {
+    top: 132px;
+    left: 10px;
+    right: 10px;
+    width: auto;
+  }
+
+  .scale-controls {
+    top: 326px;
+  }
+
+  .react-flow__minimap {
+    display: none;
   }
 }
 

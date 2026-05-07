@@ -9,14 +9,16 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
   const cyclic = Boolean(data.cyclic);
   const dimmed = Boolean(data.dimmed);
   const focused = Boolean(data.focused);
+  const overview = data.viewMode === "overview";
   return (
     <section
-      className={`model-node ${data.role} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
+      className={`model-node ${data.role} ${overview ? "overview-node" : ""} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
       data-scale={data.scale}
       style={{ width: nodeWidth(data) }}
     >
       <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
       <Handle className="call-handle call-source" id={`${data.id}:call-source`} type="source" position={Position.Right} />
+      {overview && <OverviewPortHandles inputs={data.inputs} outputs={data.outputs} />}
       {selected && data.onRemoveModel && (
         <button
           className="model-remove-button nodrag nopan"
@@ -38,6 +40,14 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
         </div>
         {data.role === "hard_dependency" ? <GitBranch size={18} /> : <Layers3 size={18} />}
       </header>
+      {overview ? (
+        <div className="overview-node-summary">
+          <span>{data.scale}</span>
+          <span>{data.inputs.length} in</span>
+          <span>{data.outputs.length} out</span>
+        </div>
+      ) : (
+        <>
       <div className="node-meta">
         {data.role === "hard_dependency" && (
           <span className="meta-chip hard-chip" data-tooltip="Hard dependency: this model is called from its parent model run!, not independently scheduled." aria-label="Hard dependency called by parent model">
@@ -55,9 +65,41 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
         <PortColumn title="Inputs" ports={data.inputs} side="input" data={data} />
         <PortColumn title="Outputs" ports={data.outputs} side="output" data={data} />
       </div>
+        </>
+      )}
       {data.diagnostics.length > 0 && <div className="diagnostic">{data.diagnostics[0]}</div>}
     </section>
   );
+}
+
+function OverviewPortHandles({ inputs, outputs }: { inputs: GraphPort[]; outputs: GraphPort[] }) {
+  return (
+    <div className="overview-port-handles" aria-hidden="true">
+      {inputs.map((port, index) => (
+        <Handle
+          key={port.id}
+          id={port.id}
+          type="target"
+          position={Position.Left}
+          style={{ top: `${overviewHandlePosition(index, inputs.length)}%` }}
+        />
+      ))}
+      {outputs.map((port, index) => (
+        <Handle
+          key={port.id}
+          id={port.id}
+          type="source"
+          position={Position.Right}
+          style={{ top: `${overviewHandlePosition(index, outputs.length)}%` }}
+        />
+      ))}
+    </div>
+  );
+}
+
+function overviewHandlePosition(index: number, total: number) {
+  if (total <= 1) return 50;
+  return 24 + (index / (total - 1)) * 52;
 }
 
 function PortColumn({ title, ports, side, data }: { title: string; ports: GraphPort[]; side: "input" | "output"; data: RuntimeGraphNodeData }) {
