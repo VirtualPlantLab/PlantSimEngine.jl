@@ -1066,6 +1066,28 @@ h1 {
   overflow: auto;
 }
 
+.inspector:focus {
+  outline: none;
+}
+
+.inspector.guided-focus {
+  animation: guided-panel-focus 1.8s ease-out;
+}
+
+@keyframes guided-panel-focus {
+  0% {
+    box-shadow: inset 0 0 0 3px rgba(31, 122, 83, 0.48), -18px 0 44px rgba(31, 122, 83, 0.16);
+    background: rgba(250, 255, 247, 0.94);
+  }
+  60% {
+    box-shadow: inset 0 0 0 3px rgba(31, 122, 83, 0.36), -12px 0 34px rgba(31, 122, 83, 0.12);
+  }
+  100% {
+    box-shadow: none;
+    background: rgba(255, 250, 242, 0.82);
+  }
+}
+
 .inspector header {
   display: flex;
   align-items: center;
@@ -1524,6 +1546,16 @@ h1 {
   background: rgba(255, 255, 255, 0.62);
 }
 
+.model-browser-item.add-model-config {
+  gap: 10px;
+  padding-bottom: 0;
+}
+
+.model-browser-title {
+  display: grid;
+  gap: 2px;
+}
+
 .model-browser-item strong {
   overflow-wrap: anywhere;
   font-size: 12px;
@@ -1638,6 +1670,19 @@ h1 {
   border: 1px solid rgba(183, 166, 150, 0.28);
   border-radius: 8px;
   background: rgba(252, 249, 244, 0.72);
+}
+
+.add-model-footer {
+  position: sticky;
+  bottom: -18px;
+  display: flex;
+  justify-content: flex-end;
+  margin: 2px -9px 0;
+  padding: 10px 9px;
+  border-top: 1px solid rgba(183, 166, 150, 0.34);
+  border-radius: 0 0 10px 10px;
+  background: rgba(255, 250, 242, 0.94);
+  backdrop-filter: blur(8px);
 }
 
 .rate-summary {

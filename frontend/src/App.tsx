@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   Background,
   Controls,
@@ -156,9 +156,12 @@ export default function App() {
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [candidatePopover, setCandidatePopover] = useState<CandidatePopover | null>(null);
   const [addModelSelection, setAddModelSelection] = useState<AddModelSelection | null>(null);
+  const [addModelFocusRequest, setAddModelFocusRequest] = useState(0);
+  const [highlightAddModelPanel, setHighlightAddModelPanel] = useState(false);
   const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<RuntimeGraphNodeData>, Edge<GraphEdgeData>> | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
+  const sidePanelRef = useRef<HTMLElement | null>(null);
 
   const nodeById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph]);
   const portById = useMemo(() => buildPortIndex(graph), [graph]);
@@ -264,11 +267,25 @@ export default function App() {
     setActivePanel((current) => current === panel ? null : panel);
   }, []);
 
+  const openAddModelPanel = useCallback(() => {
+    setActivePanel("add_model");
+    setHighlightAddModelPanel(true);
+    setAddModelFocusRequest(Date.now());
+  }, []);
+
   const addCustomScale = useCallback((rawScale: string) => {
     const scale = rawScale.trim();
     if (!scale) return;
     setCustomScales((current) => current.includes(scale) || graph.scales.includes(scale) ? current : [...current, scale]);
   }, [graph.scales]);
+
+  useEffect(() => {
+    if (activePanel !== "add_model" || !highlightAddModelPanel) return;
+    sidePanelRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
+    sidePanelRef.current?.focus({ preventScroll: true });
+    const timeout = window.setTimeout(() => setHighlightAddModelPanel(false), 1800);
+    return () => window.clearTimeout(timeout);
+  }, [activePanel, highlightAddModelPanel, addModelFocusRequest]);
 
   useEffect(() => {
     const nextNodes = visibleNodeData.map((node) => ({
@@ -534,7 +551,7 @@ export default function App() {
 
           <div className="toolbar-group panel-switch">
             <button className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
-            <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={() => togglePanel("add_model")}>Add model</button>
+            <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
             <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
             <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
           </div>
@@ -627,11 +644,14 @@ export default function App() {
             role={candidatePopoverInfo.port.role}
             models={candidatePopoverInfo.models}
             onSelectModel={(model) => {
+              const requestId = Date.now();
               setAddModelSelection({
                 modelType: model.type,
                 scale: candidatePopoverInfo.node.scale,
-                requestId: Date.now(),
+                requestId,
               });
+              setAddModelFocusRequest(requestId);
+              setHighlightAddModelPanel(true);
               setActivePanel("add_model");
               setCandidatePopover(null);
             }}
@@ -641,7 +661,11 @@ export default function App() {
       </section>
 
       {activePanel && (
-        <aside className="inspector">
+        <aside
+          ref={sidePanelRef}
+          className={`inspector ${activePanel === "add_model" && highlightAddModelPanel ? "guided-focus" : ""}`}
+          tabIndex={-1}
+        >
           {activePanel === "inspector" && (
             <>
               <header>
@@ -683,6 +707,7 @@ export default function App() {
                   models={editorModels}
                   scales={editorScales}
                   selection={addModelSelection}
+                  focusRequestId={addModelFocusRequest}
                   onAddScale={addCustomScale}
                   onCommand={sendEditorCommand}
                   disabled={!editorConnected}
@@ -1709,6 +1734,7 @@ function ModelBrowser({
   models,
   scales,
   selection,
+  focusRequestId,
   onAddScale,
   onCommand,
   disabled,
@@ -1716,6 +1742,7 @@ function ModelBrowser({
   models: ModelDescriptor[];
   scales: string[];
   selection: AddModelSelection | null;
+  focusRequestId: number;
   onAddScale: (scale: string) => void;
   onCommand: (command: Record<string, unknown>) => void;
   disabled: boolean;
@@ -1770,7 +1797,14 @@ function ModelBrowser({
           {models.map((model) => <option key={model.type} value={model.type}>{model.name} ({model.process ?? "unknown"})</option>)}
         </select>
       </label>
-      <ModelParameterForm key={selected.type} model={selected} scale={scale} disabled={disabled} onCommand={onCommand} />
+      <ModelParameterForm
+        key={selected.type}
+        model={selected}
+        scale={scale}
+        focusRequestId={focusRequestId}
+        disabled={disabled}
+        onCommand={onCommand}
+      />
     </div>
   );
 }
@@ -1778,11 +1812,13 @@ function ModelBrowser({
 function ModelParameterForm({
   model,
   scale,
+  focusRequestId,
   disabled,
   onCommand,
 }: {
   model: ModelDescriptor;
   scale: string;
+  focusRequestId: number;
   disabled: boolean;
   onCommand: (command: Record<string, unknown>) => void;
 }) {
@@ -1793,6 +1829,8 @@ function ModelParameterForm({
   const [rateMode, setRateMode] = useState<"default" | "clock">("default");
   const [rateDt, setRateDt] = useState("1.0");
   const [ratePhase, setRatePhase] = useState("0.0");
+  const firstParameterRef = useRef<HTMLInputElement | null>(null);
+  const addButtonRef = useRef<HTMLButtonElement | null>(null);
 
   const setSharedType = useCallback((fieldName: string, nextType: string) => {
     const field = model.constructor.fields.find((item) => item.name === fieldName);
@@ -1809,10 +1847,19 @@ function ModelParameterForm({
     onCommand({ action: "edit", kind: "add_model", scale, modelType: model.type, parameters, timestep });
   }, [model, onCommand, rateDt, rateMode, ratePhase, scale, types, values]);
 
+  useEffect(() => {
+    if (!focusRequestId) return;
+    window.setTimeout(() => {
+      (firstParameterRef.current ?? addButtonRef.current)?.focus({ preventScroll: true });
+    }, 80);
+  }, [focusRequestId, model.type]);
+
   return (
-      <div className="model-browser-item">
-      <strong>{model.name}</strong>
-      <span>{model.process ?? "unknown process"}</span>
+      <div className="model-browser-item add-model-config">
+      <div className="model-browser-title">
+        <strong>{model.name}</strong>
+        <span>{model.process ?? "unknown process"} at :{scale}</span>
+      </div>
       <div className="rate-editor">
         <label className="model-browser-control">
           <span>Rate</span>
@@ -1836,16 +1883,24 @@ function ModelParameterForm({
           </div>
         )}
       </div>
-      {model.constructor.fields.map((field) => (
+      {model.constructor.fields.map((field, index) => (
         <div className="parameter-row" key={field.name}>
           <label>{field.name}</label>
-          <input value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+          <input
+            ref={index === 0 ? firstParameterRef : undefined}
+            value={values[field.name] ?? ""}
+            onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+          />
           <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
             {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
           </select>
         </div>
       ))}
-      <button className="metric-button" disabled={disabled} onClick={addModel}>Add model</button>
+      <div className="add-model-footer">
+        <button ref={addButtonRef} className="metric-button accent-button" disabled={disabled} onClick={addModel}>
+          Add {model.name}
+        </button>
+      </div>
     </div>
   );
 }
