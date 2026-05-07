@@ -172,6 +172,7 @@ end
 
 function _model_var_descriptor(::Type{T}, accessor) where {T<:AbstractModel}
     instance = _try_zero_arg_model(T)
+    isnothing(instance) && (instance = _try_dummy_model(T))
     isnothing(instance) && return Dict{String,Any}()
     vars = try
         accessor(instance)
@@ -202,6 +203,41 @@ function _try_zero_arg_model(::Type{T}) where {T<:AbstractModel}
     catch
         return nothing
     end
+end
+
+function _try_dummy_model(::Type{T}) where {T<:AbstractModel}
+    unwrapped_type = Base.unwrap_unionall(T)
+    names = fieldnames(unwrapped_type)
+    isempty(names) && return nothing
+    field_types = fieldtypes(unwrapped_type)
+    values = Any[]
+    for field_type in field_types
+        value = _dummy_field_value(field_type)
+        isnothing(value) && return nothing
+        push!(values, value)
+    end
+    try
+        return T(values...)
+    catch
+        return nothing
+    end
+end
+
+_dummy_field_value(::TypeVar) = 0.0
+
+function _dummy_field_value(T)
+    try
+        T === Any && return 0.0
+        T === Bool && return false
+        T <: Integer && return zero(T)
+        T <: AbstractFloat && return zero(T)
+        T <: Real && return zero(T)
+        T <: Symbol && return :value
+        T <: AbstractString && return ""
+    catch
+        return nothing
+    end
+    return nothing
 end
 
 function _field_type_parameter_key(field_type)

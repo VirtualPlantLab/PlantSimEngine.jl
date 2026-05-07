@@ -168,7 +168,7 @@ export default function App() {
   const incomingByPort = useMemo(() => groupEdgesByPort(graph.edges, "targetPort"), [graph.edges]);
   const outgoingByPort = useMemo(() => groupEdgesByPort(graph.edges, "sourcePort"), [graph.edges]);
   const requiredInputPortIds = useMemo(() => deriveRequiredInputPorts(graph), [graph]);
-  const candidatePortIds = useMemo(() => deriveCandidatePortIds(graph, editorModels, incomingByPort, outgoingByPort), [editorModels, graph, incomingByPort, outgoingByPort]);
+  const candidatePortIds = useMemo(() => deriveCandidatePortIds(graph, editorModels, incomingByPort), [editorModels, graph, incomingByPort]);
   const requiredInputs = useMemo(() => deriveRequiredInputs(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const warningItems = useMemo(() => deriveValidationWarnings(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
   const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
@@ -1983,7 +1983,6 @@ function deriveCandidatePortIds(
   graph: DependencyGraphView,
   models: ModelDescriptor[],
   incomingByPort: Map<string, GraphEdgeData[]>,
-  outgoingByPort: Map<string, GraphEdgeData[]>,
 ) {
   const producerVariables = new Set<string>();
   const consumerVariables = new Set<string>();
@@ -1999,8 +1998,7 @@ function deriveCandidatePortIds(
       if (isUncomputed && producerVariables.has(port.name)) candidates.add(port.id);
     }
     for (const port of node.outputs) {
-      const isUnused = (outgoingByPort.get(port.id) ?? []).length === 0;
-      if (isUnused && consumerVariables.has(port.name)) candidates.add(port.id);
+      if (consumerVariables.has(port.name)) candidates.add(port.id);
     }
   }
   return candidates;

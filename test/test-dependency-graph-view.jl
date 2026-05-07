@@ -211,6 +211,14 @@ PlantSimEngine.outputs_(::GraphViewHardChildModel) = (child_output=-Inf,)
     @test default_fields[2]["default"] == ":fast"
     @test default_fields[2]["inferredChoice"] == "symbol"
 
+    param_descriptor = model_descriptor(GraphViewParamModel)
+    @test param_descriptor["inputs"]["x"] == "-Inf"
+    @test param_descriptor["outputs"]["y"] == "-Inf"
+
+    beer_descriptor = model_descriptor(Beer)
+    @test beer_descriptor["inputs"]["LAI"] == "-Inf"
+    @test beer_descriptor["outputs"]["aPPFD"] == "-Inf"
+
     add_mapping = ModelMapping(:Plant => (GraphViewPlantAgeModel(), Status(day=1.0)))
     added_mapping = apply_graph_edit(add_mapping, AddModel(:Plant, GraphViewPhytomerEmissionModel, NamedTuple()))
     @test any(m -> process(m) == :graph_view_phytomer_emission, PlantSimEngine.get_models(added_mapping[:Plant]))
