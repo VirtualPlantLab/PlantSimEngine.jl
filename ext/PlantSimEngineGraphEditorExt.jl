@@ -573,10 +573,16 @@ function _initialization_payload(mapping::PlantSimEngine.ModelMapping)
             value_payload = isnothing(status) || !(variable in keys(status)) ?
                             _status_value_payload(nothing; provided=false) :
                             _status_value_payload(status[variable]; provided=true)
-            push!(payload, merge(Dict(
-                "scale" => string(scale),
-                "name" => string(variable),
-            ), value_payload))
+            push!(
+                payload,
+                merge(
+                    Dict(
+                        "scale" => string(scale),
+                        "name" => string(variable),
+                    ),
+                    value_payload
+                )
+            )
         end
     end
     return payload
