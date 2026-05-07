@@ -36,6 +36,7 @@ export type RuntimeGraphNodeData = GraphNodeData & {
   onPortEnter?: (port: GraphPort) => void;
   onPortLeave?: (port: GraphPort) => void;
   onCandidateClick?: (port: GraphPort, anchor: { x: number; y: number }) => void;
+  onRemoveModel?: (node: GraphNodeData) => void;
 };
 
 export type GraphEdgeData = {

@@ -577,11 +577,36 @@ h1 {
 }
 
 .model-node {
+  position: relative;
   overflow: visible;
   background: rgba(255, 250, 242, 0.96);
   border: 1px solid var(--line);
   border-radius: 16px;
   box-shadow: 0 18px 42px var(--shadow);
+}
+
+.model-remove-button {
+  position: absolute;
+  z-index: 45;
+  top: -11px;
+  right: -11px;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(191, 106, 84, 0.4);
+  border-radius: 999px;
+  color: #fff;
+  background: var(--clay);
+  box-shadow: 0 10px 24px rgba(191, 106, 84, 0.24);
+  cursor: pointer;
+}
+
+.model-remove-button:hover,
+.model-remove-button:focus-visible {
+  outline: none;
+  background: #9b3f2e;
+  transform: translateY(-1px);
 }
 
 .node-header {

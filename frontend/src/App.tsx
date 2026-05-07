@@ -264,6 +264,23 @@ export default function App() {
     editorSocket.send(JSON.stringify(command));
   }, [editorSocket]);
 
+  const removeGraphModel = useCallback((node: GraphNodeData) => {
+    const target = removableMappingNode(node, nodeById);
+    if (!target) {
+      setEditorFeedback({ kind: "error", text: `Cannot remove ${node.process}: no owning ModelMapping model was found.` });
+      return;
+    }
+    sendEditorCommand({
+      action: "edit",
+      kind: "remove_model",
+      scale: target.scale,
+      process: target.process,
+    });
+    setSelected((current) => current?.id === node.id || current?.id === target.id ? null : current);
+    setActivePort(null);
+    setSelectedEdge(null);
+  }, [nodeById, sendEditorCommand]);
+
   const togglePanel = useCallback((panel: Exclude<SidePanel, null>) => {
     setActivePanel((current) => current === panel ? null : panel);
   }, []);
@@ -305,6 +322,7 @@ export default function App() {
         activeCandidatePortId,
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
+        removeGraphModel,
       }),
     }));
     const nextEdges = visibleEdgeData.map((edge) => flowEdge(edge, new Set<string>(), new Set<string>(), false, false));
@@ -312,7 +330,7 @@ export default function App() {
       setNodes(layouted);
       setEdges(nextEdges);
     });
-  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, visibleEdgeData, visibleNodeData]);
+  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, visibleEdgeData, visibleNodeData]);
 
   useEffect(() => {
     const focusEdges = focus.active ? focus.edges : new Set<string>();
@@ -330,10 +348,11 @@ export default function App() {
         activeCandidatePortId,
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
+        removeGraphModel,
       }),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, hoverHighlight.edges, focusEdges, Boolean(activePort), focus.active) : edge));
-  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover]);
+  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover]);
 
   useEffect(() => {
     if (candidatePopover && !candidatePortIds.has(candidatePopover.portId)) setCandidatePopover(null);
@@ -1939,6 +1958,7 @@ function runtimeNodeData(
     activeCandidatePortId: string | null;
     setActivePort: (port: GraphPort | null) => void;
     setCandidatePopover: (port: GraphPort, anchor: { x: number; y: number }) => void;
+    removeGraphModel: (node: GraphNodeData) => void;
   },
 ): RuntimeGraphNodeData {
   return {
@@ -1956,7 +1976,19 @@ function runtimeNodeData(
       if (options.activeCandidatePortId !== port.id) options.setActivePort(null);
     },
     onCandidateClick: options.setCandidatePopover,
+    onRemoveModel: options.removeGraphModel,
   };
+}
+
+function removableMappingNode(node: GraphNodeData, nodeById: Map<string, GraphNodeData>) {
+  let current: GraphNodeData | undefined = node;
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    if (current.role === "model") return current;
+    visited.add(current.id);
+    current = current.parent ? nodeById.get(current.parent) : undefined;
+  }
+  return null;
 }
 
 function deriveRequiredInputPorts(graph: DependencyGraphView) {

@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Clock3, GitBranch, Layers3, Link2, PhoneCall, Plus } from "lucide-react";
+import { Clock3, GitBranch, Layers3, Link2, PhoneCall, Plus, Trash2 } from "lucide-react";
 import type { GraphPort, RuntimeGraphNodeData } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
@@ -17,6 +17,20 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
     >
       <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
       <Handle className="call-handle call-source" id={`${data.id}:call-source`} type="source" position={Position.Right} />
+      {selected && data.onRemoveModel && (
+        <button
+          className="model-remove-button nodrag nopan"
+          type="button"
+          title={data.role === "hard_dependency" ? `Remove owning model for ${data.process}` : `Remove ${data.process}`}
+          aria-label={data.role === "hard_dependency" ? `Remove owning model for ${data.process}` : `Remove ${data.process}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onRemoveModel?.(data);
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
       <header className="node-header">
         <div>
           <div className="process">{data.process}</div>
