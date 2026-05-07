@@ -110,4 +110,8 @@ export type GraphEditorState = {
   mappingCode: string;
   initializations: InitializationDescriptor[];
   lastSavedPath: string | null;
+  saveTargetPath: string | null;
+  autosavePath: string | null;
+  lastAutosavedPath: string | null;
+  recentMappings: string[];
 };

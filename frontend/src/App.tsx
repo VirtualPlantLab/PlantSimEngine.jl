@@ -132,6 +132,10 @@ export default function App() {
   const [mappingCode, setMappingCode] = useState("");
   const [initializations, setInitializations] = useState<InitializationDescriptor[]>([]);
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
+  const [saveTargetPath, setSaveTargetPath] = useState<string | null>(null);
+  const [autosavePath, setAutosavePath] = useState<string | null>(null);
+  const [lastAutosavedPath, setLastAutosavedPath] = useState<string | null>(null);
+  const [recentMappings, setRecentMappings] = useState<string[]>([]);
   const [editorFeedback, setEditorFeedback] = useState<{ kind: "error" | "info"; text: string } | null>(null);
   const [savePath, setSavePath] = useState("mapping.generated.jl");
   const [customScales, setCustomScales] = useState<string[]>([]);
@@ -226,7 +230,12 @@ export default function App() {
       if (payload.models) setEditorModels(payload.models);
       if (typeof payload.mappingCode === "string") setMappingCode(payload.mappingCode);
       if (Array.isArray(payload.initializations)) setInitializations(payload.initializations);
-      if (typeof payload.lastSavedPath === "string") setLastSavedPath(payload.lastSavedPath);
+      setLastSavedPath(typeof payload.lastSavedPath === "string" ? payload.lastSavedPath : null);
+      setSaveTargetPath(typeof payload.saveTargetPath === "string" ? payload.saveTargetPath : null);
+      if (typeof payload.saveTargetPath === "string") setSavePath(payload.saveTargetPath);
+      setAutosavePath(typeof payload.autosavePath === "string" ? payload.autosavePath : null);
+      setLastAutosavedPath(typeof payload.lastAutosavedPath === "string" ? payload.lastAutosavedPath : null);
+      if (Array.isArray(payload.recentMappings)) setRecentMappings(payload.recentMappings);
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
       if (payload.ok === false) {
@@ -682,8 +691,14 @@ export default function App() {
                 code={mappingCode}
                 savePath={savePath}
                 lastSavedPath={lastSavedPath}
+                saveTargetPath={saveTargetPath}
+                autosavePath={autosavePath}
+                lastAutosavedPath={lastAutosavedPath}
+                recentMappings={recentMappings}
                 onSavePathChange={setSavePath}
                 onSave={() => sendEditorCommand({ action: "write_mapping_code", path: savePath })}
+                onOpenRecent={(path) => sendEditorCommand({ action: "open_mapping_code", path })}
+                disabled={!editorConnected}
               />
             </>
           )}
@@ -1553,14 +1568,26 @@ function MappingCodePanel({
   code,
   savePath,
   lastSavedPath,
+  saveTargetPath,
+  autosavePath,
+  lastAutosavedPath,
+  recentMappings,
   onSavePathChange,
   onSave,
+  onOpenRecent,
+  disabled,
 }: {
   code: string;
   savePath: string;
   lastSavedPath: string | null;
+  saveTargetPath: string | null;
+  autosavePath: string | null;
+  lastAutosavedPath: string | null;
+  recentMappings: string[];
   onSavePathChange: (path: string) => void;
   onSave: () => void;
+  onOpenRecent: (path: string) => void;
+  disabled: boolean;
 }) {
   const copyCode = useCallback(async () => {
     if (!code) return;
@@ -1578,10 +1605,43 @@ function MappingCodePanel({
         <span>Write to file</span>
         <input value={savePath} onChange={(event) => onSavePathChange(event.target.value)} placeholder="mapping.generated.jl" />
       </label>
-      <button className="metric-button" onClick={onSave}>Save mapping code</button>
-      {lastSavedPath ? <div className="diagnostic">Saved to {lastSavedPath}</div> : <div className="empty-state compact">No mapping code saved yet.</div>}
+      <button className="metric-button" disabled={disabled} onClick={onSave}>Save mapping code</button>
+      <div className="storage-grid">
+        {saveTargetPath ? <PathStatus label="Auto-save target" path={saveTargetPath} /> : <div className="empty-state compact">No file target selected.</div>}
+        {lastSavedPath ? <PathStatus label="Last saved" path={lastSavedPath} /> : null}
+        {autosavePath ? <PathStatus label={lastAutosavedPath ? "Recovery autosave" : "Recovery target"} path={autosavePath} /> : null}
+      </div>
+      {recentMappings.length > 0 && (
+        <div className="recent-mappings">
+          <div className="row-with-actions">
+            <strong>Recent mappings</strong>
+          </div>
+          <div className="recent-mapping-list">
+            {recentMappings.map((path) => (
+              <button className="recent-mapping-item" key={path} disabled={disabled} onClick={() => onOpenRecent(path)}>
+                <span>{basename(path)}</span>
+                <small>{path}</small>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
+}
+
+function PathStatus({ label, path }: { label: string; path: string }) {
+  return (
+    <div className="path-status">
+      <span>{label}</span>
+      <strong>{path}</strong>
+    </div>
+  );
+}
+
+function basename(path: string) {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
 }
 
 function ModelBrowser({

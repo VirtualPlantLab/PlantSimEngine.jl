@@ -54,7 +54,18 @@ edited_mapping = current_mapping(session)
 close(session)
 ```
 
-The web editor also exposes a dedicated "Mapping code" panel. It shows the current [`ModelMapping`](@ref) as Julia code, and can write that code to a `.jl` file so it can be copied/pasted or reused in scripts.
+The web editor also exposes a dedicated "Mapping code" panel. It shows the current [`ModelMapping`](@ref) as Julia code, and can write that code to a `.jl` file so it can be copied/pasted or reused in scripts. The generated file is intentionally plain Julia: it imports the packages needed by the selected models and defines a top-level `mapping` variable:
+
+```julia
+using PlantSimEngine
+using PlantSimEngine.Examples
+
+mapping = ModelMapping(
+    # ...
+)
+```
+
+After writing a file once, every successful edit, undo, redo, or recent-file load automatically rewrites that same file. The session also keeps a recovery autosave in the temporary directory, and the "Mapping code" panel lists recently saved mapping scripts that can be reopened. Use git or another version-control system for mapping scripts that matter for a simulation workflow.
 
 The editor extension currently supports the same edit operations as the Julia API:
 

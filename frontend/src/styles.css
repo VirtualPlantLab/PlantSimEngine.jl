@@ -1089,6 +1089,71 @@ h1 {
   line-height: 1.45;
 }
 
+.storage-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.path-status {
+  display: grid;
+  gap: 3px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 250, 242, 0.72);
+  padding: 9px;
+}
+
+.path-status span {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.path-status strong {
+  color: var(--ink);
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
+.recent-mappings {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.recent-mapping-list {
+  display: grid;
+  gap: 7px;
+}
+
+.recent-mapping-item {
+  display: grid;
+  gap: 3px;
+  text-align: left;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: rgba(255, 253, 247, 0.82);
+  color: var(--ink);
+  padding: 9px;
+  cursor: pointer;
+}
+
+.recent-mapping-item:hover,
+.recent-mapping-item:focus-visible {
+  border-color: rgba(31, 122, 83, 0.32);
+  background: rgba(31, 122, 83, 0.08);
+}
+
+.recent-mapping-item span {
+  font-weight: 720;
+}
+
+.recent-mapping-item small {
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
 .inline-field {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;

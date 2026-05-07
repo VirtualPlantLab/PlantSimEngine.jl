@@ -15,6 +15,11 @@ mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSe
     port::Int
     url::String
     last_saved_path::Union{Nothing,String}
+    save_target_path::Union{Nothing,String}
+    autosave_path::Union{Nothing,String}
+    last_autosaved_path::Union{Nothing,String}
+    recent_file_path::String
+    recent_mapping_paths::Vector{String}
 end
 
 current_mapping(session::GraphEditorSession) = session.mapping
@@ -33,13 +38,15 @@ function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
     println(io, "  Local state JSON: $(session.url)/state")
     println(io, "  Quit session: close(session)")
     println(io, "  Current mapping: current_mapping(session)")
+    isnothing(session.save_target_path) || println(io, "  Auto-saving edits to: $(session.save_target_path)")
+    isnothing(session.autosave_path) || println(io, "  Recovery autosave: $(session.autosave_path)")
     println(io, "  Save mapping code: use the \"Mapping code\" panel in the web editor")
 end
 
 current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
 
 """
-    edit_graph(mapping; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true)
+    edit_graph(mapping; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
@@ -47,6 +54,9 @@ Start a local graph editor session. The returned session owns the current
 Single-scale mappings are automatically normalized to multiscale form at the :Default scale.
 By default, the session URL is opened with the system default browser. Pass
 `open_browser=false` to disable this, for example in scripts or tests.
+When `autosave=true`, a recovery script is written to the temporary directory.
+After saving through the web editor, every successful graph edit, undo, redo,
+or recent-file load rewrites the saved Julia script.
 
 This method is provided by the `PlantSimEngineGraphEditorExt` package extension.
 Load `HTTP` in the active session to make it available.
@@ -57,6 +67,9 @@ function edit_graph(
     host::AbstractString="127.0.0.1",
     port::Integer=8765,
     open_browser::Bool=true,
+    autosave::Bool=true,
+    autosave_path::Union{Nothing,AbstractString}=nothing,
+    recent_file_path::Union{Nothing,AbstractString}=nothing,
 )
     # Normalize single-scale to multiscale form for uniform handling downstream
     mapping = _normalize_to_multiscale(mapping)
@@ -75,8 +88,14 @@ function edit_graph(
         actual_port,
         "http://$(host):$(actual_port)",
         nothing,
+        nothing,
+        autosave ? _normalized_output_path(isnothing(autosave_path) ? _default_autosave_path() : autosave_path) : nothing,
+        nothing,
+        _normalized_output_path(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
+        _load_recent_mapping_paths(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
     )
     session_ref[] = session
+    _persist_session_mapping!(session; write_save_target=false)
     open_browser && _open_in_default_browser(session.url)
     return session
 end
@@ -198,20 +217,29 @@ end
 function _handle_command!(session::GraphEditorSession, command)
     action = get(command, "action", "")
     try
+        persist = false
         if action == "undo"
             undo!(session)
+            persist = true
         elseif action == "redo"
             redo!(session)
+            persist = true
         elseif action == "edit"
             edit = _edit_from_command(command)
             apply_edit!(session, edit)
+            persist = true
         elseif action == "write_mapping_code"
             raw_path = get(command, "path", "")
             _write_mapping_code!(session, String(raw_path))
+        elseif action == "open_mapping_code"
+            raw_path = get(command, "path", "")
+            _open_mapping_code!(session, String(raw_path))
+            persist = true
         else
             error("Unsupported graph editor command action `$action`.")
         end
-        return _state_payload(session; ok=true)
+        diagnostics = persist ? _persist_session_mapping!(session) : String[]
+        return _state_payload(session; ok=isempty(diagnostics), diagnostics=diagnostics)
     catch err
         return _state_payload(session; ok=false, diagnostics=[sprint(showerror, err)])
     end
@@ -330,6 +358,10 @@ function _state_payload(session::GraphEditorSession; ok::Bool=true, diagnostics:
         "mappingCode" => current_mapping_code(session),
         "initializations" => _initialization_payload(session.mapping),
         "lastSavedPath" => session.last_saved_path,
+        "saveTargetPath" => session.save_target_path,
+        "autosavePath" => session.autosave_path,
+        "lastAutosavedPath" => session.last_autosaved_path,
+        "recentMappings" => session.recent_mapping_paths,
     )
 end
 
@@ -415,11 +447,116 @@ _frontend_dist_dir() = normpath(joinpath(@__DIR__, "..", "frontend", "dist"))
 function _write_mapping_code!(session::GraphEditorSession, raw_path::AbstractString)
     path = strip(String(raw_path))
     isempty(path) && error("The output path is empty. Provide a .jl file path.")
-    full_path = isabspath(path) ? normpath(path) : normpath(joinpath(pwd(), path))
-    mkpath(dirname(full_path))
-    write(full_path, current_mapping_code(session) * "\n")
+    full_path = _normalized_output_path(path)
+    _atomic_write(full_path, current_mapping_code(session) * "\n")
     session.last_saved_path = full_path
+    session.save_target_path = full_path
+    _remember_recent_mapping!(session, full_path)
     return full_path
+end
+
+function _open_mapping_code!(session::GraphEditorSession, raw_path::AbstractString)
+    path = strip(String(raw_path))
+    isempty(path) && error("The input path is empty. Provide a .jl file path.")
+    full_path = _normalized_output_path(path)
+    isfile(full_path) || error("No mapping code file exists at `$full_path`.")
+    mapping = _mapping_from_julia_file(full_path)
+    push!(session.history, session.mapping)
+    empty!(session.future)
+    session.mapping = _normalize_to_multiscale(mapping)
+    session.save_target_path = full_path
+    session.last_saved_path = full_path
+    _remember_recent_mapping!(session, full_path)
+    return session.mapping
+end
+
+function _mapping_from_julia_file(path::AbstractString)
+    module_ = Module(gensym(:PlantSimEngineGraphEditorMapping))
+    Core.eval(module_, :(using Base))
+    Core.eval(module_, :(using PlantSimEngine))
+    result = Core.eval(module_, Meta.parse("begin\n" * read(path, String) * "\nend"))
+    mapping = isdefined(module_, :mapping) ? getfield(module_, :mapping) : result
+    mapping isa PlantSimEngine.ModelMapping || (!isdefined(module_, :mapping) && error("Mapping code `$path` must define a top-level `mapping` variable."))
+    mapping isa PlantSimEngine.ModelMapping || error("`mapping` in `$path` is a $(typeof(mapping)), not a PlantSimEngine.ModelMapping.")
+    return mapping
+end
+
+function _persist_session_mapping!(session::GraphEditorSession; write_save_target::Bool=true)
+    diagnostics = String[]
+    if write_save_target && !isnothing(session.save_target_path)
+        try
+            _atomic_write(session.save_target_path, current_mapping_code(session) * "\n")
+            session.last_saved_path = session.save_target_path
+        catch err
+            push!(diagnostics, "Could not auto-save mapping code to $(session.save_target_path): $(sprint(showerror, err))")
+        end
+    end
+    if !isnothing(session.autosave_path)
+        try
+            _atomic_write(session.autosave_path, current_mapping_code(session) * "\n")
+            session.last_autosaved_path = session.autosave_path
+        catch err
+            push!(diagnostics, "Could not write recovery autosave to $(session.autosave_path): $(sprint(showerror, err))")
+        end
+    end
+    return diagnostics
+end
+
+function _atomic_write(path::AbstractString, content::AbstractString)
+    full_path = _normalized_output_path(path)
+    mkpath(dirname(full_path))
+    tmp = tempname(dirname(full_path))
+    try
+        write(tmp, content)
+        mv(tmp, full_path; force=true)
+    finally
+        isfile(tmp) && rm(tmp; force=true)
+    end
+    return full_path
+end
+
+function _normalized_output_path(path::AbstractString)
+    stripped = strip(String(path))
+    return isabspath(stripped) ? normpath(stripped) : normpath(joinpath(pwd(), stripped))
+end
+
+function _default_autosave_path()
+    stamp = string(round(Int, time() * 1000))
+    suffix = string(rand(UInt32); base=16)
+    return joinpath(tempdir(), "PlantSimEngineGraphEditor", "session-$stamp-$suffix", "mapping.autosave.jl")
+end
+
+_default_recent_file_path() = joinpath(DEPOT_PATH[1], "config", "PlantSimEngine", "graph_editor_recent.json")
+
+function _load_recent_mapping_paths(path::AbstractString)
+    full_path = _normalized_output_path(path)
+    isfile(full_path) || return String[]
+    try
+        payload = JSON.parse(read(full_path, String))
+        values = payload isa AbstractDict ? get(payload, "paths", String[]) : payload
+        return [String(item) for item in values if item isa AbstractString && isfile(String(item))]
+    catch
+        return String[]
+    end
+end
+
+function _remember_recent_mapping!(session::GraphEditorSession, path::AbstractString)
+    full_path = _normalized_output_path(path)
+    filter!(item -> item != full_path, session.recent_mapping_paths)
+    pushfirst!(session.recent_mapping_paths, full_path)
+    length(session.recent_mapping_paths) > 10 && resize!(session.recent_mapping_paths, 10)
+    _write_recent_mapping_paths(session)
+    return session.recent_mapping_paths
+end
+
+function _write_recent_mapping_paths(session::GraphEditorSession)
+    content = JSON.json(Dict("paths" => session.recent_mapping_paths))
+    try
+        _atomic_write(session.recent_file_path, content * "\n")
+    catch err
+        @warn "Could not update graph editor recent mappings." path = session.recent_file_path exception = (err, catch_backtrace())
+    end
+    return session.recent_file_path
 end
 
 function _initialization_payload(mapping::PlantSimEngine.ModelMapping)

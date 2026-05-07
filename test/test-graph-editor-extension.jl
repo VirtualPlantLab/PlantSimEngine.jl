@@ -69,7 +69,9 @@ end
             Status(TT_cu=1.0, LAI=2.0),
         ),
     )
-    session = edit_graph(mapping; port=0, open_browser=false)
+    autosave_path = tempname() * ".jl"
+    recent_file_path = tempname() * ".json"
+    session = edit_graph(mapping; port=0, open_browser=false, autosave_path=autosave_path, recent_file_path=recent_file_path)
 
     try
         @test session isa AbstractGraphEditorSession
@@ -84,6 +86,10 @@ end
         @test haskey(state, "graph")
         @test haskey(state, "models")
         @test haskey(state, "mappingCode")
+        @test state["autosavePath"] == autosave_path
+        @test state["lastAutosavedPath"] == autosave_path
+        @test isfile(autosave_path)
+        @test state["recentMappings"] == Any[]
         @test startswith(state["mappingCode"], "using PlantSimEngine\n")
         @test occursin("using PlantSimEngine.Examples", state["mappingCode"])
         @test occursin("ModelMapping", state["mappingCode"])
@@ -209,6 +215,9 @@ end
             saved = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
             @test saved["ok"]
             @test saved["lastSavedPath"] == output_path
+            @test saved["saveTargetPath"] == output_path
+            @test output_path in saved["recentMappings"]
+            @test isfile(recent_file_path)
             @test isfile(output_path)
             saved_code = read(output_path, String)
             @test startswith(saved_code, "using PlantSimEngine\n")
@@ -216,6 +225,35 @@ end
             @test occursin("mapping = ModelMapping", saved_code)
             @test !occursin("LAI = 2.0", saved_code)
             @test !occursin("TT_cu = 1.0", saved_code)
+
+            update_degree_days = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "update_model",
+                "scale" => "Plant",
+                "process" => "Degreedays",
+                "targetScale" => "Plant",
+                "modelType" => string(ToyDegreeDaysCumulModel),
+                "parameters" => Dict(
+                    "init_TT" => Dict("type" => "float", "value" => "5.0"),
+                    "T_base" => Dict("type" => "float", "value" => "1.0"),
+                    "T_max" => Dict("type" => "float", "value" => "20.0"),
+                ),
+            ))
+            HTTP.WebSockets.send(ws, update_degree_days)
+            autosaved = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test autosaved["ok"]
+            @test occursin("ToyDegreeDaysCumulModel(5.0, 1.0, 20.0)", read(output_path, String))
+            @test occursin("ToyDegreeDaysCumulModel(5.0, 1.0, 20.0)", read(autosave_path, String))
+
+            open_saved = PlantSimEngine.JSON.json(Dict(
+                "action" => "open_mapping_code",
+                "path" => output_path,
+            ))
+            HTTP.WebSockets.send(ws, open_saved)
+            loaded = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test loaded["ok"]
+            @test loaded["saveTargetPath"] == output_path
+            @test current_mapping(session) isa ModelMapping{PlantSimEngine.MultiScale}
         end
     finally
         close(session)
