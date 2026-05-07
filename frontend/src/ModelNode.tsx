@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Clock3, GitBranch, Layers3, Link2, PhoneCall } from "lucide-react";
+import { Clock3, GitBranch, Layers3, Link2, PhoneCall, Plus, Trash2 } from "lucide-react";
 import type { GraphPort, RuntimeGraphNodeData } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
@@ -17,6 +17,20 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
     >
       <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
       <Handle className="call-handle call-source" id={`${data.id}:call-source`} type="source" position={Position.Right} />
+      {selected && data.onRemoveModel && (
+        <button
+          className="model-remove-button nodrag nopan"
+          type="button"
+          title={data.role === "hard_dependency" ? `Remove owning model for ${data.process}` : `Remove ${data.process}`}
+          aria-label={data.role === "hard_dependency" ? `Remove owning model for ${data.process}` : `Remove ${data.process}`}
+          onClick={(event) => {
+            event.stopPropagation();
+            data.onRemoveModel?.(data);
+          }}
+        >
+          <Trash2 size={14} />
+        </button>
+      )}
       <header className="node-header">
         <div>
           <div className="process">{data.process}</div>
@@ -50,6 +64,7 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
   const highlighted = new Set(data.highlightedPortIds ?? []);
   const focused = new Set(data.focusedPortIds ?? []);
   const requiredInputs = new Set(data.requiredInputPortIds ?? []);
+  const candidatePorts = new Set(data.candidatePortIds ?? []);
   return (
     <div className={`port-column ${side}`}>
       <div className="port-title">{title}</div>
@@ -60,9 +75,9 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
           data-default={`${requiredInputs.has(port.id) ? "Required initialization" : portValueLabel(port)}: ${port.default}`}
           aria-label={`${port.name}, ${side}, ${requiredInputs.has(port.id) ? "required initialization" : portValueLabel(port).toLowerCase()} ${port.default}`}
           onMouseEnter={() => data.onPortEnter?.(port)}
-          onMouseLeave={() => data.onPortLeave?.()}
+          onMouseLeave={() => data.onPortLeave?.(port)}
           onPointerEnter={() => data.onPortEnter?.(port)}
-          onPointerLeave={() => data.onPortLeave?.()}
+          onPointerLeave={() => data.onPortLeave?.(port)}
           onClick={(event) => {
             event.stopPropagation();
             data.onPortEnter?.(port);
@@ -70,6 +85,25 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
         >
           {side === "input" && <Handle id={port.id} type="target" position={Position.Left} />}
           <span>{port.name}</span>
+          {candidatePorts.has(port.id) && (
+            <button
+              className="port-candidate-button nodrag nopan"
+              type="button"
+              title={side === "input" ? "Show models that can compute this variable" : "Show models that can consume this variable"}
+              aria-label={side === "input" ? "Show models that can compute this variable" : "Show models that can consume this variable"}
+              onClick={(event) => {
+                event.stopPropagation();
+                const rect = event.currentTarget.getBoundingClientRect();
+                data.onPortEnter?.(port);
+                data.onCandidateClick?.(port, {
+                  x: rect.right,
+                  y: rect.top + rect.height / 2,
+                });
+              }}
+            >
+              <Plus size={10} />
+            </button>
+          )}
           {port.mappingMode && <Link2 size={12} />}
           {side === "output" && <Handle id={port.id} type="source" position={Position.Right} />}
         </div>

@@ -39,10 +39,7 @@ function soft_dependencies(d::DependencyGraph{Dict{Symbol,HardDependencyNode}}, 
     # Compute the variables of each node in the hard-dependency graph:
     d_vars = Dict{Symbol,Vector{Pair{Symbol,NamedTuple}}}()
     for (procname, node) in d.roots
-        var = Pair{Symbol,NamedTuple}[]
-        nodes_visited = Set{AbstractDependencyNode}()
-        traverse_dependency_graph!(node, variables, var; node_visited=nodes_visited)
-        push!(d_vars, procname => var)
+        push!(d_vars, procname => hard_dependency_variables(node))
     end
 
     # Note: all variables are collected at once for each hard-coupled nodes
