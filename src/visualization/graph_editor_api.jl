@@ -5,9 +5,10 @@ function _graph_editor_missing_http()
 end
 
 """
-    edit_graph(mapping; kwargs...)
+    edit_graph([mapping]; kwargs...)
 
-Start an interactive graph editor session for a [`ModelMapping`](@ref).
+Start an interactive graph editor session for a [`ModelMapping`](@ref), or
+call `edit_graph()` with no mapping to start from a blank editor.
 
 The HTTP-backed method is provided by the `PlantSimEngineGraphEditorExt`
 package extension. Load `HTTP` in the active Julia session before calling this
@@ -18,6 +19,7 @@ using PlantSimEngine
 using HTTP
 
 session = edit_graph(mapping)
+blank_session = edit_graph()
 ```
 
 Pass `open_browser=false` to keep the session headless.

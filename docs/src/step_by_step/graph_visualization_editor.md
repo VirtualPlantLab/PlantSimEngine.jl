@@ -33,6 +33,12 @@ session.url
 session
 ```
 
+To start from a blank graph and build a mapping from scratch, omit the mapping:
+
+```julia
+session = edit_graph()
+```
+
 By default, `edit_graph` opens `session.url` in the system default browser. Pass `open_browser=false` to keep the session headless, for example in scripts or tests:
 
 ```julia

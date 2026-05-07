@@ -62,6 +62,28 @@ end
 @testset "HTTP extension loading and WebSocket edits" begin
     @test Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt) !== nothing
 
+    blank_session = edit_graph(; port=0, open_browser=false, autosave=false)
+    try
+        blank_mapping = current_mapping(blank_session)
+        @test blank_mapping isa ModelMapping{PlantSimEngine.MultiScale}
+        @test isempty(keys(blank_mapping))
+
+        blank_state_response = HTTP.get(string(blank_session.url, "/state"))
+        @test blank_state_response.status == 200
+        blank_state = PlantSimEngine.JSON.parse(String(blank_state_response.body))
+        @test blank_state["ok"]
+        @test blank_state["graph"]["nodes"] == Any[]
+        @test blank_state["graph"]["edges"] == Any[]
+        @test blank_state["graph"]["scales"] == Any["Default"]
+        @test occursin("Add at least one model", blank_state["mappingCode"])
+
+        apply_edit!(blank_session, PlantSimEngine.AddModel(:Default, ToyLAIModel, NamedTuple()))
+        @test :Default in keys(current_mapping(blank_session))
+        @test only(PlantSimEngine.get_models(current_mapping(blank_session)[:Default])) isa ToyLAIModel
+    finally
+        close(blank_session)
+    end
+
     mapping = ModelMapping(
         :Leaf => (
             ToyLAIModel(),

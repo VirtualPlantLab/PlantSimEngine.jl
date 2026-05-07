@@ -175,7 +175,8 @@ export default function App() {
   const searchResults = useMemo(() => deriveSearchResults(graph, searchQuery), [graph, searchQuery]);
   const visibleNodeData = useMemo(() => graph.nodes.filter((node) => !collapsedScales.has(node.scale)), [collapsedScales, graph.nodes]);
   const editorScales = useMemo(() => {
-    const merged = [...graph.scales, ...customScales];
+    const graphScales = graph.scales.length > 0 ? graph.scales : ["Default"];
+    const merged = [...graphScales, ...customScales];
     return [...new Set(merged)];
   }, [customScales, graph.scales]);
   const visibleNodeIds = useMemo(() => new Set(visibleNodeData.map((node) => node.id)), [visibleNodeData]);

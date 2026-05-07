@@ -46,10 +46,11 @@ end
 current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
 
 """
-    edit_graph(mapping; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true)
+    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
+Call `edit_graph()` without a mapping to start from an empty scratch editor.
 
 Single-scale mappings are automatically normalized to multiscale form at the :Default scale.
 By default, the session URL is opened with the system default browser. Pass
@@ -62,7 +63,7 @@ This method is provided by the `PlantSimEngineGraphEditorExt` package extension.
 Load `HTTP` in the active session to make it available.
 """
 function edit_graph(
-    mapping::PlantSimEngine.ModelMapping;
+    mapping::PlantSimEngine.ModelMapping=_empty_editor_mapping();
     mtg=nothing,
     host::AbstractString="127.0.0.1",
     port::Integer=8765,
@@ -99,6 +100,9 @@ function edit_graph(
     open_browser && _open_in_default_browser(session.url)
     return session
 end
+
+_empty_editor_mapping() =
+    PlantSimEngine._build_model_mapping(PlantSimEngine.MultiScale, Dict{Symbol,Tuple}(); validated=false)
 
 function _open_in_default_browser(url::AbstractString)
     try
@@ -346,6 +350,7 @@ end
 
 function _state_payload(session::GraphEditorSession; ok::Bool=true, diagnostics::Vector{String}=String[])
     graph = JSON.parse(PlantSimEngine.graph_view_json(session.mapping))
+    isempty(get(graph, "scales", Any[])) && (graph["scales"] = ["Default"])
     append!(graph["diagnostics"], diagnostics)
     return Dict(
         "ok" => ok,
@@ -608,6 +613,11 @@ function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
         println(io, statement)
     end
     println(io)
+    if isempty(keys(mapping))
+        println(io, "# Add at least one model in the graph editor to generate a ModelMapping.")
+        print(io, "# mapping = ModelMapping(...)")
+        return String(take!(io))
+    end
     required_status_variables = _required_status_variables(mapping)
     println(io, "mapping = ModelMapping(")
     for scale in keys(mapping)
