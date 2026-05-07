@@ -65,7 +65,7 @@ mapping = ModelMapping(
 )
 ```
 
-After writing a file once, every successful edit, undo, redo, or recent-file load automatically rewrites that same file. The session also keeps a recovery autosave in the temporary directory, and the "Mapping code" panel lists recently saved mapping scripts that can be reopened. Use git or another version-control system for mapping scripts that matter for a simulation workflow.
+After writing a file once, every successful edit, undo, redo, or recent-file load automatically rewrites that same file. The session also keeps a recovery autosave in the temporary directory. The top-left "Open" button can reopen a mapping script from a file path or from the recent mapping list. Use git or another version-control system for mapping scripts that matter for a simulation workflow.
 
 The editor extension currently supports the same edit operations as the Julia API:
 

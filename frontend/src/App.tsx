@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   CircleAlert,
   Filter,
+  FolderOpen,
   GitPullRequestArrow,
   Network,
   RotateCcw,
@@ -144,6 +145,7 @@ export default function App() {
   const [pendingConnection, setPendingConnection] = useState<PendingMappingConnection | null>(null);
   const [showRequiredPanel, setShowRequiredPanel] = useState(false);
   const [showWarningsPanel, setShowWarningsPanel] = useState(false);
+  const [showOpenPanel, setShowOpenPanel] = useState(false);
   const [showSearchResults, setShowSearchResults] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("data_flow");
@@ -438,6 +440,15 @@ export default function App() {
     <main className={`app-shell ${candidatePopover ? "has-candidate-popover" : ""}`}>
       <section className="graph-panel">
         <div className="topbar graph-workbench">
+          <button
+            className={`metric-button open-button ${showOpenPanel ? "active" : ""}`}
+            disabled={!editorConnected}
+            onClick={() => setShowOpenPanel((open) => !open)}
+            title="Open a ModelMapping"
+          >
+            <FolderOpen size={14} /> Open
+          </button>
+
           <div className="brand-block">
             <div className="eyebrow">PlantSimEngine</div>
             <h1>Dependency Graph</h1>
@@ -558,6 +569,18 @@ export default function App() {
           </FloatingPanel>
         )}
 
+        {showOpenPanel && (
+          <OpenMappingPanel
+            recentMappings={recentMappings}
+            disabled={!editorConnected}
+            onOpen={(path) => {
+              sendEditorCommand({ action: "open_mapping_code", path });
+              setShowOpenPanel(false);
+            }}
+            onClose={() => setShowOpenPanel(false)}
+          />
+        )}
+
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -570,6 +593,7 @@ export default function App() {
           onPaneClick={() => {
             setShowSearchResults(false);
             setCandidatePopover(null);
+            setShowOpenPanel(false);
           }}
           onEdgeClick={(_, edge) => {
             if (edge.data) {
@@ -694,10 +718,8 @@ export default function App() {
                 saveTargetPath={saveTargetPath}
                 autosavePath={autosavePath}
                 lastAutosavedPath={lastAutosavedPath}
-                recentMappings={recentMappings}
                 onSavePathChange={setSavePath}
                 onSave={() => sendEditorCommand({ action: "write_mapping_code", path: savePath })}
-                onOpenRecent={(path) => sendEditorCommand({ action: "open_mapping_code", path })}
                 disabled={!editorConnected}
               />
             </>
@@ -930,6 +952,64 @@ function WarningList({
         );
       })}
     </div>
+  );
+}
+
+function OpenMappingPanel({
+  recentMappings,
+  disabled,
+  onOpen,
+  onClose,
+}: {
+  recentMappings: string[];
+  disabled: boolean;
+  onOpen: (path: string) => void;
+  onClose: () => void;
+}) {
+  const [path, setPath] = useState("");
+
+  const openPath = () => {
+    const trimmed = path.trim();
+    if (!trimmed) return;
+    onOpen(trimmed);
+  };
+
+  return (
+    <FloatingPanel className="open-panel" title="Open" subtitle="ModelMapping" onClose={onClose}>
+      <div className="open-mapping-panel">
+        <label className="model-browser-control">
+          <span>File path</span>
+          <div className="inline-field">
+            <input
+              value={path}
+              onChange={(event) => setPath(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") openPath();
+              }}
+              placeholder="/path/to/mapping.jl"
+            />
+            <button className="metric-button" disabled={disabled || !path.trim()} onClick={openPath}>
+              Open
+            </button>
+          </div>
+        </label>
+        <div className="recent-mappings">
+          <div className="row-with-actions">
+            <strong>Recent mappings</strong>
+          </div>
+          {recentMappings.length > 0 ? (
+            <div className="recent-mapping-list">
+              {recentMappings.map((item) => (
+                <button className="recent-mapping-item" key={item} disabled={disabled} onClick={() => onOpen(item)}>
+                  <span>{basename(item)}</span>
+                  <small>{item}</small>
+                </button>
+              ))}
+            </div>
+          ) : <div className="empty-state compact">No recent mapping.</div>}
+        </div>
+      </div>
+    </FloatingPanel>
   );
 }
 
@@ -1571,10 +1651,8 @@ function MappingCodePanel({
   saveTargetPath,
   autosavePath,
   lastAutosavedPath,
-  recentMappings,
   onSavePathChange,
   onSave,
-  onOpenRecent,
   disabled,
 }: {
   code: string;
@@ -1583,10 +1661,8 @@ function MappingCodePanel({
   saveTargetPath: string | null;
   autosavePath: string | null;
   lastAutosavedPath: string | null;
-  recentMappings: string[];
   onSavePathChange: (path: string) => void;
   onSave: () => void;
-  onOpenRecent: (path: string) => void;
   disabled: boolean;
 }) {
   const copyCode = useCallback(async () => {
@@ -1611,21 +1687,6 @@ function MappingCodePanel({
         {lastSavedPath ? <PathStatus label="Last saved" path={lastSavedPath} /> : null}
         {autosavePath ? <PathStatus label={lastAutosavedPath ? "Recovery autosave" : "Recovery target"} path={autosavePath} /> : null}
       </div>
-      {recentMappings.length > 0 && (
-        <div className="recent-mappings">
-          <div className="row-with-actions">
-            <strong>Recent mappings</strong>
-          </div>
-          <div className="recent-mapping-list">
-            {recentMappings.map((path) => (
-              <button className="recent-mapping-item" key={path} disabled={disabled} onClick={() => onOpenRecent(path)}>
-                <span>{basename(path)}</span>
-                <small>{path}</small>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

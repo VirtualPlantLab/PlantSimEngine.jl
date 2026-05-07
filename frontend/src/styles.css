@@ -349,6 +349,10 @@ h1 {
   gap: 8px;
 }
 
+.open-button {
+  flex: 0 0 auto;
+}
+
 .panel-switch {
   flex-wrap: wrap;
 }
@@ -523,6 +527,12 @@ h1 {
 
 .warnings-panel {
   border-color: rgba(201, 144, 53, 0.35);
+}
+
+.open-panel {
+  left: 18px;
+  right: auto;
+  border-color: rgba(31, 122, 83, 0.32);
 }
 
 .floating-panel-header {
@@ -1120,6 +1130,11 @@ h1 {
   display: grid;
   gap: 8px;
   margin-top: 4px;
+}
+
+.open-mapping-panel {
+  display: grid;
+  gap: 12px;
 }
 
 .recent-mapping-list {
