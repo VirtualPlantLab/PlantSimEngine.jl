@@ -274,5 +274,8 @@ PlantSimEngine.outputs_(::GraphViewHardChildModel) = (child_output=-Inf,)
     cyclic_view = graph_view(cyclic_mapping)
     @test cyclic_view.cyclic
     @test !isempty(cyclic_view.cycle_nodes)
+    @test !isempty(cyclic_view.edges)
+    @test !isempty(cyclic_view.cycle_edges)
+    @test any(edge -> edge.kind == :cycle_dependency, cyclic_view.edges)
     @test occursin("Cyclic dependency detected", join(cyclic_view.diagnostics, "\n"))
 end

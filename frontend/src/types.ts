@@ -48,7 +48,7 @@ export type GraphEdgeData = {
   targetPort: string | null;
   sourceVariable: string | null;
   targetVariable: string | null;
-  kind: "soft_dependency" | "mapped_variable" | "hard_dependency";
+  kind: "soft_dependency" | "mapped_variable" | "hard_dependency" | "cycle_dependency";
   scaleRelation: "same_scale" | "multiscale";
   label: string;
   diagnostics: string[];

@@ -1141,7 +1141,13 @@ function InspectorDetails({
   return (
     <>
       {selectedEdge && (
-        <EdgeDetails edge={selectedEdge} nodeById={nodeById} portById={portById} />
+        <EdgeDetails
+          edge={selectedEdge}
+          nodeById={nodeById}
+          portById={portById}
+          onCommand={onCommand}
+          editorConnected={editorConnected}
+        />
       )}
       {selected ? (
         <div className="details">
@@ -1208,17 +1214,22 @@ function EdgeDetails({
   edge,
   nodeById,
   portById,
+  onCommand,
+  editorConnected,
 }: {
   edge: GraphEdgeData;
   nodeById: Map<string, GraphNodeData>;
   portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
+  onCommand: (command: Record<string, unknown>) => void;
+  editorConnected: boolean;
 }) {
   const source = nodeById.get(edge.source);
   const target = nodeById.get(edge.target);
   const sourcePort = edge.sourcePort ? portById.get(edge.sourcePort)?.port : null;
   const targetPort = edge.targetPort ? portById.get(edge.targetPort)?.port : null;
+  const breakable = isCycleEdge(edge) && target && targetPort && targetPort.role === "input";
   return (
-    <div className="edge-detail-card">
+    <div className={`edge-detail-card ${isCycleEdge(edge) ? "cycle-edge-card" : ""}`}>
       <div className="variable-card-title">
         <span>{edgeKindLabel(edge)}</span>
         <small>{edge.scaleRelation}</small>
@@ -1229,6 +1240,21 @@ function EdgeDetails({
       <Row label="Target var" value={targetPort?.name ?? edge.targetVariable ?? "model call"} />
       <Row label="Kind" value={edge.kind} />
       <Row label="Label" value={edge.label || "none"} />
+      {breakable && (
+        <button
+          className="metric-button danger cycle-break-button"
+          disabled={!editorConnected}
+          onClick={() => onCommand({
+            action: "edit",
+            kind: "mark_previous_timestep",
+            scale: target.scale,
+            process: target.process,
+            variable: targetPort.name,
+          })}
+        >
+          <ScissorsLineDashed size={14} /> Break cycle here
+        </button>
+      )}
       {edge.diagnostics.length > 0 ? edge.diagnostics.map((item) => (
         <div className="diagnostic" key={item}>{item}</div>
       )) : <div className="empty-state compact">No edge diagnostics.</div>}
@@ -2198,9 +2224,9 @@ function flowEdge(
     targetHandle: edge.targetPort ?? (callEdge ? `${edge.target}:call-target` : undefined),
     markerEnd: callEdge ? undefined : edgeMarker(edgeColor(edge, highlighted || focused)),
     type: "dependency",
-    animated: !callEdge && edge.scaleRelation === "multiscale",
-    className: `${edge.kind} ${callEdge ? "call_edge" : "variable_edge"} ${edge.scaleRelation} ${focused ? "focused" : ""} ${highlighted ? "highlighted" : dimmed ? "dimmed" : ""}`,
-    style: edgeStyle(edgeColor(edge, highlighted || focused), highlighted || focused),
+    animated: !callEdge && (edge.scaleRelation === "multiscale" || isCycleEdge(edge)),
+    className: `${edge.kind} ${callEdge ? "call_edge" : "variable_edge"} ${edge.scaleRelation} ${isCycleEdge(edge) ? "cycle_edge" : ""} ${focused ? "focused" : ""} ${highlighted ? "highlighted" : dimmed ? "dimmed" : ""}`,
+    style: edgeStyle(edgeColor(edge, highlighted || focused), highlighted || focused || isCycleEdge(edge), isCycleEdge(edge)),
     selected: highlighted || focused,
     zIndex: highlighted ? 120 : focused ? 90 : callEdge ? 3 : 5,
     data: { ...edge, highlighted, focused, dimmed },
@@ -2209,6 +2235,7 @@ function flowEdge(
 
 function edgeColor(edge: GraphEdgeData, highlighted: boolean) {
   if (highlighted) return edgeColors.accent;
+  if (isCycleEdge(edge)) return "#d3422f";
   if (edge.kind === "hard_dependency") return edgeColors.hard;
   if (edge.kind === "mapped_variable" || edge.scaleRelation === "multiscale") return edgeColors.mapped;
   return edgeColors.base;
@@ -2225,10 +2252,10 @@ function edgeMarker(color: string) {
   };
 }
 
-function edgeStyle(color: string, highlighted: boolean) {
+function edgeStyle(color: string, highlighted: boolean, cycle = false) {
   return {
     stroke: color,
-    strokeWidth: highlighted ? 3 : 2.2,
+    strokeWidth: cycle ? 4 : highlighted ? 3 : 2.2,
   };
 }
 
@@ -2513,11 +2540,13 @@ function groupEdgesByPort(edges: GraphEdgeData[], side: "sourcePort" | "targetPo
 
 function edgeMatchesFilters(edge: GraphEdgeData, filters: EdgeFilters) {
   if (isCallEdge(edge)) return filters.callStack;
+  if (isCycleEdge(edge)) return filters.dataFlow;
   if (edge.kind === "mapped_variable" || edge.scaleRelation === "multiscale") return filters.mapped;
   return filters.dataFlow;
 }
 
 function edgeKindLabel(edge: GraphEdgeData) {
+  if (isCycleEdge(edge)) return "cycle dependency";
   if (isCallEdge(edge)) return "call stack";
   if (edge.kind === "mapped_variable") return "mapped variable";
   if (edge.diagnostics.some((item) => item.includes("Forwarded to a hard dependency"))) return "hard input forwarding";
@@ -2527,6 +2556,10 @@ function edgeKindLabel(edge: GraphEdgeData) {
 
 function isCallEdge(edge: GraphEdgeData) {
   return edge.kind === "hard_dependency" && !edge.sourcePort && !edge.targetPort;
+}
+
+function isCycleEdge(edge: GraphEdgeData) {
+  return edge.kind === "cycle_dependency" || edge.diagnostics.some((item) => item.includes("Cycle edge"));
 }
 
 function emptyFocusState(): FocusState {

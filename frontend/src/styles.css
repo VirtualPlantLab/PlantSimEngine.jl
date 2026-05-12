@@ -1024,6 +1024,12 @@ h1 {
   stroke: var(--clay);
 }
 
+.react-flow__edge.cycle_dependency path,
+.react-flow__edge.cycle_edge path {
+  stroke: #d3422f;
+  filter: drop-shadow(0 0 5px rgba(211, 66, 47, 0.26));
+}
+
 .react-flow__edge.call_edge path {
   stroke-width: 1.7;
   stroke-dasharray: 3 6;
@@ -1095,6 +1101,13 @@ h1 {
 .edge-chip.hard_dependency {
   border-color: rgba(191, 106, 84, 0.32);
   background: rgba(255, 246, 240, 0.96);
+}
+
+.edge-chip.cycle_dependency,
+.edge-chip.cycle_edge {
+  color: #7a2018;
+  border-color: rgba(211, 66, 47, 0.44);
+  background: rgba(255, 238, 233, 0.98);
 }
 
 .edge-chip small {
@@ -1186,6 +1199,18 @@ h1 {
 
 .edge-terminal.dimmed {
   opacity: 0.12;
+}
+
+.cycle-edge-card {
+  border-color: rgba(211, 66, 47, 0.34);
+  background:
+    linear-gradient(135deg, rgba(211, 66, 47, 0.1), transparent 58%),
+    rgba(255, 250, 242, 0.88);
+}
+
+.cycle-break-button {
+  justify-content: center;
+  margin: 8px 0 4px;
 }
 
 .inspector {

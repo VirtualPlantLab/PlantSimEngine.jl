@@ -245,6 +245,7 @@ function graph_view(graph::DependencyGraph, context=nothing; diagnostics::Vector
     cyclic, cycle_vec = is_graph_cyclic(graph; warn=false)
     cycle_nodes = cyclic ? [_model_node_id(last(pair), process(first(pair))) for pair in cycle_vec] : String[]
     cycle_edges = cyclic ? _cycle_edge_ids(edges, cycle_nodes) : String[]
+    edges = _mark_cycle_edges(edges, cycle_edges)
     scales = sort!(unique([node.scale for node in nodes]); by=string)
     return _dependency_graph_view(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
 end
@@ -311,6 +312,33 @@ function _cycle_edge_ids(edges, cycle_nodes::Vector{String})
         end
     end
     return unique(ids)
+end
+
+function _mark_cycle_edges(edges, cycle_edge_ids::Vector{String})
+    isempty(cycle_edge_ids) && return edges
+    cycle_edge_id_set = Set(cycle_edge_ids)
+    return [
+        edge.id in cycle_edge_id_set ? _cycle_edge(edge) : edge
+        for edge in edges
+    ]
+end
+
+function _cycle_edge(edge::GraphEdge)
+    diagnostics = copy(edge.diagnostics)
+    push!(diagnostics, "Cycle edge: select this edge to break the cycle at the target input with `PreviousTimeStep`.")
+    return GraphEdge(
+        edge.id,
+        edge.source,
+        edge.target,
+        edge.source_port,
+        edge.target_port,
+        edge.source_variable,
+        edge.target_variable,
+        :cycle_dependency,
+        edge.scale_relation,
+        edge.label,
+        unique(diagnostics),
+    )
 end
 
 function _push_edge!(edges, edge_ids::Set{String}, edge)
@@ -945,10 +973,105 @@ function _graph_view_from_mapping_only(mapping::ModelMapping, diagnostics)
             ))
         end
     end
+
+    edges = GraphEdge[]
+    edge_ids = Set{String}()
+    _add_inferred_mapping_edges!(edges, edge_ids, nodes)
+    _add_spec_mapped_input_edges!(edges, edge_ids, nodes, mapping)
+
     scales = sort!(unique([node.scale for node in nodes]); by=string)
-    cyclic = any(occursin.("Cyclic", diagnostics))
-    cycle_nodes = cyclic ? [node.id for node in nodes] : String[]
-    return _dependency_graph_view(nodes, GraphEdge[], scales, cyclic, cycle_nodes, String[], diagnostics)
+    detected_cycle, detected_cycle_nodes, cycle_edges = _cycle_from_rendered_edges(nodes, edges)
+    cyclic = detected_cycle || any(occursin.("Cyclic", diagnostics))
+    cycle_nodes = detected_cycle ? detected_cycle_nodes : (cyclic ? [node.id for node in nodes] : String[])
+    edges = _mark_cycle_edges(edges, cycle_edges)
+    return _dependency_graph_view(nodes, edges, scales, cyclic, cycle_nodes, cycle_edges, diagnostics)
+end
+
+function _add_inferred_mapping_edges!(edges, edge_ids::Set{String}, nodes)
+    outputs = Dict{Tuple{Symbol,Symbol},Vector{Tuple{GraphNode,GraphPort}}}()
+    for node in nodes
+        for output in node.outputs
+            push!(get!(outputs, (node.scale, output.name), Tuple{GraphNode,GraphPort}[]), (node, output))
+        end
+    end
+
+    for node in nodes
+        for input in node.inputs
+            for (producer_node, output) in get(outputs, (node.scale, input.name), Tuple{GraphNode,GraphPort}[])
+                producer_node.id == node.id && continue
+                edge = GraphEdge(
+                    "edge:inferred:$(producer_node.id):$(output.id):$(node.id):$(input.id)",
+                    producer_node.id,
+                    node.id,
+                    output.id,
+                    input.id,
+                    output.name,
+                    input.name,
+                    :soft_dependency,
+                    :same_scale,
+                    string(input.name),
+                    ["Inferred for visualization after dependency compilation failed."],
+                )
+                _push_edge!(edges, edge_ids, edge)
+            end
+        end
+    end
+
+    return edges
+end
+
+function _cycle_from_rendered_edges(nodes, edges)
+    node_ids = Set(node.id for node in nodes)
+    outgoing = Dict{String,Vector{GraphEdge}}(id => GraphEdge[] for id in node_ids)
+    for edge in edges
+        haskey(outgoing, edge.source) || continue
+        edge.target in node_ids || continue
+        push!(outgoing[edge.source], edge)
+    end
+
+    visited = Set{String}()
+    stack = Set{String}()
+    parent_node = Dict{String,String}()
+    parent_edge = Dict{String,String}()
+
+    function visit(node_id::String)
+        push!(visited, node_id)
+        push!(stack, node_id)
+
+        for edge in get(outgoing, node_id, GraphEdge[])
+            target = edge.target
+            if !(target in visited)
+                parent_node[target] = node_id
+                parent_edge[target] = edge.id
+                found, cycle_nodes, cycle_edges = visit(target)
+                found && return true, cycle_nodes, cycle_edges
+            elseif target in stack
+                cycle_nodes = String[target]
+                cycle_edges = String[edge.id]
+                cursor = node_id
+                while cursor != target && haskey(parent_node, cursor)
+                    push!(cycle_nodes, cursor)
+                    push!(cycle_edges, parent_edge[cursor])
+                    cursor = parent_node[cursor]
+                end
+                push!(cycle_nodes, target)
+                reverse!(cycle_nodes)
+                reverse!(cycle_edges)
+                return true, cycle_nodes, unique(cycle_edges)
+            end
+        end
+
+        delete!(stack, node_id)
+        return false, String[], String[]
+    end
+
+    for node in nodes
+        node.id in visited && continue
+        found, cycle_nodes, cycle_edges = visit(node.id)
+        found && return true, cycle_nodes, cycle_edges
+    end
+
+    return false, String[], String[]
 end
 
 function _graph_node(node::AbstractDependencyNode, id::String, context, node_ids)

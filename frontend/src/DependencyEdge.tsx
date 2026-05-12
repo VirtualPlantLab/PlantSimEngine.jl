@@ -104,6 +104,7 @@ function EdgeTerminal({ className, x, y, side, color }: { className: string; x: 
 
 function terminalColor(data: GraphEdgeData, highlighted: boolean) {
   if (highlighted) return "#1f7a53";
+  if (data.kind === "cycle_dependency" || data.diagnostics.some((item) => item.includes("Cycle edge"))) return "#d3422f";
   if (data.kind === "hard_dependency") return "#bf6a54";
   if (data.kind === "mapped_variable" || data.scaleRelation === "multiscale") return "#1f7a53";
   return "#b7a696";
