@@ -72,6 +72,12 @@ type RequiredInput = {
   reason: "previous_time_step" | "mapped_unresolved" | "user_initialization";
 };
 
+type CycleBreakOption = {
+  edge: GraphEdgeData;
+  node: GraphNodeData;
+  port: GraphPort;
+};
+
 type ValidationWarning = {
   id: string;
   severity: "error" | "warning" | "info";
@@ -160,6 +166,7 @@ export default function App() {
   const [collapsedScales, setCollapsedScales] = useState<Set<string>>(() => new Set());
   const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
+  const [cycleBreakMode, setCycleBreakMode] = useState(false);
   const [candidatePopover, setCandidatePopover] = useState<CandidatePopover | null>(null);
   const [addModelSelection, setAddModelSelection] = useState<AddModelSelection | null>(null);
   const [addModelFocusRequest, setAddModelFocusRequest] = useState(0);
@@ -191,6 +198,8 @@ export default function App() {
     visibleNodeIds.has(edge.source) &&
     visibleNodeIds.has(edge.target)
   )), [edgeFilters, graph.edges, visibleNodeIds]);
+  const cycleBreakOptions = useMemo(() => deriveCycleBreakOptions(graph, nodeById, portById), [graph, nodeById, portById]);
+  const cycleBreakPortIds = useMemo(() => new Set(cycleBreakOptions.map((option) => option.port.id)), [cycleBreakOptions]);
   const hoverHighlight = useMemo(() => deriveHighlight(graph, activePort), [activePort, graph]);
   const traversalFocus = useMemo(
     () => deriveFocus(graph, selected?.id ?? null, activePort, focusMode),
@@ -270,6 +279,23 @@ export default function App() {
     editorSocket.send(JSON.stringify(command));
   }, [editorSocket]);
 
+  const breakCycleAtPort = useCallback((port: GraphPort) => {
+    const target = portById.get(port.id);
+    if (!target || port.role !== "input") return;
+    sendEditorCommand({
+      action: "edit",
+      kind: "mark_previous_timestep",
+      scale: target.node.scale,
+      process: target.node.process,
+      variable: port.name,
+    });
+    setCycleBreakMode(false);
+    setPinnedFocus(null);
+    setSelectedEdge(null);
+    setSelected(target.node);
+    setActivePort(port);
+  }, [portById, sendEditorCommand]);
+
   const removeGraphModel = useCallback((node: GraphNodeData) => {
     const target = removableMappingNode(node, nodeById);
     if (!target) {
@@ -327,11 +353,14 @@ export default function App() {
         requiredInputPortIds,
         candidatePortIds,
         cycleNodeIds: new Set(graph.cycleNodes),
+        cycleBreakPortIds,
+        cycleBreakMode,
         focusedNodeIds: new Set<string>(),
         hasActiveFocus: false,
         activeCandidatePortId,
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
+        breakCycleAtPort,
         removeGraphModel,
         viewMode,
       }),
@@ -341,7 +370,7 @@ export default function App() {
       setNodes(layouted);
       setEdges(nextEdges);
     });
-  }, [activeCandidatePortId, candidatePortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode, visibleEdgeData, visibleNodeData]);
+  }, [activeCandidatePortId, breakCycleAtPort, candidatePortIds, cycleBreakMode, cycleBreakPortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode, visibleEdgeData, visibleNodeData]);
 
   useEffect(() => {
     const focusEdges = focus.active ? focus.edges : new Set<string>();
@@ -354,17 +383,20 @@ export default function App() {
         requiredInputPortIds,
         candidatePortIds,
         cycleNodeIds: new Set(graph.cycleNodes),
+        cycleBreakPortIds,
+        cycleBreakMode,
         focusedNodeIds: focus.nodes,
         hasActiveFocus: focus.active,
         activeCandidatePortId,
         setActivePort,
         setCandidatePopover: toggleCandidatePopover,
+        breakCycleAtPort,
         removeGraphModel,
         viewMode,
       }),
     })));
     setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, hoverHighlight.edges, focusEdges, Boolean(activePort), focus.active) : edge));
-  }, [activeCandidatePortId, activePort, candidatePortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode]);
+  }, [activeCandidatePortId, activePort, breakCycleAtPort, candidatePortIds, cycleBreakMode, cycleBreakPortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode]);
 
   useEffect(() => {
     if (candidatePopover && !candidatePortIds.has(candidatePopover.portId)) setCandidatePopover(null);
@@ -414,6 +446,42 @@ export default function App() {
     const node = port?.id === edge.targetPort ? nodeById.get(edge.target) : nodeById.get(edge.source);
     if (node) focusNode(node, port ?? null);
   }, [focusNode, nodeById, portById]);
+
+  const chooseCycleBreakPoint = useCallback(() => {
+    setCycleBreakMode(true);
+    setViewModeTouched(true);
+    setViewMode("detail");
+    setActivePanel("inspector");
+    setSelected(null);
+    setSelectedEdge(null);
+    setCandidatePopover(null);
+    setActivePort(null);
+
+    const nextFocus = emptyFocusState();
+    nextFocus.active = true;
+    for (const option of cycleBreakOptions) {
+      nextFocus.edges.add(option.edge.id);
+      nextFocus.nodes.add(option.edge.source);
+      nextFocus.nodes.add(option.edge.target);
+      if (option.edge.sourcePort) nextFocus.ports.add(option.edge.sourcePort);
+      nextFocus.ports.add(option.port.id);
+    }
+    setPinnedFocus(nextFocus);
+
+    if (flowInstance && cycleBreakOptions.length > 0) {
+      const nodeIds = [...new Set(cycleBreakOptions.flatMap((option) => [option.edge.source, option.edge.target]))];
+      flowInstance.fitView({
+        nodes: nodeIds.map((id) => ({ id })),
+        padding: 0.36,
+        duration: 520,
+        maxZoom: 1.05,
+      });
+    }
+  }, [cycleBreakOptions, flowInstance]);
+
+  useEffect(() => {
+    if (!graph.cyclic) setCycleBreakMode(false);
+  }, [graph.cyclic]);
 
   const toggleEdgeFilter = useCallback((key: EdgeFilterKey) => {
     setEdgeFilters((current) => ({ ...current, [key]: !current[key] }));
@@ -486,7 +554,7 @@ export default function App() {
   }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
 
   return (
-    <main className={`app-shell ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""}`}>
+    <main className={`app-shell ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""} ${cycleBreakMode ? "cycle-break-mode" : ""}`}>
       <section className="graph-panel">
         <div className="topbar graph-workbench">
           <button
@@ -634,6 +702,15 @@ export default function App() {
           <div className={`editor-feedback ${editorFeedback.kind}`} role="status" aria-live="polite">
             {editorFeedback.text}
           </div>
+        )}
+
+        {graph.cyclic && (
+          <CycleBreakPrompt
+            active={cycleBreakMode}
+            optionCount={cycleBreakOptions.length}
+            editorConnected={editorConnected}
+            onChoose={chooseCycleBreakPoint}
+          />
         )}
 
         {showRelationshipsPanel && <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />}
@@ -1105,6 +1182,33 @@ function OpenMappingPanel({
   );
 }
 
+function CycleBreakPrompt({
+  active,
+  optionCount,
+  editorConnected,
+  onChoose,
+}: {
+  active: boolean;
+  optionCount: number;
+  editorConnected: boolean;
+  onChoose: () => void;
+}) {
+  return (
+    <div className={`cycle-break-prompt ${active ? "active" : ""}`} role="status" aria-live="polite">
+      <div>
+        <strong>Cycle detected</strong>
+        <span>
+          Choose which variable to decouple. The selected input will be wrapped in <code>PreviousTimeStep</code>, so that model uses the value from the previous timestep and is disconnected from this current-step variable within a run.
+        </span>
+      </div>
+      <button className="metric-button danger cycle-break-cta" disabled={!editorConnected || optionCount === 0} onClick={onChoose}>
+        <ScissorsLineDashed size={14} />
+        {active ? "Choose a highlighted input" : "Choose break point in graph"}
+      </button>
+    </div>
+  );
+}
+
 function InspectorDetails({
   selected,
   selectedEdge,
@@ -1252,7 +1356,7 @@ function EdgeDetails({
             variable: targetPort.name,
           })}
         >
-          <ScissorsLineDashed size={14} /> Break cycle here
+          <ScissorsLineDashed size={14} /> Use previous timestep for {targetPort.name}
         </button>
       )}
       {edge.diagnostics.length > 0 ? edge.diagnostics.map((item) => (
@@ -2034,11 +2138,14 @@ function runtimeNodeData(
     requiredInputPortIds: Set<string>;
     candidatePortIds: Set<string>;
     cycleNodeIds: Set<string>;
+    cycleBreakPortIds: Set<string>;
+    cycleBreakMode: boolean;
     focusedNodeIds: Set<string>;
     hasActiveFocus: boolean;
     activeCandidatePortId: string | null;
     setActivePort: (port: GraphPort | null) => void;
     setCandidatePopover: (port: GraphPort, anchor: { x: number; y: number }) => void;
+    breakCycleAtPort: (port: GraphPort) => void;
     removeGraphModel: (node: GraphNodeData) => void;
     viewMode: GraphViewMode;
   },
@@ -2052,6 +2159,8 @@ function runtimeNodeData(
     focusedPortIds: [...options.focusedPortIds],
     requiredInputPortIds: [...options.requiredInputPortIds],
     candidatePortIds: [...options.candidatePortIds],
+    cycleBreakPortIds: [...options.cycleBreakPortIds],
+    cycleBreakActive: options.cycleBreakMode,
     focused: options.focusedNodeIds.has(node.id),
     dimmed: options.hasActiveFocus && !options.focusedNodeIds.has(node.id),
     onPortEnter: options.setActivePort,
@@ -2059,6 +2168,7 @@ function runtimeNodeData(
       if (options.activeCandidatePortId !== port.id) options.setActivePort(null);
     },
     onCandidateClick: options.setCandidatePopover,
+    onCycleBreakClick: options.breakCycleAtPort,
     onRemoveModel: options.removeGraphModel,
   };
 }
@@ -2092,6 +2202,25 @@ function deriveRequiredInputPorts(graph: DependencyGraphView) {
   }
 
   return required;
+}
+
+function deriveCycleBreakOptions(
+  graph: DependencyGraphView,
+  nodeById: Map<string, GraphNodeData>,
+  portById: Map<string, { node: GraphNodeData; port: GraphPort }>,
+): CycleBreakOption[] {
+  const options: CycleBreakOption[] = [];
+  const seenPorts = new Set<string>();
+  for (const edge of graph.edges) {
+    if (!isCycleEdge(edge) || !edge.targetPort) continue;
+    const node = nodeById.get(edge.target);
+    const portInfo = portById.get(edge.targetPort);
+    if (!node || !portInfo || portInfo.port.role !== "input") continue;
+    if (seenPorts.has(portInfo.port.id)) continue;
+    seenPorts.add(portInfo.port.id);
+    options.push({ edge, node, port: portInfo.port });
+  }
+  return options;
 }
 
 function deriveCandidatePortIds(

@@ -32,11 +32,14 @@ export type RuntimeGraphNodeData = GraphNodeData & {
   focusedPortIds?: string[];
   requiredInputPortIds?: string[];
   candidatePortIds?: string[];
+  cycleBreakPortIds?: string[];
+  cycleBreakActive?: boolean;
   dimmed?: boolean;
   focused?: boolean;
   onPortEnter?: (port: GraphPort) => void;
   onPortLeave?: (port: GraphPort) => void;
   onCandidateClick?: (port: GraphPort, anchor: { x: number; y: number }) => void;
+  onCycleBreakClick?: (port: GraphPort) => void;
   onRemoveModel?: (node: GraphNodeData) => void;
 };
 

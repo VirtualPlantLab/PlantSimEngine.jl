@@ -110,6 +110,60 @@ body {
   background: rgba(245, 252, 248, 0.97);
 }
 
+.cycle-break-prompt {
+  position: absolute;
+  z-index: 14;
+  top: 98px;
+  left: 18px;
+  right: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 11px 12px;
+  border: 1px solid rgba(211, 66, 47, 0.32);
+  border-radius: 12px;
+  background:
+    linear-gradient(135deg, rgba(211, 66, 47, 0.12), transparent 62%),
+    rgba(255, 250, 242, 0.96);
+  box-shadow: 0 16px 36px rgba(56, 43, 35, 0.16);
+}
+
+.cycle-break-prompt div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.cycle-break-prompt strong {
+  color: #7a2018;
+  font-size: 13px;
+}
+
+.cycle-break-prompt span {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.cycle-break-prompt code {
+  color: #7a2018;
+  font-family: ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+
+.cycle-break-prompt.active {
+  border-color: rgba(211, 66, 47, 0.52);
+  box-shadow:
+    0 16px 36px rgba(56, 43, 35, 0.16),
+    0 0 0 4px rgba(211, 66, 47, 0.08);
+}
+
+.cycle-break-cta {
+  flex: 0 0 auto;
+  justify-content: center;
+  font-weight: 780;
+}
+
 .graph-workbench {
   flex-wrap: wrap;
   align-items: flex-start;
@@ -882,9 +936,48 @@ h1 {
   outline: none;
 }
 
+.port-cycle-break-button {
+  position: relative;
+  z-index: 9;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  color: #9b2d22;
+  background: rgba(255, 241, 236, 0.96);
+  border: 1px solid rgba(211, 66, 47, 0.45);
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 5px 12px rgba(211, 66, 47, 0.16);
+}
+
+.port-cycle-break-button:hover,
+.port-cycle-break-button:focus-visible {
+  color: #fffdfa;
+  background: #d3422f;
+  outline: none;
+}
+
 .port.active .port-candidate-button {
   color: var(--accent);
   background: #fffdfa;
+}
+
+@keyframes cycleTargetPulse {
+  0%,
+  100% {
+    box-shadow:
+      inset 3px 0 0 rgba(211, 66, 47, 0.78),
+      0 0 0 3px rgba(211, 66, 47, 0.08);
+  }
+  50% {
+    box-shadow:
+      inset 3px 0 0 rgba(211, 66, 47, 0.92),
+      0 0 0 6px rgba(211, 66, 47, 0.15);
+  }
 }
 
 .candidate-popover {
@@ -980,6 +1073,28 @@ h1 {
     0 0 0 6px rgba(191, 106, 84, 0.13);
 }
 
+.port.cycle-break-target {
+  border-color: rgba(211, 66, 47, 0.72);
+  background:
+    linear-gradient(90deg, rgba(211, 66, 47, 0.18), rgba(255, 253, 247, 0.92) 62%),
+    rgba(255, 253, 247, 0.9);
+  box-shadow:
+    inset 3px 0 0 rgba(211, 66, 47, 0.78),
+    0 0 0 3px rgba(211, 66, 47, 0.08);
+}
+
+.cycle-break-mode .port.cycle-break-target {
+  animation: cycleTargetPulse 1.35s ease-in-out infinite;
+}
+
+.port.cycle-break-target .react-flow__handle {
+  border-color: #d3422f;
+  background: #fff1ec;
+  box-shadow:
+    0 0 0 3px rgba(255, 250, 242, 0.92),
+    0 0 0 7px rgba(211, 66, 47, 0.15);
+}
+
 .port.highlighted {
   border-color: var(--line);
   background: #fffdfa;
@@ -994,6 +1109,30 @@ h1 {
   color: #fffdfa;
   border-color: var(--accent);
   background: var(--accent);
+}
+
+.port.cycle-break-target.active,
+.port.cycle-break-target.focused,
+.port.cycle-break-target.highlighted {
+  color: #7a2018;
+  border-color: rgba(211, 66, 47, 0.78);
+  background:
+    linear-gradient(90deg, rgba(211, 66, 47, 0.2), rgba(255, 253, 247, 0.94) 64%),
+    rgba(255, 253, 247, 0.94);
+  box-shadow:
+    inset 3px 0 0 rgba(211, 66, 47, 0.86),
+    0 0 0 4px rgba(211, 66, 47, 0.12);
+}
+
+.port.cycle-break-target.active::after {
+  background: #7a2018;
+}
+
+.port.cycle-break-target.active .port-cycle-break-button,
+.port.cycle-break-target.focused .port-cycle-break-button,
+.port.cycle-break-target.highlighted .port-cycle-break-button {
+  color: #9b2d22;
+  background: rgba(255, 241, 236, 0.98);
 }
 
 .react-flow__handle {

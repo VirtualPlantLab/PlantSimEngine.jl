@@ -1,5 +1,5 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
-import { Clock3, GitBranch, Layers3, Link2, PhoneCall, Plus, Trash2 } from "lucide-react";
+import { Clock3, GitBranch, Layers3, Link2, PhoneCall, Plus, ScissorsLineDashed, Trash2 } from "lucide-react";
 import type { GraphPort, RuntimeGraphNodeData } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
@@ -107,12 +107,13 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
   const focused = new Set(data.focusedPortIds ?? []);
   const requiredInputs = new Set(data.requiredInputPortIds ?? []);
   const candidatePorts = new Set(data.candidatePortIds ?? []);
+  const cycleBreakPorts = new Set(data.cycleBreakPortIds ?? []);
   return (
     <div className={`port-column ${side}`}>
       <div className="port-title">{title}</div>
       {ports.map((port) => (
         <div
-          className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${port.previousTimeStep ? "previous" : ""} ${focused.has(port.id) ? "focused" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
+          className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${cycleBreakPorts.has(port.id) ? "cycle-break-target" : ""} ${port.previousTimeStep ? "previous" : ""} ${focused.has(port.id) ? "focused" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
           key={port.id}
           data-default={`${requiredInputs.has(port.id) ? "Required initialization" : portValueLabel(port)}: ${port.default}`}
           aria-label={`${port.name}, ${side}, ${requiredInputs.has(port.id) ? "required initialization" : portValueLabel(port).toLowerCase()} ${port.default}`}
@@ -144,6 +145,30 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
               }}
             >
               <Plus size={10} />
+            </button>
+          )}
+          {side === "input" && data.cycleBreakActive && cycleBreakPorts.has(port.id) && (
+            <button
+              className="port-cycle-break-button nodrag nopan"
+              type="button"
+              title="Use this input from the previous timestep to break the cycle"
+              aria-label={`Break cycle at ${port.name}`}
+              onPointerDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onMouseDown={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                data.onPortEnter?.(port);
+                data.onCycleBreakClick?.(port);
+              }}
+            >
+              <ScissorsLineDashed size={11} />
             </button>
           )}
           {port.mappingMode && <Link2 size={12} />}
