@@ -12,6 +12,13 @@ export type GraphEditorServer = {
 };
 
 export async function startGraphEditorServer(): Promise<GraphEditorServer> {
+  if (process.env.PSE_GRAPH_EDITOR_URL) {
+    return {
+      url: process.env.PSE_GRAPH_EDITOR_URL,
+      stop: async () => {},
+    };
+  }
+
   const proc = spawn("julia", ["--project=test", "--startup-file=no", serverScript], {
     cwd: repoRoot,
     env: { ...process.env, JULIA_NUM_THREADS: process.env.JULIA_NUM_THREADS ?? "2" },
@@ -19,28 +26,38 @@ export async function startGraphEditorServer(): Promise<GraphEditorServer> {
 
   let log = "";
   const url = await new Promise<string>((resolve, reject) => {
-    const timeout = setTimeout(() => {
-      reject(new Error(`Timed out waiting for graph editor URL.\n${log}`));
-    }, 45_000);
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout>;
 
     const consume = (chunk: Buffer) => {
+      if (settled) return;
       log += chunk.toString();
-      const match = log.match(/PSE_GRAPH_EDITOR_URL=(http:\/\/127\.0\.0\.1:\d+)/);
+      const match = log.match(/PSE_GRAPH_EDITOR_URL=(http:\/\/127\.0\.0\.1:\d+[^\s]*)/);
       if (match) {
+        settled = true;
         clearTimeout(timeout);
         resolve(match[1]);
       }
     };
 
+    const fail = (error: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      void stopProcess(proc).finally(() => reject(error));
+    };
+
+    timeout = setTimeout(() => {
+      fail(new Error(`Timed out waiting for graph editor URL.\n${log}`));
+    }, 90_000);
+
     proc.stdout.on("data", consume);
     proc.stderr.on("data", consume);
     proc.once("exit", (code, signal) => {
-      clearTimeout(timeout);
-      reject(new Error(`Graph editor process exited before startup: code=${code} signal=${signal}\n${log}`));
+      fail(new Error(`Graph editor process exited before startup: code=${code} signal=${signal}\n${log}`));
     });
     proc.once("error", (error) => {
-      clearTimeout(timeout);
-      reject(error);
+      fail(error);
     });
   });
 

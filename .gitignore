@@ -8,4 +8,4 @@ test/Manifest.toml
 docs/build/
 benchmark/Manifest.toml
 frontend/node_modules/
-frontend/dist/
+docs/src/www/simple_dependency_graph.html

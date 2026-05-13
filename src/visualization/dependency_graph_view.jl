@@ -567,6 +567,11 @@ write_graph_view(path::AbstractString, mapping::ModelMapping; kwargs...) =
 write_graph_view(path::AbstractString, sim::GraphSimulation; kwargs...) =
     write_graph_view(path, graph_view(sim; kwargs...))
 
+function apply_graph_edit(mapping::ModelMapping{SingleScale,<:Any}, edit::AbstractGraphEdit)
+    normalized = ModelMapping(:Default => mapping[:Default]; check=true, type_promotion=type_promotion(mapping))
+    return apply_graph_edit(normalized, edit)
+end
+
 function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::MarkPreviousTimeStep)
     haskey(mapping, edit.scale) || error("Cannot mark `$(edit.variable)` as previous timestep: scale `$(edit.scale)` is not present in the `ModelMapping`.")
 
@@ -881,9 +886,9 @@ _mark_previous_timestep_item(item::Status, ::MarkPreviousTimeStep, ::Base.RefVal
 function _mark_previous_timestep_item(item, edit::MarkPreviousTimeStep, found::Base.RefValue{Bool})
     spec = as_model_spec(item)
     process(model_(spec)) == edit.process || return item
-    edit.variable in keys(variables(model_(spec))) || error(
+    edit.variable in keys(inputs_(model_(spec))) || error(
         "Cannot mark `$(edit.variable)` as previous timestep for process `$(edit.process)` at scale `$(edit.scale)`: ",
-        "the variable is not declared as an input or output of `$(typeof(model_(spec)))`."
+        "the variable is not declared as an input of `$(typeof(model_(spec)))`."
     )
 
     found[] = true

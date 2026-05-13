@@ -1,5 +1,8 @@
 using HTTP
 
+_editor_state_url(session) = "http://$(session.host):$(session.port)/state?token=$(session.token)"
+_editor_websocket_url(session) = "ws://$(session.host):$(session.port)/ws?token=$(session.token)"
+
 @testset "Graph edits after normalization to multiscale" begin
     # Single-scale mappings are normalized to multiscale at :Default when passed to edit_graph
     mapping_single = ModelMapping(
@@ -10,6 +13,13 @@ using HTTP
 
     # Simulate what edit_graph does: normalize single-scale to multiscale
     mapping_multiscale = PlantSimEngine.ModelMapping(:Default => mapping_single[:Default]; check=true)
+
+    single_added = PlantSimEngine.apply_graph_edit(
+        mapping_single,
+        PlantSimEngine.AddModel(:Default, ToyDegreeDaysCumulModel, (init_TT=0.0, T_base=0.0, T_max=40.0)),
+    )
+    @test single_added isa ModelMapping{PlantSimEngine.MultiScale}
+    @test any(m -> PlantSimEngine.process(m) == :Degreedays, PlantSimEngine.get_models(single_added[:Default]))
 
     # Now test edits on the normalized multiscale mapping
     added = PlantSimEngine.apply_graph_edit(
@@ -68,7 +78,8 @@ end
         @test blank_mapping isa ModelMapping{PlantSimEngine.MultiScale}
         @test isempty(keys(blank_mapping))
 
-        blank_state_response = HTTP.get(string(blank_session.url, "/state"))
+        @test HTTP.get("http://$(blank_session.host):$(blank_session.port)/state"; status_exception=false).status == 403
+        blank_state_response = HTTP.get(_editor_state_url(blank_session))
         @test blank_state_response.status == 200
         blank_state = PlantSimEngine.JSON.parse(String(blank_state_response.body))
         @test blank_state["ok"]
@@ -101,7 +112,7 @@ end
         @test current_mapping(session) isa ModelMapping{PlantSimEngine.MultiScale}
         @test current_mapping(session)[:Leaf][1] == mapping[:Leaf][1]
 
-        state_response = HTTP.get(string(session.url, "/state"))
+        state_response = HTTP.get(_editor_state_url(session))
         @test state_response.status == 200
         state = PlantSimEngine.JSON.parse(String(state_response.body))
         @test state["ok"]
@@ -122,8 +133,7 @@ end
         @test initial_tt["provided"]
         @test initial_tt["value"] == "1.0"
 
-        websocket_url = replace(session.url, "http://" => "ws://") * "/ws"
-        HTTP.WebSockets.open(websocket_url) do ws
+        HTTP.WebSockets.open(_editor_websocket_url(session)) do ws
             initial = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
             @test initial["ok"]
             @test haskey(initial, "graph")

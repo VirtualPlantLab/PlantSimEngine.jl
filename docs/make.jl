@@ -1,12 +1,26 @@
 #using Pkg
 #Pkg.develop("PlantSimEngine")
 using PlantSimEngine
+using PlantSimEngine.Examples
 using PlantMeteo
 using DataFrames, CSV
 using Documenter
 using CairoMakie
 
 DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames, CSV, CairoMakie); recursive=true)
+
+function build_graph_viewer_example()
+    mapping = ModelMapping(
+        ToyDegreeDaysCumulModel(),
+        ToyLAIModel(),
+        Beer(0.5),
+    )
+    path = joinpath(@__DIR__, "src", "www", "simple_dependency_graph.html")
+    write_graph_view(path, mapping)
+    return nothing
+end
+
+build_graph_viewer_example()
 
 makedocs(;
     modules=[PlantSimEngine],
@@ -30,9 +44,9 @@ makedocs(;
             "Key Concepts" => "./prerequisites/key_concepts.md",
             "Julia language basics" => "./prerequisites/julia_basics.md",
         ],
-        "Step by step - Single-scale simulations" => [
-            "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
-            "Coupling" => "./step_by_step/simple_model_coupling.md",
+        "Getting Started" => [
+            "First simulation" => "./step_by_step/detailed_first_example.md",
+            "Model Coupling" => "./step_by_step/simple_model_coupling.md",
             "Model Switching" => "./step_by_step/model_switching.md",
             "Graph visualization and editing" => "./step_by_step/graph_visualization_editor.md",
             "Quick examples" => "./step_by_step/quick_and_dirty_examples.md",

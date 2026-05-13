@@ -101,11 +101,20 @@ async function openAddModelPanel(page: Page) {
 }
 
 async function getState(request: APIRequestContext, baseURL: string): Promise<GraphEditorState> {
-  const response = await request.get(`${baseURL}/state`);
+  const response = await request.get(stateURL(baseURL));
   if (!response.ok()) {
     throw new Error(`Expected /state to return 2xx, got ${response.status()}:\n${await response.text()}`);
   }
   return await response.json() as GraphEditorState;
+}
+
+function stateURL(baseURL: string): string {
+  const url = new URL(baseURL);
+  const token = url.searchParams.get("token");
+  url.pathname = "/state";
+  url.search = "";
+  if (token) url.searchParams.set("token", token);
+  return url.toString();
 }
 
 async function waitForState(

@@ -49,7 +49,16 @@ Depth = 5
 
 **Why choose PlantSimEngine?**
 
-- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
+- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest. You can also inspect and edit model coupling directly from the graph view:
+
+```@raw html
+<iframe
+  src="www/simple_dependency_graph.html"
+  style="width: 100%; height: 720px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
+  title="PlantSimEngine dependency graph example"
+></iframe>
+```
+
 - **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
 - **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
 - **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
@@ -74,6 +83,7 @@ Depth = 5
 
 ## Batteries included
 
+- **Interactive graph editor**: Compose your model by interactively adding sub-models in a graph editor, and let the framework handle the coupling and execution.
 - **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
 - **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
 - **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.

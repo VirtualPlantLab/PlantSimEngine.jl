@@ -90,6 +90,8 @@ function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
     declared_types = collect(fieldtypes(unwrapped_type))
     default_instance = _try_zero_arg_model(T)
     has_defaults = !isnothing(default_instance)
+    positional_values = _dummy_constructor_values(declared_types)
+    positional_constructible = !isnothing(positional_values) && _can_construct_with(T, positional_values)
 
     fields = Dict{String,Any}[]
     parameter_groups = Dict{String,Vector{String}}()
@@ -122,7 +124,7 @@ function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
         "fields" => fields,
         "parameterGroups" => parameter_groups,
         "hasZeroArgConstructor" => has_defaults,
-        "constructible" => true,
+        "constructible" => has_defaults || positional_constructible,
         "positional" => true,
         "keyword" => false,
     )
@@ -210,16 +212,31 @@ function _try_dummy_model(::Type{T}) where {T<:AbstractModel}
     names = fieldnames(unwrapped_type)
     isempty(names) && return nothing
     field_types = fieldtypes(unwrapped_type)
+    values = _dummy_constructor_values(field_types)
+    isnothing(values) && return nothing
+    try
+        return T(values...)
+    catch
+        return nothing
+    end
+end
+
+function _dummy_constructor_values(field_types)
     values = Any[]
     for field_type in field_types
         value = _dummy_field_value(field_type)
         isnothing(value) && return nothing
         push!(values, value)
     end
+    return values
+end
+
+function _can_construct_with(::Type{T}, values) where {T<:AbstractModel}
     try
-        return T(values...)
+        T(values...)
+        return true
     catch
-        return nothing
+        return false
     end
 end
 

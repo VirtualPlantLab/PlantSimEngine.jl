@@ -4,6 +4,7 @@ import HTTP
 import JSON
 import PlantSimEngine
 import PlantSimEngine: edit_graph, current_mapping, apply_edit!, undo!, redo!
+import Random
 
 mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSession
     mapping::M
@@ -13,6 +14,7 @@ mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSe
     server::S
     host::String
     port::Int
+    token::String
     url::String
     last_saved_path::Union{Nothing,String}
     save_target_path::Union{Nothing,String}
@@ -25,7 +27,7 @@ end
 current_mapping(session::GraphEditorSession) = session.mapping
 function Base.close(session::GraphEditorSession)
     isopen(session.server) || return nothing
-    return HTTP.forceclose(session.server)
+    return close(session.server)
 end
 
 function Base.show(io::IO, session::GraphEditorSession)
@@ -35,7 +37,7 @@ end
 function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
     println(io, "PlantSimEngineGraphEditorExt.GraphEditorSession")
     println(io, "  Open in browser: $(session.url)")
-    println(io, "  Local state JSON: $(session.url)/state")
+    println(io, "  Local state JSON: $(_state_url(session))")
     println(io, "  Quit session: close(session)")
     println(io, "  Current mapping: current_mapping(session)")
     isnothing(session.save_target_path) || println(io, "  Auto-saving edits to: $(session.save_target_path)")
@@ -46,7 +48,7 @@ end
 current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
 
 """
-    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true)
+    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true, allow_remote=false)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
@@ -55,6 +57,8 @@ Call `edit_graph()` without a mapping to start from an empty scratch editor.
 Single-scale mappings are automatically normalized to multiscale form at the :Default scale.
 By default, the session URL is opened with the system default browser. Pass
 `open_browser=false` to disable this, for example in scripts or tests.
+The URL includes a session token and the server is restricted to localhost
+unless `allow_remote=true` is passed explicitly.
 When `autosave=true`, a recovery script is written to the temporary directory.
 After saving through the web editor, every successful graph edit, undo, redo,
 or recent-file load rewrites the saved Julia script.
@@ -71,7 +75,12 @@ function edit_graph(
     autosave::Bool=true,
     autosave_path::Union{Nothing,AbstractString}=nothing,
     recent_file_path::Union{Nothing,AbstractString}=nothing,
+    allow_remote::Bool=false,
 )
+    if !_is_loopback_host(host) && !allow_remote
+        error("Graph editor sessions are limited to localhost by default. Pass `allow_remote=true` only for a trusted network environment.")
+    end
+
     # Normalize single-scale to multiscale form for uniform handling downstream
     mapping = _normalize_to_multiscale(mapping)
 
@@ -79,6 +88,7 @@ function edit_graph(
     handler = http -> _handle_http(session_ref[], http)
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
     actual_port = HTTP.port(server)
+    token = _session_token()
     session = GraphEditorSession(
         mapping,
         mtg,
@@ -87,7 +97,8 @@ function edit_graph(
         server,
         String(host),
         actual_port,
-        "http://$(host):$(actual_port)",
+        token,
+        "http://$(host):$(actual_port)/?token=$(token)",
         nothing,
         nothing,
         autosave ? _normalized_output_path(isnothing(autosave_path) ? _default_autosave_path() : autosave_path) : nothing,
@@ -100,6 +111,17 @@ function edit_graph(
     open_browser && _open_in_default_browser(session.url)
     return session
 end
+
+_session_token() = bytes2hex(rand(Random.RandomDevice(), UInt8, 16))
+
+function _is_loopback_host(host::AbstractString)
+    value = lowercase(strip(String(host)))
+    return value in ("127.0.0.1", "localhost", "::1", "[::1]", "0:0:0:0:0:0:0:1")
+end
+
+_base_url(session::GraphEditorSession) = "http://$(session.host):$(session.port)"
+_state_url(session::GraphEditorSession) = "$(_base_url(session))/state?token=$(session.token)"
+_websocket_url(session::GraphEditorSession) = "ws://$(session.host):$(session.port)/ws?token=$(session.token)"
 
 _empty_editor_mapping() =
     PlantSimEngine._build_model_mapping(PlantSimEngine.MultiScale, Dict{Symbol,Tuple}(); validated=false)
@@ -124,9 +146,10 @@ function _open_in_default_browser(url::AbstractString)
 end
 
 function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractGraphEdit)
+    updated_mapping = PlantSimEngine.apply_graph_edit(session.mapping, edit)
     push!(session.history, session.mapping)
     empty!(session.future)
-    session.mapping = PlantSimEngine.apply_graph_edit(session.mapping, edit)
+    session.mapping = updated_mapping
     return session.mapping
 end
 
@@ -145,30 +168,69 @@ function redo!(session::GraphEditorSession)
 end
 
 function _handle_http(session::GraphEditorSession, http::HTTP.Stream)
+    req = http.message
+    path = HTTP.URI(req.target).path
+
     if HTTP.WebSockets.isupgrade(http.message)
+        _authorized_request(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor session token.")
+        _authorized_origin(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor websocket origin.")
         return HTTP.WebSockets.upgrade(http) do ws
             _handle_websocket(session, ws)
         end
     end
 
-    req = http.message
-    path = HTTP.URI(req.target).path
-    response = if path == "/" || path == "/index.html"
-        (200, ["Content-Type" => "text/html; charset=utf-8"], _editor_html(session))
-    elseif path == "/state"
-        (200, ["Content-Type" => "application/json"], _state_json(session))
+    response = if path == "/" || path == "/index.html" || path == "/state"
+        _authorized_request(session, req) || return _write_http_response(http, 403, ["Content-Type" => "text/plain; charset=utf-8"], "Forbidden graph editor session token.")
+        if path == "/state"
+            (200, ["Content-Type" => "application/json"], _state_json(session))
+        else
+            (200, ["Content-Type" => "text/html; charset=utf-8"], _editor_html(session))
+        end
     else
         (404, ["Content-Type" => "text/plain; charset=utf-8"], "Not found")
     end
     status, headers, body = response
+    return _write_http_response(http, status, headers, body)
+end
+
+function _write_http_response(http::HTTP.Stream, status::Integer, headers, body::AbstractString)
     HTTP.setstatus(http, status)
     for header in headers
         HTTP.setheader(http, header)
     end
+    HTTP.setheader(http, "Connection" => "close")
     HTTP.setheader(http, "Content-Length" => string(sizeof(body)))
     HTTP.startwrite(http)
     write(http, body)
     return nothing
+end
+
+function _authorized_request(session::GraphEditorSession, req)
+    token = _request_token(req)
+    return !isnothing(token) && token == session.token
+end
+
+function _request_token(req)
+    header = HTTP.header(req, "X-PlantSimEngine-Graph-Token", "")
+    isempty(header) || return String(header)
+    return _query_param(String(req.target), "token")
+end
+
+function _query_param(target::AbstractString, name::AbstractString)
+    query = String(HTTP.URI(target).query)
+    isempty(query) && return nothing
+    for part in split(query, '&')
+        pair = split(part, '='; limit=2)
+        length(pair) == 2 || continue
+        first(pair) == name && return last(pair)
+    end
+    return nothing
+end
+
+function _authorized_origin(session::GraphEditorSession, req)
+    origin = HTTP.header(req, "Origin", "")
+    isempty(origin) && return true
+    return String(origin) == _base_url(session)
 end
 
 """
@@ -378,7 +440,7 @@ function _editor_html(session::GraphEditorSession)
     isnothing(react_html) || return react_html
 
     graph_json = PlantSimEngine.graph_view_json(session.mapping)
-    config_json = JSON.json(Dict("websocketUrl" => "ws://$(session.host):$(session.port)/ws"))
+    config_json = JSON.json(Dict("websocketUrl" => _websocket_url(session)))
     return """
 <!doctype html>
 <html lang="en">
@@ -392,8 +454,8 @@ function _editor_html(session::GraphEditorSession)
 <body>
 <main style="font:14px system-ui;padding:24px;max-width:960px;margin:auto">
 <h1>PlantSimEngine Graph Editor</h1>
-<p>This live session is running. The React editor can connect to <code>ws://$(session.host):$(session.port)/ws</code>.</p>
-<p>Current graph state is available at <a href="/state">/state</a>.</p>
+<p>This live session is running. The React editor can connect to <code>$(_websocket_url(session))</code>.</p>
+<p>Current graph state is available at <a href="$(_state_url(session))">/state</a>.</p>
 <pre id="graph" style="white-space:pre-wrap;background:#f6f7f8;padding:16px;border:1px solid #ddd;overflow:auto"></pre>
 </main>
 <script>
@@ -426,7 +488,7 @@ function _react_editor_html(session::GraphEditorSession)
     js = read(joinpath(assets_dir, js_file), String)
     css = join([read(joinpath(assets_dir, css_file), String) for css_file in css_files], "\n")
     graph_json = PlantSimEngine.graph_view_json(session.mapping)
-    config_json = replace(JSON.json(Dict("websocketUrl" => "ws://$(session.host):$(session.port)/ws")), "</" => "<\\/")
+    config_json = replace(JSON.json(Dict("websocketUrl" => _websocket_url(session))), "</" => "<\\/")
 
     return """
 <!doctype html>
@@ -656,15 +718,51 @@ end
 function _collect_mapping_modules!(modules::Set{Module}, item)
     item isa PlantSimEngine.Status && return modules
     if item isa PlantSimEngine.ModelSpec || item isa PlantSimEngine.MultiScaleModel
-        return _collect_model_modules!(modules, PlantSimEngine.model_(PlantSimEngine.as_model_spec(item)))
+        return _collect_spec_modules!(modules, PlantSimEngine.as_model_spec(item))
     end
     item isa PlantSimEngine.AbstractModel && return _collect_model_modules!(modules, item)
+    return modules
+end
+
+function _collect_spec_modules!(modules::Set{Module}, spec::PlantSimEngine.ModelSpec)
+    _collect_model_modules!(modules, PlantSimEngine.model_(spec))
+    _collect_value_modules!(modules, PlantSimEngine.mapped_variables_(spec))
+    _collect_value_modules!(modules, PlantSimEngine.timestep(spec))
+    _collect_value_modules!(modules, spec.input_bindings)
+    _collect_value_modules!(modules, spec.meteo_bindings)
+    _collect_value_modules!(modules, spec.meteo_window)
+    _collect_value_modules!(modules, spec.output_routing)
+    _collect_value_modules!(modules, spec.scope)
     return modules
 end
 
 function _collect_model_modules!(modules::Set{Module}, model::PlantSimEngine.AbstractModel)
     module_ = parentmodule(typeof(model))
     module_ in (Base, Core, Main) || push!(modules, module_)
+    return modules
+end
+
+function _collect_value_modules!(modules::Set{Module}, value)
+    value === nothing && return modules
+    if value isa Type
+        module_ = parentmodule(value)
+        module_ in (Base, Core, Main) || push!(modules, module_)
+        return modules
+    end
+    module_ = parentmodule(typeof(value))
+    module_ in (Base, Core, Main) || push!(modules, module_)
+    if value isa Pair
+        _collect_value_modules!(modules, first(value))
+        _collect_value_modules!(modules, last(value))
+    elseif value isa NamedTuple
+        for item in values(value)
+            _collect_value_modules!(modules, item)
+        end
+    elseif value isa Tuple || value isa AbstractArray
+        for item in value
+            _collect_value_modules!(modules, item)
+        end
+    end
     return modules
 end
 
@@ -733,8 +831,17 @@ function _model_spec_to_code(spec::PlantSimEngine.ModelSpec)
     mapped_variables = PlantSimEngine.mapped_variables_(spec)
     isempty(mapped_variables) || (code *= " |> MultiScaleModel($(_mapped_variables_to_code(mapped_variables)))")
     isnothing(PlantSimEngine.timestep(spec)) || (code *= " |> TimeStepModel($(_timestep_to_code(PlantSimEngine.timestep(spec))))")
+    _is_empty_namedtuple(spec.input_bindings) || (code *= " |> InputBindings($(_julia_code(spec.input_bindings)))")
+    _is_empty_namedtuple(spec.meteo_bindings) || (code *= " |> MeteoBindings($(_julia_code(spec.meteo_bindings)))")
+    isnothing(spec.meteo_window) || (code *= " |> MeteoWindow($(_julia_code(spec.meteo_window)))")
+    _is_empty_namedtuple(spec.output_routing) || (code *= " |> OutputRouting($(_julia_code(spec.output_routing)))")
+    _is_default_scope(spec.scope) || (code *= " |> ScopeModel($(_julia_code(spec.scope)))")
     return code
 end
+
+_julia_code(value) = repr(value)
+_is_empty_namedtuple(value) = value isa NamedTuple && isempty(keys(value))
+_is_default_scope(scope) = scope == :global
 
 function _timestep_to_code(timestep::PlantSimEngine.ClockSpec)
     return "ClockSpec($(repr(timestep.dt)), $(repr(timestep.phase)))"

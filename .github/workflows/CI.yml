@@ -102,6 +102,12 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm ci
+      - name: Run frontend unit tests
+        working-directory: frontend
+        run: npm test
+      - name: Typecheck graph editor frontend
+        working-directory: frontend
+        run: npm run typecheck
       - name: Build graph editor frontend
         working-directory: frontend
         run: npm run build
@@ -111,3 +117,11 @@ jobs:
       - name: Run graph editor E2E tests
         working-directory: frontend
         run: npm run test:e2e
+      - name: Upload Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: graph-editor-playwright-artifacts
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
