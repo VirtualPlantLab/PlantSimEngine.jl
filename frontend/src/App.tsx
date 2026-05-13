@@ -679,12 +679,12 @@ export default function App() {
           </div>
 
           <div className="toolbar-group panel-switch">
-            <button className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
+            <button data-testid="toolbar-inspector" className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
             {editorSocket && (
               <>
-                <button className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
+                <button data-testid="toolbar-add-model" className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
                 <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
-                <button className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
+                <button data-testid="toolbar-mapping-code" className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
               </>
             )}
           </div>
@@ -1194,14 +1194,14 @@ function CycleBreakPrompt({
   onChoose: () => void;
 }) {
   return (
-    <div className={`cycle-break-prompt ${active ? "active" : ""}`} role="status" aria-live="polite">
+    <div data-testid="cycle-break-prompt" className={`cycle-break-prompt ${active ? "active" : ""}`} role="status" aria-live="polite">
       <div>
         <strong>Cycle detected</strong>
         <span>
           Choose which variable to decouple. The selected input will be wrapped in <code>PreviousTimeStep</code>, so that model uses the value from the previous timestep and is disconnected from this current-step variable within a run.
         </span>
       </div>
-      <button className="metric-button danger cycle-break-cta" disabled={!editorConnected || optionCount === 0} onClick={onChoose}>
+      <button data-testid="cycle-break-choose" className="metric-button danger cycle-break-cta" disabled={!editorConnected || optionCount === 0} onClick={onChoose}>
         <ScissorsLineDashed size={14} />
         {active ? "Choose a highlighted input" : "Choose break point in graph"}
       </button>
@@ -1601,11 +1601,11 @@ function ExistingModelEditor({
   const timestep = rateMode === "clock" ? { mode: "clock", dt: rateDt, phase: ratePhase } : { mode: "default" };
 
   return (
-    <div className="existing-model-editor">
+    <div className="existing-model-editor" data-testid="existing-model-editor">
       <h3>Edit Model</h3>
       <label className="model-browser-control">
         <span>Scale</span>
-        <select value={targetScale} onChange={(event) => setTargetScale(event.target.value)}>
+        <select data-testid="edit-model-scale" value={targetScale} onChange={(event) => setTargetScale(event.target.value)}>
           {scales.map((scale) => <option key={scale} value={scale}>{scale}</option>)}
         </select>
       </label>
@@ -1627,7 +1627,7 @@ function ExistingModelEditor({
       </label>
       <label className="model-browser-control">
         <span>Model</span>
-        <select value={selectedModel.type} onChange={(event) => setModelType(event.target.value)}>
+        <select data-testid="edit-model-type" value={selectedModel.type} onChange={(event) => setModelType(event.target.value)}>
           {matchingModels.map((model) => <option key={model.type} value={model.type}>{model.name}</option>)}
         </select>
       </label>
@@ -1643,7 +1643,7 @@ function ExistingModelEditor({
       {selectedModel.constructor.fields.map((field) => (
         <div className="parameter-row" key={field.name}>
           <label>{field.name}</label>
-          <input value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
+          <input data-testid={`edit-param-${field.name}`} value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
           <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
             {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
           </select>
@@ -1651,6 +1651,7 @@ function ExistingModelEditor({
       ))}
       <div className="row-with-actions">
         <button
+          data-testid="update-model-submit"
           className="metric-button"
           disabled={disabled}
           onClick={() => onCommand({
@@ -1667,6 +1668,7 @@ function ExistingModelEditor({
           Update model
         </button>
         <button
+          data-testid="remove-model-submit"
           className="metric-button danger"
           disabled={disabled}
           onClick={() => onCommand({ action: "edit", kind: "remove_model", scale: node.scale, process: node.process })}
@@ -1745,7 +1747,7 @@ function VariableMappingEditor({
         <>
           <label className="model-browser-control">
             <span>Source output</span>
-            <select value={selected?.port.id ?? ""} onChange={(event) => setSourceId(event.target.value)}>
+            <select data-testid="mapping-source-output" value={selected?.port.id ?? ""} onChange={(event) => setSourceId(event.target.value)}>
               {sourceOptions.map(({ node, port }) => (
                 <option key={port.id} value={port.id}>{node.scale}.{node.process}.{port.name}</option>
               ))}
@@ -1771,7 +1773,7 @@ function VariableMappingEditor({
               ))}
             </div>
           )}
-          <button className="metric-button" disabled={disabled || !selected} onClick={apply}>Apply mapping</button>
+          <button data-testid="mapping-apply" className="metric-button" disabled={disabled || !selected} onClick={apply}>Apply mapping</button>
         </>
       )}
     </div>
@@ -1898,7 +1900,7 @@ function MappingCodePanel({
         <strong>Current Julia mapping</strong>
         <button className="metric-button" onClick={() => { void copyCode(); }}>Copy</button>
       </div>
-      <textarea className="mapping-code" readOnly value={code} />
+      <textarea data-testid="mapping-code" className="mapping-code" readOnly value={code} />
       <label className="model-browser-control">
         <span>Write to file</span>
         <input value={savePath} onChange={(event) => onSavePathChange(event.target.value)} placeholder="mapping.generated.jl" />
@@ -1965,7 +1967,7 @@ function ModelBrowser({
 
   if (!selected) return <div className="empty-state">No model type is available.</div>;
   return (
-    <div className="model-browser">
+    <div className="model-browser" data-testid="add-model-panel">
       <label className="model-browser-control">
         <span>Define scale</span>
         <div className="inline-field">
@@ -1984,13 +1986,13 @@ function ModelBrowser({
       </label>
       <label className="model-browser-control">
         <span>Scale</span>
-        <select value={scale} onChange={(event) => setScale(event.target.value)}>
+        <select data-testid="add-model-scale" value={scale} onChange={(event) => setScale(event.target.value)}>
           {scales.map((item) => <option key={item} value={item}>{item}</option>)}
         </select>
       </label>
       <label className="model-browser-control">
         <span>Model</span>
-        <select value={selected.type} onChange={(event) => setModelType(event.target.value)}>
+        <select data-testid="add-model-type" value={selected.type} onChange={(event) => setModelType(event.target.value)}>
           {models.map((model) => <option key={model.type} value={model.type}>{model.name} ({model.process ?? "unknown"})</option>)}
         </select>
       </label>
@@ -2084,6 +2086,7 @@ function ModelParameterForm({
         <div className="parameter-row" key={field.name}>
           <label>{field.name}</label>
           <input
+            data-testid={`add-param-${field.name}`}
             ref={index === 0 ? firstParameterRef : undefined}
             value={values[field.name] ?? ""}
             onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
@@ -2094,7 +2097,7 @@ function ModelParameterForm({
         </div>
       ))}
       <div className="add-model-footer">
-        <button ref={addButtonRef} className="metric-button accent-button" disabled={disabled} onClick={addModel}>
+        <button data-testid="add-model-submit" ref={addButtonRef} className="metric-button accent-button" disabled={disabled} onClick={addModel}>
           Add {model.name}
         </button>
       </div>

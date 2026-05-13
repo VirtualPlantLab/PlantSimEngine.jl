@@ -14,6 +14,7 @@ export function ModelNode({ data, selected }: NodeProps<ModelFlowNode>) {
     <section
       className={`model-node ${data.role} ${overview ? "overview-node" : ""} ${cyclic ? "cyclic" : ""} ${selected ? "selected" : ""} ${focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
       data-scale={data.scale}
+      data-testid={`model-node-${data.scale}-${data.process}`}
       style={{ width: nodeWidth(data) }}
     >
       <Handle className="call-handle call-target" id={`${data.id}:call-target`} type="target" position={Position.Left} />
@@ -115,6 +116,7 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
         <div
           className={`port ${port.mappingMode ? "mapped" : ""} ${requiredInputs.has(port.id) ? "required-input" : ""} ${cycleBreakPorts.has(port.id) ? "cycle-break-target" : ""} ${port.previousTimeStep ? "previous" : ""} ${focused.has(port.id) ? "focused" : ""} ${highlighted.has(port.id) ? "highlighted" : ""} ${data.activePortId === port.id ? "active" : ""}`}
           key={port.id}
+          data-testid={`port-${side}-${data.scale}-${data.process}-${port.name}`}
           data-default={`${requiredInputs.has(port.id) ? "Required initialization" : portValueLabel(port)}: ${port.default}`}
           aria-label={`${port.name}, ${side}, ${requiredInputs.has(port.id) ? "required initialization" : portValueLabel(port).toLowerCase()} ${port.default}`}
           onMouseEnter={() => data.onPortEnter?.(port)}
@@ -131,6 +133,7 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
           {candidatePorts.has(port.id) && (
             <button
               className="port-candidate-button nodrag nopan"
+              data-testid={`candidate-${side}-${data.scale}-${data.process}-${port.name}`}
               type="button"
               title={side === "input" ? "Show models that can compute this variable" : "Show models that can consume this variable"}
               aria-label={side === "input" ? "Show models that can compute this variable" : "Show models that can consume this variable"}
@@ -150,6 +153,7 @@ function PortColumn({ title, ports, side, data }: { title: string; ports: GraphP
           {side === "input" && data.cycleBreakActive && cycleBreakPorts.has(port.id) && (
             <button
               className="port-cycle-break-button nodrag nopan"
+              data-testid={`cycle-break-${data.scale}-${data.process}-${port.name}`}
               type="button"
               title="Use this input from the previous timestep to break the cycle"
               aria-label={`Break cycle at ${port.name}`}
