@@ -49,16 +49,7 @@ Depth = 5
 
 **Why choose PlantSimEngine?**
 
-- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest. You can also inspect and edit model coupling directly from the graph view:
-
-```@raw html
-<iframe
-  src="www/simple_dependency_graph.html"
-  style="width: 100%; height: 720px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
-  title="PlantSimEngine dependency graph example"
-></iframe>
-```
-
+- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
 - **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
 - **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
 - **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
@@ -70,6 +61,16 @@ Depth = 5
 **Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
 
 **Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
+
+Model coupling can be done in Julia scripts or interactively in the graph view (or both):
+
+```@raw html
+<iframe
+  src="www/simple_dependency_graph.html"
+  style="width: 100%; height: 500px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
+  title="PlantSimEngine dependency graph example"
+></iframe>
+```
 
 ### Flexibility with Precision Control
 
