@@ -67,6 +67,18 @@ _editor_websocket_url(session) = "ws://$(session.host):$(session.port)/ws?token=
     )
     rated_spec = only(values(PlantSimEngine.parse_model_specs(rated[:Fruit])))
     @test PlantSimEngine.timestep(rated_spec) == ClockSpec(2.0, 1.0)
+
+    sole_scale = PlantSimEngine.ModelMapping(:Only => (ToyLAIModel(), Status(TT_cu=1.0)); check=true)
+    emptied = PlantSimEngine.apply_graph_edit(sole_scale, PlantSimEngine.RemoveModel(:Only, :LAI_Dynamic))
+    @test isempty(keys(emptied))
+
+    moved_sole = PlantSimEngine.apply_graph_edit(
+        sole_scale,
+        PlantSimEngine.UpdateModel(:Only, :LAI_Dynamic, :Leaf, ToyLAIModel, NamedTuple(), :default),
+    )
+    @test !haskey(moved_sole, :Only)
+    @test haskey(moved_sole, :Leaf)
+    @test only(PlantSimEngine.get_models(moved_sole[:Leaf])) isa ToyLAIModel
 end
 
 @testset "HTTP extension loading and WebSocket edits" begin
@@ -126,7 +138,7 @@ end
         @test startswith(state["mappingCode"], "using PlantSimEngine\n")
         @test occursin("using PlantSimEngine.Examples", state["mappingCode"])
         @test occursin("ModelMapping", state["mappingCode"])
-        @test occursin("Status(TT_cu = 1.0)", state["mappingCode"])
+        @test occursin("Status(NamedTuple{(:TT_cu,)}((1.0,)))", state["mappingCode"])
         @test !occursin("LAI = 2.0", state["mappingCode"])
         @test haskey(state, "initializations")
         initial_tt = only(item for item in state["initializations"] if item["scale"] == "Leaf" && item["name"] == "TT_cu")
@@ -152,7 +164,7 @@ end
             @test initialized["ok"]
             leaf_status = only(item for item in current_mapping(session)[:Leaf] if item isa Status)
             @test leaf_status[:TT_cu] == 2.5
-            @test occursin("Status(TT_cu = 2.5)", initialized["mappingCode"])
+            @test occursin("Status(NamedTuple{(:TT_cu,)}((2.5,)))", initialized["mappingCode"])
 
             update_command = PlantSimEngine.JSON.json(Dict(
                 "action" => "edit",
@@ -289,5 +301,31 @@ end
         end
     finally
         close(session)
+    end
+
+    ext = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    non_identifier_status = Status(NamedTuple{(Symbol("x y"),)}((1.0,)))
+    @test ext._status_to_code(non_identifier_status, Set([Symbol("x y")])) == "Status(NamedTuple{(Symbol(\"x y\"),)}((1.0,)))"
+    non_identifier_mapping = ModelMapping(Symbol("Leaf-1") => (ToyLAIModel(), Status(TT_cu=1.0)); check=true)
+    @test occursin("Symbol(\"Leaf-1\") =>", ext._model_mapping_to_julia(non_identifier_mapping))
+
+    remote_session = edit_graph(mapping; port=0, open_browser=false, autosave=false, allow_remote=true)
+    try
+        HTTP.WebSockets.open(_editor_websocket_url(remote_session)) do ws
+            _ = HTTP.WebSockets.receive(ws)
+            unsafe_command = PlantSimEngine.JSON.json(Dict(
+                "action" => "edit",
+                "kind" => "set_initialization",
+                "scale" => "Leaf",
+                "variable" => "TT_cu",
+                "value" => Dict("type" => "julia", "value" => "2.5"),
+            ))
+            HTTP.WebSockets.send(ws, unsafe_command)
+            response = PlantSimEngine.JSON.parse(String(HTTP.WebSockets.receive(ws)))
+            @test response["ok"] == false
+            @test occursin("Raw Julia parameter values are disabled", only(response["diagnostics"]))
+        end
+    finally
+        close(remote_session)
     end
 end

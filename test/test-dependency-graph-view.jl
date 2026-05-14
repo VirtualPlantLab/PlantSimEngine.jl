@@ -114,6 +114,9 @@ PlantSimEngine.outputs_(::GraphViewHardChildModel) = (child_output=-Inf,)
     @test occursin("PlantSimEngine Dependency Graph", fallback_html)
     @test occursin("canvas", fallback_html)
 
+    mapping_fallback_html_path = write_graph_view(joinpath(mktempdir(), "dependency_graph_mapping_fallback.html"), mapping; renderer=:standalone)
+    @test occursin("canvas", read(mapping_fallback_html_path, String))
+
     multiscale_mapping = ModelMapping(
         :Plant => MultiScaleModel(
             model=ToyCAllocationModel(),

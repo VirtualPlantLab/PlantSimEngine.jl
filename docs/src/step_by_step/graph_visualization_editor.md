@@ -31,7 +31,7 @@ The thermal time model computes `TT_cu`, the LAI model consumes `TT_cu` and comp
 
 ```@raw html
 <iframe
-  src="../www/simple_dependency_graph.html"
+  src="../../www/simple_dependency_graph.html"
   style="width: 100%; height: 720px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
   title="PlantSimEngine dependency graph example"
 ></iframe>
@@ -54,44 +54,18 @@ write_graph_view("dependency_graph.html", mapping)
 
 The returned file path is absolute, so you can print it, open it in a browser, or embed it in another documentation site.
 
-## Embedding a graph in package documentation
-
-For package documentation built with Documenter, generate the HTML file before `makedocs` and place it somewhere under `docs/src`, for example `docs/src/www/model_graph.html`:
-
-```julia
-# docs/make.jl
-using Documenter
-using PlantSimEngine
-using YourPackage
-
-mapping = YourPackage.default_mapping()
-write_graph_view(joinpath(@__DIR__, "src", "www", "model_graph.html"), mapping)
-
-makedocs(;
-    # ...
-)
-```
-
-Then embed it from a markdown page:
-
-```html
-<iframe
-  src="../www/model_graph.html"
-  style="width: 100%; height: 720px; border: 1px solid #d8cfc2; border-radius: 8px;"
-  title="Model dependency graph"
-></iframe>
-```
-
-Use the right relative path for the page where the iframe lives. A page in `docs/src/multiscale/` usually needs `../www/model_graph.html`; a page at the root of `docs/src/` usually needs `www/model_graph.html`.
-
-!!! tip
-    This is the same pattern used to show large package mappings, such as the XPalm dependency graph, directly inside package documentation. The viewer is static, so it works on GitHub Pages without a Julia server.
-
 ## Interactive editor
 
 The interactive editor uses the same graph JSON as the static viewer, but it keeps a WebSocket connection open to Julia. Julia remains the source of truth: the browser sends edit commands, Julia applies them to the [`ModelMapping`](@ref), recompiles graph diagnostics, and sends the updated graph back to the browser.
 
-The editor is implemented as a package extension. Load `HTTP` before calling [`edit_graph`](@ref):
+The editor is implemented as a package extension. Static graph files do not need `HTTP`, but the live editor does. In a project that only depends on `PlantSimEngine`, install `HTTP` first:
+
+```julia
+using Pkg
+Pkg.add("HTTP")
+```
+
+Then load `HTTP` before calling [`edit_graph`](@ref):
 
 ```julia
 using PlantSimEngine
@@ -121,7 +95,7 @@ By default, `edit_graph` opens `session.url` in the system default browser. Pass
 session = edit_graph(mapping; open_browser=false)
 ```
 
-The URL contains a session token and the server listens on `127.0.0.1` by default. Treat that URL as a local capability: anyone who can reach it can edit the live mapping. If you intentionally bind to another host, pass `allow_remote=true` only on a trusted network.
+The URL contains a session token and the server listens on `127.0.0.1` by default. Treat that URL as a local capability: anyone who can reach it can edit the live mapping. If you intentionally bind to another host, pass `allow_remote=true` only on a trusted network. Raw `julia` parameter values are disabled by default for remote sessions; pass `allow_julia_eval=true` only if you explicitly accept that risk.
 
 To stop the HTTP/WebSocket session, run:
 
@@ -227,3 +201,36 @@ available_models(:light_interception)
 ```
 
 If a package is not loaded with `using PackageName`, its model types are not present in the Julia session and the editor cannot list them.
+
+## Embedding a graph in package documentation
+
+For package documentation built with Documenter, generate the HTML file before `makedocs` and place it somewhere under `docs/src`, for example `docs/src/www/model_graph.html`:
+
+```julia
+# docs/make.jl
+using Documenter
+using PlantSimEngine
+using YourPackage
+
+mapping = YourPackage.default_mapping()
+write_graph_view(joinpath(@__DIR__, "src", "www", "model_graph.html"), mapping)
+
+makedocs(;
+    # ...
+)
+```
+
+Then embed it from a markdown page:
+
+```html
+<iframe
+  src="../../www/model_graph.html"
+  style="width: 100%; height: 720px; border: 1px solid #d8cfc2; border-radius: 8px;"
+  title="Model dependency graph"
+></iframe>
+```
+
+Use the right relative path for the page where the iframe lives and remember that Documenter deploys pretty URLs by default. A page in `docs/src/multiscale/page.md` usually needs `../../www/model_graph.html`; a page at the root of `docs/src/` usually needs `www/model_graph.html`.
+
+!!! tip
+    This is the same pattern used to show large package mappings, such as the XPalm dependency graph, directly inside package documentation. The viewer is static, so it works on GitHub Pages without a Julia server.

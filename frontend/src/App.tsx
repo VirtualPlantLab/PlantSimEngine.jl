@@ -555,7 +555,7 @@ export default function App() {
   }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
 
   return (
-    <main className={`app-shell ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""} ${cycleBreakMode ? "cycle-break-mode" : ""}`}>
+    <main className={`app-shell ${activePanel ? "has-side-panel" : ""} ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""} ${cycleBreakMode ? "cycle-break-mode" : ""}`}>
       <section className="graph-panel">
         <div className="topbar graph-workbench">
           <button

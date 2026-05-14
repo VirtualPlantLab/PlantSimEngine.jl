@@ -32,9 +32,13 @@ body {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 340px;
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   position: relative;
+}
+
+.app-shell.has-side-panel {
+  grid-template-columns: minmax(0, 1fr) 340px;
 }
 
 .graph-panel {

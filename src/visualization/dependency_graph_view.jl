@@ -561,11 +561,13 @@ function write_graph_view(path::AbstractString, view; renderer::Symbol=:react)
     return abspath(path)
 end
 
-write_graph_view(path::AbstractString, mapping::ModelMapping; kwargs...) =
-    write_graph_view(path, graph_view(mapping; kwargs...))
+function write_graph_view(path::AbstractString, mapping::ModelMapping; renderer::Symbol=:react, kwargs...)
+    return write_graph_view(path, graph_view(mapping; kwargs...); renderer=renderer)
+end
 
-write_graph_view(path::AbstractString, sim::GraphSimulation; kwargs...) =
-    write_graph_view(path, graph_view(sim; kwargs...))
+function write_graph_view(path::AbstractString, sim::GraphSimulation; renderer::Symbol=:react, kwargs...)
+    return write_graph_view(path, graph_view(sim; kwargs...); renderer=renderer)
+end
 
 function apply_graph_edit(mapping::ModelMapping{SingleScale,<:Any}, edit::AbstractGraphEdit)
     normalized = ModelMapping(:Default => mapping[:Default]; check=true, type_promotion=type_promotion(mapping))
@@ -624,7 +626,8 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::RemoveM
         data[scale] = scale == edit.scale ? _remove_model_entry(entry, edit.process, found) : entry
     end
     found[] || error("Cannot remove model: process `$(edit.process)` was not found at scale `$(edit.scale)`.")
-    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+    _drop_empty_model_scales!(data)
+    return _graph_edit_model_mapping(data, type_promotion(mapping))
 end
 
 function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::ReplaceModel)
@@ -675,7 +678,8 @@ function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::UpdateM
         data[edit.target_scale] = (moved_item[],)
     end
 
-    return ModelMapping(data; check=true, type_promotion=type_promotion(mapping))
+    _drop_empty_model_scales!(data)
+    return _graph_edit_model_mapping(data, type_promotion(mapping))
 end
 
 function apply_graph_edit(mapping::ModelMapping{MultiScale,<:Any}, edit::SetMappedVariable)
@@ -785,6 +789,18 @@ end
 
 _remove_model_entry(entry, process_name::Symbol, found::Base.RefValue{Bool}) =
     _remove_model_entry((entry,), process_name, found)
+
+function _drop_empty_model_scales!(data::Dict{Symbol,Any})
+    for scale in collect(keys(data))
+        isempty(get_models(data[scale])) && delete!(data, scale)
+    end
+    return data
+end
+
+function _graph_edit_model_mapping(data::Dict{Symbol,Any}, type_promotion)
+    isempty(data) && return _build_model_mapping(MultiScale, Dict{Symbol,Tuple}(); validated=false, type_promotion=type_promotion)
+    return ModelMapping(data; check=true, type_promotion=type_promotion)
+end
 
 function _replace_model_entry(entry::Tuple, process_name::Symbol, model, timestep, found::Base.RefValue{Bool})
     return tuple((_replace_model_item(item, process_name, model, timestep, found) for item in entry)...)

@@ -111,6 +111,12 @@ jobs:
       - name: Build graph editor frontend
         working-directory: frontend
         run: npm run build
+      - name: Check committed graph editor assets
+        run: |
+          git diff --exit-code -- frontend/dist || {
+            echo "frontend/dist is stale. Run npm run build in frontend/ and commit the rebuilt assets.";
+            exit 1;
+          }
       - name: Install Playwright browser
         working-directory: frontend
         run: npx playwright install --with-deps chromium

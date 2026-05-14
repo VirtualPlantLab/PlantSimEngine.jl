@@ -22,6 +22,7 @@ mutable struct GraphEditorSession{M,G,S} <: PlantSimEngine.AbstractGraphEditorSe
     last_autosaved_path::Union{Nothing,String}
     recent_file_path::String
     recent_mapping_paths::Vector{String}
+    allow_julia_eval::Bool
 end
 
 current_mapping(session::GraphEditorSession) = session.mapping
@@ -48,7 +49,7 @@ end
 current_mapping_code(session::GraphEditorSession) = _model_mapping_to_julia(session.mapping)
 
 """
-    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true, allow_remote=false)
+    edit_graph([mapping]; mtg=nothing, host="127.0.0.1", port=8765, open_browser=true, autosave=true, allow_remote=false, allow_julia_eval=nothing)
 
 Start a local graph editor session. The returned session owns the current
 `ModelMapping`; call `current_mapping(session)` to recover the edited mapping.
@@ -59,6 +60,8 @@ By default, the session URL is opened with the system default browser. Pass
 `open_browser=false` to disable this, for example in scripts or tests.
 The URL includes a session token and the server is restricted to localhost
 unless `allow_remote=true` is passed explicitly.
+Raw `julia` parameter values are disabled by default for remote sessions; pass
+`allow_julia_eval=true` only for trusted sessions.
 When `autosave=true`, a recovery script is written to the temporary directory.
 After saving through the web editor, every successful graph edit, undo, redo,
 or recent-file load rewrites the saved Julia script.
@@ -76,6 +79,7 @@ function edit_graph(
     autosave_path::Union{Nothing,AbstractString}=nothing,
     recent_file_path::Union{Nothing,AbstractString}=nothing,
     allow_remote::Bool=false,
+    allow_julia_eval::Union{Nothing,Bool}=nothing,
 )
     if !_is_loopback_host(host) && !allow_remote
         error("Graph editor sessions are limited to localhost by default. Pass `allow_remote=true` only for a trusted network environment.")
@@ -89,6 +93,7 @@ function edit_graph(
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
     actual_port = HTTP.port(server)
     token = _session_token()
+    resolved_allow_julia_eval = isnothing(allow_julia_eval) ? !allow_remote : allow_julia_eval
     session = GraphEditorSession(
         mapping,
         mtg,
@@ -105,6 +110,7 @@ function edit_graph(
         nothing,
         _normalized_output_path(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
         _load_recent_mapping_paths(isnothing(recent_file_path) ? _default_recent_file_path() : recent_file_path),
+        resolved_allow_julia_eval,
     )
     session_ref[] = session
     _persist_session_mapping!(session; write_save_target=false)
@@ -291,7 +297,7 @@ function _handle_command!(session::GraphEditorSession, command)
             redo!(session)
             persist = true
         elseif action == "edit"
-            edit = _edit_from_command(command)
+            edit = _edit_from_command(session, command)
             apply_edit!(session, edit)
             persist = true
         elseif action == "write_mapping_code"
@@ -311,7 +317,7 @@ function _handle_command!(session::GraphEditorSession, command)
     end
 end
 
-function _edit_from_command(command)
+function _edit_from_command(session::GraphEditorSession, command)
     kind = get(command, "kind", "")
     kind == "mark_previous_timestep" && return PlantSimEngine.MarkPreviousTimeStep(
         Symbol(command["scale"]),
@@ -329,7 +335,7 @@ function _edit_from_command(command)
     )
     if kind == "update_model"
         model_type = _resolve_model_type(command["modelType"])
-        parameters = _parameters_from_command(get(command, "parameters", Dict()))
+        parameters = _parameters_from_command(session, get(command, "parameters", Dict()))
         timestep = _timestep_from_command(get(command, "timestep", nothing); default_sentinel=true)
         return PlantSimEngine.UpdateModel(
             Symbol(command["scale"]),
@@ -352,11 +358,11 @@ function _edit_from_command(command)
     kind == "set_initialization" && return PlantSimEngine.SetStatusVariable(
         Symbol(command["scale"]),
         Symbol(command["variable"]),
-        _parse_parameter_value(get(command, "value", Dict("type" => "julia", "value" => "nothing"))),
+        _parse_parameter_value(session, get(command, "value", Dict("type" => "julia", "value" => "nothing"))),
     )
     if kind in ("add_model", "replace_model")
         model_type = _resolve_model_type(command["modelType"])
-        parameters = _parameters_from_command(get(command, "parameters", Dict()))
+        parameters = _parameters_from_command(session, get(command, "parameters", Dict()))
         timestep = _timestep_from_command(get(command, "timestep", nothing))
         if kind == "add_model"
             return PlantSimEngine.AddModel(Symbol(command["scale"]), model_type, parameters, timestep)
@@ -388,15 +394,15 @@ function _resolve_model_type(label)
     error("No loaded PlantSimEngine model type matches `$label`. Load the package that defines it first.")
 end
 
-function _parameters_from_command(parameters)
+function _parameters_from_command(session::GraphEditorSession, parameters)
     pairs = Pair{Symbol,Any}[]
     for (key, value) in parameters
-        push!(pairs, Symbol(key) => _parse_parameter_value(value))
+        push!(pairs, Symbol(key) => _parse_parameter_value(session, value))
     end
     return (; pairs...)
 end
 
-function _parse_parameter_value(value)
+function _parse_parameter_value(session::GraphEditorSession, value)
     value isa AbstractDict || return value
     choice = Symbol(get(value, "type", "julia"))
     raw = get(value, "value", nothing)
@@ -406,6 +412,7 @@ function _parse_parameter_value(value)
     choice == :symbol && return Symbol(raw)
     choice == :string && return String(raw)
     choice == :nothing && return nothing
+    choice == :julia && !session.allow_julia_eval && error("Raw Julia parameter values are disabled for this graph editor session.")
     choice == :julia && return Core.eval(Main, Meta.parse(String(raw)))
     return raw
 end
@@ -689,7 +696,7 @@ function _model_mapping_to_julia(mapping::PlantSimEngine.ModelMapping)
     required_status_variables = _required_status_variables(mapping)
     println(io, "mapping = ModelMapping(")
     for scale in keys(mapping)
-        println(io, "    :$(scale) => (")
+        println(io, "    $(_symbol_code(scale)) => (")
         items = _scale_items(mapping[scale])
         required = get(required_status_variables, scale, Set{Symbol}())
         for item in items
@@ -823,7 +830,17 @@ function _status_to_code(status::PlantSimEngine.Status, required_variables)
         if name in required_variables
     ]
     isempty(kept) && return nothing
-    return "Status(" * join(("$(first(item)) = $(repr(last(item)))" for item in kept), ", ") * ")"
+    names_code = _tuple_code(_symbol_code.(first.(kept)))
+    values_code = _tuple_code([repr(last(item)) for item in kept])
+    return "Status(NamedTuple{$names_code}($values_code))"
+end
+
+_symbol_code(symbol::Symbol) = repr(symbol)
+
+function _tuple_code(items)
+    values = collect(items)
+    suffix = length(values) == 1 ? "," : ""
+    return "(" * join(values, ", ") * suffix * ")"
 end
 
 function _model_spec_to_code(spec::PlantSimEngine.ModelSpec)
@@ -866,27 +883,27 @@ end
 _mapped_variable_symbol(variable::Symbol) = variable
 _mapped_variable_symbol(variable::PlantSimEngine.PreviousTimeStep) = variable.variable
 
-_mapped_lhs_to_code(variable::Symbol) = string(":", variable)
-_mapped_lhs_to_code(variable::PlantSimEngine.PreviousTimeStep) = "PreviousTimeStep(:$(variable.variable))"
+_mapped_lhs_to_code(variable::Symbol) = _symbol_code(variable)
+_mapped_lhs_to_code(variable::PlantSimEngine.PreviousTimeStep) = "PreviousTimeStep($(_symbol_code(variable.variable)))"
 
 function _mapped_rhs_to_code(rhs::Pair{Symbol,Symbol}, variable::Symbol)
     source_scale = first(rhs)
     source_variable = last(rhs)
     if source_scale == Symbol("")
-        return "(Symbol(\"\") => :$(source_variable))"
+        return "($(_symbol_code(source_scale)) => $(_symbol_code(source_variable)))"
     end
     if source_variable == variable
-        return ":$(source_scale)"
+        return _symbol_code(source_scale)
     end
-    return "(:$(source_scale) => :$(source_variable))"
+    return "($(_symbol_code(source_scale)) => $(_symbol_code(source_variable)))"
 end
 
 function _mapped_rhs_to_code(rhs::AbstractVector{<:Pair{Symbol,Symbol}}, variable::Symbol)
     compact = all(last(i) == variable for i in rhs)
     if compact
-        return "[" * join((":" * string(first(i)) for i in rhs), ", ") * "]"
+        return "[" * join((_symbol_code(first(i)) for i in rhs), ", ") * "]"
     end
-    return "[" * join(("(:$(first(i)) => :$(last(i)))" for i in rhs), ", ") * "]"
+    return "[" * join(("($(_symbol_code(first(i))) => $(_symbol_code(last(i))))" for i in rhs), ", ") * "]"
 end
 
 end
