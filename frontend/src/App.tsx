@@ -137,7 +137,7 @@ export default function App() {
   const [editorConnected, setEditorConnected] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [activePanel, setActivePanel] = useState<SidePanel>("inspector");
+  const [activePanel, setActivePanel] = useState<SidePanel>(() => loadEditorConfig()?.websocketUrl ? "inspector" : null);
   const [mappingCode, setMappingCode] = useState("");
   const [initializations, setInitializations] = useState<InitializationDescriptor[]>([]);
   const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
@@ -429,6 +429,7 @@ export default function App() {
     setSelectedEdge(null);
     setSelected(node);
     setActivePort(port ?? null);
+    setActivePanel("inspector");
     setCollapsedScales((current) => {
       if (!current.has(node.scale)) return current;
       const next = new Set(current);
@@ -763,12 +764,14 @@ export default function App() {
               setSelected(null);
               setActivePort(null);
               setPinnedFocus(null);
+              setActivePanel("inspector");
             }
           }}
           onNodeClick={(_, node) => {
             setCandidatePopover(null);
             setSelectedEdge(null);
             setSelected(node.data);
+            setActivePanel("inspector");
           }}
           fitView
           fitViewOptions={{ padding: viewMode === "overview" ? 0.14 : 0.08, minZoom: 0.03, maxZoom: viewMode === "overview" ? 1.25 : 1 }}

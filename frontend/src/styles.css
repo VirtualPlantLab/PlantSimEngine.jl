@@ -34,6 +34,7 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
   height: 100vh;
+  position: relative;
 }
 
 .graph-panel {
@@ -2022,7 +2023,15 @@ h1 {
   }
 
   .inspector {
-    display: none;
+    position: absolute;
+    z-index: 28;
+    top: 150px;
+    right: 16px;
+    bottom: 16px;
+    width: min(360px, calc(100% - 32px));
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 18px 45px var(--shadow);
   }
 
   .relationship-legend,
