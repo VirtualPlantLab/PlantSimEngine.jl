@@ -1,5 +1,64 @@
 # Changelog
 
+## v0.14.1
+
+Changes in this section are based on the git history since [`v0.14.0`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/releases/tag/v0.14.0), corresponding to the GitHub compare view for [`v0.14.1`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/compare/v0.14.0...v0.14.1).
+
+### Summary
+
+This release adds a dependency graph visualizer and an interactive graph editor.
+The new tooling makes it possible to inspect a `ModelMapping`, see which models
+produce and consume each variable, diagnose missing initialization values, and
+interactively build or revise a mapping from a browser UI.
+
+The static graph viewer is available directly from `PlantSimEngine` through
+`write_graph_view`, `graph_view`, and `graph_view_json`. The live editor is
+provided by the `PlantSimEngineGraphEditorExt` package extension and is loaded
+when `HTTP.jl` is available in the session. The release also includes benchmark
+and CI maintenance, updated developer guidance, and a new agent skill for
+working with PlantSimEngine internals.
+
+### Added
+
+- New dependency graph visualization API:
+  `graph_view`, `graph_view_json`, `compile_graph_view`, and
+  `write_graph_view`.
+- A standalone HTML graph viewer with model nodes, variable ports, hard-call
+  edges, variable dependency edges, scale filters, relationship filters, search,
+  overview/detail modes, and an inspector.
+- An interactive browser-based graph editor through `edit_graph`, backed by a
+  local `HTTP.jl` server and WebSocket session. 
+- The live graph editor runs as a package extension that depends on
+  `HTTP.jl`; static graph visualization is available without loading
+  `HTTP`.
+- Editing support for adding, updating, removing, and reconnecting models in a
+  `ModelMapping`.
+- Support for starting the editor from a blank mapping with `edit_graph()`.
+- Mapping-code generation from the editor, including `using PackageName`
+  statements for loaded model packages and a top-level `mapping` variable.
+- Save, autosave, recent-file reopening, undo, and redo support in live graph
+  editing sessions.
+- Model discovery helpers:
+  `available_processes`, `available_models`, `model_descriptor`, and
+  `model_constructor_descriptor`.
+- Editor suggestions for adding producer models from input variables and
+  consumer models from output variables.
+- Cycle diagnostics in the graph UI, including highlighted cycle edges and an
+  interactive way to wrap selected inputs in `PreviousTimeStep`.
+- Visualization of required initialization values and graph diagnostics even
+  when a mapping is incomplete or cyclic.
+- A new documentation page for graph visualization and editing:
+  [`docs/src/step_by_step/graph_visualization_editor.md`](docs/src/step_by_step/graph_visualization_editor.md).
+- Playwright end-to-end tests for the browser editor and new Julia tests for
+  the static graph viewer and editor extension.
+- A local `plantsimengine` Codex skill describing the package architecture and
+  contributor workflow.
+
+### Fixed
+
+- Fixed type promotion behavior with `ModelMapping`.
+- Fixed benchmark and documentation issues that were blocking CI.
+
 ## v0.14.0
 
 Changes in this section are based on the git history since [`v0.13.2`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/releases/tag/v0.13.2), corresponding to the GitHub compare view for [`v0.14.0`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/compare/v0.13.2...v0.14.0).
