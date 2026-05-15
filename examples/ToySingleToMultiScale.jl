@@ -53,8 +53,7 @@ struct ToyTt_CuModel <: AbstractTt_CuModel
 end
 
 function PlantSimEngine.run!(::ToyTt_CuModel, models, status, meteo, constants, extra=nothing)
-    status.TT_cu +=
-        meteo.TT
+    status.TT_cu += meteo.TT
 end
 
 function PlantSimEngine.inputs_(::ToyTt_CuModel)

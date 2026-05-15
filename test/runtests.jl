@@ -70,6 +70,14 @@ include("helper-functions.jl")
         include("test-toy_models.jl")
     end
 
+    @testset "Dependency graph view" begin
+        include("test-dependency-graph-view.jl")
+    end
+
+    @testset "Dependency graph editor extension" begin
+        include("test-graph-editor-extension.jl")
+    end
+
     @testset "MTG with multiscale mapping" begin
         include("test-mtg-multiscale.jl")
         include("test-mtg-dynamic.jl")

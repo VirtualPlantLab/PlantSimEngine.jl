@@ -62,6 +62,16 @@ Depth = 5
 
 **Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
 
+Model coupling can be done in Julia scripts or interactively in the graph view (or both):
+
+```@raw html
+<iframe
+  src="www/simple_dependency_graph.html"
+  style="width: 100%; height: 500px; border: 1px solid #d8cfc2; border-radius: 8px; background: #f7f0e7;"
+  title="PlantSimEngine dependency graph example"
+></iframe>
+```
+
 ### Flexibility with Precision Control
 
 **Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
@@ -74,6 +84,7 @@ Depth = 5
 
 ## Batteries included
 
+- **Interactive graph editor**: Compose your model by interactively adding sub-models in a graph editor, and let the framework handle the coupling and execution.
 - **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
 - **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
 - **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.

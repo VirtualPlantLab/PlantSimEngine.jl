@@ -144,6 +144,45 @@ function variables_multiscale(node, organ, vars_mapping, st=NamedTuple())
     end
 end
 
+function hard_dependency_variables(node::HardDependencyNode, variable_function::Function)
+    vars = Pair{Symbol,NamedTuple}[]
+    _hard_dependency_variables!(vars, node, variable_function, Dict{Symbol,Set{Symbol}}())
+    return vars
+end
+
+hard_dependency_variables(node::HardDependencyNode) =
+    hard_dependency_variables(node, variables)
+
+function _hard_dependency_variables!(
+    vars::Vector{Pair{Symbol,NamedTuple}},
+    node::HardDependencyNode,
+    variable_function::Function,
+    ancestor_outputs_by_scale::Dict{Symbol,Set{Symbol}},
+)
+    node_vars = variable_function(node)
+    available_outputs = get(ancestor_outputs_by_scale, node.scale, Set{Symbol}())
+    filtered_inputs = _remove_inputs_produced_by_same_scale_ancestors(node_vars.inputs, available_outputs)
+    push!(vars, node.process => (inputs=filtered_inputs, outputs=node_vars.outputs))
+
+    child_outputs_by_scale = Dict{Symbol,Set{Symbol}}(
+        scale => Set(outputs)
+        for (scale, outputs) in ancestor_outputs_by_scale
+    )
+    scale_outputs = get!(child_outputs_by_scale, node.scale, Set{Symbol}())
+    union!(scale_outputs, keys(node_vars.outputs))
+
+    for child in node.children
+        _hard_dependency_variables!(vars, child, variable_function, child_outputs_by_scale)
+    end
+
+    return vars
+end
+
+function _remove_inputs_produced_by_same_scale_ancestors(inputs::NamedTuple, available_outputs::Set{Symbol})
+    isempty(available_outputs) && return inputs
+    return (; (name => value for (name, value) in pairs(inputs) if !(name in available_outputs))...)
+end
+
 function _node_mapping(var_mapping::Pair{<:Union{AbstractString,Symbol},Symbol})
     # One organ is mapped to the variable:
     return SingleNodeMapping(first(var_mapping)), last(var_mapping)

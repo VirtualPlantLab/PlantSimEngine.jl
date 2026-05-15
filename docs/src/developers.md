@@ -26,6 +26,10 @@ PlantSimEngine currently has three main local environments:
 - `docs/` for the Documenter build;
 - `benchmark/` for benchmark scripts used to compare performance locally.
 
+The graph viewer/editor also has a small frontend workspace in `frontend/`. It
+is a Vite/React application that is compiled into `frontend/dist/` and then
+embedded by the Julia static viewer and graph editor extension.
+
 ## Running checks locally
 
 ### Main test suite
@@ -50,6 +54,66 @@ julia --project=docs docs/make.jl
 The docs environment includes the extra packages needed for examples and API
 documentation, such as `Documenter`, `CairoMakie`, `PlantMeteo`, and
 `MultiScaleTreeGraph`.
+
+### Graph viewer frontend
+
+The graph viewer and editor UI lives in `frontend/`. Use Node 22 or newer, then
+install the JavaScript dependencies from the repository root with:
+
+```bash
+cd frontend
+npm ci
+```
+
+For local development, run the Vite server:
+
+```bash
+npm run dev
+```
+
+This is useful for frontend-only iteration. The Julia package, however, serves
+the compiled assets from `frontend/dist/`, so rebuild the bundle before testing
+the Julia viewer/editor or before committing frontend changes:
+
+```bash
+npm run build
+```
+
+`frontend/dist/` is intentionally committed because registered Julia packages
+need the browser assets without requiring users to run a Node build step.
+
+Run the lightweight frontend checks with:
+
+```bash
+npm run typecheck
+npm test
+```
+
+The end-to-end tests use Playwright and start a real Julia graph editor session.
+Install the Chromium browser once, then run the suite:
+
+```bash
+npx playwright install --with-deps chromium
+npm run test:e2e
+```
+
+The E2E helper starts Julia with `julia --project=test --startup-file=no`, loads
+`PlantSimEngine`, `PlantSimEngine.Examples`, and `HTTP`, then drives the browser
+against the local editor URL. If you already have an editor session running and
+want Playwright to use it, set `PSE_GRAPH_EDITOR_URL` to the full session URL,
+including the `token` query parameter.
+
+After changing the viewer UI, rebuild the docs to verify the static embedded
+viewer too:
+
+```bash
+cd ..
+julia --project=docs docs/make.jl
+```
+
+The docs build writes `docs/src/www/simple_dependency_graph.html` as an
+intermediate generated asset and copies it into `docs/build/`; that source-side
+HTML file is ignored by git.
 
 ### Benchmarks
 
