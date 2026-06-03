@@ -126,7 +126,9 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     else
         for i in keys(outs) # i = :Plant
             i isa Symbol || error("Output scale keys must be `Symbol`, got `$(typeof(i))` for key `$(repr(i))`.")
-            @assert isa(outs[i], Tuple{Vararg{Symbol}}) """Outputs for scale $i should be a tuple of symbols, *e.g.* `$i => (:a, :b)`, found `$i => $(outs[i])` instead."""
+            if !isa(outs[i], Tuple{Vararg{Symbol}})
+                error("""Outputs for scale $i should be a tuple of symbols, *e.g.* `$i => (:a, :b)`, found `$i => $(outs[i])` instead.""")
+            end
             outs_[i] = [outs[i]...]
         end
     end
@@ -207,7 +209,9 @@ function pre_allocate_outputs(statuses, statuses_template, reverse_multiscale_ma
     end
 
     node_type = unique(node_types)
-    @assert length(node_type) == 1 "All plant graph nodes should have the same type, found $(unique(node_type))."
+    if length(node_type) != 1
+        error("All plant graph nodes should have the same type, found $(unique(node_type)).")
+    end
     node_type = only(node_type)
 
     # I don't know if this function barrier is necessary

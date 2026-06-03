@@ -144,9 +144,13 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
     for symbol in keys(status)
         value = getproperty(status, symbol)
         if isa(value, AbstractVector)
-            @assert length(value) > 0 "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty"
+            if length(value) == 0
+                error("Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector is empty")
+            end
             # TODO : Might need to fiddle with timesteps here in the future in case of varying timestep models
-            @assert nsteps == length(value) "Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector length doesn't match the expected # of timesteps"
+            if nsteps != length(value)
+                error("Error during generation of models from vector values provided at the $organ-level status : provided $symbol vector length doesn't match the expected # of timesteps")
+            end
 
             process_name = Symbol(lowercase(string(symbol) * bytes2hex(sha1(repr(value)))))
             model = GeneratedStatusVectorModel(process_name, symbol, value)
@@ -172,7 +176,9 @@ function generate_model_from_status_vector_variable(mapping, timestep_scale, sta
     new_status = Status(NamedTuple{Tuple(new_status_names)}(Tuple(new_status_values)))
     generated_models_tuple = Tuple(generated_models)
 
-    @assert length(status) == length(new_status) + length(generated_models_tuple) "Error during generation of models from vector values provided at the $organ-level status"
+    if length(status) != length(new_status) + length(generated_models_tuple)
+        error("Error during generation of models from vector values provided at the $organ-level status")
+    end
     return new_status, generated_models_tuple
 end
 

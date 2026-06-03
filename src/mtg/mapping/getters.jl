@@ -102,7 +102,9 @@ See [`get_models`](@ref) for examples.
 """
 function get_status(m)
     st = Status[i for i in m if isa(i, Status)]
-    @assert length(st) <= 1 "Only one status can be provided for each organ type."
+    if length(st) > 1
+        error("Only one status can be provided for each organ type.")
+    end
     length(st) == 0 && return nothing
     return first(st)
 end

@@ -238,7 +238,7 @@ end;
     )
 
     # var1 is taken from the MTG attributes but is a vector instead of a scalar, expecting an error:
-    VERSION >= v"1.8" && @test_throws AssertionError run!(mtg, mapping, meteo)
+    @test_throws ErrorException run!(mtg, mapping, meteo)
 
     leaf[:var1] = 15.0
 

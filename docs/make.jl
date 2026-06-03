@@ -83,6 +83,7 @@ makedocs(;
             "Multi-domain simulation design" => "./dev/multi_domain_simulation_design.md",
             "Multi-domain simulation plan" => "./dev/multi_domain_simulation_plan.md",
             "MAESPA-style domain example handoff" => "./dev/maespa_domain_handoff.md",
+            "Code cleanup audit" => "./dev/code_cleanup_audit.md",
         ],
         "Developer guidelines" => "developers.md",
         "Roadmap" => "planned_features.md",

@@ -89,10 +89,14 @@ function variables_outputs_from_other_scale(mapped_vars)
                         # The variable is written to several organs, the default value must be a vector:
                         if isa(var_default_value, AbstractVector)
                             # Mapping into a vector of organs, the default value must be a vector:
-                            @assert length(var_default_value) == 1 "The variable `$(mapped_variable(val))` is an output variable computed by scale `$organ` and written to organs at scale `$(join(mapped_organ(val), ", "))`, " *
-                                                                   "but the default value coming from `$organ` is not of length 1: $(var_default_value). " *
-                                                                   "Make sure the model that computes this variable at scale `$organ` has a vector of values of length 1 as " *
-                                                                   "default outputs for variable `$(mapped_variable(val))`."
+                            if length(var_default_value) != 1
+                                error(
+                                    "The variable `$(mapped_variable(val))` is an output variable computed by scale `$organ` and written to organs at scale `$(join(mapped_organ(val), ", "))`, " *
+                                    "but the default value coming from `$organ` is not of length 1: $(var_default_value). " *
+                                    "Make sure the model that computes this variable at scale `$organ` has a vector of values of length 1 as " *
+                                    "default outputs for variable `$(mapped_variable(val))`."
+                                )
+                            end
                             var_default_value = var_default_value[1]
                         else
                             error(
@@ -104,11 +108,15 @@ function variables_outputs_from_other_scale(mapped_vars)
                         end
                     else
                         # The variables is mapped to a single organ, the default value must be a scalar:
-                        @assert !isa(var_default_value, AbstractVector) "The variable `$(mapped_variable(val))` is an output variable computed by scale `$organ` and written to organ at scale `$o`, " *
-                                                                        "but the default value coming from `$organ` is a vector: $(var_default_value). " *
-                                                                        "Make sure the model that computes this variable at scale `$organ` has a scalar value as " *
-                                                                        "default outputs for variable `$(mapped_variable(val))` (*e.g.* $(var_default_value[1])), or update your mapping to map the organ as a vector: " *
-                                                                        """`$(mapped_variable(val)) => ["$o"]`."""
+                        if isa(var_default_value, AbstractVector)
+                            error(
+                                "The variable `$(mapped_variable(val))` is an output variable computed by scale `$organ` and written to organ at scale `$o`, " *
+                                "but the default value coming from `$organ` is a vector: $(var_default_value). " *
+                                "Make sure the model that computes this variable at scale `$organ` has a scalar value as " *
+                                "default outputs for variable `$(mapped_variable(val))` (*e.g.* $(var_default_value[1])), or update your mapping to map the organ as a vector: " *
+                                """`$(mapped_variable(val)) => ["$o"]`."""
+                            )
+                        end
                     end
                     # We make a MappedVar object to declare the variable as an input of this scale:
                     # mapped_var = MappedVar(
@@ -166,11 +174,15 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
                 source_organ == Symbol("") && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
-                @assert source_organ != organ "Variable `$var` is mapped to its own scale in organ $organ. This is not allowed."
+                if source_organ == organ
+                    error("Variable `$var` is mapped to its own scale in organ $organ. This is not allowed.")
+                end
 
-                @assert haskey(mapped_vars[:outputs], source_organ) "Scale $source_organ not found in the mapping, but mapped to the $organ scale."
-                @assert haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
-                                                                                                 "scale `$organ`, but is not computed by any model at `$source_organ` scale."
+                haskey(mapped_vars[:outputs], source_organ) || error("Scale $source_organ not found in the mapping, but mapped to the $organ scale.")
+                haskey(mapped_vars[:outputs][source_organ], source_variable(mapped_var)) || error(
+                    "The variable `$(source_variable(mapped_var))` is mapped from scale `$source_organ` to " *
+                    "scale `$organ`, but is not computed by any model at `$source_organ` scale."
+                )
 
                 # If the source variable was already defined as a `MappedVar{SelfNodeMapping}` by another scale, we skip it:
                 isa(mapped_vars[:outputs][source_organ][source_variable(mapped_var)], MappedVar{SelfNodeMapping}) && continue

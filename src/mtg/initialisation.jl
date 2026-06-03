@@ -136,10 +136,12 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
                         error("Failed to convert variable `$(var)` in MTG node $(node_id(node)) ($(symbol(node))) from type `$(typeof(node[var]))` to type `$(eltype(st_template[var]))`: $(e)")
                     end
             end
-            @assert typeof(node_var) == eltype(st_template[var]) string(
-                "Initializing variable `$(var)` using MTG node $(node_id(node)) ($(symbol(node))): expected type $(eltype(st_template[var])), found $(typeof(node_var)). ",
-                "Please check the type of the variable in the MTG, and make it a $(eltype(st_template[var])) by updating the model, or by using `type_promotion`."
-            )
+            if typeof(node_var) != eltype(st_template[var])
+                error(
+                    "Initializing variable `$(var)` using MTG node $(node_id(node)) ($(symbol(node))): expected type $(eltype(st_template[var])), found $(typeof(node_var)). ",
+                    "Please check the type of the variable in the MTG, and make it a $(eltype(st_template[var])) by updating the model, or by using `type_promotion`."
+                )
+            end
             st_template[var] = node_var
             # NB: the variable is not a reference to the value in the MTG, but a copy of it.
             # This is because we can't reference a value in a Dict. If we need a ref, the user can use a RefValue in the MTG directly,
@@ -314,7 +316,11 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
     # before we keep going
     (organ_with_vector, no_vectors_found) = (check_statuses_contain_no_remaining_vectors(mapping))
     if !no_vectors_found
-        @assert false "Error : Mapping status at $organ_with_vector level contains a vector. If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
+        error(
+            "Error : Mapping status at $organ_with_vector level contains a vector. ",
+            "If this was intentional, call the function generate_models_from_status_vectors on your mapping before calling run!. ",
+            "And bear in mind this is not meant for production. If this wasn't intentional, then it's likely an issue on the mapping definition, or an unusual model."
+        )
     end
 
     models = Dict(first(m) => parse_models(get_models(last(m))) for m in mapping)

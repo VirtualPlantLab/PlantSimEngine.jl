@@ -477,7 +477,9 @@ function search_inputs_in_multiscale_output(process, organ, inputs, soft_dep_gra
                 var_organ = [var_organ]
             end
 
-            @assert all(var_o != organ for var_o in var_organ) "$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed."
+            if !all(var_o != organ for var_o in var_organ)
+                error("$var in process $process is set to be multiscale, but points to its own scale ($organ). This is not allowed.")
+            end
             for org in var_organ # e.g. org = :Leaf
                 # The variable is a multiscale variable:
                 haskey(soft_dep_graphs, org) || error("Scale $org not found in the mapping, but mapped to the $organ scale.")

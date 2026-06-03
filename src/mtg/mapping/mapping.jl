@@ -96,12 +96,16 @@ mapped_organ(m::MappedVar{O,V1,V2,T}) where {O<:SelfNodeMapping,V1,V2,T} = nothi
 mapped_organ_type(m::MappedVar{O,V1,V2,T}) where {O<:AbstractNodeMapping,V1,V2,T} = O
 source_variable(m::MappedVar) = m.source_variable
 function source_variable(m::MappedVar{O,V1,V2,T}, organ) where {O<:SingleNodeMapping,V1,V2<:Symbol,T}
-    @assert organ == mapped_organ(m) "Organ $organ not found in the mapping of the variable $(mapped_variable(m))."
+    if organ != mapped_organ(m)
+        error("Organ $organ not found in the mapping of the variable $(mapped_variable(m)).")
+    end
     m.source_variable
 end
 
 function source_variable(m::MappedVar{O,V1,V2,T}, organ) where {O<:MultiNodeMapping,V1,V2<:Vector{Symbol},T}
-    @assert organ in mapped_organ(m) "Organ $organ not found in the mapping of the variable $(mapped_variable(m))."
+    if !(organ in mapped_organ(m))
+        error("Organ $organ not found in the mapping of the variable $(mapped_variable(m)).")
+    end
     m.source_variable[findfirst(o -> o == organ, mapped_organ(m))]
 end
 
