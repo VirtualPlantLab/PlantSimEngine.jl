@@ -4,10 +4,11 @@
 
 Reusable model domain used by [`SimulationMapping`](@ref).
 
-This first implementation supports single-status domains backed by existing
-`ModelMapping`s. The domain identity is kept alongside scale/process identity
-so future multiscale, multi-plant, soil, scene, and environment domains can be
-compiled into one simulation without renaming scales.
+Domains can wrap either a single-status `ModelMapping` or a scale-keyed
+multiscale `ModelMapping` backed by an MTG subtree selected with `selector`.
+The domain identity is kept alongside scale/process identity so multi-plant,
+soil, scene, and environment domains can be compiled into one simulation
+without renaming scales.
 """
 struct Domain{M,S}
     name::Symbol
@@ -819,7 +820,7 @@ function _validate_route_targets(mapping::SimulationMapping, routes::Vector{Rout
         end
         target.scale == :Default || error(
             "Route $(i) target `$(target.domain)/$(target.scale)/$(target.var)` is not supported by the single-status domain runner. ",
-            "Use `scale=:Default` until MTG-backed domains are enabled."
+            "Use `scale=:Default` for single-status targets, or target an MTG-backed domain with a supported graph route cardinality."
         )
         st = status(target_mapping)
         target.var in propertynames(st) || error(
@@ -1382,7 +1383,8 @@ end
 function _materialize_route_value(values::Vector{Any}, cardinality::RouteCardinality)
     error(
         "Route cardinality `$(typeof(cardinality))` is declared but not implemented in the single-status domain runner. ",
-        "Use `ManyToOneVector()` or `ManyToOneAggregate(...)`, or run this route in the future MTG/spatial domain runner."
+        "Use `ManyToOneVector()` or `ManyToOneAggregate(...)` for single-status targets. ",
+        "`OneToManyBroadcast()` is supported for MTG-backed target domains."
     )
 end
 
@@ -1391,7 +1393,7 @@ function _set_route_target_value!(simulation::DomainSimulation, route::Route, va
     domain = _domain_for_name(simulation.mapping, target.domain)
     target.scale == :Default || error(
         "Route target `$(target.domain)/$(target.scale)/$(target.var)` is not supported by the single-status domain runner. ",
-        "Use `scale=:Default` until MTG-backed domains are enabled."
+        "Use `scale=:Default` for single-status targets, or target an MTG-backed domain with a supported graph route cardinality."
     )
     st = status(simulation, domain.name)
     target.var in propertynames(st) || error(

@@ -237,9 +237,9 @@ Done when:
   subtree deletion. Same-simulation reparenting is covered for topology
   mutation while preserving status and reference identity.
 
-## Current First Example
+## Executable Examples
 
-The first executable example should use:
+The first executable domain example in `docs/src/domain_simulation.md` uses:
 
 - two plant domains with different parameters and several hourly models each;
 - one soil domain with several hourly models;
@@ -248,3 +248,15 @@ The first executable example should use:
   transpiration and soil evaporation;
 - `Dates.Hour(1)` for plant/soil domains and `Dates.Day(1)` for the scene
   model.
+
+The MAESPA-style example in `examples/maespa_domain_example.jl` exercises the
+hard-dependency path:
+
+- two MTG-backed plant domains with different models and parameters;
+- one shared soil domain;
+- one scene energy-balance model using `HardDomains(...)`;
+- manual calls through `dependency_targets(...)` and `run_target!(...)`;
+- trial iterations with `publish=false`, followed by final accepted calls with
+  `publish=true`;
+- hourly scene/plant/soil energy-balance models and daily plant allocation
+  models.

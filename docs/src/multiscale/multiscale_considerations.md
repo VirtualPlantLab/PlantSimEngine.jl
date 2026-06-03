@@ -142,7 +142,7 @@ Converting to a dictionary of DataFrame objects can make such queries easier to 
 
 !!! warning
     Currently, the `:node` entry only shallow copies nodes. The `:node` values at each scale for every timestep actually reflect the final state of the node, meaning attribute values may not correspond to the value at that timestep. You may need to output these values via a dedicated model to keep track of them properly.
-    Also note that there currently is no way of removing nodes. Nodes corresponding to organs considered to be pruned/dead/aborted are still present in the output data structure.
+    Nodes can be removed from an active graph simulation with [`remove_organ!`](@ref), but already-exported outputs are historical records. A pruned/dead/aborted organ may still appear in past output rows, while current statuses and future outputs no longer include it.
 
 Multi-scale simulations, especially for plants which have thousands of leaves, internodes, root branches, buds and fruits, may compute huge amounts of data. Just like in single-scale simulations, it is possible to keep only variables whose values you want to track for every timestep, and filter the rest out, using the `tracked_outputs` keyword argument for the [`run!`](@ref) function. 
 

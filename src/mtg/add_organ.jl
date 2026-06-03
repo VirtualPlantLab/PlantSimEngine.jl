@@ -133,7 +133,7 @@ function remove_organ!(node::MultiScaleTreeGraph.Node, sim_object; attribute_nam
     children = collect(AbstractTrees.children(node))
     if !recursive
         isempty(children) || error(
-            "remove_organ! currently supports only leaf/terminal MTG nodes. ",
+            "remove_organ!(...; recursive=false) only supports leaf/terminal MTG nodes. ",
             "Pass `recursive=true` to delete node $(node_id(node)) and its descendants, ",
             "or move descendants first."
         )
