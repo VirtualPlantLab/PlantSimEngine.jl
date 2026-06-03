@@ -44,6 +44,50 @@ function PlantSimEngine.run!(::MRDefaultSceneAggModel, models, status, meteo, co
 end
 PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
 
+PlantSimEngine.@process "mrdynamicgrow" verbose = false
+struct MRDynamicGrowModel <: AbstractMrdynamicgrowModel end
+PlantSimEngine.inputs_(::MRDynamicGrowModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRDynamicGrowModel) = (nleaves=0.0,)
+function PlantSimEngine.run!(::MRDynamicGrowModel, models, status, meteo, constants=nothing, extra=nothing)
+    if length(PlantSimEngine.status(extra)[:Leaf]) == 0
+        add_organ!(status.node, extra, "+", :Leaf, 2; check=true)
+    end
+    status.nleaves = length(PlantSimEngine.status(extra)[:Leaf])
+    return nothing
+end
+
+PlantSimEngine.@process "mrdynamicgrowmany" verbose = false
+struct MRDynamicGrowManyModel <: AbstractMrdynamicgrowmanyModel end
+PlantSimEngine.inputs_(::MRDynamicGrowManyModel) = NamedTuple()
+PlantSimEngine.outputs_(::MRDynamicGrowManyModel) = (nleaves=0.0,)
+function PlantSimEngine.run!(::MRDynamicGrowManyModel, models, status, meteo, constants=nothing, extra=nothing)
+    while length(PlantSimEngine.status(extra)[:Leaf]) < 2
+        add_organ!(status.node, extra, "+", :Leaf, 2; check=true)
+    end
+    status.nleaves = length(PlantSimEngine.status(extra)[:Leaf])
+    return nothing
+end
+
+PlantSimEngine.@process "mrdynamicleafsource" verbose = false
+struct MRDynamicLeafSourceModel <: AbstractMrdynamicleafsourceModel end
+PlantSimEngine.inputs_(::MRDynamicLeafSourceModel) = (nleaves=0.0,)
+PlantSimEngine.outputs_(::MRDynamicLeafSourceModel) = (X=-Inf,)
+function PlantSimEngine.run!(::MRDynamicLeafSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.X = status.nleaves * meteo.T / 10.0
+    return nothing
+end
+
+function _mr_custom_plant_scope(node, scale, process)
+    current = node
+    while !isnothing(current)
+        if MultiScaleTreeGraph.symbol(current) == :Plant
+            return ScopeId(:custom_plant, MultiScaleTreeGraph.node_id(current))
+        end
+        current = parent(current)
+    end
+    return ScopeId(:custom_plant, 0)
+end
+
 @testset "Multi-rate output export API" begin
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
@@ -143,6 +187,92 @@ PlantSimEngine.timespec(::Type{<:MRDefaultSceneAggModel}) = ClockSpec(4.0, 1.0)
     )
     @test haskey(out_status_mtg, :Leaf)
     @test out_requested_mtg[:x_mtg][:, :value] == [1.0, 2.0, 3.0, 4.0]
+
+    # Dynamic statuses created after GraphSimulation initialization are visible
+    # to online OutputRequest exports.
+    dynamic_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    dynamic_plant = Node(dynamic_mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    dynamic_meteo = Weather([
+        Atmosphere(T=10.0, Wind=1.0, Rh=0.65),
+        Atmosphere(T=20.0, Wind=1.0, Rh=0.65),
+        Atmosphere(T=30.0, Wind=1.0, Rh=0.65),
+        Atmosphere(T=40.0, Wind=1.0, Rh=0.65),
+    ])
+    dynamic_mapping = ModelMapping(
+        :Plant => (
+            ModelSpec(MRDynamicGrowModel()) |>
+            TimeStepModel(1.0) |>
+            ScopeModel(:plant),
+        ),
+        :Leaf => (
+            ModelSpec(MRDynamicLeafSourceModel()) |>
+            MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
+            TimeStepModel(1.0) |>
+            ScopeModel(:plant),
+        ),
+    )
+    dynamic_sim = PlantSimEngine.GraphSimulation(
+        dynamic_mtg,
+        dynamic_mapping,
+        nsteps=4,
+        check=true,
+        outputs=Dict(:Leaf => (:X,)),
+    )
+    run!(
+        dynamic_sim,
+        dynamic_meteo,
+        executor=SequentialEx(),
+        tracked_outputs=[
+            OutputRequest(:Leaf, :X; name=:dynamic_hold, process=:mrdynamicleafsource, policy=HoldLast()),
+            OutputRequest(:Leaf, :X; name=:dynamic_sum2, process=:mrdynamicleafsource, policy=Integrate(), clock=ClockSpec(2.0, 1.0)),
+        ],
+    )
+    dynamic_exported = collect_outputs(dynamic_sim; sink=DataFrame)
+    @test length(status(dynamic_sim)[:Leaf]) == 1
+    @test dynamic_exported[:dynamic_hold][:, :timestep] == [1, 2, 3, 4]
+    @test dynamic_exported[:dynamic_hold][:, :value] == [1.0, 2.0, 3.0, 4.0]
+    @test dynamic_exported[:dynamic_sum2][:, :timestep] == [1, 3]
+    @test dynamic_exported[:dynamic_sum2][:, :value] == [1.0, 5.0]
+
+    # Several dynamic statuses and callable scopes are resolved from live status
+    # vectors when temporal outputs are exported.
+    many_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    many_plant = Node(many_mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    many_mapping = ModelMapping(
+        :Plant => (
+            ModelSpec(MRDynamicGrowManyModel()) |>
+            TimeStepModel(1.0) |>
+            ScopeModel(_mr_custom_plant_scope),
+        ),
+        :Leaf => (
+            ModelSpec(MRDynamicLeafSourceModel()) |>
+            MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
+            TimeStepModel(1.0) |>
+            ScopeModel(_mr_custom_plant_scope),
+        ),
+    )
+    many_sim = PlantSimEngine.GraphSimulation(
+        many_mtg,
+        many_mapping,
+        nsteps=4,
+        check=true,
+        outputs=Dict(:Leaf => (:X,)),
+    )
+    run!(
+        many_sim,
+        dynamic_meteo,
+        executor=SequentialEx(),
+        tracked_outputs=[
+            OutputRequest(:Leaf, :X; name=:many_hold, process=:mrdynamicleafsource, policy=HoldLast()),
+            OutputRequest(:Leaf, :X; name=:many_sum2, process=:mrdynamicleafsource, policy=Integrate(), clock=ClockSpec(2.0, 1.0)),
+        ],
+    )
+    many_exported = collect_outputs(many_sim; sink=DataFrame)
+    @test length(status(many_sim)[:Leaf]) == 2
+    @test many_exported[:many_hold][:, :timestep] == [1, 1, 2, 2, 3, 3, 4, 4]
+    @test many_exported[:many_hold][:, :value] == [2.0, 2.0, 4.0, 4.0, 6.0, 6.0, 8.0, 8.0]
+    @test many_exported[:many_sum2][:, :timestep] == [1, 1, 3, 3]
+    @test many_exported[:many_sum2][:, :value] == [2.0, 2.0, 10.0, 10.0]
 end
 
 @testset "Multi-rate output export defaults on multi-scale mapping with timespec traits" begin

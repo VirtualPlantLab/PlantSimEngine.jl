@@ -90,10 +90,11 @@ function to_initialize(m::DependencyGraph)
     for (key, value) in dependencies
         for (key_in, val_in) in pairs(value.inputs)
             if key_in ∉ outputs_all
+                input_default = NamedTuple{(key_in,)}((val_in,))
                 if haskey(needed_variables_process, key)
-                    needed_variables_process[key] = merge(needed_variables_process[key], NamedTuple{(key_in,)}(val_in))
+                    needed_variables_process[key] = merge(needed_variables_process[key], input_default)
                 else
-                    push!(needed_variables_process, key => NamedTuple{(key_in,)}(val_in))
+                    push!(needed_variables_process, key => input_default)
                 end
             end
         end

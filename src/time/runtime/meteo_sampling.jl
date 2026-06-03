@@ -76,6 +76,121 @@ function _normalize_meteo_binding_rule(target::Symbol, rule)
     )
 end
 
+function _raw_meteo_requirements_for_spec(model_spec)
+    required = Set{Symbol}(keys(meteo_inputs_(model_spec)))
+    isempty(required) && return required
+
+    raw_required = Set{Symbol}()
+    bindings = meteo_bindings(model_spec)
+    bindings = bindings isa NamedTuple ? bindings : NamedTuple()
+    for var in required
+        if haskey(bindings, var)
+            rule = bindings[var]
+            if rule isa NamedTuple && haskey(rule, :source)
+                push!(raw_required, Symbol(rule.source))
+            else
+                push!(raw_required, var)
+            end
+        else
+            push!(raw_required, var)
+        end
+    end
+
+    return raw_required
+end
+
+function _first_meteo_row(meteo)
+    isnothing(meteo) && return nothing
+    is_table = try
+        DataFormat(meteo) == TableAlike()
+    catch
+        false
+    end
+    if is_table
+        rows = Tables.rows(meteo)
+        state = iterate(rows)
+        isnothing(state) && return nothing
+        return state[1]
+    end
+    return meteo
+end
+
+_meteo_has_field(row, var::Symbol) = hasproperty(row, var)
+_meteo_has_field(row::NamedTuple, var::Symbol) = haskey(row, var)
+
+"""
+    validate_meteo_inputs(model_specs, meteo)
+
+Validate declared `meteo_inputs_` against the available meteorological fields.
+
+The check is intentionally field-based and independent from units/backends. When
+`MeteoBindings` remap a declared model input from another source variable, the
+source variable is checked on the raw meteo object.
+"""
+function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, meteo)
+    row = _first_meteo_row(meteo)
+    isnothing(row) && return nothing
+
+    missing_rows = NamedTuple[]
+    for (scale, specs_at_scale) in model_specs
+        for (process, spec) in specs_at_scale
+            required = _raw_meteo_requirements_for_spec(spec)
+            missing = Symbol[var for var in required if !_meteo_has_field(row, var)]
+            isempty(missing) && continue
+            push!(missing_rows, (scale=scale, process=process, missing=Tuple(missing)))
+        end
+    end
+
+    isempty(missing_rows) && return nothing
+
+    details = join(
+        [
+            string(row.scale, "/", row.process, " missing ", row.missing)
+            for row in missing_rows
+        ],
+        "; "
+    )
+    error(
+        "Meteorology is missing fields required by model `meteo_inputs_`: ",
+        details,
+        ". Add the fields to meteo, declare a `MeteoBindings(source=...)` remapping, ",
+        "or remove the unused meteo input from the model trait."
+    )
+end
+
+function validate_meteo_inputs(model_specs::AbstractDict{Symbol,<:AbstractDict}, meteo)
+    normalized_specs = Dict{Symbol,Dict{Symbol,ModelSpec}}()
+    for (scale, specs_at_scale) in pairs(model_specs)
+        normalized_specs[scale] = Dict{Symbol,ModelSpec}(
+            Symbol(process) => as_model_spec(spec) for (process, spec) in pairs(specs_at_scale)
+        )
+    end
+    return validate_meteo_inputs(normalized_specs, meteo)
+end
+
+function validate_meteo_inputs(models::NamedTuple, meteo)
+    specs = Dict(
+        :Default => Dict{Symbol,ModelSpec}(
+            process(model) => as_model_spec(model) for model in values(models)
+        )
+    )
+    return validate_meteo_inputs(specs, meteo)
+end
+
+function validate_meteo_inputs(mapping::ModelMapping, meteo)
+    specs = Dict{Symbol,Dict{Symbol,ModelSpec}}(
+        scale => parse_model_specs(declarations) for (scale, declarations) in pairs(mapping)
+    )
+    return validate_meteo_inputs(specs, meteo)
+end
+
+function validate_meteo_inputs(mapping::AbstractDict, meteo)
+    specs = Dict{Symbol,Dict{Symbol,ModelSpec}}(
+        Symbol(scale) => parse_model_specs(declarations) for (scale, declarations) in pairs(mapping)
+    )
+    return validate_meteo_inputs(specs, meteo)
+end
+
 function _meteo_transforms_for_model(model_spec)
     bindings = meteo_bindings(model_spec)
     isnothing(bindings) && return nothing

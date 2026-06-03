@@ -419,7 +419,10 @@ end
 Validate mapping-level `ModelSpec` configuration before simulation runtime starts.
 This catches invalid timestep declarations, input bindings and output routing early.
 """
-function validate_model_specs_configuration(model_specs)
+function validate_model_specs_configuration(
+    model_specs;
+    ignored_processes_by_scale::Dict{Symbol,Set{Symbol}}=Dict{Symbol,Set{Symbol}}()
+)
     known_processes = Set{Symbol}()
     for specs_at_scale in values(model_specs)
         union!(known_processes, keys(specs_at_scale))
@@ -435,6 +438,7 @@ function validate_model_specs_configuration(model_specs)
             _validate_output_routing_for_spec(scale, process, spec)
         end
     end
+    validate_update_dependencies(model_specs; ignored_processes_by_scale=ignored_processes_by_scale)
 
     return nothing
 end

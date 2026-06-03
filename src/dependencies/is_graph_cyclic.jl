@@ -12,15 +12,15 @@ Check if the dependency graph is cyclic.
 Return a boolean indicating if the graph is cyclic, and the stack of nodes as a vector.
 """
 function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, warn=true)
-    visited = Dict{Pair{AbstractModel,Symbol},Bool}()
-    recursion_stack = Dict{Pair{AbstractModel,Symbol},Bool}()
+    visited = Dict{Pair{Any,Symbol},Bool}()
+    recursion_stack = Dict{Pair{Any,Symbol},Bool}()
     for node in values(dependency_graph.roots)
         visited[node.value=>node.scale] = false
         recursion_stack[node.value=>node.scale] = false
     end
 
     for (root, node) in dependency_graph.roots
-        cycle_vec = Vector{Pair{AbstractModel,Symbol}}()
+        cycle_vec = Vector{Pair{Any,Symbol}}()
         if is_graph_cyclic_(node, visited, recursion_stack, cycle_vec)
 
             if full_stack

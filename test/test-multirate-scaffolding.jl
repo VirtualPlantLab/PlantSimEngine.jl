@@ -12,9 +12,14 @@ using Test
     @test output_policy(m) == NamedTuple()
     @test isnothing(timestep_hint(m))
     @test isnothing(meteo_hint(m))
+    @test meteo_inputs(m) == ()
+    @test meteo_outputs(m) == ()
+    @test meteo_inputs(ModelSpec(m)) == ()
+    @test meteo_outputs(ModelSpec(m)) == ()
     @test input_bindings(ModelSpec(m)) == NamedTuple()
     @test output_routing(ModelSpec(m)) == NamedTuple()
     @test model_scope(ModelSpec(m)) == :global
+    @test updates(ModelSpec(m)) == ()
 
     mapping = Dict(:Leaf => (m,))
     resolved_specs = resolved_model_specs(mapping)
@@ -34,13 +39,19 @@ using Test
            TimeStepModel(24.0) |>
            InputBindings(; var1=(process=:process1, var=:var3)) |>
            OutputRouting(; var3=:stream_only) |>
-           ScopeModel(:plant)
+           ScopeModel(:plant) |>
+           Updates(:var3; after=:process1) |>
+           Updates(:var3; after=:process2)
     @test PlantSimEngine.model_(spec) === m
     @test PlantSimEngine.timestep(spec) == 24.0
     @test input_bindings(spec).var1.process == :process1
     @test input_bindings(spec).var1.policy isa HoldLast
     @test output_routing(spec).var3 == :stream_only
     @test model_scope(spec) == :plant
+    @test updates(spec)[1].variables == (:var3,)
+    @test updates(spec)[1].after == (:process1,)
+    @test updates(spec)[2].variables == (:var3,)
+    @test updates(spec)[2].after == (:process2,)
 
     mspec = ModelSpec(m) |> MultiScaleModel([:var1 => (:Leaf => :var1)])
     @test length(PlantSimEngine.get_mapped_variables(mspec)) == 1

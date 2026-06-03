@@ -74,7 +74,7 @@ Supported forms include:
 - range: `(Dates.Minute(30), Dates.Hour(2))`;
 - named tuple: `(; required=..., preferred=...)`.
 
-`required` is enforced when runtime uses meteo-derived timestep.  
+`required` is enforced when runtime uses meteo-derived timestep.
 `preferred` is informational only.
 
 ### `meteo_hint(::Type{<:MyModel})`
@@ -97,6 +97,42 @@ Where:
 
 - `bindings` is compatible with `MeteoBindings(...)`,
 - `window` is compatible with `MeteoWindow(...)`.
+
+### `meteo_inputs_(::MyModel)`
+### `meteo_outputs_(::MyModel)`
+
+Declare meteorology or microclimate variables separately from object status
+variables.
+
+Default:
+
+```julia
+PlantSimEngine.meteo_inputs_(::AbstractModel) = NamedTuple()
+PlantSimEngine.meteo_outputs_(::AbstractModel) = NamedTuple()
+```
+
+Use `meteo_inputs_` for variables read from the weather or environment backend:
+
+```julia
+PlantSimEngine.meteo_inputs_(::LeafEnergyBalanceModel) = (
+    T=0.0,
+    Rh=0.0,
+    Wind=0.0,
+    Ri_PAR_f=0.0,
+    CO2=400.0,
+)
+```
+
+Use `meteo_outputs_` when a model updates a mutable environment backend, for
+example a microclimate model updating local air temperature:
+
+```julia
+PlantSimEngine.outputs_(::MicroclimateUpdateModel) = (T=0.0,)
+PlantSimEngine.meteo_outputs_(::MicroclimateUpdateModel) = (T=0.0,)
+```
+
+The current runtime scatters `meteo_outputs_` from status variables, so the
+same variable should usually be declared in `outputs_` as well.
 
 ### `TimeStepDependencyTrait(::Type{<:MyModel})`
 ### `ObjectDependencyTrait(::Type{<:MyModel})`
@@ -127,6 +163,8 @@ For model-level traits, the documented set is now:
 - `output_policy`,
 - `timestep_hint`,
 - `meteo_hint`,
+- `meteo_inputs_`,
+- `meteo_outputs_`,
 - `TimeStepDependencyTrait`,
 - `ObjectDependencyTrait`.
 

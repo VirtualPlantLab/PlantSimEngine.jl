@@ -352,6 +352,7 @@ function _run_modellist_singleton(
 
     meteo_adjusted = adjust_weather_timesteps_to_given_length(get_status_vector_max_length(object.status), meteo)
     nsteps = get_nsteps(meteo_adjusted)
+    validate_meteo_inputs(object.models, meteo_adjusted)
 
     dep_graph = dep!(object, nsteps)
 
@@ -661,6 +662,7 @@ function run!(
     runtime_clock_rows = _runtime_clock_rows(object, timeline, dep_graph)
     effective_executor = executor
     # st = status(object)
+    validate_meteo_inputs(get_model_specs(object), meteo)
     _validate_meteo_derived_timestep_requirements!(runtime_clock_rows, timeline)
     if effective_multirate
         if executor != SequentialEx()
@@ -730,7 +732,10 @@ function run_node_multiscale!(
     executor,
     multirate,
     timeline::TimelineContext,
-    meteo_sampler
+    meteo_sampler;
+    meteo_provider=nothing,
+    after_model_run=nothing,
+    skip_model_run=nothing,
 ) where {T<:GraphSimulation} # T is the status of each node by organ type
 
     # run!(status(object), dependency_node, meteo, constants, extra)
@@ -747,17 +752,27 @@ function run_node_multiscale!(
     model_clock = _model_clock(model_spec, node.value, timeline)
     t = _time_from_step(i, timeline)
 
-    for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
-        should_run = !multirate || _should_run_at_time(model_clock, t)
-        !should_run && continue
-        if multirate
-            resolve_inputs_from_temporal_state!(object, node, st, t, model_spec, timeline)
-        end
-        meteo_for_model = multirate ? _sample_meteo_for_model(meteo_sampler, meteo, i, model_clock, model_spec) : meteo
-        # Actual call to the model:
-        run!(node.value, models_at_scale, st, meteo_for_model, constants, extra)
-        if multirate
-            update_temporal_state_outputs!(object, node, model_spec, st, t)
+    skip_node = !isnothing(skip_model_run) && skip_model_run(node)
+    if !skip_node
+        for st in node_statuses # for each node status at the current scale (potentially in parallel over nodes)
+            should_run = !multirate || _should_run_at_time(model_clock, t)
+            !should_run && continue
+            if multirate
+                resolve_inputs_from_temporal_state!(object, node, st, t, model_spec, timeline)
+            end
+            meteo_for_model = if isnothing(meteo_provider)
+                multirate ? _sample_meteo_for_model(meteo_sampler, meteo, i, model_clock, model_spec) : meteo
+            else
+                meteo_provider(node, st, i, t, model_clock, model_spec, meteo, meteo_sampler, multirate)
+            end
+            # Actual call to the model:
+            run!(node.value, models_at_scale, st, meteo_for_model, constants, extra)
+            if !isnothing(after_model_run)
+                after_model_run(node, model_spec, st, i, t)
+            end
+            if multirate
+                update_temporal_state_outputs!(object, node, model_spec, st, t)
+            end
         end
     end
 
@@ -768,6 +783,22 @@ function run_node_multiscale!(
         #! check if we can run this safely in a @floop loop. I would say no, 
         #! because we are running a parallel computation above already, modifying the node.simulation_id,
         #! which is not thread-safe yet.
-        run_node_multiscale!(object, child, i, models, meteo, constants, extra, check, executor, multirate, timeline, meteo_sampler)
+        run_node_multiscale!(
+            object,
+            child,
+            i,
+            models,
+            meteo,
+            constants,
+            extra,
+            check,
+            executor,
+            multirate,
+            timeline,
+            meteo_sampler;
+            meteo_provider=meteo_provider,
+            after_model_run=after_model_run,
+            skip_model_run=skip_model_run,
+        )
     end
 end

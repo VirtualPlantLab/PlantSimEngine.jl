@@ -33,7 +33,7 @@ When run, `Process2Model` calls another process's [`run!`](@ref) function explic
 ```julia
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, extra)
     # computing var3 using process1:
-    run!(models.process1, models, status, meteo, constants)
+    run_target!(models, status, :process1; meteo=meteo, constants=constants, extra=extra)
     # computing var4 and var5:
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh

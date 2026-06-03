@@ -68,6 +68,7 @@ include("dependencies/hard_dependencies.jl")
 include("dependencies/traversal.jl")
 include("dependencies/is_graph_cyclic.jl")
 include("dependencies/printing.jl")
+include("dependencies/update_dependencies.jl")
 include("dependencies/dependencies.jl")
 include("dependencies/get_model_in_dependency_graph.jl")
 
@@ -103,6 +104,10 @@ include("time/runtime/input_resolution.jl")
 include("time/runtime/publishers.jl")
 include("time/runtime/output_export.jl")
 include("time/runtime/meteo_sampling.jl")
+include("time/runtime/environment_backends.jl")
+
+# Domain-aware simulation scaffolding:
+include("domains/domain_simulation.jl")
 
 # Simulation:
 include("run.jl")
@@ -125,17 +130,28 @@ export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCa
 export TemporalState
 export OutputRequest, collect_outputs
 export effective_rate_summary
-export ModelList, MultiScaleModel, ModelMapping, ModelSpec, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export ModelList, MultiScaleModel, ModelMapping, ModelSpec, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
+export Domain, SimulationMapping, DomainSimulation, DomainModelKey, AllDomains, HardDomains
+export Route, DomainRouteTarget, RouteCardinality
+export ManyToOneVector, ManyToOneAggregate, OneToManyBroadcast, SpatialSample, SpatialScatterAdd
+export dependency_values, dependency_targets, dependency_target, model_target, run_target!, ModelTarget, explain_domains, explain_domain_models, explain_domain_statuses, explain_schedule, explain_domain_dependencies, explain_routes
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
-export add_organ!
+export add_organ!, remove_organ!, reparent_organ!
 export @process, process
 export to_initialize, is_initialized, init_variables, dep
 export inputs, outputs, variables, convert_outputs
 export timespec, output_policy, timestep_hint, meteo_hint
-export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope
+export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope, updates
+export meteo_inputs, meteo_inputs_, meteo_outputs, meteo_outputs_
+export validate_meteo_inputs
+export AbstractEnvironmentBackend, EnvironmentSupport, GlobalConstant
+export environment_backend, environment_variables, base_step_seconds
+export sample, sample_environment, scatter!, update_index!
+export scatter_environment_outputs!
+export explain_environment
 export run!
 export fit
 

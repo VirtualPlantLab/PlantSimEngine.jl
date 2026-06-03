@@ -1,5 +1,5 @@
 """
-    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), meteo_window=nothing, output_routing=NamedTuple(), scope=:global)
+    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), meteo_window=nothing, output_routing=NamedTuple(), scope=:global, updates=())
 
 User-side model configuration wrapper for mapping/model list composition.
 
@@ -7,7 +7,7 @@ User-side model configuration wrapper for mapping/model list composition.
 This allows modelers to publish reusable models while users decide how models are coupled in
 their simulation setup.
 """
-struct ModelSpec{M,MS,TS,IB,MB,MW,OR,SC}
+struct ModelSpec{M,MS,TS,IB,MB,MW,OR,SC,UP}
     model::M
     multiscale::MS
     timestep::TS
@@ -16,12 +16,64 @@ struct ModelSpec{M,MS,TS,IB,MB,MW,OR,SC}
     meteo_window::MW
     output_routing::OR
     scope::SC
+    updates::UP
+end
+
+"""
+    Updates(vars...; after=nothing)
+
+Scenario-level declaration that a model updates variables which may also be
+computed by another model at the same scale.
+
+`after` is intentionally mapping-level metadata: the model implementation stays
+reusable, while the simulation setup can declare ordering constraints that only
+exist in this coupling.
+"""
+struct Updates{V,A}
+    variables::V
+    after::A
+end
+
+function Updates(vars::Vararg{Union{Symbol,AbstractString}}; after=nothing)
+    isempty(vars) && error("Updates(...) requires at least one variable.")
+    return Updates(Tuple(Symbol(v) for v in vars), _normalize_update_after(after))
+end
+
+function _normalize_update_after(after)
+    isnothing(after) && return ()
+    after isa Union{Symbol,AbstractString} && return (Symbol(after),)
+    return Tuple(Symbol(v) for v in after)
 end
 
 function _normalize_multiscale_mapping(model::AbstractModel, mapped_variables)
     mapped_variables === nothing && return nothing
     mapped = MultiScaleModel(model, mapped_variables)
     return mapped_variables_(mapped)
+end
+
+_normalize_updates(updates::Updates) = (updates,)
+
+function _normalize_updates(updates::Tuple)
+    all(update -> update isa Updates, updates) || error(
+        "Unsupported updates tuple. Use `Updates(:var; after=:process)` entries."
+    )
+    return updates
+end
+
+function _normalize_updates(updates::AbstractVector)
+    all(update -> update isa Updates, updates) || error(
+        "Unsupported updates vector. Use `Updates(:var; after=:process)` entries."
+    )
+    return Tuple(updates)
+end
+
+function _normalize_updates(updates)
+    updates == NamedTuple() && return ()
+    updates == () && return ()
+    error(
+        "Unsupported updates metadata `$(updates)` of type `$(typeof(updates))`. ",
+        "Use `Updates(:var; after=:process)` or a tuple/vector of `Updates`."
+    )
 end
 
 function ModelSpec(
@@ -32,7 +84,8 @@ function ModelSpec(
     meteo_bindings=NamedTuple(),
     meteo_window=nothing,
     output_routing=NamedTuple(),
-    scope=:global
+    scope=:global,
+    updates=()
 )
     base_model = model
     base_multiscale = multiscale
@@ -48,7 +101,8 @@ function ModelSpec(
     normalized_meteo_window = _normalize_meteo_window(meteo_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_scope = _normalize_scope_selector(scope)
-    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope)}(
+    normalized_updates = _normalize_updates(updates)
+    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope),typeof(normalized_updates)}(
         base_model,
         normalized_multiscale,
         timestep,
@@ -56,7 +110,8 @@ function ModelSpec(
         normalized_meteo_bindings,
         normalized_meteo_window,
         normalized_output_routing,
-        normalized_scope
+        normalized_scope,
+        normalized_updates
     )
 end
 
@@ -69,9 +124,10 @@ function ModelSpec(
     meteo_bindings=spec.meteo_bindings,
     meteo_window=spec.meteo_window,
     output_routing=spec.output_routing,
-    scope=spec.scope
+    scope=spec.scope,
+    updates=spec.updates
 )
-    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope)
+    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope, updates=updates)
 end
 
 as_model_spec(spec::ModelSpec) = spec
@@ -147,6 +203,18 @@ function with_scope(model_or_spec, scope)
     spec = as_model_spec(model_or_spec)
     return ModelSpec(spec; scope=_normalize_scope_selector(scope))
 end
+
+"""
+    with_updates(model_or_spec, updates)
+
+Return a `ModelSpec` with explicit variable-update metadata.
+"""
+function with_updates(model_or_spec, updates)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; updates=(spec.updates..., _normalize_updates(updates)...))
+end
+
+(updates::Updates)(model_or_spec) = with_updates(model_or_spec, updates)
 
 function _normalize_input_binding(binding)
     if binding isa NamedTuple
@@ -408,3 +476,13 @@ get_status(m::ModelSpec) = nothing
 get_mapped_variables(m::ModelSpec) = mapped_variables_(m)
 process(m::ModelSpec) = process(model_(m))
 timestep(m::ModelSpec) = m.timestep
+inputs_(m::ModelSpec) = inputs_(model_(m))
+outputs_(m::ModelSpec) = outputs_(model_(m))
+dep(m::ModelSpec) = dep(model_(m))
+init_variables(m::ModelSpec; verbose::Bool=true) = init_variables(model_(m); verbose=verbose)
+meteo_inputs_(m::ModelSpec) = meteo_inputs_(model_(m))
+meteo_outputs_(m::ModelSpec) = meteo_outputs_(model_(m))
+
+function run!(m::ModelSpec, models, status, meteo, constants=nothing, extra=nothing)
+    return run!(model_(m), models, status, meteo, constants, extra)
+end

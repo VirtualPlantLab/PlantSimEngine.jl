@@ -42,6 +42,7 @@ makedocs(;
             "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",
         ],
         "Execution" => "model_execution.md",
+        "Domain simulations" => "domain_simulation.md",
         "Model traits" => "model_traits.md",
         "AI agent skill" => "agent_skill.md",
         "Working with data" => [
@@ -78,6 +79,11 @@ makedocs(;
             "Public API" => "./API/API_public.md",
             "Example models" => "./API/API_examples.md",
             "Internal API" => "./API/API_private.md",],
+        "Development designs" => [
+            "Multi-domain simulation design" => "./dev/multi_domain_simulation_design.md",
+            "Multi-domain simulation plan" => "./dev/multi_domain_simulation_plan.md",
+            "MAESPA-style domain example handoff" => "./dev/maespa_domain_handoff.md",
+        ],
         "Developer guidelines" => "developers.md",
         "Roadmap" => "planned_features.md",
     ]

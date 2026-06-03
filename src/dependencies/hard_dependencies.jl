@@ -5,6 +5,8 @@
 
 Compute the hard dependencies between models.
 """
+_is_domain_dependency_selector(x) = nameof(typeof(x)) in (:AllDomains, :HardDomains)
+
 function _normalize_hard_dependency_scales(scales, process::Symbol, dependency_process::Symbol)
     if scales isa Symbol || scales isa AbstractString
         return [Symbol(scales)]
@@ -41,6 +43,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
         length(level_1_dep) == 0 && continue # if there is no dependency we skip the iteration
         dep_graph[process].dependency = level_1_dep
         for (p, depend) in pairs(level_1_dep) # for each dependency of the model i. p=:leaf_rank; depend=pairs(level_1_dep)[p]
+            _is_domain_dependency_selector(depend) && continue
             # The dependency can be given as multiscale, e.g. `leaf_area=AbstractLeaf_AreaModel => [m.leaf_symbol],`
             # This means we should search this model in another scale. This is not done here, but after the call to this 
             # function in the other method for `hard_dependencies` below.
@@ -59,7 +62,8 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
             end
 
             if hasproperty(models, p)
-                if typeof(getfield(models, p)) <: depend
+                candidate_model = getfield(models, p)
+                if model_(candidate_model) isa depend
                     parent_dep = dep_graph[process]
                     push!(parent_dep.children, dep_graph[p])
                     for child in parent_dep.children
@@ -68,7 +72,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
                 else
                     if verbose
                         @info string(
-                            "Model ", typeof(i).name.name, " from process ", process,
+                            "Model ", typeof(model_(i)).name.name, " from process ", process,
                             isnothing(scale) ? "" : " at scale $scale",
                             " needs a model that is a subtype of ", depend, " in process ",
                             p
@@ -86,7 +90,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
             else
                 if verbose
                     @info string(
-                        "Model ", typeof(i).name.name, " from process ", process,
+                        "Model ", typeof(model_(i)).name.name, " from process ", process,
                         isnothing(scale) ? "" : " at scale $scale",
                         " needs a model that is a subtype of ", depend, " in process ",
                         p, ", but the process is not parameterized in the ModelList."
@@ -214,8 +218,8 @@ function hard_dependencies(mapping::AbstractDict{Symbol,T}; verbose::Bool=true) 
                 end
                 dep_node_model = only(dep_node_model)
 
-                if !isa(dep_node_model.value, model_type)
-                    error("Model `$(typeof(parent_node.value))` from scale $organ requires a model of type `$model_type` at scale $s as a hard dependency, but the model found for this process is of type $(typeof(dep_node_model.value)).")
+                if !(model_(dep_node_model.value) isa model_type)
+                    error("Model `$(typeof(model_(parent_node.value)))` from scale $organ requires a model of type `$model_type` at scale $s as a hard dependency, but the model found for this process is of type $(typeof(model_(dep_node_model.value))).")
                 end
 
                 # We make a new node out of the previous one:

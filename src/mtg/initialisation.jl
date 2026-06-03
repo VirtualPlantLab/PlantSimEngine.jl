@@ -328,14 +328,15 @@ function init_simulation(mtg, mapping; nsteps=1, outputs=nothing, type_promotion
 
     scale_reachability = _scale_reachability_from_mtg(mtg)
     _infer_timestep_hints!(model_specs)
-    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(model_specs, soft_dep_graphs_roots)
-    active_processes_by_scale = _active_processes_for_inference(model_specs, ignored_same_rate_hard_children)
+    validate_hard_dependency_timestep_consistency(model_specs, soft_dep_graphs_roots)
+    ignored_hard_children = _hard_dependency_children(soft_dep_graphs_roots)
+    active_processes_by_scale = _active_processes_for_inference(model_specs, ignored_hard_children)
     infer_model_specs_configuration!(
         model_specs;
         scale_reachability=scale_reachability,
         active_processes_by_scale=active_processes_by_scale
     )
-    validate_model_specs_configuration(model_specs)
+    validate_model_specs_configuration(model_specs; ignored_processes_by_scale=ignored_hard_children)
 
     # Get the status of each node by node type, pre-initialised considering multi-scale variables:
     statuses, status_templates, reverse_multiscale_mapping, vars_need_init =

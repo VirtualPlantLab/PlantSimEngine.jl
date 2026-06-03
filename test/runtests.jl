@@ -38,6 +38,26 @@ include("helper-functions.jl")
         include("test-multirate-output-export.jl")
     end
 
+    @testset "ModelSpec Updates" begin
+        include("test-updates.jl")
+    end
+
+    @testset "Meteo traits" begin
+        include("test-meteo-traits.jl")
+    end
+
+    @testset "Environment backends" begin
+        include("test-environment-backends.jl")
+    end
+
+    @testset "Domain simulation" begin
+        include("test-domain-simulation.jl")
+    end
+
+    @testset "MAESPA-style domain example" begin
+        include("test-maespa-domain-example.jl")
+    end
+
     @testset "MultiScaleModel" begin
         include("test-MultiScaleModel.jl")
     end

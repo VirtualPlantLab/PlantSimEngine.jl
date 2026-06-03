@@ -37,7 +37,7 @@ PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (process1=AbstractProcess1Model,)
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    PlantSimEngine.run!(models.process1, models, status, meteo, constants)
+    PlantSimEngine.run_target!(models, status, :process1; meteo=meteo, constants=constants, extra=extra)
     # computing var4 and var5:
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
@@ -63,7 +63,7 @@ PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf,)
 PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    PlantSimEngine.run!(models.process2, models, status, meteo, constants, extra)
+    PlantSimEngine.run_target!(models, status, :process2; meteo=meteo, constants=constants, extra=extra)
     # re-computing var4:
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4

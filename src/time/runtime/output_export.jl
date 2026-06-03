@@ -89,8 +89,8 @@ function _canonical_source_process(sim::GraphSimulation, scale::Symbol, var::Sym
     haskey(get_models(sim), scale) || error("Unknown scale `$(scale)` in output export request.")
     models_at_scale = get_models(sim)[scale]
     specs_at_scale = get_model_specs(sim)[scale]
-    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(get_model_specs(sim), dep(sim))
-    ignored_at_scale = get(ignored_same_rate_hard_children, scale, Set{Symbol}())
+    ignored_hard_children = _hard_dependency_children(dep(sim))
+    ignored_at_scale = get(ignored_hard_children, scale, Set{Symbol}())
 
     publishers = Symbol[]
     for (process, model) in pairs(models_at_scale)

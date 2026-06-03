@@ -32,10 +32,10 @@ Ensure that each `(scale, variable)` has at most one canonical publisher.
 Throws when multiple producers publish the same canonical output.
 """
 function validate_canonical_publishers(sim::GraphSimulation)
-    ignored_same_rate_hard_children = _same_rate_hard_dependency_children(get_model_specs(sim), dep(sim))
+    ignored_hard_children = _hard_dependency_children(dep(sim))
     for (scale, models_at_scale) in get_models(sim)
         specs_at_scale = get_model_specs(sim)[scale]
-        ignored_at_scale = get(ignored_same_rate_hard_children, scale, Set{Symbol}())
+        ignored_at_scale = get(ignored_hard_children, scale, Set{Symbol}())
         publishers = Dict{Symbol,Vector{Symbol}}()
         for (process, model) in pairs(models_at_scale)
             process in ignored_at_scale && continue
@@ -52,10 +52,21 @@ function validate_canonical_publishers(sim::GraphSimulation)
 
         for (var, procs) in publishers
             if length(procs) > 1
+                updater_flags = Dict(
+                    process => (var in _update_variables_for_spec(get(specs_at_scale, process, as_model_spec(models_at_scale[process]))))
+                    for process in procs
+                )
+                primary_procs = [process for process in procs if !updater_flags[process]]
+                if length(primary_procs) == 1
+                    update_procs = [process for process in procs if updater_flags[process]]
+                    primary = only(primary_procs)
+                    all(process -> primary in _update_after_for_var(specs_at_scale[process], var), update_procs) && continue
+                end
                 error(
                     "Ambiguous canonical publishers for variable `$(var)` at scale `$(scale)`: ",
                     join(procs, ", "),
-                    ". Declare `OutputRouting(; $(var)=:stream_only)` for non-canonical producers."
+                    ". Declare `OutputRouting(; $(var)=:stream_only)` for non-canonical producers, ",
+                    "or `Updates(:$(var); after=:primary_process)` for intentional state updates."
                 )
             end
         end

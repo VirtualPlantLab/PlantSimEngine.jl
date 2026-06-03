@@ -103,6 +103,14 @@ Default is `:global`.
 model_scope(spec::ModelSpec) = spec.scope
 
 """
+    updates(spec::ModelSpec)
+
+Scenario-level metadata for variables intentionally updated by this model after
+another producer in the same mapping.
+"""
+updates(spec::ModelSpec) = spec.updates
+
+"""
     meteo_bindings(spec::ModelSpec)
 
 Optional explicit weather aggregation bindings used by multi-rate MTG runtime.
@@ -121,6 +129,32 @@ Optional weather window-selection strategy used by multi-rate MTG runtime.
 Defaults to `nothing` (runtime falls back to `PlantMeteo.RollingWindow()` behavior).
 """
 meteo_window(spec::ModelSpec) = spec.meteo_window
+
+"""
+    meteo_inputs(model::AbstractModel)
+    meteo_inputs_(model::AbstractModel)
+
+Meteorological/environment variables read directly by a model.
+
+This trait is separate from `inputs_` because meteorology may be constant,
+table-backed, or produced by a microclimate domain. The default is empty.
+"""
+meteo_inputs(model::AbstractModel) = keys(meteo_inputs_(model))
+meteo_inputs(spec::ModelSpec) = keys(meteo_inputs_(spec))
+meteo_inputs_(model::AbstractModel) = NamedTuple()
+meteo_inputs_(model::Missing) = NamedTuple()
+
+"""
+    meteo_outputs(model::AbstractModel)
+    meteo_outputs_(model::AbstractModel)
+
+Meteorological/environment variables produced by a model, for example local
+microclimate variables computed over a voxel/octree domain.
+"""
+meteo_outputs(model::AbstractModel) = keys(meteo_outputs_(model))
+meteo_outputs(spec::ModelSpec) = keys(meteo_outputs_(spec))
+meteo_outputs_(model::AbstractModel) = NamedTuple()
+meteo_outputs_(model::Missing) = NamedTuple()
 
 """
     inputs(mapping::ModelMapping)

@@ -243,11 +243,12 @@ function _same_timestep_signature(sig_a, sig_b)
 end
 
 function _hard_dep_same_rate_as_parent(model_specs, parent_scale::Symbol, parent_process::Symbol, child_scale::Symbol, child_process::Symbol)
-    parent_scale == child_scale || return false
     parent_specs = get(model_specs, parent_scale, nothing)
+    child_specs = get(model_specs, child_scale, nothing)
     isnothing(parent_specs) && return false
+    isnothing(child_specs) && return false
     parent_spec = get(parent_specs, parent_process, nothing)
-    child_spec = get(parent_specs, child_process, nothing)
+    child_spec = get(child_specs, child_process, nothing)
     isnothing(parent_spec) && return false
     isnothing(child_spec) && return false
 
@@ -270,6 +271,41 @@ function _collect_same_rate_hard_dependency_children!(
     for nested in child.children
         _collect_same_rate_hard_dependency_children!(
             ignored_processes_by_scale,
+            model_specs,
+            child.scale,
+            child.process,
+            nested
+        )
+    end
+
+    return nothing
+end
+
+function _collect_hard_dependency_children!(
+    ignored_processes_by_scale::Dict{Symbol,Set{Symbol}},
+    child::HardDependencyNode
+)
+    push!(get!(ignored_processes_by_scale, child.scale, Set{Symbol}()), child.process)
+    for nested in child.children
+        _collect_hard_dependency_children!(ignored_processes_by_scale, nested)
+    end
+    return nothing
+end
+
+function _validate_hard_dependency_timestep_consistency!(
+    model_specs,
+    parent_scale::Symbol,
+    parent_process::Symbol,
+    child::HardDependencyNode
+)
+    _hard_dep_same_rate_as_parent(model_specs, parent_scale, parent_process, child.scale, child.process) || error(
+        "Hard dependency `$(child.process)` at scale `$(child.scale)` has a different timestep than parent process ",
+        "`$(parent_process)` at scale `$(parent_scale)`. Hard dependencies are called manually by their parent, ",
+        "so their `ModelSpec` timestep cannot be scheduled independently. Align the timesteps, or make the child a soft dependency."
+    )
+
+    for nested in child.children
+        _validate_hard_dependency_timestep_consistency!(
             model_specs,
             child.scale,
             child.process,
@@ -307,6 +343,33 @@ function _same_rate_hard_dependency_children(model_specs, dep_graph::DependencyG
     end
 
     return ignored_processes_by_scale
+end
+
+function _hard_dependency_children(dep_graph::DependencyGraph)
+    ignored_processes_by_scale = Dict{Symbol,Set{Symbol}}()
+
+    for soft_node in _soft_nodes_for_hard_dependency_analysis(dep_graph)
+        for child in soft_node.hard_dependency
+            _collect_hard_dependency_children!(ignored_processes_by_scale, child)
+        end
+    end
+
+    return ignored_processes_by_scale
+end
+
+function validate_hard_dependency_timestep_consistency(model_specs, dep_graph::DependencyGraph)
+    for soft_node in _soft_nodes_for_hard_dependency_analysis(dep_graph)
+        for child in soft_node.hard_dependency
+            _validate_hard_dependency_timestep_consistency!(
+                model_specs,
+                soft_node.scale,
+                soft_node.process,
+                child
+            )
+        end
+    end
+
+    return nothing
 end
 
 function _active_processes_for_inference(model_specs, ignored_processes_by_scale::Dict{Symbol,Set{Symbol}})
@@ -366,6 +429,28 @@ function _default_policy_for_inferred_binding(model_specs, source_scale::Symbol,
         source_output_policy[source_var];
         context="output_policy for inferred binding from `$(source_scale)/$(source_process).$(source_var)`"
     )
+end
+
+function _terminal_update_candidate(model_specs, candidates::Vector, var::Symbol)
+    length(candidates) > 1 || return nothing
+
+    terminal_updates = NamedTuple[]
+    for candidate in candidates
+        candidate_spec = model_specs[candidate.scale][candidate.process]
+        var in _update_variables_for_spec(candidate_spec) || continue
+        has_later_update = any(candidates) do other
+            other.scale == candidate.scale || return false
+            other.process == candidate.process && return false
+            other.var == var || return false
+            other_spec = model_specs[other.scale][other.process]
+            var in _update_variables_for_spec(other_spec) || return false
+            return candidate.process in _update_after_for_var(other_spec, var)
+        end
+        has_later_update || push!(terminal_updates, candidate)
+    end
+
+    length(terminal_updates) == 1 || return nothing
+    return only(terminal_updates)
 end
 
 function _mapped_source_scales_for_input(spec::ModelSpec, input_var::Symbol)
@@ -457,7 +542,7 @@ function _infer_binding_from_multiscale_mapping(
     src_var = last(src)
     haskey(model_specs, src_scale) || return :skip
 
-    procs = Symbol[]
+    candidates = NamedTuple[]
     for (src_process, src_spec) in pairs(model_specs[src_scale])
         if !isnothing(active_processes_by_scale)
             active = get(active_processes_by_scale, src_scale, Set{Symbol}())
@@ -465,11 +550,17 @@ function _infer_binding_from_multiscale_mapping(
         end
         src_var in keys(outputs_(model_(src_spec))) || continue
         _is_stream_only_output(src_spec, src_var) && continue
-        push!(procs, src_process)
+        push!(candidates, (scale=src_scale, process=src_process, var=src_var))
     end
 
-    length(procs) == 1 || return :skip
-    src_process = only(procs)
+    if length(candidates) == 1
+        candidate = only(candidates)
+    else
+        candidate = _terminal_update_candidate(model_specs, candidates, src_var)
+        isnothing(candidate) && return :skip
+    end
+
+    src_process = candidate.process
     policy = _default_policy_for_inferred_binding(model_specs, src_scale, src_process, src_var)
     return (process=src_process, var=src_var, scale=src_scale, policy=policy)
 end
@@ -496,6 +587,21 @@ function _infer_input_binding_for_var(
         policy = _default_policy_for_inferred_binding(model_specs, c.scale, c.process, c.var)
         return (process=c.process, var=c.var, scale=c.scale, policy=policy)
     elseif length(same_scale) > 1
+        terminal_update = _terminal_update_candidate(model_specs, same_scale, input_var)
+        if !isnothing(terminal_update)
+            policy = _default_policy_for_inferred_binding(
+                model_specs,
+                terminal_update.scale,
+                terminal_update.process,
+                terminal_update.var,
+            )
+            return (
+                process=terminal_update.process,
+                var=terminal_update.var,
+                scale=terminal_update.scale,
+                policy=policy,
+            )
+        end
         error(
             "Ambiguous inferred producer for input `$(input_var)` in process `$(process)` at scale `$(scale)`. ",
             "Multiple same-scale candidates were found: $(_format_candidate_list(same_scale)). ",
@@ -696,7 +802,20 @@ function resolved_model_specs(mapping::AbstractDict; infer::Bool=true, validate:
     end
 
     infer && infer_model_specs_configuration!(model_specs)
-    validate && validate_model_specs_configuration(model_specs)
+    if validate
+        hard_dep_roots = try
+            first(hard_dependencies(mapping; verbose=false))
+        catch
+            nothing
+        end
+        ignored_hard_children = if isnothing(hard_dep_roots)
+            Dict{Symbol,Set{Symbol}}()
+        else
+            validate_hard_dependency_timestep_consistency(model_specs, hard_dep_roots)
+            _hard_dependency_children(hard_dep_roots)
+        end
+        validate_model_specs_configuration(model_specs; ignored_processes_by_scale=ignored_hard_children)
+    end
     return model_specs
 end
 
@@ -724,6 +843,9 @@ function _model_specs_rows(model_specs)
                 input_bindings=input_bindings(spec),
                 meteo_bindings=meteo_bindings(spec),
                 meteo_window=meteo_window(spec),
+                meteo_inputs=meteo_inputs_(spec),
+                meteo_outputs=meteo_outputs_(spec),
+                updates=updates(spec),
             ))
         end
     end
@@ -744,6 +866,9 @@ Summary fields:
 - `input_bindings`
 - `meteo_bindings`
 - `meteo_window`
+- `meteo_inputs`
+- `meteo_outputs`
+- `updates`
 """
 function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::Bool=true)
     specs = target isa GraphSimulation ? resolved_model_specs(target) : resolved_model_specs(target; infer=infer, validate=validate)
@@ -766,6 +891,9 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
         input_bindings_desc = (row.input_bindings isa NamedTuple && isempty(keys(row.input_bindings))) ? "(none)" : _stringify_compact(row.input_bindings)
         meteo_bindings_desc = (row.meteo_bindings isa NamedTuple && isempty(keys(row.meteo_bindings))) ? "(none)" : _stringify_compact(row.meteo_bindings)
         meteo_window_desc = isnothing(row.meteo_window) ? "(default rolling)" : _stringify_compact(row.meteo_window)
+        meteo_inputs_desc = (row.meteo_inputs isa NamedTuple && isempty(keys(row.meteo_inputs))) ? "(none)" : _stringify_compact(row.meteo_inputs)
+        meteo_outputs_desc = (row.meteo_outputs isa NamedTuple && isempty(keys(row.meteo_outputs))) ? "(none)" : _stringify_compact(row.meteo_outputs)
+        updates_desc = isempty(row.updates) ? "(none)" : _stringify_compact(row.updates)
         println(
             io,
             "  - ",
@@ -781,7 +909,13 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
             ", meteo_bindings=",
             meteo_bindings_desc,
             ", meteo_window=",
-            meteo_window_desc
+            meteo_window_desc,
+            ", meteo_inputs=",
+            meteo_inputs_desc,
+            ", meteo_outputs=",
+            meteo_outputs_desc,
+            ", updates=",
+            updates_desc
         )
     end
     return rows

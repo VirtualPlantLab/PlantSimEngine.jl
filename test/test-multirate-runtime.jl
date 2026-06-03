@@ -281,7 +281,7 @@ PlantSimEngine.dep(::MRHardParentModel) = (mrhardchild=AbstractMrhardchildModel,
 PlantSimEngine.inputs_(::MRHardParentModel) = NamedTuple()
 PlantSimEngine.outputs_(::MRHardParentModel) = (A=-Inf,)
 function PlantSimEngine.run!(::MRHardParentModel, models, status, meteo, constants=nothing, extra=nothing)
-    run!(models.mrhardchild, models, status, meteo, constants, extra)
+    run_target!(models, status, :mrhardchild; meteo=meteo, constants=constants, extra=extra)
     status.A = 5.0
 end
 
@@ -441,9 +441,14 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ModelSpec(MRConflict2Model()) |> TimeStepModel(1.0),
         ),
     )
-    sim_conflict = PlantSimEngine.GraphSimulation(mtg, mapping_conflict, nsteps=1, check=true, outputs=Dict(:Leaf => (:Z,)))
-    # Expectation 5: two canonical publishers of the same output are rejected.
-    @test_throws "Ambiguous canonical publishers" run!(sim_conflict, meteo, executor=SequentialEx())
+    # Expectation 5: two canonical writers of the same output are rejected at graph construction.
+    @test_throws "Ambiguous canonical writers" PlantSimEngine.GraphSimulation(
+        mtg,
+        mapping_conflict,
+        nsteps=1,
+        check=true,
+        outputs=Dict(:Leaf => (:Z,))
+    )
 
     # Expectation 6: models run at different clocks; slower model holds last value between runs.
     source_counter = Ref(0)
@@ -1250,7 +1255,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_hard_same_rate).A.process == :mrhardparent
     @test status(sim_hard_same_rate)[:Leaf][1].B == 5.0
 
-    # Expectation 24f: different-rate hard dependencies remain strict and require explicit disambiguation.
+    # Expectation 24f: hard dependency children cannot be scheduled independently from their parent.
     mapping_hard_different_rate = ModelMapping(
         :Leaf => (
             ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
@@ -1258,31 +1263,13 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
         ),
     )
-    @test_throws "Ambiguous inferred producer for input `A`" PlantSimEngine.GraphSimulation(
+    @test_throws "Hard dependency `mrhardchild`" PlantSimEngine.GraphSimulation(
         mtg,
         mapping_hard_different_rate,
         nsteps=1,
         check=true,
         outputs=Dict(:Leaf => (:A, :B))
     )
-
-    mapping_hard_different_rate_explicit = ModelMapping(
-        :Leaf => (
-            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
-            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
-            ModelSpec(MRHardConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; A=(process=:mrhardparent, var=:A)),
-        ),
-    )
-    sim_hard_different_rate_explicit = PlantSimEngine.GraphSimulation(
-        mtg,
-        mapping_hard_different_rate_explicit,
-        nsteps=1,
-        check=true,
-        outputs=Dict(:Leaf => (:A, :B))
-    )
-    @test_throws "Ambiguous canonical publishers" run!(sim_hard_different_rate_explicit, meteo, executor=SequentialEx())
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
     mapping_missing_input = ModelMapping(
