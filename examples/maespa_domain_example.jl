@@ -56,11 +56,11 @@ scene domain.
 """
 struct LAIModel{T} <: AbstractLai_DynamicModel
     area::T
-end
 
-function LAIModel(area)
-    area > 0.0 || throw(ArgumentError("`area` must be strictly positive."))
-    return LAIModel(area)
+    function LAIModel(area::T) where {T}
+        area > 0 || throw(ArgumentError("`area` must be strictly positive."))
+        new{T}(area)
+    end
 end
 
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
