@@ -763,6 +763,55 @@ function _resolve_route_bindings(mapping::SimulationMapping, specs::Dict{DomainM
     return bindings
 end
 
+function _route_target_input_default(route::Route, specs::Dict{DomainModelKey,ModelSpec})
+    consumer_key = _route_target_consumer_key(route, specs)
+    isnothing(consumer_key) && return nothing
+    consumer_inputs = inputs_(specs[consumer_key])
+    target_var = route.to.var
+    target_var in keys(consumer_inputs) || return nothing
+    return getproperty(consumer_inputs, target_var)
+end
+
+function _route_target_status_defaults(mapping::SimulationMapping, domain::Domain, specs::Dict{DomainModelKey,ModelSpec})
+    defaults = NamedTuple()
+    target_mapping = _domain_mapping(domain)
+    target_mapping isa ModelMapping{SingleScale} || return defaults
+    target_status = status(target_mapping)
+
+    for route in mapping.routes
+        target = route.to
+        target.domain == domain.name || continue
+        target.scale == :Default || continue
+        target.var in propertynames(target_status) && continue
+        target.var in keys(defaults) && continue
+
+        default = _route_target_input_default(route, specs)
+        isnothing(default) && continue
+        defaults = merge(defaults, NamedTuple{(target.var,)}((default,)))
+    end
+
+    return defaults
+end
+
+function _add_route_target_status_defaults(mapping::SimulationMapping, specs::Dict{DomainModelKey,ModelSpec})
+    domains = Domain[]
+    changed = false
+
+    for domain in mapping.domains
+        target_mapping = _domain_mapping(domain)
+        defaults = _route_target_status_defaults(mapping, domain, specs)
+        if target_mapping isa ModelMapping{SingleScale} && !isempty(keys(defaults))
+            augmented_status = Status(merge(defaults, NamedTuple(status(target_mapping))))
+            target_mapping = copy(target_mapping, augmented_status)
+            changed = true
+        end
+        push!(domains, Domain(domain.name, domain.kind, target_mapping, domain.selector))
+    end
+
+    changed || return mapping
+    return SimulationMapping(domains...; routes=mapping.routes)
+end
+
 function _route_target_consumer_key(route::Route, specs::Dict{DomainModelKey,ModelSpec})
     target = route.to
     if !isnothing(target.process)
@@ -863,6 +912,7 @@ function _build_domain_simulation(mapping::SimulationMapping, meteo; staged_grap
     for domain in mapping.domains
         merge!(specs, _domain_model_specs(domain))
     end
+    mapping = _add_route_target_status_defaults(mapping, specs)
 
     model_clocks = _domain_model_clocks(specs, timeline)
     graphs = _domain_dependency_graphs(mapping)

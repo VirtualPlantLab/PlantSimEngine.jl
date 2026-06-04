@@ -793,7 +793,7 @@ end
 
     hourly_scene_mapping = ModelMapping(
         ModelSpec(DomainSceneRoutedVectorModel()) |> TimeStepModel(Dates.Hour(1)),
-        status=(plant_transpirations=[0.0], routed_total=0.0),
+        status=(routed_total=0.0,),
     )
 
     vector_route = Route(
@@ -813,6 +813,7 @@ end
         check=true,
     )
     hourly_plant_sum = 0.01 * 0.5 * 100.0 + 0.02 * 0.3 * 100.0
+    @test :plant_transpirations in propertynames(status(vector_sim, :scene))
     @test status(vector_sim, :scene).plant_transpirations ≈ [0.5, 0.6]
     @test status(vector_sim, :scene).routed_total ≈ hourly_plant_sum
 

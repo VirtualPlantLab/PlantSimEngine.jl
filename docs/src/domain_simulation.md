@@ -204,6 +204,12 @@ producer, and `ManyToOneAggregate(f)` when it needs a scalar reduction. For an
 MTG-backed target domain, `OneToManyBroadcast()` can broadcast one source value
 into every status at the target scale before that domain runs.
 
+When a route targets a single-status domain variable consumed by one target
+model, the target status slot is created from that model's `inputs_` default if
+the user did not initialize it explicitly. Variables that are only route
+materialization slots and are not model inputs still need to be initialized in
+the target status.
+
 When graph-domain values are aggregated across time, PlantSimEngine aligns them
 by MTG node id. Growth and pruning inside the aggregation window therefore do
 not require every timestep to publish vectors with the same length.

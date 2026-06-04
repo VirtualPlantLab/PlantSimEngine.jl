@@ -49,7 +49,7 @@ include("../examples/maespa_domain_example.jl")
     @test length(sim.outputs[(DomainModelKey(:plant_A, :Leaf, :energy_balance), :λE)]) == 2 * 24
     @test length(sim.outputs[(DomainModelKey(:plant_B, :Leaf, :energy_balance), :λE)]) == 3 * 24
     @test length(sim.outputs[(DomainModelKey(:soil, :Default, :soil_water), :psi_soil)]) == 24
-    @test length(sim.outputs[(DomainModelKey(:scene, :Default, :lai_dynamic), :lai)]) == 24
+    @test length(sim.outputs[(DomainModelKey(:scene, :Default, :lai_dynamic), :lai)]) == 1
     @test length(sim.outputs[(DomainModelKey(:scene, :Default, :scene_eb), :scene_transpiration)]) == 24
     @test status(sim, :soil).transpiration ≈ scene_status.scene_transpiration
     @test status(sim, :soil).psi_soil ≈ scene_status.psi_soil
@@ -67,7 +67,6 @@ end
         ModelSpec(LAIModel(1.0)) |> TimeStepModel(Dates.Hour(1)),
         ModelSpec(SceneEB(25, 0.03, 0.005)) |> TimeStepModel(Dates.Hour(1)),
         status=(
-            leaf_areas=[0.0],
             leaf_area=0.0,
             lai=0.0,
             canopy_tair=20.0,

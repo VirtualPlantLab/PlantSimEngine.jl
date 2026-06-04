@@ -60,11 +60,11 @@ end
 
 function LAIModel(area)
     area > 0.0 || throw(ArgumentError("`area` must be strictly positive."))
-    return LAIModel{Float64}(Float64(area))
+    return LAIModel(area)
 end
 
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
-PlantSimEngine.outputs_(::LAIModel) = (lai=-Inf, leaf_area=-Inf)
+PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=-Inf)
 
 function PlantSimEngine.run!(m::LAIModel, models, status, meteo, constants, extra=nothing)
     status.leaf_area = sum(status.leaf_areas)
@@ -190,8 +190,8 @@ function _run_scene_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, 
     )
 end
 
-function gbcanms(wind, zht, z0ht, zpd, tree_height, lai; gbcan_min=0.0123, von_karman=0.41)
-    zpd2 = 0.75 * tree_height
+function gbcanms(wind, zht, tree_height; gbcan_min=0.0123, von_karman=0.41)
+    zpd = 0.75 * tree_height
     z0 = 0.1 * tree_height
     zstar = max(zht, eps(Float64))
     wind2 = max(wind, 1.0e-6)
@@ -201,32 +201,28 @@ function gbcanms(wind, zht, z0ht, zpd, tree_height, lai; gbcan_min=0.0123, von_k
         zstar = 2.0 * tree_height
     end
 
-    zstar = max(zstar, zpd2 + z0 + 1.0e-6)
-    windstar = wind2 * von_karman / log((zstar - zpd2) / z0)
+    zstar = max(zstar, zpd + z0 + 1.0e-6)
+    windstar = wind2 * von_karman / log((zstar - zpd) / z0)
     alpha1 = 1.5
-    zw = zpd2 + alpha1 * (tree_height - zpd2)
-    gbcanmsini = windstar * von_karman / log((zstar - zpd2) / (zw - zpd2))
-    gbcanmsrou = windstar * von_karman / ((zw - tree_height) / (zw - zpd2))
+    zw = zpd + alpha1 * (tree_height - zpd)
+    gbcanmsini = windstar * von_karman / log((zstar - zpd) / (zw - zpd))
+    gbcanmsrou = windstar * von_karman / ((zw - tree_height) / (zw - zpd))
     canopy_air_ms = max(1.0 / (1.0 / gbcanmsini + 1.0 / gbcanmsrou), gbcan_min)
 
     alpha = 2.0
     z0ht2 = 0.01
-    kh = alpha1 * von_karman * windstar * (tree_height - zpd2)
+    kh = alpha1 * von_karman * windstar * (tree_height - zpd)
     soil_denominator = tree_height * exp(alpha) *
-                       (exp(-alpha * z0ht2 / tree_height) - exp(-alpha * (zpd2 + z0) / tree_height))
+                       (exp(-alpha * z0ht2 / tree_height) - exp(-alpha * (zpd + z0) / tree_height))
     soil_canopy_ms = max(alpha * kh / soil_denominator, 0.0)
     return (canopy_air_ms=canopy_air_ms, soil_canopy_ms=soil_canopy_ms)
 end
 
 function tvpdcanopcalc(m::SceneEB, fluxes, meteo_above, canopy_meteo, constants)
-    lai = fluxes.lai
     gbs = gbcanms(
         meteo_above.Wind,
         m.zht,
-        m.z0ht,
-        m.zpd,
-        m.tree_height,
-        lai;
+        m.tree_height;
         gbcan_min=m.gbcan_min,
         von_karman=m.von_karman,
     )
@@ -439,7 +435,6 @@ function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
         ModelSpec(LAIModel(ground_area)) |> TimeStepModel(Dates.Day(1)),
         ModelSpec(scene_model) |> TimeStepModel(Dates.Hour(1)),
         status=(
-            leaf_areas=[0.0],
             leaf_area=0.0,
             lai=0.0,
             canopy_tair=20.0,
