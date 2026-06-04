@@ -101,7 +101,7 @@ function _run_scene_leaf_targets!(leaf_targets, meteo, Tair, VPD, psi_soil; publ
     local_meteo = _scene_leaf_meteo(meteo, Tair, VPD)
     for target in leaf_targets
         _prepare_scene_leaf_target!(target, meteo, Tair, VPD, psi_soil)
-        run_target!(target; meteo=local_meteo, publish=publish)
+        run_target!(target; meteo=local_meteo, publish=publish) # Publish is false because we iterate here and only want to publish the final solution at the end
         total_H += target.status.H * target.status.leaf_area
         total_E += λE_to_E(target.status.λE, local_meteo.λ) * target.status.leaf_area
         total_A += target.status.A * target.status.leaf_area
@@ -116,7 +116,9 @@ function _solve_scene_energy_balance!(m::SceneEB, leaf_targets, soil_target, met
     final_meteo = meteo
 
     for iter in 1:m.maxiter
+        # Run the energy balance of each leaf, and aggregate the fluxes at the canopy scale:
         fluxes = _run_scene_leaf_targets!(leaf_targets, meteo, Tair, VPD, psi_soil)
+        # Update the canopy-scale meteo based on the leaf fluxes, and check for convergence:
         Tnew = meteo.T + 0.30 * fluxes.H / max(length(leaf_targets), 1)
         VPDnew = max(0.02, vpd_kpa(meteo) + 0.04 * (Tnew - meteo.T) - 0.30 * fluxes.E)
         final_meteo = fluxes.meteo
@@ -125,8 +127,8 @@ function _solve_scene_energy_balance!(m::SceneEB, leaf_targets, soil_target, met
             VPD = VPDnew
             return SceneEBSolverResult(Tair, VPD, psi_soil, _scene_leaf_meteo(meteo, Tair, VPD), iter)
         end
-        Tair = 0.50 * Tair + 0.50 * Tnew
-        VPD = 0.50 * VPD + 0.50 * VPDnew
+        Tair = mean(Tair, Tnew) # take the average to help convergence
+        VPD = mean(VPD, VPDnew)
     end
 
     error(
