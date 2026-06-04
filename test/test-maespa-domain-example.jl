@@ -16,10 +16,10 @@ include("../examples/maespa_domain_example.jl")
     @test scene_status.iterations > 0
 
     leaf_statuses = status(sim, :Leaf)
-    @test all(st -> isfinite(st.Tleaf), leaf_statuses)
-    @test all(st -> isfinite(st.An), leaf_statuses)
-    @test all(st -> isfinite(st.E), leaf_statuses)
-    @test any(st -> abs(st.Tleaf - st.Tair) > 1.0e-6, leaf_statuses)
+    @test all(st -> isfinite(st.Tₗ), leaf_statuses)
+    @test all(st -> isfinite(st.A), leaf_statuses)
+    @test all(st -> isfinite(st.λE), leaf_statuses)
+    @test any(st -> abs(st.Tₗ - scene_status.canopy_Tair) > 1.0e-6, leaf_statuses)
 
     plant_a_status = only(status(sim, :plant_A, :Plant))
     plant_b_status = only(status(sim, :plant_B, :Plant))
@@ -29,11 +29,11 @@ include("../examples/maespa_domain_example.jl")
     @test plant_a_status.leaf_pool != plant_b_status.leaf_pool
 
     deps = explain_domain_dependencies(sim)
-    @test count(row -> row.mode == :hard_domain && row.dependency == :leaf_eb, deps) == 2
+    @test count(row -> row.mode == :hard_domain && row.dependency == :energy_balance, deps) == 2
     @test count(row -> row.mode == :hard_domain && row.dependency == :soil, deps) == 1
 
-    @test length(sim.outputs[(DomainModelKey(:plant_A, :Leaf, :leaf_eb), :E)]) == 2 * 24
-    @test length(sim.outputs[(DomainModelKey(:plant_B, :Leaf, :leaf_eb), :E)]) == 3 * 24
+    @test length(sim.outputs[(DomainModelKey(:plant_A, :Leaf, :energy_balance), :λE)]) == 2 * 24
+    @test length(sim.outputs[(DomainModelKey(:plant_B, :Leaf, :energy_balance), :λE)]) == 3 * 24
     @test length(sim.outputs[(DomainModelKey(:soil, :Default, :soil_water), :psi_soil)]) == 24
     @test length(sim.outputs[(DomainModelKey(:scene, :Default, :scene_eb), :scene_transpiration)]) == 24
     @test status(sim, :soil).transpiration ≈ scene_status.scene_transpiration
@@ -56,7 +56,7 @@ end
         Domain(:soil, soil_mapping; kind=:soil),
         Domain(:scene, scene_mapping; kind=:scene),
     )
-    @test_throws "Hard domain dependency `leaf_eb`" run!(mtg, missing_leaf_mapping, meteo, check=true, executor=SequentialEx())
+    @test_throws "Hard domain dependency `energy_balance`" run!(mtg, missing_leaf_mapping, meteo, check=true, executor=SequentialEx())
 
     soil_target = (status=Status(psi_soil=-0.1),)
     @test_throws "SceneEB did not converge after 0 iterations" _solve_scene_energy_balance!(
