@@ -10,6 +10,7 @@ include(joinpath(@__DIR__, "plantbiophysics_subsample", "Monteith.jl"))
 PlantSimEngine.@process "soil_water" verbose = false
 PlantSimEngine.@process "scene_eb" verbose = false
 PlantSimEngine.@process "leaf_state" verbose = false
+PlantSimEngine.@process "lai_dynamic" verbose = false
 PlantSimEngine.@process "alloc_a" verbose = false
 PlantSimEngine.@process "alloc_b" verbose = false
 
@@ -17,13 +18,14 @@ sat_vp_kpa(T) = 0.6108 * exp(17.27 * T / (T + 237.3))
 vpd_kpa(meteo) = max(0.02, sat_vp_kpa(meteo.T) * (1.0 - meteo.Rh))
 rh_from_vpd(T, vpd) = clamp(1.0 - vpd / sat_vp_kpa(T), 0.05, 0.99)
 duration_seconds(meteo) = Dates.value(Dates.Millisecond(meteo.duration)) / 1000.0
+e_sat_kpa(T) = PlantMeteo.e_sat(T)
 
-struct SoilWater <: AbstractSoil_WaterModel
-    theta_sat::Float64
-    psi_e::Float64
-    b::Float64
-    depth1::Float64
-    depth2::Float64
+struct SoilWater{T} <: AbstractSoil_WaterModel
+    theta_sat::T
+    psi_e::T
+    b::T
+    depth1::T
+    depth2::T
 end
 
 PlantSimEngine.inputs_(::SoilWater) = (transpiration=0.0, infiltration=0.0)
@@ -46,20 +48,86 @@ PlantSimEngine.outputs_(::LeafState) = (leaf_area=0.0, leaf_carbon=0.0)
 
 PlantSimEngine.run!(::LeafState, models, status, meteo, constants, extra=nothing) = nothing
 
-struct SceneEB <: AbstractScene_EbModel
-    maxiter::Int
-    tol_T::Float64
-    tol_VPD::Float64
+"""
+    LAIModel(area)
+
+Compute scene leaf area and leaf area index from all leaves routed into the
+scene domain.
+"""
+struct LAIModel{T} <: AbstractLai_DynamicModel
+    area::T
+end
+
+function LAIModel(area)
+    area > 0.0 || throw(ArgumentError("`area` must be strictly positive."))
+    return LAIModel{Float64}(Float64(area))
+end
+
+PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
+PlantSimEngine.outputs_(::LAIModel) = (lai=-Inf, leaf_area=-Inf)
+
+function PlantSimEngine.run!(m::LAIModel, models, status, meteo, constants, extra=nothing)
+    status.leaf_area = sum(status.leaf_areas)
+    status.lai = status.leaf_area / m.area
+    return nothing
+end
+
+struct SceneEB{I,T} <: AbstractScene_EbModel
+    maxiter::I
+    tol_t::T
+    tol_vpd::T
+    tree_height::T
+    zht::T
+    zpd::T
+    z0ht::T
+    ground_area::T
+    qc::T
+    gbcan_min::T
+    von_karman::T
+end
+
+function SceneEB(
+    maxiter,
+    tol_t,
+    tol_vpd;
+    tree_height=2.0,
+    zht=4.0,
+    zpd=0.75 * tree_height,
+    z0ht=0.1 * tree_height,
+    ground_area=1.0,
+    qc=0.0,
+    gbcan_min=0.0123,
+    von_karman=0.41,
+)
+    ground_area > 0.0 || throw(ArgumentError("`ground_area` must be strictly positive."))
+    tree_height > 0.0 || throw(ArgumentError("`tree_height` must be strictly positive."))
+    zht > 0.0 || throw(ArgumentError("`zht` must be strictly positive."))
+    return SceneEB(
+        maxiter,
+        promote(tol_t,
+            tol_vpd,
+            tree_height,
+            zht,
+            zpd,
+            z0ht,
+            ground_area,
+            qc,
+            gbcan_min,
+            von_karman)...
+    )
 end
 
 PlantSimEngine.dep(::SceneEB) = (
     energy_balance=HardDomains(kind=:plant, scale=:Leaf, process=:energy_balance),
     soil=HardDomains(kind=:soil, process=:soil_water),
 )
-PlantSimEngine.inputs_(::SceneEB) = NamedTuple()
+PlantSimEngine.inputs_(::SceneEB) = (lai=0.0, leaf_area=0.0)
 PlantSimEngine.outputs_(::SceneEB) = (
-    canopy_Tair=20.0,
-    canopy_VPD=1.0,
+    canopy_tair=20.0,
+    canopy_vpd=1.0,
+    canopy_rh=0.7,
+    canopy_htot=0.0,
+    canopy_gcanop=0.0,
     scene_transpiration=0.0,
     scene_assimilation=0.0,
     psi_soil=-0.1,
@@ -67,17 +135,21 @@ PlantSimEngine.outputs_(::SceneEB) = (
 )
 
 struct SceneEBSolverResult
-    Tair::Float64
-    VPD::Float64
+    tair::Float64
+    vpd::Float64
+    rh::Float64
     psi_soil::Float64
     final_meteo
     iterations::Int
+    htot::Float64
+    gcanop::Float64
+    lai::Float64
 end
 
-function _scene_leaf_meteo(meteo, Tair, VPD)
+function _scene_leaf_meteo(meteo, tair_canopy, vpd_canopy)
     return Atmosphere(
-        T=Tair,
-        Rh=rh_from_vpd(Tair, VPD),
+        T=tair_canopy,
+        Rh=rh_from_vpd(tair_canopy, vpd_canopy),
         Wind=meteo.Wind,
         P=meteo.P,
         Cₐ=meteo.Cₐ,
@@ -87,63 +159,150 @@ function _scene_leaf_meteo(meteo, Tair, VPD)
     )
 end
 
-function _prepare_scene_leaf_target!(target, meteo, Tair, VPD, psi_soil)
+function _prepare_scene_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
     target.status.Ra_SW_f = meteo.Ri_SW_f
     target.status.aPPFD = meteo.Ri_PAR_f
     target.status.Ψₗ = psi_soil
     return nothing
 end
 
-function _run_scene_leaf_targets!(leaf_targets, meteo, Tair, VPD, psi_soil; publish=false)
-    total_H = 0.0
-    total_E = 0.0
-    total_A = 0.0
-    local_meteo = _scene_leaf_meteo(meteo, Tair, VPD)
+function _run_scene_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, psi_soil, ground_area; publish=false)
+    total_rn = 0.0
+    total_lambda_e = 0.0
+    total_h = 0.0
+    total_a = 0.0
+    local_meteo = _scene_leaf_meteo(meteo, tair_canopy, vpd_canopy)
     for target in leaf_targets
-        _prepare_scene_leaf_target!(target, meteo, Tair, VPD, psi_soil)
+        _prepare_scene_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
         run_target!(target; meteo=local_meteo, publish=publish) # Publish is false because we iterate here and only want to publish the final solution at the end
-        total_H += target.status.H * target.status.leaf_area
-        total_E += λE_to_E(target.status.λE, local_meteo.λ) * target.status.leaf_area
-        total_A += target.status.A * target.status.leaf_area
+        leaf_area = target.status.leaf_area
+        total_rn += target.status.Rn * leaf_area
+        total_lambda_e += target.status.λE * leaf_area
+        total_h += target.status.H * leaf_area
+        total_a += target.status.A * leaf_area
     end
-    return (H=total_H, E=total_E, A=total_A, meteo=local_meteo)
+    return (
+        rn=total_rn / ground_area,
+        lambda_e=total_lambda_e / ground_area,
+        h=total_h / ground_area,
+        a=total_a / ground_area,
+        meteo=local_meteo,
+    )
 end
 
-function _solve_scene_energy_balance!(m::SceneEB, leaf_targets, soil_target, meteo)
-    Tair = meteo.T
-    VPD = vpd_kpa(meteo)
+function gbcanms(wind, zht, z0ht, zpd, tree_height, lai; gbcan_min=0.0123, von_karman=0.41)
+    zpd2 = 0.75 * tree_height
+    z0 = 0.1 * tree_height
+    zstar = max(zht, eps(Float64))
+    wind2 = max(wind, 1.0e-6)
+
+    if zstar <= tree_height
+        wind2 *= exp(0.13155 * (tree_height / zstar - 1.0))
+        zstar = 2.0 * tree_height
+    end
+
+    zstar = max(zstar, zpd2 + z0 + 1.0e-6)
+    windstar = wind2 * von_karman / log((zstar - zpd2) / z0)
+    alpha1 = 1.5
+    zw = zpd2 + alpha1 * (tree_height - zpd2)
+    gbcanmsini = windstar * von_karman / log((zstar - zpd2) / (zw - zpd2))
+    gbcanmsrou = windstar * von_karman / ((zw - tree_height) / (zw - zpd2))
+    canopy_air_ms = max(1.0 / (1.0 / gbcanmsini + 1.0 / gbcanmsrou), gbcan_min)
+
+    alpha = 2.0
+    z0ht2 = 0.01
+    kh = alpha1 * von_karman * windstar * (tree_height - zpd2)
+    soil_denominator = tree_height * exp(alpha) *
+                       (exp(-alpha * z0ht2 / tree_height) - exp(-alpha * (zpd2 + z0) / tree_height))
+    soil_canopy_ms = max(alpha * kh / soil_denominator, 0.0)
+    return (canopy_air_ms=canopy_air_ms, soil_canopy_ms=soil_canopy_ms)
+end
+
+function tvpdcanopcalc(m::SceneEB, fluxes, meteo_above, canopy_meteo, constants)
+    lai = fluxes.lai
+    gbs = gbcanms(
+        meteo_above.Wind,
+        m.zht,
+        m.z0ht,
+        m.zpd,
+        m.tree_height,
+        lai;
+        gbcan_min=m.gbcan_min,
+        von_karman=m.von_karman,
+    )
+    gbcan_ms = gbs.canopy_air_ms
+    tair_above = meteo_above.T
+    vpd_above = max(0.01, meteo_above.VPD)
+    qn = fluxes.rn
+    qe = fluxes.lambda_e
+    rad_interc = get(fluxes, :rad_interc, 0.0)
+    rnettot = qn + rad_interc
+    etot = qe
+    htot = rnettot - etot - m.qc
+    heat_conductance = constants.Cₚ * canopy_meteo.ρ * gbcan_ms
+
+    tair_new = tair_above + htot / heat_conductance
+    tair_new = clamp(tair_new, tair_above - 10.0, tair_above + 10.0)
+
+    vpair_above = e_sat_kpa(tair_above) - vpd_above
+    vpair_canopy = vpair_above + etot * canopy_meteo.γ / heat_conductance
+    vpd_new = max(0.01, e_sat_kpa(tair_new) - vpair_canopy)
+    vpd_new = clamp(vpd_new, max(0.01, vpd_above - 1.5), vpd_above + 1.5)
+    rh_new = clamp(1.0 - vpd_new / e_sat_kpa(tair_new), 0.0, 1.0)
+    return (tair=tair_new, vpd=vpd_new, rh=rh_new, htot=htot, gcanop=gbcan_ms)
+end
+
+function _solve_scene_energy_balance!(m::SceneEB, leaf_targets, soil_target, status, meteo, constants=PlantMeteo.Constants())
+    tair_above = meteo.T
+    vpd_above = max(0.01, meteo.VPD)
+    tair_canopy = tair_above
+    vpd_canopy = vpd_above
     psi_soil = soil_target.status.psi_soil
     final_meteo = meteo
+    last_update = (tair=tair_canopy, vpd=vpd_canopy, rh=meteo.Rh, htot=0.0, gcanop=0.0)
 
     for iter in 1:m.maxiter
         # Run the energy balance of each leaf, and aggregate the fluxes at the canopy scale:
-        fluxes = _run_scene_leaf_targets!(leaf_targets, meteo, Tair, VPD, psi_soil)
+        fluxes = _run_scene_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, psi_soil, m.ground_area)
+        fluxes = merge(fluxes, (lai=status.lai, rad_interc=0.0))
         # Update the canopy-scale meteo based on the leaf fluxes, and check for convergence:
-        Tnew = meteo.T + 0.30 * fluxes.H / max(length(leaf_targets), 1)
-        VPDnew = max(0.02, vpd_kpa(meteo) + 0.04 * (Tnew - meteo.T) - 0.30 * fluxes.E)
         final_meteo = fluxes.meteo
-        if abs(Tnew - Tair) < m.tol_T && abs(VPDnew - VPD) < m.tol_VPD
-            Tair = Tnew
-            VPD = VPDnew
-            return SceneEBSolverResult(Tair, VPD, psi_soil, _scene_leaf_meteo(meteo, Tair, VPD), iter)
+        update = tvpdcanopcalc(m, fluxes, meteo, final_meteo, constants)
+        last_update = update
+        if abs(update.tair - tair_canopy) < m.tol_t && abs(update.vpd - vpd_canopy) < m.tol_vpd
+            tair_canopy = update.tair
+            vpd_canopy = update.vpd
+            return SceneEBSolverResult(
+                tair_canopy,
+                vpd_canopy,
+                update.rh,
+                psi_soil,
+                _scene_leaf_meteo(meteo, tair_canopy, vpd_canopy),
+                iter,
+                update.htot,
+                update.gcanop,
+                status.lai,
+            )
         end
-        Tair = mean(Tair, Tnew) # take the average to help convergence
-        VPD = mean(VPD, VPDnew)
+        tair_canopy = 0.5 * (tair_canopy + update.tair) # take the average to help convergence
+        vpd_canopy = 0.5 * (vpd_canopy + update.vpd)
     end
 
     error(
         "SceneEB did not converge after $(m.maxiter) iterations ",
-        "(tol_T=$(m.tol_T), tol_VPD=$(m.tol_VPD))."
+        "(tol_t=$(m.tol_t), tol_vpd=$(m.tol_vpd), ",
+        "last_tair=$(last_update.tair), last_vpd=$(last_update.vpd))."
     )
 end
 
-function _publish_scene_leaf_solution!(leaf_targets, solution::SceneEBSolverResult, meteo)
+function _publish_scene_leaf_solution!(leaf_targets, solution::SceneEBSolverResult, meteo, ground_area)
     fluxes = _run_scene_leaf_targets!(
         leaf_targets,
         meteo,
-        solution.Tair,
-        solution.VPD,
-        solution.psi_soil;
+        solution.tair,
+        solution.vpd,
+        solution.psi_soil,
+        ground_area;
         publish=true,
     )
     for target in leaf_targets
@@ -162,15 +321,18 @@ end
 function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
     leaf_targets = dependency_targets(extra, :energy_balance)
     soil_target = only(dependency_targets(extra, :soil))
-    solution = _solve_scene_energy_balance!(m, leaf_targets, soil_target, meteo)
-    fluxes = _publish_scene_leaf_solution!(leaf_targets, solution, meteo)
-    transpiration_mm = fluxes.E * duration_seconds(meteo) * 18.0e-6
+    solution = _solve_scene_energy_balance!(m, leaf_targets, soil_target, status, meteo, constants)
+    fluxes = _publish_scene_leaf_solution!(leaf_targets, solution, meteo, m.ground_area)
+    transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
     psi_soil = _run_scene_soil_feedback!(soil_target, transpiration_mm)
 
-    status.canopy_Tair = solution.Tair
-    status.canopy_VPD = solution.VPD
+    status.canopy_tair = solution.tair
+    status.canopy_vpd = solution.vpd
+    status.canopy_rh = solution.rh
+    status.canopy_htot = solution.htot
+    status.canopy_gcanop = solution.gcanop
     status.scene_transpiration = transpiration_mm
-    status.scene_assimilation = fluxes.A
+    status.scene_assimilation = fluxes.a
     status.psi_soil = psi_soil
     status.iterations = solution.iterations
     return nothing
@@ -272,16 +434,37 @@ function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
         ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStepModel(Dates.Hour(1)),
         status=(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0),
     )
+    ground_area = scene_model.ground_area
     scene = ModelMapping(
+        ModelSpec(LAIModel(ground_area)) |> TimeStepModel(Dates.Day(1)),
         ModelSpec(scene_model) |> TimeStepModel(Dates.Hour(1)),
-        status=(canopy_Tair=20.0, canopy_VPD=1.0, scene_transpiration=0.0, scene_assimilation=0.0, psi_soil=-0.1, iterations=0),
+        status=(
+            leaf_areas=[0.0],
+            leaf_area=0.0,
+            lai=0.0,
+            canopy_tair=20.0,
+            canopy_vpd=1.0,
+            canopy_rh=0.7,
+            canopy_htot=0.0,
+            canopy_gcanop=0.0,
+            scene_transpiration=0.0,
+            scene_assimilation=0.0,
+            psi_soil=-0.1,
+            iterations=0,
+        ),
+    )
+    leaf_area_route = Route(
+        from=AllDomains(kind=:plant, scale=:Leaf, process=:leaf_state, var=:leaf_area),
+        to=DomainRouteTarget(:scene, var=:leaf_areas, process=:lai_dynamic),
+        cardinality=ManyToOneVector(),
     )
 
     return SimulationMapping(
         Domain(:plant_A, plant_a; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :A)),
         Domain(:plant_B, plant_b; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :B)),
         Domain(:soil, soil; kind=:soil),
-        Domain(:scene, scene; kind=:scene),
+        Domain(:scene, scene; kind=:scene);
+        routes=(leaf_area_route,),
     )
 end
 
