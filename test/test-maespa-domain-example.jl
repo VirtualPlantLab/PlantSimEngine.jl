@@ -106,7 +106,7 @@ end
 
     m = SceneEB(25, 0.03, 0.005; ground_area=2.0)
 
-    low_wind = gbcanms(0.0, m.zht, m.z0ht, m.zpd, m.tree_height, 0.75; gbcan_min=m.gbcan_min, von_karman=m.von_karman)
+    low_wind = gbcanms(0.0, m.zht, m.tree_height; gbcan_min=m.gbcan_min, von_karman=m.von_karman)
     @test low_wind.canopy_air_ms ≈ m.gbcan_min
     @test isfinite(low_wind.soil_canopy_ms)
 
