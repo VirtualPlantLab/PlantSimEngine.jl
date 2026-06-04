@@ -45,7 +45,7 @@ end
     meteo = maespa_meteo(; nhours=1)
 
     soil_mapping = ModelMapping(
-        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75, true)) |> TimeStepModel(Dates.Hour(1)),
+        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStepModel(Dates.Hour(1)),
         status=(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0),
     )
     scene_mapping = ModelMapping(
