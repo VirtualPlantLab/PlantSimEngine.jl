@@ -26,7 +26,6 @@ function _find_ancestor_by_symbol(node, target::Symbol)
     end
     return nothing
 end
-_find_ancestor_by_symbol(node, target::AbstractString) = _find_ancestor_by_symbol(node, Symbol(target))
 
 function _scope_from_builtin(selector::Symbol, node, scale::Symbol, process::Symbol)
     if selector == :global
@@ -60,12 +59,10 @@ function _scope_from_selector_result(result, node, scale::Symbol, process::Symbo
         return result
     elseif result isa Symbol
         return _scope_from_builtin(result, node, scale, process)
-    elseif result isa AbstractString
-        return _scope_from_builtin(Symbol(result), node, scale, process)
     end
 
     error(
-        "Scope selector for process `$(process)` at scale `$(scale)` must return `ScopeId`, `Symbol`, or `String`, ",
+        "Scope selector for process `$(process)` at scale `$(scale)` must return `ScopeId` or `Symbol`, ",
         "got `$(typeof(result))`."
     )
 end
@@ -75,8 +72,6 @@ function _scope_from_selector(selector, node, scale::Symbol, process::Symbol)
         return selector
     elseif selector isa Symbol
         return _scope_from_builtin(selector, node, scale, process)
-    elseif selector isa AbstractString
-        return _scope_from_builtin(Symbol(selector), node, scale, process)
     elseif selector isa Function
         result = if applicable(selector, node, scale, process)
             selector(node, scale, process)

@@ -7,7 +7,7 @@ model and the nodes symbols from which the values are taken from.
 # Arguments
 
 - `model<:AbstractModel`: the model to make multi-scale
-- `mapped_variables<:Vector{Pair{Symbol,Union{Symbol,AbstractString,Vector{<:Union{Symbol,AbstractString}}}}}`:
+- `mapped_variables<:Vector{Pair{Symbol,Union{Symbol,Vector{Symbol}}}}`:
   a vector of pairs of model variables and source scale declarations.
 
 The mapped_variables argument can be of the form:
@@ -18,7 +18,7 @@ The mapped_variables argument can be of the form:
 4. `[:variable_name => (:Plant => :variable_name_in_plant_scale)]`: We take one value from another variable name in the Plant node
 5. `[:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]`: We take a vector of values from the Leaf and Internode nodes with different names
 6. `[PreviousTimeStep(:variable_name) => ...]`: We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
-7. `[:variable_name => (Symbol() => :variable_name_from_another_model)]`: We take the value from another model at the same scale but rename it
+7. `[:variable_name => (SameScale() => :variable_name_from_another_model)]`: We take the value from another model at the same scale but rename it
 8. `[PreviousTimeStep(:variable_name),]`: We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
 Details about the different forms:
@@ -101,15 +101,7 @@ julia> PlantSimEngine.model_(multiscale_model)
 ToyCAllocationModel()
 ```
 """
-struct MultiScaleModel{
-    T<:AbstractModel,
-    V<:AbstractVector{
-        Pair{
-            A,
-            Union{Pair{Symbol,Symbol},Vector{Pair{Symbol,Symbol}}}
-        }
-    } where {A<:Union{Symbol,PreviousTimeStep}}
-}
+struct MultiScaleModel{T<:AbstractModel,V<:AbstractVector}
     model::T
     mapped_variables::V
 
@@ -135,11 +127,11 @@ struct MultiScaleModel{
         # 4. `[:variable_name => (:Plant => :variable_name_in_plant_scale)]` # We take one value from another variable name in the Plant node
         # 5. `[:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]` # We take a vector of values from the Leaf and Internode nodes with different names
         # 6. `[PreviousTimeStep(:variable_name) => ...]` # We flag the variable to be initialized with the value from the previous time step, and we do not use it to build the dep graph
-        # 7. `[:variable_name => (Symbol("") => :variable_name_from_another_model)]` # We take the value from another model at the same scale but rename it
+        # 7. `[:variable_name => (SameScale() => :variable_name_from_another_model)]` # We take the value from another model at the same scale but rename it
         # 8. `[PreviousTimeStep(:variable_name),]` # We just flag the variable as a PreviousTimeStep to not use it to build the dep graph
 
         process_ = process(model)
-        unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Union{Pair{Symbol,Symbol},Vector{Pair{Symbol,Symbol}}}}[]
+        unfolded_mapping = Pair{Union{Symbol,PreviousTimeStep},Any}[]
         for i in mapped_variables
             push!(unfolded_mapping, _get_var(isa(i, PreviousTimeStep) ? i : Pair(i.first, i.second), process_))
             # Note: We are using Pair(i.first, i.second) to make sure the Pair is specialized enough, because sometimes the vector in the mapping made the Pair not specialized enough e.g. [:v1 => :S => :v2,:v3 => :S] makes the pairs `Pair{Symbol, Any}`.
@@ -154,35 +146,25 @@ function _get_var(i::Pair{Symbol,Any}, proc::Symbol=:unknown)
     return _get_var(first(i) => last(i), proc)
 end
 
-@noinline function _warn_multiscale_model_string_scale()
-    Base.depwarn(
-        "String scale names in `MultiScaleModel(mapped_variables=...)` are deprecated and will be removed in a future release. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`.",
-        :MultiScaleModel
-    )
+function _normalize_mapped_scale(scale::Symbol)
+    scale === Symbol("") && error("`Symbol(\"\")` same-scale mappings are removed. Use `SameScale()` instead.")
+    return scale
+end
+_normalize_mapped_scale(scale::SameScale) = scale
+function _normalize_mapped_scale(scale)
+    error("Mapped scale names must be `Symbol`s, got `$(typeof(scale))` for `$(repr(scale))`.")
 end
 
-_normalize_mapped_scale(scale::Symbol) = scale
-function _normalize_mapped_scale(scale::AbstractString)
-    _warn_multiscale_model_string_scale()
-    return Symbol(scale)
-end
-
-# Case 1: [:variable_name => :Plant] (deprecated, coerced to symbol scale)
-function _get_var(i::Pair{Symbol,S}, proc::Symbol=:unknown) where {S<:AbstractString}
-    scale = _normalize_mapped_scale(last(i))
-    return first(i) => scale => first(i)
-end
-
-function _get_var(i::Pair{Symbol,Pair{S,Symbol}}, proc::Symbol=:unknown) where {S<:Union{AbstractString,Symbol}}
+function _get_var(i::Pair{Symbol,Pair{T,Symbol}}, proc::Symbol=:unknown) where {T<:Union{Symbol,SameScale}}
     return first(i) => (_normalize_mapped_scale(first(last(i))) => last(last(i)))
 end
 
-function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Union{AbstractString,Symbol}}}
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Symbol}}
     return first(i) => [_normalize_mapped_scale(scale) => first(i) for scale in last(i)]
 end
 
 # Case 5: [:variable_name => [:Leaf => :variable_name_1, :Internode => :variable_name_2]]
-function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Pair{<:Union{AbstractString,Symbol},Symbol}}}
+function _get_var(i::Pair{Symbol,T}, proc::Symbol=:unknown) where {T<:AbstractVector{<:Pair{Symbol,Symbol}}}
     return first(i) => [_normalize_mapped_scale(first(mapping)) => last(mapping) for mapping in last(i)]
 end
 
@@ -199,7 +181,7 @@ end
 
 # Case 8: [PreviousTimeStep(:variable_name),]
 function _get_var(i::PreviousTimeStep, proc::Symbol=:unknown)
-    return PreviousTimeStep(i.variable, proc) => Symbol("") => i.variable
+    return PreviousTimeStep(i.variable, proc) => SameScale() => i.variable
 end
 
 

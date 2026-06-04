@@ -97,9 +97,9 @@ function Base.setindex!(s::StatusView, value, name)
 end
 
 Base.keys(::StatusView{names}) where {names} = names
-Base.values(s::StatusView) = getindex.(values(getfield(s, :vars)))
-Base.NamedTuple(mnt::StatusView) = NamedTuple{keys(mnt)}(values(mnt))
-Base.Tuple(mnt::StatusView) = values(mnt)
+Base.values(s::StatusView) = _status_values(s)
+Base.NamedTuple(mnt::StatusView) = _status_namedtuple(mnt)
+Base.Tuple(mnt::StatusView) = _status_tuple(mnt)
 
 function Base.show(io::IO, s::StatusView)
     length(s) == 0 && return
@@ -138,10 +138,10 @@ end
 Base.propertynames(::StatusView{T,R}) where {T,R} = T
 Base.length(mnt::StatusView) = length(getfield(mnt, :vars))
 Base.eltype(::Type{StatusView{T}}) where {T} = T
-Base.iterate(mnt::StatusView, iter=1) = iterate(NamedTuple(mnt), iter)
-Base.firstindex(mnt::StatusView) = 1
-Base.lastindex(mnt::StatusView) = lastindex(NamedTuple(mnt))
+Base.iterate(mnt::StatusView, iter=1) = _status_iterate(mnt, iter)
+Base.firstindex(mnt::StatusView) = _status_firstindex(mnt)
+Base.lastindex(mnt::StatusView) = _status_lastindex(mnt)
 
 function Base.indexed_iterate(mnt::StatusView, i::Int, state=1)
-    Base.indexed_iterate(NamedTuple(mnt), i, state)
+    _status_indexed_iterate(mnt, i, state)
 end

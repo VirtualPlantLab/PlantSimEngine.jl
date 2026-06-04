@@ -66,7 +66,6 @@ PlantSimEngine.TimeStepDependencyTrait(::Type{<:GeneratedStatusVectorModel}) = P
 function replace_mapping_status_vectors_with_generated_models(mapping_with_vectors_in_status, timestep_model_organ_level, nsteps)
     timestep_model_organ_level = _normalize_scale(
         timestep_model_organ_level;
-        warn=timestep_model_organ_level isa AbstractString,
         context=:ModelMapping
     )
     
@@ -78,7 +77,7 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
 
     # we are now certain a model will be generated, and that the timestep models need to be inserted
     mapping = Dict(
-        _normalize_scale(organ; warn=organ isa AbstractString, context=:ModelMapping) => models
+        _normalize_scale(organ; context=:ModelMapping) => models
         for (organ, models) in mapping_with_vectors_in_status
     )
     for (organ,models) in mapping
@@ -129,8 +128,8 @@ function replace_mapping_status_vectors_with_generated_models(mapping_with_vecto
 end
 
 function generate_model_from_status_vector_variable(mapping, timestep_scale, status, organ, nsteps)
-    timestep_scale = _normalize_scale(timestep_scale; warn=timestep_scale isa AbstractString, context=:ModelMapping)
-    organ = _normalize_scale(organ; warn=organ isa AbstractString, context=:ModelMapping)
+    timestep_scale = _normalize_scale(timestep_scale; context=:ModelMapping)
+    organ = _normalize_scale(organ; context=:ModelMapping)
 
     # Ah, another point that remains to be seen is that those CSV.SentinelArrays.ChainedVector obtained from the meteo file isn't an AbstractVector
     # meaning currently we won't generate models from them unless the conversion is made before that
@@ -279,5 +278,5 @@ function check_statuses_contain_no_remaining_vectors(mapping)
             end
         end
     end
-    return (Symbol(""), true)
+    return (nothing, true)
 end

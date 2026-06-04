@@ -7,6 +7,8 @@ Extract a symbol variable name from dependency graph variable descriptors
 function _symbol_from_dependency_var(x)
     if x isa Symbol
         return x
+    elseif x isa ProducerVariable
+        return x.input
     elseif x isa PreviousTimeStep
         return x.variable
     elseif x isa MappedVar
@@ -17,10 +19,20 @@ function _symbol_from_dependency_var(x)
     end
 end
 
+function _source_symbol_from_dependency_var(x)
+    if x isa ProducerVariable
+        return x.source
+    elseif x isa MappedVar
+        sv = source_variable(x)
+        return sv isa PreviousTimeStep ? sv.variable : sv
+    end
+    return _symbol_from_dependency_var(x)
+end
+
 """
     _push_candidate_producer!(candidates, process_key, vars, input_var)
 
-Append producer candidates `(process, input_var)` when `vars` contains
+Append producer candidates `(process, source_var)` when `vars` contains
 `input_var`.
 """
 function _push_candidate_producer!(candidates::Vector{Tuple{Symbol,Symbol}}, process_key, vars, input_var::Symbol)
@@ -29,7 +41,8 @@ function _push_candidate_producer!(candidates::Vector{Tuple{Symbol,Symbol}}, pro
         s = _symbol_from_dependency_var(v)
         isnothing(s) && continue
         if s == input_var
-            push!(candidates, (process, input_var))
+            source = _source_symbol_from_dependency_var(v)
+            source isa Symbol && push!(candidates, (process, source))
         end
     end
 end
@@ -78,8 +91,13 @@ function _parse_input_binding(binding)
         var = haskey(binding, :var) ? binding.var : nothing
         scale = if haskey(binding, :scale)
             sc = binding.scale
-            isnothing(sc) ? nothing :
-            (sc isa AbstractString ? _normalize_scale(sc; warn=true, context=:ModelSpec) : sc)
+            if isnothing(sc)
+                nothing
+            elseif sc isa Symbol
+                sc
+            else
+                error("Input binding scale must be a `Symbol`, got `$(typeof(sc))` for `$(repr(sc))`.")
+            end
         else
             nothing
         end

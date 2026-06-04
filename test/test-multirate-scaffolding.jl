@@ -1,5 +1,6 @@
 using PlantSimEngine
 using PlantSimEngine.Examples
+using MultiScaleTreeGraph
 using Test
 
 @testset "Multi-rate scaffolding" begin
@@ -20,6 +21,16 @@ using Test
     @test output_routing(ModelSpec(m)) == NamedTuple()
     @test model_scope(ModelSpec(m)) == :global
     @test updates(ModelSpec(m)) == ()
+    @test_throws "String scope selectors are not supported" ModelSpec(m; scope="plant")
+    @test_throws "String scope selectors are not supported" ScopeModel("plant")(m)
+
+    scope_node = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
+    @test_throws "must return `ScopeId` or `Symbol`" PlantSimEngine._scope_from_selector(
+        (node, scale, process) -> "plant",
+        scope_node,
+        :Leaf,
+        :process1,
+    )
 
     mapping = Dict(:Leaf => (m,))
     resolved_specs = resolved_model_specs(mapping)

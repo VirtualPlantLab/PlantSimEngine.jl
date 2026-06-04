@@ -77,7 +77,7 @@ function reverse_mapping(mapping::AbstractDict{Symbol,T}; all=true) where {T<:An
 end
 
 function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
-    reverse_multiscale_mapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}(org => Dict{Symbol,Dict{Symbol,Any}}() for org in keys(mapped_vars))
+    reverse_multiscale_mapping = ReverseMultiscaleMapping(org => Dict{Symbol,Dict{Symbol,Symbol}}() for org in keys(mapped_vars))
     for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (var, val) in vars # e.g. var = :Rm_organs; val = vars[var]
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && (all || !isa(val, MappedVar{SingleNodeMapping}))
@@ -90,16 +90,15 @@ function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
                 if mapped_orgs isa Symbol
                     mapped_orgs = [mapped_orgs]
                 elseif mapped_orgs isa AbstractString
-                    mapped_orgs = [_normalize_scale(mapped_orgs; warn=true, context=:ModelMapping)]
+                    error("String scale names are removed. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`.")
                 end
 
                 for mapped_o in mapped_orgs # e.g.: mapped_o = :Leaf
-                    mapped_o == Symbol("") && continue
                     # if !haskey(reverse_multiscale_mapping, mapped_o)
                     #     reverse_multiscale_mapping[mapped_o] = Dict{Symbol,Vector{MappedVar}}()
                     # end
                     if !haskey(reverse_multiscale_mapping[mapped_o], organ)
-                        reverse_multiscale_mapping[mapped_o][organ] = Dict{Symbol,Any}(source_variable(val, mapped_o) => mapped_variable(val))
+                        reverse_multiscale_mapping[mapped_o][organ] = Dict{Symbol,Symbol}(source_variable(val, mapped_o) => mapped_variable(val))
                     end
                     push!(reverse_multiscale_mapping[mapped_o][organ], source_variable(val, mapped_o) => mapped_variable(val))
                 end

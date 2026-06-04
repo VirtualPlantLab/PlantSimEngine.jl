@@ -12,19 +12,16 @@ Check if the dependency graph is cyclic.
 Return a boolean indicating if the graph is cyclic, and the stack of nodes as a vector.
 """
 function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, warn=true)
-    visited = Dict{Pair{Any,Symbol},Bool}()
-    recursion_stack = Dict{Pair{Any,Symbol},Bool}()
-    for node in values(dependency_graph.roots)
-        visited[node.value=>node.scale] = false
-        recursion_stack[node.value=>node.scale] = false
-    end
+    visited = IdDict{Any,Bool}()
+    recursion_stack = IdDict{Any,Bool}()
 
     for (root, node) in dependency_graph.roots
-        cycle_vec = Vector{Pair{Any,Symbol}}()
-        if is_graph_cyclic_(node, visited, recursion_stack, cycle_vec)
+        cycle_nodes = Any[]
+        if is_graph_cyclic_(node, visited, recursion_stack, cycle_nodes)
+            cycle_vec = _cycle_report_nodes(cycle_nodes)
 
             if full_stack
-                push!(cycle_vec, node.value => node.scale)
+                push!(cycle_vec, _cycle_report_node(node))
             else
                 # Keep just the cycle (the first node in the vector is the one that makes a cycle, we just detect the second time it happens on the stack):
                 cycled_nodes = findall(x -> x == cycle_vec[1], cycle_vec)
@@ -41,24 +38,25 @@ function is_graph_cyclic(dependency_graph::DependencyGraph; full_stack=false, wa
 end
 
 function is_graph_cyclic_(node, visited, recursion_stack, cycle_vec)
-    node_id = node.value => node.scale
-    visited[node_id] = true
-    recursion_stack[node_id] = true
+    visited[node] = true
+    recursion_stack[node] = true
 
     for child in node.children
-        child_id = child.value => child.scale
-        if !haskey(visited, child_id) && is_graph_cyclic_(child, visited, recursion_stack, cycle_vec)
-            push!(cycle_vec, child_id)
+        if !haskey(visited, child) && is_graph_cyclic_(child, visited, recursion_stack, cycle_vec)
+            push!(cycle_vec, child)
             return true
-        elseif haskey(recursion_stack, child_id) && recursion_stack[child_id]
-            push!(cycle_vec, child_id)
+        elseif get(recursion_stack, child, false)
+            push!(cycle_vec, child)
             return true
         end
     end
 
-    recursion_stack[node_id] = false
+    recursion_stack[node] = false
     return false
 end
+
+_cycle_report_node(node) = node.value => node.scale
+_cycle_report_nodes(nodes) = Pair{Any,Symbol}[_cycle_report_node(node) for node in nodes]
 
 function print_cycle(cycle_vec)
     printed_cycle = Any[Term.RenderableText(string("{bold red}", last(cycle_vec[1]), ": ", typeof(first(cycle_vec[1]))))]

@@ -435,6 +435,21 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_ok.temporal_state.caches[key_dir].v == 10.0
     @test sim_ok.temporal_state.caches[key_auto].v == 10.0
 
+    mapping_renamed_auto = ModelMapping(
+        :Leaf => MRSourceModel(),
+        :Plant => (
+            ModelSpec(MRConsumerModel()) |>
+            MultiScaleModel([:C => (:Leaf => :S)]) |>
+            TimeStepModel(ClockSpec(1.0, 0.0)),
+        ),
+    )
+    sim_renamed_auto = PlantSimEngine.GraphSimulation(mtg, mapping_renamed_auto, nsteps=1, check=true)
+    consumer_node = only(filter(
+        n -> n.scale == :Plant && n.process == :mrconsumer,
+        PlantSimEngine.traverse_dependency_graph(dep(sim_renamed_auto), false),
+    ))
+    @test PlantSimEngine._candidate_producers(consumer_node, :C) == [(:mrsource, :S)]
+
     mapping_conflict = ModelMapping(
         :Leaf => (
             ModelSpec(MRConflict1Model()) |> TimeStepModel(1.0),

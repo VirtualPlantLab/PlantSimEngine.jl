@@ -54,7 +54,7 @@ end
     ) === nothing
 
     @test PlantSimEngine.validate_meteo_inputs(
-        Dict("Leaf" => (MeteoTraitConsumerModel(),)),
+        Dict(:Leaf => (MeteoTraitConsumerModel(),)),
         (T=20.0, CO2=410.0, duration=Dates.Hour(1))
     ) === nothing
 end

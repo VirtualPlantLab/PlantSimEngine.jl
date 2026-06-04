@@ -36,6 +36,7 @@ include("doc_templates/mtg-related.jl")
 
 # Models:
 include("Abstract_model_structs.jl")
+include("mtg/node_mapping_types.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
@@ -130,7 +131,7 @@ export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCa
 export TemporalState
 export OutputRequest, collect_outputs
 export effective_rate_summary
-export ModelList, MultiScaleModel, ModelMapping, ModelSpec, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export ModelList, MultiScaleModel, ModelMapping, ModelSpec, SameScale, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
 export Domain, SimulationMapping, DomainSimulation, DomainModelKey, AllDomains, HardDomains
 export Route, DomainRouteTarget, RouteCardinality

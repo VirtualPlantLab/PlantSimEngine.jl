@@ -11,22 +11,7 @@ function _prepare_meteo_sampler(meteo)
 end
 
 function _runtime_meteo_window(window)
-    if isnothing(window)
-        return nothing
-    elseif window isa PlantMeteo.AbstractSamplingWindow
-        return window
-    elseif window isa DataType
-        window <: PlantMeteo.AbstractSamplingWindow || error(
-            "Unsupported MeteoWindow type `$(window)`. ",
-            "Use a PlantMeteo sampling-window type/instance."
-        )
-        return window()
-    end
-
-    error(
-        "Unsupported MeteoWindow value `$(window)` of type `$(typeof(window))`. ",
-        "Use a PlantMeteo sampling-window type/instance."
-    )
+    return _normalize_meteo_window(window)
 end
 
 function _meteo_sampling_window(clock::ClockSpec, model_spec)
@@ -42,24 +27,7 @@ function _meteo_sampling_window(clock::ClockSpec, model_spec)
     return window
 end
 
-function _normalize_meteo_reducer(reducer)
-    if reducer isa DataType
-        reducer <: PlantMeteo.AbstractTimeReducer || error(
-            "Unsupported meteo reducer type `$(reducer)`. ",
-            "Use a PlantMeteo reducer type/instance or a callable."
-        )
-        return reducer()
-    elseif reducer isa PlantMeteo.AbstractTimeReducer
-        return reducer
-    elseif reducer isa Function
-        return reducer
-    end
-
-    error(
-        "Unsupported meteo reducer value `$(reducer)` of type `$(typeof(reducer))`. ",
-        "Use a PlantMeteo reducer type/instance or a callable."
-    )
-end
+_normalize_meteo_reducer(reducer) = _normalize_time_reducer(reducer; context="meteo reducer")
 
 function _normalize_meteo_binding_rule(target::Symbol, rule)
     if rule isa NamedTuple
@@ -118,6 +86,47 @@ end
 _meteo_has_field(row, var::Symbol) = hasproperty(row, var)
 _meteo_has_field(row::NamedTuple, var::Symbol) = haskey(row, var)
 
+function _collect_missing_meteo_rows(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, has_meteo_variable)
+    missing_rows = NamedTuple[]
+    for (scale, specs_at_scale) in model_specs
+        for (process, spec) in specs_at_scale
+            required = _raw_meteo_requirements_for_spec(spec)
+            missing = Symbol[var for var in required if !has_meteo_variable(var)]
+            isempty(missing) && continue
+            push!(missing_rows, (scale=scale, process=process, missing=Tuple(missing)))
+        end
+    end
+    return missing_rows
+end
+
+function _format_missing_meteo_rows(missing_rows)
+    return join(
+        [
+            string(row.scale, "/", row.process, " missing ", row.missing)
+            for row in missing_rows
+        ],
+        "; "
+    )
+end
+
+function _error_missing_meteo_inputs(missing_rows; subject::AbstractString, noun::AbstractString, target::AbstractString)
+    isempty(missing_rows) && return nothing
+
+    error(
+        subject,
+        " is missing ",
+        noun,
+        " required by model `meteo_inputs_`: ",
+        _format_missing_meteo_rows(missing_rows),
+        ". Add the ",
+        noun,
+        " to ",
+        target,
+        ", declare a `MeteoBindings(source=...)` remapping, ",
+        "or remove the unused meteo input from the model trait."
+    )
+end
+
 """
     validate_meteo_inputs(model_specs, meteo)
 
@@ -131,30 +140,12 @@ function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}},
     row = _first_meteo_row(meteo)
     isnothing(row) && return nothing
 
-    missing_rows = NamedTuple[]
-    for (scale, specs_at_scale) in model_specs
-        for (process, spec) in specs_at_scale
-            required = _raw_meteo_requirements_for_spec(spec)
-            missing = Symbol[var for var in required if !_meteo_has_field(row, var)]
-            isempty(missing) && continue
-            push!(missing_rows, (scale=scale, process=process, missing=Tuple(missing)))
-        end
-    end
-
-    isempty(missing_rows) && return nothing
-
-    details = join(
-        [
-            string(row.scale, "/", row.process, " missing ", row.missing)
-            for row in missing_rows
-        ],
-        "; "
-    )
-    error(
-        "Meteorology is missing fields required by model `meteo_inputs_`: ",
-        details,
-        ". Add the fields to meteo, declare a `MeteoBindings(source=...)` remapping, ",
-        "or remove the unused meteo input from the model trait."
+    missing_rows = _collect_missing_meteo_rows(model_specs, var -> _meteo_has_field(row, var))
+    return _error_missing_meteo_inputs(
+        missing_rows;
+        subject="Meteorology",
+        noun="fields",
+        target="meteo"
     )
 end
 

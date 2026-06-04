@@ -39,7 +39,7 @@ models = ModelMapping(
 df = DataFrame(models)
 ```
 """
-function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelMapping}}
+function DataFrames.DataFrame(components::AbstractVector{<:ModelMapping})
     df = DataFrame[]
     for (k, v) in enumerate(components)
         df_c = DataFrames.DataFrame(v)
@@ -49,7 +49,7 @@ function DataFrames.DataFrame(components::T) where {T<:AbstractArray{<:ModelMapp
     reduce(vcat, df)
 end
 
-function DataFrames.DataFrame(components::T) where {T<:AbstractDict{N,<:ModelMapping} where {N}}
+function DataFrames.DataFrame(components::AbstractDict{<:Any,<:ModelMapping})
     df = DataFrames.DataFrame[]
     for (k, v) in components
         df_c = DataFrames.DataFrame(v)
@@ -64,6 +64,6 @@ end
 
 Implementation of `DataFrame` for a `ModelMapping` model with one time step.
 """
-function DataFrames.DataFrame(components::ModelMapping{T}) where {T}
+function DataFrames.DataFrame(components::ModelMapping)
     DataFrames.DataFrame([NamedTuple(status(components)[1])])
 end

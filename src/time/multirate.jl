@@ -222,6 +222,8 @@ mutable struct AggregateCache{T<:Real} <: OutputCache
     window_start::Float64
 end
 
+const OutputStream = Vector{Tuple{Float64,Any}}
+
 """
     ExportBuffer()
 
@@ -245,6 +247,23 @@ end
 ExportBuffer(scale::Symbol, process::Symbol, var::Symbol) = ExportBuffer(scale, process, var, Int[], Int[], Any[])
 
 """
+    OutputExportPlan
+
+Resolved online output export request used by the multi-rate runtime.
+"""
+struct OutputExportPlan{POL<:SchedulePolicy,C,MS}
+    name::Symbol
+    scale::Symbol
+    var::Symbol
+    process::Symbol
+    policy::POL
+    clock::C
+    model_spec::MS
+    source_dt::Float64
+    source_sample_duration_seconds::Float64
+end
+
+"""
     TemporalState(caches, last_run, streams, producer_horizons, export_plans, export_rows)
     TemporalState()
 
@@ -261,9 +280,9 @@ interpolated policies.
 mutable struct TemporalState{
     C<:AbstractDict{OutputKey,OutputCache},
     L<:AbstractDict{ModelKey,Float64},
-    S<:AbstractDict{OutputKey,Vector{Tuple{Float64,Any}}},
+    S<:AbstractDict{OutputKey,OutputStream},
     H<:AbstractDict{Tuple{Symbol,Symbol,Symbol},Float64},
-    P<:AbstractVector,
+    P<:AbstractVector{<:OutputExportPlan},
     R<:AbstractDict{Symbol,ExportBuffer}
 }
     caches::C
@@ -277,8 +296,8 @@ end
 TemporalState() = TemporalState(
     Dict{OutputKey,OutputCache}(),
     Dict{ModelKey,Float64}(),
-    Dict{OutputKey,Vector{Tuple{Float64,Any}}}(),
+    Dict{OutputKey,OutputStream}(),
     Dict{Tuple{Symbol,Symbol,Symbol},Float64}(),
-    Any[],
+    OutputExportPlan[],
     Dict{Symbol,ExportBuffer}()
 )

@@ -75,11 +75,12 @@ julia> to_initialize(models)
 (process1 = (:var1, :var2), process2 = (:var1,))
 ```
 
-We can now provide values for these variables in the `status` field, and simulate the `ModelList`, 
-*e.g.* for `process3` (coupled with `process1` and `process2`):
+We can now provide values for these variables in the `status` field. Direct
+`run!(::ModelList, ...)` has been removed; wrap the models in a `ModelMapping`
+before running:
 
 ```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3));
+julia> mapping = ModelMapping(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3));
 ```
 
 ```jldoctest 1
@@ -87,7 +88,7 @@ julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
 ```jldoctest 1
-julia> outputs_sim = run!(models,meteo);
+julia> outputs_sim = run!(mapping, meteo);
 ```
 
 ```jldoctest 1
@@ -99,7 +100,7 @@ julia> outputs_sim[:var6]
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
 ```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = ModelMapping(Float64 => Float32));
+julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = Dict(Float64 => Float32));
 ```
 
 We used `type_promotion` to force the status into Float32:

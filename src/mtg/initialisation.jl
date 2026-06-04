@@ -48,6 +48,7 @@ function init_statuses(mtg, mapping, dependency_graph; type_promotion=nothing, v
     MultiScaleTreeGraph.traverse!(mtg) do node # e.g.: node = MultiScaleTreeGraph.get_node(mtg, 5)
         init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init, type_promotion, check=check)
     end
+    reindex_runtime_topology!(statuses, mapped_vars, reverse_multiscale_mapping)
 
     return (; statuses, mapped_vars, reverse_multiscale_mapping, vars_need_init)
 end
@@ -170,6 +171,83 @@ function init_node_status!(node, statuses, mapped_vars, reverse_multiscale_mappi
     node[attribute_name] = st
 
     return st
+end
+
+function _status_sort_key(st::Status)
+    hasproperty(st, :node) || return typemax(Int)
+    return node_id(st.node)
+end
+
+function _sort_statuses_by_node_id!(statuses)
+    for statuses_at_scale in values(statuses)
+        sort!(statuses_at_scale; by=_status_sort_key)
+    end
+    return statuses
+end
+
+function _empty_reverse_refvectors!(status_templates, reverse_multiscale_mapping)
+    for (_, target_scales) in reverse_multiscale_mapping
+        for (target_scale, vars) in target_scales
+            haskey(status_templates, target_scale) || continue
+            target_template = status_templates[target_scale]
+            for (_, target_var_) in vars
+                target_var = target_var_ isa PreviousTimeStep ? target_var_.variable : target_var_
+                haskey(target_template, target_var) || continue
+                target_value = target_template[target_var]
+                target_value isa RefVector || continue
+                empty!(target_value)
+            end
+        end
+    end
+    return nothing
+end
+
+function _rebuild_reverse_refvectors!(statuses, status_templates, reverse_multiscale_mapping)
+    _empty_reverse_refvectors!(status_templates, reverse_multiscale_mapping)
+    refs_by_target = Dict{Tuple{Symbol,Symbol},Vector{Tuple{Int,Base.RefValue}}}()
+    for (source_scale, statuses_at_scale) in statuses
+        haskey(reverse_multiscale_mapping, source_scale) || continue
+        for st in statuses_at_scale
+            for (target_scale, vars) in reverse_multiscale_mapping[source_scale]
+                haskey(status_templates, target_scale) || continue
+                target_template = status_templates[target_scale]
+                for (source_var, target_var_) in vars
+                    source_var in propertynames(st) || continue
+                    target_var = target_var_ isa PreviousTimeStep ? target_var_.variable : target_var_
+                    haskey(target_template, target_var) || continue
+                    target_value = target_template[target_var]
+                    target_value isa RefVector || continue
+                    push!(
+                        get!(refs_by_target, (target_scale, target_var), Tuple{Int,Base.RefValue}[]),
+                        (_status_sort_key(st), refvalue(st, source_var)),
+                    )
+                end
+            end
+        end
+    end
+    for ((target_scale, target_var), refs) in refs_by_target
+        target_value = status_templates[target_scale][target_var]
+        sort!(refs; by=first)
+        for (_, ref) in refs
+            push!(target_value, ref)
+        end
+    end
+    return nothing
+end
+
+function reindex_runtime_topology!(statuses, status_templates, reverse_multiscale_mapping)
+    _sort_statuses_by_node_id!(statuses)
+    _rebuild_reverse_refvectors!(statuses, status_templates, reverse_multiscale_mapping)
+    return nothing
+end
+
+function reindex_runtime_topology!(sim_object)
+    reindex_runtime_topology!(
+        sim_object.statuses,
+        sim_object.status_templates,
+        sim_object.reverse_multiscale_mapping,
+    )
+    return nothing
 end
 
 """

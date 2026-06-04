@@ -79,6 +79,12 @@ out = run!(sim,meteo)
     @test length(mtg) == 9
     @test length(st[:Scene]) == length(st[:Soil]) == length(st[:Plant]) == 1
     @test length(st[:Internode]) == length(st[:Leaf]) == 3
+    @test node_id.(getproperty.(st[:Leaf], :node)) == sort(node_id.(getproperty.(st[:Leaf], :node)))
+    leaf_assimilation_refs = [PlantSimEngine.refvalue(leaf_status, :carbon_assimilation) for leaf_status in st[:Leaf]]
+    @test all(
+        ref_pair -> first(ref_pair) === last(ref_pair),
+        zip(parent(sim.status_templates[:Plant][:carbon_assimilation]), leaf_assimilation_refs),
+    )
     @test st[:Internode][1].TT_cu_emergence == 0.0
     @test st[:Internode][end].TT_cu_emergence == 25.0
 

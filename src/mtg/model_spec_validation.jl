@@ -179,9 +179,9 @@ function _validate_binding_target(
     )
 
     isnothing(source_scale) && return nothing
-    src_scale = source_scale isa AbstractString ?
-                _normalize_scale(source_scale; warn=true, context=:ModelSpec) :
-                source_scale
+    src_scale = source_scale isa Symbol ?
+                source_scale :
+                error("Source scale for input `$(input_var)` in process `$(process)` must be a `Symbol`, got `$(typeof(source_scale))`.")
     haskey(model_specs, src_scale) || error(
         "Unknown source scale `$(src_scale)` for input `$(input_var)` in process `$(process)` at scale `$(scale)`."
     )
@@ -232,9 +232,9 @@ function _validate_input_binding(
         end
 
         if haskey(binding, :scale)
-            isnothing(binding.scale) || binding.scale isa Symbol || binding.scale isa AbstractString || error(
+            isnothing(binding.scale) || binding.scale isa Symbol || error(
                 "Invalid input binding for input `$(input_var)` in process `$(process)` at scale `$(scale)`: ",
-                "`scale` must be a Symbol, String or `nothing`, got `$(typeof(binding.scale))`."
+                "`scale` must be a Symbol or `nothing`, got `$(typeof(binding.scale))`."
             )
             source_scale = binding.scale
         end

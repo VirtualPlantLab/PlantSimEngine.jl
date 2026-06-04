@@ -1,21 +1,6 @@
-"""
-    AbstractNodeMapping
-
-Abstract type for the type of node mapping, *e.g.* single node mapping or multiple node mapping.
-"""
-abstract type AbstractNodeMapping end
-
-@noinline function _warn_string_scale(context::Symbol)
-    Base.depwarn(
-        "String scale names are deprecated and will be removed in a future release. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`.",
-        context
-    )
-end
-
 _normalize_scale(scale::Symbol; warn::Bool=false, context::Symbol=:PlantSimEngine) = scale
-function _normalize_scale(scale::AbstractString; warn::Bool=true, context::Symbol=:PlantSimEngine)
-    warn && _warn_string_scale(context)
-    return Symbol(scale)
+function _normalize_scale(scale; warn::Bool=false, context::Symbol=:PlantSimEngine)
+    error("Scale names must be `Symbol`s, got `$(typeof(scale))` for `$(repr(scale))` in `$context`.")
 end
 
 """
@@ -27,9 +12,6 @@ which means that `:soil_water_content` will be a scalar value taken from the uni
 struct SingleNodeMapping <: AbstractNodeMapping
     scale::Symbol
 end
-
-SingleNodeMapping(scale::Union{Symbol,AbstractString}) =
-    SingleNodeMapping(_normalize_scale(scale; warn=scale isa AbstractString, context=:SingleNodeMapping))
 
 """
     SelfNodeMapping()
@@ -52,11 +34,9 @@ struct MultiNodeMapping <: AbstractNodeMapping
     scale::Vector{Symbol}
 end
 
-MultiNodeMapping(scale::Union{Symbol,AbstractString}) = MultiNodeMapping([scale])
-function MultiNodeMapping(scale::AbstractVector{<:Union{Symbol,AbstractString}})
-    normalized = Symbol[
-        _normalize_scale(s; warn=s isa AbstractString, context=:MultiNodeMapping) for s in scale
-    ]
+MultiNodeMapping(scale::Symbol) = MultiNodeMapping([scale])
+function MultiNodeMapping(scale::AbstractVector{<:Symbol})
+    normalized = Symbol[_normalize_scale(s; context=:MultiNodeMapping) for s in scale]
     return MultiNodeMapping(normalized)
 end
 
@@ -93,6 +73,7 @@ source_organs(m::MappedVar) = m.source_organ
 source_organs(m::MappedVar{O,V1,V2,T}) where {O<:AbstractNodeMapping,V1,V2,T} = nothing
 mapped_organ(m::MappedVar{O,V1,V2,T}) where {O,V1,V2,T} = source_organs(m).scale
 mapped_organ(m::MappedVar{O,V1,V2,T}) where {O<:SelfNodeMapping,V1,V2,T} = nothing
+mapped_organ(m::MappedVar{O,V1,V2,T}) where {O<:SameScale,V1,V2,T} = nothing
 mapped_organ_type(m::MappedVar{O,V1,V2,T}) where {O<:AbstractNodeMapping,V1,V2,T} = O
 source_variable(m::MappedVar) = m.source_variable
 function source_variable(m::MappedVar{O,V1,V2,T}, organ) where {O<:SingleNodeMapping,V1,V2<:Symbol,T}
@@ -113,11 +94,17 @@ mapped_default(m::MappedVar) = m.source_default
 mapped_default(m::MappedVar{O,V1,V2,T}, organ) where {O<:MultiNodeMapping,V1,V2<:Vector{Symbol},T} = m.source_default[findfirst(o -> o == organ, mapped_organ(m))]
 mapped_default(m) = m # For any variable that is not a MappedVar, we return it as is
 
+_is_same_scale_mapping(m::MappedVar) = source_organs(m) isa SameScale
+_is_same_scale_mapping(::Any) = false
+
 # This defines the type of mapping setup: either single or multiscale. Used to dispatch methods for e.g. `dep` or `to_initialize`.
 abstract type AbstractScaleSetup end
 
 struct MultiScale <: AbstractScaleSetup end
 struct SingleScale <: AbstractScaleSetup end
+
+const ModelRateDeclarations = Dict{Symbol,Any}
+const ReverseMultiscaleMapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,Symbol}}}
 
 """
     ModelMappingInfo
@@ -132,7 +119,7 @@ struct ModelMappingInfo
     scales::Vector{Symbol}
     models_per_scale::Dict{Symbol,Int}
     processes_per_scale::Dict{Symbol,Vector{Symbol}}
-    declared_rates::Dict{Symbol,Any}
+    declared_rates::ModelRateDeclarations
     vars_need_init::Any
     model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}
     recommendations::Vector{String}
@@ -146,7 +133,7 @@ function _empty_model_mapping_info()
         Symbol[],
         Dict{Symbol,Int}(),
         Dict{Symbol,Vector{Symbol}}(),
-        Dict{Symbol,Any}(),
+        ModelRateDeclarations(),
         NamedTuple(),
         Dict{Symbol,Dict{Symbol,ModelSpec}}(),
         String[],
@@ -307,20 +294,14 @@ Base.keys(::ModelMapping{SingleScale}) = (:Default,)
 Base.values(mapping::ModelMapping{SingleScale}) = ((values(mapping.data.models)..., status(mapping.data)),)
 Base.pairs(mapping::ModelMapping{SingleScale}) = (:Default => (values(mapping.data.models)..., status(mapping.data)),)
 Base.getindex(mapping::ModelMapping, key::Symbol) = mapping.data[key]
-function Base.getindex(mapping::ModelMapping, key::AbstractString)
-    sym = _normalize_scale(key; warn=true, context=:ModelMapping)
-    return mapping.data[sym]
-end
 function Base.getindex(mapping::ModelMapping{SingleScale}, key::Symbol)
     if key == :Default
         return (values(mapping.data.models)..., status(mapping.data))
     end
     return getindex(mapping.data, key)
 end
-Base.getindex(mapping::ModelMapping{SingleScale}, key::AbstractString) = getindex(mapping, _normalize_scale(key; warn=true, context=:ModelMapping))
 Base.getindex(mapping::ModelMapping{SingleScale}, key::Integer) = getindex(mapping.data, key)
 Base.haskey(mapping::ModelMapping, key::Symbol) = haskey(mapping.data, key)
-Base.haskey(mapping::ModelMapping, key::AbstractString) = haskey(mapping.data, _normalize_scale(key; warn=true, context=:ModelMapping))
 Base.eltype(::Type{ModelMapping}) = Pair{Symbol,Tuple}
 Base.copy(mapping::ModelMapping{MultiScale}) = _build_model_mapping(MultiScale, copy(mapping.data); validated=mapping.info.validated, type_promotion=deepcopy(mapping.type_promotion))
 Base.copy(mapping::ModelMapping{SingleScale}) = _build_model_mapping(SingleScale, copy(mapping.data); validated=mapping.info.validated, type_promotion=deepcopy(mapping.type_promotion))
@@ -372,33 +353,34 @@ mapping and applied when a `GraphSimulation` is initialized.
 """
 function ModelMapping(
     args...;
-    scale::Union{Symbol,AbstractString}=:Default,
+    scale::Symbol=:Default,
     status=nothing,
     type_promotion::Union{Nothing,Dict}=nothing,
     check::Bool=true,
     processes...
 )
     isempty(args) && isempty(processes) && error(
-            "No mapping or model was provided. Use `ModelMapping(\"Scale\" => models)` or pass models directly."
+            "No mapping or model was provided. Use `ModelMapping(:Scale => models)` or pass models directly."
         )
-
-    # Backwards compatibility: allow dict-like construction for type promotion maps,
-    # e.g. `ModelMapping(Float64 => Float32)`.
-    if !isempty(args) && all(arg -> arg isa Pair && !(first(arg) isa Union{AbstractString,Symbol}), args)
-        return Dict(args)
-    end
+    any(arg -> arg isa Pair && first(arg) isa AbstractString, args) && error(
+        "String scale names are removed. Use Symbol scales, e.g. `:Leaf` instead of `\"Leaf\"`."
+    )
+    !isempty(args) && all(arg -> arg isa Pair && !(first(arg) isa Symbol), args) && error(
+        "`ModelMapping(Float64 => Float32)` type-promotion shorthand is removed. ",
+        "Use `Dict(Float64 => Float32)` as the `type_promotion` value."
+    )
 
     if _all_scale_pairs(args)
         isempty(processes) || error(
             "Cannot mix scale-level pairs with process keyword arguments. ",
-            "Use either `\"Scale\" => models` pairs, or single-scale process/model arguments."
+            "Use either `:Scale => models` pairs, or single-scale process/model arguments."
         )
         isnothing(status) || error(
             "`status` cannot be used with scale-level pair syntax. ",
             "Provide statuses inside each scale mapping instead."
         )
         raw_mapping = Dict{Symbol,Any}(
-            _normalize_scale(first(pair); warn=first(pair) isa AbstractString, context=:ModelMapping) => last(pair)
+            _normalize_scale(first(pair); context=:ModelMapping) => last(pair)
             for pair in args
         )
         return ModelMapping{MultiScale}(raw_mapping; check=check, type_promotion=type_promotion)
@@ -460,11 +442,11 @@ type_promotion(::Any) = nothing
 _type_promotion(mapping) = type_promotion(mapping)
 
 function _all_scale_pairs(args)
-    !isempty(args) && all(arg -> arg isa Pair && first(arg) isa Union{AbstractString,Symbol}, args)
+    !isempty(args) && all(arg -> arg isa Pair && first(arg) isa Symbol, args)
 end
 
 function _contains_scale_like_pair(args)
-    any(arg -> arg isa Pair && first(arg) isa Union{AbstractString,Symbol}, args)
+    any(arg -> arg isa Pair && first(arg) isa Symbol, args)
 end
 
 function _single_scale_mapping_entries(args, processes, status)
@@ -496,7 +478,7 @@ function _normalize_multiscale_mapping(mapping::AbstractDict)
     isempty(mapping) && error("ModelMapping cannot be empty. Provide at least one scale with models.")
     normalized = Dict{Symbol,Tuple}()
     for (scale, scale_mapping) in pairs(mapping)
-        scale_name = _normalize_scale(scale; warn=scale isa AbstractString, context=:ModelMapping)
+        scale_name = _normalize_scale(scale; context=:ModelMapping)
         normalized[scale_name] = _normalize_scale_mapping(scale_name, scale_mapping)
     end
     return normalized
@@ -631,19 +613,15 @@ _mapping_item_mapped_variables(::Any) = Pair{Symbol,Symbol}[]
 _mapping_item_model(item::ModelSpec) = model_(item)
 _mapping_item_model(item::MultiScaleModel) = model_(item)
 
-function _as_mapping_scale(source_scale::AbstractString)
-    isempty(source_scale) && return nothing
-    return _normalize_scale(source_scale; warn=true, context=:ModelMapping)
-end
-
 function _as_mapping_scale(source_scale::Symbol)
-    source_scale === Symbol("") && return nothing
-    return _normalize_scale(source_scale; warn=false, context=:ModelMapping)
+    source_scale === Symbol("") && error("`Symbol(\"\")` same-scale mappings are removed. Use `SameScale()` instead.")
+    return _normalize_scale(source_scale; context=:ModelMapping)
 end
+_as_mapping_scale(::SameScale) = nothing
 
-_as_mapping_sources(source::Pair{<:Union{AbstractString,Symbol},Symbol}) =
+_as_mapping_sources(source::Pair{T,Symbol}) where {T<:Union{Symbol,SameScale}} =
     (_as_mapping_scale(first(source)) => last(source),)
-_as_mapping_sources(source::AbstractVector{<:Pair{<:Union{AbstractString,Symbol},Symbol}}) =
+_as_mapping_sources(source::AbstractVector{<:Pair}) =
     Tuple(_as_mapping_scale(first(item)) => last(item) for item in source)
 
 function _available_variables_by_scale(mapping::Dict{Symbol,Tuple})
@@ -682,7 +660,7 @@ function _available_variables_by_scale(mapping::Dict{Symbol,Tuple})
 end
 
 function _declared_model_rates_by_scale(mapping::Dict{Symbol,Tuple})
-    rates = Dict{Symbol,Any}()
+    rates = ModelRateDeclarations()
     for (scale, scale_mapping) in mapping
         declared_rates = unique(filter(!isnothing, map(model_rate, get_models(scale_mapping))))
         if length(declared_rates) > 1
@@ -709,7 +687,7 @@ function _spec_declares_multirate(spec::ModelSpec)
     return false
 end
 
-function _mapping_declares_multirate(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, declared_rates::Dict{Symbol,Any})
+function _mapping_declares_multirate(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, declared_rates::ModelRateDeclarations)
     any(!isnothing, values(declared_rates)) && return true
     for specs_at_scale in values(model_specs), spec in values(specs_at_scale)
         _spec_declares_multirate(spec) && return true
@@ -757,7 +735,7 @@ function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; vali
         )
     )
 
-    declared_rates = Dict{Symbol,Any}(:Default => nothing)
+    declared_rates = ModelRateDeclarations(:Default => nothing)
     vars_need_init = try
         to_initialize(mapping)
     catch
@@ -786,7 +764,7 @@ function _build_model_mapping_info(::Type{MultiScale}, mapping::Dict{Symbol,Tupl
     declared_rates = try
         _declared_model_rates_by_scale(mapping)
     catch
-        Dict{Symbol,Any}(scale => nothing for scale in scales)
+        ModelRateDeclarations(scale => nothing for scale in scales)
     end
     model_specs = try
         _parse_model_specs_from_mapping(mapping)

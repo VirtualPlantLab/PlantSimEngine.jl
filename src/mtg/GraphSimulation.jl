@@ -23,7 +23,7 @@ struct GraphSimulation{T,S,U,O,V,TS,MS}
     graph::T
     statuses::S
     status_templates::Dict{Symbol,Dict{Symbol,Any}}
-    reverse_multiscale_mapping::Dict{Symbol,Dict{Symbol,Dict{Symbol,Any}}}
+    reverse_multiscale_mapping::ReverseMultiscaleMapping
     var_need_init::Dict{Symbol,V}
     dependency_graph::DependencyGraph
     models::Dict{Symbol,U}
@@ -139,15 +139,6 @@ function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, n
         ret[organ] = sink(filtered_vector_named_tuple)
     end
     return ret
-end
-
-# TODO adapt these to new output structure or remove them
-function outputs(outs::Dict{Symbol,O} where O, key::Symbol)
-    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[key]
-end
-
-function outputs(outs::Dict{Symbol,O} where O, i::T) where {T<:Integer}
-    Tables.columns(convert_outputs(outs, Vector{NamedTuple}))[i]
 end
 
 # ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward

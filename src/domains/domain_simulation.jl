@@ -68,7 +68,7 @@ different rate. `AllDomains` does not provide hard-dependency call-stack
 control; use [`HardDomains`](@ref) when the parent model must manually run
 the selected models.
 """
-struct AllDomains{P<:SchedulePolicy}
+struct AllDomains{P<:SchedulePolicy} <: AbstractDomainDependencySelector
     kind::Union{Nothing,Symbol}
     domain::Union{Nothing,Symbol}
     scale::Union{Nothing,Symbol}
@@ -99,7 +99,7 @@ Selector for models that are cross-domain hard dependencies. A model declaring
 can retrieve executable targets with [`dependency_targets`](@ref) and manually
 execute them with [`run_target!`](@ref).
 """
-struct HardDomains
+struct HardDomains <: AbstractDomainDependencySelector
     kind::Union{Nothing,Symbol}
     domain::Union{Nothing,Symbol}
     scale::Union{Nothing,Symbol}
@@ -837,22 +837,7 @@ function _validate_graph_route_order(
     routes::Vector{Route},
     route_bindings::Vector{Vector{DomainModelKey}},
 )
-    ordered_domains = _domain_run_order(mapping)
-    domain_positions = Dict(domain.name => i for (i, domain) in enumerate(ordered_domains))
-    for (i, route) in enumerate(routes)
-        target_domain = _domain_for_name(mapping, route.to.domain)
-        _is_graph_domain(target_domain) || continue
-        target_position = domain_positions[target_domain.name]
-        for producer in route_bindings[i]
-            producer_position = domain_positions[producer.domain]
-            producer_position < target_position || error(
-                "Route $(i) targets MTG-backed domain `$(target_domain.name)` from producer `$(producer)`, ",
-                "but graph-target routes require source domains to run earlier in the same timestep. ",
-                "Move source domain `$(producer.domain)` before target domain `$(target_domain.name)` in the ",
-                "`SimulationMapping`, or route the value through a later single-status scene domain instead."
-            )
-        end
-    end
+    _domain_run_order(mapping, route_bindings)
     return nothing
 end
 
@@ -917,11 +902,70 @@ function _domain_model_specs_by_scale(specs::Dict{DomainModelKey,ModelSpec})
     return by_scale
 end
 
-function _domain_run_order(mapping::SimulationMapping)
-    # Scene-like aggregators should observe plant/soil/environment updates from
-    # the current base step. Keep this simple and explicit for the first runner.
-    indexed_domains = collect(enumerate(mapping.domains))
-    return last.(sort(indexed_domains; by=item -> (last(item).kind == :scene ? 1 : 0, first(item))))
+function _domain_order_edges(mapping::SimulationMapping, route_bindings=nothing)
+    edges = Dict(domain.name => Set{Symbol}() for domain in mapping.domains)
+    non_scene_domains = [domain.name for domain in mapping.domains if domain.kind != :scene]
+    scene_domains = [domain.name for domain in mapping.domains if domain.kind == :scene]
+    for source in non_scene_domains, target in scene_domains
+        source == target || push!(edges[source], target)
+    end
+
+    if !isnothing(route_bindings)
+        for (i, route) in enumerate(mapping.routes)
+            target = route.to.domain
+            for producer in route_bindings[i]
+                producer.domain == target && continue
+                push!(edges[producer.domain], target)
+            end
+        end
+    end
+
+    return edges
+end
+
+function _domain_run_order(mapping::SimulationMapping, route_bindings=nothing)
+    domains_by_name = Dict(domain.name => domain for domain in mapping.domains)
+    declaration_index = Dict(domain.name => i for (i, domain) in enumerate(mapping.domains))
+    edges = _domain_order_edges(mapping, route_bindings)
+    indegree = Dict(domain.name => 0 for domain in mapping.domains)
+    for targets in values(edges), target in targets
+        indegree[target] = get(indegree, target, 0) + 1
+    end
+
+    ready = sort!(
+        [name for (name, degree) in indegree if degree == 0];
+        by=name -> declaration_index[name],
+    )
+    ordered = Symbol[]
+    while !isempty(ready)
+        current = popfirst!(ready)
+        push!(ordered, current)
+        for target in sort!(collect(edges[current]); by=name -> declaration_index[name])
+            indegree[target] -= 1
+            if indegree[target] == 0
+                push!(ready, target)
+                sort!(ready; by=name -> declaration_index[name])
+            end
+        end
+    end
+
+    if length(ordered) != length(mapping.domains)
+        cyclic = sort!(
+            [name for (name, degree) in indegree if degree > 0];
+            by=name -> declaration_index[name],
+        )
+        error(
+            "Cyclic domain run-order constraints detected among domains: ",
+            join((":" * string(name) for name in cyclic), ", "),
+            ". Check route sources/targets and `kind=:scene` phase constraints."
+        )
+    end
+
+    return [domains_by_name[name] for name in ordered]
+end
+
+function _domain_run_order(simulation::DomainSimulation)
+    return _domain_run_order(simulation.mapping, simulation.route_bindings)
 end
 
 function _publish_domain_model_outputs!(
@@ -1169,11 +1213,25 @@ function _find_dependency_node(graph::DependencyGraph, key::DomainModelKey)
     error("No dependency node found for domain model `$(key)`.")
 end
 
+_domain_environment_support(domain::Domain, node::AbstractDependencyNode, status) =
+    EnvironmentSupport(domain.name, node.scale, node.process, status)
+
+_domain_environment_support(key::DomainModelKey, status) =
+    EnvironmentSupport(key.domain, key.scale, key.process, status)
+
+function _sample_domain_environment_at_time(simulation::DomainSimulation, support::EnvironmentSupport, t, model_spec::ModelSpec)
+    return sample_environment(simulation.environment, support, t, model_spec)
+end
+
+function _sample_domain_environment_at_step(simulation::DomainSimulation, support::EnvironmentSupport, step::Int, model_spec::ModelSpec)
+    t = _time_from_step(step, simulation.timeline)
+    return _sample_domain_environment_at_time(simulation, support, t, model_spec)
+end
+
 function _dependency_target_meteo(simulation::DomainSimulation, key::DomainModelKey, st, step::Int)
     spec = simulation.model_specs[key]
-    support = EnvironmentSupport(key.domain, key.scale, key.process, st)
-    t = _time_from_step(step, simulation.timeline)
-    return sample_environment(simulation.environment, support, t, spec)
+    support = _domain_environment_support(key, st)
+    return _sample_domain_environment_at_step(simulation, support, step, spec)
 end
 
 function _single_status_dependency_targets(ctx::DomainRunContext, producer::DomainModelKey)
@@ -1483,9 +1541,21 @@ function _domain_environment_for_model(
     status,
     step::Int
 )
-    support = EnvironmentSupport(domain.name, node.scale, node.process, status)
-    t = _time_from_step(step, simulation.timeline)
-    return sample_environment(simulation.environment, support, t, model_spec)
+    support = _domain_environment_support(domain, node, status)
+    return _sample_domain_environment_at_step(simulation, support, step, model_spec)
+end
+
+function _scatter_domain_environment_outputs_at_time!(
+    simulation::DomainSimulation,
+    domain::Domain,
+    node::AbstractDependencyNode,
+    model_spec::ModelSpec,
+    status,
+    t
+)
+    isempty(keys(meteo_outputs_(model_spec))) && return nothing
+    support = _domain_environment_support(domain, node, status)
+    return scatter_environment_outputs!(simulation.environment, support, t, model_spec, status)
 end
 
 function _scatter_domain_environment_outputs!(
@@ -1496,10 +1566,26 @@ function _scatter_domain_environment_outputs!(
     status,
     step::Int
 )
-    isempty(keys(meteo_outputs_(model_spec))) && return nothing
-    support = EnvironmentSupport(domain.name, node.scale, node.process, status)
     t = _time_from_step(step, simulation.timeline)
-    return scatter_environment_outputs!(simulation.environment, support, t, model_spec, status)
+    return _scatter_domain_environment_outputs_at_time!(simulation, domain, node, model_spec, status, t)
+end
+
+function _scatter_domain_hard_dependency_environment_outputs_at_time!(
+    simulation::DomainSimulation,
+    domain::Domain,
+    node::HardDependencyNode,
+    status,
+    t
+)
+    key = DomainModelKey(domain.name, node.scale, node.process)
+    if haskey(simulation.model_specs, key)
+        spec = simulation.model_specs[key]
+        _scatter_domain_environment_outputs_at_time!(simulation, domain, node, spec, status, t)
+    end
+    for child in node.children
+        _scatter_domain_hard_dependency_environment_outputs_at_time!(simulation, domain, child, status, t)
+    end
+    return nothing
 end
 
 function _scatter_domain_hard_dependency_environment_outputs!(
@@ -1509,15 +1595,8 @@ function _scatter_domain_hard_dependency_environment_outputs!(
     status,
     step::Int
 )
-    key = DomainModelKey(domain.name, node.scale, node.process)
-    if haskey(simulation.model_specs, key)
-        spec = simulation.model_specs[key]
-        _scatter_domain_environment_outputs!(simulation, domain, node, spec, status, step)
-    end
-    for child in node.children
-        _scatter_domain_hard_dependency_environment_outputs!(simulation, domain, child, status, step)
-    end
-    return nothing
+    t = _time_from_step(step, simulation.timeline)
+    return _scatter_domain_hard_dependency_environment_outputs_at_time!(simulation, domain, node, status, t)
 end
 
 function _graph_domain_environment_for_model(
@@ -1535,8 +1614,8 @@ function _graph_domain_environment_for_model(
     if simulation.environment isa GlobalConstant
         return multirate ? _sample_meteo_for_model(meteo_sampler, meteo, round(Int, t), model_clock, model_spec) : meteo
     end
-    support = EnvironmentSupport(domain.name, node.scale, node.process, status)
-    return sample_environment(simulation.environment, support, t, model_spec)
+    support = _domain_environment_support(domain, node, status)
+    return _sample_domain_environment_at_time(simulation, support, t, model_spec)
 end
 
 function _scatter_graph_domain_environment_outputs!(
@@ -1547,9 +1626,7 @@ function _scatter_graph_domain_environment_outputs!(
     status,
     t
 )
-    isempty(keys(meteo_outputs_(model_spec))) && return nothing
-    support = EnvironmentSupport(domain.name, node.scale, node.process, status)
-    return scatter_environment_outputs!(simulation.environment, support, t, model_spec, status)
+    return _scatter_domain_environment_outputs_at_time!(simulation, domain, node, model_spec, status, t)
 end
 
 function _scatter_graph_domain_hard_dependency_environment_outputs!(
@@ -1559,15 +1636,7 @@ function _scatter_graph_domain_hard_dependency_environment_outputs!(
     status,
     t
 )
-    key = DomainModelKey(domain.name, node.scale, node.process)
-    if haskey(simulation.model_specs, key)
-        spec = simulation.model_specs[key]
-        _scatter_graph_domain_environment_outputs!(simulation, domain, node, spec, status, t)
-    end
-    for child in node.children
-        _scatter_graph_domain_hard_dependency_environment_outputs!(simulation, domain, child, status, t)
-    end
-    return nothing
+    return _scatter_domain_hard_dependency_environment_outputs_at_time!(simulation, domain, node, status, t)
 end
 
 function _domain_node_due(simulation::DomainSimulation, domain::Domain, node::SoftDependencyNode, step::Int)
@@ -1598,6 +1667,12 @@ function _has_hard_domain_parent(simulation::DomainSimulation, domain::Domain, n
     return false
 end
 
+function _phase_allows_hard_parent(phase::Symbol, has_hard_parent::Bool)
+    phase == :normal && return !has_hard_parent
+    phase == :post_scene && return has_hard_parent
+    error("Unknown domain scheduling phase `$(phase)`.")
+end
+
 function _should_visit_domain_node(
     simulation::DomainSimulation,
     domain::Domain,
@@ -1607,9 +1682,7 @@ function _should_visit_domain_node(
     key = DomainModelKey(domain.name, node.scale, node.process)
     _is_hard_domain_dependency(simulation, key) && return false
     has_hard_parent = _has_hard_domain_parent(simulation, domain, node)
-    phase == :normal && return !has_hard_parent
-    phase == :post_scene && return has_hard_parent
-    error("Unknown domain scheduling phase `$(phase)`.")
+    return _phase_allows_hard_parent(phase, has_hard_parent)
 end
 
 function _has_hard_domain_parent(simulation::DomainSimulation, domain::Domain, key::DomainModelKey)
@@ -1639,9 +1712,7 @@ function _should_publish_domain_key(
     _has_domain_soft_node(simulation, domain, key) || return false
     _is_hard_domain_dependency(simulation, key) && return false
     has_hard_parent = _has_hard_domain_parent(simulation, domain, key)
-    phase == :normal && return !has_hard_parent
-    phase == :post_scene && return has_hard_parent
-    error("Unknown domain publishing phase `$(phase)`.")
+    return _phase_allows_hard_parent(phase, has_hard_parent)
 end
 
 function _domain_has_post_scene_work(simulation::DomainSimulation, domain::Domain)
@@ -1743,13 +1814,14 @@ function run!(
 )
     simulation = _build_domain_simulation(mapping, meteo)
     nsteps = get_nsteps(simulation.environment)
+    run_order = _domain_run_order(simulation)
     for i in 1:nsteps
-        for domain in _domain_run_order(mapping)
+        for domain in run_order
             _materialize_routes_for_domain!(simulation, domain, i)
             _run_domain_models!(simulation, domain, constants, i)
             _update_domain_environment_index!(simulation, domain)
         end
-        for domain in _domain_run_order(mapping)
+        for domain in run_order
             domain.kind == :scene && continue
             _domain_has_post_scene_work(simulation, domain) || continue
             _materialize_routes_for_domain!(simulation, domain, i)
@@ -1949,7 +2021,7 @@ function run!(
     simulation = _build_domain_simulation(mapping, meteo; staged_graph_domains=true)
     raw_meteo = _raw_meteo_for_staged_graph_domains(simulation.environment)
     isnothing(nsteps) && (nsteps = get_nsteps(simulation.environment))
-    run_order = _domain_run_order(mapping)
+    run_order = _domain_run_order(simulation)
     graph_runtimes = Dict{Symbol,DomainGraphRuntime}()
 
     for step in 1:nsteps

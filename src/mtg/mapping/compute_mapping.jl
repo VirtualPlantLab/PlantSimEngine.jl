@@ -78,9 +78,6 @@ function variables_outputs_from_other_scale(mapped_vars)
                 isnothing(orgs) && continue
                 orgs_iterable = isa(orgs, Symbol) ? Symbol[orgs] : Symbol[orgs...]
 
-                filter!(o -> o != Symbol(""), orgs_iterable)
-                length(orgs_iterable) == 0 && continue # This can happen when we use a PreviousTimeStep alone
-
                 for o in orgs_iterable
                     # The MappedVar can only have one value for the default, because it comes from the computing scale (the source scale):
                     var_default_value = mapped_default(val)
@@ -173,7 +170,6 @@ function transform_single_node_mapped_variables_as_self_node_output!(mapped_vars
         for (var, mapped_var) in pairs(vars) # e.g. var = :carbon_biomass; mapped_var = vars[var]
             if isa(mapped_var, MappedVar{SingleNodeMapping})
                 source_organ = mapped_organ(mapped_var)
-                source_organ == Symbol("") && continue # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
                 if source_organ == organ
                     error("Variable `$var` is mapped to its own scale in organ $organ. This is not allowed.")
                 end
@@ -223,10 +219,10 @@ function get_multiscale_default_value(mapped_vars, val, mapping_stacktrace=[], l
     if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping})
         # If the value is a MappedVar, we must find the default value of the variable it is mapping into.
         # Except if it is mapping to itself, in which case we return the value as is.
+        _is_same_scale_mapping(val) && return mapped_default(val)
         level += 1
         # Find the default value of the variable from the scale it is mapping into (upper scale):
         m_organ = mapped_organ(val)
-        m_organ == Symbol("") && return mapped_default(val) # We skip the variables that are mapped to themselves (e.g. [PreviousTimeStep(:variable_name)], or just renaming a variable)
 
         if isa(m_organ, Symbol)
             m_organ = [m_organ]
@@ -270,7 +266,7 @@ function default_variables_from_mapping(mapped_vars, verbose=true)
     mapped_vars_mutable = Dict{Symbol,Dict{Symbol,Any}}(k => Dict(pairs(v)) for (k, v) in mapped_vars)
     for (organ, vars) in mapped_vars # organ = :Leaf; vars = mapped_vars[organ]
         for (var, val) in pairs(vars) # var = :carbon_biomass; val = getproperty(vars,var)
-            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && mapped_organ(val) != Symbol("")
+            if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && !_is_same_scale_mapping(val)
                 mapping_stacktrace = Any[(mapped_organ=organ, mapped_variable=var, mapped_value=mapped_default(mapped_vars[organ][var]), level=1)]
                 default_value = get_multiscale_default_value(mapped_vars, val, mapping_stacktrace)
                 mapped_vars_mutable[organ][var] = MappedVar(source_organs(val), mapped_variable(val), source_variable(val), default_value)
@@ -311,7 +307,6 @@ function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
         for (k, v) in vars # e.g.: k = :aPPFD_larger_scale; v = vars[k]
             if isa(v, MappedVar{SelfNodeMapping}) || isa(v, MappedVar{SingleNodeMapping})
                 mapped_org = isa(v, MappedVar{SelfNodeMapping}) ? organ : mapped_organ(v)
-                mapped_org == Symbol("") && continue
                 key = mapped_org => source_variable(v)
 
                 # First time we encounter this variable as a MappedVar, we create its value into the dict_mapped_vars Dict:
@@ -351,7 +346,7 @@ function convert_reference_values!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}})
     # Third pass: getting the same reference for the variables that are mapped at the same scale to another variable (changing its name):
     for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (k, v) in vars # e.g.: k = :carbon_allocation; v = vars[k]
-            if isa(v, MappedVar) && mapped_organ(v) == Symbol("")
+            if _is_same_scale_mapping(v)
                 mapped_var = mapped_variable(v)
                 isa(mapped_var, PreviousTimeStep) && (mapped_var = mapped_var.variable)
                 if mapped_var == source_variable(v)

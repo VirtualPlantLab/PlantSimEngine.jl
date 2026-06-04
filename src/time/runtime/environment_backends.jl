@@ -116,30 +116,12 @@ function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}},
     available = environment_variables(backend)
     isnothing(available) && return nothing
 
-    missing_rows = NamedTuple[]
-    for (scale, specs_at_scale) in model_specs
-        for (process, spec) in specs_at_scale
-            required = _raw_meteo_requirements_for_spec(spec)
-            missing = Symbol[var for var in required if !(var in available)]
-            isempty(missing) && continue
-            push!(missing_rows, (scale=scale, process=process, missing=Tuple(missing)))
-        end
-    end
-
-    isempty(missing_rows) && return nothing
-
-    details = join(
-        [
-            string(row.scale, "/", row.process, " missing ", row.missing)
-            for row in missing_rows
-        ],
-        "; "
-    )
-    error(
-        "Environment backend `$(typeof(backend))` is missing variables required by model `meteo_inputs_`: ",
-        details,
-        ". Add the variables to the backend, declare a `MeteoBindings(source=...)` remapping, ",
-        "or remove the unused meteo input from the model trait."
+    missing_rows = _collect_missing_meteo_rows(model_specs, var -> var in available)
+    return _error_missing_meteo_inputs(
+        missing_rows;
+        subject="Environment backend `$(typeof(backend))`",
+        noun="variables",
+        target="the backend"
     )
 end
 

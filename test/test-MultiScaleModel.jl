@@ -11,9 +11,9 @@
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (:Plant => :plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => :Plant => :plant_surfaces) # Case 6
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => :Plant => :surface) == (PreviousTimeStep(:plant_surfaces, :unknown) => :Plant => :surface) # Case 6
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => [:Plant => :surface, :Leaf => :surface]) == (PreviousTimeStep(:plant_surfaces, :unknown) => [:Plant => :surface, :Leaf => :surface]) # Case 6
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => Symbol("") => :plant_surfaces) # Case 7
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (Symbol("") => :surface)) == (PreviousTimeStep(:plant_surfaces, :unknown) => Symbol("") => :surface)
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (Symbol("") => :surface), :test) == (PreviousTimeStep(:plant_surfaces, :test) => Symbol("") => :surface)
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => SameScale() => :plant_surfaces) # Case 7
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (SameScale() => :surface)) == (PreviousTimeStep(:plant_surfaces, :unknown) => SameScale() => :surface)
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (SameScale() => :surface), :test) == (PreviousTimeStep(:plant_surfaces, :test) => SameScale() => :surface)
 end;
 
 @testset "MultiScaleModel: case 1" begin

@@ -88,14 +88,8 @@ function ModelSpec(
     updates=()
 )
     base_model = model
-    base_multiscale = multiscale
 
-    if model isa MultiScaleModel
-        base_model = model_(model)
-        base_multiscale === nothing && (base_multiscale = mapped_variables_(model))
-    end
-
-    normalized_multiscale = _normalize_multiscale_mapping(base_model, base_multiscale)
+    normalized_multiscale = _normalize_multiscale_mapping(base_model, multiscale)
     normalized_input_bindings = _normalize_input_bindings(input_bindings)
     normalized_meteo_bindings = _normalize_meteo_bindings(meteo_bindings)
     normalized_meteo_window = _normalize_meteo_window(meteo_window)
@@ -112,6 +106,31 @@ function ModelSpec(
         normalized_output_routing,
         normalized_scope,
         normalized_updates
+    )
+end
+
+function ModelSpec(
+    model::MultiScaleModel;
+    multiscale=nothing,
+    timestep=nothing,
+    input_bindings=NamedTuple(),
+    meteo_bindings=NamedTuple(),
+    meteo_window=nothing,
+    output_routing=NamedTuple(),
+    scope=:global,
+    updates=()
+)
+    base_multiscale = isnothing(multiscale) ? mapped_variables_(model) : multiscale
+    return ModelSpec(
+        model_(model);
+        multiscale=base_multiscale,
+        timestep=timestep,
+        input_bindings=input_bindings,
+        meteo_bindings=meteo_bindings,
+        meteo_window=meteo_window,
+        output_routing=output_routing,
+        scope=scope,
+        updates=updates
     )
 end
 
@@ -235,7 +254,9 @@ function _normalize_input_bindings(bindings::NamedTuple)
     return (; normalized...)
 end
 
-_normalize_input_bindings(bindings) = bindings
+function _normalize_input_bindings(bindings)
+    error("Unsupported InputBindings value `$(bindings)` of type `$(typeof(bindings))`. Use a NamedTuple, e.g. `InputBindings(; x=(process=:producer, var=:y))`.")
+end
 
 function _normalize_meteo_binding(binding)
     if binding isa DataType
@@ -265,7 +286,9 @@ function _normalize_meteo_bindings(bindings::NamedTuple)
     return (; normalized...)
 end
 
-_normalize_meteo_bindings(bindings) = bindings
+function _normalize_meteo_bindings(bindings)
+    error("Unsupported MeteoBindings value `$(bindings)` of type `$(typeof(bindings))`. Use a NamedTuple, e.g. `MeteoBindings(; T=MeanReducer())`.")
+end
 
 function _normalize_meteo_window(window)
     if isnothing(window)
@@ -299,11 +322,13 @@ function _normalize_output_routing(routing::NamedTuple)
     return (; normalized...)
 end
 
-_normalize_output_routing(routing) = routing
+function _normalize_output_routing(routing)
+    error("Unsupported OutputRouting value `$(routing)` of type `$(typeof(routing))`. Use a NamedTuple, e.g. `OutputRouting(; x=:stream_only)`.")
+end
 
 function _normalize_scope_selector(scope)
     if scope isa AbstractString
-        return Symbol(scope)
+        error("String scope selectors are not supported. Use symbols such as `:global`, `:plant`, `:scene`, or `:self`.")
     end
     return scope
 end
@@ -457,9 +482,9 @@ multi-rate simulations.
 
 # Arguments
 - `scope`: one of:
-  - selector symbols/strings: `:global`, `:plant`, `:scene`, `:self`,
+  - selector symbols: `:global`, `:plant`, `:scene`, `:self`,
   - a concrete `ScopeId`,
-  - a callable returning a scope selector/id at runtime.
+  - a callable returning a scope selector symbol or `ScopeId` at runtime.
 
 # Example
 ```julia

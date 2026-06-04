@@ -58,24 +58,6 @@ function OutputRequest(
     return OutputRequest(scale, var, name, proc, policy, clock)
 end
 
-function OutputRequest(
-    scale::AbstractString,
-    var::Symbol;
-    name::Symbol=var,
-    process=nothing,
-    policy::SchedulePolicy=HoldLast(),
-    clock=nothing
-)
-    return OutputRequest(
-        _normalize_scale(scale; warn=true, context=:OutputRequest),
-        var;
-        name=name,
-        process=process,
-        policy=policy,
-        clock=clock
-    )
-end
-
 function _export_clock(request::OutputRequest, timeline::TimelineContext)
     isnothing(request.clock) && return ClockSpec(1.0, 0.0)
     c = _clock_from_spec_timestep(request.clock, timeline)
@@ -134,7 +116,7 @@ Resolve and register online export requests for the current run.
 function prepare_output_requests!(sim::GraphSimulation, requests, timeline::TimelineContext)
     reqs = _normalize_output_requests(requests)
 
-    plans = Any[]
+    plans = OutputExportPlan[]
     rows = Dict{Symbol,ExportBuffer}()
 
     for req in reqs
@@ -149,17 +131,20 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
             "Duplicate output request name `$(req.name)`. Request names must be unique."
         )
 
-        push!(plans, (
-            name=req.name,
-            scale=scale,
-            var=req.var,
-            process=process,
-            policy=req.policy,
-            clock=clock,
-            model_spec=model_spec,
-            source_dt=float(source_clock.dt),
-            source_sample_duration_seconds=float(source_clock.dt) * timeline.base_step_seconds,
-        ))
+        push!(
+            plans,
+            OutputExportPlan(
+                req.name,
+                scale,
+                req.var,
+                process,
+                req.policy,
+                clock,
+                model_spec,
+                float(source_clock.dt),
+                float(source_clock.dt) * timeline.base_step_seconds,
+            ),
+        )
         rows[req.name] = ExportBuffer(scale, process, req.var)
     end
 
@@ -169,13 +154,7 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
 end
 
 function _required_horizon_for_export_policy(policy::SchedulePolicy, clock::ClockSpec, source_dt::Float64)
-    if policy isa Union{Integrate,Aggregate}
-        return max(1.0, float(clock.dt))
-    elseif policy isa Interpolate
-        return max(2.0, source_dt + 1.0)
-    end
-    # HoldLast export is served from caches and does not require streams.
-    return 0.0
+    return _required_horizon_for_policy(policy, float(clock.dt), source_dt)
 end
 
 """

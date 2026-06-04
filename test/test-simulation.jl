@@ -33,14 +33,21 @@ end;
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
     run!(models, meteo)
-    @test_deprecated run!([models], meteo)
+    legacy_models = PlantSimEngine.ModelList(
+        process1=Process1Model(1.0),
+        process2=Process2Model(),
+        process3=Process3Model(),
+        status=(var1=15.0, var2=0.3)
+    )
+    @test_throws MethodError run!(legacy_models, meteo)
+    @test_throws MethodError run!([models], meteo)
     @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
 
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
     mtg[:var1] = 15.0
     mtg[:var2] = 0.3
     mapping_dict = Dict(:Leaf => (Process1Model(1.0), Process2Model(), Process3Model()))
-    @test_deprecated run!(mtg, mapping_dict, meteo)
+    @test_throws ErrorException run!(mtg, mapping_dict, meteo)
 end
 
 @testset "Removed multirate keyword for single-scale" begin
@@ -105,13 +112,13 @@ end;
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
     @testset "simulation with an array of objects" begin
-        outputs_vector = run!([mapping, mapping2], meteo)
+        outputs_vector = [run!(m, meteo) for m in (mapping, mapping2)]
         @test [outputs_vector[1][i][1] for i in keys(outputs_vector[1])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
         @test [outputs_vector[2][i][1] for i in keys(outputs_vector[2])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
 
     @testset "simulation with a dict of objects" begin
-        outputs_vector = run!(Dict("mod1" => mapping, "mod2" => mapping2), meteo)
+        outputs_vector = Dict("mod1" => run!(mapping, meteo), "mod2" => run!(mapping2, meteo))
         @test [outputs_vector["mod1"][1][i] for i in keys(outputs_vector["mod1"])] == [34.95, 22.0, 56.95, 15.0, 5.5, 0.3]
         @test [outputs_vector["mod2"][1][i] for i in keys(outputs_vector["mod2"])] == [36.95, 26.0, 62.95, 15.0, 6.5, 0.3]
     end
@@ -195,7 +202,7 @@ end;
     )
 
     @testset "simulation with an array of objects" begin
-        outputs_vector = run!([mapping, mapping2], meteo)
+        outputs_vector = [run!(m, meteo) for m in (mapping, mapping2)]
         @test [outputs_vector[1][i] for i in keys(outputs_vector[1])] == [
             [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]
@@ -205,7 +212,7 @@ end;
     end
 
     @testset "simulation with a dict of objects" begin
-        outputs_vector = run!(Dict("mod1" => mapping, "mod2" => mapping2), meteo)
+        outputs_vector = Dict("mod1" => run!(mapping, meteo), "mod2" => run!(mapping2, meteo))
         @test [[outputs_vector["mod1"][1][i], outputs_vector["mod1"][2][i]] for i in keys(outputs_vector["mod1"])] == [
             [34.95, 40.0], [22.0, 23.2], [56.95, 63.2], [15.0, 16.0], [5.5, 5.8], [0.3, 0.3]
         ]

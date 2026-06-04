@@ -32,6 +32,7 @@ or the `test-mtg-dynamic.jl` test file for an example usage.
 function add_organ!(node::MultiScaleTreeGraph.Node, sim_object, link, symbol, scale; index=0, id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(node)), attributes=Dict{Symbol,Any}(), check=true)
     new_node = MultiScaleTreeGraph.Node(id, node, MultiScaleTreeGraph.NodeMTG(link, symbol, index, scale), attributes)
     st = init_node_status!(new_node, sim_object.statuses, sim_object.status_templates, sim_object.reverse_multiscale_mapping, sim_object.var_need_init, check=check)
+    reindex_runtime_topology!(sim_object)
 
     return st
 end
@@ -71,6 +72,21 @@ function _remove_temporal_state_for_node!(sim_object, nid::Int)
     end
     for key in collect(keys(temporal.streams))
         key.node_id == nid && delete!(temporal.streams, key)
+    end
+    return nothing
+end
+
+function _subtree_node_ids(node::MultiScaleTreeGraph.Node)
+    ids = Int[]
+    MultiScaleTreeGraph.traverse!(node) do subtree_node
+        push!(ids, node_id(subtree_node))
+    end
+    return ids
+end
+
+function _remove_temporal_state_for_nodes!(sim_object, node_ids)
+    for nid in node_ids
+        _remove_temporal_state_for_node!(sim_object, nid)
     end
     return nothing
 end
@@ -160,7 +176,9 @@ function remove_organ!(node::MultiScaleTreeGraph.Node, sim_object; attribute_nam
     _remove_status_from_scale!(sim_object.statuses, node_scale, st, nid)
     _remove_temporal_state_for_node!(sim_object, nid)
     pop!(node, attribute_name)
-    return MultiScaleTreeGraph.delete_node!(node)
+    deleted = MultiScaleTreeGraph.delete_node!(node)
+    reindex_runtime_topology!(sim_object)
+    return deleted
 end
 
 """
@@ -203,7 +221,10 @@ function reparent_organ!(
     )
 
     old_parent = parent(node)
+    moved_node_ids = _subtree_node_ids(node)
     MultiScaleTreeGraph.reparent!(node, new_parent)
     _repair_reparent_child_links!(node, old_parent, new_parent)
+    _remove_temporal_state_for_nodes!(sim_object, moved_node_ids)
+    reindex_runtime_topology!(sim_object)
     return node
 end

@@ -111,10 +111,10 @@ function _resolved_interpolated_value_for_source(
     return samples[1][2], true
 end
 
-function _resolve_window_reducer(reducer)
+function _normalize_time_reducer(reducer; context::AbstractString="reducer")
     if reducer isa DataType
         reducer <: PlantMeteo.AbstractTimeReducer || error(
-            "Unsupported reducer type `$(reducer)`. Use a PlantMeteo reducer type/instance or a callable."
+            "Unsupported $(context) type `$(reducer)`. Use a PlantMeteo reducer type/instance or a callable."
         )
         return reducer()
     elseif reducer isa PlantMeteo.AbstractTimeReducer
@@ -124,10 +124,12 @@ function _resolve_window_reducer(reducer)
     end
 
     error(
-        "Unsupported reducer value `$(reducer)` of type `$(typeof(reducer))`. ",
+        "Unsupported $(context) value `$(reducer)` of type `$(typeof(reducer))`. ",
         "Use a PlantMeteo reducer type/instance or a callable."
     )
 end
+
+_resolve_window_reducer(reducer) = _normalize_time_reducer(reducer; context="reducer")
 
 function _window_reduce(vals::AbstractVector{<:Real}, durations::AbstractVector{<:Real}, policy::SchedulePolicy)
     reducer = policy isa Integrate ? policy.reducer : (policy isa Aggregate ? policy.reducer : PlantMeteo.SumReducer())
@@ -198,6 +200,341 @@ function _prefer_local_status_fallback(st::Status, input_var::Symbol, source_var
     return true
 end
 
+function _resolved_policy_value_for_source(
+    sim::GraphSimulation,
+    source_scope::ScopeId,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t::Float64,
+    policy::HoldLast,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    return _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t)
+end
+
+function _resolved_policy_value_for_source(
+    sim::GraphSimulation,
+    source_scope::ScopeId,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t::Float64,
+    policy::Interpolate,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    return _resolved_interpolated_value_for_source(sim, source_scope, source_scale, source_process, source_var, source_node_id, t, policy)
+end
+
+function _resolved_policy_value_for_source(
+    sim::GraphSimulation,
+    source_scope::ScopeId,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    source_node_id::Int,
+    t::Float64,
+    policy::Union{Integrate,Aggregate},
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    return _resolved_windowed_value_for_source(
+        sim,
+        source_scope,
+        source_scale,
+        source_process,
+        source_var,
+        source_node_id,
+        t_start,
+        t,
+        policy,
+        source_sample_duration_seconds
+    )
+end
+
+_missing_vector_source_value(policy::SchedulePolicy) = nothing
+_missing_vector_source_value(policy::Union{Integrate,Aggregate}) = 0.0
+_missing_scalar_source_value(policy::SchedulePolicy) = nothing
+_missing_scalar_source_value(policy::Union{Integrate,Aggregate}) = 0.0
+
+function _source_scope_matches(sim::GraphSimulation, source_model_spec, source_scale::Symbol, source_process::Symbol, src_st::Status, consumer_scope::ScopeId)
+    source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
+    return source_scope == consumer_scope, source_scope
+end
+
+function _push_vector_source_value!(
+    vals::Vector{Any},
+    sim::GraphSimulation,
+    src_st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    scope_matches, source_scope = _source_scope_matches(sim, source_model_spec, source_scale, source_process, src_st, consumer_scope)
+    scope_matches || return nothing
+
+    src_node_id = node_id(src_st.node)
+    v, ok = _resolved_policy_value_for_source(
+        sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy, t_start, source_sample_duration_seconds
+    )
+    if ok
+        push!(vals, v)
+    elseif source_var in keys(src_st)
+        push!(vals, src_st[source_var])
+    else
+        missing_value = _missing_vector_source_value(policy)
+        isnothing(missing_value) || push!(vals, missing_value)
+    end
+    return nothing
+end
+
+function _assign_vector_source_values!(
+    sim::GraphSimulation,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    input_var::Symbol,
+    source_statuses,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    vals = Any[]
+    for src_st in source_statuses
+        _push_vector_source_value!(
+            vals,
+            sim,
+            src_st,
+            consumer_scope,
+            source_model_spec,
+            source_scale,
+            source_process,
+            source_var,
+            t,
+            policy,
+            t_start,
+            source_sample_duration_seconds
+        )
+    end
+    length(vals) > 0 && _assign_input_value!(st, input_var, vals)
+    return nothing
+end
+
+function _resolve_ancestor_source_value(
+    sim::GraphSimulation,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    source_statuses,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    ancestor_node_id = _ancestor_node_id_for_scale(st.node, source_scale)
+    isnothing(ancestor_node_id) && return nothing, false
+    src_st = _status_for_node_id(source_statuses, ancestor_node_id)
+    isnothing(src_st) && return nothing, false
+
+    scope_matches, source_scope = _source_scope_matches(sim, source_model_spec, source_scale, source_process, src_st, consumer_scope)
+    scope_matches || return nothing, false
+
+    vv, found = _resolved_policy_value_for_source(
+        sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t, policy, t_start, source_sample_duration_seconds
+    )
+    found && return vv, true
+    source_var in keys(src_st) && return src_st[source_var], true
+    return nothing, false
+end
+
+function _collect_unique_source_candidates(
+    sim::GraphSimulation,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    source_statuses,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64
+)
+    candidates = Any[]
+    for src_st in source_statuses
+        scope_matches, source_scope = _source_scope_matches(sim, source_model_spec, source_scale, source_process, src_st, consumer_scope)
+        scope_matches || continue
+        src_node_id = node_id(src_st.node)
+        vv, found = _resolved_policy_value_for_source(
+            sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy, t_start, source_sample_duration_seconds
+        )
+        found && push!(candidates, vv)
+    end
+    return candidates
+end
+
+function _resolve_scalar_source_value!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_statuses,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64;
+    fallback_to_source_status::Bool
+)
+    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
+
+    consumer_node_id = node_id(st.node)
+    v, ok = _resolved_policy_value_for_source(
+        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t, policy, t_start, source_sample_duration_seconds
+    )
+    if ok
+        _assign_input_value!(st, input_var, v)
+        return nothing
+    end
+
+    if fallback_to_source_status
+        if source_scale == node.scale
+            vv, found = _same_scale_status_value(source_statuses, consumer_node_id, source_var)
+            if found
+                _assign_input_value!(st, input_var, vv)
+                return nothing
+            end
+        else
+            vv, found = _resolve_ancestor_source_value(
+                sim,
+                st,
+                consumer_scope,
+                source_model_spec,
+                source_statuses,
+                source_scale,
+                source_process,
+                source_var,
+                t,
+                policy,
+                t_start,
+                source_sample_duration_seconds
+            )
+            if found
+                _assign_input_value!(st, input_var, vv)
+                return nothing
+            end
+        end
+    end
+
+    candidates = _collect_unique_source_candidates(
+        sim,
+        consumer_scope,
+        source_model_spec,
+        source_statuses,
+        source_scale,
+        source_process,
+        source_var,
+        t,
+        policy,
+        t_start,
+        source_sample_duration_seconds
+    )
+    if length(candidates) == 1
+        _assign_input_value!(st, input_var, only(candidates))
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
+            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
+        )
+    else
+        missing_value = _missing_scalar_source_value(policy)
+        isnothing(missing_value) || _assign_input_value!(st, input_var, missing_value)
+    end
+
+    return nothing
+end
+
+function _resolve_input_from_policy!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    policy::SchedulePolicy,
+    t_start::Float64,
+    source_sample_duration_seconds::Float64;
+    fallback_to_source_status::Bool=true
+)
+    source_statuses = get(status(sim), source_scale, nothing)
+    isnothing(source_statuses) && return nothing
+
+    current_value = st[input_var]
+    if current_value isa AbstractVector
+        return _assign_vector_source_values!(
+            sim,
+            st,
+            consumer_scope,
+            source_model_spec,
+            input_var,
+            source_statuses,
+            source_scale,
+            source_process,
+            source_var,
+            t,
+            policy,
+            t_start,
+            source_sample_duration_seconds
+        )
+    end
+
+    return _resolve_scalar_source_value!(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_statuses,
+        source_scale,
+        source_process,
+        source_var,
+        t,
+        policy,
+        t_start,
+        source_sample_duration_seconds;
+        fallback_to_source_status=fallback_to_source_status
+    )
+end
+
 """
     _resolve_input_windowed(sim, node, st, input_var, source_scale, source_process, source_var, t_start, t_end, policy)
 
@@ -220,95 +557,22 @@ function _resolve_input_windowed(
     policy::SchedulePolicy,
     source_sample_duration_seconds::Float64
 )
-    source_statuses = get(status(sim), source_scale, nothing)
-    isnothing(source_statuses) && return nothing
-
-    current_value = st[input_var]
-    if current_value isa AbstractVector
-        vals = Any[]
-        for src_st in source_statuses
-            src_node_id = node_id(src_st.node)
-            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-            source_scope == consumer_scope || continue
-            v, ok = _resolved_windowed_value_for_source(
-                sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy, source_sample_duration_seconds
-            )
-            if ok
-                push!(vals, v)
-            elseif policy isa Integrate || policy isa Aggregate
-                push!(vals, 0.0)
-            elseif source_var in keys(src_st)
-                push!(vals, src_st[source_var])
-            end
-        end
-        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
-        return nothing
-    end
-
-    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
-
-    consumer_node_id = node_id(st.node)
-    v, ok = _resolved_windowed_value_for_source(
-        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t_start, t_end, policy, source_sample_duration_seconds
+    return _resolve_input_from_policy!(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t_end,
+        policy,
+        t_start,
+        source_sample_duration_seconds
     )
-    if ok
-        _assign_input_value!(st, input_var, v)
-        return nothing
-    end
-
-    # Same-scale scalar fallback: prefer the value attached to the consumer node
-    # before scanning all source nodes (which can be ambiguous in dense scales).
-    if source_scale == node.scale
-        vv, found = _same_scale_status_value(source_statuses, consumer_node_id, source_var)
-        if found
-            _assign_input_value!(st, input_var, vv)
-            return nothing
-        end
-    else
-        ancestor_node_id = _ancestor_node_id_for_scale(st.node, source_scale)
-        if !isnothing(ancestor_node_id)
-            src_st = _status_for_node_id(source_statuses, ancestor_node_id)
-            if !isnothing(src_st)
-                source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-                if source_scope == consumer_scope
-                    vv, found = _resolved_windowed_value_for_source(
-                        sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t_start, t_end, policy, source_sample_duration_seconds
-                    )
-                    if found
-                        _assign_input_value!(st, input_var, vv)
-                        return nothing
-                    elseif source_var in keys(src_st)
-                        _assign_input_value!(st, input_var, src_st[source_var])
-                        return nothing
-                    end
-                end
-            end
-        end
-    end
-
-    # Cross-scale scalar fallback: allow unique producer value at source scale.
-    candidates = Any[]
-    for src_st in source_statuses
-        src_node_id = node_id(src_st.node)
-        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-        source_scope == consumer_scope || continue
-        vv, found = _resolved_windowed_value_for_source(
-            sim, source_scope, source_scale, source_process, source_var, src_node_id, t_start, t_end, policy, source_sample_duration_seconds
-        )
-        found && push!(candidates, vv)
-    end
-    if length(candidates) == 1
-        _assign_input_value!(st, input_var, only(candidates))
-    elseif length(candidates) > 1
-        error(
-            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
-            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
-        )
-    elseif policy isa Integrate || policy isa Aggregate
-        _assign_input_value!(st, input_var, 0.0)
-    end
-
-    return nothing
 end
 
 """
@@ -331,61 +595,23 @@ function _resolve_input_interpolate(
     t::Float64,
     policy::Interpolate
 )
-    source_statuses = get(status(sim), source_scale, nothing)
-    isnothing(source_statuses) && return nothing
-
-    current_value = st[input_var]
-    if current_value isa AbstractVector
-        vals = Any[]
-        for src_st in source_statuses
-            src_node_id = node_id(src_st.node)
-            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-            source_scope == consumer_scope || continue
-            v, ok = _resolved_interpolated_value_for_source(
-                sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy
-            )
-            if ok
-                push!(vals, v)
-            elseif source_var in keys(src_st)
-                push!(vals, src_st[source_var])
-            end
-        end
-        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
-        return nothing
-    end
-
-    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
-
-    consumer_node_id = node_id(st.node)
-    v, ok = _resolved_interpolated_value_for_source(
-        sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t, policy
+    return _resolve_input_from_policy!(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t,
+        policy,
+        t,
+        0.0;
+        fallback_to_source_status=false
     )
-    if ok
-        _assign_input_value!(st, input_var, v)
-        return nothing
-    end
-
-    # Cross-scale scalar fallback: allow unique producer value at source scale.
-    candidates = Any[]
-    for src_st in source_statuses
-        src_node_id = node_id(src_st.node)
-        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-        source_scope == consumer_scope || continue
-        vv, found = _resolved_interpolated_value_for_source(
-            sim, source_scope, source_scale, source_process, source_var, src_node_id, t, policy
-        )
-        found && push!(candidates, vv)
-    end
-    if length(candidates) == 1
-        _assign_input_value!(st, input_var, only(candidates))
-    elseif length(candidates) > 1
-        error(
-            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
-            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
-        )
-    end
-
-    return nothing
 end
 
 """
@@ -407,85 +633,141 @@ function _resolve_input_holdlast(
     source_var::Symbol,
     t::Float64
 )
-    source_statuses = get(status(sim), source_scale, nothing)
-    isnothing(source_statuses) && return nothing
+    return _resolve_input_from_policy!(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t,
+        HoldLast(),
+        t,
+        0.0
+    )
+end
 
-    current_value = st[input_var]
-    if current_value isa AbstractVector
-        vals = Any[]
-        for src_st in source_statuses
-            src_node_id = node_id(src_st.node)
-            source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-            source_scope == consumer_scope || continue
-            v, ok = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, src_node_id, t)
-            if ok
-                push!(vals, v)
-            else
-                if source_var in keys(src_st)
-                    push!(vals, src_st[source_var])
-                end
-            end
-        end
-        length(vals) > 0 && _assign_input_value!(st, input_var, vals)
-        return nothing
-    end
+function _resolve_input_for_policy!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    t_start::Float64,
+    policy::HoldLast,
+    source_sample_duration_seconds::Float64
+)
+    return _resolve_input_holdlast(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t
+    )
+end
 
-    _prefer_local_status_fallback(st, input_var, source_var, prefer_local_status) && return nothing
+function _resolve_input_for_policy!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    t_start::Float64,
+    policy::Interpolate,
+    source_sample_duration_seconds::Float64
+)
+    return _resolve_input_interpolate(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t,
+        policy
+    )
+end
 
-    consumer_node_id = node_id(st.node)
-    v, ok = _resolved_value_for_source(sim, consumer_scope, source_scale, source_process, source_var, consumer_node_id, t)
-    if ok
-        _assign_input_value!(st, input_var, v)
-        return nothing
-    end
+function _resolve_input_for_policy!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    t_start::Float64,
+    policy::Union{Integrate,Aggregate},
+    source_sample_duration_seconds::Float64
+)
+    return _resolve_input_windowed(
+        sim,
+        node,
+        st,
+        consumer_scope,
+        source_model_spec,
+        prefer_local_status,
+        input_var,
+        source_scale,
+        source_process,
+        source_var,
+        t_start,
+        t,
+        policy,
+        source_sample_duration_seconds
+    )
+end
 
-    # Same-scale scalar fallback: prefer the value attached to the consumer node
-    # before scanning all source nodes (which can be ambiguous in dense scales).
-    if source_scale == node.scale
-        vv, found = _same_scale_status_value(source_statuses, consumer_node_id, source_var)
-        if found
-            _assign_input_value!(st, input_var, vv)
-            return nothing
-        end
-    else
-        ancestor_node_id = _ancestor_node_id_for_scale(st.node, source_scale)
-        if !isnothing(ancestor_node_id)
-            src_st = _status_for_node_id(source_statuses, ancestor_node_id)
-            if !isnothing(src_st)
-                source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-                if source_scope == consumer_scope
-                    vv, found = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, ancestor_node_id, t)
-                    if found
-                        _assign_input_value!(st, input_var, vv)
-                        return nothing
-                    elseif source_var in keys(src_st)
-                        _assign_input_value!(st, input_var, src_st[source_var])
-                        return nothing
-                    end
-                end
-            end
-        end
-    end
-
-    # Cross-scale scalar fallback: allow unique producer value at source scale.
-    candidates = Any[]
-    for src_st in source_statuses
-        src_node_id = node_id(src_st.node)
-        source_scope = _scope_for_status(sim, source_model_spec, source_scale, source_process, src_st.node)
-        source_scope == consumer_scope || continue
-        vv, found = _resolved_value_for_source(sim, source_scope, source_scale, source_process, source_var, src_node_id, t)
-        found && push!(candidates, vv)
-    end
-    if length(candidates) == 1
-        _assign_input_value!(st, input_var, only(candidates))
-    elseif length(candidates) > 1
-        error(
-            "Ambiguous cross-scale source values for input `$(input_var)` in process `$(node.process)` at scale `$(node.scale)`. ",
-            "Please provide `InputBindings(...)` with explicit `scale`/source disambiguation."
-        )
-    end
-
-    return nothing
+function _resolve_input_for_policy!(
+    sim::GraphSimulation,
+    node::SoftDependencyNode,
+    st::Status,
+    consumer_scope::ScopeId,
+    source_model_spec,
+    prefer_local_status::Bool,
+    input_var::Symbol,
+    source_scale::Symbol,
+    source_process::Symbol,
+    source_var::Symbol,
+    t::Float64,
+    t_start::Float64,
+    policy::SchedulePolicy,
+    source_sample_duration_seconds::Float64
+)
+    error(
+        "Unsupported input temporal policy `$(typeof(policy))` for input `$(input_var)` ",
+        "in process `$(node.process)` at scale `$(node.scale)`."
+    )
 end
 
 """
@@ -541,28 +823,22 @@ function resolve_inputs_from_temporal_state!(sim::GraphSimulation, node::SoftDep
             policy = _policy_for_output(model_(source_model_spec), source_var)
         end
 
-        if policy isa HoldLast
-            _resolve_input_holdlast(sim, node, st, consumer_scope, source_model_spec, prefer_local_status, input_var, source_scale, source_process, source_var, t)
-        elseif policy isa Interpolate
-            _resolve_input_interpolate(sim, node, st, consumer_scope, source_model_spec, prefer_local_status, input_var, source_scale, source_process, source_var, t, policy)
-        elseif policy isa Integrate || policy isa Aggregate
-            _resolve_input_windowed(
-                sim,
-                node,
-                st,
-                consumer_scope,
-                source_model_spec,
-                prefer_local_status,
-                input_var,
-                source_scale,
-                source_process,
-                source_var,
-                t_start,
-                t,
-                policy,
-                source_sample_duration_seconds
-            )
-        end
+        _resolve_input_for_policy!(
+            sim,
+            node,
+            st,
+            consumer_scope,
+            source_model_spec,
+            prefer_local_status,
+            input_var,
+            source_scale,
+            source_process,
+            source_var,
+            t,
+            t_start,
+            policy,
+            source_sample_duration_seconds
+        )
     end
 
     return nothing

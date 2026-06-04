@@ -5,20 +5,27 @@
 
 Compute the hard dependencies between models.
 """
-_is_domain_dependency_selector(x) = nameof(typeof(x)) in (:AllDomains, :HardDomains)
+abstract type AbstractDomainDependencySelector end
+
+_is_domain_dependency_selector(x) = x isa AbstractDomainDependencySelector
 
 function _normalize_hard_dependency_scales(scales, process::Symbol, dependency_process::Symbol)
-    if scales isa Symbol || scales isa AbstractString
-        return [Symbol(scales)]
+    if scales isa Symbol
+        return [scales]
+    elseif scales isa AbstractString
+        error(
+            "Invalid hard dependency scale declaration for process `$(process)` dependency `$(dependency_process)`: ",
+            "string scale names are removed. Use Symbol scales, e.g. `:Leaf`."
+        )
     elseif scales isa Tuple || scales isa AbstractVector
         normalized = Symbol[]
         for s in scales
-            if s isa Symbol || s isa AbstractString
-                push!(normalized, Symbol(s))
+            if s isa Symbol
+                push!(normalized, s)
             else
                 error(
                     "Invalid hard dependency scale declaration for process `$(process)` dependency `$(dependency_process)`: ",
-                    "expected Symbol or String scales, got `$(typeof(s))`."
+                    "expected Symbol scales, got `$(typeof(s))`."
                 )
             end
         end

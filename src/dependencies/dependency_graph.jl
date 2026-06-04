@@ -1,5 +1,16 @@
 abstract type AbstractDependencyNode end
 
+"""
+    ProducerVariable(input, source)
+
+Dependency metadata for a producer variable that reaches a consumer input under
+a different local name.
+"""
+struct ProducerVariable
+    input::Symbol
+    source::Symbol
+end
+
 mutable struct HardDependencyNode{T} <: AbstractDependencyNode
     value::T
     process::Symbol
@@ -147,6 +158,10 @@ end
 function _node_mapping(var_mapping::Pair{<:Union{AbstractString,Symbol},Symbol})
     # One organ is mapped to the variable:
     return SingleNodeMapping(first(var_mapping)), last(var_mapping)
+end
+
+function _node_mapping(var_mapping::Pair{SameScale,Symbol})
+    return first(var_mapping), last(var_mapping)
 end
 
 function _node_mapping(var_mapping)

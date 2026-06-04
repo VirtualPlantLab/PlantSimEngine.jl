@@ -821,6 +821,46 @@ end
     @test all(row -> row.target_var == :plant_transpirations, route_rows)
     @test all(row -> row.cardinality == ManyToOneVector, route_rows)
 
+    reordered_collector_mapping = ModelMapping(
+        ModelSpec(DomainSceneRoutedVectorModel()) |> TimeStepModel(Dates.Hour(1)),
+        status=(plant_transpirations=[0.0], routed_total=0.0),
+    )
+    reordered_route = Route(
+        from=AllDomains(kind=:plant, process=:domain_plant_transpiration, var=:transpiration),
+        to=DomainRouteTarget(:collector, var=:plant_transpirations, process=:domain_scene_routed_vector),
+        cardinality=ManyToOneVector(),
+    )
+    reordered_sim = run!(
+        SimulationMapping(
+            Domain(:collector, reordered_collector_mapping; kind=:soil),
+            Domain(:oil_palm, oil_palm_mapping; kind=:plant);
+            routes=(reordered_route,),
+        ),
+        hourly_meteo,
+        check=true,
+    )
+    @test status(reordered_sim, :collector).plant_transpirations ≈ [0.5]
+    @test status(reordered_sim, :collector).routed_total ≈ 0.5
+
+    cyclic_scene_source_mapping = ModelMapping(
+        ModelSpec(DomainSceneRoutedVectorModel()) |> TimeStepModel(Dates.Hour(1)),
+        status=(plant_transpirations=[0.0], routed_total=0.0),
+    )
+    cyclic_route = Route(
+        from=AllDomains(kind=:scene, process=:domain_scene_routed_vector, var=:routed_total),
+        to=DomainRouteTarget(:oil_palm, var=:absorbed_radiation, process=:domain_plant_transpiration),
+        cardinality=ManyToOneAggregate(sum),
+    )
+    @test_throws "Cyclic domain run-order constraints" run!(
+        SimulationMapping(
+            Domain(:oil_palm, oil_palm_mapping; kind=:plant),
+            Domain(:scene, cyclic_scene_source_mapping; kind=:scene);
+            routes=(cyclic_route,),
+        ),
+        hourly_meteo,
+        check=true,
+    )
+
     daily_scene_mapping = ModelMapping(
         ModelSpec(DomainSceneRoutedAggregateModel()) |> TimeStepModel(Dates.Day(1)),
         status=(daily_plant_transpiration=0.0, daily_routed_total=0.0),
@@ -1012,7 +1052,7 @@ end
     @test only(status(soil_to_graph_sim, :oil_palm, :Leaf)).soil_signal ≈ expected_soil_signals[2]
     @test soil_to_graph_sim.outputs[(DomainModelKey(:oil_palm, :Leaf, :domain_mtg_leaf_soil_flux), :leaf_flux)] == [[2.0 * expected_soil_signals[1]], [2.0 * expected_soil_signals[2]]]
 
-    @test_throws "source domains to run earlier" run!(
+    reordered_soil_to_graph_sim = run!(
         scene,
         SimulationMapping(
             Domain(:oil_palm, soil_leaf_mapping; kind=:plant, selector=oil_palm),
@@ -1022,6 +1062,8 @@ end
         meteo,
         check=true,
     )
+    @test only(status(reordered_soil_to_graph_sim, :oil_palm, :Leaf)).soil_signal ≈ expected_soil_signals[2]
+    @test reordered_soil_to_graph_sim.outputs[(DomainModelKey(:oil_palm, :Leaf, :domain_mtg_leaf_soil_flux), :leaf_flux)] == [[2.0 * expected_soil_signals[1]], [2.0 * expected_soil_signals[2]]]
 end
 
 @testset "Hard-domain targets from MTG-backed domains" begin

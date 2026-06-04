@@ -464,14 +464,14 @@ function _mapped_source_scales_for_input(spec::ModelSpec, input_var::Symbol)
         mapped_input == input_var || continue
 
         rhs = last(mv)
-        if rhs isa Pair{Symbol,Symbol}
+        if rhs isa Pair
             src_scale = first(rhs)
-            src_scale == Symbol("") || push!(scales, src_scale)
+            src_scale isa SameScale || push!(scales, src_scale)
         elseif rhs isa AbstractVector
             for item in rhs
-                item isa Pair{Symbol,Symbol} || continue
+                item isa Pair || continue
                 src_scale = first(item)
-                src_scale == Symbol("") || push!(scales, src_scale)
+                src_scale isa SameScale || push!(scales, src_scale)
             end
         end
     end
@@ -496,18 +496,18 @@ function _mapped_sources_for_input(spec::ModelSpec, input_var::Symbol)
     mapped = mapped_variables_(spec)
     isempty(mapped) && return Pair{Symbol,Symbol}[]
 
-    sources = Pair{Symbol,Symbol}[]
+    sources = Pair{Union{Symbol,SameScale},Symbol}[]
     for mv in mapped
         mapped_input = first(mv)
         mapped_input = mapped_input isa PreviousTimeStep ? mapped_input.variable : mapped_input
         mapped_input == input_var || continue
 
         rhs = last(mv)
-        if rhs isa Pair{Symbol,Symbol}
+        if rhs isa Pair
             push!(sources, rhs)
         elseif rhs isa AbstractVector
             for item in rhs
-                item isa Pair{Symbol,Symbol} || continue
+                item isa Pair || continue
                 push!(sources, item)
             end
         end
@@ -530,7 +530,7 @@ function _infer_binding_from_multiscale_mapping(
     mapped_sources = _mapped_sources_for_input(spec, input_var)
     # Mapping exists but does not point to another scale (self/same-scale aliasing):
     # avoid generic same-name inference in that case.
-    filtered_sources = filter(s -> first(s) != Symbol(""), mapped_sources)
+    filtered_sources = filter(s -> !(first(s) isa SameScale), mapped_sources)
     isempty(filtered_sources) && return :skip
 
     # Multi-source mapping (e.g. vectors from several scales) cannot be represented
@@ -791,13 +791,9 @@ For a `GraphSimulation`, this returns the already resolved model specs used by t
 function resolved_model_specs(mapping::AbstractDict; infer::Bool=true, validate::Bool=true)
     model_specs = Dict{Symbol,Dict{Symbol,ModelSpec}}()
     for (scale, declarations) in pairs(mapping)
-        scale_sym = if scale isa Symbol
-            scale
-        elseif scale isa AbstractString
-            _normalize_scale(scale; warn=true, context=:ModelSpec)
-        else
-            error("Scale keys in `resolved_model_specs(mapping)` must be `Symbol` (preferred) or `String`, got `$(typeof(scale))`.")
-        end
+        scale_sym = scale isa Symbol ?
+                    scale :
+                    error("Scale keys in `resolved_model_specs(mapping)` must be `Symbol`s, got `$(typeof(scale))`.")
         model_specs[scale_sym] = parse_model_specs(declarations)
     end
 

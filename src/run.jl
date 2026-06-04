@@ -114,18 +114,6 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
 end
 
 
-function _all_modellists_collection(object)
-    if isa(object, AbstractArray)
-        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, object)
-    elseif isa(object, AbstractDict)
-        return all(x -> x isa ModelList || x isa ModelMapping{SingleScale}, values(object))
-    end
-    return false
-end
-
-_single_scale_runtime_object(object) = object
-_single_scale_runtime_object(mapping::ModelMapping) = _modellist_from_model_mapping(mapping)
-
 function _modellist_from_model_mapping(mapping::ModelMapping{SingleScale})
     mapping.data
 end
@@ -134,10 +122,8 @@ function _modellist_from_model_mapping(::ModelMapping{MultiScale})
     error("This `ModelMapping` is a multiscale mapping. ", "Use `run!(mtg, mapping, ...)` for multiscale mappings.")
 end
 
-_modellist_from_model_mapping(mapping::ModelList) = mapping
-
 function run!(
-    mapping::M,
+    mapping::ModelMapping{SingleScale},
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
@@ -146,7 +132,7 @@ function run!(
     executor=ThreadedEx(),
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
-) where {M<:Union{ModelMapping{SingleScale},ModelList}}
+)
     _validate_meteo_duration(meteo)
     model_list = _modellist_from_model_mapping(mapping)
     _run_modellist_singleton(
@@ -231,84 +217,11 @@ function run!(
 end
 
 ##########################################################################################
-## ModelList (single-scale) simulations
+## Single-scale simulations
 ##########################################################################################
-
-# 1- several ModelList objects and several time-steps
-function run!(
-    ::TableAlike,
-    object::T,
-    meteo::TimeStepTable{A},
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    tracked_outputs=nothing,
-    check=true,
-    executor=ThreadedEx(),
-    return_requested_outputs=false,
-    requested_outputs_sink=DataFrames.DataFrame
-) where {T<:Union{AbstractArray,AbstractDict},A}
-    if _all_modellists_collection(object)
-        Base.depwarn(
-            "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
-            :run!
-        )
-    end
-
-    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
-    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
-    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
-
-    if executor != SequentialEx()
-        @warn string(
-            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
-        ) maxlog = 1
-    end
-
-    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(tracked_outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(tracked_outputs)}}}
-
-    # Each object:
-    for obj in object
-
-        if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
-        else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
-        end
-
-    end
-    return outputs_collection
-end
 
 # 2 - One object, one or multiple meteo time-step(s), with vectors provided in the status
 # (meaning a single meteo timestep might be expanded to fit the status vector size)
-function run!(
-    ::SingletonAlike,
-    object::T,
-    meteo=nothing,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    tracked_outputs=nothing,
-    check=true,
-    executor=ThreadedEx(),
-    return_requested_outputs=false,
-    requested_outputs_sink=DataFrames.DataFrame
-) where {T<:ModelList}
-    Base.depwarn(
-        "`run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)` instead.",
-        :run!
-    )
-    _run_modellist_singleton(
-        object,
-        meteo,
-        constants,
-        extra;
-        tracked_outputs=tracked_outputs,
-        check=check,
-        executor=executor,
-        return_requested_outputs=return_requested_outputs
-    )
-end
-
 function run!(
     ::SingletonAlike,
     object::T,
@@ -430,72 +343,6 @@ function _run_modellist_singleton(
     return outputs_preallocated
 end
 
-# 3- several objects and one meteo time-step
-function run!(
-    ::TableAlike,
-    object::T,
-    meteo,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    tracked_outputs=nothing,
-    check=true,
-    executor=ThreadedEx(),
-    return_requested_outputs=false,
-    requested_outputs_sink=DataFrames.DataFrame
-) where {T<:Union{AbstractArray,AbstractDict}}
-    if _all_modellists_collection(object)
-        Base.depwarn(
-            "`run!` with a collection of `ModelList` is deprecated. Use a collection of `ModelMapping` objects instead.",
-            :run!
-        )
-    end
-
-    tracked_outputs isa OutputRequest && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
-    tracked_outputs isa AbstractVector{<:OutputRequest} && error("`OutputRequest` is only supported for MTG multi-rate simulations.")
-    return_requested_outputs && error("`return_requested_outputs=true` is only supported for MTG multi-rate simulations.")
-    runtime_objects = [_single_scale_runtime_object(obj) for obj in collect(values(object))]
-    dep_graphs = [dep(obj) for obj in runtime_objects]
-    #obj_parallelizable = all([object_parallelizable(graph) for graph in dep_graphs])
-
-    # Check if the simulation can be parallelized over objects:
-    if executor != SequentialEx()
-        @warn string(
-            "Parallelisation over objects was removed, (but may be reintroduced in the future). Parallelisation will only occur over timesteps."
-        ) maxlog = 1
-    end
-
-    # Each object:
-    for (i, obj) in enumerate(runtime_objects)
-
-        if check
-            # Check if the meteo data and the status have the same length (or length 1)
-            check_dimensions(obj, meteo)
-
-            if length(dep_graphs[i].not_found) > 0
-                error(
-                    "The following processes are missing to run the ModelList: ",
-                    dep_graphs[i].not_found
-                )
-            end
-        end
-    end
-
-    outputs_collection = isa(object, AbstractArray) ? [] : isnothing(tracked_outputs) ? Dict() : Dict{TimeStepTable{Status{typeof(tracked_outputs)}}}
-
-    # Each object:
-    for obj in object
-        if isa(object, AbstractArray)
-            push!(outputs_collection, run!(obj, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor))
-        else
-            outputs_collection[obj.first] = run!(obj.second, meteo, constants, extra, tracked_outputs=tracked_outputs, check=check, executor=executor)
-        end
-
-    end
-    return outputs_collection
-end
-
-
-
 # Not exposed to the user : 
 # for each dependency node in the graph (always one time-step, one object), actual workhorse
 function run_node!(
@@ -604,40 +451,6 @@ function run!(
     end
 
     return outputs(sim)
-end
-
-function run!(
-    object::MultiScaleTreeGraph.Node,
-    mapping::AbstractDict{Symbol,T} where {T},
-    meteo=nothing,
-    constants=PlantMeteo.Constants(),
-    extra=nothing;
-    nsteps=nothing,
-    tracked_outputs=nothing,
-    type_promotion=nothing,
-    check=true,
-    executor=ThreadedEx(),
-    return_requested_outputs=false,
-    requested_outputs_sink=DataFrames.DataFrame
-)
-    Base.depwarn(
-        "`run!(mtg, mapping::AbstractDict, ...)` is deprecated. Use `run!(mtg, ModelMapping(mapping), ...)` or construct `ModelMapping(...)` directly.",
-        :run!
-    )
-    run!(
-        object,
-        ModelMapping(mapping; type_promotion=type_promotion),
-        meteo,
-        constants,
-        extra;
-        nsteps=nsteps,
-        tracked_outputs=tracked_outputs,
-        type_promotion=type_promotion,
-        check=check,
-        executor=executor,
-        return_requested_outputs=return_requested_outputs,
-        requested_outputs_sink=requested_outputs_sink
-    )
 end
 
 function run!(

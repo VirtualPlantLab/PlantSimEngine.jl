@@ -44,6 +44,19 @@ function compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
     return modellist_sorted == mapping_sorted
 end
 
+function run_graphsim_for_comparison(mtg, mapping, nsteps, outputs_mapping, meteo)
+    graphsim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
+    run!(
+        graphsim,
+        meteo,
+        PlantMeteo.Constants(),
+        nothing;
+        check=true,
+        executor=SequentialEx(),
+    )
+    return graphsim
+end
+
 # Helper used to compare a single-scale `ModelMapping` run with its generated
 # multiscale equivalent.
 function check_multiscale_simulation_is_equivalent_begin(mapping::ModelMapping, meteo)
@@ -55,16 +68,7 @@ function check_multiscale_simulation_is_equivalent_begin(mapping::ModelMapping, 
 end
 
 function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping, out, meteo)
-    graph_sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=PlantSimEngine.get_nsteps(meteo), check=true, outputs=out)
-
-    sim = run!(graph_sim,
-        meteo,
-        PlantMeteo.Constants(),
-        nothing;
-        check=true,
-        executor=SequentialEx()
-    )
-
+    graph_sim = run_graphsim_for_comparison(mtg, mapping, PlantSimEngine.get_nsteps(meteo), out, meteo)
     return compare_outputs_modellist_mapping(modellist_outputs, graph_sim)
 end
 
@@ -394,15 +398,7 @@ function test_filtered_output_begin(m::ModelMapping, status_tuple, requested_out
 end
 
 function test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filtered_outputs_modellist)
-    graphsim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=outputs_mapping)
-
-    sim2 = run!(graphsim,
-        meteo,
-        PlantMeteo.Constants(),
-        nothing;
-        check=true,
-        executor=SequentialEx()
-    )
+    graphsim = run_graphsim_for_comparison(mtg, mapping, nsteps, outputs_mapping, meteo)
     return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
 end
 

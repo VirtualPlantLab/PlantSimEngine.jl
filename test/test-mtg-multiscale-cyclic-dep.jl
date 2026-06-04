@@ -114,7 +114,7 @@ end
 
     #out = @test_nowarn run!(mtg, mapping_nocyclic, meteo, tracked_outputs=out_vars, executor=SequentialEx())
     nsteps = PlantSimEngine.get_nsteps(meteo)
-    sim = PlantSimEngine.GraphSimulation(mtg, mapping, nsteps=nsteps, check=true, outputs=out_vars)
+    sim = PlantSimEngine.GraphSimulation(mtg, mapping_nocyclic, nsteps=nsteps, check=true, outputs=out_vars)
     out = @test_nowarn run!(sim,meteo)
     st = status(sim)
 

@@ -107,9 +107,9 @@ function _consumer_horizon_requirements(sim::GraphSimulation, timeline::Timeline
             source_process = parsed.process
             source_var = isnothing(parsed.var) ? input_var : parsed.var
             source_scale = isnothing(parsed.scale) ? _source_scale_for_process(node, source_process) : parsed.scale
-            source_scale = source_scale isa AbstractString ?
-                           _normalize_scale(source_scale; warn=true, context=:ModelSpec) :
-                           source_scale
+            source_scale isa Symbol || error(
+                "Source scale for input `$(input_var)` in process `$(node.value)` must be a `Symbol`, got `$(typeof(source_scale))`."
+            )
             source_model_spec = _model_spec_for_process(sim, source_scale, source_process)
             source_model = get_models(sim)[source_scale][source_process]
             source_clock = _model_clock(source_model_spec, source_model, timeline)
@@ -141,7 +141,7 @@ function configure_temporal_buffers!(sim::GraphSimulation, timeline::TimelineCon
     return nothing
 end
 
-function _trim_stream!(samples::Vector{Tuple{Float64,Any}}, t::Float64, horizon::Float64)
+function _trim_stream!(samples::OutputStream, t::Float64, horizon::Float64)
     horizon <= 0.0 && (empty!(samples); return nothing)
     t_min = t - horizon + 1.0 - 1e-8
     first_keep = findfirst(s -> s[1] >= t_min, samples)
@@ -172,7 +172,7 @@ function update_temporal_state_outputs!(sim::GraphSimulation, node::SoftDependen
         producer_key = _producer_signature(node.scale, node.process, out_var)
 
         if haskey(sim.temporal_state.producer_horizons, producer_key)
-            samples = get!(sim.temporal_state.streams, key, Vector{Tuple{Float64,Any}}())
+            samples = get!(sim.temporal_state.streams, key, OutputStream())
             push!(samples, (t, val))
             _trim_stream!(samples, t, sim.temporal_state.producer_horizons[producer_key])
         end

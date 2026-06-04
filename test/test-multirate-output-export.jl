@@ -174,7 +174,7 @@ end
     # Optional direct export return from run! on MTG + mapping entry point.
     out_status_mtg, out_requested_mtg = run!(
         mtg,
-        Dict(
+        ModelMapping(
             :Leaf => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
                 TimeStepModel(1.0),
