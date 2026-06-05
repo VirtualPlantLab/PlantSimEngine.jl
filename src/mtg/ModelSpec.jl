@@ -1,5 +1,5 @@
 """
-    ModelSpec(model; multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), meteo_window=nothing, output_routing=NamedTuple(), scope=:global, updates=())
+    ModelSpec(model; name=nothing, applies_to=nothing, inputs=NamedTuple(), calls=NamedTuple(), environment=nothing, multiscale=nothing, timestep=nothing, input_bindings=NamedTuple(), meteo_bindings=NamedTuple(), meteo_window=nothing, output_routing=NamedTuple(), scope=:global, updates=())
 
 User-side model configuration wrapper for mapping/model list composition.
 
@@ -7,8 +7,13 @@ User-side model configuration wrapper for mapping/model list composition.
 This allows modelers to publish reusable models while users decide how models are coupled in
 their simulation setup.
 """
-struct ModelSpec{M,MS,TS,IB,MB,MW,OR,SC,UP}
+struct ModelSpec{M,N,AT,IN,CA,EV,MS,TS,IB,MB,MW,OR,SC,UP}
     model::M
+    name::N
+    applies_to::AT
+    inputs::IN
+    calls::CA
+    environment::EV
     multiscale::MS
     timestep::TS
     input_bindings::IB
@@ -78,6 +83,11 @@ end
 
 function ModelSpec(
     model::AbstractModel;
+    name=nothing,
+    applies_to=nothing,
+    inputs=NamedTuple(),
+    calls=NamedTuple(),
+    environment=nothing,
     multiscale=nothing,
     timestep=nothing,
     input_bindings=NamedTuple(),
@@ -89,15 +99,27 @@ function ModelSpec(
 )
     base_model = model
 
-    normalized_multiscale = _normalize_multiscale_mapping(base_model, multiscale)
+    normalized_name = _normalize_application_name(name)
+    default_inputs = _model_default_value_inputs(base_model)
+    normalized_inputs = _merge_value_inputs(default_inputs, _normalize_application_bindings(inputs))
+    default_calls = _model_default_model_calls(base_model)
+    normalized_calls = _merge_value_inputs(default_calls, _normalize_application_bindings(calls))
+    derived_multiscale = _legacy_multiscale_from_value_inputs(normalized_inputs, base_model)
+    combined_multiscale = _merge_legacy_multiscale(multiscale, derived_multiscale)
+    normalized_multiscale = _normalize_multiscale_mapping(base_model, combined_multiscale)
     normalized_input_bindings = _normalize_input_bindings(input_bindings)
     normalized_meteo_bindings = _normalize_meteo_bindings(meteo_bindings)
     normalized_meteo_window = _normalize_meteo_window(meteo_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_scope = _normalize_scope_selector(scope)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_calls),typeof(environment),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope),typeof(normalized_updates)}(
         base_model,
+        normalized_name,
+        applies_to,
+        normalized_inputs,
+        normalized_calls,
+        environment,
         normalized_multiscale,
         timestep,
         normalized_input_bindings,
@@ -111,6 +133,11 @@ end
 
 function ModelSpec(
     model::MultiScaleModel;
+    name=nothing,
+    applies_to=nothing,
+    inputs=NamedTuple(),
+    calls=NamedTuple(),
+    environment=nothing,
     multiscale=nothing,
     timestep=nothing,
     input_bindings=NamedTuple(),
@@ -123,6 +150,11 @@ function ModelSpec(
     base_multiscale = isnothing(multiscale) ? mapped_variables_(model) : multiscale
     return ModelSpec(
         model_(model);
+        name=name,
+        applies_to=applies_to,
+        inputs=inputs,
+        calls=calls,
+        environment=environment,
         multiscale=base_multiscale,
         timestep=timestep,
         input_bindings=input_bindings,
@@ -137,6 +169,11 @@ end
 function ModelSpec(
     spec::ModelSpec;
     model=spec.model,
+    name=spec.name,
+    applies_to=spec.applies_to,
+    inputs=spec.inputs,
+    calls=spec.calls,
+    environment=spec.environment,
     multiscale=spec.multiscale,
     timestep=spec.timestep,
     input_bindings=spec.input_bindings,
@@ -146,12 +183,62 @@ function ModelSpec(
     scope=spec.scope,
     updates=spec.updates
 )
-    ModelSpec(model; multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope, updates=updates)
+    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, calls=calls, environment=environment, multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope, updates=updates)
 end
 
 as_model_spec(spec::ModelSpec) = spec
 as_model_spec(model::AbstractModel) = ModelSpec(model)
 as_model_spec(model::MultiScaleModel) = ModelSpec(model_(model); multiscale=mapped_variables_(model))
+
+"""
+    with_name(model_or_spec, name)
+
+Return a `ModelSpec` with an explicit model-application name.
+"""
+function with_name(model_or_spec, name)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; name=_normalize_application_name(name))
+end
+
+"""
+    with_applies_to(model_or_spec, selector)
+
+Return a `ModelSpec` with an explicit model-application target selector.
+"""
+function with_applies_to(model_or_spec, selector)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; applies_to=selector)
+end
+
+"""
+    with_inputs(model_or_spec, bindings)
+
+Return a `ModelSpec` with unified scene/object value-input bindings.
+"""
+function with_inputs(model_or_spec, bindings)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; inputs=_normalize_application_bindings(bindings))
+end
+
+"""
+    with_calls(model_or_spec, bindings)
+
+Return a `ModelSpec` with unified scene/object manual model-call bindings.
+"""
+function with_calls(model_or_spec, bindings)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; calls=_normalize_application_bindings(bindings))
+end
+
+"""
+    with_environment(model_or_spec, environment)
+
+Return a `ModelSpec` with scene/object environment configuration metadata.
+"""
+function with_environment(model_or_spec, environment)
+    spec = as_model_spec(model_or_spec)
+    return ModelSpec(spec; environment=environment)
+end
 
 """
     with_multiscale(model_or_spec, mapped_variables)
@@ -334,6 +421,54 @@ function _normalize_scope_selector(scope)
 end
 
 """
+    AppliesTo(selector)
+
+Pipe-style transform that sets the object selector where a model application
+runs in the unified scene/object API.
+"""
+AppliesTo(selector) = x -> with_applies_to(x, selector)
+
+"""
+    Inputs(bindings...)
+    Inputs(; kwargs...)
+
+Pipe-style transform that sets value-input bindings in the unified
+scene/object API.
+"""
+Inputs(bindings::Pair...) = x -> with_inputs(x, bindings)
+Inputs(bindings::NamedTuple) = x -> with_inputs(x, bindings)
+Inputs(; kwargs...) = Inputs((; kwargs...))
+
+"""
+    Calls(bindings...)
+    Calls(; kwargs...)
+
+Pipe-style transform that sets manual model-call bindings in the unified
+scene/object API.
+"""
+Calls(bindings::Pair...) = x -> with_calls(x, bindings)
+Calls(bindings::NamedTuple) = x -> with_calls(x, bindings)
+Calls(; kwargs...) = Calls((; kwargs...))
+
+"""
+    TimeStep(timestep)
+
+Pipe-style transform that sets a user-selected timestep in the unified
+scene/object API. This is the breaking-design name for `TimeStepModel(...)`.
+"""
+TimeStep(timestep) = x -> with_timestep(x, timestep)
+
+"""
+    Environment(config)
+    Environment(; kwargs...)
+
+Pipe-style transform that stores scene/object environment configuration
+metadata on a `ModelSpec`.
+"""
+Environment(config) = x -> with_environment(x, config isa EnvironmentConfig ? config : EnvironmentConfig(config))
+Environment(; kwargs...) = Environment((; kwargs...))
+
+"""
     MultiScaleModel(mapped_variables)
 
 Pipe-style transform that updates multiscale mapping on a model/spec.
@@ -503,7 +638,41 @@ process(m::ModelSpec) = process(model_(m))
 timestep(m::ModelSpec) = m.timestep
 inputs_(m::ModelSpec) = inputs_(model_(m))
 outputs_(m::ModelSpec) = outputs_(model_(m))
-dep(m::ModelSpec) = dep(model_(m))
+
+function _model_spec_dependency_selector(dep_name::Symbol, selector)
+    return selector
+end
+
+function _model_spec_dependency_selector(dep_name::Symbol, selector::Input)
+    return nothing
+end
+
+function _normalize_model_spec_dependencies(deps::NamedTuple)
+    normalized = Pair{Symbol,Any}[]
+    for (dep_name, selector) in pairs(deps)
+        selector isa Union{Input,Call} && continue
+        normalized_selector = _model_spec_dependency_selector(dep_name, selector)
+        isnothing(normalized_selector) && continue
+        push!(normalized, dep_name => normalized_selector)
+    end
+    return (; normalized...)
+end
+
+function _model_spec_call_dependencies(spec::ModelSpec)
+    calls = model_calls(spec)
+    calls isa NamedTuple || return NamedTuple()
+    normalized = Pair{Symbol,Any}[]
+    for (dep_name, selector) in pairs(calls)
+        push!(normalized, dep_name => _model_spec_dependency_selector(dep_name, selector))
+    end
+    return (; normalized...)
+end
+
+function dep(m::ModelSpec)
+    model_deps = _normalize_model_spec_dependencies(dep(model_(m)))
+    call_deps = _model_spec_call_dependencies(m)
+    return (; pairs(model_deps)..., pairs(call_deps)...)
+end
 init_variables(m::ModelSpec; verbose::Bool=true) = init_variables(model_(m); verbose=verbose)
 meteo_inputs_(m::ModelSpec) = meteo_inputs_(model_(m))
 meteo_outputs_(m::ModelSpec) = meteo_outputs_(model_(m))

@@ -117,6 +117,29 @@ end
 
 HardDomains(process::Union{Symbol,AbstractString}; kwargs...) = HardDomains(; process=Symbol(process), kwargs...)
 
+function _hard_domains_from_call_selector(selector::AbstractObjectMultiplicity)
+    c = criteria(selector)
+    unsupported = (:species, :name, :var, :relation, :within, :policy, :window)
+    any(key -> haskey(c, key) && !isnothing(getproperty(c, key)), unsupported) && error(
+        "Current `Calls(...)` hard-domain bridge only supports `kind`, `domain`, `scale`, and `process` selectors. ",
+        "Unsupported selector criteria: $(filter(key -> haskey(c, key), unsupported))."
+    )
+    return HardDomains(
+        kind=haskey(c, :kind) ? c.kind : nothing,
+        domain=haskey(c, :domain) ? c.domain : nothing,
+        scale=haskey(c, :scale) ? c.scale : nothing,
+        process=haskey(c, :process) ? c.process : nothing,
+    )
+end
+
+function _model_spec_dependency_selector(dep_name::Symbol, selector::Call)
+    return _hard_domains_from_call_selector(selector.selector)
+end
+
+function _model_spec_dependency_selector(dep_name::Symbol, selector::AbstractObjectMultiplicity)
+    return _hard_domains_from_call_selector(selector)
+end
+
 function _push_selector_term!(terms::Vector{String}, name::Symbol, value)
     isnothing(value) || push!(terms, "$(name)=:$(value)")
     return terms
@@ -571,7 +594,7 @@ function _resolve_domain_dependencies(mapping::SimulationMapping, specs::Dict{Do
     keys_by_domain = _keys_by_domain(specs)
 
     for (consumer_key, spec) in specs
-        model_deps = dep(model_(spec))
+        model_deps = dep(spec)
         for (dep_name, selector) in pairs(model_deps)
             selector isa AllDomains || continue
             resolved = DomainModelKey[]
@@ -605,7 +628,7 @@ function _resolve_hard_domain_dependencies(mapping::SimulationMapping, specs::Di
     keys_by_domain = _keys_by_domain(specs)
 
     for (consumer_key, spec) in specs
-        model_deps = dep(model_(spec))
+        model_deps = dep(spec)
         for (dep_name, selector) in pairs(model_deps)
             selector isa HardDomains || continue
             resolved = DomainModelKey[]
@@ -655,6 +678,7 @@ function _build_domain_simulation(mapping::SimulationMapping, meteo; staged_grap
     for domain in mapping.domains
         merge!(specs, _domain_model_specs(domain))
     end
+    mapping = _add_input_routes(mapping, specs)
     mapping = _add_route_target_status_defaults(mapping, specs)
 
     model_clocks = _domain_model_clocks(specs, timeline)
@@ -964,6 +988,16 @@ end
 
 run_target!(models, status, dependency_name::AbstractString; kwargs...) =
     run_target!(models, status, Symbol(dependency_name); kwargs...)
+
+"""
+    run_call!(target; kwargs...)
+    run_call!(models, status, dependency_name; kwargs...)
+
+Unified scene/object spelling for manually executing a model call handle.
+This currently delegates to `run_target!` while `ModelTarget` remains the
+runtime carrier for hard-domain calls.
+"""
+run_call!(args...; kwargs...) = run_target!(args...; kwargs...)
 
 function _domain_context_for(simulation::DomainSimulation, domain::Domain, node::SoftDependencyNode, step::Int, constants=nothing)
     key = DomainModelKey(domain.name, node.scale, node.process)

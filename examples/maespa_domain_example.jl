@@ -117,10 +117,6 @@ function SceneEB(
     )
 end
 
-PlantSimEngine.dep(::SceneEB) = (
-    energy_balance=HardDomains(kind=:plant, scale=:Leaf, process=:energy_balance),
-    soil=HardDomains(kind=:soil, process=:soil_water),
-)
 PlantSimEngine.inputs_(::SceneEB) = (lai=0.0, leaf_area=0.0)
 PlantSimEngine.outputs_(::SceneEB) = (
     canopy_tair=20.0,
@@ -174,7 +170,7 @@ function _run_scene_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, 
     local_meteo = _scene_leaf_meteo(meteo, tair_canopy, vpd_canopy)
     for target in leaf_targets
         _prepare_scene_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
-        run_target!(target; meteo=local_meteo, publish=publish) # Publish is false because we iterate here and only want to publish the final solution at the end
+        run_call!(target; meteo=local_meteo, publish=publish) # Publish is false because we iterate here and only want to publish the final solution at the end
         leaf_area = target.status.leaf_area
         total_rn += target.status.Rn * leaf_area
         total_lambda_e += target.status.λE * leaf_area
@@ -310,7 +306,7 @@ end
 function _run_scene_soil_feedback!(soil_target, transpiration_mm)
     soil_target.status.transpiration = transpiration_mm
     soil_target.status.infiltration = 0.0
-    run_target!(soil_target; publish=true)
+    run_call!(soil_target; publish=true)
     return soil_target.status.psi_soil
 end
 
@@ -432,8 +428,15 @@ function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
     )
     ground_area = scene_model.ground_area
     scene = ModelMapping(
-        ModelSpec(LAIModel(ground_area)) |> TimeStepModel(Dates.Day(1)),
-        ModelSpec(scene_model) |> TimeStepModel(Dates.Hour(1)),
+        ModelSpec(LAIModel(ground_area)) |>
+        Inputs(:leaf_areas => Many(kind=:plant, scale=:Leaf, process=:leaf_state, var=:leaf_area)) |>
+        TimeStep(Dates.Day(1)),
+        ModelSpec(scene_model) |>
+        Calls(
+            :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+            :soil => One(kind=:soil, process=:soil_water),
+        ) |>
+        TimeStep(Dates.Hour(1)),
         status=(
             leaf_area=0.0,
             lai=0.0,
@@ -448,18 +451,11 @@ function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
             iterations=0,
         ),
     )
-    leaf_area_route = Route(
-        from=AllDomains(kind=:plant, scale=:Leaf, process=:leaf_state, var=:leaf_area),
-        to=DomainRouteTarget(:scene, var=:leaf_areas, process=:lai_dynamic),
-        cardinality=ManyToOneVector(),
-    )
-
     return SimulationMapping(
         Domain(:plant_A, plant_a; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :A)),
         Domain(:plant_B, plant_b; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :B)),
         Domain(:soil, soil; kind=:soil),
-        Domain(:scene, scene; kind=:scene);
-        routes=(leaf_area_route,),
+        Domain(:scene, scene; kind=:scene),
     )
 end
 

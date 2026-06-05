@@ -60,6 +60,41 @@ output_policy(model::AbstractModel) = output_policy(typeof(model))
 output_policy(::Type{<:AbstractModel}) = NamedTuple()
 
 """
+    application_name(spec::ModelSpec)
+
+Optional stable name for one model application in the unified scene/object API.
+"""
+application_name(spec::ModelSpec) = spec.name
+
+"""
+    applies_to(spec::ModelSpec)
+
+Object selector where a model application runs in the unified scene/object API.
+"""
+applies_to(spec::ModelSpec) = spec.applies_to
+
+"""
+    value_inputs(spec::ModelSpec)
+
+Unified scene/object value-input bindings declared with `Inputs(...)`.
+"""
+value_inputs(spec::ModelSpec) = spec.inputs
+
+"""
+    model_calls(spec::ModelSpec)
+
+Unified scene/object manual call bindings declared with `Calls(...)`.
+"""
+model_calls(spec::ModelSpec) = spec.calls
+
+"""
+    environment_config(spec::ModelSpec)
+
+Optional scene/object environment configuration declared with `Environment(...)`.
+"""
+environment_config(spec::ModelSpec) = spec.environment
+
+"""
     input_bindings(spec::ModelSpec)
 
 Optional explicit input-to-producer bindings used by multi-rate resolution.

@@ -1,5 +1,13 @@
 # Multi-Domain Simulation Implementation Plan
 
+!!! warning "Current prototype plan"
+    This page tracks what has been implemented in the current multi-domain
+    prototype. The next breaking architecture plan lives in
+    `unified_scene_object_implementation_plan.md`. That plan keeps `dep(model)`
+    as the model-level default dependency trait, with future `Input(...)` and
+    `Call(...)` defaults overridden by scenario-level `ModelSpec`
+    configuration.
+
 This page tracks the implementation plan for the multi-domain work. The design
 reference is `multi_domain_simulation_design.md`.
 

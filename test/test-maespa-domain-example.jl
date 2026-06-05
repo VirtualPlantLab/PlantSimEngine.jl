@@ -65,7 +65,12 @@ end
     )
     scene_mapping = ModelMapping(
         ModelSpec(LAIModel(1.0)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(SceneEB(25, 0.03, 0.005)) |> TimeStepModel(Dates.Hour(1)),
+        ModelSpec(SceneEB(25, 0.03, 0.005)) |>
+        Calls(
+            :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+            :soil => One(kind=:soil, process=:soil_water),
+        ) |>
+        TimeStep(Dates.Hour(1)),
         status=(
             leaf_area=0.0,
             lai=0.0,

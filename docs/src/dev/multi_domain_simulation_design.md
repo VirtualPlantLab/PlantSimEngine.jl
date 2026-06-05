@@ -1,5 +1,17 @@
 # Multi-Domain Simulation Design
 
+!!! warning "Current prototype, not the target breaking design"
+    This page documents the current multi-domain prototype built around
+    `Domain`, `SimulationMapping`, `Route`, `AllDomains`, and `HardDomains`.
+    The target breaking redesign is now documented in
+    `unified_scene_object_design.md`. New architecture work should use the
+    unified scene/object design as the source of truth. In that redesign,
+    `dep(model)` is kept as the model-level default dependency trait: current
+    `AllDomains(...)` value dependencies migrate toward `Input(...)` defaults,
+    current `HardDomains(...)` manual dependencies migrate toward `Call(...)`
+    defaults, and scenario-level `ModelSpec` declarations remain the final
+    override point.
+
 This page is the working design for extending PlantSimEngine from one plant or
 one MTG mapping to reusable plant, soil, scene, and environment domains.
 

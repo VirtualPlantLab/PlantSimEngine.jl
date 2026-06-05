@@ -30,6 +30,10 @@ include("helper-functions.jl")
         include("test-multirate-scaffolding.jl")
     end
 
+    @testset "Unified scene/object API" begin
+        include("test-unified-scene-object-api.jl")
+    end
+
     @testset "Multi-rate runtime" begin
         include("test-multirate-runtime.jl")
     end

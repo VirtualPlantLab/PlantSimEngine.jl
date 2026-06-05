@@ -12,6 +12,7 @@ import CSV # For reading csv files with variables()
 import AbstractTrees
 import Term
 import Markdown
+import Base: position
 
 # For multi-threading:
 import FLoops: @floop, @init, ThreadedEx, SequentialEx, DistributedEx
@@ -44,6 +45,9 @@ include("time/multirate.jl")
 # Simulation row (status):
 include("component_models/Status.jl")
 include("component_models/RefVector.jl")
+
+# Unified scene/object API:
+include("scene_object_api.jl")
 
 # Simulation table (time-step table, from PlantMeteo):
 include("component_models/TimeStepTable.jl")
@@ -131,12 +135,28 @@ export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCa
 export TemporalState
 export OutputRequest, collect_outputs
 export effective_rate_summary
+export Scene, Object, ObjectId, SceneRegistry
+export register_object!, remove_object!, reparent_object!, move_object!, refresh_bindings!
+export bindings_dirty, environment_bindings_dirty, scene_revision, environment_revision
+export compiled_bindings, compiled_environment_bindings, mark_environment_binding_dirty!
+export refresh_environment_bindings!, compile_environment_bindings, bind_environment
+export object_ids, scene_objects, resolve_object_ids, resolve_objects, explain_objects
+export geometry, position, bounds
+export CompiledScene, CompiledSceneApplication, CompiledSceneInputBinding, CompiledSceneCallBinding
+export compile_scene, explain_scene_applications, explain_bindings, explain_calls, explain_writers
+export ObjectRefVector, input_carrier, input_value, has_reference_carrier
+export SceneRunContext, SceneCallTarget
+export CompiledEnvironmentBinding, CompiledEnvironmentBindings, explain_environment_bindings
+export SceneScope, Self, SelfPlant, Ancestor, Scope, Kind, Species, Scale, Relation
+export One, OptionalOne, Many, ObjectAddress, object_address
+export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
+export application_name, applies_to, value_inputs, model_calls, environment_config
 export MultiScaleModel, ModelMapping, ModelSpec, SameScale, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
 export Domain, SimulationMapping, DomainSimulation, DomainModelKey, AllDomains, HardDomains
 export Route, DomainRouteTarget, RouteCardinality
 export ManyToOneVector, ManyToOneAggregate, OneToManyBroadcast, SpatialSample, SpatialScatterAdd
-export dependency_values, dependency_targets, dependency_target, model_target, run_target!, ModelTarget, explain_domains, explain_domain_models, explain_domain_statuses, explain_schedule, explain_domain_dependencies, explain_routes
+export dependency_values, dependency_targets, dependency_target, model_target, run_target!, run_call!, ModelTarget, explain_domains, explain_domain_models, explain_domain_statuses, explain_schedule, explain_domain_dependencies, explain_routes
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!

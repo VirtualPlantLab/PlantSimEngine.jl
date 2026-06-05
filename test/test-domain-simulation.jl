@@ -11,6 +11,7 @@ PlantSimEngine.@process "domain_hard_leaf_energy" verbose = false
 PlantSimEngine.@process "domain_scene_conductance_sum" verbose = false
 PlantSimEngine.@process "domain_hard_target_signal" verbose = false
 PlantSimEngine.@process "domain_scene_hard_target_sum" verbose = false
+PlantSimEngine.@process "domain_scene_calls_target_sum" verbose = false
 PlantSimEngine.@process "domain_hard_target_leaf_counter" verbose = false
 PlantSimEngine.@process "domain_scene_hard_target_leaf_sum" verbose = false
 PlantSimEngine.@process "domain_scene_routed_vector" verbose = false
@@ -188,6 +189,21 @@ function PlantSimEngine.run!(::DomainSceneHardTargetSumModel, models, status, me
         run_target!(target)
     end
     status.hard_target_total = sum(target.status.signal for target in targets)
+    return nothing
+end
+
+struct DomainSceneCallsTargetSumModel <: AbstractDomain_Scene_Calls_Target_SumModel end
+
+PlantSimEngine.inputs_(::DomainSceneCallsTargetSumModel) = NamedTuple()
+PlantSimEngine.outputs_(::DomainSceneCallsTargetSumModel) = (calls_target_total=0.0,)
+
+function PlantSimEngine.run!(::DomainSceneCallsTargetSumModel, models, status, meteo, constants=nothing, extra=nothing)
+    targets = dependency_targets(extra, :plant_signal)
+    for target in targets
+        run_call!(target)
+        run_call!(target)
+    end
+    status.calls_target_total = sum(target.status.signal for target in targets)
     return nothing
 end
 
@@ -708,6 +724,25 @@ end
     @test status(hard_target_sim, :scene).hard_target_total ≈ 4.0
     @test only(explain_domain_dependencies(hard_target_sim)).mode == :hard_domain
 
+    calls_target_scene_mapping = ModelMapping(
+        ModelSpec(DomainSceneCallsTargetSumModel()) |>
+        Calls(:plant_signal => Many(kind=:plant, process=:domain_hard_target_signal)) |>
+        TimeStep(Dates.Hour(1)),
+        status=(calls_target_total=0.0,),
+    )
+    calls_target_sim = run!(
+        SimulationMapping(
+            Domain(:hard_target_plant, hard_target_plant_mapping; kind=:plant),
+            Domain(:scene, calls_target_scene_mapping; kind=:scene),
+        ),
+        Atmosphere(T=20.0, Rh=0.65, Wind=1.0, Ri_PAR_f=100.0, duration=Dates.Hour(1)),
+        check=true,
+    )
+    @test status(calls_target_sim, :hard_target_plant).call_count == 2
+    @test status(calls_target_sim, :hard_target_plant).signal ≈ 4.0
+    @test status(calls_target_sim, :scene).calls_target_total ≈ 4.0
+    @test only(explain_domain_dependencies(calls_target_sim)).mode == :hard_domain
+
     route_source = AllDomains(kind=:plant, process=:domain_plant_transpiration, var=:transpiration)
     bad_route_source = AllDomains(kind=:plant, process=:domain_plant_transpiration, var=:missing_output)
     route_selector_error = try
@@ -821,6 +856,29 @@ end
     @test length(route_rows) == 2
     @test all(row -> row.target_var == :plant_transpirations, route_rows)
     @test all(row -> row.cardinality == ManyToOneVector, route_rows)
+
+    inputs_route_scene_mapping = ModelMapping(
+        ModelSpec(DomainSceneRoutedVectorModel()) |>
+        Inputs(:plant_transpirations => Many(kind=:plant, process=:domain_plant_transpiration, var=:transpiration)) |>
+        TimeStep(Dates.Hour(1)),
+        status=(routed_total=0.0,),
+    )
+    inputs_route_sim = run!(
+        SimulationMapping(
+            Domain(:oil_palm, oil_palm_mapping; kind=:plant),
+            Domain(:maize, maize_mapping; kind=:plant),
+            Domain(:scene, inputs_route_scene_mapping; kind=:scene),
+        ),
+        hourly_meteo,
+        check=true,
+    )
+    @test :plant_transpirations in propertynames(status(inputs_route_sim, :scene))
+    @test status(inputs_route_sim, :scene).plant_transpirations ≈ [0.5, 0.6]
+    @test status(inputs_route_sim, :scene).routed_total ≈ hourly_plant_sum
+    input_route_rows = explain_routes(inputs_route_sim)
+    @test length(input_route_rows) == 2
+    @test all(row -> row.target_var == :plant_transpirations, input_route_rows)
+    @test all(row -> row.cardinality == ManyToOneVector, input_route_rows)
 
     reordered_collector_mapping = ModelMapping(
         ModelSpec(DomainSceneRoutedVectorModel()) |> TimeStepModel(Dates.Hour(1)),

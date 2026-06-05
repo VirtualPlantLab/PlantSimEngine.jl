@@ -833,6 +833,11 @@ function _model_specs_rows(model_specs)
                 scale=scale,
                 process=process,
                 model=typeof(model_(spec)),
+                application_name=application_name(spec),
+                applies_to=applies_to(spec),
+                value_inputs=value_inputs(spec),
+                model_calls=model_calls(spec),
+                environment=environment_config(spec),
                 timestep=timestep(spec),
                 timespec_default=timespec(model_(spec)),
                 timestep_resolution=resolution,
@@ -858,6 +863,11 @@ Summary fields:
 - `scale`
 - `process`
 - `model`
+- `application_name`
+- `applies_to`
+- `value_inputs`
+- `model_calls`
+- `environment`
 - `timestep`
 - `input_bindings`
 - `meteo_bindings`
@@ -890,6 +900,11 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
         meteo_inputs_desc = (row.meteo_inputs isa NamedTuple && isempty(keys(row.meteo_inputs))) ? "(none)" : _stringify_compact(row.meteo_inputs)
         meteo_outputs_desc = (row.meteo_outputs isa NamedTuple && isempty(keys(row.meteo_outputs))) ? "(none)" : _stringify_compact(row.meteo_outputs)
         updates_desc = isempty(row.updates) ? "(none)" : _stringify_compact(row.updates)
+        application_name_desc = isnothing(row.application_name) ? "(unnamed)" : string(row.application_name)
+        applies_to_desc = isnothing(row.applies_to) ? "(implicit legacy target)" : _stringify_compact(row.applies_to)
+        value_inputs_desc = (row.value_inputs isa NamedTuple && isempty(keys(row.value_inputs))) ? "(none)" : _stringify_compact(row.value_inputs)
+        model_calls_desc = (row.model_calls isa NamedTuple && isempty(keys(row.model_calls))) ? "(none)" : _stringify_compact(row.model_calls)
+        environment_desc = isnothing(row.environment) ? "(default)" : _stringify_compact(row.environment)
         println(
             io,
             "  - ",
@@ -898,7 +913,17 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
             row.process,
             " [",
             row.model,
-            "]: timestep=",
+            "]: name=",
+            application_name_desc,
+            ", applies_to=",
+            applies_to_desc,
+            ", value_inputs=",
+            value_inputs_desc,
+            ", model_calls=",
+            model_calls_desc,
+            ", environment=",
+            environment_desc,
+            ", timestep=",
             timestep_desc,
             ", input_bindings=",
             input_bindings_desc,

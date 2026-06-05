@@ -4,6 +4,14 @@ This page records cleanup candidates found during the multi-domain experimental
 branch audit. It is intentionally biased toward code health and release-note
 planning rather than immediate implementation.
 
+See also:
+
+- `release_notes_handoff.md` for the consolidated release-note source.
+- `unified_scene_object_design.md` for the planned breaking replacement of the
+  current domain/route and multiscale-mapping split.
+- `unified_scene_object_implementation_plan.md` for the implementation handoff
+  of that future design.
+
 Priority meanings:
 
 - P0: architectural compatibility removal or high-impact breaking cleanup.

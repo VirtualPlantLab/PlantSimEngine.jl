@@ -34,6 +34,82 @@ function _resolve_route_bindings(mapping::SimulationMapping, specs::Dict{DomainM
     return bindings
 end
 
+function _has_route_to_input(routes::Vector{Route}, consumer_key::DomainModelKey, input_var::Symbol)
+    any(routes) do route
+        route.to.domain == consumer_key.domain &&
+            route.to.scale == consumer_key.scale &&
+            route.to.var == input_var &&
+            (isnothing(route.to.process) || route.to.process == consumer_key.process)
+    end
+end
+
+function _all_domains_from_input_selector(selector::AbstractObjectMultiplicity, input_var::Symbol)
+    c = criteria(selector)
+    unsupported = (:name, :relation, :within, :window)
+    any(key -> haskey(c, key) && !isnothing(getproperty(c, key)), unsupported) && return nothing
+
+    source_var = haskey(c, :var) ? c.var : input_var
+    policy = haskey(c, :policy) ? _as_schedule_policy(c.policy; context="Inputs route policy for `$(input_var)`") : HoldLast()
+    return AllDomains(
+        kind=haskey(c, :kind) ? c.kind : nothing,
+        domain=haskey(c, :domain) ? c.domain : nothing,
+        scale=haskey(c, :scale) ? c.scale : nothing,
+        process=haskey(c, :process) ? c.process : nothing,
+        var=source_var,
+        policy=policy,
+    )
+end
+
+function _single_value_route_reducer(values)
+    length(values) == 1 || error(
+        "`One(...)` input route expected exactly one resolved value, got $(length(values))."
+    )
+    return only(values)
+end
+
+function _route_cardinality_from_input_selector(selector::AbstractObjectMultiplicity)
+    selector isa Many && return ManyToOneVector()
+    selector isa Union{One,OptionalOne} && return ManyToOneAggregate(_single_value_route_reducer)
+    return nothing
+end
+
+function _routes_from_value_inputs(mapping::SimulationMapping, specs::Dict{DomainModelKey,ModelSpec})
+    routes = Route[]
+    existing_routes = copy(mapping.routes)
+    for (consumer_key, spec) in specs
+        bindings = value_inputs(spec)
+        bindings isa NamedTuple || continue
+        for (input_var, selector) in pairs(bindings)
+            input_sym = Symbol(input_var)
+            input_sym in keys(inputs_(spec)) || continue
+            selector isa AbstractObjectMultiplicity || continue
+            _has_route_to_input(existing_routes, consumer_key, input_sym) && continue
+
+            source = _all_domains_from_input_selector(selector, input_sym)
+            isnothing(source) && continue
+            cardinality = _route_cardinality_from_input_selector(selector)
+            isnothing(cardinality) && continue
+
+            target = DomainRouteTarget(
+                consumer_key.domain;
+                scale=consumer_key.scale,
+                var=input_sym,
+                process=consumer_key.process,
+            )
+            route = Route(from=source, to=target, cardinality=cardinality)
+            push!(routes, route)
+            push!(existing_routes, route)
+        end
+    end
+    return routes
+end
+
+function _add_input_routes(mapping::SimulationMapping, specs::Dict{DomainModelKey,ModelSpec})
+    generated_routes = _routes_from_value_inputs(mapping, specs)
+    isempty(generated_routes) && return mapping
+    return SimulationMapping(mapping.domains...; routes=(mapping.routes..., generated_routes...))
+end
+
 function _route_target_input_default(route::Route, specs::Dict{DomainModelKey,ModelSpec})
     consumer_key = _route_target_consumer_key(route, specs)
     isnothing(consumer_key) && return nothing
