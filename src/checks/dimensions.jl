@@ -43,7 +43,7 @@ ERROR: DimensionMismatch: Component status has a vector variable : var1 implying
 check_dimensions(component, weather) = check_dimensions(DataFormat(weather), component, weather)
 
 # Here we add methods for applying to a component, an array or a dict of:
-function check_dimensions(component::ModelList, w)
+function check_dimensions(component::SingleScaleModelSet, w)
     check_dimensions(status(component), w)
 end
 
@@ -52,14 +52,14 @@ function check_dimensions(component::ModelMapping{SingleScale}, w)
 end
 
 # for several components as an array
-function check_dimensions(component::AbstractVector{<:ModelList}, weather)
+function check_dimensions(component::AbstractVector{<:SingleScaleModelSet}, weather)
     for i in component
         check_dimensions(i, weather)
     end
 end
 
 # for several components as a Dict
-function check_dimensions(component::AbstractDict{<:Any,<:ModelList}, weather)
+function check_dimensions(component::AbstractDict{<:Any,<:SingleScaleModelSet}, weather)
     for (key, val) in component
         check_dimensions(val, weather)
     end

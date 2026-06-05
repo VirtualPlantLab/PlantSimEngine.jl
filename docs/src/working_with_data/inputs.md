@@ -30,7 +30,7 @@ models = ModelMapping(
 )
 ```
 
-For single-scale mappings, `type_promotion` is applied while the backing status is constructed. It follows the same semantics as the deprecated [`ModelList`](@ref): model-provided default values are converted, while values explicitly passed in `status` keep the type chosen by the user. If those values should also be `Float32`, pass them as `Float32` values directly.
+For single-scale mappings, `type_promotion` is applied while the backing status is constructed: model-provided default values are converted, while values explicitly passed in `status` keep the type chosen by the user. If those values should also be `Float32`, pass them as `Float32` values directly.
 
 For multiscale mappings, the per-node statuses do not exist when [`ModelMapping`](@ref) is constructed. The promotion map is stored on the mapping and applied when the MTG simulation is initialized:
 

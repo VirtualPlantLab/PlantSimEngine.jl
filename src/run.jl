@@ -114,11 +114,11 @@ function adjust_weather_timesteps_to_given_length(desired_length, meteo)
 end
 
 
-function _modellist_from_model_mapping(mapping::ModelMapping{SingleScale})
+function _single_scale_model_set_from_mapping(mapping::ModelMapping{SingleScale})
     mapping.data
 end
 
-function _modellist_from_model_mapping(::ModelMapping{MultiScale})
+function _single_scale_model_set_from_mapping(::ModelMapping{MultiScale})
     error("This `ModelMapping` is a multiscale mapping. ", "Use `run!(mtg, mapping, ...)` for multiscale mappings.")
 end
 
@@ -134,9 +134,9 @@ function run!(
     requested_outputs_sink=DataFrames.DataFrame
 )
     _validate_meteo_duration(meteo)
-    model_list = _modellist_from_model_mapping(mapping)
-    _run_modellist_singleton(
-        model_list,
+    model_set = _single_scale_model_set_from_mapping(mapping)
+    _run_single_scale_model_set(
+        model_set,
         meteo,
         constants,
         extra;
@@ -234,10 +234,10 @@ function run!(
     return_requested_outputs=false,
     requested_outputs_sink=DataFrames.DataFrame
 ) where {T<:ModelMapping{SingleScale}}
-    model_list = _modellist_from_model_mapping(object)
+    model_set = _single_scale_model_set_from_mapping(object)
 
-    _run_modellist_singleton(
-        model_list,
+    _run_single_scale_model_set(
+        model_set,
         meteo,
         constants,
         extra;
@@ -248,8 +248,8 @@ function run!(
     )
 end
 
-function _run_modellist_singleton(
-    object::ModelList,
+function _run_single_scale_model_set(
+    object::SingleScaleModelSet,
     meteo=nothing,
     constants=PlantMeteo.Constants(),
     extra=nothing;
@@ -275,7 +275,7 @@ function _run_modellist_singleton(
 
         if length(dep_graph.not_found) > 0
             error(
-                "The following processes are missing to run the ModelList: ",
+                "The following processes are missing to run the single-scale ModelMapping: ",
                 dep_graph.not_found
             )
         end
@@ -353,7 +353,7 @@ function run_node!(
     meteo,
     constants,
     extra
-) where {T<:ModelList}
+) where {T<:SingleScaleModelSet}
 
     # Check if all the parents have been called before the child:
     if !AbstractTrees.isroot(node) && any([p.simulation_id[i] <= node.simulation_id[i] for p in node.parent])

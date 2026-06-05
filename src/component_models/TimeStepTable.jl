@@ -7,7 +7,7 @@ from a `DataFrame`, but with each row being a `Status`.
 
 # Note 
 
-[`ModelList`](@ref) uses `TimeStepTable{Status}` by default (see examples below).
+[`SingleScaleModelSet`](@ref) uses `TimeStepTable{Status}` by default (see examples below).
 
 # Examples
 
@@ -25,7 +25,7 @@ TimeStepTable{Status}(df)
 
 # A leaf with several values for at least one of its variable will automatically use 
 # TimeStepTable{Status} with the time steps:
-models = ModelList(
+models = SingleScaleModelSet(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),

@@ -17,7 +17,7 @@ how to iterate over the data. The following data formats are supported:
 
 The default implementation returns `TableAlike` for `AbstractDataFrame`,
 `TimeStepTable`, `AbstractVector` and `Dict`, `TreeAlike` for `GraphSimulation`, 
-`SingletonAlike` for `Status`, `ModelList`, `NamedTuple` and `TimeStepRow`.
+`SingletonAlike` for `Status`, `SingleScaleModelSet`, `NamedTuple` and `TimeStepRow`.
 
 The default implementation for `Any` throws an error. Users that want to use another input
 should define this trait for the new data format, e.g.:
@@ -51,13 +51,13 @@ DataFormat(::Type{<:DataFrames.AbstractDataFrame}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepTable}) = TableAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepRows}) = TableAlike()
 
-# Giving a ModelList as a vector or a dict of objects:
+# Giving a SingleScaleModelSet as a vector or a dict of objects:
 DataFormat(::Type{<:AbstractVector}) = TableAlike()
 DataFormat(::Type{<:Dict}) = TableAlike()
 
 DataFormat(::Type{<:NamedTuple}) = SingletonAlike()
 DataFormat(::Type{<:Status}) = SingletonAlike()
-DataFormat(::Type{<:ModelList{Mo,S} where {Mo,S}}) = SingletonAlike()
+DataFormat(::Type{<:SingleScaleModelSet{Mo,S} where {Mo,S}}) = SingletonAlike()
 DataFormat(::Type{<:ModelMapping{SingleScale}}) = SingletonAlike()
 DataFormat(::Type{<:GraphSimulation}) = TreeAlike()
 

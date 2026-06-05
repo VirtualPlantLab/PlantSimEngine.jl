@@ -82,11 +82,11 @@ function dep(nsteps=1; verbose::Bool=true, vars...)
     return deps
 end
 
-function dep(m::ModelList)
+function dep(m::SingleScaleModelSet)
     m.dependency_graph
 end
 
-function dep!(m::ModelList, nsteps=1)
+function dep!(m::SingleScaleModelSet, nsteps=1)
     traverse_dependency_graph!(m.dependency_graph; visit_hard_dep=false) do node
         if length(node.simulation_id) != nsteps
             node.simulation_id = fill(0, nsteps)

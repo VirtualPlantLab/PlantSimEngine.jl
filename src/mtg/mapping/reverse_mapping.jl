@@ -77,7 +77,7 @@ function reverse_mapping(mapping::AbstractDict{Symbol,T}; all=true) where {T<:An
 end
 
 function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
-    reverse_multiscale_mapping = ReverseMultiscaleMapping(org => Dict{Symbol,Dict{Symbol,Symbol}}() for org in keys(mapped_vars))
+    reverse_multiscale_mapping = ReverseMultiscaleMapping(org => Dict{Symbol,Dict{Symbol,ReverseMappingTarget}}() for org in keys(mapped_vars))
     for (organ, vars) in mapped_vars # e.g.: organ = :Plant; vars = mapped_vars[organ]
         for (var, val) in vars # e.g. var = :Rm_organs; val = vars[var]
             if isa(val, MappedVar) && !isa(val, MappedVar{SelfNodeMapping}) && (all || !isa(val, MappedVar{SingleNodeMapping}))
@@ -98,7 +98,7 @@ function reverse_mapping(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}; all=true)
                     #     reverse_multiscale_mapping[mapped_o] = Dict{Symbol,Vector{MappedVar}}()
                     # end
                     if !haskey(reverse_multiscale_mapping[mapped_o], organ)
-                        reverse_multiscale_mapping[mapped_o][organ] = Dict{Symbol,Symbol}(source_variable(val, mapped_o) => mapped_variable(val))
+                        reverse_multiscale_mapping[mapped_o][organ] = Dict{Symbol,ReverseMappingTarget}(source_variable(val, mapped_o) => mapped_variable(val))
                     end
                     push!(reverse_multiscale_mapping[mapped_o][organ], source_variable(val, mapped_o) => mapped_variable(val))
                 end

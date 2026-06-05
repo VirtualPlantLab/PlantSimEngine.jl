@@ -36,7 +36,7 @@ and some are still internal dependencies rather than shallow exported shims.
 
 | Priority | Compatibility surface | Evidence | Migration note |
 | --- | --- | --- | --- |
-| P0 | `ModelList` public API and legacy backing type | `src/PlantSimEngine.jl`; `src/component_models/ModelList.jl`; `src/mtg/mapping/mapping.jl` | `ModelList` has been removed. Use `ModelMapping(model...; status=..., type_promotion=...)` for single-scale simulations. |
+| Done | `ModelList` public API and legacy backing type | Formerly in `src/PlantSimEngine.jl`; `src/component_models/ModelList.jl`; `src/mtg/mapping/mapping.jl` | `ModelList` has been removed. Use `ModelMapping(model...; status=..., type_promotion=...)` for single-scale simulations. |
 | Done | `run!(::ModelList, ...)` | Formerly in `src/run.jl` direct `ModelList` methods | `run!(::ModelList, ...)` has been removed. Wrap models in `ModelMapping` before running. |
 | Done | Batch `run!` for collections of `ModelList` or single-scale mappings | Formerly in `src/run.jl` collection methods | Batch `run!([mapping1, mapping2], meteo)` and `run!(Dict(...), meteo)` are removed. Use an explicit loop or comprehension and call `run!` per mapping. |
 | Done | `run!(mtg, mapping::AbstractDict, ...)` | Formerly in `src/run.jl` | Passing a raw `Dict` to multiscale `run!` is removed. Construct `ModelMapping(dict)` first, or use `ModelMapping(:Scale => models, ...)`. |
@@ -44,10 +44,8 @@ and some are still internal dependencies rather than shallow exported shims.
 | Done | `ModelMapping(Float64 => Float32)` as old type-promotion shorthand | Formerly in `src/mtg/mapping/mapping.jl` | `ModelMapping(Float64 => Float32)` is removed. Use `Dict(Float64 => Float32)` as the `type_promotion` value. |
 | Done | Old output indexing helpers on multiscale output dictionaries | Formerly in `src/mtg/GraphSimulation.jl` | `outputs(out_dict, key)` and `outputs(out_dict, i)` are removed. Use `convert_outputs(out_dict, sink)` and index the converted table or dictionary explicitly. |
 
-Important: full `ModelList` removal is the largest cleanup. `ModelMapping{SingleScale}`
-currently delegates to it internally, so complete removal requires a replacement
-single-scale backing path in `ModelMapping`, `run!`, dependency/status helpers,
-output preallocation, and the domain runtime.
+`ModelMapping{SingleScale}` now uses an internal single-scale backing container
+instead of the removed public `ModelList` API.
 
 ## Non-Idiomatic Julia Patterns
 
@@ -68,7 +66,7 @@ output preallocation, and the domain runtime.
 | Priority | Location | Risk | Recommended cleanup |
 | --- | --- | --- | --- |
 | Done | `src/dependencies/soft_dependencies.jl` hard-dependency redirection | Nested hard-dependency redirection is duplicated, walks parents with a depth cap, and can match by process without enough scale context. | Extracted shared owner-resolution helpers for nested hard dependencies, with scale-aware matching, ambiguity checks, and finalized soft-node validation. |
-| P1 | `src/domains/domain_simulation.jl` runner | Scheduling, environment sampling/scattering, graph runtime lifecycle, output publication, and post-scene phases are still mixed in one large file. Route types and route materialization have been extracted to `src/domains/routes.jl` and `src/domains/route_runtime.jl`. | Continue splitting into domain scheduler, environment bridge, graph-domain runner, and output publisher modules. |
+| Done | `src/domains/domain_simulation.jl` runner | Scheduling, environment sampling/scattering, route materialization, output publication, graph runtime lifecycle, and post-scene run loops were mixed in one large file. | Split domain routes, route runtime, environment bridge, output publication, scheduler helpers, graph-domain runner lifecycle, and shared run-loop orchestration into focused `src/domains/*` modules while keeping public run entry points in `domain_simulation.jl`. |
 | Done | `src/time/runtime/input_resolution.jl` fallback resolution | Same-node, ancestor, and candidate-scan fallback can silently change behavior when topology or scope changes. | Built a shared source-status resolver that centralizes same-node, ancestor, vector, and unique-candidate fallback with scalar ambiguity validation. |
 | Done | `src/mtg/initialisation.jl` `RefVector` population | Vector input order depends on MTG traversal order and can drift after growth/removal. | Added `reindex_runtime_topology!` to sort statuses by MTG node id and rebuild downstream `RefVector`s from current statuses after initialization and topology mutations. |
 | Done | `src/mtg/mapping/compute_mapping.jl` and `src/mtg/mapping/mapping.jl` mapping sentinels/invariants | Magic sentinel values make mapping control flow fragile. | Same-scale mappings now use `SameScale()` instead of `Symbol("")`; explicit validation rejects the old sentinel. |
@@ -80,6 +78,5 @@ output preallocation, and the domain runtime.
 
 ## Suggested Cleanup Order
 
-1. Replace `ModelList` as the single-scale backing path.
-2. Split the domain runner into scheduler, routes, environment, graph-domain,
-   and publication modules.
+All originally listed cleanup items are now marked done. Keep this page as the
+release-note source list and add new rows only for newly discovered cleanup work.

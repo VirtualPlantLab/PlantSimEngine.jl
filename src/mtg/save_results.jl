@@ -321,7 +321,7 @@ function copy_tracked_outputs_into_vector!(outs_organ, i, statuses_organ, tracke
     return j
 end
 
-function pre_allocate_outputs(m::ModelList, outs, nsteps; type_promotion=nothing, check=true)
+function pre_allocate_outputs(m::SingleScaleModelSet, outs, nsteps; type_promotion=nothing, check=true)
     st, = flatten_status(status(m))
     out_vars_all = convert_vars(st, type_promotion)
 

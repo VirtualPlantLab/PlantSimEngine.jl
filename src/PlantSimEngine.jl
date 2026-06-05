@@ -51,8 +51,8 @@ include("component_models/TimeStepTable.jl")
 # Declaring the dependency graph
 include("dependencies/dependency_graph.jl")
 
-# List of models:
-include("component_models/ModelList.jl") # deprecated, to be removed in favor of ModelMapping
+# Single-scale model container used internally by ModelMapping:
+include("component_models/SingleScaleModelSet.jl")
 include("mtg/MultiScaleModel.jl")
 include("mtg/ModelSpec.jl")
 include("mtg/mapping/mapping.jl")
@@ -131,7 +131,7 @@ export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCa
 export TemporalState
 export OutputRequest, collect_outputs
 export effective_rate_summary
-export ModelList, MultiScaleModel, ModelMapping, ModelSpec, SameScale, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export MultiScaleModel, ModelMapping, ModelSpec, SameScale, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
 export resolved_model_specs, explain_model_specs
 export Domain, SimulationMapping, DomainSimulation, DomainModelKey, AllDomains, HardDomains
 export Route, DomainRouteTarget, RouteCardinality

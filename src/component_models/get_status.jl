@@ -1,9 +1,9 @@
 """
     status(m)
-    status(m::AbstractArray{<:ModelList})
-    status(m::AbstractDict{T,<:ModelList})
+    status(m::AbstractArray{<:SingleScaleModelSet})
+    status(m::AbstractDict{T,<:SingleScaleModelSet})
 
-Get a ModelList status, *i.e.* the state of the input (and output) variables.
+Get a SingleScaleModelSet status, *i.e.* the state of the input (and output) variables.
 
 See also [`is_initialized`](@ref) and [`to_initialize`](@ref)
 
@@ -15,7 +15,7 @@ using PlantSimEngine
 # Including example models and processes:
 using PlantSimEngine.Examples;
 
-# Create a ModelList
+# Create a SingleScaleModelSet
 models = ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
@@ -67,8 +67,8 @@ function status(m, key::T) where {T<:Integer}
 end
 
 """
-    getindex(component<:ModelList, key::Symbol)
-    getindex(component<:ModelList, key)
+    getindex(component<:SingleScaleModelSet, key::Symbol)
+    getindex(component<:SingleScaleModelSet, key)
 
 Indexing a component models structure:
     - with an integer, will return the status at the ith time-step
@@ -79,7 +79,7 @@ Indexing a component models structure:
 ```julia
 using PlantSimEngine
 
-lm = ModelList(
+lm = SingleScaleModelSet(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -95,10 +95,10 @@ lm[:var1][2] # Equivalent of the above
 16.0
 ```
 """
-function Base.getindex(component::T, key) where {T<:ModelList}
+function Base.getindex(component::T, key) where {T<:SingleScaleModelSet}
     status(component, key)
 end
 
-function Base.setindex!(component::T, value, key) where {T<:ModelList}
+function Base.setindex!(component::T, value, key) where {T<:SingleScaleModelSet}
     setproperty!(status(component), key, value)
 end

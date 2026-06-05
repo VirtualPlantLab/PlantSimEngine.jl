@@ -1,7 +1,7 @@
 
 """
-    ModelList(models::M, status::S)
-    ModelList(;
+    SingleScaleModelSet(models::M, status::S)
+    SingleScaleModelSet(;
         status=nothing,
         type_promotion=nothing,
         variables_check=true,
@@ -36,7 +36,7 @@ the `status` field in the input, you'll have to implement a method for `add_mode
 adds the models variables to the type in case it is not fully initialized. The default method is compatible 
 with any type that implements the `Tables.jl` interface (*e.g.* DataFrame), and `NamedTuples`.
 
-Note that `ModelList`makes a copy of the input `status` if it does not list all needed variables.
+Note that `SingleScaleModelSet`makes a copy of the input `status` if it does not list all needed variables.
 
 ## Examples
 
@@ -44,54 +44,54 @@ We'll use the dummy models from the `dummy.jl` in the examples folder of the pac
 implements three dummy processes: `Process1Model`, `Process2Model` and `Process3Model`, with
 one model implementation each: `Process1Model`, `Process2Model` and `Process3Model`.
 
-```jldoctest 1
+```julia
 julia> using PlantSimEngine;
 ```
 
 Including example processes and models:
 
-```jldoctest 1
+```julia
 julia> using PlantSimEngine.Examples;
 ```
 
-```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model());
+```julia
+julia> models = SingleScaleModelSet(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model());
 [ Info: Some variables must be initialized before simulation: (process1 = (:var1, :var2), process2 = (:var1,)) (see `to_initialize()`)
 ```
 
-```jldoctest 1
+```julia
 julia> typeof(models)
-ModelList{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, Status{(:var5, :var4, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}
+SingleScaleModelSet{@NamedTuple{process1::Process1Model, process2::Process2Model, process3::Process3Model}, Status{(:var5, :var4, :var6, :var1, :var3, :var2), NTuple{6, Base.RefValue{Float64}}}}
 ```
 
-No variables were given as keyword arguments, that means that the status of the ModelList is not
+No variables were given as keyword arguments, that means that the status of the SingleScaleModelSet is not
 set yet, and all variables are initialized to their default values given in the inputs and outputs (usually `typemin(Type)`, *i.e.* `-Inf` for floating
 point numbers). This component cannot be simulated yet.
 
 To know which variables we need to initialize for a simulation, we use [`to_initialize`](@ref):
 
-```jldoctest 1
+```julia
 julia> to_initialize(models)
 (process1 = (:var1, :var2), process2 = (:var1,))
 ```
 
 We can now provide values for these variables in the `status` field. Direct
-`run!(::ModelList, ...)` has been removed; wrap the models in a `ModelMapping`
+`run!(::SingleScaleModelSet, ...)` has been removed; wrap the models in a `ModelMapping`
 before running:
 
-```jldoctest 1
+```julia
 julia> mapping = ModelMapping(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3));
 ```
 
-```jldoctest 1
+```julia
 julia> meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995);
 ```
 
-```jldoctest 1
+```julia
 julia> outputs_sim = run!(mapping, meteo);
 ```
 
-```jldoctest 1
+```julia
 julia> outputs_sim[:var6]
 1-element Vector{Float64}:
  58.0138985
@@ -99,13 +99,13 @@ julia> outputs_sim[:var6]
 
 If we want to use special types for the variables, we can use the `type_promotion` argument:
 
-```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = Dict(Float64 => Float32));
+```julia
+julia> models = SingleScaleModelSet(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3), type_promotion = Dict(Float64 => Float32));
 ```
 
 We used `type_promotion` to force the status into Float32:
 
-```jldoctest 1
+```julia
 julia> [typeof(models[i][1]) for i in keys(status(models))]
 6-element Vector{DataType}:
  Float32
@@ -121,13 +121,13 @@ were converted to Float32, the two other variables that we gave were not convert
 because we want to give the ability to users to give any type for the variables they provide 
 in the status. If we want all variables to be converted to Float32, we can pass them as Float32:
 
-```jldoctest 1
-julia> models = ModelList(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0f0, var2=0.3f0), type_promotion = Dict(Float64 => Float32));
+```julia
+julia> models = SingleScaleModelSet(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0f0, var2=0.3f0), type_promotion = Dict(Float64 => Float32));
 ```
 
 We used `type_promotion` to force the status into Float32:
 
-```jldoctest 1
+```julia
 julia> [typeof(models[i][1]) for i in keys(status(models))]
 6-element Vector{DataType}:
  Float32
@@ -138,19 +138,19 @@ julia> [typeof(models[i][1]) for i in keys(status(models))]
  Float32
 ```
 """
-struct ModelList{M<:NamedTuple,S}
+struct SingleScaleModelSet{M<:NamedTuple,S}
     models::M
     status::S
     type_promotion::Union{Nothing,Dict}
     dependency_graph::DependencyGraph
 end
 
-#=function ModelList(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
-    ModelList(models, status)
+#=function SingleScaleModelSet(models::M, status::Status) where {M<:NamedTuple{names,T} where {names,T<:NTuple{N,<:AbstractModel} where {N}}}
+    SingleScaleModelSet(models, status)
 end=#
 
 # General interface:
-function ModelList(
+function SingleScaleModelSet(
     args...;
     status=nothing,
     type_promotion::Union{Nothing,Dict}=nothing,
@@ -180,7 +180,7 @@ function ModelList(
     ts_kwargs = homogeneous_ts_kwargs(status)
     ts_kwargs = add_model_vars(ts_kwargs, mods, type_promotion)
 
-    model_list = ModelList(
+    model_list = SingleScaleModelSet(
         mods,
         ts_kwargs,
         type_promotion,
@@ -191,7 +191,7 @@ function ModelList(
     return model_list
 end
 
-outputs(m::ModelList) = m.outputs
+outputs(m::SingleScaleModelSet) = m.outputs
 
 parse_models(m) = NamedTuple([process(i) => i for i in m])
 
@@ -287,10 +287,10 @@ function homogeneous_ts_kwargs(kwargs::NamedTuple{N,T}) where {N,T}
 end
 
 """
-    Base.copy(l::ModelList)
-    Base.copy(l::ModelList, status)
+    Base.copy(l::SingleScaleModelSet)
+    Base.copy(l::SingleScaleModelSet, status)
 
-Copy a [`ModelList`](@ref), eventually with new values for the status.
+Copy a [`SingleScaleModelSet`](@ref), eventually with new values for the status.
 
 # Examples
 
@@ -301,7 +301,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples;
 
 # Create a model list:
-models = ModelList(
+models = SingleScaleModelSet(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -315,8 +315,8 @@ ml2 = copy(models)
 ml3 = copy(models, TimeStepTable([Status(var1=20.0, var2=0.5))])
 ```
 """
-function Base.copy(m::T) where {T<:ModelList}
-    ModelList(
+function Base.copy(m::T) where {T<:SingleScaleModelSet}
+    SingleScaleModelSet(
         m.models,
         deepcopy(m.status),
         deepcopy(m.type_promotion),
@@ -324,8 +324,8 @@ function Base.copy(m::T) where {T<:ModelList}
     )
 end
 
-function Base.copy(m::T, status) where {T<:ModelList}
-    ModelList(
+function Base.copy(m::T, status) where {T<:SingleScaleModelSet}
+    SingleScaleModelSet(
         m.models,
         status,
         deepcopy(m.type_promotion),
@@ -334,20 +334,20 @@ function Base.copy(m::T, status) where {T<:ModelList}
 end
 
 """
-    Base.copy(l::AbstractArray{<:ModelList})
+    Base.copy(l::AbstractArray{<:SingleScaleModelSet})
 
-Copy an array-alike of [`ModelList`](@ref)
+Copy an array-alike of [`SingleScaleModelSet`](@ref)
 """
-function Base.copy(l::T) where {T<:AbstractArray{<:ModelList}}
+function Base.copy(l::T) where {T<:AbstractArray{<:SingleScaleModelSet}}
     return [copy(i) for i in l]
 end
 
 """
-    Base.copy(l::AbstractDict{N,<:ModelList} where N)
+    Base.copy(l::AbstractDict{N,<:SingleScaleModelSet} where N)
 
-Copy a Dict-alike [`ModelList`](@ref)
+Copy a Dict-alike [`SingleScaleModelSet`](@ref)
 """
-function Base.copy(l::T) where {T<:AbstractDict{N,<:ModelList} where {N}}
+function Base.copy(l::T) where {T<:AbstractDict{N,<:SingleScaleModelSet} where {N}}
     return Dict([k => v for (k, v) in l])
 end
 
@@ -460,13 +460,13 @@ function convert_vars!(mapped_vars::Dict{Symbol,Dict{Symbol,Any}}, type_promotio
     end
 end
 
-function Base.show(io::IO, m::MIME"text/plain", t::ModelList)
+function Base.show(io::IO, m::MIME"text/plain", t::SingleScaleModelSet)
     show(io, m, dep(t))
     println(io, "")
     show(io, m, status(t))
 end
 
 # Short form printing (e.g. inside another object)
-function Base.show(io::IO, t::ModelList)
-    print(io, "ModelList", (; zip(keys(t.models), typeof.(values(t.models)))...))
+function Base.show(io::IO, t::SingleScaleModelSet)
+    print(io, "SingleScaleModelSet", (; zip(keys(t.models), typeof.(values(t.models)))...))
 end

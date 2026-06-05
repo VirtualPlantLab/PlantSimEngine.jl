@@ -33,13 +33,7 @@ end;
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
 
     run!(models, meteo)
-    legacy_models = PlantSimEngine.ModelList(
-        process1=Process1Model(1.0),
-        process2=Process2Model(),
-        process3=Process3Model(),
-        status=(var1=15.0, var2=0.3)
-    )
-    @test_throws MethodError run!(legacy_models, meteo)
+    @test !isdefined(PlantSimEngine, :ModelList)
     @test_throws MethodError run!([models], meteo)
     @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
 

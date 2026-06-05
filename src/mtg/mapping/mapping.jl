@@ -104,7 +104,8 @@ struct MultiScale <: AbstractScaleSetup end
 struct SingleScale <: AbstractScaleSetup end
 
 const ModelRateDeclarations = Dict{Symbol,Any}
-const ReverseMultiscaleMapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,Symbol}}}
+const ReverseMappingTarget = Union{Symbol,PreviousTimeStep}
+const ReverseMultiscaleMapping = Dict{Symbol,Dict{Symbol,Dict{Symbol,ReverseMappingTarget}}}
 
 """
     ModelMappingInfo
@@ -162,7 +163,7 @@ configuration errors:
 The type behaves like a read-only dictionary keyed by scale name (`Symbol`).
 Use `Dict(mapping)` to recover a plain dictionary.
 """
-struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{Symbol,Tuple} where {D<:Union{Dict{Symbol,Tuple},ModelList}}
+struct ModelMapping{S<:AbstractScaleSetup,D} <: AbstractDict{Symbol,Tuple} where {D<:Union{Dict{Symbol,Tuple},SingleScaleModelSet}}
     data::D
     info::ModelMappingInfo
     type_promotion::Union{Nothing,Dict}
@@ -344,7 +345,7 @@ end
 Convenience constructors for [`ModelMapping`](@ref):
 
 - pass `scale => models` pairs directly (dict-like syntax),
-- or pass models/processes directly for a single scale (old `ModelList` syntax).
+- or pass models/processes directly for a single scale.
 
 `type_promotion` may be a dictionary of source type to target type, for example
 `Dict(Float64 => Float32)`. In single-scale mappings it is applied when the
@@ -405,12 +406,12 @@ function ModelMapping(
 
     return _build_model_mapping(
         SingleScale,
-        ModelList(flat_args...; status=status, type_promotion=type_promotion, variables_check=check, processes...);
+        SingleScaleModelSet(flat_args...; status=status, type_promotion=type_promotion, variables_check=check, processes...);
         validated=check,
         type_promotion=type_promotion
     )
 
-    #TODO: Use the following when we merge the ModelList and ModelMapping paths (create a fake scale):
+    #TODO: Use the following when we merge the single-scale and multiscale mapping paths (create a fake scale):
     single_scale_models = _single_scale_mapping_entries(args, processes, status)
     # return ModelMapping{SingleScale}(Dict(_normalize_scale(scale) => single_scale_models), check=check)
 end
@@ -484,7 +485,7 @@ function _normalize_multiscale_mapping(mapping::AbstractDict)
     return normalized
 end
 
-function _normalize_scale_mapping(scale::Symbol, scale_mapping::ModelList)
+function _normalize_scale_mapping(scale::Symbol, scale_mapping::SingleScaleModelSet)
     return _normalize_scale_mapping(scale, (values(scale_mapping.models)..., status(scale_mapping)))
 end
 
@@ -499,14 +500,14 @@ end
 function _normalize_scale_mapping(scale::Symbol, scale_mapping::Tuple)
     normalized_items = Any[]
     for item in scale_mapping
-        if item isa ModelList
+        if item isa SingleScaleModelSet
             append!(normalized_items, values(item.models))
             push!(normalized_items, status(item))
         elseif item isa Union{AbstractModel,MultiScaleModel,ModelSpec,Status}
             push!(normalized_items, item)
         else
             error(
-                "Invalid mapping entry at scale `$scale`: expected models/ModelSpec, Status, or ModelList, got $(typeof(item))."
+                "Invalid mapping entry at scale `$scale`: expected models, ModelSpec, Status, or single-scale ModelMapping, got $(typeof(item))."
             )
         end
     end
@@ -515,7 +516,7 @@ end
 
 function _normalize_scale_mapping(scale::Symbol, scale_mapping)
     error(
-        "Invalid mapping entry at scale `$scale`: expected a model/ModelSpec, tuple of models/Status, or ModelList, got $(typeof(scale_mapping))."
+        "Invalid mapping entry at scale `$scale`: expected a model, ModelSpec, tuple of models/Status, or single-scale ModelMapping, got $(typeof(scale_mapping))."
     )
 end
 
@@ -728,7 +729,7 @@ function _build_model_mapping_recommendations(
     return recommendations
 end
 
-function _build_model_mapping_info(::Type{SingleScale}, mapping::ModelList; validated::Bool)
+function _build_model_mapping_info(::Type{SingleScale}, mapping::SingleScaleModelSet; validated::Bool)
     specs = Dict(
         :Default => Dict{Symbol,ModelSpec}(
             process(model) => as_model_spec(model) for model in values(mapping.models)

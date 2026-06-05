@@ -66,7 +66,7 @@ mapping = ModelMapping(
 to_initialize(mapping)
 ```
 """
-function to_initialize(m::ModelList)
+function to_initialize(m::SingleScaleModelSet)
     needed_variables = to_initialize(dep(m))
     to_init = Dict{Symbol,Tuple}()
     for (process, vars) in needed_variables
@@ -246,7 +246,7 @@ function init_variables(model::T; verbose::Bool=true) where {T<:AbstractModel}
     return vars
 end
 
-function init_variables(m::ModelList; verbose::Bool=true)
+function init_variables(m::SingleScaleModelSet; verbose::Bool=true)
     init_variables(dep(m))
 end
 
@@ -301,7 +301,7 @@ models = ModelMapping(
 is_initialized(models)
 ```
 """
-function is_initialized(m::T; verbose=true) where {T<:ModelList}
+function is_initialized(m::T; verbose=true) where {T<:SingleScaleModelSet}
     var_names = to_initialize(m)
 
     if any([length(to_init) > 0 for (process, to_init) in pairs(var_names)])

@@ -141,7 +141,7 @@ function convert_outputs(outs::Dict{Symbol,O} where O, sink; refvectors=false, n
     return ret
 end
 
-# ModelLists now return outputs as a TimeStepTable{Status}, conversion is straightforward
+# Single-scale mappings return outputs as a TimeStepTable{Status}, conversion is straightforward
 function convert_outputs(out::TimeStepTable{T} where T, sink)
     if !Tables.istable(sink)
         error("The sink argument must be compatible with the Tables.jl interface (`Tables.istable(sink)` must return `true`, *e.g.* `DataFrame`)")

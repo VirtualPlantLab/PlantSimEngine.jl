@@ -61,7 +61,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
                     push!(dep_not_found, p => (parent_process=process, type=first(depend), scales=target_scales))
                     continue
                 else
-                    # If we are not in a multi-scale setup e.g. in a ModelList, we shouldn't use a multiscale model.
+                    # If we are not in a multi-scale setup, we shouldn't use a multiscale model.
                     # But we still authorize it with a warning, and then proceed searching the dependency in this model list.
                     verbose && @warn "Model $i has a multiscale hard dependency on $(first(depend)): $depend. Trying to find the model in this scale instead."
                     depend = first(depend)
@@ -100,7 +100,7 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
                         "Model ", typeof(model_(i)).name.name, " from process ", process,
                         isnothing(scale) ? "" : " at scale $scale",
                         " needs a model that is a subtype of ", depend, " in process ",
-                        p, ", but the process is not parameterized in the ModelList."
+                        p, ", but the process is not parameterized in the ModelMapping."
                     )
                 end
                 push!(dep_not_found, p => depend)

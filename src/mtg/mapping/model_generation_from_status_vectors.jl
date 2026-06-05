@@ -183,7 +183,7 @@ end
 
 
 # This is a helper function only for testing purposes.
-function modellist_to_mapping(modellist_original::ModelList, modellist_status; nsteps=nothing, outputs=nothing)
+function modellist_to_mapping(modellist_original::SingleScaleModelSet, modellist_status; nsteps=nothing, outputs=nothing)
     
     modellist = Base.copy(modellist_original, modellist_original.status)
 

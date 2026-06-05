@@ -5,7 +5,7 @@ An equivalent of the `Status` struct, but with views instead of Refs. Allows to 
 other data structures present elsewhere, and that we want to update on mutation.
 
 Like the `Status`, `StatusView` is used to store the values of the variables during a simulation, mainly as the structure to store the variables 
-in the `TimeStepRow` of a `TimeStepTable` (see [`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)) of a [`ModelList`](@ref).
+in the `TimeStepRow` of a `TimeStepTable` (see [`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)) of a [`SingleScaleModelSet`](@ref).
 
 # Examples
 
