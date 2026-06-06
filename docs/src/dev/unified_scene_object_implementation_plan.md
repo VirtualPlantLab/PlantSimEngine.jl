@@ -164,6 +164,23 @@ should reproduce the same capabilities through unified object selections.
   `CompiledScene` now reports each application clock, phase, timestep in base
   steps, timestep duration in seconds, and whether the application is scheduled
   as a root application or is manual-call-only.
+- `compile_scene` now computes a stable topological application order from
+  resolved `Inputs(...)` producer edges and `Updates(...)` writer-order edges.
+  Inputs produced by manual-call-only applications are redirected to the parent
+  application that owns the `Calls(...)` call stack. `run!(scene)` uses this
+  precompiled order instead of user declaration order, cycles fail at compile
+  time, and `explain_schedule` reports `execution_index`.
+- `CompiledScene` now pre-indexes input and call bindings by
+  `(application_id, object_id)`. Per-object input materialization and
+  `dependency_target(s)` lookup use these indexes instead of scanning every
+  binding in the scene at each model call.
+- `CompiledScene` now also pre-indexes applications by application id.
+  Hard-call target resolution and stable ordered-application materialization
+  use this index instead of scanning or rebuilding lookup dictionaries.
+- `CompiledEnvironmentBindings` now pre-indexes environment bindings by
+  `(application_id, object_id)`. Environment sampling and mutable environment
+  output scattering use direct lookup instead of scanning all environment
+  bindings for every model invocation.
 - Added `SceneRunContext` and `SceneCallTarget`. Models can retrieve manual
   `Calls(...)` targets with `dependency_target(s)(extra, :name)` and execute
   them with `run_call!`, preserving explicit call-stack control in the
@@ -207,6 +224,50 @@ should reproduce the same capabilities through unified object selections.
   `ModelSpec(scene_model) |> Calls(...)`.
 - Migrated the MAESPA example's scene LAI leaf-area route from user-written
   `Route(...)` to consumer-side `ModelSpec(LAIModel(...)) |> Inputs(...)`.
+- Started Phase 5 with `ObjectTemplate` and `ObjectInstance`. A template stores
+  reusable scene/object `ModelSpec`s plus default object labels, and an
+  instance mounts those specs inside one named object subtree.
+- `Scene(...)` accepts `ObjectInstance` values directly or through its
+  `instances` keyword. An instance root can be an owned `Object` or the id of
+  an object supplied separately to the scene.
+- Mounted template applications receive stable instance-prefixed application
+  names and an implicit `Scope(instance_name)` on unqualified
+  `AppliesTo(...)` selectors. Their `Inputs(...)`, `Calls(...)`, scheduling,
+  writer validation, and execution use the normal compiled scene/object path.
+- Instance overrides can replace one template application by application name
+  or process. Overrides must be unambiguous and preserve process identity.
+  Instances without overrides retain the exact shared model object from the
+  template.
+- Template labels fill missing `kind` and `species` metadata throughout the
+  mounted subtree, while the root receives the instance name used by
+  `Scope(...)`. Tests cover four instances, plant-local aggregation, shared
+  model storage, and one process-level model override.
+- Added explicit exceptional-organ overrides with
+  `Override(object=..., application=... or process=..., model=...)` through
+  `ObjectInstance(...; object_overrides=...)`. The override must resolve to one
+  template application, belong to the instance subtree, and preserve process,
+  input, output, and environment-variable declarations.
+- Object overrides remain one logical model application: the compiler stores
+  the selected replacement model by target object id. Dependency bindings,
+  writer ownership, application names, and manual calls therefore remain
+  unchanged, and no selector resolution occurs in the runtime loop.
+- Parameter/model ownership is explicit. Templates retain user-supplied model
+  and `parameters` objects by reference; unchanged instances share them.
+  Instance and object overrides retain their user-supplied replacement model
+  by reference. PlantSimEngine does not copy models or mutate model fields to
+  merge parameter overrides.
+- Same-concrete-type object overrides use a concretely typed object-to-model
+  table. Structured application explanations report shared/per-object storage,
+  concrete versus heterogeneous dispatch, overridden object ids, and model
+  types.
+- `Scene` retains mounted instance metadata and `explain_instances(scene)`
+  reports each instance root, current subtree object ids, mounted application
+  ids, instance/object overrides, template labels, and parameter ownership.
+  `explain_objects(scene)` also reports instance membership.
+- New objects registered below an instance automatically inherit missing
+  template `kind` and `species` labels. Instance explanations derive membership
+  from the current topology, so growth, pruning, and reparenting do not leave a
+  separate stale membership list.
 
 This progress is still a bridge over the existing compiler, not the final
 object-address compiler. Supported `Inputs(...)` and `Calls(...)` selectors are
@@ -505,6 +566,11 @@ Acceptance tests:
 - four oil palm instances share model objects/parameters when not overridden;
 - one palm instance can override one process parameter;
 - allocation remains per plant while scene LAI sees all leaves.
+
+Current remaining work:
+
+- migrate the repeated plant construction in the MAESPA example to templates
+  once its complete object topology is represented by the unified runtime.
 
 ## Phase 5B: Object Lifecycle And Cache Invalidation
 

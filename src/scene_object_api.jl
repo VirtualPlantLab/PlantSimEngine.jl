@@ -30,6 +30,135 @@ mutable struct Object
     applications::Any
 end
 
+"""
+    ObjectTemplate(applications=(); kind=nothing, species=nothing, mapping=applications, parameters=NamedTuple())
+
+Reusable model-application bundle for one kind of scene object, such as a plant
+species. Each mounted `ObjectInstance` scopes unqualified `AppliesTo(...)`
+selectors to its own object subtree. Model objects are shared between instances
+unless an instance supplies an override.
+
+`parameters` stores template-level metadata. Parameter-field merging is not
+implicit: use an instance model override when model parameters differ.
+"""
+struct ObjectTemplate{A,P}
+    kind::Union{Nothing,Symbol}
+    species::Union{Nothing,Symbol}
+    applications::A
+    parameters::P
+end
+
+_as_tuple(value::Tuple) = value
+_as_tuple(value::AbstractVector) = Tuple(value)
+_as_tuple(value) = (value,)
+
+function ObjectTemplate(
+    applications=();
+    kind=nothing,
+    species=nothing,
+    mapping=applications,
+    parameters=NamedTuple(),
+)
+    normalized_applications = _as_tuple(mapping)
+    return ObjectTemplate(
+        _maybe_symbol(kind),
+        _maybe_symbol(species),
+        normalized_applications,
+        parameters,
+    )
+end
+
+"""
+    Override(; object, model, process=nothing, application=nothing)
+
+Replace one template model application on one exceptional object. Select the
+template application by its process, explicit application name, or both.
+The replacement must implement the same process and variable contract.
+"""
+struct Override{M<:AbstractModel}
+    object::ObjectId
+    process::Union{Nothing,Symbol}
+    application::Union{Nothing,Symbol}
+    model::M
+end
+
+function Override(; object, model::AbstractModel, process=nothing, application=nothing)
+    normalized_process = _maybe_symbol(process)
+    normalized_application = _maybe_symbol(application)
+    if isnothing(normalized_process) && isnothing(normalized_application)
+        error("`Override(...)` requires `process=...`, `application=...`, or both.")
+    end
+    return Override(
+        ObjectId(object),
+        normalized_process,
+        normalized_application,
+        model,
+    )
+end
+
+"""
+    ObjectInstance(name, template; root, objects=(), overrides=NamedTuple(), object_overrides=())
+
+Mount an `ObjectTemplate` on one concrete scene-object subtree.
+
+`root` may be an `Object` owned by the instance or the id of an object supplied
+separately to `Scene`. `objects` contains additional owned descendants.
+`overrides` maps one template application name or process to a replacement
+model implementing the same process. `object_overrides` contains `Override`
+entries for exceptional organs.
+"""
+struct ObjectInstance{T,R,O,OV,OOV}
+    name::Symbol
+    template::T
+    root::R
+    objects::O
+    overrides::OV
+    object_overrides::OOV
+end
+
+function ObjectInstance(
+    name,
+    template::ObjectTemplate;
+    root,
+    objects=(),
+    overrides=NamedTuple(),
+    object_overrides=(),
+)
+    normalized_objects = _as_tuple(objects)
+    normalized_object_overrides = _as_tuple(object_overrides)
+    all(object -> object isa Object, normalized_objects) || error(
+        "`ObjectInstance(...; objects=...)` must contain `Object` values."
+    )
+    overrides isa NamedTuple || error(
+        "`ObjectInstance(...; overrides=...)` must be a NamedTuple keyed by application name or process."
+    )
+    all(override -> override isa Override, normalized_object_overrides) || error(
+        "`ObjectInstance(...; object_overrides=...)` must contain `Override` values."
+    )
+    return ObjectInstance(
+        Symbol(name),
+        template,
+        root,
+        normalized_objects,
+        overrides,
+        normalized_object_overrides,
+    )
+end
+
+struct ObjectModelOverrides{M,O} <: AbstractModel
+    base::M
+    overrides::O
+end
+
+process(model::ObjectModelOverrides) = process(model.base)
+inputs_(model::ObjectModelOverrides) = inputs_(model.base)
+outputs_(model::ObjectModelOverrides) = outputs_(model.base)
+dep(model::ObjectModelOverrides, nsteps=1) = dep(model.base, nsteps)
+timespec(model::ObjectModelOverrides) = timespec(model.base)
+output_policy(model::ObjectModelOverrides) = output_policy(model.base)
+meteo_inputs_(model::ObjectModelOverrides) = meteo_inputs_(model.base)
+meteo_outputs_(model::ObjectModelOverrides) = meteo_outputs_(model.base)
+
 function Object(
     id;
     scale=nothing,
@@ -72,10 +201,11 @@ SceneRegistry() = SceneRegistry(
     Dict{Symbol,ObjectId}(),
 )
 
-mutable struct Scene{R,A,E}
+mutable struct Scene{R,A,E,I}
     registry::R
     applications::A
     environment::E
+    instances::I
     binding_cache::Any
     environment_binding_cache::Any
     bindings_dirty::Bool
@@ -84,12 +214,143 @@ mutable struct Scene{R,A,E}
     environment_revision::Int
 end
 
-function Scene(objects::Object...; applications=(), environment=nothing)
-    scene = Scene(SceneRegistry(), applications, environment, nothing, nothing, true, true, 0, 0)
+function _normalize_object_instances(instances)
+    instances isa ObjectInstance && return (instances,)
+    normalized = _as_tuple(instances)
+    all(instance -> instance isa ObjectInstance, normalized) || error(
+        "Scene instances must be `ObjectInstance` values."
+    )
+    return normalized
+end
+
+function _instance_root_id(instance::ObjectInstance)
+    return instance.root isa Object ? instance.root.id : ObjectId(instance.root)
+end
+
+function _collect_scene_items(items, instances)
+    objects = Object[]
+    mounted_instances = ObjectInstance[]
+    for item in items
+        if item isa Object
+            push!(objects, item)
+        elseif item isa ObjectInstance
+            push!(mounted_instances, item)
+        else
+            error("A `Scene` can contain only `Object` and `ObjectInstance` values, got `$(typeof(item))`.")
+        end
+    end
+    append!(mounted_instances, _normalize_object_instances(instances))
+    for instance in mounted_instances
+        instance.root isa Object && push!(objects, instance.root)
+        append!(objects, instance.objects)
+    end
+    ids = Set{ObjectId}()
     for object in objects
-        register_object!(scene, object)
+        object.id in ids && error("Scene contains object id `$(object.id.value)` more than once.")
+        push!(ids, object.id)
+    end
+    return objects, mounted_instances
+end
+
+function _object_descendant_ids(objects_by_id, root_id::ObjectId)
+    ids = ObjectId[root_id]
+    frontier = ObjectId[root_id]
+    while !isempty(frontier)
+        parent_id = popfirst!(frontier)
+        for object in values(objects_by_id)
+            object.parent == parent_id || continue
+            object.id in ids && continue
+            push!(ids, object.id)
+            push!(frontier, object.id)
+        end
+    end
+    return ids
+end
+
+function _prepare_object_instances!(objects, instances)
+    objects_by_id = Dict(object.id => object for object in objects)
+    claimed_ids = Dict{ObjectId,Symbol}()
+    instance_ids = Dict{Symbol,Vector{ObjectId}}()
+    for instance in instances
+        root_id = _instance_root_id(instance)
+        haskey(objects_by_id, root_id) || error(
+            "Object instance `$(instance.name)` refers to missing root object `$(root_id.value)`."
+        )
+        ids = _object_descendant_ids(objects_by_id, root_id)
+        for id in ids
+            if haskey(claimed_ids, id)
+                error(
+                    "Object `$(id.value)` belongs to both instances `$(claimed_ids[id])` and `$(instance.name)`."
+                )
+            end
+            claimed_ids[id] = instance.name
+            object = objects_by_id[id]
+            isnothing(object.kind) && (object.kind = instance.template.kind)
+            isnothing(object.species) && (object.species = instance.template.species)
+        end
+        root = objects_by_id[root_id]
+        if !isnothing(root.name) && root.name != instance.name
+            error(
+                "Object instance `$(instance.name)` root `$(root_id.value)` already has the conflicting name `$(root.name)`."
+            )
+        end
+        root.name = instance.name
+        instance_ids[instance.name] = ids
+    end
+    length(instance_ids) == length(instances) || error("Object instance names must be unique within a scene.")
+    return instance_ids
+end
+
+function _register_scene_objects!(scene::Scene, objects)
+    pending = copy(objects)
+    while !isempty(pending)
+        registered = false
+        for index in reverse(eachindex(pending))
+            object = pending[index]
+            if isnothing(object.parent) || haskey(scene.registry.objects, object.parent)
+                register_object!(scene, object)
+                deleteat!(pending, index)
+                registered = true
+            end
+        end
+        registered && continue
+        unresolved = [(object.id.value, isnothing(object.parent) ? nothing : object.parent.value) for object in pending]
+        error("Cannot register scene objects because parent objects are missing or cyclic: $(unresolved).")
     end
     return scene
+end
+
+"""
+    Scene(items...; applications=(), instances=(), environment=nothing)
+
+Create a scene from `Object` and `ObjectInstance` values. Global applications
+and applications mounted from object instances are compiled through the same
+scene/object dependency graph.
+"""
+function Scene(
+    items::Union{Object,ObjectInstance}...;
+    applications=(),
+    instances=(),
+    environment=nothing,
+)
+    objects, mounted_instances = _collect_scene_items(items, instances)
+    instance_ids = _prepare_object_instances!(objects, mounted_instances)
+    mounted_applications = _mount_object_instance_applications(mounted_instances, instance_ids)
+    normalized_applications = _as_tuple(applications)
+    all_applications = (normalized_applications..., mounted_applications...)
+    scene = Scene(
+        SceneRegistry(),
+        all_applications,
+        environment,
+        mounted_instances,
+        nothing,
+        nothing,
+        true,
+        true,
+        0,
+        0,
+    )
+    return _register_scene_objects!(scene, objects)
 end
 
 function _mark_environment_bindings_dirty!(scene::Scene)
@@ -140,7 +401,15 @@ function _index_object!(registry::SceneRegistry, object::Object)
     _push_index!(registry.by_scale, object.scale, object.id)
     _push_index!(registry.by_kind, object.kind, object.id)
     _push_index!(registry.by_species, object.species, object.id)
-    isnothing(object.name) || (registry.by_name[object.name] = object.id)
+    if !isnothing(object.name)
+        existing = get(registry.by_name, object.name, nothing)
+        if !isnothing(existing) && existing != object.id
+            error(
+                "Scene object name `$(object.name)` is already used by object `$(existing.value)`."
+            )
+        end
+        registry.by_name[object.name] = object.id
+    end
     return nothing
 end
 
@@ -160,14 +429,46 @@ function _scene_object(scene::Scene, id)
     return scene.registry.objects[oid]
 end
 
+function _instance_for_object(scene::Scene, id)
+    current_id = ObjectId(id)
+    while haskey(scene.registry.objects, current_id)
+        for instance in scene.instances
+            _instance_root_id(instance) == current_id && return instance
+        end
+        parent = scene.registry.objects[current_id].parent
+        isnothing(parent) && return nothing
+        current_id = parent
+    end
+    return nothing
+end
+
+function _apply_instance_labels!(object::Object, instance)
+    isnothing(instance) && return object
+    isnothing(object.kind) && (object.kind = instance.template.kind)
+    isnothing(object.species) && (object.species = instance.template.species)
+    return object
+end
+
 function register_object!(scene::Scene, object::Object; parent=object.parent)
     registry = scene.registry
     haskey(registry.objects, object.id) && error("Scene already contains object id `$(object.id.value)`.")
-    object.parent = isnothing(parent) ? nothing : ObjectId(parent)
+    parent_id = isnothing(parent) ? nothing : ObjectId(parent)
+    if !isnothing(parent_id) && !haskey(registry.objects, parent_id)
+        error("No scene object with id `$(parent_id.value)`.")
+    end
+    if !isnothing(object.name)
+        existing = get(registry.by_name, object.name, nothing)
+        isnothing(existing) || error(
+            "Scene object name `$(object.name)` is already used by object `$(existing.value)`."
+        )
+    end
+    instance = isnothing(parent_id) ? nothing : _instance_for_object(scene, parent_id)
+    _apply_instance_labels!(object, instance)
+    object.parent = parent_id
     registry.objects[object.id] = object
     _index_object!(registry, object)
     if !isnothing(object.parent)
-        parent_object = _scene_object(scene, object.parent)
+        parent_object = registry.objects[object.parent]
         object.id in parent_object.children || push!(parent_object.children, object.id)
     end
     _mark_bindings_dirty!(scene)
@@ -288,6 +589,17 @@ end
 
 scene_objects(scene::Scene; kwargs...) = [_scene_object(scene, id) for id in object_ids(scene; kwargs...)]
 
+function _instance_object_ids(scene::Scene, instance::ObjectInstance)
+    root_id = _instance_root_id(instance)
+    haskey(scene.registry.objects, root_id) || return ObjectId[]
+    return _sort_object_ids!(_descendant_ids(scene, root_id))
+end
+
+function _object_instance_name(scene::Scene, object_id::ObjectId)
+    instance = _instance_for_object(scene, object_id)
+    return isnothing(instance) ? nothing : instance.name
+end
+
 function explain_objects(scene::Scene)
     return [
         (
@@ -296,6 +608,7 @@ function explain_objects(scene::Scene)
             kind=object.kind,
             species=object.species,
             name=object.name,
+            instance=_object_instance_name(scene, object.id),
             parent=isnothing(object.parent) ? nothing : object.parent.value,
             children=[child.value for child in object.children],
             has_geometry=!isnothing(object.geometry),
@@ -303,6 +616,43 @@ function explain_objects(scene::Scene)
             n_applications=length(object.applications),
         )
         for object in scene_objects(scene)
+    ]
+end
+
+function _instance_application_ids(scene::Scene, instance::ObjectInstance)
+    prefix = string(instance.name, "__")
+    ids = Symbol[]
+    for application in scene.applications
+        name = application_name(as_model_spec(application))
+        isnothing(name) && continue
+        startswith(string(name), prefix) && push!(ids, name)
+    end
+    return sort!(ids; by=string)
+end
+
+function explain_instances(scene::Scene)
+    return [
+        (
+            name=instance.name,
+            root_id=_instance_root_id(instance).value,
+            kind=instance.template.kind,
+            species=instance.template.species,
+            object_ids=[id.value for id in _instance_object_ids(scene, instance)],
+            application_ids=_instance_application_ids(scene, instance),
+            instance_overrides=sort!(Symbol[Symbol(name) for name in keys(instance.overrides)]; by=string),
+            object_overrides=[
+                (
+                    object_id=override.object.value,
+                    process=override.process,
+                    application=override.application,
+                    model_type=typeof(override.model),
+                )
+                for override in instance.object_overrides
+            ],
+            parameters_type=typeof(instance.template.parameters),
+            parameters_shared_by_reference=true,
+        )
+        for instance in scene.instances
     ]
 end
 
@@ -467,6 +817,212 @@ criteria(selector::AbstractObjectMultiplicity) = selector.criteria
 multiplicity(::One) = :one
 multiplicity(::OptionalOne) = :optional_one
 multiplicity(::Many) = :many
+
+_rebuild_selector(::One, criteria) = One{typeof(criteria)}(criteria)
+_rebuild_selector(::OptionalOne, criteria) = OptionalOne{typeof(criteria)}(criteria)
+_rebuild_selector(::Many, criteria) = Many{typeof(criteria)}(criteria)
+
+function _selector_with_scope(selector::AbstractObjectMultiplicity, scope)
+    selector_criteria = criteria(selector)
+    haskey(selector_criteria, :within) && return selector
+    return _rebuild_selector(selector, merge(selector_criteria, (; within=scope)))
+end
+
+function _selector_with_application_prefix(
+    selector::AbstractObjectMultiplicity,
+    instance_name::Symbol,
+    template_application_names::Set{Symbol},
+)
+    selector_criteria = criteria(selector)
+    haskey(selector_criteria, :application) || return selector
+    application = selector_criteria.application
+    isnothing(application) && return selector
+    application in template_application_names || return selector
+    mounted_name = Symbol(instance_name, "__", application)
+    return _rebuild_selector(selector, merge(selector_criteria, (; application=mounted_name)))
+end
+
+function _mounted_application_name(spec, index::Int)
+    name = application_name(spec)
+    return isnothing(name) ? process(spec) : name
+end
+
+function _instance_override_matches(spec, key::Symbol)
+    name = application_name(spec)
+    return key == process(spec) || (!isnothing(name) && key == name)
+end
+
+function _instance_override_models(instance::ObjectInstance, specs)
+    selected = Dict{Int,AbstractModel}()
+    for (key, replacement) in pairs(instance.overrides)
+        replacement isa AbstractModel || error(
+            "Override `$(key)` for instance `$(instance.name)` must be an `AbstractModel`, got `$(typeof(replacement))`."
+        )
+        matches = findall(spec -> _instance_override_matches(spec, Symbol(key)), specs)
+        isempty(matches) && error(
+            "Override `$(key)` for instance `$(instance.name)` does not match a template application name or process."
+        )
+        length(matches) == 1 || error(
+            "Override `$(key)` for instance `$(instance.name)` matches several template applications; use a unique application name."
+        )
+        index = only(matches)
+        haskey(selected, index) && error(
+            "Several overrides target template application `$(_mounted_application_name(specs[index], index))` in instance `$(instance.name)`."
+        )
+        _validate_model_override_contract!(
+            model_(specs[index]),
+            replacement;
+            description="Override `$(key)` for instance `$(instance.name)`",
+        )
+        selected[index] = replacement
+    end
+    return selected
+end
+
+function _model_contract(model)
+    return (
+        process=process(model),
+        inputs=Tuple(Symbol.(keys(inputs_(model)))),
+        outputs=Tuple(Symbol.(keys(outputs_(model)))),
+        meteo_inputs=Tuple(Symbol.(keys(meteo_inputs_(model)))),
+        meteo_outputs=Tuple(Symbol.(keys(meteo_outputs_(model)))),
+    )
+end
+
+function _validate_model_override_contract!(base, replacement; description)
+    base_contract = _model_contract(base)
+    replacement_contract = _model_contract(replacement)
+    base_contract == replacement_contract && return nothing
+    error(
+        "$(description) has an incompatible model contract. Expected ",
+        "`$(base_contract)`, got `$(replacement_contract)`. Object and instance ",
+        "overrides may change parameters or implementation, but not process or declared variables."
+    )
+end
+
+function _object_override_matches(spec, override::Override)
+    process_match = isnothing(override.process) || process(spec) == override.process
+    name = application_name(spec)
+    application_match = isnothing(override.application) ||
+                        (!isnothing(name) && name == override.application)
+    return process_match && application_match
+end
+
+function _object_override_models(instance::ObjectInstance, specs, instance_ids)
+    entries = Dict{Int,Vector{Pair{ObjectId,AbstractModel}}}()
+    valid_ids = Set(instance_ids)
+    for override in instance.object_overrides
+        override.object in valid_ids || error(
+            "Object override for `$(override.object.value)` does not belong to instance `$(instance.name)`."
+        )
+        matches = findall(spec -> _object_override_matches(spec, override), specs)
+        isempty(matches) && error(
+            "Object override for `$(override.object.value)` in instance `$(instance.name)` ",
+            "does not match a template application."
+        )
+        length(matches) == 1 || error(
+            "Object override for `$(override.object.value)` in instance `$(instance.name)` ",
+            "matches several template applications; add `application=...`."
+        )
+        index = only(matches)
+        object_models = get!(entries, index, Pair{ObjectId,AbstractModel}[])
+        any(entry -> first(entry) == override.object, object_models) && error(
+            "Several object overrides target application `$(_mounted_application_name(specs[index], index))` ",
+            "on object `$(override.object.value)` in instance `$(instance.name)`."
+        )
+        _validate_model_override_contract!(
+            model_(specs[index]),
+            override.model;
+            description="Object override for `$(override.object.value)` in instance `$(instance.name)`",
+        )
+        push!(object_models, override.object => override.model)
+    end
+    selected = Dict{Int,Any}()
+    for (index, object_models) in entries
+        selected[index] = _typed_object_model_dict(object_models)
+    end
+    return selected
+end
+
+function _typed_object_model_dict(entries)
+    isempty(entries) && return Dict{ObjectId,AbstractModel}()
+    model_type = typeof(last(first(entries)))
+    if all(entry -> typeof(last(entry)) == model_type, entries)
+        models = Dict{ObjectId,model_type}()
+        for (object_id, model) in entries
+            models[object_id] = model
+        end
+        return models
+    end
+    return Dict{ObjectId,AbstractModel}(entries)
+end
+
+function _map_selector_bindings(bindings::NamedTuple, f)
+    mapped = Pair{Symbol,Any}[]
+    for (name, selector) in pairs(bindings)
+        push!(mapped, Symbol(name) => (selector isa AbstractObjectMultiplicity ? f(selector) : selector))
+    end
+    return (; mapped...)
+end
+
+function _mount_object_instance_applications(instance::ObjectInstance, instance_ids)
+    specs = Tuple(as_model_spec(application) for application in instance.template.applications)
+    base_names = Set(_mounted_application_name(spec, index) for (index, spec) in pairs(specs))
+    instance_overrides = _instance_override_models(instance, specs)
+    object_overrides = _object_override_models(instance, specs, instance_ids)
+    mounted = Any[]
+    for (index, spec) in pairs(specs)
+        base_name = _mounted_application_name(spec, index)
+        mounted_name = Symbol(instance.name, "__", base_name)
+        target = applies_to(spec)
+        isnothing(target) && error(
+            "Template application `$(base_name)` has no `AppliesTo(...)` selector."
+        )
+        mounted_target = _selector_with_scope(target, Scope(instance.name))
+        prefix_application = selector -> _selector_with_application_prefix(
+            selector,
+            instance.name,
+            base_names,
+        )
+        mounted_inputs = _map_selector_bindings(value_inputs(spec), prefix_application)
+        mounted_calls = _map_selector_bindings(model_calls(spec), prefix_application)
+        mounted_model = get(instance_overrides, index, model_(spec))
+        if haskey(object_overrides, index)
+            object_models = object_overrides[index]
+            for replacement in values(object_models)
+                _validate_model_override_contract!(
+                    mounted_model,
+                    replacement;
+                    description="Object override for template application `$(base_name)`",
+                )
+            end
+            mounted_model = ObjectModelOverrides(mounted_model, object_models)
+        end
+        push!(
+            mounted,
+            ModelSpec(
+                spec;
+                model=mounted_model,
+                name=mounted_name,
+                applies_to=mounted_target,
+                inputs=mounted_inputs,
+                calls=mounted_calls,
+            ),
+        )
+    end
+    return Tuple(mounted)
+end
+
+function _mount_object_instance_applications(instances, instance_ids)
+    mounted = Any[]
+    for instance in instances
+        append!(
+            mounted,
+            _mount_object_instance_applications(instance, instance_ids[instance.name]),
+        )
+    end
+    return Tuple(mounted)
+end
 
 _sort_object_ids!(ids) = sort!(ids; by=id -> string(id.value))
 
@@ -651,7 +1207,7 @@ function _default_dependency_scope(scene::Scene, context::ObjectId)
     return Self()
 end
 
-struct CompiledSceneApplication{S,AT,TS,CL}
+struct CompiledSceneApplication{S,AT,TS,CL,MO}
     id::Symbol
     spec::S
     process::Symbol
@@ -660,6 +1216,7 @@ struct CompiledSceneApplication{S,AT,TS,CL}
     applies_to::AT
     timestep::TS
     clock::CL
+    model_overrides::MO
 end
 
 struct CompiledSceneInputBinding{SEL,P,W,C}
@@ -704,19 +1261,36 @@ struct CompiledEnvironmentBinding{B,C,S}
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B}
+struct CompiledEnvironmentBindings{SC,B,I}
     scene::SC
     bindings::B
+    by_target::I
     scene_revision::Int
     environment_revision::Int
 end
 
-struct CompiledScene{SC,AP,IB,CB}
+struct CompiledScene{SC,AP,AI,IB,CB,IBI,CBI,AO}
     scene::SC
     applications::AP
+    applications_by_id::AI
     input_bindings::IB
     call_bindings::CB
+    input_bindings_by_target::IBI
+    call_bindings_by_target::CBI
+    application_order::AO
     revision::Int
+end
+
+function _index_scene_bindings(bindings, application_field::Symbol, object_field::Symbol)
+    grouped = Dict{Tuple{Symbol,ObjectId},Vector{Any}}()
+    for binding in bindings
+        key = (
+            getproperty(binding, application_field),
+            getproperty(binding, object_field),
+        )
+        push!(get!(grouped, key, Any[]), binding)
+    end
+    return Dict(key => Tuple(values) for (key, values) in grouped)
 end
 
 function compile_scene(scene::Scene)
@@ -751,7 +1325,21 @@ function _compile_scene(scene::Scene, raw_specs)
     input_bindings = _compile_scene_input_bindings(scene, applications)
     _validate_scene_required_inputs!(scene, applications, input_bindings)
     call_bindings = _compile_scene_call_bindings(scene, applications)
-    return CompiledScene(scene, applications, input_bindings, call_bindings, scene.revision)
+    input_bindings_by_target = _index_scene_bindings(input_bindings, :application_id, :consumer_id)
+    call_bindings_by_target = _index_scene_bindings(call_bindings, :application_id, :consumer_id)
+    application_order = _compile_scene_application_order(applications, input_bindings, call_bindings)
+    applications_by_id = Dict(application.id => application for application in applications)
+    return CompiledScene(
+        scene,
+        applications,
+        applications_by_id,
+        input_bindings,
+        call_bindings,
+        input_bindings_by_target,
+        call_bindings_by_target,
+        application_order,
+        scene.revision,
+    )
 end
 
 function _compile_scene_applications(scene::Scene, raw_specs, timeline)
@@ -775,6 +1363,7 @@ function _compile_scene_applications(scene::Scene, raw_specs, timeline)
         app_id in ids && error("Duplicate compiled scene application id `$(app_id)`.")
         push!(ids, app_id)
         target_ids = resolve_object_ids(scene, selector)
+        model_overrides = _compiled_object_model_overrides(spec, target_ids, app_id)
         push!(
             applications,
             CompiledSceneApplication(
@@ -786,10 +1375,37 @@ function _compile_scene_applications(scene::Scene, raw_specs, timeline)
                 selector,
                 timestep(spec),
                 _scene_application_clock(spec, timeline),
+                model_overrides,
             ),
         )
     end
     return applications
+end
+
+function _compiled_object_model_overrides(spec, target_ids, application_id::Symbol)
+    model = model_(spec)
+    model isa ObjectModelOverrides || return nothing
+    target_set = Set(target_ids)
+    unmatched = ObjectId[id for id in keys(model.overrides) if !(id in target_set)]
+    isempty(unmatched) || error(
+        "Object override(s) `$([id.value for id in unmatched])` for application ",
+        "`$(application_id)` do not match its `AppliesTo(...)` target set."
+    )
+    return model.overrides
+end
+
+_application_default_model(application::CompiledSceneApplication) =
+    model_(application.spec) isa ObjectModelOverrides ?
+    model_(application.spec).base :
+    model_(application.spec)
+
+function _application_model(application::CompiledSceneApplication, object_id::ObjectId)
+    isnothing(application.model_overrides) && return _application_default_model(application)
+    return get(
+        application.model_overrides,
+        object_id,
+        _application_default_model(application),
+    )
 end
 
 function _scene_output_names(application::CompiledSceneApplication)
@@ -1296,6 +1912,94 @@ function _compile_scene_call_bindings(scene::Scene, applications)
     return bindings
 end
 
+function _scene_call_owners(call_bindings)
+    owners = Dict{Symbol,Set{Symbol}}()
+    for binding in call_bindings
+        for callee_id in binding.callee_application_ids
+            push!(get!(owners, callee_id, Set{Symbol}()), binding.application_id)
+        end
+    end
+    return owners
+end
+
+function _add_scene_application_edge!(children, parent::Symbol, child::Symbol)
+    parent == child && return nothing
+    push!(get!(children, parent, Set{Symbol}()), child)
+    return nothing
+end
+
+function _scene_input_order_edges!(children, input_bindings, call_owners)
+    for binding in input_bindings
+        for source_id in binding.source_application_ids
+            owners = get(call_owners, source_id, nothing)
+            if isnothing(owners)
+                _add_scene_application_edge!(children, source_id, binding.application_id)
+            else
+                for owner_id in owners
+                    _add_scene_application_edge!(children, owner_id, binding.application_id)
+                end
+            end
+        end
+    end
+    return children
+end
+
+function _scene_update_order_edges!(children, applications)
+    for indexed_writers in values(_scene_writer_groups(applications))
+        length(indexed_writers) > 1 || continue
+        sort!(indexed_writers; by=first)
+        for index in 2:length(indexed_writers)
+            previous_application = indexed_writers[index - 1][2]
+            application = indexed_writers[index][2]
+            _add_scene_application_edge!(children, previous_application.id, application.id)
+        end
+    end
+    return children
+end
+
+function _stable_topological_application_order(applications, children)
+    application_ids = Symbol[application.id for application in applications]
+    positions = Dict(application_id => index for (index, application_id) in pairs(application_ids))
+    indegree = Dict(application_id => 0 for application_id in application_ids)
+    for child_ids in values(children)
+        for child_id in child_ids
+            indegree[child_id] = get(indegree, child_id, 0) + 1
+        end
+    end
+    ready = Symbol[application_id for application_id in application_ids if indegree[application_id] == 0]
+    order = Symbol[]
+    while !isempty(ready)
+        sort!(ready; by=application_id -> positions[application_id])
+        application_id = popfirst!(ready)
+        push!(order, application_id)
+        child_ids = sort!(collect(get(children, application_id, Set{Symbol}())); by=child_id -> positions[child_id])
+        for child_id in child_ids
+            indegree[child_id] -= 1
+            indegree[child_id] == 0 && push!(ready, child_id)
+        end
+    end
+    if length(order) != length(application_ids)
+        remaining = Symbol[application_id for application_id in application_ids if indegree[application_id] > 0]
+        error(
+            "Scene application dependency cycle detected among applications `$(remaining)`. ",
+            "Break the same-timestep cycle with a temporal policy or revise `Inputs(...)`/`Updates(...)`."
+        )
+    end
+    return order
+end
+
+function _compile_scene_application_order(applications, input_bindings, call_bindings)
+    children = Dict{Symbol,Set{Symbol}}()
+    call_owners = _scene_call_owners(call_bindings)
+    _scene_input_order_edges!(children, input_bindings, call_owners)
+    _scene_update_order_edges!(children, applications)
+    return _stable_topological_application_order(applications, children)
+end
+
+function _ordered_scene_applications(compiled::CompiledScene)
+    return [compiled.applications_by_id[application_id] for application_id in compiled.application_order]
+end
+
 function explain_scene_applications(compiled::CompiledScene)
     return [
         (
@@ -1306,19 +2010,44 @@ function explain_scene_applications(compiled::CompiledScene)
             applies_to=application.applies_to,
             timestep=application.timestep,
             clock=application.clock,
-            model_type=typeof(model_(application.spec)),
+            model_type=typeof(_application_default_model(application)),
+            model_storage=isnothing(application.model_overrides) ? :shared_application : :per_object_override,
+            model_dispatch=_application_model_dispatch(application),
+            object_overrides=isnothing(application.model_overrides) ?
+                             NamedTuple[] :
+                             [
+                                 (
+                                     object_id=object_id.value,
+                                     model_type=typeof(model),
+                                 )
+                                 for (object_id, model) in sort!(
+                                     collect(application.model_overrides);
+                                     by=pair -> string(first(pair).value),
+                                 )
+                             ],
         )
         for application in compiled.applications
     ]
 end
 
+function _application_model_dispatch(application::CompiledSceneApplication)
+    isnothing(application.model_overrides) && return :concrete_shared
+    override_type = valtype(typeof(application.model_overrides))
+    default_type = typeof(_application_default_model(application))
+    return isconcretetype(override_type) && default_type == override_type ?
+           :concrete_per_object :
+           :heterogeneous_per_object
+end
+
 function explain_schedule(compiled::CompiledScene)
     timeline = _scene_timeline(compiled.scene)
     manual_application_ids = _manual_call_application_ids(compiled)
+    execution_positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
     return [
         (
             application_id=application.id,
             process=application.process,
+            execution_index=execution_positions[application.id],
             timestep=application.timestep,
             clock=application.clock,
             dt_steps=application.clock.dt,
@@ -1328,7 +2057,7 @@ function explain_schedule(compiled::CompiledScene)
             root_scheduled=!(application.id in manual_application_ids),
             manual_call_only=application.id in manual_application_ids,
         )
-        for application in compiled.applications
+        for application in _ordered_scene_applications(compiled)
     ]
 end
 
@@ -1529,9 +2258,18 @@ end
 
 function compile_environment_bindings(scene::Scene, compiled::CompiledScene=refresh_bindings!(scene))
     _update_scene_environment_indices!(scene, compiled)
+    bindings = _compile_environment_bindings(scene, compiled)
+    by_target = Dict(
+        (binding.application_id, binding.object_id) => binding
+        for binding in bindings
+    )
+    length(by_target) == length(bindings) || error(
+        "Environment binding compilation produced duplicate `(application_id, object_id)` targets."
+    )
     return CompiledEnvironmentBindings(
         scene,
-        _compile_environment_bindings(scene, compiled),
+        bindings,
+        by_target,
         scene.revision,
         scene.environment_revision,
     )
@@ -1581,17 +2319,13 @@ struct SceneCallTarget{CS,EB,A,S,TS,C}
 end
 
 function _compiled_application_by_id(compiled::CompiledScene, id::Symbol)
-    for application in compiled.applications
-        application.id == id && return application
-    end
-    error("No compiled scene application with id `$(id)`.")
+    application = get(compiled.applications_by_id, id, nothing)
+    isnothing(application) && error("No compiled scene application with id `$(id)`.")
+    return application
 end
 
 function _environment_binding_for(env_bindings::CompiledEnvironmentBindings, application_id::Symbol, object_id::ObjectId)
-    for binding in env_bindings.bindings
-        binding.application_id == application_id && binding.object_id == object_id && return binding
-    end
-    return nothing
+    return get(env_bindings.by_target, (application_id, object_id), nothing)
 end
 
 function _scene_object_status(scene::Scene, object_id::ObjectId)
@@ -1741,9 +2475,8 @@ function _materialize_scene_inputs!(
 )
     status = _scene_object_status(compiled.scene, object_id)
     timeline = _scene_timeline(compiled.scene)
-    for binding in compiled.input_bindings
-        binding.application_id == application.id || continue
-        binding.consumer_id == object_id || continue
+    bindings = get(compiled.input_bindings_by_target, (application.id, object_id), ())
+    for binding in bindings
         if binding.carrier_hint == :temporal_stream
             isnothing(streams) && continue
             value = _scene_temporal_input_value(binding, application, streams, time, timeline)
@@ -1794,7 +2527,8 @@ function _run_scene_application!(
     status = _materialize_scene_inputs!(compiled, application, object_id, temporal_streams, time)
     meteo = _scene_meteo_for_model(env_bindings, application, object_id, time)
     context = SceneRunContext(compiled, env_bindings, application, object_id, temporal_streams, float(time), constants)
-    run!(application.spec, nothing, status, meteo, constants, context)
+    model = _application_model(application, object_id)
+    run!(model, nothing, status, meteo, constants, context)
     if publish
         _scatter_scene_environment_outputs!(env_bindings, application, object_id, status, time)
         _scene_publish_outputs!(temporal_streams, application, object_id, status, time)
@@ -1815,9 +2549,12 @@ end
 
 function _scene_call_targets(context::SceneRunContext, name::Symbol)
     targets = SceneCallTarget[]
-    for binding in context.compiled.call_bindings
-        binding.application_id == context.application.id || continue
-        binding.consumer_id == context.object_id || continue
+    bindings = get(
+        context.compiled.call_bindings_by_target,
+        (context.application.id, context.object_id),
+        (),
+    )
+    for binding in bindings
         binding.call == name || continue
         for application_id in binding.callee_application_ids
             callee_application = _compiled_application_by_id(context.compiled, application_id)
@@ -1831,7 +2568,7 @@ function _scene_call_targets(context::SceneRunContext, name::Symbol)
                         context.environment_bindings,
                         callee_application,
                         object_id,
-                        model_(callee_application.spec),
+                        _application_model(callee_application, object_id),
                         status,
                         context.temporal_streams,
                         context.time,
@@ -1866,8 +2603,9 @@ function run!(scene::Scene; steps::Integer=1, constants=nothing)
     env_bindings = refresh_environment_bindings!(scene, compiled)
     manual_application_ids = _manual_call_application_ids(compiled)
     temporal_streams = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Float64,Any}}}()
+    ordered_applications = _ordered_scene_applications(compiled)
     for step in 1:steps
-        for application in compiled.applications
+        for application in ordered_applications
             application.id in manual_application_ids && continue
             _scene_application_should_run(application, step) || continue
             for object_id in application.target_ids

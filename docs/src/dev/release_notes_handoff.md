@@ -151,6 +151,20 @@ for multi-plant scene coupling.
 - Scene/object root applications now honor `TimeStep(...)` values backed by
   `Dates.Period` scheduling. `explain_schedule` reports normalized clocks and
   whether an application is root-scheduled or manual-call-only.
+- Scene/object execution now uses a stable topological application order
+  compiled from `Inputs(...)` producer edges and `Updates(...)` ordering.
+  Dependencies on manual-call-only applications are redirected to their parent
+  caller, same-timestep cycles fail during compilation, and
+  `explain_schedule` reports `execution_index`.
+- `CompiledScene` now pre-indexes input and call bindings by application and
+  object id. Runtime input materialization and hard-call lookup no longer scan
+  all scene bindings for every object/model invocation.
+- `CompiledScene` now pre-indexes applications by application id, removing
+  application scans from hard-call target resolution and dictionary rebuilding
+  from ordered execution setup.
+- `CompiledEnvironmentBindings` now pre-indexes environment bindings by
+  application and object id, removing the scene-wide binding scan from
+  environment sampling and output scattering.
 - Adds `SceneRunContext` and `SceneCallTarget`; scene/object models can use
   `dependency_target(s)(extra, :name)` plus `run_call!` for manual
   `Calls(...)` execution.
@@ -164,6 +178,32 @@ for multi-plant scene coupling.
 - Adds `explain_writers(compiled)` to report object-variable writer groups,
   duplicate writers, and the `Updates(...)` declarations that validate ordered
   updates.
+- Adds the first reusable object-template path with `ObjectTemplate` and
+  `ObjectInstance`. Templates bundle reusable `ModelSpec`s and default
+  `kind`/`species` labels; instances mount them inside a named object subtree.
+- `Scene(...)` accepts mounted instances whose roots are either owned objects
+  or references to separately supplied scene objects.
+- Template applications are scoped to their instance and receive stable
+  instance-prefixed application ids. Unmodified instances share the template's
+  model objects, while instance overrides can replace one application by name
+  or process when the replacement implements the same process.
+- Adds `Override(...)` and `ObjectInstance(...; object_overrides=...)` for
+  exceptional organs. Overrides are resolved during compilation to concrete
+  object ids without splitting the logical application or changing its
+  dependency bindings.
+- Template models, template parameter metadata, and replacement models are
+  retained by reference. The runtime does not copy models or mutate fields to
+  apply parameter overrides.
+- Override validation requires the same process and declared status/environment
+  variable names. Application explanations report model storage, dispatch
+  mode, overridden object ids, and replacement model types.
+- Adds `explain_instances(scene)` and instance membership in
+  `explain_objects(scene)`. Instance rows expose roots, current object
+  membership, mounted applications, overrides, template labels, and
+  reference-based parameter ownership.
+- Objects created below a mounted instance inherit missing template `kind` and
+  `species` labels. Membership explanations use the current topology rather
+  than a copied instance object list.
 
 ## Planned Future Breaking Redesign
 

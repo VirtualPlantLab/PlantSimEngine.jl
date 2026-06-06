@@ -147,6 +147,22 @@ Override(
 )
 ```
 
+Ownership is reference-based and explicit:
+
+- a template retains the supplied model and parameter objects without copying;
+- unchanged instances share those exact objects;
+- an instance override replaces one complete model application with another
+  user-owned model object;
+- an object override replaces that application only for the selected object;
+- PlantSimEngine does not mutate model fields or implicitly merge parameter
+  dictionaries.
+
+Overrides must preserve the model contract: process identity and declared
+status/environment variable names cannot change. Parameter-only overrides of
+the same concrete model type retain concrete runtime dispatch. Heterogeneous
+alternative implementations are supported but may require dynamic dispatch for
+the exceptional application.
+
 ### Model Kernel And Model Application
 
 A model kernel is the reusable model implementation written by a modeler. It
@@ -576,6 +592,7 @@ explanation helpers:
 
 ```julia
 explain_objects(scene)
+explain_instances(scene)
 explain_scopes(scene)
 explain_bindings(sim)
 explain_calls(sim)

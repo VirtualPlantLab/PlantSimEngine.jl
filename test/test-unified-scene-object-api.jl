@@ -92,6 +92,30 @@ function PlantSimEngine.run!(::SceneObjectSignalSourceModel, models, status, met
     return nothing
 end
 
+struct SceneObjectParameterizedSignalModel{T} <: AbstractScene_Object_Signal_SourceModel
+    increment::T
+end
+
+PlantSimEngine.inputs_(::SceneObjectParameterizedSignalModel) = NamedTuple()
+PlantSimEngine.outputs_(::SceneObjectParameterizedSignalModel) = (signal=0.0,)
+
+function PlantSimEngine.run!(model::SceneObjectParameterizedSignalModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.signal += model.increment
+    return nothing
+end
+
+PlantSimEngine.@process "scene_object_plant_signal_sum" verbose = false
+
+struct SceneObjectPlantSignalSumModel <: AbstractScene_Object_Plant_Signal_SumModel end
+
+PlantSimEngine.inputs_(::SceneObjectPlantSignalSumModel) = (signals=[0.0],)
+PlantSimEngine.outputs_(::SceneObjectPlantSignalSumModel) = (signal_total=0.0,)
+
+function PlantSimEngine.run!(::SceneObjectPlantSignalSumModel, models, status, meteo, constants=nothing, extra=nothing)
+    status.signal_total = sum(status.signals)
+    return nothing
+end
+
 PlantSimEngine.@process "scene_object_signal_caller" verbose = false
 
 struct SceneObjectSignalCallerModel <: AbstractScene_Object_Signal_CallerModel end
@@ -120,6 +144,20 @@ function PlantSimEngine.run!(::SceneObjectSignalConsumerModel, models, status, m
     status.observed_signal = status.signal
     return nothing
 end
+
+PlantSimEngine.@process "scene_object_cycle_a" verbose = false
+
+struct SceneObjectCycleAModel <: AbstractScene_Object_Cycle_AModel end
+
+PlantSimEngine.inputs_(::SceneObjectCycleAModel) = (cycle_b=0.0,)
+PlantSimEngine.outputs_(::SceneObjectCycleAModel) = (cycle_a=0.0,)
+
+PlantSimEngine.@process "scene_object_cycle_b" verbose = false
+
+struct SceneObjectCycleBModel <: AbstractScene_Object_Cycle_BModel end
+
+PlantSimEngine.inputs_(::SceneObjectCycleBModel) = (cycle_a=0.0,)
+PlantSimEngine.outputs_(::SceneObjectCycleBModel) = (cycle_b=0.0,)
 
 PlantSimEngine.@process "scene_object_temporal_sum" verbose = false
 
@@ -351,6 +389,273 @@ end
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
 
+    shared_signal_model = SceneObjectParameterizedSignalModel(1.0)
+    shared_template_parameters = Dict(:signal_increment => 1.0)
+    plant_template = ObjectTemplate(
+        (
+            ModelSpec(shared_signal_model; name=:signal_source) |>
+            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(SceneObjectPlantSignalSumModel(); name=:plant_total) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(
+                :signals => Many(
+                    scale=:Leaf,
+                    within=Self(),
+                    process=:scene_object_signal_source,
+                    var=:signal,
+                ),
+            ),
+        );
+        kind=:plant,
+        species=:oil_palm,
+        parameters=shared_template_parameters,
+    )
+    palm_1_leaf_override = SceneObjectParameterizedSignalModel(3.0)
+    palm_1 = ObjectInstance(
+        :palm_1,
+        plant_template;
+        root=Object(:templated_plant_1; scale=:Plant, parent=:scene, status=Status(signals=[0.0], signal_total=0.0)),
+        objects=(
+            Object(:templated_leaf_1; scale=:Leaf, parent=:templated_plant_1, status=Status(signal=0.0)),
+            Object(:templated_leaf_1_exception; scale=:Leaf, parent=:templated_plant_1, status=Status(signal=0.0)),
+        ),
+        object_overrides=(
+            Override(
+                object=:templated_leaf_1_exception,
+                application=:signal_source,
+                model=palm_1_leaf_override,
+            ),
+        ),
+    )
+    palm_2_override = SceneObjectParameterizedSignalModel(2.0)
+    palm_2 = ObjectInstance(
+        :palm_2,
+        plant_template;
+        root=Object(:templated_plant_2; scale=:Plant, parent=:scene, status=Status(signals=[0.0], signal_total=0.0)),
+        objects=(Object(:templated_leaf_2; scale=:Leaf, parent=:templated_plant_2, status=Status(signal=0.0)),),
+        overrides=(scene_object_signal_source=palm_2_override,),
+    )
+    palm_3 = ObjectInstance(
+        :palm_3,
+        plant_template;
+        root=Object(:templated_plant_3; scale=:Plant, parent=:scene, status=Status(signals=[0.0], signal_total=0.0)),
+        objects=(Object(:templated_leaf_3; scale=:Leaf, parent=:templated_plant_3, status=Status(signal=0.0)),),
+    )
+    templated_plant_4 = Object(
+        :templated_plant_4;
+        scale=:Plant,
+        parent=:scene,
+        status=Status(signals=[0.0], signal_total=0.0),
+    )
+    templated_leaf_4 = Object(
+        :templated_leaf_4;
+        scale=:Leaf,
+        parent=:templated_plant_4,
+        status=Status(signal=0.0),
+    )
+    palm_4 = ObjectInstance(:palm_4, plant_template; root=:templated_plant_4)
+    template_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        templated_plant_4,
+        templated_leaf_4,
+        palm_1,
+        palm_2,
+        palm_3;
+        instances=(palm_4,),
+    )
+    @test length(template_scene.applications) == 8
+    @test plant_template.parameters === shared_template_parameters
+    @test only(scene_objects(template_scene; name=:palm_1)).id == ObjectId(:templated_plant_1)
+    @test object_ids(template_scene; species=:oil_palm) == [
+        ObjectId(:templated_leaf_1),
+        ObjectId(:templated_leaf_1_exception),
+        ObjectId(:templated_leaf_2),
+        ObjectId(:templated_leaf_3),
+        ObjectId(:templated_leaf_4),
+        ObjectId(:templated_plant_1),
+        ObjectId(:templated_plant_2),
+        ObjectId(:templated_plant_3),
+        ObjectId(:templated_plant_4),
+    ]
+    template_compiled = compile_scene(template_scene)
+    template_application_rows = explain_scene_applications(template_compiled)
+    @test only(row for row in template_application_rows if row.application_id == :palm_1__signal_source).target_ids ==
+          [:templated_leaf_1, :templated_leaf_1_exception]
+    @test only(row for row in template_application_rows if row.application_id == :palm_2__signal_source).target_ids ==
+          [:templated_leaf_2]
+    @test only(row for row in template_application_rows if row.application_id == :palm_3__plant_total).target_ids ==
+          [:templated_plant_3]
+    palm_1_signal_row = only(
+        row for row in template_application_rows
+        if row.application_id == :palm_1__signal_source
+    )
+    @test palm_1_signal_row.model_type == typeof(shared_signal_model)
+    @test palm_1_signal_row.model_storage == :per_object_override
+    @test palm_1_signal_row.model_dispatch == :concrete_per_object
+    @test palm_1_signal_row.object_overrides == [
+        (
+            object_id=:templated_leaf_1_exception,
+            model_type=typeof(palm_1_leaf_override),
+        ),
+    ]
+    @test (@inferred PlantSimEngine._application_model(
+        template_compiled.applications_by_id[:palm_1__signal_source],
+        ObjectId(:templated_leaf_1),
+    )) === shared_signal_model
+    @test (@inferred PlantSimEngine._application_model(
+        template_compiled.applications_by_id[:palm_1__signal_source],
+        ObjectId(:templated_leaf_1_exception),
+    )) === palm_1_leaf_override
+    @test PlantSimEngine.model_(template_compiled.applications_by_id[:palm_3__signal_source].spec) === shared_signal_model
+    @test PlantSimEngine.model_(template_compiled.applications_by_id[:palm_4__signal_source].spec) === shared_signal_model
+    @test PlantSimEngine.model_(template_compiled.applications_by_id[:palm_2__signal_source].spec) === palm_2_override
+    template_instance_rows = explain_instances(template_scene)
+    palm_1_instance_row = only(row for row in template_instance_rows if row.name == :palm_1)
+    @test palm_1_instance_row.root_id == :templated_plant_1
+    @test palm_1_instance_row.object_ids ==
+          [:templated_leaf_1, :templated_leaf_1_exception, :templated_plant_1]
+    @test palm_1_instance_row.application_ids ==
+          [:palm_1__plant_total, :palm_1__signal_source]
+    @test palm_1_instance_row.object_overrides == [
+        (
+            object_id=:templated_leaf_1_exception,
+            process=nothing,
+            application=:signal_source,
+            model_type=typeof(palm_1_leaf_override),
+        ),
+    ]
+    @test palm_1_instance_row.parameters_shared_by_reference
+    @test only(row for row in explain_objects(template_scene) if row.id == :templated_leaf_1).instance ==
+          :palm_1
+    run!(template_scene; steps=1)
+    @test only(scene_objects(template_scene; name=:palm_1)).status.signal_total == 4.0
+    @test only(scene_objects(template_scene; name=:palm_2)).status.signal_total == 2.0
+    @test only(scene_objects(template_scene; name=:palm_3)).status.signal_total == 1.0
+    @test only(scene_objects(template_scene; name=:palm_4)).status.signal_total == 1.0
+    registered_template_leaf = register_object!(
+        template_scene,
+        Object(:templated_leaf_new; scale=:Leaf, status=Status(signal=0.0));
+        parent=:templated_plant_2,
+    )
+    @test registered_template_leaf.kind == :plant
+    @test registered_template_leaf.species == :oil_palm
+    @test :templated_leaf_new in only(
+        row.object_ids for row in explain_instances(template_scene)
+        if row.name == :palm_2
+    )
+    refreshed_template = refresh_bindings!(template_scene)
+    @test ObjectId(:templated_leaf_new) in
+          refreshed_template.applications_by_id[:palm_2__signal_source].target_ids
+    remove_object!(template_scene, :templated_leaf_new)
+    @test_throws ErrorException Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :invalid_palm,
+            plant_template;
+            root=Object(:invalid_plant; scale=:Plant, parent=:scene),
+            overrides=(missing_process=shared_signal_model,),
+        ),
+    )
+    @test_throws ErrorException Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :invalid_palm,
+            plant_template;
+            root=Object(:invalid_plant; scale=:Plant, parent=:scene),
+            overrides=(signal_source=Process1Model(1.0),),
+        ),
+    )
+    @test_throws ErrorException Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :invalid_palm,
+            plant_template;
+            root=Object(:invalid_plant; scale=:Plant, parent=:scene),
+            objects=(Object(:invalid_leaf; scale=:Leaf, parent=:invalid_plant),),
+            object_overrides=(
+                Override(
+                    object=:outside_instance,
+                    application=:signal_source,
+                    model=shared_signal_model,
+                ),
+            ),
+        ),
+    )
+    @test_throws ErrorException Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :invalid_palm,
+            plant_template;
+            root=Object(:invalid_plant; scale=:Plant, parent=:scene),
+            objects=(Object(:invalid_leaf; scale=:Leaf, parent=:invalid_plant),),
+            object_overrides=(
+                Override(
+                    object=:invalid_leaf,
+                    application=:signal_source,
+                    model=shared_signal_model,
+                ),
+                Override(
+                    object=:invalid_leaf,
+                    process=:scene_object_signal_source,
+                    model=shared_signal_model,
+                ),
+            ),
+        ),
+    )
+    unmatched_override_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :invalid_palm,
+            plant_template;
+            root=Object(:invalid_plant; scale=:Plant, parent=:scene),
+            objects=(Object(:invalid_leaf; scale=:Leaf, parent=:invalid_plant, status=Status(signal=0.0)),),
+            object_overrides=(
+                Override(
+                    object=:invalid_plant,
+                    application=:signal_source,
+                    model=shared_signal_model,
+                ),
+            ),
+        ),
+    )
+    @test_throws ErrorException compile_scene(unmatched_override_scene)
+
+    call_template = ObjectTemplate(
+        (
+            ModelSpec(shared_signal_model; name=:signal_source) |>
+            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalCallerModel(); name=:signal_caller) |>
+            AppliesTo(Many(scale=:Leaf)),
+        );
+        kind=:plant,
+        species=:oil_palm,
+    )
+    call_override_model = SceneObjectParameterizedSignalModel(4.0)
+    call_override_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        ObjectInstance(
+            :call_palm,
+            call_template;
+            root=Object(:call_plant; scale=:Plant, parent=:scene),
+            objects=(
+                Object(:call_leaf_1; scale=:Leaf, parent=:call_plant, status=Status(signal=0.0, called_signal=0.0)),
+                Object(:call_leaf_2; scale=:Leaf, parent=:call_plant, status=Status(signal=0.0, called_signal=0.0)),
+            ),
+            object_overrides=(
+                Override(
+                    object=:call_leaf_2,
+                    application=:signal_source,
+                    model=call_override_model,
+                ),
+            ),
+        ),
+    )
+    run!(call_override_scene)
+    call_leaf_1 = only(object for object in scene_objects(call_override_scene; scale=:Leaf) if object.id == ObjectId(:call_leaf_1))
+    call_leaf_2 = only(object for object in scene_objects(call_override_scene; scale=:Leaf) if object.id == ObjectId(:call_leaf_2))
+    @test call_leaf_1.status.called_signal == 1.0
+    @test call_leaf_2.status.called_signal == 4.0
+
     leaf_selector = Many(
         kind="plant",
         scale=:Leaf,
@@ -548,6 +853,9 @@ end
     disambiguated_call = only(row for row in explain_calls(disambiguated) if row.consumer_id == :leaf_2)
     @test disambiguated_call.callee_application_ids == [:sunlit_stomata]
     @test disambiguated_call.application == :sunlit_stomata
+    leaf_2_call_bindings = disambiguated.call_bindings_by_target[(:leaf_energy, ObjectId(:leaf_2))]
+    @test length(leaf_2_call_bindings) == 1
+    @test only(leaf_2_call_bindings).call == :stomata
 
     default_scope_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
@@ -608,6 +916,35 @@ end
     )
     run!(inferred_input_scene_with_apps)
     @test only(scene_objects(inferred_input_scene_with_apps; scale=:Leaf)).status.observed_signal == 1.0
+
+    reversed_dependency_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
+        applications=reverse(inferred_input_specs),
+    )
+    reversed_compiled = refresh_bindings!(reversed_dependency_scene)
+    @test length(reversed_compiled.applications_by_id) == length(reversed_compiled.applications)
+    @test reversed_compiled.applications_by_id[:signal_source].process == :scene_object_signal_source
+    @test reversed_compiled.applications_by_id[:signal_consumer].process == :scene_object_signal_consumer
+    @test reversed_compiled.application_order == [:signal_source, :signal_consumer]
+    @test [row.application_id for row in explain_schedule(reversed_compiled)] ==
+          [:signal_source, :signal_consumer]
+    @test [row.execution_index for row in explain_schedule(reversed_compiled)] == [1, 2]
+    run!(reversed_dependency_scene)
+    @test only(scene_objects(reversed_dependency_scene; scale=:Leaf)).status.observed_signal == 1.0
+
+    @test_throws ErrorException compile_scene(
+        Scene(
+            Object(:scene; scale=:Scene, kind=:scene),
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0)),
+        ),
+        (
+            ModelSpec(SceneObjectCycleAModel(); name=:cycle_a) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectCycleBModel(); name=:cycle_b) |>
+            AppliesTo(One(scale=:Leaf)),
+        ),
+    )
 
     @test_throws ErrorException compile_scene(
         Scene(
@@ -692,6 +1029,10 @@ end
     )
     carrier_compiled = compile_scene(carrier_scene, carrier_specs)
     carrier_rows = explain_bindings(carrier_compiled)
+    leaf_1_carrier_bindings = carrier_compiled.input_bindings_by_target[(:carrier_consumer, ObjectId(:leaf_1))]
+    @test length(leaf_1_carrier_bindings) == 2
+    @test Set(binding.input for binding in leaf_1_carrier_bindings) == Set((:leaf_areas, :leaf_tokens))
+    @test length(carrier_compiled.input_bindings_by_target[(:assim, ObjectId(:leaf_1))]) == 1
     leaf_area_binding = only(
         binding for binding in carrier_compiled.input_bindings
         if binding.application_id == :carrier_consumer && binding.consumer_id == ObjectId(:leaf_1) && binding.input == :leaf_areas
@@ -800,6 +1141,9 @@ end
     @test compiled_environment isa CompiledEnvironmentBindings
     @test !environment_bindings_dirty(environment_scene)
     @test compiled_environment_bindings(environment_scene) === compiled_environment
+    @test length(compiled_environment.by_target) == length(compiled_environment.bindings)
+    @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].cell == :cell_a
+    @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].cell == :cell_b
     @test length(grid_backend.index_updates) == 1
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_a,), grid_backend.index_updates[1])
     @test any(entity -> entity.id == :plant_1 && entity.scale == :Plant, grid_backend.index_updates[1])
@@ -909,6 +1253,26 @@ end
     @test only(row for row in call_schedule if row.application_id == :signal_source).manual_call_only
     @test !only(row for row in call_schedule if row.application_id == :signal_source).root_scheduled
     @test only(row for row in call_schedule if row.application_id == :signal_caller).root_scheduled
+
+    hard_call_order_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, called_signal=0.0, observed_signal=0.0));
+        applications=(
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalSourceModel(); name=:signal_source) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalCallerModel(); name=:signal_caller) |>
+            AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    hard_call_order = refresh_bindings!(hard_call_order_scene)
+    @test hard_call_order.applications_by_id[:signal_caller].process == :scene_object_signal_caller
+    @test hard_call_order.application_order == [:signal_source, :signal_caller, :signal_consumer]
+    run!(hard_call_order_scene)
+    hard_call_order_status = only(scene_objects(hard_call_order_scene; scale=:Leaf)).status
+    @test hard_call_order_status.signal == 1.0
+    @test hard_call_order_status.observed_signal == 1.0
 
     temporal_input_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
