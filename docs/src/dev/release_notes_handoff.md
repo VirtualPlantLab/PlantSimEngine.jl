@@ -118,6 +118,9 @@ for multi-plant scene coupling.
 - Compiled input bindings now validate `Inputs(...)` `process=`/`application=`
   filters when they are provided, and `explain_bindings` reports
   `source_application_ids`, `process`, and `application`.
+- `compile_scene` now errors for required `inputs_(model)` variables that are
+  neither bound through `Inputs(...)`/inference nor present on the target object
+  `Status`.
 - Scene/object runtime now publishes model outputs to scene-local temporal
   streams and resolves temporal `Inputs(...)` with `HoldLast`, `Integrate`,
   and `Aggregate` policies before consumer execution.

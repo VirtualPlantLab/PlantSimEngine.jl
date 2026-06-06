@@ -90,6 +90,10 @@ should reproduce the same capabilities through unified object selections.
   matching source application exists for the selected source objects.
   `explain_bindings` reports `source_application_ids`, `process`, and
   `application` for agent-readable dependency diagnostics.
+- `compile_scene` now validates required status inputs from `inputs_(model)`.
+  Each required input must either have a compiled binding or already exist on
+  the target object `Status`; otherwise compilation errors with the concrete
+  application id, object id, and input variable.
 - Carrier compilation preserves source `Status` references and arbitrary value
   types; tests cover both scalar refs and many-object vectors with a custom
   non-`Float64` value type.

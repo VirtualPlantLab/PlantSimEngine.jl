@@ -520,6 +520,7 @@ end
         Updates(:gs; after=:sunlit_stomata),
         ModelSpec(SceneObjectLeafEnergyModel(); name=:leaf_energy) |>
         AppliesTo(Many(scale=:Leaf)) |>
+        Inputs(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)) |>
         Calls(:stomata => One(process=:scene_object_stomata, application=:sunlit_stomata)),
     )
     disambiguated = compile_scene(selector_scene, disambiguated_call_specs)
@@ -555,6 +556,29 @@ end
     run!(inferred_input_scene_with_apps)
     @test only(scene_objects(inferred_input_scene_with_apps; scale=:Leaf)).status.observed_signal == 1.0
 
+    @test_throws ErrorException compile_scene(
+        Scene(
+            Object(:scene; scale=:Scene, kind=:scene),
+            Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(observed_signal=0.0)),
+        ),
+        (
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    @test_throws ErrorException compile_scene(
+        inferred_input_scene,
+        (
+            ModelSpec(SceneObjectSignalSourceModel(); name=:sunlit_signal) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalSourceModel(); name=:shaded_signal) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Updates(:signal; after=:sunlit_signal),
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+
     filtered_input_specs = (
         ModelSpec(SceneObjectSignalSourceModel(); name=:signal_source) |>
         AppliesTo(One(scale=:Leaf)),
@@ -580,8 +604,8 @@ end
     carrier_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=1.0, leaf_token=SceneObjectTaggedValue(1))),
-        Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=SceneObjectTaggedValue(2))),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=1.0, leaf_token=SceneObjectTaggedValue(1), aPPFD=100.0)),
+        Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=SceneObjectTaggedValue(2), aPPFD=100.0)),
         Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31)),
     )
     carrier_specs = (
@@ -760,8 +784,8 @@ end
     runtime_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=1.5, leaf_areas=[0.0], carrier_total=0.0, temperature_seen=0.0)),
-        Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=2.5, leaf_areas=[0.0], carrier_total=0.0, temperature_seen=0.0));
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=1.5, leaf_areas=[0.0], leaf_tokens=Any[], carrier_total=0.0, temperature_seen=0.0)),
+        Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=2.5, leaf_areas=[0.0], leaf_tokens=Any[], carrier_total=0.0, temperature_seen=0.0));
         applications=(
             ModelSpec(SceneObjectCarrierConsumerModel(); name=:carrier_runtime) |>
             AppliesTo(Many(scale=:Leaf)) |>

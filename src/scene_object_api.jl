@@ -635,6 +635,7 @@ function _compile_scene(scene::Scene, raw_specs)
     applications = _compile_scene_applications(scene, raw_specs, timeline)
     _validate_scene_writers!(applications)
     input_bindings = _compile_scene_input_bindings(scene, applications)
+    _validate_scene_required_inputs!(scene, applications, input_bindings)
     call_bindings = _compile_scene_call_bindings(scene, applications)
     return CompiledScene(scene, applications, input_bindings, call_bindings, scene.revision)
 end
@@ -995,6 +996,56 @@ function _append_inferred_scene_input_bindings!(
         )
     end
     return bindings
+end
+
+function _bound_scene_inputs(input_bindings)
+    bound = Set{Tuple{Symbol,ObjectId,Symbol}}()
+    for binding in input_bindings
+        push!(bound, (binding.application_id, binding.consumer_id, binding.input))
+    end
+    return bound
+end
+
+function _status_has_variable(scene::Scene, object_id::ObjectId, variable::Symbol)
+    object = _scene_object(scene, object_id)
+    object.status isa Status || return false
+    return variable in propertynames(object.status)
+end
+
+function _validate_scene_required_inputs!(scene::Scene, applications, input_bindings)
+    bound = _bound_scene_inputs(input_bindings)
+    missing = NamedTuple[]
+    for application in applications
+        for object_id in application.target_ids
+            for input in _scene_input_names(application)
+                (application.id, object_id, input) in bound && continue
+                _status_has_variable(scene, object_id, input) && continue
+                push!(
+                    missing,
+                    (
+                        application_id=application.id,
+                        object_id=object_id.value,
+                        input=input,
+                        process=application.process,
+                    ),
+                )
+            end
+        end
+    end
+    isempty(missing) && return nothing
+    details = join(
+        [
+            "`$(row.application_id)` on object `$(row.object_id)` requires `$(row.input)`"
+            for row in missing
+        ],
+        "; ",
+    )
+    error(
+        "Missing required scene/object input(s): ",
+        details,
+        ". Provide the variable on object `Status`, add an `Inputs(...)` binding, ",
+        "or add an unambiguous same-object producer."
+    )
 end
 
 function _applications_by_object(applications)
