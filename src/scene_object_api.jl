@@ -555,7 +555,10 @@ struct CompiledSceneInputBinding{SEL,P,W,C}
     selector::SEL
     origin::Symbol
     source_ids::Vector{ObjectId}
+    source_application_ids::Vector{Symbol}
     source_var::Symbol
+    process::Union{Nothing,Symbol}
+    application::Union{Nothing,Symbol}
     multiplicity::Symbol
     policy::P
     window::W
@@ -844,6 +847,28 @@ _input_value(carrier::Base.RefValue) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
+function _matching_input_source_applications(applications_by_object, source_ids, source_var::Symbol, process_filter, application_filter)
+    matches = Symbol[]
+    for source_id in source_ids
+        for application in get(applications_by_object, source_id, Any[])
+            source_var in _scene_output_names(application) || continue
+            isnothing(process_filter) || application.process == process_filter || continue
+            isnothing(application_filter) || application.id == application_filter || continue
+            push!(matches, application.id)
+        end
+    end
+    unique!(matches)
+    if (!isnothing(process_filter) || !isnothing(application_filter)) && isempty(matches)
+        error(
+            "Input selector for source variable `$(source_var)` requested",
+            isnothing(process_filter) ? "" : " process `$(process_filter)`",
+            isnothing(application_filter) ? "" : " application `$(application_filter)`",
+            ", but no matching source application was found."
+        )
+    end
+    return matches
+end
+
 function _compile_scene_input_bindings(scene::Scene, applications)
     bindings = CompiledSceneInputBinding[]
     by_object = _applications_by_object(applications)
@@ -864,6 +889,7 @@ function _compile_scene_input_bindings(scene::Scene, applications)
                     input_sym,
                     selector,
                     :declared,
+                    by_object,
                 )
             end
             _append_inferred_scene_input_bindings!(bindings, scene, application, consumer_id, declared_inputs, by_object)
@@ -880,12 +906,22 @@ function _push_scene_input_binding!(
     input_sym::Symbol,
     selector::AbstractObjectMultiplicity,
     origin::Symbol,
+    applications_by_object,
     source_ids_override=nothing,
 )
     source_ids = isnothing(source_ids_override) ? _dependency_object_ids(scene, selector, consumer_id) : source_ids_override
     policy = _selector_policy(selector)
     window = _selector_window(selector)
     source_var = _selector_var(selector, input_sym)
+    process_filter = _criteria_get(criteria(selector), :process, nothing)
+    application_filter = _selector_application(selector)
+    source_application_ids = _matching_input_source_applications(
+        applications_by_object,
+        source_ids,
+        source_var,
+        process_filter,
+        application_filter,
+    )
     carrier = _input_carrier(scene, selector, source_ids, source_var)
     push!(
         bindings,
@@ -896,7 +932,10 @@ function _push_scene_input_binding!(
             selector,
             origin,
             source_ids,
+            source_application_ids,
             source_var,
+            process_filter,
+            application_filter,
             multiplicity(selector),
             policy,
             window,
@@ -951,6 +990,7 @@ function _append_inferred_scene_input_bindings!(
             input_sym,
             selector,
             :inferred_same_object,
+            applications_by_object,
             ObjectId[consumer_id],
         )
     end
@@ -1082,7 +1122,10 @@ function explain_bindings(compiled::CompiledScene)
             input=binding.input,
             origin=binding.origin,
             source_ids=[id.value for id in binding.source_ids],
+            source_application_ids=binding.source_application_ids,
             source_var=binding.source_var,
+            process=binding.process,
+            application=binding.application,
             multiplicity=binding.multiplicity,
             policy=binding.policy,
             window=binding.window,

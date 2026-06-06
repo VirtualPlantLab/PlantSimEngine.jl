@@ -115,6 +115,9 @@ for multi-plant scene coupling.
   `inputs_`/`outputs_` when one producer is unambiguous. `explain_bindings`
   reports each binding origin, including `:declared` and
   `:inferred_same_object`.
+- Compiled input bindings now validate `Inputs(...)` `process=`/`application=`
+  filters when they are provided, and `explain_bindings` reports
+  `source_application_ids`, `process`, and `application`.
 - Scene/object runtime now publishes model outputs to scene-local temporal
   streams and resolves temporal `Inputs(...)` with `HoldLast`, `Integrate`,
   and `Aggregate` policies before consumer execution.

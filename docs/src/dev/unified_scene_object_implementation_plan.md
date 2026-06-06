@@ -85,6 +85,11 @@ should reproduce the same capabilities through unified object selections.
   the same variable, `compile_scene` creates an inferred reference binding.
   `explain_bindings` now reports binding `origin` values such as
   `:declared` and `:inferred_same_object`.
+- Compiled input bindings now carry producer metadata. When an `Inputs(...)`
+  selector uses `process=` or `application=`, `compile_scene` validates that a
+  matching source application exists for the selected source objects.
+  `explain_bindings` reports `source_application_ids`, `process`, and
+  `application` for agent-readable dependency diagnostics.
 - Carrier compilation preserves source `Status` references and arbitrary value
   types; tests cover both scalar refs and many-object vectors with a custom
   non-`Float64` value type.

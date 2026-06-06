@@ -543,6 +543,9 @@ end
     @test inferred_binding.input == :signal
     @test inferred_binding.origin == :inferred_same_object
     @test inferred_binding.source_ids == [:leaf_1]
+    @test inferred_binding.source_application_ids == [:signal_source]
+    @test inferred_binding.process == :scene_object_signal_source
+    @test inferred_binding.application == :signal_source
     @test inferred_binding.has_reference_carrier
     inferred_input_scene_with_apps = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -551,6 +554,28 @@ end
     )
     run!(inferred_input_scene_with_apps)
     @test only(scene_objects(inferred_input_scene_with_apps; scale=:Leaf)).status.observed_signal == 1.0
+
+    filtered_input_specs = (
+        ModelSpec(SceneObjectSignalSourceModel(); name=:signal_source) |>
+        AppliesTo(One(scale=:Leaf)),
+        ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+        AppliesTo(One(scale=:Leaf)) |>
+        Inputs(:signal => One(scale=:Leaf, var=:signal, process=:scene_object_signal_source, application=:signal_source)),
+    )
+    filtered_binding = only(explain_bindings(compile_scene(inferred_input_scene, filtered_input_specs)))
+    @test filtered_binding.origin == :declared
+    @test filtered_binding.source_application_ids == [:signal_source]
+    @test filtered_binding.process == :scene_object_signal_source
+    @test filtered_binding.application == :signal_source
+    @test_throws ErrorException compile_scene(
+        inferred_input_scene,
+        (
+            filtered_input_specs[1],
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Inputs(:signal => One(scale=:Leaf, var=:signal, application=:missing_source)),
+        ),
+    )
 
     carrier_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
