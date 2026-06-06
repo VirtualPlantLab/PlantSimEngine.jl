@@ -136,11 +136,11 @@ export TemporalState
 export OutputRequest, collect_outputs
 export effective_rate_summary
 export Scene, Object, ObjectId, SceneRegistry
-export register_object!, remove_object!, reparent_object!, move_object!, refresh_bindings!
+export register_object!, remove_object!, reparent_object!, move_object!, update_geometry!, refresh_bindings!
 export bindings_dirty, environment_bindings_dirty, scene_revision, environment_revision
 export compiled_bindings, compiled_environment_bindings, mark_environment_binding_dirty!
 export refresh_environment_bindings!, compile_environment_bindings, bind_environment
-export object_ids, scene_objects, resolve_object_ids, resolve_objects, explain_objects
+export object_ids, scene_objects, resolve_object_ids, resolve_objects, explain_objects, explain_scopes
 export geometry, position, bounds
 export CompiledScene, CompiledSceneApplication, CompiledSceneInputBinding, CompiledSceneCallBinding
 export compile_scene, explain_scene_applications, explain_bindings, explain_calls, explain_writers

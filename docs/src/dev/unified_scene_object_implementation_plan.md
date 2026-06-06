@@ -64,6 +64,10 @@ should reproduce the same capabilities through unified object selections.
   `Ancestor(...)`, `Scope(...)`, positional selectors such as
   `Kind(:plant)`/`Scale(:Leaf)`, and `One`/`OptionalOne`/`Many` cardinality
   checks.
+- Added `explain_scopes(scene)` for agent-readable scope diagnostics. It
+  reports the global scene scope, each object subtree, each named
+  `Scope(...)`, and label groups by scale, kind, and species with concrete
+  resolved object ids.
 - Started the object-address compiler with `compile_scene(scene, specs)` and
   compiled scene application/binding carriers. The compiler now resolves
   `AppliesTo(...)` target object ids, object-relative `Inputs(...)` source
@@ -78,7 +82,8 @@ should reproduce the same capabilities through unified object selections.
   `Ref`, a homogeneous `RefVector`, or an `ObjectRefVector` fallback for
   heterogeneous reference-preserving vectors. `input_carrier`, `input_value`,
   and `has_reference_carrier` expose these carriers, and `explain_bindings`
-  reports carrier type and reference availability.
+  reports carrier kind, copy/reference semantics, carrier type, and reference
+  availability.
 - Added conservative same-object input inference in the scene compiler. When a
   model declares an `inputs_` variable that is not covered by explicit/default
   `Inputs(...)`, and exactly one other application on the same object outputs
@@ -90,10 +95,23 @@ should reproduce the same capabilities through unified object selections.
   matching source application exists for the selected source objects.
   `explain_bindings` reports `source_application_ids`, `process`, and
   `application` for agent-readable dependency diagnostics.
+- Dependency selectors in `Inputs(...)` and `Calls(...)` now infer a default
+  scope from the consumer object when no explicit `within=...` is provided:
+  scene objects default to `SceneScope()`, while non-scene objects default to
+  `Self()`. Shared scene/soil dependencies from organs should therefore use
+  `within=SceneScope()` explicitly.
 - `compile_scene` now validates required status inputs from `inputs_(model)`.
   Each required input must either have a compiled binding or already exist on
   the target object `Status`; otherwise compilation errors with the concrete
   application id, object id, and input variable.
+- `compile_scene` now rejects `Inputs(...)` declarations whose left-hand
+  variable is not declared by the target model's `inputs_`. This catches
+  misspelled or stale scenario bindings before they create silent unused
+  metadata.
+- `compile_scene` now validates source availability for status-backed
+  non-temporal `Inputs(...)` bindings. When selected source objects already
+  have `Status` values, the requested source variable must resolve to
+  references instead of silently compiling to an unused/no-op binding.
 - Carrier compilation preserves source `Status` references and arbitrary value
   types; tests cover both scalar refs and many-object vectors with a custom
   non-`Float64` value type.
@@ -121,6 +139,11 @@ should reproduce the same capabilities through unified object selections.
   environment bindings. Object movement invalidates only environment bindings,
   so moving a leaf or changing its geometry can refresh microclimate lookup
   without rebuilding object/model binding carriers.
+- Added public geometry invalidation helpers:
+  `update_geometry!(scene, object, geometry; invalidate_environment=true)`
+  and object-scoped `mark_environment_binding_dirty!(scene, object)`.
+  These currently route to the scene environment binding cache invalidation;
+  finer-grained per-object dirty tracking can be added behind the same API.
 - Started scene/object execution with `run!(scene; steps=...)`.
   The runtime refreshes compiled object bindings and environment bindings,
   materializes precompiled `Inputs(...)` carriers into consumer `Status`

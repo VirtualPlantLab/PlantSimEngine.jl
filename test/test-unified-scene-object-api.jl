@@ -312,6 +312,23 @@ end
         Object(:soil; scale=:Soil, kind=:soil, parent=:scene),
     )
 
+    scope_rows = explain_scopes(selector_scene)
+    scene_scope = only(row for row in scope_rows if row.scope_type == :scene)
+    @test scene_scope.selector isa SceneScope
+    @test scene_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :leaf_3, :plant_1, :plant_2, :scene, :soil]
+    plant_1_scope = only(row for row in scope_rows if row.scope_type == :object_subtree && row.root_id == :plant_1)
+    @test plant_1_scope.selector isa Self
+    @test plant_1_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :plant_1]
+    palm_2_scope = only(row for row in scope_rows if row.scope_type == :named_scope && row.name == :palm_2)
+    @test palm_2_scope.selector isa Scope
+    @test palm_2_scope.root_id == :plant_2
+    @test palm_2_scope.object_ids == [:leaf_3, :plant_2]
+    leaf_label_scope = only(row for row in scope_rows if row.scope_type == :scale && row.scale == :Leaf)
+    @test leaf_label_scope.selector == (:scale => :Leaf)
+    @test leaf_label_scope.object_ids == [:leaf_1, :leaf_2, :leaf_3]
+    oil_palm_scope = only(row for row in scope_rows if row.scope_type == :species && row.species == :oil_palm)
+    @test oil_palm_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :leaf_3, :plant_1, :plant_2]
+
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf)) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
     @test only(resolve_objects(selector_scene, One(scale=:Scene))).id == ObjectId(:scene)
@@ -331,6 +348,8 @@ end
     @test_throws ErrorException resolve_object_ids(selector_scene, One(scale=:Flower))
     @test_throws ErrorException resolve_object_ids(selector_scene, One(scale=:Leaf))
     @test_throws ErrorException resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Self()))
+    @test resolve_object_ids(selector_scene, Many(scale=:Leaf); context=:plant_1) ==
+          [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
 
     leaf_selector = Many(
         kind="plant",
@@ -492,6 +511,8 @@ end
     @test leaf_2_binding.source_ids == [:leaf_1, :leaf_2]
     @test leaf_2_binding.source_var == :leaf_area
     @test leaf_2_binding.carrier_hint == :temporal_stream
+    @test leaf_2_binding.carrier_kind == :temporal_stream
+    @test leaf_2_binding.copy_semantics == :materialized_temporal_value
 
     call_rows = explain_calls(compiled)
     @test length(call_rows) == 3
@@ -528,6 +549,36 @@ end
     @test disambiguated_call.callee_application_ids == [:sunlit_stomata]
     @test disambiguated_call.application == :sunlit_stomata
 
+    default_scope_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
+        Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=1.0)),
+        Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(leaf_area=2.0)),
+        Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
+        Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0)),
+    )
+    plant_default_scope = compile_scene(
+        default_scope_scene,
+        (
+            ModelSpec(SceneObjectTemporalSumModel(); name=:plant_leaf_sum) |>
+            AppliesTo(Many(scale=:Plant)) |>
+            Inputs(:signal_sum => Many(scale=:Leaf, var=:leaf_area)),
+        ),
+    )
+    @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_1).source_ids ==
+          [:leaf_1, :leaf_2]
+    @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_2).source_ids ==
+          [:leaf_3]
+    scene_default_scope = compile_scene(
+        default_scope_scene,
+        (
+            ModelSpec(SceneObjectTemporalSumModel(); name=:scene_leaf_sum) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Inputs(:signal_sum => Many(scale=:Leaf, var=:leaf_area)),
+        ),
+    )
+    @test only(explain_bindings(scene_default_scope)).source_ids == [:leaf_1, :leaf_2, :leaf_3]
+
     inferred_input_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0)),
@@ -548,6 +599,8 @@ end
     @test inferred_binding.process == :scene_object_signal_source
     @test inferred_binding.application == :signal_source
     @test inferred_binding.has_reference_carrier
+    @test inferred_binding.carrier_kind == :ref
+    @test inferred_binding.copy_semantics == :live_references
     inferred_input_scene_with_apps = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
@@ -600,12 +653,30 @@ end
             Inputs(:signal => One(scale=:Leaf, var=:signal, application=:missing_source)),
         ),
     )
+    @test_throws ErrorException compile_scene(
+        inferred_input_scene,
+        (
+            filtered_input_specs[1],
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Inputs(:siggnal => One(scale=:Leaf, var=:signal, application=:signal_source)),
+        ),
+    )
+    @test_throws ErrorException compile_scene(
+        inferred_input_scene,
+        (
+            filtered_input_specs[1],
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Inputs(:signal => One(scale=:Leaf, var=:missing_signal)),
+        ),
+    )
 
     carrier_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=1.0, leaf_token=SceneObjectTaggedValue(1), aPPFD=100.0)),
-        Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=SceneObjectTaggedValue(2), aPPFD=100.0)),
+        Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1, status=Status(leaf_area=2.0, leaf_token=2, aPPFD=100.0)),
         Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=Status(soil_water_content=0.31)),
     )
     carrier_specs = (
@@ -617,7 +688,7 @@ end
         ),
         ModelSpec(ToyAssimModel(); name=:assim) |>
         AppliesTo(Many(scale=:Leaf)) |>
-        Inputs(:soil_water_content => One(scale=:Soil, var=:soil_water_content)),
+        Inputs(:soil_water_content => One(scale=:Soil, within=SceneScope(), var=:soil_water_content)),
     )
     carrier_compiled = compile_scene(carrier_scene, carrier_specs)
     carrier_rows = explain_bindings(carrier_compiled)
@@ -631,16 +702,22 @@ end
     input_value(leaf_area_binding)[1] = 4.0
     leaf_1_object = only(object for object in scene_objects(carrier_scene; scale=:Leaf) if object.id == ObjectId(:leaf_1))
     @test leaf_1_object.status.leaf_area == 4.0
-    @test only(row for row in carrier_rows if row.application_id == :carrier_consumer && row.consumer_id == :leaf_1 && row.input == :leaf_areas).has_reference_carrier
+    leaf_area_row = only(row for row in carrier_rows if row.application_id == :carrier_consumer && row.consumer_id == :leaf_1 && row.input == :leaf_areas)
+    @test leaf_area_row.has_reference_carrier
+    @test leaf_area_row.carrier_kind == :ref_vector
+    @test leaf_area_row.copy_semantics == :live_references
 
     token_binding = only(
         binding for binding in carrier_compiled.input_bindings
         if binding.application_id == :carrier_consumer && binding.consumer_id == ObjectId(:leaf_1) && binding.input == :leaf_tokens
     )
-    @test input_value(token_binding)[2] == SceneObjectTaggedValue(2)
-    input_value(token_binding)[2] = SceneObjectTaggedValue(20)
+    @test input_value(token_binding)[2] == 2
+    input_value(token_binding)[2] = 20
     leaf_2_object = only(object for object in scene_objects(carrier_scene; scale=:Leaf) if object.id == ObjectId(:leaf_2))
-    @test leaf_2_object.status.leaf_token == SceneObjectTaggedValue(20)
+    @test leaf_2_object.status.leaf_token == 20
+    token_row = only(row for row in carrier_rows if row.application_id == :carrier_consumer && row.consumer_id == :leaf_1 && row.input == :leaf_tokens)
+    @test token_row.carrier_kind == :object_ref_vector
+    @test token_row.copy_semantics == :live_references
 
     scalar_binding = only(
         binding for binding in carrier_compiled.input_bindings
@@ -651,6 +728,9 @@ end
     @test input_value(scalar_binding) == 0.31
     input_carrier(scalar_binding)[] = 0.42
     @test only(scene_objects(carrier_scene; scale=:Soil)).status.soil_water_content == 0.42
+    scalar_row = only(row for row in carrier_rows if row.application_id == :assim && row.consumer_id == :leaf_1)
+    @test scalar_row.carrier_kind == :ref
+    @test scalar_row.copy_semantics == :live_references
 
     cache_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -746,12 +826,23 @@ end
     @test any(entity -> entity.id == :leaf_2 && entity.geometry == (cell=:cell_c,), grid_backend.index_updates[2])
     @test only(row for row in explain_environment_bindings(refreshed_environment) if row.application_id == :probe && row.object_id == :leaf_2).cell == :cell_c
 
+    update_geometry!(environment_scene, :leaf_1, (cell=:cell_e,); invalidate_environment=false)
+    @test geometry(only(object for object in scene_objects(environment_scene; scale=:Leaf) if object.id == ObjectId(:leaf_1))) == (cell=:cell_e,)
+    @test !environment_bindings_dirty(environment_scene)
+    mark_environment_binding_dirty!(environment_scene, :leaf_1)
+    @test environment_bindings_dirty(environment_scene)
+    refreshed_after_mark = refresh_environment_bindings!(environment_scene)
+    @test !environment_bindings_dirty(environment_scene)
+    @test length(grid_backend.index_updates) == 3
+    @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_e,), grid_backend.index_updates[3])
+    @test only(row for row in explain_environment_bindings(refreshed_after_mark) if row.application_id == :probe && row.object_id == :leaf_1).cell == :cell_e
+
     register_object!(environment_scene, Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, geometry=(cell=:cell_d,)); parent=:plant_1)
     @test bindings_dirty(environment_scene)
     @test environment_bindings_dirty(environment_scene)
     refreshed_with_new_leaf = refresh_environment_bindings!(environment_scene)
-    @test length(grid_backend.index_updates) == 3
-    @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[3])
+    @test length(grid_backend.index_updates) == 4
+    @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[4])
     @test only(row for row in explain_scene_applications(refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3]
     @test only(row for row in explain_environment_bindings(refreshed_with_new_leaf) if row.application_id == :probe && row.object_id == :leaf_3).cell == :cell_d

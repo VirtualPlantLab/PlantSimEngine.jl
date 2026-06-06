@@ -81,6 +81,9 @@ for multi-plant scene coupling.
 - Adds initial registry-backed scene selector resolution with
   `resolve_object_ids` and `resolve_objects` for global, self-relative,
   plant-relative, ancestor-relative, and named-scope object selections.
+- Adds `explain_scopes(scene)` for structured scope diagnostics. It reports
+  the scene scope, object subtree scopes, named `Scope(...)` entries, and
+  scale/kind/species label groups with concrete object ids.
 - Adds the first compiled scene/object view with `compile_scene`,
   `CompiledScene`, `CompiledSceneApplication`, `CompiledSceneInputBinding`,
   `CompiledSceneCallBinding`, `explain_scene_applications`,
@@ -89,10 +92,17 @@ for multi-plant scene coupling.
   `Calls(...)` to object ids ahead of runtime, and reports temporal policy,
   window, carrier hints, and callee application ids for agent-readable
   diagnostics.
+- Unscoped scene/object dependency selectors now infer scope from the consumer:
+  scene consumers default to `SceneScope()`, while non-scene consumers default
+  to `Self()`. Cross-scope shared dependencies, such as leaf models reading
+  soil state, should use `within=SceneScope()` explicitly.
 - Adds status-backed compiled input carriers for the scene/object view:
   scalar shared refs, homogeneous `RefVector`s, and `ObjectRefVector` fallback
   carriers. `input_carrier`, `input_value`, and `has_reference_carrier` expose
   them for tests, diagnostics, and future runtime execution.
+- `explain_bindings` now reports stable carrier kind and copy/reference
+  semantics, making reference-wired inputs and materialized temporal values
+  explicit for users and agents.
 - Adds scene binding cache helpers:
   `refresh_bindings!`, `bindings_dirty`, `compiled_bindings`, and
   `scene_revision`. Object registration, removal, and reparenting invalidate
@@ -108,6 +118,11 @@ for multi-plant scene coupling.
   scene-wide lookup structures.
 - Object movement now invalidates environment bindings without rebuilding the
   structural object/model binding cache.
+- Adds public geometry lifecycle helpers:
+  `update_geometry!(scene, object, geometry; invalidate_environment=true)` and
+  object-scoped `mark_environment_binding_dirty!(scene, object)`. They
+  currently invalidate the scene environment binding cache and leave room for
+  finer-grained dirty tracking later.
 - Adds the first scene/object runtime with `run!(scene; steps=...)`.
   It materializes compiled `Inputs(...)` carriers, samples bound environment
   inputs, and executes generic model kernels on object `Status` values.
@@ -121,6 +136,12 @@ for multi-plant scene coupling.
 - `compile_scene` now errors for required `inputs_(model)` variables that are
   neither bound through `Inputs(...)`/inference nor present on the target object
   `Status`.
+- `compile_scene` now rejects `Inputs(...)` entries whose receiving variable is
+  not declared by the model's `inputs_`, making binding typos explicit at
+  compile time.
+- `compile_scene` now validates status-backed non-temporal `Inputs(...)`
+  source availability, so bindings that select existing source objects but no
+  source `Status` reference fail at compile time instead of becoming no-ops.
 - Scene/object runtime now publishes model outputs to scene-local temporal
   streams and resolves temporal `Inputs(...)` with `HoldLast`, `Integrate`,
   and `Aggregate` policies before consumer execution.

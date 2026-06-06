@@ -113,6 +113,13 @@ environment_revision(scene::Scene) = scene.environment_revision
 compiled_bindings(scene::Scene) = scene.binding_cache
 compiled_environment_bindings(scene::Scene) = scene.environment_binding_cache
 mark_environment_binding_dirty!(scene::Scene) = _mark_environment_bindings_dirty!(scene)
+function mark_environment_binding_dirty!(scene::Scene, id)
+    _scene_object(scene, id)
+    return _mark_environment_bindings_dirty!(scene)
+end
+function mark_environment_binding_dirty!(scene::Scene, object::Object)
+    return mark_environment_binding_dirty!(scene, object.id)
+end
 
 function _push_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
     isnothing(key) && return nothing
@@ -206,9 +213,18 @@ function reparent_object!(scene::Scene, id, new_parent)
 end
 
 function move_object!(scene::Scene, id, geometry_or_position)
+    return update_geometry!(scene, id, geometry_or_position)
+end
+
+function update_geometry!(scene::Scene, id, geometry_or_position; invalidate_environment::Bool=true)
     object = _scene_object(scene, id)
     object.geometry = geometry_or_position
-    _mark_environment_bindings_dirty!(scene)
+    invalidate_environment && _mark_environment_bindings_dirty!(scene)
+    return object
+end
+
+function update_geometry!(object::Object, geometry_or_position)
+    object.geometry = geometry_or_position
     return object
 end
 
@@ -288,6 +304,91 @@ function explain_objects(scene::Scene)
         )
         for object in scene_objects(scene)
     ]
+end
+
+function _object_id_values(ids)
+    return [id.value for id in _sort_object_ids!(collect(ids))]
+end
+
+function _label_scope_rows(scene::Scene, scope_type::Symbol, label::Symbol, index)
+    return [
+        (
+            scope_type=scope_type,
+            selector=label => key,
+            context=nothing,
+            root_id=nothing,
+            scale=label == :scale ? key : nothing,
+            kind=label == :kind ? key : nothing,
+            species=label == :species ? key : nothing,
+            name=nothing,
+            object_ids=_object_id_values(ids),
+            n_objects=length(ids),
+        )
+        for (key, ids) in sort!(collect(index); by=pair -> string(first(pair)))
+    ]
+end
+
+function explain_scopes(scene::Scene)
+    rows = NamedTuple[]
+    all_ids = object_ids(scene)
+    push!(
+        rows,
+        (
+            scope_type=:scene,
+            selector=SceneScope(),
+            context=nothing,
+            root_id=nothing,
+            scale=nothing,
+            kind=nothing,
+            species=nothing,
+            name=nothing,
+            object_ids=[id.value for id in all_ids],
+            n_objects=length(all_ids),
+        ),
+    )
+    for object in scene_objects(scene)
+        descendant_ids = _object_id_values(_descendant_ids(scene, object.id))
+        push!(
+            rows,
+            (
+                scope_type=:object_subtree,
+                selector=Self(),
+                context=object.id.value,
+                root_id=object.id.value,
+                scale=object.scale,
+                kind=object.kind,
+                species=object.species,
+                name=object.name,
+                object_ids=descendant_ids,
+                n_objects=length(descendant_ids),
+            ),
+        )
+        object_scope_name = object.id.value isa Symbol ? object.id.value : Symbol(string(object.id.value))
+        scope_names = Symbol[object_scope_name]
+        isnothing(object.name) || push!(scope_names, object.name)
+        unique!(scope_names)
+        for scope_name in scope_names
+            push!(
+                rows,
+                (
+                    scope_type=:named_scope,
+                    selector=Scope(scope_name),
+                    context=nothing,
+                    root_id=object.id.value,
+                    scale=object.scale,
+                    kind=object.kind,
+                    species=object.species,
+                    name=scope_name,
+                    object_ids=descendant_ids,
+                    n_objects=length(descendant_ids),
+                ),
+            )
+        end
+    end
+    append!(rows, _label_scope_rows(scene, :scale, :scale, scene.registry.by_scale))
+    append!(rows, _label_scope_rows(scene, :kind, :kind, scene.registry.by_kind))
+    append!(rows, _label_scope_rows(scene, :species, :species, scene.registry.by_species))
+    return rows
 end
 
 struct SceneScope <: AbstractObjectSelector end
@@ -498,19 +599,26 @@ function resolve_object_ids(scene::Scene, selector::AbstractObjectMultiplicity; 
     return _resolve_object_ids(scene, selector; context=context)
 end
 
-function _resolve_object_ids(scene::Scene, selector::AbstractObjectMultiplicity; context=nothing, default_to_context::Bool=false)
+function _resolve_object_ids(
+    scene::Scene,
+    selector::AbstractObjectMultiplicity;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
     isnothing(relation) || error("`Relation(...)` selector resolution is not implemented yet.")
 
-    scope = _criteria_scope(criteria_)
+    explicit_scope = _criteria_scope(criteria_)
+    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
     scale = _criteria_value(criteria_, :scale, Scale)
     kind = _criteria_value(criteria_, :kind, Kind)
     species = _criteria_value(criteria_, :species, Species)
     name = haskey(criteria_, :name) ? criteria_.name : nothing
 
     if default_to_context &&
-       isnothing(scope) &&
+       isnothing(explicit_scope) &&
        isnothing(scale) &&
        isnothing(kind) &&
        isnothing(species) &&
@@ -536,6 +644,12 @@ end
 
 resolve_objects(scene::Scene, selector::AbstractObjectMultiplicity; context=nothing) =
     [_scene_object(scene, id) for id in resolve_object_ids(scene, selector; context=context)]
+
+function _default_dependency_scope(scene::Scene, context::ObjectId)
+    object = _scene_object(scene, context)
+    (object.scale == :Scene || object.kind == :scene) && return SceneScope()
+    return Self()
+end
 
 struct CompiledSceneApplication{S,AT,TS,CL}
     id::Symbol
@@ -799,7 +913,13 @@ function _selector_application(selector::AbstractObjectMultiplicity)
 end
 
 function _dependency_object_ids(scene::Scene, selector::AbstractObjectMultiplicity, context::ObjectId)
-    return _resolve_object_ids(scene, selector; context=context, default_to_context=true)
+    return _resolve_object_ids(
+        scene,
+        selector;
+        context=context,
+        default_to_context=true,
+        default_scope=_default_dependency_scope(scene, context),
+    )
 end
 
 function _carrier_hint(selector::AbstractObjectMultiplicity, policy, window)
@@ -879,6 +999,7 @@ function _compile_scene_input_bindings(scene::Scene, applications)
             declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
             for (input_name, selector) in pairs(declared_inputs)
                 input_sym = Symbol(input_name)
+                _validate_declared_scene_input_name!(application, input_sym)
                 selector isa AbstractObjectMultiplicity || error(
                     "Input binding `$(input_sym)` on application `$(application.id)` must use an object selector."
                 )
@@ -911,6 +1032,7 @@ function _push_scene_input_binding!(
     source_ids_override=nothing,
 )
     source_ids = isnothing(source_ids_override) ? _dependency_object_ids(scene, selector, consumer_id) : source_ids_override
+    isempty(source_ids) && selector isa OptionalOne && return bindings
     policy = _selector_policy(selector)
     window = _selector_window(selector)
     source_var = _selector_var(selector, input_sym)
@@ -924,6 +1046,17 @@ function _push_scene_input_binding!(
         application_filter,
     )
     carrier = _input_carrier(scene, selector, source_ids, source_var)
+    carrier_hint = _carrier_hint(selector, policy, window)
+    _validate_scene_input_source!(
+        scene,
+        application,
+        consumer_id,
+        input_sym,
+        source_var,
+        source_ids,
+        carrier,
+        carrier_hint,
+    )
     push!(
         bindings,
         CompiledSceneInputBinding(
@@ -940,7 +1073,7 @@ function _push_scene_input_binding!(
             multiplicity(selector),
             policy,
             window,
-            _carrier_hint(selector, policy, window),
+            carrier_hint,
             carrier,
         ),
     )
@@ -949,6 +1082,40 @@ end
 
 function _scene_input_names(application::CompiledSceneApplication)
     return Symbol[Symbol(var) for var in keys(inputs_(application.spec))]
+end
+
+function _validate_scene_input_source!(
+    scene::Scene,
+    application::CompiledSceneApplication,
+    consumer_id::ObjectId,
+    input_sym::Symbol,
+    source_var::Symbol,
+    source_ids::Vector{ObjectId},
+    carrier,
+    carrier_hint::Symbol,
+)
+    carrier_hint == :temporal_stream && return nothing
+    !isnothing(carrier) && return nothing
+    status_source_ids = ObjectId[
+        source_id for source_id in source_ids
+        if _scene_object(scene, source_id).status isa Status
+    ]
+    isempty(status_source_ids) && return nothing
+    error(
+        "Input binding `$(input_sym)` on application `$(application.id)` for object ",
+        "`$(consumer_id.value)` reads `$(source_var)` from objects ",
+        "`$([id.value for id in status_source_ids])`, but no source `Status` reference is available."
+    )
+end
+
+function _validate_declared_scene_input_name!(application::CompiledSceneApplication, input_sym::Symbol)
+    input_names = Set(_scene_input_names(application))
+    input_sym in input_names && return nothing
+    error(
+        "Input binding `$(input_sym)` on application `$(application.id)` is not declared by ",
+        "`inputs_` for process `$(application.process)`. Declared model inputs are ",
+        "`$(sort!(collect(input_names)))`."
+    )
 end
 
 function _same_object_output_applications(applications_by_object, application::CompiledSceneApplication, object_id::ObjectId, variable::Symbol)
@@ -1165,6 +1332,24 @@ function explain_schedule(compiled::CompiledScene)
     ]
 end
 
+function _scene_binding_carrier_kind(binding::CompiledSceneInputBinding)
+    binding.carrier_hint == :temporal_stream && return :temporal_stream
+    carrier = binding.carrier
+    isnothing(carrier) && return :unresolved
+    carrier isa Base.RefValue && return :ref
+    carrier isa RefVector && return :ref_vector
+    carrier isa ObjectRefVector && return :object_ref_vector
+    return :custom
+end
+
+function _scene_binding_copy_semantics(binding::CompiledSceneInputBinding)
+    kind = _scene_binding_carrier_kind(binding)
+    kind in (:ref, :ref_vector, :object_ref_vector) && return :live_references
+    kind == :temporal_stream && return :materialized_temporal_value
+    kind == :unresolved && return :not_materialized
+    return :backend_defined
+end
+
 function explain_bindings(compiled::CompiledScene)
     return [
         (
@@ -1181,6 +1366,8 @@ function explain_bindings(compiled::CompiledScene)
             policy=binding.policy,
             window=binding.window,
             carrier_hint=binding.carrier_hint,
+            carrier_kind=_scene_binding_carrier_kind(binding),
+            copy_semantics=_scene_binding_copy_semantics(binding),
             has_reference_carrier=has_reference_carrier(binding),
             carrier_type=isnothing(binding.carrier) ? nothing : typeof(binding.carrier),
             selector=binding.selector,
