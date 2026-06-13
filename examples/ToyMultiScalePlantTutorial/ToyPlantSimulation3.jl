@@ -179,10 +179,10 @@ function PlantSimEngine.run!(::ToyLeafCarbonCaptureModel, models, status, meteo,
 end
 
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Scene => ToyDegreeDaysCumulModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyStockComputationModel(),
             mapped_variables=[
                 :carbon_captured => [:Leaf],
@@ -195,7 +195,7 @@ mapping = ModelMapping(
         Status(water_stock=0.0, carbon_stock=0.0)
     ),
     :Internode => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapped_variables=[:TT_cu => (:Scene => :TT_cu),
                 :water_stock => (:Plant => :water_stock),

@@ -125,6 +125,61 @@ function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}},
     )
 end
 
+function _scene_validation_scale(scene::Scene, application::CompiledSceneApplication)
+    scales = Set{Symbol}()
+    for object_id in application.target_ids
+        object = _scene_object(scene, object_id)
+        isnothing(object.scale) || push!(scales, object.scale)
+    end
+    isempty(scales) && return :Scene
+    length(scales) == 1 && return only(scales)
+    return :Scene
+end
+
+function _scene_model_specs_by_application(compiled::CompiledScene)
+    specs = Dict{Symbol,Dict{Symbol,ModelSpec}}()
+    for application in compiled.applications
+        scale = _scene_validation_scale(compiled.scene, application)
+        specs_at_scale = get!(specs, scale, Dict{Symbol,ModelSpec}())
+        specs_at_scale[application.id] = application.spec
+    end
+    return specs
+end
+
+"""
+    validate_meteo_inputs(scene::Scene)
+    validate_meteo_inputs(compiled::CompiledScene)
+    validate_meteo_inputs(compiled::CompiledScene, meteo_or_backend)
+
+Validate declared scene/object `meteo_inputs_`.
+
+The one-argument methods validate each application against its actual compiled
+environment backend, including application-level `Environment(...)` overrides.
+The two-argument method validates every compiled application against an
+explicit replacement meteorology/environment backend. Diagnostics report model
+application ids, so several applications for the same process can be diagnosed
+independently.
+"""
+function validate_meteo_inputs(compiled::CompiledScene, meteo_or_backend)
+    backend = environment_backend(meteo_or_backend)
+    return validate_meteo_inputs(_scene_model_specs_by_application(compiled), backend)
+end
+
+function validate_meteo_inputs(compiled::CompiledScene)
+    refresh_environment_bindings!(compiled.scene, compiled)
+    return nothing
+end
+
+function validate_meteo_inputs(scene::Scene)
+    compiled = refresh_bindings!(scene)
+    return validate_meteo_inputs(compiled)
+end
+
+function validate_meteo_inputs(scene::Scene, meteo_or_backend)
+    compiled = refresh_bindings!(scene)
+    return validate_meteo_inputs(compiled, meteo_or_backend)
+end
+
 """
     sample(backend, variable, support, time)
 
@@ -192,6 +247,7 @@ end
 function _environment_sampling_rules(model_spec::ModelSpec)
     bindings = meteo_bindings(model_spec)
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
+    environment_sources = _environment_source_overrides(model_spec)
     rules = Pair{Symbol,Symbol}[]
     for target in keys(meteo_inputs_(model_spec))
         source = target
@@ -199,9 +255,26 @@ function _environment_sampling_rules(model_spec::ModelSpec)
             rule = bindings[target]
             rule isa NamedTuple && haskey(rule, :source) && (source = Symbol(rule.source))
         end
+        if haskey(environment_sources, target)
+            source = Symbol(environment_sources[target])
+        end
         push!(rules, target => source)
     end
     return rules
+end
+
+function _environment_source_overrides(model_spec::ModelSpec)
+    config = environment_config(model_spec)
+    payload = config isa EnvironmentConfig ? config.config : config
+    if payload isa NamedTuple && haskey(payload, :sources)
+        sources = payload.sources
+        sources isa NamedTuple || error(
+            "Environment `sources` must be a NamedTuple, for example ",
+            "`Environment(; sources=(CO2=:Ca,))`."
+        )
+        return sources
+    end
+    return NamedTuple()
 end
 
 function sample_environment(
@@ -226,7 +299,9 @@ function sample_environment(
     row = _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
     bindings = meteo_bindings(model_spec)
     has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
-    !has_bindings && return row
+    environment_sources = _environment_source_overrides(model_spec)
+    has_environment_sources = !isempty(keys(environment_sources))
+    !has_bindings && !has_environment_sources && return row
 
     pairs = Pair{Symbol,Any}[]
     for (target, source) in _environment_sampling_rules(model_spec)

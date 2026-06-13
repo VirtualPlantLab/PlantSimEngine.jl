@@ -30,9 +30,9 @@ leaf2 = Node(internode2, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2));
 
 const MAPPING_EXAMPLE = """
 ```@example
-mapping = ModelMapping( \
+mapping = PlantSimEngine.ModelMapping( \
     :Plant =>  ( \
-        MultiScaleModel(  \
+        PlantSimEngine.MultiScaleModel(  \
             model=ToyCAllocationModel(), \
             mapped_variables=[ \
                 :carbon_assimilation => [:Leaf], \
@@ -40,7 +40,7 @@ mapping = ModelMapping( \
                 :carbon_allocation => [:Leaf, :Internode] \
             ], \
         ), 
-        MultiScaleModel(  \
+        PlantSimEngine.MultiScaleModel(  \
             model=ToyPlantRmModel(), \
             mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],] \
         ), \
@@ -51,7 +51,7 @@ mapping = ModelMapping( \
         Status(TT=10.0) \
     ), \
     :Leaf => ( \
-        MultiScaleModel( \
+        PlantSimEngine.MultiScaleModel( \
             model=ToyAssimModel(), \
             mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),], \
         ), \

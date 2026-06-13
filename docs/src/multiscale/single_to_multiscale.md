@@ -1,5 +1,10 @@
 # Converting a single-scale simulation to multi-scale
 
+!!! warning "Legacy multiscale configuration"
+    This page documents `ModelMapping` and `MultiScaleModel`. New multiscale
+    scenarios should use `Scene`, `Object`, `AppliesTo`, and `Inputs`; see
+    [Migrating To The Scene/Object API](../migration_scene_object.md).
+
 ```@meta
 CurrentModule = PlantSimEngine
 ```
@@ -10,7 +15,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 using MultiScaleTreeGraph
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-models_singlescale = ModelMapping(
+models_singlescale = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2);
@@ -31,7 +36,10 @@ Depth = 3
 
 # From single to multi-scale mapping
 
-For example, let's return to the [`ModelMapping`](@ref) coupling a light interception model, a Leaf Area Index model, and a carbon biomass increment model that was discussed in the [Model switching](@ref) subsection: 
+For example, let's return to the legacy
+`PlantSimEngine.ModelMapping(...)` compatibility example coupling a light
+interception model, a Leaf Area Index model, and a carbon biomass increment
+model:
 
 ```@example usepkg
 using PlantMeteo, Dates
@@ -40,7 +48,7 @@ using PlantSimEngine.Examples
 
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models_singlescale = ModelMapping(
+models_singlescale = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2);
@@ -56,7 +64,7 @@ Those models all operate on a simplified model of a single plant, without any or
 We can therefore convert this into the following mapping:
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Plant => (
    ToyLAIModel(),
     Beer(0.5),
@@ -130,7 +138,7 @@ end
 ```
 
 !!! note
-    The only accessible variables in the [`run!`](@ref) function via the status are the ones that are local to the :Scene scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a [`MultiScaleModel`](@ref), or sometimes a more complex coupling is necessary.
+    The only accessible variables in the [`run!`](@ref) function via the status are the ones that are local to the :Scene scale. This isn't explicit at first glance, but very important to keep in mind when developing models, or using them at different scales. If variables from other scales are required, then they need to be mapped via a [`PlantSimEngine.MultiScaleModel`](@ref), or sometimes a more complex coupling is necessary.
 
 ### Linking the new TT_cu model to a scale in the mapping
 
@@ -149,14 +157,14 @@ mtg_multiscale = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Scen
 
 The cumulated thermal time (`:TT_cu`) which was previously provided to the LAI model as a simulation parameter now needs to be mapped from the :Scene scale level. 
 
-This is done by wrapping our ToyLAIModel in a dedicated structure called a [`MultiScaleModel`](@ref). A [`MultiScaleModel`](@ref) requires two keyword arguments : `model`, indicating the model for which some variables are mapped, and `mapped_variables`, indicating which scale link to which variables, and potentially renaming them.
+This is done by wrapping our ToyLAIModel in a dedicated structure called a [`PlantSimEngine.MultiScaleModel`](@ref). A [`PlantSimEngine.MultiScaleModel`](@ref) requires two keyword arguments : `model`, indicating the model for which some variables are mapped, and `mapped_variables`, indicating which scale link to which variables, and potentially renaming them.
 
 There can be different kinds of variable mapping with slightly different syntax, but in our case, only a single scalar value of the TT_cu is passed from the :Scene to the :Plant scale.
 
-This gives us the following declaration with the [`MultiScaleModel`](@ref) wrapper for our LAI model: 
+This gives us the following declaration with the [`PlantSimEngine.MultiScaleModel`](@ref) wrapper for our LAI model:
 
 ```@example usepkg
-MultiScaleModel(
+PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,
@@ -166,10 +174,10 @@ MultiScaleModel(
 and the new mapping with two scales:
 
 ```@example usepkg
-mapping_multiscale = ModelMapping(
+mapping_multiscale = PlantSimEngine.ModelMapping(
     :Scene => ToyTt_CuModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,

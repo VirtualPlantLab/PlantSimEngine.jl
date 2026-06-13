@@ -2,7 +2,7 @@
 # Defining a list of models without status:
 
 @testset "ModelMapping with no status" begin
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model()
     )
@@ -15,7 +15,7 @@
     @test length(status(leaf)) == 5
 
     # Requiring 3 steps for initialization:
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
     )
@@ -46,12 +46,12 @@ end;
 end
 
 @testset "ModelMapping with no process names" begin
-    with_names = ModelMapping(
+    with_names = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model()
     )
 
-    without_names = ModelMapping(
+    without_names = PlantSimEngine.ModelMapping(
         Process1Model(1.0),
         Process2Model()
     )
@@ -62,7 +62,7 @@ end
 end;
 
 @testset "ModelMapping with a partially initialized status" begin
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=15.0,)
@@ -76,7 +76,7 @@ end;
     @test to_initialize(leaf) == (process1=(:var2,),)
 
     # Requiring 3 steps for initialization:
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=15.0,),
@@ -88,7 +88,7 @@ end;
 
 @testset "ModelMapping with fully initialized status" begin
     vals = (var1=15.0, var2=0.3)
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=vals
@@ -109,7 +109,7 @@ end;
 
 @testset "ModelMapping with independant models (and missing one in the middle)" begin
     vals = (var1=15.0, var2=0.3)
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process3=Process3Model(),
         status=vals
@@ -127,7 +127,7 @@ end;
 @testset "Copy a ModelMapping" begin
     vars = (var1=15.0, var2=0.3)
     # Create a model list:
-    models = ModelMapping(
+    models = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -169,7 +169,7 @@ end;
     process3_same = PlantSimEngine.convert_vars(ref_vars.process3, nothing)
     @test process3_same == ref_vars.process3
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model();
@@ -183,7 +183,7 @@ end
 
 @testset "ModelMapping dependencies" begin
 
-    models = ModelMapping(
+    models = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -238,7 +238,7 @@ end=#
 @testset "ModelMapping outputs preallocation" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
     vals = (var1=15.0, var2=0.3, TT_cu=cumsum(meteo_day.TT))
-    leaf = ModelMapping(
+    leaf = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=vals
@@ -319,5 +319,5 @@ function PlantSimEngine.outputs_(::Reeb)
 end
 
 @testset "ModelMapping simple cyclic dependency detection" begin
-    @test_throws "Cyclic" m = ModelMapping(Beer(0.5), Reeb(0.5))
+    @test_throws "Cyclic" m = PlantSimEngine.ModelMapping(Beer(0.5), Reeb(0.5))
 end

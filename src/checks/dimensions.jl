@@ -16,7 +16,7 @@ using PlantSimEngine.Examples
 w = Atmosphere(T = 20.0, Rh = 0.5, Wind = 1.0)
 
 # Creating a dummy component:
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),

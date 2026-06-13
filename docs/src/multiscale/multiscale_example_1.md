@@ -55,7 +55,7 @@ Let's also add a very artificial limiting factor: if the total leaf surface area
 We can expect the simulation mapping to look like a more complex version of the following: 
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Scene => ToyDegreeDaysCumulModel(),
 :Plant => ToyStockComputationModel(),
 :Internode => ToyCustomInternodeEmergence(),
@@ -218,10 +218,10 @@ as opposed to the single-valued carbon stock mapped variable :
 And of course, some variables need to be initialized in the status:
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Scene => ToyDegreeDaysCumulModel(),
 :Plant => (
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
             :carbon_captured=>[:Leaf],
@@ -231,7 +231,7 @@ mapping = ModelMapping(
         Status(carbon_stock = 0.0)
     ),
 :Internode => (        
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapped_variables=[:TT_cu => :Scene,
             PreviousTimeStep(:carbon_stock)=>:Plant],

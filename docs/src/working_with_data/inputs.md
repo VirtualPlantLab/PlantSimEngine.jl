@@ -1,6 +1,11 @@
 # Input types
 
-[`run!`](@ref) usually takes two inputs: a [`ModelMapping`](@ref) and data for the meteorology. The data for the meteorology is usually provided for one time step using an `Atmosphere`, or for several time-steps using a `TimeStepTable{Atmosphere}`. The [`ModelMapping`](@ref) can also be provided as a singleton, or as a vector or dictionary of.
+In scene/object simulations, [`run!`](@ref) usually takes a `Scene` and the
+meteorology is supplied through the scene `environment`. In legacy
+compatibility simulations, [`run!`](@ref) takes a
+`PlantSimEngine.ModelMapping(...)` and meteorological data. The meteorology is
+usually provided for one timestep using an `Atmosphere`, or for several
+timesteps using a `TimeStepTable{Atmosphere}`.
 
 [`run!`](@ref) knows how to handle these data formats via the [`PlantSimEngine.DataFormat`](@ref) trait (see [this blog post](https://www.juliabloggers.com/the-emergent-features-of-julialang-part-ii-traits/) to learn more about traits). For example, we tell PlantSimEngine that a `TimeStepTable` should be handled like a table by implementing the following trait:
 
@@ -18,10 +23,12 @@ There are two other traits available: `SingletonAlike` for a data format represe
 
 ## Promoting status variable types
 
-Use the `type_promotion` keyword on [`ModelMapping`](@ref) when the default input and output values declared by models should be converted to another type:
+Use the `type_promotion` keyword on the qualified compatibility constructor
+`PlantSimEngine.ModelMapping(...)` when the default input and output values
+declared by models should be converted to another type:
 
 ```julia
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2);
@@ -32,13 +39,15 @@ models = ModelMapping(
 
 For single-scale mappings, `type_promotion` is applied while the backing status is constructed: model-provided default values are converted, while values explicitly passed in `status` keep the type chosen by the user. If those values should also be `Float32`, pass them as `Float32` values directly.
 
-For multiscale mappings, the per-node statuses do not exist when [`ModelMapping`](@ref) is constructed. The promotion map is stored on the mapping and applied when the MTG simulation is initialized:
+For legacy multiscale mappings, the per-node statuses do not exist when
+`PlantSimEngine.ModelMapping(...)` is constructed. The promotion map is stored
+on the mapping and applied when the MTG simulation is initialized:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Scene => ToyTt_CuModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,

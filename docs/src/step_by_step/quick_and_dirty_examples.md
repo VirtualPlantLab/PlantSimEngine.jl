@@ -1,95 +1,158 @@
-# Quick examples
+# Quick Examples
 
-This page is meant for people who have set up their environment and just want to copy-paste an example or two, see what the REPL returns and start tinkering. 
+This page is for copy-paste experimentation with the native scene/object API.
+If you want a slower explanation of the same ideas, see
+[Detailed Walkthrough Of A Simple Simulation](@ref detailed-walkthrough-of-a-simple-simulation).
 
-If you are less comfortable with Julia, or need to set up an environment first, see this page : [Getting started with Julia](@ref).
-If you wish for a more detailed rundown of the examples, you can instead have a look at the [step by step](#step_by_step) section, which will go into more detail.
+The examples use one scene object, but the same pattern scales to plants,
+organs, soil objects, and microclimate grids by adding more `Object`s and
+selecting them with `AppliesTo(...)` and `Inputs(...)`.
 
-These examples are all for single-scale simulations. For multi-scale modelling tutorials and examples, refer to [this section][#multiscale]
+```@setup quick_scene_examples
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
+using PlantSimEngine.Examples
 
-You can find the implementation for all the example models, as well as other toy models [in the examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
+)
+```
 
 ```@contents
 Pages = ["quick_and_dirty_examples.md"]
 Depth = 2
 ```
 
-## Environment
+## One Light Interception Model
 
-These examples assume you have a working Julia environment with PlantSimengine added to it, as well as the other packages used in these examples. Details for getting to that point are provided on the [Installing and running PlantSimEngine](@ref) page.
-
-
-## Example with a single light interception model and a single weather timestep
-
-```@example usepkg
-using PlantSimEngine, PlantMeteo, Dates
-using PlantSimEngine.Examples
-meteo = Atmosphere(T = 20.0, Wind = 1.0, Rh = 0.65, Ri_PAR_f = 500.0)
-leaf = ModelMapping(Beer(0.5), status = (LAI = 2.0,))
-out = run!(leaf, meteo)
-```
-
-## Coupling the light interception model with a Leaf Area Index model
-
-The weather data in this example contains data over 365 days, meaning the simulation will have as many timesteps.
-
-```@example usepkg
-using PlantSimEngine
-using PlantMeteo, Dates
-using PlantSimEngine.Examples
-
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+```@example quick_scene_examples
+scene = Scene(
+    Object(
+        :scene;
+        scale=:Scene,
+        kind=:scene,
+        status=Status(LAI=2.0),
+    );
+    applications=(
+        ModelSpec(Beer(0.5); name=:light_interception) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+    ),
+    environment=meteo_day,
 )
 
-outputs_coupled = run!(models, meteo_day)
-outputs_coupled[1:3,:] # show the first 3 rows of the output
+sim = run!(scene; steps=3, constants=Constants())
+first(collect_outputs(sim), 3)
 ```
 
-## Coupling the light interception and Leaf Area Index models with a biomass increment model
+## LAI And Light Interception
 
+Here, `ToyDegreeDaysCumulModel` computes cumulative thermal time, `ToyLAIModel`
+computes `LAI`, and `Beer` consumes `LAI`. The compiler infers the same-object
+value bindings from model inputs and outputs.
 
-```@example usepkg
-using PlantSimEngine
-using PlantMeteo, Dates
-using PlantSimEngine.Examples
-
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-models = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.5),
-    ToyRUEGrowthModel(0.2),
-    status=(TT_cu=cumsum(meteo_day.TT),),
+```@example quick_scene_examples
+lai_scene = Scene(
+    Object(:scene; scale=:Scene, kind=:scene, status=Status(TT_cu=0.0));
+    applications=(
+        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+        ModelSpec(ToyLAIModel(); name=:lai) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+        ModelSpec(Beer(0.5); name=:light_interception) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+    ),
+    environment=meteo_day,
 )
 
-outputs_coupled = run!(models, meteo_day)
-outputs_coupled[1:3,:] # show the first 3 rows of the output
+lai_sim = run!(lai_scene; steps=5, constants=Constants())
+first(collect_outputs(lai_sim), 8)
 ```
 
-## Example using PlantBioPhysics
+Inspect the inferred coupling:
 
-A companion package, PlantBioPhysics, uses PlantSimEngine, and contains other models used in ecophysiological simulations.
-
-You can have a look at its documentation [here](https://vezy.github.io/PlantBiophysics.jl/stable/)
-
-Several example simulations are provided there. Here's one taken from [this page](https://vezy.github.io/PlantBiophysics.jl/stable/simulation/first_simulation/) : 
-
-```julia
-using PlantBiophysics, PlantSimEngine
-
-meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
-
-leaf = ModelMapping(
-        Monteith(),
-        Fvcb(),
-        Medlyn(0.03, 12.0),
-        status = (Ra_SW_f = 13.747, sky_fraction = 1.0, aPPFD = 1500.0, d = 0.03)
-    )
-
-out = run!(leaf,meteo)
+```@example quick_scene_examples
+select(
+    DataFrame(explain_bindings(refresh_bindings!(lai_scene))),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :carrier_kind,
+)
 ```
+
+## Add Biomass Growth
+
+`ToyRUEGrowthModel` consumes absorbed light and accumulates biomass. No extra
+input binding is needed because `Beer` is the unique producer of `aPPFD` on the
+same object.
+
+```@example quick_scene_examples
+growth_scene = Scene(
+    Object(:scene; scale=:Scene, kind=:scene, status=Status(TT_cu=0.0));
+    applications=(
+        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+        ModelSpec(ToyLAIModel(); name=:lai) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+        ModelSpec(Beer(0.5); name=:light_interception) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+        ModelSpec(ToyRUEGrowthModel(0.2); name=:growth) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+    ),
+    environment=meteo_day,
+)
+
+growth_sim = run!(growth_scene; steps=5, constants=Constants())
+growth_status = only(scene_objects(growth_scene; scale=:Scene)).status
+(LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
+```
+
+## Keep Only One Requested Output
+
+For larger simulations, request only the streams you want to keep:
+
+```@example quick_scene_examples
+request = OutputRequest(
+    :Scene,
+    :biomass;
+    name=:biomass_daily,
+    process=:growth,
+    policy=HoldLast(),
+    clock=Day(1),
+)
+
+requested_sim = run!(
+    growth_scene;
+    steps=5,
+    constants=Constants(),
+    tracked_outputs=request,
+)
+
+first(collect_outputs(requested_sim, :biomass_daily), 5)
+```
+
+## PlantBiophysics
+
+The same scene/object API can host models from companion packages such as
+PlantBiophysics. A typical PlantBiophysics energy-balance setup uses
+`Calls(...)` so an iterative parent model can manually run photosynthesis and
+stomatal-conductance models, then call `run_call!(target; publish=true)` once
+for the accepted solution.
+
+See [MAESPA-style domain example handoff](../dev/maespa_domain_handoff.md) for
+the current multi-plant energy-balance acceptance example.
+
+## Compatibility Note
+
+Older examples used `PlantSimEngine.ModelMapping(...)`. That compatibility
+API remains available for historical material and regression tests, but new
+simulations should start from `Scene`, `Object`, `ModelSpec`, `AppliesTo`,
+`Inputs`, `Calls`, `Updates`, `TimeStep`, and `Environment`.

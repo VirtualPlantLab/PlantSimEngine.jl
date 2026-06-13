@@ -54,9 +54,13 @@ When users define which models they use, PlantSimEngine cannot determine in adva
 
 The user therefore needs to indicate for a simulation's which models are related to which scale.
 
-A multi-scale mapping links models to the scale at which they operate, and is also implemented in a [`ModelMapping`](@ref), tying a scale, such as :Leaf to models operating at that scale, such as "LeafSurfaceAreaModel".
+A legacy multi-scale mapping links models to the scale at which they operate,
+and is implemented with `PlantSimEngine.ModelMapping(...)`, tying a scale, such
+as `:Leaf`, to models operating at that scale, such as
+`LeafSurfaceAreaModel`. New multiscale work should prefer `Scene`, `Object`,
+`AppliesTo(...)`, and `Inputs(...)`.
 
-Multi-scale models can be similar models to the ones found in earlier sections, or, if they need to make use of variables at other scales, may need to be wrapped as part of a [`MultiScaleModel`](@ref) object. Many models are not tied to a particular scale, which means those models can be reused at different scales or in single-scale simulations.
+Multi-scale models can be similar models to the ones found in earlier sections, or, if they need to make use of variables at other scales, may need to be wrapped as part of a [`PlantSimEngine.MultiScaleModel`](@ref) object. Many models are not tied to a particular scale, which means those models can be reused at different scales or in single-scale simulations.
 
 ## The simulation operates on an MTG
 
@@ -68,7 +72,7 @@ This has two **important** consequences in terms of running a simulation :
 
 - First, **any scale absent from the MTG will not be run**. If your MTG contains no leaves, then no model operating at the scale :Leaf will be able to run until a :Leaf organ is created and a node is added in the MTG. Otherwise, it has no MTG node to operate on. The only exceptions are hard dependency models which can be called from a different scale, since they can be called directly by a model on a node at a different existing scale, even if there is no node at their own scale.
 
-- Secondly, models only have access to **local** organ information. The [`status`](@ref) argument in the [`run!`](@ref) function only contains variables **at the model's scale**, unless variables from other scales are mapped via a [`MultiScaleModel`](@ref) wrapping. 
+- Secondly, models only have access to **local** organ information. The [`status`](@ref) argument in the [`run!`](@ref) function only contains variables **at the model's scale**, unless variables from other scales are mapped via a [`PlantSimEngine.MultiScaleModel`](@ref) wrapping.
 
 ## The run! function's signature
 
@@ -78,7 +82,11 @@ The [`run!`](@ref) function differs slightly from its single-scale version. The 
 run!(mtg, mapping::ModelMapping, meteo, constants, extra; nsteps, tracked_outputs)
 ```
 
-Instead of a just the [`ModelMapping`](@ref), it also takes an MTG as the first argument. The optional `meteo` and `constants` argument are identical to the single-scale version. The `extra` argument is now reserved and should not be used. A new `nsteps` keyword argument is available to restrict the simulation to a specified number of steps.
+Instead of just the compatibility mapping, it also takes an MTG as the first
+argument. The optional `meteo` and `constants` arguments are identical to the
+single-scale version. The `extra` argument is now reserved and should not be
+used. A new `nsteps` keyword argument is available to restrict the simulation
+to a specified number of steps.
 
 ## Multi-scale output data structure
 
@@ -149,7 +157,7 @@ Multi-scale simulations, especially for plants which have thousands of leaves, i
 Those tracked variables also need to be indexed by scale to avoid ambiguity: 
 
 ```julia
-outs = ModelMapping(
+outs = PlantSimEngine.ModelMapping(
     :Scene => (:TT, :TT_cu,),
     :Plant => (:aPPFD, :LAI),
     :Leaf => (:carbon_assimilation, :carbon_demand, :carbon_allocation, :TT),

@@ -7,12 +7,14 @@ User-side model configuration wrapper for mapping/model list composition.
 This allows modelers to publish reusable models while users decide how models are coupled in
 their simulation setup.
 """
-struct ModelSpec{M,N,AT,IN,CA,EV,MS,TS,IB,MB,MW,OR,SC,UP}
+struct ModelSpec{M,N,AT,IN,IO,CA,CO,EV,MS,TS,IB,MB,MW,OR,SC,UP}
     model::M
     name::N
     applies_to::AT
     inputs::IN
+    input_origins::IO
     calls::CA
+    call_origins::CO
     environment::EV
     multiscale::MS
     timestep::TS
@@ -86,7 +88,9 @@ function ModelSpec(
     name=nothing,
     applies_to=nothing,
     inputs=NamedTuple(),
+    input_origins=nothing,
     calls=NamedTuple(),
+    call_origins=nothing,
     environment=nothing,
     multiscale=nothing,
     timestep=nothing,
@@ -101,9 +105,17 @@ function ModelSpec(
 
     normalized_name = _normalize_application_name(name)
     default_inputs = _model_default_value_inputs(base_model)
-    normalized_inputs = _merge_value_inputs(default_inputs, _normalize_application_bindings(inputs))
+    explicit_inputs = _normalize_application_bindings(inputs)
+    normalized_inputs = _merge_value_inputs(default_inputs, explicit_inputs)
+    normalized_input_origins = isnothing(input_origins) ?
+                               _binding_origins(default_inputs, explicit_inputs) :
+                               _normalize_binding_origins(input_origins, normalized_inputs)
     default_calls = _model_default_model_calls(base_model)
-    normalized_calls = _merge_value_inputs(default_calls, _normalize_application_bindings(calls))
+    explicit_calls = _normalize_application_bindings(calls)
+    normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
+    normalized_call_origins = isnothing(call_origins) ?
+                              _binding_origins(default_calls, explicit_calls) :
+                              _normalize_binding_origins(call_origins, normalized_calls)
     derived_multiscale = _legacy_multiscale_from_value_inputs(normalized_inputs, base_model)
     combined_multiscale = _merge_legacy_multiscale(multiscale, derived_multiscale)
     normalized_multiscale = _normalize_multiscale_mapping(base_model, combined_multiscale)
@@ -113,12 +125,14 @@ function ModelSpec(
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_scope = _normalize_scope_selector(scope)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_calls),typeof(environment),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(environment),typeof(normalized_multiscale),typeof(timestep),typeof(normalized_input_bindings),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_scope),typeof(normalized_updates)}(
         base_model,
         normalized_name,
         applies_to,
         normalized_inputs,
+        normalized_input_origins,
         normalized_calls,
+        normalized_call_origins,
         environment,
         normalized_multiscale,
         timestep,
@@ -136,7 +150,9 @@ function ModelSpec(
     name=nothing,
     applies_to=nothing,
     inputs=NamedTuple(),
+    input_origins=nothing,
     calls=NamedTuple(),
+    call_origins=nothing,
     environment=nothing,
     multiscale=nothing,
     timestep=nothing,
@@ -153,7 +169,9 @@ function ModelSpec(
         name=name,
         applies_to=applies_to,
         inputs=inputs,
+        input_origins=input_origins,
         calls=calls,
+        call_origins=call_origins,
         environment=environment,
         multiscale=base_multiscale,
         timestep=timestep,
@@ -172,7 +190,9 @@ function ModelSpec(
     name=spec.name,
     applies_to=spec.applies_to,
     inputs=spec.inputs,
+    input_origins=spec.input_origins,
     calls=spec.calls,
+    call_origins=spec.call_origins,
     environment=spec.environment,
     multiscale=spec.multiscale,
     timestep=spec.timestep,
@@ -183,7 +203,7 @@ function ModelSpec(
     scope=spec.scope,
     updates=spec.updates
 )
-    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, calls=calls, environment=environment, multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope, updates=updates)
+    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, input_origins=input_origins, calls=calls, call_origins=call_origins, environment=environment, multiscale=multiscale, timestep=timestep, input_bindings=input_bindings, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, scope=scope, updates=updates)
 end
 
 as_model_spec(spec::ModelSpec) = spec
@@ -217,7 +237,9 @@ Return a `ModelSpec` with unified scene/object value-input bindings.
 """
 function with_inputs(model_or_spec, bindings)
     spec = as_model_spec(model_or_spec)
-    return ModelSpec(spec; inputs=_normalize_application_bindings(bindings))
+    explicit = _normalize_application_bindings(bindings)
+    origins = _binding_origins(_model_default_value_inputs(model_(spec)), explicit)
+    return ModelSpec(spec; inputs=explicit, input_origins=origins)
 end
 
 """
@@ -227,7 +249,9 @@ Return a `ModelSpec` with unified scene/object manual model-call bindings.
 """
 function with_calls(model_or_spec, bindings)
     spec = as_model_spec(model_or_spec)
-    return ModelSpec(spec; calls=_normalize_application_bindings(bindings))
+    explicit = _normalize_application_bindings(bindings)
+    origins = _binding_origins(_model_default_model_calls(model_(spec)), explicit)
+    return ModelSpec(spec; calls=explicit, call_origins=origins)
 end
 
 """
@@ -469,22 +493,22 @@ Environment(config) = x -> with_environment(x, config isa EnvironmentConfig ? co
 Environment(; kwargs...) = Environment((; kwargs...))
 
 """
-    MultiScaleModel(mapped_variables)
+    PlantSimEngine.MultiScaleModel(mapped_variables)
 
 Pipe-style transform that updates multiscale mapping on a model/spec.
 """
 MultiScaleModel(mapped_variables) = x -> with_multiscale(x, mapped_variables)
 
 """
-    TimeStepModel(timestep)
+    PlantSimEngine.TimeStepModel(timestep)
 
 Pipe-style transform that sets a user-selected timestep on a model/spec.
 """
 TimeStepModel(timestep) = x -> with_timestep(x, timestep)
 
 """
-    InputBindings(bindings)
-    InputBindings(; kwargs...)
+    PlantSimEngine.InputBindings(bindings)
+    PlantSimEngine.InputBindings(; kwargs...)
 
 Pipe-style transform that sets explicit producer bindings for model inputs.
 
@@ -507,21 +531,21 @@ Each binding descriptor can be:
   - `policy` (`SchedulePolicy` instance/type, optional, default `HoldLast()`).
 
 When omitted fields cannot be inferred uniquely, runtime errors and asks for an
-explicit `InputBindings(...)`.
+explicit `PlantSimEngine.InputBindings(...)`.
 
 # Example
 ```julia
 ModelSpec(ConsumerModel()) |>
-TimeStepModel(ClockSpec(24.0, 0.0)) |>
-InputBindings(; A=(process=:assim, var=:carbon_assimilation, scale=:Leaf, policy=Integrate()))
+PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+PlantSimEngine.InputBindings(; A=(process=:assim, var=:carbon_assimilation, scale=:Leaf, policy=Integrate()))
 ```
 """
 InputBindings(bindings) = x -> with_input_bindings(x, bindings)
 InputBindings(; kwargs...) = InputBindings((; kwargs...))
 
 """
-    MeteoBindings(bindings)
-    MeteoBindings(; kwargs...)
+    PlantSimEngine.MeteoBindings(bindings)
+    PlantSimEngine.MeteoBindings(; kwargs...)
 
 Pipe-style transform that sets weather-variable aggregation rules per model.
 
@@ -544,8 +568,8 @@ Each rule value can be:
 # Example
 ```julia
 ModelSpec(DailyModel()) |>
-TimeStepModel(ClockSpec(24.0, 0.0)) |>
-MeteoBindings(
+PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+PlantSimEngine.MeteoBindings(
     ;
     T=MeanWeighted(),
     Rh=MeanWeighted(),
@@ -557,12 +581,12 @@ MeteoBindings(bindings) = x -> with_meteo_bindings(x, bindings)
 MeteoBindings(; kwargs...) = MeteoBindings((; kwargs...))
 
 """
-    MeteoWindow(window)
+    PlantSimEngine.MeteoWindow(window)
 
 Pipe-style transform that sets the weather row-selection window for one model.
 
-This controls which meteo rows are sampled before `MeteoBindings` reducers are
-applied.
+This controls which meteo rows are sampled before
+`PlantSimEngine.MeteoBindings` reducers are applied.
 
 # Arguments
 - `window`: a `PlantMeteo.AbstractSamplingWindow` instance/type.
@@ -573,8 +597,8 @@ applied.
 # Example
 ```julia
 ModelSpec(DailyModel()) |>
-TimeStepModel(ClockSpec(24.0, 0.0)) |>
-MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict))
+PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+PlantSimEngine.MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict))
 ```
 """
 MeteoWindow(window) = x -> with_meteo_window(x, window)
@@ -608,7 +632,7 @@ OutputRouting(routing) = x -> with_output_routing(x, routing)
 OutputRouting(; kwargs...) = OutputRouting((; kwargs...))
 
 """
-    ScopeModel(scope)
+    PlantSimEngine.ScopeModel(scope)
 
 Pipe-style transform that sets stream scope selection for a model.
 
@@ -624,7 +648,7 @@ multi-rate simulations.
 # Example
 ```julia
 ModelSpec(LeafSourceModel()) |>
-ScopeModel(:plant)
+PlantSimEngine.ScopeModel(:plant)
 ```
 """
 ScopeModel(scope) = x -> with_scope(x, scope)

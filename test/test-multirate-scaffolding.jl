@@ -22,7 +22,7 @@ using Test
     @test model_scope(ModelSpec(m)) == :global
     @test updates(ModelSpec(m)) == ()
     @test_throws "String scope selectors are not supported" ModelSpec(m; scope="plant")
-    @test_throws "String scope selectors are not supported" ScopeModel("plant")(m)
+    @test_throws "String scope selectors are not supported" PlantSimEngine.ScopeModel("plant")(m)
 
     scope_node = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
     @test_throws "must return `ScopeId` or `Symbol`" PlantSimEngine._scope_from_selector(
@@ -47,10 +47,10 @@ using Test
     @test occursin("input_bindings=", explain_txt)
 
     spec = ModelSpec(m) |>
-           TimeStepModel(24.0) |>
-           InputBindings(; var1=(process=:process1, var=:var3)) |>
+           TimeStep(24.0) |>
+           PlantSimEngine.InputBindings(; var1=(process=:process1, var=:var3)) |>
            OutputRouting(; var3=:stream_only) |>
-           ScopeModel(:plant) |>
+           PlantSimEngine.ScopeModel(:plant) |>
            Updates(:var3; after=:process1) |>
            Updates(:var3; after=:process2)
     @test PlantSimEngine.model_(spec) === m
@@ -64,7 +64,7 @@ using Test
     @test updates(spec)[2].variables == (:var3,)
     @test updates(spec)[2].after == (:process2,)
 
-    mspec = ModelSpec(m) |> MultiScaleModel([:var1 => (:Leaf => :var1)])
+    mspec = ModelSpec(m) |> PlantSimEngine.MultiScaleModel([:var1 => (:Leaf => :var1)])
     @test length(PlantSimEngine.get_mapped_variables(mspec)) == 1
 
     ts = TemporalState()

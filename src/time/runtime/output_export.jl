@@ -1,10 +1,18 @@
 """
-    OutputRequest(scale, var; name=var, process=nothing, policy=HoldLast(), clock=nothing)
+    OutputRequest(
+        scale,
+        var;
+        name=var,
+        process=nothing,
+        application=nothing,
+        policy=HoldLast(),
+        clock=nothing,
+    )
 
-Describe one online-exported multi-rate output series for MTG multi-rate runs.
+Describe one resampled output series for multi-rate or scene/object runs.
 
-Use this type in `run!(...; tracked_outputs=...)` to export
-resampled temporal streams while simulation is running.
+Use this type in `run!(...; tracked_outputs=...)` to retain and materialize
+resampled temporal streams.
 
 # Arguments
 - `scale::Symbol`: producer scale (for example `:Leaf` or `:Plant`).
@@ -16,6 +24,10 @@ resampled temporal streams while simulation is running.
 - `process=nothing`: producer process name (`Symbol`/`String`) or `nothing`.
   When `nothing`, runtime tries to use the unique canonical publisher for
   `(scale, var)` and errors on ambiguity.
+- `application=nothing`: scene/object application name or compiled application
+  id. Use this when the same process is applied more than once. An explicit
+  application may select a `:stream_only` publisher. Legacy `GraphSimulation`
+  output export does not support this selector.
 - `policy::SchedulePolicy=HoldLast()`: resampling policy applied at export time.
   Common values are `HoldLast()`, `Integrate(...)`, `Aggregate(...)`,
   `Interpolate(...)`.
@@ -37,11 +49,12 @@ req_daily = OutputRequest(
 )
 ```
 """
-struct OutputRequest{P<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
+struct OutputRequest{P<:Union{Nothing,Symbol},A<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
     scale::Symbol
     var::Symbol
     name::Symbol
     process::P
+    application::A
     policy::POL
     clock::C
 end
@@ -51,11 +64,13 @@ function OutputRequest(
     var::Symbol;
     name::Symbol=var,
     process=nothing,
+    application=nothing,
     policy::SchedulePolicy=HoldLast(),
     clock=nothing
 )
     proc = isnothing(process) ? nothing : Symbol(process)
-    return OutputRequest(scale, var, name, proc, policy, clock)
+    app = isnothing(application) ? nothing : Symbol(application)
+    return OutputRequest(scale, var, name, proc, app, policy, clock)
 end
 
 function _export_clock(request::OutputRequest, timeline::TimelineContext)
@@ -120,6 +135,9 @@ function prepare_output_requests!(sim::GraphSimulation, requests, timeline::Time
     rows = Dict{Symbol,ExportBuffer}()
 
     for req in reqs
+        isnothing(req.application) || error(
+            "`application=` in `OutputRequest` is only supported by scene/object simulations."
+        )
         scale = req.scale
         process = isnothing(req.process) ? _canonical_source_process(sim, scale, req.var) : req.process
         model_spec = _model_spec_for_process(sim, scale, process)

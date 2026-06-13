@@ -66,7 +66,7 @@ julia> using PlantSimEngine.Examples;
 Create a model mapping:
 
 ```jldoctest run
-julia> mapping = ModelMapping(Process1Model(1.0), Process2Model(), Process3Model(); status = (var1=1.0, var2=2.0));
+julia> mapping = PlantSimEngine.ModelMapping(Process1Model(1.0), Process2Model(), Process3Model(); status = (var1=1.0, var2=2.0));
 ```
 
 Create meteo data:

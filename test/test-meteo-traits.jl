@@ -28,7 +28,7 @@ end
 
     bound_spec =
         ModelSpec(MeteoTraitConsumerModel()) |>
-        MeteoBindings(; CO2=(source=:Ca, reducer=MeanReducer()))
+        PlantSimEngine.MeteoBindings(; CO2=(source=:Ca, reducer=MeanReducer()))
     bound_specs = Dict(:Leaf => Dict(:meteo_trait_consumer => bound_spec))
 
     @test_throws "Ca" PlantSimEngine.validate_meteo_inputs(
@@ -40,7 +40,7 @@ end
         (T=20.0, Ca=410.0, duration=Dates.Hour(1))
     ) === nothing
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         MeteoTraitConsumerModel(),
         status=(meteo_seen=0.0,),
     )

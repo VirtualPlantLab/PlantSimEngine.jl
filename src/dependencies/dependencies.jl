@@ -31,7 +31,7 @@ Note that in the 5th case, we still need to check if a variable is needed from a
 used as a child of the process at the other scale. Note there can be several levels of hard dependency graph, so this is done recursively.
 
 How do we do all that? We identify the hard dependencies first. Then we link the inputs/outputs of the hard dependencies roots 
-to other scales if needed. Then we transform all these nodes into soft dependencies, that we put into a Dict of Scale => ModelMapping(process => SoftDependencyNode).
+to other scales if needed. Then we transform all these nodes into soft dependencies, that we put into a Dict of Scale => PlantSimEngine.ModelMapping(process => SoftDependencyNode).
 Then we traverse all these and we set nodes that need outputs from other nodes as inputs as children/parents.
 If a node has no dependency, it is set as a root node and pushed into a new Dict (independant_process_root). This Dict is the returned dependency graph. And 
 it presents root nodes as independent starting points for the sub-graphs, which are the models that are coupled together. We can then traverse each of 
@@ -50,7 +50,7 @@ using PlantSimEngine
 # Including example processes and models:
 using PlantSimEngine.Examples;
 
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),

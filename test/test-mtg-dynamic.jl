@@ -10,17 +10,17 @@ meteo = Weather(
 ]
 )
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Scene => ToyDegreeDaysCumulModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => (:Scene => :TT_cu),
             ],
         ),
         Beer(0.6),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 :carbon_assimilation => [:Leaf],
@@ -28,17 +28,17 @@ mapping = ModelMapping(
                 :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyPlantRmModel(),
             mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
     :Internode => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapped_variables=[:TT => (:Scene => :TT),],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyInternodeEmergence(TT_emergence=20.0),
             mapped_variables=[:TT_cu => (:Scene => :TT_cu)],
         ),
@@ -46,11 +46,11 @@ mapping = ModelMapping(
         Status(carbon_biomass=1.0)
     ),
     :Leaf => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyAssimModel(),
             mapped_variables=[:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapped_variables=[:TT => (:Scene => :TT),],
         ),
@@ -107,48 +107,48 @@ end
 
     mapping2 = Dict(
         :Scene => (
-            ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStepModel(daily),
+            ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStep(daily),
         ),
         :Plant => (
             ModelSpec(ToyLAIModel()) |>
-            MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
-            TimeStepModel(daily),
-            ModelSpec(Beer(0.6)) |> TimeStepModel(hourly),
+            PlantSimEngine.MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
+            TimeStep(daily),
+            ModelSpec(Beer(0.6)) |> TimeStep(hourly),
             ModelSpec(ToyCAllocationModel()) |>
-            MultiScaleModel([
+            PlantSimEngine.MultiScaleModel([
                 :carbon_assimilation => [:Leaf],
                 :carbon_demand => [:Leaf, :Internode],
                 :carbon_allocation => [:Leaf, :Internode],
             ]) |>
-            InputBindings(; carbon_assimilation=(process=process(ToyAssimModel()), var=:carbon_assimilation, scale=:Leaf, policy=Integrate())) |>
-            TimeStepModel(daily),
+            PlantSimEngine.InputBindings(; carbon_assimilation=(process=process(ToyAssimModel()), var=:carbon_assimilation, scale=:Leaf, policy=Integrate())) |>
+            TimeStep(daily),
             ModelSpec(ToyPlantRmModel()) |>
-            MultiScaleModel([:Rm_organs => [:Leaf => :Rm, :Internode => :Rm]]) |>
-            TimeStepModel(daily),
+            PlantSimEngine.MultiScaleModel([:Rm_organs => [:Leaf => :Rm, :Internode => :Rm]]) |>
+            TimeStep(daily),
         ),
         :Internode => (
             ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
-            MultiScaleModel([:TT => (:Scene => :TT)]) |>
-            TimeStepModel(daily),
+            PlantSimEngine.MultiScaleModel([:TT => (:Scene => :TT)]) |>
+            TimeStep(daily),
             # Keep emergence model in the stack (as in the dynamic test), but prevent growth in this scenario.
             ModelSpec(ToyInternodeEmergence(TT_emergence=1.0e6)) |>
-            MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
-            TimeStepModel(daily),
-            ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004)) |> TimeStepModel(daily),
+            PlantSimEngine.MultiScaleModel([:TT_cu => (:Scene => :TT_cu)]) |>
+            TimeStep(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004)) |> TimeStep(daily),
             Status(carbon_biomass=1.0),
         ),
         :Leaf => (
             ModelSpec(ToyAssimModel()) |>
-            MultiScaleModel([:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)]) |>
-            TimeStepModel(hourly),
+            PlantSimEngine.MultiScaleModel([:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)]) |>
+            TimeStep(hourly),
             ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0)) |>
-            MultiScaleModel([:TT => (:Scene => :TT)]) |>
-            TimeStepModel(daily),
-            ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025)) |> TimeStepModel(daily),
+            PlantSimEngine.MultiScaleModel([:TT => (:Scene => :TT)]) |>
+            TimeStep(daily),
+            ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025)) |> TimeStep(daily),
             Status(carbon_biomass=1.0),
         ),
         :Soil => (
-            ModelSpec(ToySoilWaterModel()) |> TimeStepModel(daily),
+            ModelSpec(ToySoilWaterModel()) |> TimeStep(daily),
         ),
     )
 

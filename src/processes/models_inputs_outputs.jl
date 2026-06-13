@@ -79,6 +79,7 @@ applies_to(spec::ModelSpec) = spec.applies_to
 Unified scene/object value-input bindings declared with `Inputs(...)`.
 """
 value_inputs(spec::ModelSpec) = spec.inputs
+input_origins(spec::ModelSpec) = spec.input_origins
 
 """
     model_calls(spec::ModelSpec)
@@ -86,6 +87,7 @@ value_inputs(spec::ModelSpec) = spec.inputs
 Unified scene/object manual call bindings declared with `Calls(...)`.
 """
 model_calls(spec::ModelSpec) = spec.calls
+call_origins(spec::ModelSpec) = spec.call_origins
 
 """
     environment_config(spec::ModelSpec)
@@ -114,7 +116,7 @@ For example, consumer input `:C` can be mapped from producer output `:S`.
 # Example
 
 ```julia
-InputBindings(; C=(process=:myproducer, var=:S))
+PlantSimEngine.InputBindings(; C=(process=:myproducer, var=:S))
 ```
 """
 input_bindings(spec::ModelSpec) = spec.input_bindings

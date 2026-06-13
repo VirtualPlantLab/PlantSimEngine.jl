@@ -64,6 +64,11 @@ The engine must not prescribe a plant architecture. A plant can be described as
 `Plant -> Metamer -> Organ`, or another topology. The engine only needs object
 identity, labels, and relations.
 
+Existing `MultiScaleTreeGraph.Node` topologies enter the same registry through
+`objects_from_mtg(root; ...)` or `Scene(root; ...)`. The adapter traverses once
+and accepts accessors for ids, labels, status, and geometry; the timestep
+runtime does not query the MTG topology.
+
 ### Scale
 
 A scale is a label on objects, not a separate runtime layer. Examples:
@@ -109,6 +114,22 @@ means "the leaves inside this plant", not all leaves in the scene. The same
 query applied to an axis-scale model would mean "the leaves inside this axis".
 
 Scene-level models widen the scope explicitly with `within=SceneScope()`.
+
+Topology-relative selections use `Relation(...)`:
+
+```julia
+One(Relation(:parent))
+Many(Relation(:children))
+Many(Relation(:ancestors), Scale(:Plant))
+Many(Relation(:descendants), Scale(:Leaf))
+Many(Relation(:siblings))
+```
+
+Supported relations are `:self`, `:parent`, `:children`, `:ancestors`,
+`:descendants`, and `:siblings`. They resolve relative to the current model
+application object. An explicit `within=...` scope intersects the relation
+result; inferred default scopes do not hide parents or siblings. Relation
+results are normalized to stable object-id order before bindings are compiled.
 
 ### Object Template And Instance
 
@@ -360,6 +381,25 @@ Policy precedence should stay explicit:
 Cross-rate links must go through temporal state even when they point to objects
 that could otherwise be reference-wired.
 
+Same-timestep feedback cycles are broken explicitly on the receiving input:
+
+```julia
+ModelSpec(CarbonState()) |>
+    Inputs(
+        PreviousTimeStep(:carbon_biomass) => One(
+            scale=:Plant,
+            process=:carbon_allocation,
+            var=:carbon_biomass,
+        ),
+    )
+```
+
+`PreviousTimeStep(:x)` removes the producer-to-consumer edge from the current
+timestep graph and reads the latest source sample at or before the previous
+scene timestep. Before a source sample exists, the initialized consumer status
+value for `x` is used. This makes initialization part of the scenario contract
+instead of silently inventing a zero value.
+
 ### Model Calls
 
 Use `Calls(...)` when a model must manually run selected models, typically
@@ -378,8 +418,10 @@ ModelSpec(SceneEB()) |>
 ```
 
 Inside `run!`, the scene model receives call handles and calls
-`run_call!(call; publish=false)` during trial iterations, then
-`publish=true` for the accepted final solution.
+`run_call!(call)` during trial iterations, then
+`run_call!(call; publish=true)` for the accepted final solution. The default is
+deliberately `publish=false`: trial calls mutate target status for convergence
+checks but do not append temporal samples or write environment outputs.
 
 The important user rule is:
 
@@ -387,6 +429,19 @@ The important user rule is:
 - the parent model owns the call stack and can iterate, reject, or accept trial
   calls;
 - call outputs are published only according to the call publication contract.
+
+`explain_calls(compiled)` exposes this as
+`publication_policy=:explicit_accept`, with `default_publish=false` and
+`accepted_publish=true`.
+
+Binding and call explanations also report where each dependency declaration
+came from:
+
+- `origin=:inferred_same_object` for compiler-inferred value dependencies;
+- `origin=:model_default` for `Input(...)` or `Call(...)` declarations coming
+  from `dep(model)`;
+- `origin=:model_spec` for scenario-level `Inputs(...)` or `Calls(...)`,
+  including declarations that override a model default.
 
 ### Multiplicity
 
@@ -397,6 +452,11 @@ One(...)
 Many(...)
 OptionalOne(...)
 ```
+
+`OptionalOne(...)` resolves to zero or one dependency. With zero matches, an
+input keeps its `inputs_` default and a call returns an empty
+`call_targets(...)` collection. Explanations retain these unresolved
+optional bindings instead of hiding them.
 
 The compiler validates that `One(...)` resolves to exactly one producer per
 consumer scope. `Many(...)` returns a vector-like value or target collection.
@@ -524,6 +584,34 @@ provider. `meteo_outputs_(model)` declares what a model can write back to a
 mutable microclimate provider. Simple global meteorology remains the default
 provider.
 
+Scenario-level environment source remapping belongs on `Environment(...)`, for
+example:
+
+```julia
+ModelSpec(LeafGasExchange(); name=:gas_exchange) |>
+    AppliesTo(Many(scale=:Leaf)) |>
+    Environment(provider=:global, sources=(CO2=:Ca,))
+```
+
+Here the model still reads `meteo.CO2` because that is its declared generic
+contract, while the active environment backend samples the source variable
+`:Ca`. Environment binding refresh validates source availability when the
+backend can enumerate variables, and explanations report both
+`required_inputs` and `source_inputs`.
+
+Global tabular meteorology follows the model application's compiled
+`TimeStep(...)`. PlantMeteo samples the table with the reducer and window from
+`meteo_hint(...)` when the model runs more slowly than the weather base step.
+An `Environment(; sources=...)` override replaces only the source variable; it
+does not discard the model-author reducer. The prepared weather sampler is
+compiled once, and one sampled row is reused by every object targeted by the
+same application at that timestep.
+
+Spatial or mutable backends retain control of their own temporal semantics.
+PlantSimEngine supplies the compiled object/cell binding and current simulation
+time; a specialized microclimate backend decides whether its local state is
+instantaneous, interpolated, or internally integrated.
+
 ### Cached Environment Bindings
 
 Spatial lookup must not happen for every model call. At initialization and when
@@ -582,6 +670,13 @@ The runtime representation is an implementation detail:
 - call links use `ModelCall` or an equivalent callable runtime handle;
 - environment links use cached `EnvironmentBinding`s.
 
+The final execution plan should group contiguous targets with the same concrete
+model, status, model-bundle, input-binding, and environment-binding types.
+Dynamic dispatch may occur once at the application/batch boundary, but not for
+every leaf in a homogeneous target set. Exceptional model overrides form
+separate concrete batches while preserving stable object order. Lifecycle or
+environment refreshes rebuild these batches before the next timestep.
+
 The public explanation API must describe the normalized graph, not the internal
 carrier choice.
 
@@ -599,6 +694,8 @@ explain_calls(sim)
 explain_environment_bindings(sim)
 explain_schedule(sim)
 explain_writers(sim)
+explain_execution_plan(sim)
+explain_output_retention(sim)
 ```
 
 These helpers should return stable structured data, not only pretty text. A
@@ -616,6 +713,15 @@ binding row should include at least:
 - copy/reference semantics;
 - reason the binding was chosen;
 - whether it came from inference, `dep(model)`, or `ModelSpec`.
+
+Execution-plan rows should additionally expose the selected object ids,
+concrete model/status/carrier types, batch size, and whether the inner loop is
+homogeneous and specialized.
+
+Output-retention rows should expose the retained application id, variable,
+retention reasons, compiled retention horizon, and current target count so
+agents can distinguish default retain-all behavior, requested output streams,
+and bounded temporal-dependency streams.
 
 Errors should report concrete object labels, scope selectors, process names,
 variables, and suggested fixes.

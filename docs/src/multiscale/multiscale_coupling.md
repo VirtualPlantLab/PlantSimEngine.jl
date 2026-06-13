@@ -1,6 +1,11 @@
 
 # Handling dependencies in a multiscale context
 
+!!! warning "Legacy MTG mapping configuration"
+    This page describes compatibility mapping internals. New value coupling
+    uses `Inputs(...)`; manually controlled hard coupling uses `Calls(...)`,
+    `call_target(s)`, and `run_call!`.
+
 ```@contents
 Pages = ["multiscale_coupling.md"]
 Depth = 3
@@ -12,14 +17,14 @@ In the detailed example discussed previously [Multi-scale variable mapping](@ref
 
 ```julia
 :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,
             ],
         ),
         ...
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 :carbon_assimilation => [:Leaf],
@@ -91,10 +96,10 @@ Here's a concrete example in [XPalm](https://github.com/PalmStudio/XPalm.jl), an
 The user-mapping includes the required models at specific organ levels. Here's the relevant portion of the mapping for the male reproductive organ :
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     ...
     :Male =>
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=XPalm.InitiationAgeFromPlantAge(),
         mapped_variables=[:plant_age => :Plant,],
     ),

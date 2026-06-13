@@ -59,7 +59,7 @@ function do_benchmark_on_heavier_mtg()
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
 
     #similar to the mtg growth test but with a much lower emergence threshold
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Scene => ToyDegreeDaysCumulModel(),
         :Plant => (
             MultiScaleModel(

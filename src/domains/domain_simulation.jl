@@ -990,6 +990,18 @@ run_target!(models, status, dependency_name::AbstractString; kwargs...) =
     run_target!(models, status, Symbol(dependency_name); kwargs...)
 
 """
+    call_targets(extra, name)
+    call_target(extra, name)
+
+Return executable handles compiled from a `Calls(...)` declaration.
+`call_target` requires exactly one matching handle. Execute handles with
+[`run_call!`](@ref), optionally several times before publishing an accepted
+state.
+"""
+call_targets(args...; kwargs...) = dependency_targets(args...; kwargs...)
+call_target(args...; kwargs...) = dependency_target(args...; kwargs...)
+
+"""
     run_call!(target; kwargs...)
     run_call!(models, status, dependency_name; kwargs...)
 

@@ -170,7 +170,7 @@ function _run_scene_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, 
     local_meteo = _scene_leaf_meteo(meteo, tair_canopy, vpd_canopy)
     for target in leaf_targets
         _prepare_scene_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
-        run_call!(target; meteo=local_meteo, publish=publish) # Publish is false because we iterate here and only want to publish the final solution at the end
+        run_call!(target; meteo=local_meteo, publish=publish)
         leaf_area = target.status.leaf_area
         total_rn += target.status.Rn * leaf_area
         total_lambda_e += target.status.λE * leaf_area
@@ -311,8 +311,8 @@ function _run_scene_soil_feedback!(soil_target, transpiration_mm)
 end
 
 function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
-    leaf_targets = dependency_targets(extra, :energy_balance)
-    soil_target = only(dependency_targets(extra, :soil))
+    leaf_targets = call_targets(extra, :energy_balance)
+    soil_target = call_target(extra, :soil)
     solution = _solve_scene_energy_balance!(m, leaf_targets, soil_target, status, meteo, constants)
     fluxes = _publish_scene_leaf_solution!(leaf_targets, solution, meteo, m.ground_area)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
@@ -390,44 +390,44 @@ has_species(node, species) =
 
 function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
     leaf_a = (
-        ModelSpec(Monteith(; ε=0.955, maxiter=20, ΔT=0.02)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(Fvcb(; VcMaxRef=72.0, JMaxRef=135.0, RdRef=1.1)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(Tuzet(; g0=0.015, g1=4.8, Ψᵥ=-1.4, sf=3.2, Γ=42.0)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(LeafState()) |> TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Monteith(; ε=0.955, maxiter=20, ΔT=0.02)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Fvcb(; VcMaxRef=72.0, JMaxRef=135.0, RdRef=1.1)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Tuzet(; g0=0.015, g1=4.8, Ψᵥ=-1.4, sf=3.2, Γ=42.0)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(LeafState()) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
         Status(Ra_SW_f=0.0, sky_fraction=1.0, d=0.035, aPPFD=0.0, Ψₗ=-0.1, leaf_area=0.018, leaf_carbon=0.0),
     )
     leaf_b = (
-        ModelSpec(Monteith(; ε=0.955, maxiter=20, ΔT=0.02)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(Fvcb(; VcMaxRef=58.0, JMaxRef=110.0, RdRef=1.3)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(Tuzet(; g0=0.012, g1=3.5, Ψᵥ=-1.1, sf=3.8, Γ=42.0)) |> TimeStepModel(Dates.Hour(1)),
-        ModelSpec(LeafState()) |> TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Monteith(; ε=0.955, maxiter=20, ΔT=0.02)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Fvcb(; VcMaxRef=58.0, JMaxRef=110.0, RdRef=1.3)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(Tuzet(; g0=0.012, g1=3.5, Ψᵥ=-1.1, sf=3.8, Γ=42.0)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
+        ModelSpec(LeafState()) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
         Status(Ra_SW_f=0.0, sky_fraction=0.8, d=0.028, aPPFD=0.0, Ψₗ=-0.1, leaf_area=0.014, leaf_carbon=0.0),
     )
 
-    plant_a = ModelMapping(
+    plant_a = PlantSimEngine.ModelMapping(
         :Plant => (
             ModelSpec(AllocA(0.35, 0.55)) |>
-            MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]]) |>
-            TimeStepModel(ClockSpec(24.0, 0.0)),
+            PlantSimEngine.MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]]) |>
+            PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)),
             Status(leaf_pool=0.0, wood_pool=0.0),
         ),
         :Leaf => leaf_a,
     )
-    plant_b = ModelMapping(
+    plant_b = PlantSimEngine.ModelMapping(
         :Plant => (
             ModelSpec(AllocB(0.55, 0.35)) |>
-            MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]]) |>
-            TimeStepModel(ClockSpec(24.0, 0.0)),
+            PlantSimEngine.MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]]) |>
+            PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)),
             Status(leaf_pool=0.0, wood_pool=0.0),
         ),
         :Leaf => leaf_b,
     )
-    soil = ModelMapping(
-        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStepModel(Dates.Hour(1)),
+    soil = PlantSimEngine.ModelMapping(
+        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> PlantSimEngine.TimeStepModel(Dates.Hour(1)),
         status=(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0),
     )
     ground_area = scene_model.ground_area
-    scene = ModelMapping(
+    scene = PlantSimEngine.ModelMapping(
         ModelSpec(LAIModel(ground_area)) |>
         Inputs(:leaf_areas => Many(kind=:plant, scale=:Leaf, process=:leaf_state, var=:leaf_area)) |>
         TimeStep(Dates.Day(1)),
@@ -451,11 +451,171 @@ function maespa_mapping(; scene_model=SceneEB(25, 0.03, 0.005))
             iterations=0,
         ),
     )
-    return SimulationMapping(
-        Domain(:plant_A, plant_a; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :A)),
-        Domain(:plant_B, plant_b; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :B)),
-        Domain(:soil, soil; kind=:soil),
-        Domain(:scene, scene; kind=:scene),
+    return PlantSimEngine.SimulationMapping(
+        PlantSimEngine.Domain(:plant_A, plant_a; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :A)),
+        PlantSimEngine.Domain(:plant_B, plant_b; kind=:plant, selector=node -> MultiScaleTreeGraph.symbol(node) == :Plant && has_species(node, :B)),
+        PlantSimEngine.Domain(:soil, soil; kind=:soil),
+        PlantSimEngine.Domain(:scene, scene; kind=:scene),
+    )
+end
+
+function _maespa_leaf_status(; leaf_area, sky_fraction, d)
+    return Status(
+        Ra_SW_f=0.0,
+        sky_fraction=sky_fraction,
+        d=d,
+        aPPFD=0.0,
+        Ψₗ=-0.1,
+        leaf_area=leaf_area,
+        leaf_carbon=0.0,
+        Tₗ=20.0,
+        Rn=0.0,
+        Ra_LW_f=0.0,
+        H=0.0,
+        λE=0.0,
+        Cₛ=400.0,
+        Cᵢ=300.0,
+        A=0.0,
+        Gₛ=0.0,
+        Gbₕ=0.0,
+        Dₗ=0.0,
+        Gbc=0.0,
+        iter=0,
+    )
+end
+
+_maespa_plant_status() = Status(leaf_carbon=[0.0], daily_growth=0.0, leaf_pool=0.0, wood_pool=0.0)
+
+function _maespa_scene_status()
+    return Status(
+        leaf_areas=[0.0],
+        leaf_area=0.0,
+        lai=0.0,
+        canopy_tair=20.0,
+        canopy_vpd=1.0,
+        canopy_rh=0.7,
+        canopy_htot=0.0,
+        canopy_gcanop=0.0,
+        scene_transpiration=0.0,
+        scene_assimilation=0.0,
+        psi_soil=-0.1,
+        iterations=0,
+    )
+end
+
+function _maespa_soil_status()
+    return Status(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0)
+end
+
+function _maespa_species_template(species; monteith, fvcb, tuzet, allocation)
+    return ObjectTemplate(
+        (
+            ModelSpec(monteith; name=:energy_balance) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            Calls(:photosynthesis => One(scale=:Leaf, process=:photosynthesis)) |>
+            TimeStep(Dates.Hour(1)),
+            ModelSpec(fvcb; name=:photosynthesis) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            Calls(:stomatal_conductance => One(scale=:Leaf, process=:stomatal_conductance)) |>
+            TimeStep(Dates.Hour(1)),
+            ModelSpec(tuzet; name=:stomatal_conductance) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            TimeStep(Dates.Hour(1)),
+            ModelSpec(LeafState(); name=:leaf_state) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            TimeStep(Dates.Hour(1)),
+            ModelSpec(allocation; name=:allocation) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon)) |>
+            TimeStep(Dates.Day(1)),
+        );
+        kind=:plant,
+        species=species,
+    )
+end
+
+function _maespa_plant_instance(name, template; nleaves, leaf_area, sky_fraction, d)
+    plant_id = Symbol(name)
+    axis_id = Symbol(name, "_axis")
+    leaves = ntuple(nleaves) do index
+        Object(
+            Symbol(name, "_leaf_", index);
+            scale=:Leaf,
+            parent=axis_id,
+            status=_maespa_leaf_status(; leaf_area=leaf_area, sky_fraction=sky_fraction, d=d),
+        )
+    end
+    return ObjectInstance(
+        name,
+        template;
+        root=Object(plant_id; scale=:Plant, parent=:scene, status=_maespa_plant_status()),
+        objects=(
+            Object(axis_id; scale=:Internode, parent=plant_id),
+            leaves...,
+        ),
+    )
+end
+
+function build_maespa_unified_scene(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa_meteo())
+    template_a = _maespa_species_template(
+        :A;
+        monteith=Monteith(; ε=0.955, maxiter=20, ΔT=0.02),
+        fvcb=Fvcb(; VcMaxRef=72.0, JMaxRef=135.0, RdRef=1.1),
+        tuzet=Tuzet(; g0=0.015, g1=4.8, Ψᵥ=-1.4, sf=3.2, Γ=42.0),
+        allocation=AllocA(0.35, 0.55),
+    )
+    template_b = _maespa_species_template(
+        :B;
+        monteith=Monteith(; ε=0.955, maxiter=20, ΔT=0.02),
+        fvcb=Fvcb(; VcMaxRef=58.0, JMaxRef=110.0, RdRef=1.3),
+        tuzet=Tuzet(; g0=0.012, g1=3.5, Ψᵥ=-1.1, sf=3.8, Γ=42.0),
+        allocation=AllocB(0.55, 0.35),
+    )
+    ground_area = scene_model.ground_area
+    return Scene(
+        Object(:scene; scale=:Scene, kind=:scene, status=_maespa_scene_status()),
+        Object(:soil; scale=:Soil, kind=:soil, parent=:scene, status=_maespa_soil_status()),
+        _maespa_plant_instance(
+            :plant_A,
+            template_a;
+            nleaves=2,
+            leaf_area=0.018,
+            sky_fraction=1.0,
+            d=0.035,
+        ),
+        _maespa_plant_instance(
+            :plant_B,
+            template_b;
+            nleaves=3,
+            leaf_area=0.014,
+            sky_fraction=0.8,
+            d=0.028,
+        );
+        applications=(
+            ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Inputs(
+                :leaf_areas => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    process=:leaf_state,
+                    var=:leaf_area,
+                ),
+            ) |>
+            TimeStep(Dates.Day(1)),
+            ModelSpec(scene_model; name=:scene_eb) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Calls(
+                :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+                :soil => One(kind=:soil, scale=:Soil, process=:soil_water),
+            ) |>
+            TimeStep(Dates.Hour(1)),
+            ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water) |>
+            AppliesTo(One(kind=:soil, scale=:Soil)) |>
+            TimeStep(Dates.Hour(1)),
+        ),
+        environment=meteo,
     )
 end
 
@@ -478,6 +638,19 @@ function run_maespa_example(; nhours=24, check=true)
     mapping = maespa_mapping()
     sim = run!(mtg, mapping, maespa_meteo(; nhours=nhours), check=check, executor=SequentialEx())
     return (mtg=mtg, mapping=mapping, simulation=sim)
+end
+
+function run_maespa_scene_example(; nhours=24, check=true)
+    scene = build_maespa_unified_scene(; meteo=maespa_meteo(; nhours=nhours))
+    compiled = compile_scene(scene)
+    check && refresh_environment_bindings!(scene, compiled)
+    simulation = run!(scene; steps=nhours, constants=PlantMeteo.Constants())
+    return (
+        scene=scene,
+        compiled=simulation.compiled,
+        environment=simulation.environment_bindings,
+        simulation=simulation,
+    )
 end
 
 if abspath(PROGRAM_FILE) == @__FILE__

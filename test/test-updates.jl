@@ -40,13 +40,13 @@ end
 @testset "ModelSpec Updates" begin
     meteo = Atmosphere(T=20.0, Rh=0.65, Wind=1.0, duration=Dates.Hour(1))
 
-    @test_throws "Ambiguous canonical writers" ModelMapping(
+    @test_throws "Ambiguous canonical writers" PlantSimEngine.ModelMapping(
         UpdateCarbonAllocationModel(),
         UpdateLeafPruningModel(),
         status=(leaf_biomass=1.0,),
     )
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         UpdateCarbonAllocationModel(),
         ModelSpec(UpdateLeafPruningModel()) |>
         Updates(:leaf_biomass; after=:update_carbon_allocation),
@@ -62,7 +62,7 @@ end
     pruning_node = only(filter(node -> node.process == :update_leaf_pruning, graph_nodes))
     @test any(parent -> parent.process == :update_carbon_allocation, pruning_node.parent)
 
-    @test_throws "without an ordering relation" ModelMapping(
+    @test_throws "without an ordering relation" PlantSimEngine.ModelMapping(
         UpdateCarbonAllocationModel(),
         ModelSpec(UpdateLeafPruningModel()) |>
         Updates(:leaf_biomass; after=:update_carbon_allocation),
@@ -71,7 +71,7 @@ end
         status=(leaf_biomass=1.0,),
     )
 
-    ordered_updates = ModelMapping(
+    ordered_updates = PlantSimEngine.ModelMapping(
         UpdateCarbonAllocationModel(),
         ModelSpec(UpdateLeafSenescenceModel()) |>
         Updates(:leaf_biomass; after=:update_carbon_allocation),

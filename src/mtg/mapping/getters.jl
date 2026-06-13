@@ -24,7 +24,7 @@ julia> using PlantSimEngine.Examples;
 If we just give a MultiScaleModel, we get its model as a one-element vector:
 
 ```jldoctest mylabel
-julia> models = MultiScaleModel( \
+julia> models = PlantSimEngine.MultiScaleModel( \
             model=ToyCAllocationModel(), \
             mapped_variables=[ \
                 :carbon_assimilation => [:Leaf], \
@@ -44,7 +44,7 @@ If we give a tuple of models, we get each model in a vector:
 
 ```jldoctest mylabel
 julia> models2 = (  \
-        MultiScaleModel( \
+        PlantSimEngine.MultiScaleModel( \
             model=ToyAssimModel(), \
             mapped_variables=[:soil_water_content => :Soil,], \
         ), \

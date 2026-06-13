@@ -1,6 +1,6 @@
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 # inputs
@@ -10,7 +10,7 @@ mapping = ModelMapping(
                 :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyPlantRmModel(),
             mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
@@ -21,7 +21,7 @@ mapping = ModelMapping(
         Status(TT=10.0)
     ),
     :Leaf => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyAssimModel(),
             mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
             # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -75,12 +75,12 @@ end
     @test Set(keys(mapping_from_pairs)) == Set(keys(mapping))
 
     mapping_with_specs = PlantSimEngine.ModelMapping(
-        :Scene => (ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStepModel(ClockSpec(24.0, 1.0)),),
-        :Soil => (ModelSpec(ToySoilWaterModel()) |> TimeStepModel(ClockSpec(24.0, 1.0)),),
+        :Scene => (ModelSpec(ToyDegreeDaysCumulModel()) |> TimeStep(ClockSpec(24.0, 1.0)),),
+        :Soil => (ModelSpec(ToySoilWaterModel()) |> TimeStep(ClockSpec(24.0, 1.0)),),
         :Leaf => (
             ModelSpec(ToyAssimModel()) |>
-            MultiScaleModel([:soil_water_content => (:Soil => :soil_water_content)]) |>
-            TimeStepModel(1.0),
+            PlantSimEngine.MultiScaleModel([:soil_water_content => (:Soil => :soil_water_content)]) |>
+            TimeStep(1.0),
         ),
     )
     @test mapping_with_specs isa PlantSimEngine.ModelMapping
@@ -108,7 +108,7 @@ end
     @test outputs(mapping_struct) == outputs(Dict(mapping_struct))
     @test variables(mapping_struct) == variables(Dict(mapping_struct))
 
-    ModelMapping_scale = ModelMapping(
+    ModelMapping_scale = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=1.0, var2=2.0)
@@ -149,7 +149,7 @@ end
 
     missing_scale_mapping = Dict(
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content)],
             ),
@@ -159,7 +159,7 @@ end
 
     missing_source_variable_mapping = Dict(
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content)],
             ),
@@ -184,7 +184,7 @@ end
     @test_throws "duplicate process(es)" PlantSimEngine.ModelMapping(duplicate_process_mapping)
 
     meteo = Atmosphere(T=20.0, Wind=1.0, Rh=0.65)
-    models_single_scale = ModelMapping(
+    models_single_scale = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -244,7 +244,7 @@ end
 
 @testset "check_statuses_contain_no_remaining_vectors behaviour" begin
     meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
-    mapping_with_vector = ModelMapping(
+    mapping_with_vector = PlantSimEngine.ModelMapping(
         :Scale =>
             (ToyAssimGrowthModel(0.0, 0.0, 0.0),
                 ToyCAllocationModel(),
@@ -256,7 +256,7 @@ end
     @test !last(PlantSimEngine.check_statuses_contain_no_remaining_vectors(mapping_with_vector))
     @test_throws "call the function generate_models_from_status_vectors" PlantSimEngine.GraphSimulation(mtg, mapping_with_vector)
 
-    mapping_with_empty_status = ModelMapping(
+    mapping_with_empty_status = PlantSimEngine.ModelMapping(
         :Scale =>
             (ToyAssimGrowthModel(0.0, 0.0, 0.0),
                 ToyCAllocationModel(),
@@ -273,8 +273,8 @@ end
     TT_cu_vec = Vector(cumsum(meteo_day.TT))
     nsteps = length(meteo_day.TT)
 
-    mapping_with_vector = ModelMapping(:Plant => (
-            MultiScaleModel(
+    mapping_with_vector = PlantSimEngine.ModelMapping(:Plant => (
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -284,7 +284,7 @@ end
                     :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyPlantRmModel(),
                 mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
@@ -295,7 +295,7 @@ end
             Status(TT=TT_v, carbon_biomass=1.0)
         ),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -331,8 +331,8 @@ end
     for i in nsteps
         carbon_biomass_vec[i] = 2.0
     end
-    mapping_with_two_vectors = ModelMapping(:Plant => (
-            MultiScaleModel(
+    mapping_with_two_vectors = PlantSimEngine.ModelMapping(:Plant => (
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -342,7 +342,7 @@ end
                     :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyPlantRmModel(),
                 mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
@@ -353,7 +353,7 @@ end
             Status(TT=TT_v, carbon_biomass=1.0)
         ),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
             ),

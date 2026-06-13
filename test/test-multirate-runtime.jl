@@ -281,7 +281,7 @@ PlantSimEngine.dep(::MRHardParentModel) = (mrhardchild=AbstractMrhardchildModel,
 PlantSimEngine.inputs_(::MRHardParentModel) = NamedTuple()
 PlantSimEngine.outputs_(::MRHardParentModel) = (A=-Inf,)
 function PlantSimEngine.run!(::MRHardParentModel, models, status, meteo, constants=nothing, extra=nothing)
-    run_target!(models, status, :mrhardchild; meteo=meteo, constants=constants, extra=extra)
+    PlantSimEngine.run_target!(models, status, :mrhardchild; meteo=meteo, constants=constants, extra=extra)
     status.A = 5.0
 end
 
@@ -387,14 +387,14 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
     Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
-    mapping_ok = ModelMapping(
+    mapping_ok = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRSourceModel(),
             ModelSpec(MROverwriteModel()) |> OutputRouting(; C=:stream_only),
             ModelSpec(MRConsumerModel()) |>
-            InputBindings(; C=(process=:mrsource, var=:S)),
+            PlantSimEngine.InputBindings(; C=(process=:mrsource, var=:S)),
             ModelSpec(MRDirectConsumerModel()) |>
-            InputBindings(; S=(process=:mrsource, var=:S)),
+            PlantSimEngine.InputBindings(; S=(process=:mrsource, var=:S)),
             MRAutoSameNameModel(),
         ),
     )
@@ -435,12 +435,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_ok.temporal_state.caches[key_dir].v == 10.0
     @test sim_ok.temporal_state.caches[key_auto].v == 10.0
 
-    mapping_renamed_auto = ModelMapping(
+    mapping_renamed_auto = PlantSimEngine.ModelMapping(
         :Leaf => MRSourceModel(),
         :Plant => (
             ModelSpec(MRConsumerModel()) |>
-            MultiScaleModel([:C => (:Leaf => :S)]) |>
-            TimeStepModel(ClockSpec(1.0, 0.0)),
+            PlantSimEngine.MultiScaleModel([:C => (:Leaf => :S)]) |>
+            TimeStep(ClockSpec(1.0, 0.0)),
         ),
     )
     sim_renamed_auto = PlantSimEngine.GraphSimulation(mtg, mapping_renamed_auto, nsteps=1, check=true)
@@ -450,10 +450,10 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     ))
     @test PlantSimEngine._candidate_producers(consumer_node, :C) == [(:mrsource, :S)]
 
-    mapping_conflict = ModelMapping(
+    mapping_conflict = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRConflict1Model()) |> TimeStepModel(1.0),
-            ModelSpec(MRConflict2Model()) |> TimeStepModel(1.0),
+            ModelSpec(MRConflict1Model()) |> TimeStep(1.0),
+            ModelSpec(MRConflict2Model()) |> TimeStep(1.0),
         ),
     )
     # Expectation 5: two canonical writers of the same output are rejected at graph construction.
@@ -467,11 +467,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 6: models run at different clocks; slower model holds last value between runs.
     source_counter = Ref(0)
-    mapping_clock_trait = ModelMapping(
+    mapping_clock_trait = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRClockSourceModel(source_counter)) |> TimeStepModel(1.0),
+            ModelSpec(MRClockSourceModel(source_counter)) |> TimeStep(1.0),
             ModelSpec(MRClockConsumerModel()) |>
-            InputBindings(; X=(process=:mrclocksource, var=:X)),
+            PlantSimEngine.InputBindings(; X=(process=:mrclocksource, var=:X)),
         ),
     )
     sim_clock_trait = PlantSimEngine.GraphSimulation(mtg, mapping_clock_trait, nsteps=4, check=true, outputs=Dict(:Leaf => (:X, :Y)))
@@ -495,14 +495,14 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_clock_trait.temporal_state.last_run[ModelKey(scope, :Leaf, :mrclocksource)] == 4.0
     @test sim_clock_trait.temporal_state.last_run[ModelKey(scope, :Leaf, :mrclockconsumer)] == 3.0
 
-    # Expectation 7: TimeStepModel override takes precedence over model timespec.
+    # Expectation 7: TimeStep override takes precedence over model timespec.
     source_counter_2 = Ref(0)
-    mapping_clock_override = ModelMapping(
+    mapping_clock_override = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRClockSourceModel(source_counter_2)) |> TimeStepModel(1.0),
+            ModelSpec(MRClockSourceModel(source_counter_2)) |> TimeStep(1.0),
             ModelSpec(MRClockConsumerModel()) |>
-            TimeStepModel(3.0) |>
-            InputBindings(; X=(process=:mrclocksource, var=:X)),
+            TimeStep(3.0) |>
+            PlantSimEngine.InputBindings(; X=(process=:mrclocksource, var=:X)),
         ),
     )
     sim_clock_override = PlantSimEngine.GraphSimulation(mtg, mapping_clock_override, nsteps=4, check=true, outputs=Dict(:Leaf => (:X, :Y)))
@@ -514,22 +514,22 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_clock_override.temporal_state.last_run[ModelKey(scope, :Leaf, :mrclockconsumer)] == 3.0
 
     # Expectation 7b: non-sequential executors warn and fall back to sequential behavior.
-    mapping_clock_fallback_seq = ModelMapping(
+    mapping_clock_fallback_seq = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
+            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStep(1.0),
             ModelSpec(MRClockConsumerModel()) |>
-            InputBindings(; X=(process=:mrclocksource, var=:X)),
+            PlantSimEngine.InputBindings(; X=(process=:mrclocksource, var=:X)),
         ),
     )
     sim_clock_fallback_seq = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_seq, nsteps=4, check=true, outputs=Dict(:Leaf => (:X, :Y)))
     out_fallback_seq = run!(sim_clock_fallback_seq, meteo4, executor=SequentialEx())
     out_fallback_seq_df = convert_outputs(out_fallback_seq, DataFrame)
 
-    mapping_clock_fallback_threaded = ModelMapping(
+    mapping_clock_fallback_threaded = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStepModel(1.0),
+            ModelSpec(MRClockSourceModel(Ref(0))) |> TimeStep(1.0),
             ModelSpec(MRClockConsumerModel()) |>
-            InputBindings(; X=(process=:mrclocksource, var=:X)),
+            PlantSimEngine.InputBindings(; X=(process=:mrclocksource, var=:X)),
         ),
     )
     sim_clock_fallback_threaded = PlantSimEngine.GraphSimulation(mtg, mapping_clock_fallback_threaded, nsteps=4, check=true, outputs=Dict(:Leaf => (:X, :Y)))
@@ -543,15 +543,15 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Expectation 8: cross-scale hold-last resolution works with different clocks.
     # Leaf producer runs each step; Plant consumer runs every 2 steps (1, 3) and reads Leaf XS through multiscale mapping.
     source_counter_3 = Ref(0)
-    mapping_cross = ModelMapping(
+    mapping_cross = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRCrossSourceModel(source_counter_3)) |> TimeStepModel(1.0),
+            ModelSpec(MRCrossSourceModel(source_counter_3)) |> TimeStep(1.0),
         ),
         :Plant => (
             ModelSpec(MRCrossConsumerModel()) |>
-            MultiScaleModel([:XS => [:Leaf]]) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XS=(process=:mrcrosssource, var=:XS, scale=:Leaf)),
+            PlantSimEngine.MultiScaleModel([:XS => [:Leaf]]) |>
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XS=(process=:mrcrosssource, var=:XS, scale=:Leaf)),
         ),
     )
     sim_cross = PlantSimEngine.GraphSimulation(mtg, mapping_cross, nsteps=4, check=true, outputs=Dict(:Leaf => (:XS,), :Plant => (:XP,)))
@@ -563,14 +563,14 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 8a: cross-scale producer is inferred automatically when unique.
     source_counter_3_auto = Ref(0)
-    mapping_cross_auto = ModelMapping(
+    mapping_cross_auto = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRCrossSourceModel(source_counter_3_auto)) |> TimeStepModel(1.0),
+            ModelSpec(MRCrossSourceModel(source_counter_3_auto)) |> TimeStep(1.0),
         ),
         :Plant => (
             ModelSpec(MRCrossConsumerModel()) |>
-            MultiScaleModel([:XS => [:Leaf]]) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)),
+            PlantSimEngine.MultiScaleModel([:XS => [:Leaf]]) |>
+            TimeStep(ClockSpec(2.0, 1.0)),
         ),
     )
     sim_cross_auto = PlantSimEngine.GraphSimulation(mtg, mapping_cross_auto, nsteps=4, check=true, outputs=Dict(:Leaf => (:XS,), :Plant => (:XP,)))
@@ -591,16 +591,16 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     Node(internode2_b, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
 
     source_counter_scoped = Ref(0)
-    mapping_scoped = ModelMapping(
+    mapping_scoped = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRCrossSourceModel(source_counter_scoped)) |> TimeStepModel(1.0) |> ScopeModel(:plant),
+            ModelSpec(MRCrossSourceModel(source_counter_scoped)) |> TimeStep(1.0) |> PlantSimEngine.ScopeModel(:plant),
         ),
         :Plant => (
             ModelSpec(MRCrossConsumerModel()) |>
-            MultiScaleModel([:XS => [:Leaf]]) |>
-            TimeStepModel(1.0) |>
-            ScopeModel(:plant) |>
-            InputBindings(; XS=(process=:mrcrosssource, var=:XS, scale=:Leaf)),
+            PlantSimEngine.MultiScaleModel([:XS => [:Leaf]]) |>
+            TimeStep(1.0) |>
+            PlantSimEngine.ScopeModel(:plant) |>
+            PlantSimEngine.InputBindings(; XS=(process=:mrcrosssource, var=:XS, scale=:Leaf)),
         ),
     )
     sim_scoped = PlantSimEngine.GraphSimulation(scene2, mapping_scoped, nsteps=1, check=true, outputs=Dict(:Plant => (:XP,), :Leaf => (:XS,)))
@@ -629,12 +629,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Consumer runs every step and receives XI through Interpolate:
     # expected YI over time is [1, 1, 3, 4, 5].
     interp_counter = Ref(0)
-    mapping_interp = ModelMapping(
+    mapping_interp = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRInterpSourceModel(interp_counter)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRInterpSourceModel(interp_counter)) |> TimeStep(ClockSpec(2.0, 1.0)),
             ModelSpec(MRInterpConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate())),
+            TimeStep(1.0) |>
+            PlantSimEngine.InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate())),
         ),
     )
     meteo5 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 5))
@@ -650,12 +650,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # - at t=3: window [2,3] => mean([2,3]) = 2.5
     # Output YA over time is therefore [1, 1, 2.5, 2.5].
     agg_counter = Ref(0)
-    mapping_agg = ModelMapping(
+    mapping_agg = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRAggSourceModel(agg_counter)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggSourceModel(agg_counter)) |> TimeStep(1.0),
             ModelSpec(MRAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate())),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate())),
         ),
     )
     sim_agg = PlantSimEngine.GraphSimulation(mtg, mapping_agg, nsteps=4, check=true, outputs=Dict(:Leaf => (:YA,)))
@@ -673,12 +673,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Using hourly meteo rows, RadiationEnergy integrates XA values as value * 3600 s.
     meteo4_hourly = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 4))
     agg_counter_duration = Ref(0)
-    mapping_agg_duration = ModelMapping(
+    mapping_agg_duration = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRAggSourceModel(agg_counter_duration)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggSourceModel(agg_counter_duration)) |> TimeStep(1.0),
             ModelSpec(MRAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(RadiationEnergy()))),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(RadiationEnergy()))),
         ),
     )
     sim_agg_duration = PlantSimEngine.GraphSimulation(mtg, mapping_agg_duration, nsteps=4, check=true, outputs=Dict(:Leaf => (:YA,)))
@@ -688,12 +688,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 10aa: custom two-argument reducers can use durations directly.
     agg_counter_duration_callable = Ref(0)
-    mapping_agg_duration_callable = ModelMapping(
+    mapping_agg_duration_callable = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRAggSourceModel(agg_counter_duration_callable)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggSourceModel(agg_counter_duration_callable)) |> TimeStep(1.0),
             ModelSpec(MRAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate((vals, durations) -> sum(vals .* durations)))),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate((vals, durations) -> sum(vals .* durations)))),
         ),
     )
     sim_agg_duration_callable = PlantSimEngine.GraphSimulation(
@@ -711,10 +711,10 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source XT=[1,2,3,4], consumer runs at t=1,3 and has no explicit InputBindings.
     # output_policy(XT=Aggregate()) drives YT to [1,1,2.5,2.5].
     trait_counter = Ref(0)
-    mapping_trait_default = ModelMapping(
+    mapping_trait_default = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRTraitAggSourceModel(trait_counter)) |> TimeStepModel(1.0),
-            ModelSpec(MRTraitAggConsumerModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRTraitAggSourceModel(trait_counter)) |> TimeStep(1.0),
+            ModelSpec(MRTraitAggConsumerModel()) |> TimeStep(ClockSpec(2.0, 1.0)),
         ),
     )
     sim_trait_default = PlantSimEngine.GraphSimulation(mtg, mapping_trait_default, nsteps=4, check=true, outputs=Dict(:Leaf => (:YT,)))
@@ -727,10 +727,10 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Here source policy declares V1 and V2 as Aggregate, but only V1 is consumed.
     # Runtime must allocate/integrate only V1 (no stream/horizon for V2).
     dual_trait_counter = Ref(0)
-    mapping_trait_partial_use = ModelMapping(
+    mapping_trait_partial_use = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter)) |> TimeStepModel(1.0),
-            ModelSpec(MRUsesV1ConsumerModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter)) |> TimeStep(1.0),
+            ModelSpec(MRUsesV1ConsumerModel()) |> TimeStep(ClockSpec(2.0, 1.0)),
         ),
     )
     sim_trait_partial_use = PlantSimEngine.GraphSimulation(mtg, mapping_trait_partial_use, nsteps=4, check=true, outputs=Dict(:Leaf => (:YV1,)))
@@ -751,12 +751,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Trait provides Aggregate for V1 and V2.
     # User overrides V1 to Integrate and adds V1_max as Aggregate(MaxReducer()).
     dual_trait_counter_priority = Ref(0)
-    mapping_trait_user_priority = ModelMapping(
+    mapping_trait_user_priority = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter_priority)) |> TimeStepModel(1.0),
+            ModelSpec(MRTraitDualAggSourceModel(dual_trait_counter_priority)) |> TimeStep(1.0),
             ModelSpec(MRDualPolicyConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(
                 ;
                 V1=(process=:mrtraitdualaggsource, var=:V1, policy=Integrate()),
                 V1_max=(process=:mrtraitdualaggsource, var=:V1, policy=Aggregate(MaxReducer())),
@@ -784,12 +784,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 10c: explicit InputBindings policy overrides producer output_policy.
     trait_counter_override = Ref(0)
-    mapping_trait_override = ModelMapping(
+    mapping_trait_override = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRTraitAggSourceModel(trait_counter_override)) |> TimeStepModel(1.0),
+            ModelSpec(MRTraitAggSourceModel(trait_counter_override)) |> TimeStep(1.0),
             ModelSpec(MRTraitAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XT=(process=:mrtraitaggsource, var=:XT, policy=Integrate())),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XT=(process=:mrtraitaggsource, var=:XT, policy=Integrate())),
         ),
     )
     sim_trait_override = PlantSimEngine.GraphSimulation(mtg, mapping_trait_override, nsteps=4, check=true, outputs=Dict(:Leaf => (:YT,)))
@@ -801,12 +801,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=MaxReducer().
     # YA over time is [1,1,3,3].
     agg_counter_max = Ref(0)
-    mapping_agg_max = ModelMapping(
+    mapping_agg_max = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRAggSourceModel(agg_counter_max)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggSourceModel(agg_counter_max)) |> TimeStep(1.0),
             ModelSpec(MRAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate(MaxReducer()))),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Aggregate(MaxReducer()))),
         ),
     )
     sim_agg_max = PlantSimEngine.GraphSimulation(mtg, mapping_agg_max, nsteps=4, check=true, outputs=Dict(:Leaf => (:YA,)))
@@ -818,12 +818,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source XA=[1,2,3,4], consumer runs at t=1,3 with reducer=max-min.
     # YA over time is [0,0,1,1].
     agg_counter_callable = Ref(0)
-    mapping_integrate_callable = ModelMapping(
+    mapping_integrate_callable = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRAggSourceModel(agg_counter_callable)) |> TimeStepModel(1.0),
+            ModelSpec(MRAggSourceModel(agg_counter_callable)) |> TimeStep(1.0),
             ModelSpec(MRAggConsumerModel()) |>
-            TimeStepModel(ClockSpec(2.0, 1.0)) |>
-            InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(vals -> maximum(vals) - minimum(vals)))),
+            TimeStep(ClockSpec(2.0, 1.0)) |>
+            PlantSimEngine.InputBindings(; XA=(process=:mraggsource, var=:XA, policy=Integrate(vals -> maximum(vals) - minimum(vals)))),
         ),
     )
     sim_integrate_callable = PlantSimEngine.GraphSimulation(mtg, mapping_integrate_callable, nsteps=4, check=true, outputs=Dict(:Leaf => (:YA,)))
@@ -835,12 +835,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source runs at t=1,3,5 with values 1,3,5. Consumer runs each step.
     # With Interpolate(mode=:hold, extrapolation=:hold), YI is [1,1,3,3,5,5].
     interp_counter_hold = Ref(0)
-    mapping_interp_hold = ModelMapping(
+    mapping_interp_hold = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRInterpSourceModel(interp_counter_hold)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRInterpSourceModel(interp_counter_hold)) |> TimeStep(ClockSpec(2.0, 1.0)),
             ModelSpec(MRInterpConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate(; mode=:hold, extrapolation=:hold))),
+            TimeStep(1.0) |>
+            PlantSimEngine.InputBindings(; XI=(process=:mrinterpsource, var=:XI, policy=Interpolate(; mode=:hold, extrapolation=:hold))),
         ),
     )
     meteo6 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 6))
@@ -853,12 +853,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Source runs at t=1 and t=25 (ClockSpec(24,1)), consumer runs every step.
     # YD should stay at 1 for t=1..24, then switch to 2 at t=25.
     daily_counter = Ref(0)
-    mapping_daily_hourly = ModelMapping(
+    mapping_daily_hourly = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(daily_counter)) |> TimeStepModel(ClockSpec(24.0, 1.0)),
+            ModelSpec(MRDailySourceModel(daily_counter)) |> TimeStep(ClockSpec(24.0, 1.0)),
             ModelSpec(MRHourlyFromDailyConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+            TimeStep(1.0) |>
+            PlantSimEngine.InputBindings(; XD=(process=:mrdailysource, var=:XD)),
         ),
     )
     meteo26 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 26))
@@ -873,12 +873,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Expectation 15: period-based timestep uses timeline base-step conversion.
     # Meteo has duration=Hour(1), source uses Day(1) => runs on t=1 and t=25.
     daily_counter_period = Ref(0)
-    mapping_daily_period = ModelMapping(
+    mapping_daily_period = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(daily_counter_period)) |> TimeStepModel(Dates.Day(1)),
+            ModelSpec(MRDailySourceModel(daily_counter_period)) |> TimeStep(Dates.Day(1)),
             ModelSpec(MRHourlyFromDailyConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+            TimeStep(1.0) |>
+            PlantSimEngine.InputBindings(; XD=(process=:mrdailysource, var=:XD)),
         ),
     )
     meteo_hourly = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 26))
@@ -892,12 +892,12 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     # Expectation 15b: meteo duration can be a CompoundPeriod.
     # With duration=CompoundPeriod(Minute(30)), Day(1) runs at t=1 and t=49.
     daily_counter_compound = Ref(0)
-    mapping_daily_compound = ModelMapping(
+    mapping_daily_compound = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(daily_counter_compound)) |> TimeStepModel(Dates.Day(1)),
+            ModelSpec(MRDailySourceModel(daily_counter_compound)) |> TimeStep(Dates.Day(1)),
             ModelSpec(MRHourlyFromDailyConsumerModel()) |>
-            TimeStepModel(1.0) |>
-            InputBindings(; XD=(process=:mrdailysource, var=:XD)),
+            TimeStep(1.0) |>
+            PlantSimEngine.InputBindings(; XD=(process=:mrdailysource, var=:XD)),
         ),
     )
     meteo_halfhourly = Weather(
@@ -911,9 +911,9 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test sim_daily_compound.temporal_state.last_run[ModelKey(scope, :Leaf, :mrdailysource)] == 49.0
 
     # Expectation 15c: missing meteo duration is rejected.
-    mapping_no_duration = ModelMapping(
+    mapping_no_duration = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Day(1)),
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStep(Dates.Day(1)),
         ),
     )
     sim_no_duration = PlantSimEngine.GraphSimulation(mtg, mapping_no_duration, nsteps=1, check=true, outputs=Dict(:Leaf => (:XD,)))
@@ -937,9 +937,9 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test_throws "strictly positive" run!(sim_no_duration, meteo_zero_duration, executor=SequentialEx())
 
     # Expectation 16: model timesteps shorter than meteo base step are rejected.
-    mapping_substep_period = ModelMapping(
+    mapping_substep_period = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Minute(30)),
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStep(Dates.Minute(30)),
         ),
     )
     sim_substep_period = PlantSimEngine.GraphSimulation(mtg, mapping_substep_period, nsteps=26, check=true, outputs=Dict(:Leaf => (:XD,)))
@@ -950,11 +950,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     range_counter_a = Ref(0)
     range_counter_b = Ref(0)
     range_counter_forced = Ref(0)
-    mapping_timestep_hints = ModelMapping(
+    mapping_timestep_hints = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRRangeHintAModel(range_counter_a)),
             ModelSpec(MRRangeHintBModel(range_counter_b)),
-            ModelSpec(MRRangeHintForcedModel(range_counter_forced)) |> TimeStepModel(Dates.Hour(2)),
+            ModelSpec(MRRangeHintForcedModel(range_counter_forced)) |> TimeStep(Dates.Hour(2)),
         ),
     )
     meteo8h = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65, duration=Dates.Hour(1))], 8))
@@ -977,7 +977,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 17b: required timestep bounds are enforced for meteo-derived clocks.
     strict_counter = Ref(0)
-    mapping_timestep_hints_strict = ModelMapping(
+    mapping_timestep_hints_strict = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRRangeHintStrictModel(strict_counter)),
         ),
@@ -994,9 +994,9 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     # Expectation 17c: warn if no model runs at meteo base timestep.
     no_base_counter = Ref(0)
-    mapping_no_base_dt = ModelMapping(
+    mapping_no_base_dt = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRClockSourceModel(no_base_counter)) |> TimeStepModel(ClockSpec(2.0, 1.0)),
+            ModelSpec(MRClockSourceModel(no_base_counter)) |> TimeStep(ClockSpec(2.0, 1.0)),
         ),
     )
     sim_no_base_dt = PlantSimEngine.GraphSimulation(mtg, mapping_no_base_dt, nsteps=4, check=true, outputs=Dict(:Leaf => (:X,)))
@@ -1004,10 +1004,10 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
 
     if _HAS_METEO_SAMPLER_API
         # Expectation 18: meteo is sampled at model clock using default weather aggregation.
-        mapping_meteo_default = ModelMapping(
+        mapping_meteo_default = PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
-                TimeStepModel(ClockSpec(2.0, 1.0)),
+                TimeStep(ClockSpec(2.0, 1.0)),
             ),
         )
         meteo_mr = Weather([
@@ -1045,11 +1045,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test isapprox(out_meteo_default_mtg_df[:Leaf][:, :MSWq][3], 1.8; atol=1.0e-9)
 
         # Expectation 19: meteo bindings allow custom reducers and variable remapping.
-        mapping_meteo_custom = ModelMapping(
+        mapping_meteo_custom = PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRMeteoCustomConsumerModel()) |>
-                TimeStepModel(ClockSpec(2.0, 1.0)) |>
-                MeteoBindings(
+                TimeStep(ClockSpec(2.0, 1.0)) |>
+                PlantSimEngine.MeteoBindings(
                     ;
                     Ri_SW_f=RadiationEnergy(),
                     custom_peak=(source=:custom_var, reducer=MaxReducer()),
@@ -1075,9 +1075,9 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             )
             for h in 1:24
         ])
-        mapping_meteo_hint = ModelMapping(
+        mapping_meteo_hint = PlantSimEngine.ModelMapping(
             :Leaf => (
-                ModelSpec(MRMeteoHintConsumerModel()) |> TimeStepModel(Dates.Day(1)),
+                ModelSpec(MRMeteoHintConsumerModel()) |> TimeStep(Dates.Day(1)),
             ),
         )
         sim_meteo_hint = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_hint, nsteps=24, check=true, outputs=Dict(:Leaf => (:HT, :HSWQ)))
@@ -1119,11 +1119,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
             ],
         ))
 
-        mapping_meteo_calendar_current = ModelMapping(
+        mapping_meteo_calendar_current = PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
-                TimeStepModel(1.0) |>
-                MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:allow_partial)),
+                TimeStep(1.0) |>
+                PlantSimEngine.MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:allow_partial)),
             ),
         )
         sim_meteo_calendar_current = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_current, nsteps=48, check=true, outputs=Dict(:Leaf => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
@@ -1140,11 +1140,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test isapprox(out_meteo_calendar_current_df[:Leaf][25, :MSWq], 17.28; atol=1.0e-9)
 
         # Expectation 22: CalendarWindow(:day, :previous_complete_period) uses previous day.
-        mapping_meteo_calendar_prev = ModelMapping(
+        mapping_meteo_calendar_prev = PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
-                TimeStepModel(1.0) |>
-                MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:allow_partial)),
+                TimeStep(1.0) |>
+                PlantSimEngine.MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:allow_partial)),
             ),
         )
         sim_meteo_calendar_prev = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev, nsteps=48, check=true, outputs=Dict(:Leaf => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
@@ -1155,11 +1155,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         @test out_meteo_calendar_prev_df[:Leaf][30, :MTmax] == 24.0
 
         # Expectation 23: strict previous-complete-period errors when unavailable.
-        mapping_meteo_calendar_prev_strict = ModelMapping(
+        mapping_meteo_calendar_prev_strict = PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRMeteoDailyConsumerModel()) |>
-                TimeStepModel(1.0) |>
-                MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:strict)),
+                TimeStep(1.0) |>
+                PlantSimEngine.MeteoWindow(CalendarWindow(:day; anchor=:previous_complete_period, week_start=1, completeness=:strict)),
             ),
         )
         sim_meteo_calendar_prev_strict = PlantSimEngine.GraphSimulation(mtg, mapping_meteo_calendar_prev_strict, nsteps=48, check=true, outputs=Dict(:Leaf => (:MT, :MTmin, :MTmax, :MRh, :MSW, :MSWq)))
@@ -1167,7 +1167,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     end
 
     # Expectation 24: ambiguous same-name inferred producer is rejected at initialization.
-    mapping_ambiguous_infer = ModelMapping(
+    mapping_ambiguous_infer = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRConflict1Model(),
             MRConflict2Model(),
@@ -1177,7 +1177,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test_throws "Ambiguous inferred producer for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_ambiguous_infer, nsteps=1, check=true, outputs=Dict(:Leaf => (:ZZ,)))
 
     # Expectation 24a: stream-only publishers are ignored by auto input producer inference.
-    mapping_stream_only_infer = ModelMapping(
+    mapping_stream_only_infer = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRConflict1Model(),
             ModelSpec(MRConflict2Model()) |> OutputRouting(; Z=:stream_only),
@@ -1191,7 +1191,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_stream_only_infer).Z.process == :mrconflict1
 
     # Expectation 24b: cross-scale inference ignores sibling scales not on the same lineage.
-    mapping_lineage_infer = ModelMapping(
+    mapping_lineage_infer = PlantSimEngine.ModelMapping(
         :Plant => (
             MRAncestorSourceModel(),
         ),
@@ -1200,7 +1200,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
         ),
         :Leaf => (
             ModelSpec(MRZConsumerModel()) |>
-            MultiScaleModel([:Z => (:Plant => :Z)]),
+            PlantSimEngine.MultiScaleModel([:Z => (:Plant => :Z)]),
         ),
     )
     sim_lineage_infer = PlantSimEngine.GraphSimulation(mtg, mapping_lineage_infer, nsteps=1, check=true, outputs=Dict(:Leaf => (:ZZ,)))
@@ -1211,7 +1211,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test input_bindings(spec_lineage_infer).Z.scale == :Plant
 
     # Expectation 24c: inferred bindings prefer same-scale producers when available.
-    mapping_same_scale_preferred = ModelMapping(
+    mapping_same_scale_preferred = PlantSimEngine.ModelMapping(
         :Plant => (
             MRMultiScaleTSourceModel(100.0),
         ),
@@ -1237,7 +1237,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test status(sim_same_scale_preferred)[:Leaf][1].TT_used == 1.0
 
     # Expectation 24d: when no same-scale producer exists, repeated process names across scales require explicit scale mapping.
-    mapping_cross_scale_same_process_ambiguous = ModelMapping(
+    mapping_cross_scale_same_process_ambiguous = PlantSimEngine.ModelMapping(
         :Plant => (
             MRMultiScaleTSourceModel(100.0),
         ),
@@ -1257,11 +1257,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
 
     # Expectation 24e: same-rate hard dependencies are ignored for auto bindings and canonical publisher checks.
-    mapping_hard_same_rate = ModelMapping(
+    mapping_hard_same_rate = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
-            ModelSpec(MRHardChildModel()) |> TimeStepModel(1.0),
-            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardParentModel()) |> TimeStep(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStep(1.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStep(1.0),
         ),
     )
     sim_hard_same_rate = PlantSimEngine.GraphSimulation(mtg, mapping_hard_same_rate, nsteps=1, check=true, outputs=Dict(:Leaf => (:A, :B)))
@@ -1271,11 +1271,11 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test status(sim_hard_same_rate)[:Leaf][1].B == 5.0
 
     # Expectation 24f: hard dependency children cannot be scheduled independently from their parent.
-    mapping_hard_different_rate = ModelMapping(
+    mapping_hard_different_rate = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRHardParentModel()) |> TimeStepModel(1.0),
-            ModelSpec(MRHardChildModel()) |> TimeStepModel(2.0),
-            ModelSpec(MRHardConsumerModel()) |> TimeStepModel(1.0),
+            ModelSpec(MRHardParentModel()) |> TimeStep(1.0),
+            ModelSpec(MRHardChildModel()) |> TimeStep(2.0),
+            ModelSpec(MRHardConsumerModel()) |> TimeStep(1.0),
         ),
     )
     @test_throws "Hard dependency `mrhardchild`" PlantSimEngine.GraphSimulation(
@@ -1287,7 +1287,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
 
     # Expectation 25: missing producer remains allowed; model can rely on initialized/forced inputs.
-    mapping_missing_input = ModelMapping(
+    mapping_missing_input = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRMissingInputConsumerModel(),
             Status(U=42.0),
@@ -1298,24 +1298,24 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     @test status(sim_missing_input)[:Leaf][1].OU == 42.0
 
     # Expectation 26: invalid mapping-level API configuration fails during GraphSimulation init.
-    mapping_bad_input = ModelMapping(
+    mapping_bad_input = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRSourceModel(),
             ModelSpec(MRConsumerModel()) |>
-            InputBindings(; Z=(process=:mrsource, var=:S)),
+            PlantSimEngine.InputBindings(; Z=(process=:mrsource, var=:S)),
         ),
     )
     @test_throws "declares binding for input `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_input, nsteps=1, check=true, outputs=Dict(:Leaf => (:B,)))
 
-    mapping_bad_process = ModelMapping(
+    mapping_bad_process = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRConsumerModel()) |>
-            InputBindings(; C=(process=:unknown_process, var=:S)),
+            PlantSimEngine.InputBindings(; C=(process=:unknown_process, var=:S)),
         ),
     )
     @test_throws "Unknown source process `unknown_process`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_process, nsteps=1, check=true, outputs=Dict(:Leaf => (:B,)))
 
-    mapping_bad_routing = ModelMapping(
+    mapping_bad_routing = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRSourceModel()) |>
             OutputRouting(; Z=:stream_only),
@@ -1323,50 +1323,50 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     )
     @test_throws "declares routing for output `Z`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_routing, nsteps=1, check=true, outputs=Dict(:Leaf => (:S,)))
 
-    mapping_bad_interp_mode = ModelMapping(
+    mapping_bad_interp_mode = PlantSimEngine.ModelMapping(
         :Leaf => (
             MRSourceModel(),
             ModelSpec(MRConsumerModel()) |>
-            InputBindings(; C=(process=:mrsource, var=:S, policy=Interpolate(:spline))),
+            PlantSimEngine.InputBindings(; C=(process=:mrsource, var=:S, policy=Interpolate(:spline))),
         ),
     )
     @test_throws "Invalid interpolation mode `spline`" PlantSimEngine.GraphSimulation(mtg, mapping_bad_interp_mode, nsteps=1, check=true, outputs=Dict(:Leaf => (:B,)))
 
     @test_throws "Unsupported reducer value" Aggregate(:median)
 
-    mapping_bad_period = ModelMapping(
+    mapping_bad_period = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStepModel(Dates.Month(1)),
+            ModelSpec(MRDailySourceModel(Ref(0))) |> TimeStep(Dates.Month(1)),
         ),
     )
     @test_throws "non-fixed periods are not supported" PlantSimEngine.GraphSimulation(mtg, mapping_bad_period, nsteps=1, check=true, outputs=Dict(:Leaf => (:XD,)))
 
-    mapping_bad_scope = ModelMapping(
+    mapping_bad_scope = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(MRSourceModel()) |> ScopeModel(:invalid_scope),
+            ModelSpec(MRSourceModel()) |> PlantSimEngine.ScopeModel(:invalid_scope),
         ),
     )
     @test_throws "Invalid scope selector" PlantSimEngine.GraphSimulation(mtg, mapping_bad_scope, nsteps=1, check=true, outputs=Dict(:Leaf => (:S,)))
 
-    mapping_bad_meteo = ModelMapping(
+    mapping_bad_meteo = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-            MeteoBindings(; Ri_SW_f=(source=:Ri_SW_f, badfield=:oops)),
+            PlantSimEngine.MeteoBindings(; Ri_SW_f=(source=:Ri_SW_f, badfield=:oops)),
         ),
     )
     @test_throws "unsupported fields" PlantSimEngine.GraphSimulation(mtg, mapping_bad_meteo, nsteps=1, check=true, outputs=Dict(:Leaf => (:MRQ,)))
 
-    @test_throws "Unsupported MeteoBindings value" ModelMapping(
+    @test_throws "Unsupported MeteoBindings value" PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-            MeteoBindings(; Ri_SW_f=:radiation_energy),
+            PlantSimEngine.MeteoBindings(; Ri_SW_f=:radiation_energy),
         ),
     )
 
-    @test_throws "Unsupported MeteoWindow value" ModelMapping(
+    @test_throws "Unsupported MeteoWindow value" PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRMeteoCustomConsumerModel()) |>
-            MeteoWindow("day"),
+            PlantSimEngine.MeteoWindow("day"),
         ),
     )
 
@@ -1377,7 +1377,7 @@ PlantSimEngine.meteo_hint(::Type{<:MRMeteoHintConsumerModel}) = (
     PlantSimEngine.run!(::MRBadHintModel, models, status, meteo, constants=nothing, extra=nothing) = (status.X = 1.0)
     PlantSimEngine.timestep_hint(::Type{<:MRBadHintModel}) = "hourly"
 
-    mapping_bad_hint = ModelMapping(
+    mapping_bad_hint = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRBadHintModel()),
         ),

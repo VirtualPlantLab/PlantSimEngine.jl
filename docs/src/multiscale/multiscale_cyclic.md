@@ -1,5 +1,9 @@
 # Avoiding cyclic dependencies
 
+!!! warning "Legacy MTG mapping configuration"
+    This page uses the compatibility mapping runtime. The unified scene/object
+    graph supports `PreviousTimeStep(...)` directly inside `Inputs(...)`.
+
 When defining a mapping between models and scales, it is important to avoid cyclic dependencies. A cyclic dependency occurs when a model at a given scale depends on a model at another scale that depends on the first model. Cyclic dependencies are bad because they lead to an infinite loop in the simulation (the dependency graph keeps cycling indefinitely).
 
 PlantSimEngine will detect cyclic dependencies and raise an error if one is found. The error message indicates the models involved in the cycle, and the model that is causing the cycle will be highlighted in red.
@@ -10,16 +14,16 @@ For example the following mapping will raise an error:
     <summary>Example mapping</summary>
     
     ```julia
-    mapping_cyclic = ModelMapping(
+    mapping_cyclic = PlantSimEngine.ModelMapping(
         :Plant => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     :carbon_demand => [:Leaf, :Internode],
                     :carbon_allocation => [:Leaf, :Internode]
                 ],
             ),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyPlantRmModel(),
                 mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
             ),
@@ -72,16 +76,16 @@ We can fix our previous mapping by computing the organs respiration using the ca
 
 !!! details
     ```@julia
-    mapping_nocyclic = ModelMapping(
+    mapping_nocyclic = PlantSimEngine.ModelMapping(
             :Plant => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapping=[
                         :carbon_demand => [:Leaf, :Internode],
                         :carbon_allocation => [:Leaf, :Internode]
                     ],
                 ),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyPlantRmModel(),
                     mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
@@ -89,7 +93,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
             ),
             :Internode => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                     mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (first break)
                 ),
@@ -97,7 +101,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
             ),
             :Leaf => (
                 ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
                     mapped_variables=[PreviousTimeStep(:carbon_biomass),], #! this is where we break the cyclic dependency (second break)
                 ),
@@ -108,7 +112,7 @@ We can fix our previous mapping by computing the organs respiration using the ca
     nothing # hide
     ```
 
-The `ToyMaintenanceRespirationModel` models are now defined as [`MultiScaleModel`](@ref), and the `carbon_biomass` variable is wrapped in a `PreviousTimeStep` structure. This structure tells PlantSimEngine to take the value of the variable from the previous time step, breaking the cyclic dependency.
+The `ToyMaintenanceRespirationModel` models are now defined as [`PlantSimEngine.MultiScaleModel`](@ref), and the `carbon_biomass` variable is wrapped in a `PreviousTimeStep` structure. This structure tells PlantSimEngine to take the value of the variable from the previous time step, breaking the cyclic dependency.
 
 !!! note
     [`PreviousTimeStep`](@ref) tells PlantSimEngine to take the value of the previous time step for the variable it wraps, or the value at initialization for the first time step. The value at initialization is the one provided by default in the models inputs, but is usually provided in the [`Status`](@ref) structure to override this default.

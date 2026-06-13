@@ -1,6 +1,6 @@
 @testset "Check missing model" begin
     # No problem here:
-    @test_nowarn ModelMapping(
+    @test_nowarn PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -16,7 +16,7 @@
         :info,
         "Some variables must be initialized before simulation: (process3 = (:var5,),) (see `to_initialize()`)"
     )
-    ModelMapping(
+    PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process3=Process3Model(),
         status=(var1=15.0, var2=0.3)
@@ -24,7 +24,7 @@
 end;
 
 @testset "Deprecated run! entrypoints" begin
-    models = ModelMapping(
+    models = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -35,7 +35,7 @@ end;
     run!(models, meteo)
     @test !isdefined(PlantSimEngine, :ModelList)
     @test_throws MethodError run!([models], meteo)
-    @test_throws ErrorException run!(ModelMapping("mod1" => models), meteo)
+    @test_throws ErrorException run!(PlantSimEngine.ModelMapping("mod1" => models), meteo)
 
     mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
     mtg[:var1] = 15.0
@@ -45,7 +45,7 @@ end;
 end
 
 @testset "Removed multirate keyword for single-scale" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -58,7 +58,7 @@ end
 end
 
 @testset "Simulation: 1 time-step, 0 Atmosphere" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         Process1Model(1.0);
         status=(var1=15.0, var2=0.3)
     )
@@ -72,7 +72,7 @@ end;
 @testset "Simulation: 1 time-step, 1 Atmosphere" begin
 
     status_nt = (var1=15.0, var2=0.3)
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -89,14 +89,14 @@ end;
 end;
 
 @testset "Simulation: 1 time-step, 1 Atmosphere, 2 objects" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
         status=(var1=15.0, var2=0.3)
     )
 
-    mapping2 = ModelMapping(
+    mapping2 = PlantSimEngine.ModelMapping(
         process1=Process1Model(2.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -119,7 +119,7 @@ end;
 end;
 
 @testset "Simulation: 2 time-steps, 1 Atmosphere" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -144,7 +144,7 @@ end;
 
     status_nt = (var1=[15.0, 16.0], var2=0.3)
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -174,14 +174,14 @@ end;
 
 
 @testset "Simulation: 2 time-steps, 2 Atmospheres, 2 objects" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),
         status=(var1=[15.0, 16.0], var2=0.3)
     )
 
-    mapping2 = ModelMapping(
+    mapping2 = PlantSimEngine.ModelMapping(
         process1=Process1Model(2.0),
         process2=Process2Model(),
         process3=Process3Model(),
@@ -223,7 +223,7 @@ end;
     leaf[:var1] = [15.0, 16.0]
     leaf[:var2] = 0.3
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
             Process1Model(1.0),
             Process2Model(),

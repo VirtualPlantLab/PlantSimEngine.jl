@@ -102,7 +102,7 @@ Most of the following errors occur exclusively in multi-scale simulations, which
 ### ModelMapping: providing a type name instead of a constructed instance
 
 ```julia
-m = ModelMapping(day=MyToyModel, week=MyToyModel2)
+m = PlantSimEngine.ModelMapping(day=MyToyModel, week=MyToyModel2)
 ```
 This line is incorrect and will return
 ```julia
@@ -111,7 +111,7 @@ MethodError: no method matching inputs_(::Type{MyToyDayModel})
 
 The correct syntax is (assuming the corresponding constructor exists) :
 ```julia
-m = ModelMapping(day=MyToyModel(), week=MyToyModel2())
+m = PlantSimEngine.ModelMapping(day=MyToyModel(), week=MyToyModel2())
 ```
 
 ### Implementing a model: forgetting to import or prefix functions
@@ -148,7 +148,7 @@ meteo = Weather([
         Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
 ])
 
-model = ModelMapping(
+model = PlantSimEngine.ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -188,7 +188,7 @@ Stacktrace:
 A MultiScaleModel requires two kwargs, model and mapped_variables : 
 
 ```julia
-models = MultiScaleModel(
+models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIModel(),
         mapped_variables=[:TT_cu => :Scene,],
     )
@@ -197,34 +197,34 @@ models = MultiScaleModel(
 Forgetting 'model=' :
 
 ```julia
-models = MultiScaleModel(
+models = PlantSimEngine.MultiScaleModel(
         ToyLAIModel(),
         mapped_variables=[:TT_cu => :Scene,],
     )
-ERROR: MethodError: no method matching MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
+ERROR: MethodError: no method matching PlantSimEngine.MultiScaleModel(::ToyLAIModel; mapped_variables::Vector{Pair{Symbol, String}})
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
     
 Closest candidates are:
-    MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "mapped_variables"
+    PlantSimEngine.MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "mapped_variables"
     @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:188
-    MultiScaleModel(; model, mapped_variables)
+    PlantSimEngine.MultiScaleModel(; model, mapped_variables)
     @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191
 ```
 
 Forgetting 'mapped_variables=' :
 ```julia
-models = MultiScaleModel(
+models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIModel(),
         [:TT_cu => :Scene,],
     )
 
-ERROR: MethodError: no method matching MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
+ERROR: MethodError: no method matching PlantSimEngine.MultiScaleModel(::Vector{Pair{Symbol, String}}; model::ToyLAIModel)
 The type `MultiScaleModel` exists, but no method is defined for this combination of argument types when trying to construct it.
 
 Closest candidates are:
-  MultiScaleModel(; model, mapping)
+  PlantSimEngine.MultiScaleModel(; model, mapping)
    @ PlantSimEngine PlantSimEngine/src/mtg/MultiScaleModel.jl:191
-  MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "model"
+  PlantSimEngine.MultiScaleModel(::T, ::Any) where T<:AbstractModel got unsupported keyword argument "model"
 ```
 
 The message 'got unsupported keyword argument "model"' can be misleading, as in the error in this case is not that a kwarg is *unsupported*, but rather that a keyword argument is *missing*.
@@ -234,8 +234,8 @@ The message 'got unsupported keyword argument "model"' can be misleading, as in 
 A possible cause for this error is that a variable was declared instead of a symbol in a mapping for a multiscale model :
 
 ```julia
-mapping = ModelMapping(:Scale =>
-MultiScaleModel(
+mapping = PlantSimEngine.ModelMapping(:Scale =>
+PlantSimEngine.MultiScaleModel(
     model = ToyModel(),
     mapped_variables = [should_be_symbol => :Other_Scale] # should_be_symbol is a variable, likely not found in the current module 
 ),
@@ -245,8 +245,8 @@ MultiScaleModel(
 
 Here's the correct version : 
 ```julia
-mapping = ModelMapping(:Scale =>
-MultiScaleModel(
+mapping = PlantSimEngine.ModelMapping(:Scale =>
+PlantSimEngine.MultiScaleModel(
     model = ToyModel(),
     mapped_variables=[:should_be_symbol => :Other_Scale] # should_be_symbol is now a symbol
 ),
@@ -265,7 +265,7 @@ meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.cs
 mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))
 var1 = 15.0
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         Process1Model(1.0),
         Process2Model(),
@@ -350,7 +350,7 @@ However, the model provided in the examples, Process2Model is absent from the ma
 
 ```julia
 simple_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Plant, 1, 1))    
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         Process3Model(),
         Status(var5=15.0,)
@@ -378,7 +378,7 @@ One current problem with PlantSimEngine's API is that declaring a simulation's S
 Returning to the example in [Implementing a model: forgetting to import or prefix functions](@ref), the single-scale mapping status was declared like this:
 
 ```julia
-model = ModelMapping(
+model = PlantSimEngine.ModelMapping(
     ToyToyModel(1),
    status = ( a = 1, b = 0, c = 0),
 )
@@ -404,7 +404,7 @@ Stacktrace:
 If you do the opposite in a multi-scale simulation by replacing the necessary `Status(...)` with `status = ...`, you may get an `ERROR: syntax: invalid named tuple element` error. Here's some output when tinkering with the Toy Plant tutorial's mapping:
 
 ```julia
-ERROR: syntax: invalid named tuple element "MultiScaleModel(...)" around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
+ERROR: syntax: invalid named tuple element "PlantSimEngine.MultiScaleModel(...)" around /path/to/Pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
 Stacktrace:
  [1] top-level scope
    @ ~/path/to/pkg/PlantSimEngine/examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl:196
@@ -425,7 +425,7 @@ If there is a need to collect variables at two different scales, and one scale i
 # No models at the E3 scale in the mapping !
 
 :E2 => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
         model = HardDepSameScaleEchelle2Model(),
         mapped_variables=[:c => :E1 => :c, :e3 => :E3 => :e3, :f3 => :E3 => :f3,], 
         ),
@@ -451,7 +451,7 @@ ERROR: ArgumentError: AbstractDict(kv): kv needs to be an iterator of 2-tuples o
 may occur when forgetting the parenthesis after '=>' in a mapping declaration, and combining it with another parenthesis error.
 
 ```julia
-mapping = ModelMapping( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
+mapping = PlantSimEngine.ModelMapping( "Scale" => (ToyAssimGrowthModel(0.0, 0.0, 0.0), ToyCAllocationModel(), Status( TT_cu=Vector(cumsum(meteo_day.TT))), ), )
 ```
 
 Other errors such as:
@@ -490,10 +490,10 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=-Inf,)
 end
 
-mapping_multiscale = ModelMapping(
+mapping_multiscale = PlantSimEngine.ModelMapping(
     :Scene => ToyTt_CuModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,

@@ -3,14 +3,14 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 # Note (smack) : The first test's behaviour is weird to me, because there is an [Info :] that correctly indicates
 # :LAI is not initialised, yet @test_nowarn doesn't capture it. I'm not sure what the intended test was, between 'Info' and 'Warn'
 @testset "ToyLAIModel" begin
-    @test_nowarn ModelMapping(ToyLAIModel())
-    @test_nowarn ModelMapping(ToyLAIModel(); status=(TT_cu=10,))
-    @test_nowarn ModelMapping(
+    @test_nowarn PlantSimEngine.ModelMapping(ToyLAIModel())
+    @test_nowarn PlantSimEngine.ModelMapping(ToyLAIModel(); status=(TT_cu=10,))
+    @test_nowarn PlantSimEngine.ModelMapping(
         ToyLAIModel();
         status=(TT_cu=cumsum(meteo_day.TT),),
     )
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         ToyLAIModel();
         status=(TT_cu=cumsum(meteo_day.TT),),
     )
@@ -23,7 +23,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 end
 
 @testset "ToyLAIModel+Beer" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         ToyLAIModel(),
         Beer(0.5),
         status=(TT_cu=cumsum(meteo_day.TT),)
@@ -38,29 +38,29 @@ end
 
 @testset "ToyRUEGrowthModel" begin
     rue = 0.3
-    @test_nowarn ModelMapping(ToyRUEGrowthModel(rue))
-    @test_nowarn ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=[10.0, 30.0, 25.0],))
+    @test_nowarn PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue))
+    @test_nowarn PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=[10.0, 30.0, 25.0],))
 
     # One time step:
-    mapping = ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=30.0,))
+    mapping = PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=30.0,))
 
     outputs = run!(mapping, executor=SequentialEx())
     @test outputs[:biomass][1] ≈ rue * 30.0
 
     # Several time steps:
     aPPFD = [10.0, 30.0, 25.0]
-    mapping = ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=aPPFD,))
+    mapping = PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=aPPFD,))
 
     outputs = run!(mapping, executor=SequentialEx())
     @test outputs[:biomass] ≈ cumsum(rue * aPPFD)
 end
 
 @testset "ToyAssimGrowthModel" begin
-    @test_nowarn ModelMapping(ToyAssimGrowthModel())
-    @test_nowarn ModelMapping(ToyAssimGrowthModel(); status=(carbon_assimilation=[10.0, 30.0, 25.0],))
+    @test_nowarn PlantSimEngine.ModelMapping(ToyAssimGrowthModel())
+    @test_nowarn PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(carbon_assimilation=[10.0, 30.0, 25.0],))
 
     # Uninitialized:
-    to_init_uninitialized = to_initialize(ModelMapping(ToyAssimGrowthModel()))
+    to_init_uninitialized = to_initialize(PlantSimEngine.ModelMapping(ToyAssimGrowthModel()))
     if to_init_uninitialized isa AbstractDict
         @test haskey(to_init_uninitialized, :Default)
         @test :aPPFD in to_init_uninitialized[:Default]
@@ -70,7 +70,7 @@ end
     end
 
     # One time step:
-    mapping = ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=30.0,))
+    mapping = PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=30.0,))
 
     @test isempty(to_initialize(mapping))
 
@@ -78,7 +78,7 @@ end
     @test outputs[:biomass] ≈ [4.5]
 
     # Several time steps:
-    mapping = ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=[10.0, 30.0, 25.0],))
+    mapping = PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=[10.0, 30.0, 25.0],))
 
     outputs = run!(mapping)
     @test outputs[:biomass] ≈ cumsum(outputs[:biomass_increment])
@@ -87,7 +87,7 @@ end
 
 @testset "ToyLAIModel+Beer+ToyRUEGrowthModel" begin
     rue = 0.3
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         ToyLAIModel(),
         Beer(0.5),
         ToyRUEGrowthModel(rue),

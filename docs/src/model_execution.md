@@ -1,219 +1,354 @@
-# Model execution
+# Model Execution
 
-## Simulation order
+This page describes how the native scene/object runtime executes model
+applications. Use this path for new multi-object, multi-plant, soil,
+microclimate, and multirate simulations.
 
-`PlantSimEngine.jl` uses the [`ModelMapping`](@ref) to automatically compute a dependency graph between the models and run the simulation in the correct order. When running a simulation with [`run!`](@ref), the models are then executed following this simple set of rules:
-
-1. Independent models are run first. A model is independent if it can be run independently from other models, only using initializations (or nothing).
-2. Then, models that have a dependency on other models are run. The first ones are the ones that depend on an independent model. Then the ones that are children of the second ones, and then their children ... until no children are found anymore. There are two types of children models (*i.e.* dependencies): hard and soft dependencies:
-   1. Hard dependencies are always run before soft dependencies. A hard dependency is a model that is directly called by another model. It is declared as such by its parent that lists its hard-dependencies as `dep`. See [this example](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/3d91bb053ddbd087d38dcffcedd33a9db35a0fcc/examples/dummy.jl#L39) that shows `Process2Model` defining a hard dependency on any model that simulates `process1`.
-   2. Soft dependencies are then run sequentially. A model has a soft dependency on another model if one or more of its inputs is computed by another model. If a soft dependency has several parent nodes (*e.g.* two different models compute two inputs of the model), it is run only if all its parent nodes have been run already. In practice, when we visit a node that has one of its parent that did not run already, we stop the visit of this branch. The node will eventually be visited from the branch of the last parent that was run.
-
-## Multi-rate model configuration (experimental)
-
-For multiscale simulations, model usage is configured in the mapping through `ModelSpec` transforms:
-
-- `TimeStepModel(...)`: sets model execution clock.
-- `InputBindings(...)`: sets producer, source variable, optional source scale, and policy for each consumer input.
-- `MeteoBindings(...)`: sets weather aggregation rules at the model clock for meteo variables.
-- `MeteoWindow(...)`: sets weather row selection strategy (`RollingWindow()` or `CalendarWindow(...)`).
-- `OutputRouting(...)`: sets whether an output is canonical (`:canonical`) or stream-only (`:stream_only`).
-- `ScopeModel(...)`: partitions producer streams by scope (`:global`, `:plant`, `:scene`, `:self`) for multi-entity simulations.
-
-For a compact overview of all model traits and precedence rules, see [Model traits](model_traits.md).
-
-If users do not provide `MeteoBindings(...)` or `MeteoWindow(...)`,
-the runtime can infer defaults from model traits:
-- `timespec(::Type{<:MyModel})`
-- `output_policy(::Type{<:MyModel})`
-- `timestep_hint(::Type{<:MyModel})`
-- `meteo_hint(::Type{<:MyModel})`
-
-For timestep specifically, runtime is meteo-first (see decision flow below): `timestep_hint`
-is used for compatibility validation (and user guidance), not to auto-assign model clocks.
-
-If users do not provide `InputBindings(...)`, runtime infers same-name bindings:
-- first from a unique producer at the same scale;
-- otherwise from a unique producer at another scale;
-- if no producer exists, input stays unresolved (so initialization/forced values can be used);
-- if multiple producers are possible, runtime errors and asks for explicit `InputBindings(...)`.
-
-For inferred bindings, default policy is resolved as:
-- producer `output_policy` for the source output when defined;
-- otherwise `HoldLast()`.
-
-`output_policy` is a default hint, applied only when an output stream is actually read
-by another model input (or output export). Unused outputs do not trigger integration/reduction work.
-
-Explicit mapping policies still have priority (`InputBindings(..., policy=...)`) and can
-complement trait defaults by defining additional bindings with different policies.
-
-For timestep hints:
-- `timestep_hint.required` is a hard compatibility constraint when runtime uses meteo-derived timestep.
-- `timestep_hint.preferred` is informational only (it does not set runtime timestep by itself).
-- Explicit `TimeStepModel(...)` always takes precedence.
-
-For meteo hints:
-- return `(; bindings=..., window=...)` where `bindings` matches `MeteoBindings(...)`
-  and `window` matches `MeteoWindow(...)`.
-- Explicit `MeteoBindings(...)` / `MeteoWindow(...)` always take precedence.
-
-Inspection helpers:
-- `resolved_model_specs(mapping)` returns resolved specs after inference/validation.
-- `explain_model_specs(mapping_or_sim)` prints a compact summary (`timestep`,
-  `input_bindings`, `meteo_bindings`, `meteo_window`) for each model process.
-
-Policy parameterization:
-- `Integrate()` defaults to `SumReducer()`; you can pass another reducer, e.g. `Integrate(MeanReducer())` or `Integrate(vals -> maximum(vals) - minimum(vals))`.
-- `Aggregate()` defaults to `MeanReducer()`; you can pass reducers such as `Aggregate(MaxReducer())`.
-- Difference between `Integrate` and `Aggregate`: with the same reducer they are runtime-equivalent.
-  In practice, only defaults and naming intent differ (`Integrate` for accumulation, `Aggregate` for summary statistics).
-- `Interpolate()` defaults to `mode=:linear, extrapolation=:linear`; use `Interpolate(; mode=:hold, extrapolation=:hold)` for hold behavior.
-- The same reducer objects are reused by meteo sampling (`MeteoBindings`) and by windowed policies (`Integrate`, `Aggregate`).
-- Custom reducers/callables can accept either `(values)` or `(values, durations_seconds)`.
-- For flux-to-amount conversions, use `Integrate(PlantMeteo.DurationSumReducer())`
-  (equivalent to `sum(values .* durations_seconds)`), instead of hardcoding a fixed factor.
-
-`TimeStepModel(...)` accepts either step counts (`Real`), `ClockSpec`, or fixed `Dates` periods
-(for example `Dates.Hour(1)`, `Dates.Day(1)`). Fixed periods are converted internally using
-the meteo base timestep duration.
-
-### Timestep decision flow
-
-When meteo is provided, `duration` is mandatory for each row (or the simulation errors).
-
-Runtime picks each model effective clock with this order:
-
-1. If `ModelSpec` has `TimeStepModel(...)`, use it.
-2. Else if `timespec(model)` is non-default, use it.
-3. Else use meteo base timestep (`duration`) for that model.
-
-Then runtime applies constraints:
-
-1. If the model clock is meteo-derived (rule 3), `timestep_hint.required` is validated:
-   - fixed required period: meteo timestep must match exactly;
-   - required range: meteo timestep must be inside the range.
-2. `timestep_hint.preferred` never overrides the clock when timestep is unset.
-3. Meteo aggregation/integration is applied only when effective model timestep is coarser than meteo timestep.
-
-Practical consequences:
-
-- Unset `TimeStepModel` + required includes meteo + preferred is coarser:
-  model still runs at meteo timestep.
-- Explicit coarser `TimeStepModel(Dates.Hour(2))` with hourly meteo:
-  model runs every 2 hours and receives aggregated meteo over that window.
-- Unset `TimeStepModel` + required excludes meteo:
-  runtime errors with an actionable compatibility message.
-
-Developer note on period conversion:
-- Runtime time is indexed on a 1-based timeline (`t = 1, 2, 3, ...`).
-- `TimeStepModel(Dates.Day(1))` is converted to a clock step count using:
-  `dt = day_seconds / meteo_step_seconds`.
-- For hourly meteo (`duration = Dates.Hour(1)`), this gives `dt = 24` and the default phase is `1`,
-  so the model runs at `t = 1, 25, 49, ...`.
-- This is equivalent to `ClockSpec(24.0, 1.0)`.
-- If you need runs at `t = 24, 48, 72, ...`, set an explicit phase with `ClockSpec(24.0, 0.0)`.
-
-Typical pipeline form:
+The public configuration surface is:
 
 ```julia
-ModelSpec(MyModel()) |>
-TimeStepModel(ClockSpec(24.0, 1.0)) |>
-MeteoWindow(CalendarWindow(:day; anchor=:current_period, week_start=1, completeness=:strict)) |>
-MeteoBindings(; T=MeanWeighted()) |>
-InputBindings(; x=(process=:producer, var=:y, policy=HoldLast())) |>
-OutputRouting(; z=:stream_only)
+Scene
+Object
+ModelSpec
+AppliesTo
+Inputs
+Calls
+Updates
+TimeStep
+Environment
 ```
 
-### Calendar-aligned meteo windows
+Legacy `ModelMapping`, `MultiScaleModel`, domain, and route APIs are retained
+as qualified compatibility tools while old examples are migrated. New
+scenarios should start from `Scene` and model applications.
 
-`MeteoWindow(...)` controls how rows are selected before reducers are applied:
-- `RollingWindow()` (default): trailing window based on `dt` (for example "last 24 steps").
-- `CalendarWindow(period; anchor, week_start, completeness)`:
-: `period` in `:day`, `:week`, `:month`
-: `anchor` in `:current_period`, `:previous_complete_period`
-: `week_start` in `1:7` (1 = Monday)
-: `completeness` in `:allow_partial`, `:strict`
+## Model Kernels And Applications
 
-`CalendarWindow(:day; anchor=:current_period, ...)` guarantees that a model running inside a day sees
-aggregates over that civil day (including later timesteps from that day when available).
+A model kernel is still an ordinary PlantSimEngine model:
 
-### Hold-last coupling (default policy)
+- `inputs_(model)` declares required status variables;
+- `outputs_(model)` declares variables the model computes;
+- `meteo_inputs_(model)` declares environment variables it reads;
+- `meteo_outputs_(model)` declares mutable environment variables it writes;
+- `dep(model)` may declare model-author defaults;
+- `run!(model, models, status, meteo, constants, extra)` contains the model
+  equations.
+
+The scene/object layer does not change that kernel contract. It adds a
+scenario-specific application around the kernel:
 
 ```julia
-mapping = ModelMapping(
-    :Leaf => (
-        ModelSpec(LeafSourceModel()) |> TimeStepModel(1.0),
-        ModelSpec(LeafConsumerModel()) |>
-        TimeStepModel(ClockSpec(2.0, 1.0)) |>
-        InputBindings(; C=(process=:leafsource, var=:S)),
-    ),
-)
+ModelSpec(LeafEnergyBalance(); name=:leaf_energy) |>
+    AppliesTo(Many(kind=:plant, scale=:Leaf)) |>
+    Inputs(...) |>
+    Calls(...) |>
+    TimeStep(Dates.Hour(1)) |>
+    Environment(provider=:canopy)
 ```
 
-### Daily integration from hourly stream
+`ModelSpec` decides where the model runs, where its inputs come from, which
+models it may call manually, which timestep it uses, and which environment
+provider is bound to it. The model implementation stays reusable.
+
+## Compilation Before Runtime
+
+Before the timestep loop, `compile_scene(scene)` and `refresh_bindings!(scene)`
+resolve the scenario into concrete runtime carriers:
+
+1. `AppliesTo(...)` selectors are resolved to stable object ids.
+2. `Inputs(...)` selectors are resolved to source object/application ids.
+3. Same-rate inputs are wired as shared `Ref`s, `RefVector`s, or
+   `ObjectRefVector`s.
+4. Temporal inputs are compiled as stream lookups with a policy such as
+   `HoldLast`, `Interpolate`, `Integrate`, or `Aggregate`.
+5. `Calls(...)` declarations are compiled to callable target lists.
+6. `Environment(...)` is bound to backend cells, layers, voxels, or global
+   weather providers.
+7. The root application order is topologically sorted from value inputs and
+   `Updates(...)` ordering.
+8. Root execution batches are grouped by concrete model/status/environment
+   types where possible.
+
+Selectors are not resolved in the hot loop. Runtime execution uses the
+compiled indexes and carriers.
+
+Useful inspection helpers:
 
 ```julia
-mapping = ModelMapping(
-    :Leaf => (
-        ModelSpec(HourlyAssimModel()) |> TimeStepModel(1.0),
-    ),
-    :Plant => (
-        ModelSpec(DailyCarbonOfferModel()) |>
-        TimeStepModel(ClockSpec(24.0, 1.0)) |>
-        InputBindings(; A=(process=:hourlyassim, var=:A, scale=:Leaf, policy=Integrate())),
-    ),
-)
+compiled = refresh_bindings!(scene)
+
+explain_scene_applications(compiled)
+explain_bindings(compiled)
+explain_calls(compiled)
+explain_environment_bindings(refresh_environment_bindings!(scene, compiled))
+explain_schedule(compiled)
+explain_execution_plan(scene)
+explain_writers(compiled)
 ```
 
-### Interpolate slow producer to fast consumer
+These explanations are intended for both users and agents. They report the
+compiled object ids, applications, carriers, clocks, environment bindings, and
+manual-call targets that the runtime will use.
+
+## Soft Dependencies With Inputs
+
+Soft dependencies are value dependencies. A consumer model reads a variable
+produced by another model through `Inputs(...)`.
 
 ```julia
-mapping = ModelMapping(
-    :Leaf => (
-        ModelSpec(SlowSourceModel()) |> TimeStepModel(ClockSpec(2.0, 1.0)),
-        ModelSpec(FastConsumerModel()) |>
-        TimeStepModel(1.0) |>
-        InputBindings(; X=(process=:slowsource, var=:X, policy=Interpolate())),
-    ),
-)
+ModelSpec(SceneLAI(ground_area); name=:scene_lai) |>
+    AppliesTo(One(scale=:Scene)) |>
+    Inputs(
+        :leaf_areas => Many(
+            kind=:plant,
+            scale=:Leaf,
+            within=SceneScope(),
+            process=:leaf_state,
+            var=:leaf_area,
+        ),
+    )
 ```
 
-When the `ModelMapping` declares multirate configuration, the runtime resolves inputs from producer temporal streams according to these policies.
-Meteo rows are also sampled at each model clock. By default, meteo variables are aggregated from
-the finest weather step (for example `T` and `Rh` as weighted means, `Tmin/Tmax`, and radiation
-quantity aliases such as `Ri_SW_q` in MJ m-2). You can override these rules with `MeteoBindings(...)`
-on each `ModelSpec`.
+For same-rate inputs, the runtime installs a reference carrier into the
+consumer status during compilation. A scene-scale model reading all leaf areas
+therefore sees a `RefVector`-like object: reading pulls current values from
+source leaf statuses, and writing through the carrier mutates source refs when
+the carrier supports it.
 
-### Current limitations
+If an input is not explicitly declared with `Inputs(...)`, the compiler can
+infer simple same-object bindings when exactly one producer on the same object
+outputs the same variable. Ambiguous producers are errors and should be
+disambiguated with `process=...`, `application=...`, or `var=...`.
 
-- Multi-rate MTG runs currently execute sequentially. Passing `executor=ThreadedEx()` or `executor=DistributedEx()` falls back to sequential execution with a warning.
-- Sub-step execution is currently unsupported: model timesteps shorter than the meteo base step (for example `TimeStepModel(Dates.Minute(30))` with hourly meteo) raise an error.
+Use `PreviousTimeStep(:x) => selector` when a feedback dependency should read
+the previous sample instead of creating a same-timestep scheduling edge.
 
-## Multi-rate output export (experimental)
+## Hard Calls With Calls
 
-You can export selected variables at a requested rate from temporal streams:
+Hard dependencies are manual calls. Use `Calls(...)` when a parent model must
+control the call stack, for example during an iterative energy-balance solve.
 
 ```julia
-req = OutputRequest(:Leaf, :carbon_assimilation;
-    name=:A_daily,
-    process=:toyassim,
+ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
+    AppliesTo(One(scale=:Scene)) |>
+    Calls(
+        :leaf_energy => Many(
+            kind=:plant,
+            scale=:Leaf,
+            within=SceneScope(),
+            process=:energy_balance,
+        ),
+        :soil => One(
+            kind=:soil,
+            scale=:Soil,
+            within=SceneScope(),
+            process=:soil_water,
+        ),
+    ) |>
+    TimeStep(Dates.Hour(1))
+```
+
+Inside `run!`, the parent retrieves executable targets and decides when to
+publish the accepted state:
+
+```julia
+function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
+                             constants, extra)
+    for target in call_targets(extra, :leaf_energy)
+        run_call!(target; meteo=trial_meteo(model, status))
+    end
+
+    for target in call_targets(extra, :leaf_energy)
+        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
+    end
+
+    return nothing
+end
+```
+
+`run_call!` defaults to `publish=false`. Trial calls mutate target statuses but
+do not publish temporal samples or scatter mutable environment outputs. Call
+`run_call!(target; publish=true)` once for the accepted state.
+
+Applications selected only by `Calls(...)` are marked manual-call-only in
+`explain_schedule(compiled)` and are skipped by the root `run!(scene)` loop.
+
+## Duplicate Writers With Updates
+
+By default, one application owns each `(object, output variable)` canonical
+writer. If a scenario intentionally lets several models update the same
+variable, later writers must declare that order explicitly:
+
+```julia
+ModelSpec(CarbonAllocation(); name=:carbon_allocation) |>
+    AppliesTo(Many(scale=:Leaf))
+
+ModelSpec(LeafPruning(); name=:leaf_pruning) |>
+    AppliesTo(Many(scale=:Leaf)) |>
+    Updates(:leaf_biomass; after=:carbon_allocation)
+```
+
+This keeps ordinary duplicate outputs as errors while allowing cases such as
+allocation followed by pruning. `explain_writers(compiled)` reports writer
+groups and the `Updates(...)` declarations that validate them.
+
+## Multirate Execution
+
+Use `TimeStep(...)` with `Dates.Period` values for model application clocks:
+
+```julia
+ModelSpec(HourlyLeafAssimilation(); name=:leaf_assim) |>
+    AppliesTo(Many(scale=:Leaf)) |>
+    TimeStep(Dates.Hour(1))
+
+ModelSpec(DailyPlantAllocation(); name=:allocation) |>
+    AppliesTo(Many(scale=:Plant)) |>
+    Inputs(
+        :leaf_assimilation => Many(
+            scale=:Leaf,
+            within=Self(),
+            process=:leaf_assimilation,
+            var=:A,
+            policy=Integrate(),
+            window=Dates.Day(1),
+        ),
+    ) |>
+    TimeStep(Dates.Day(1))
+```
+
+Clock precedence is:
+
+1. explicit `TimeStep(...)` on the `ModelSpec`;
+2. non-default `timespec(model)` trait;
+3. the scene environment base step.
+
+`timestep_hint(model)` is a compatibility constraint and explanation hint. It
+does not silently choose a clock. If a model uses the environment base step and
+that step violates `timestep_hint.required`, scene compilation errors.
+
+Temporal input policy precedence is:
+
+1. explicit selector policy, such as `policy=Integrate()`;
+2. producer `output_policy(model)` for that output;
+3. `HoldLast()`.
+
+Supported policies are:
+
+- `HoldLast()`: use the latest producer sample;
+- `Interpolate()`: interpolate or extrapolate from producer samples;
+- `Integrate()`: reduce values over a window, defaulting to `SumReducer()`;
+- `Aggregate()`: reduce values over a window, defaulting to `MeanReducer()`.
+
+`Integrate(...)` and `Aggregate(...)` accept reducer objects or callables that
+take either `(values)` or `(values, durations_seconds)`.
+
+## Environment Sampling
+
+`Environment(...)` chooses a provider and optional source-variable remapping:
+
+```julia
+ModelSpec(CO2Probe(); name=:co2_probe) |>
+    AppliesTo(Many(scale=:Leaf)) |>
+    Environment(provider=:canopy, sources=(CO2=:Ca,))
+```
+
+The compiler binds each application/object pair to the selected backend before
+runtime. Constant weather, global tabular meteorology, grid, layer, voxel, or
+octree-style microclimate backends all use the same contract:
+
+- `meteo_inputs_(model)` says what the model reads;
+- `meteo_outputs_(model)` says what the model writes back;
+- `Environment(; sources=...)` maps model-facing names to backend names;
+- geometry and position are used by spatial backends when available;
+- object-to-environment links are cached and refreshed when objects move.
+
+Model-level `meteo_hint(...)` can provide default source bindings and
+aggregation rules. Scenario-level `Environment(...)` keeps precedence for
+source names, while explicit sampling policy on `Inputs(...)` controls
+model-to-model temporal values.
+
+## Running And Outputs
+
+Run a scene with:
+
+```julia
+sim = run!(scene; steps=30, constants=Constants())
+```
+
+The returned `SceneSimulation` contains the mutated scene, compiled bindings,
+environment bindings, execution plan, and retained temporal output streams.
+
+By default, scene runs retain all published streams. For large scenes, pass
+`OutputRequest` values to retain only selected outputs and temporal dependency
+streams:
+
+```julia
+request = OutputRequest(
+    :Leaf,
+    :A;
+    name=:leaf_assimilation_daily,
+    process=:leaf_assimilation,
     policy=Integrate(),
-    clock=ClockSpec(24.0, 1.0)
+    clock=Dates.Day(1),
 )
 
-run!(sim, meteo; tracked_outputs=[req], executor=SequentialEx())
-exported = collect_outputs(sim; sink=DataFrame)
+sim = run!(scene; steps=72, tracked_outputs=request)
+collect_outputs(sim, :leaf_assimilation_daily; sink=nothing)
+explain_output_retention(sim)
 ```
 
-`tracked_outputs` accepts `OutputRequest` values for these resampled exports.
-You can also return them directly from `run!`:
+When several applications publish the same process and variable, use
+`application=:application_name` in the request. This selects the named
+application directly and can also request an explicitly named
+`:stream_only` publisher.
+
+Set `tracked_outputs=OutputRequest[]` to retain no output streams unless they
+are required by temporal dependencies.
+
+Temporal dependency streams that are not explicitly requested retain only the
+history required by their input policy. `HoldLast` keeps the latest sample,
+`Integrate` and `Aggregate` keep their input window, and `Interpolate` and
+`PreviousTimeStep` keep sufficient recent source samples. Requested streams
+retain complete histories for post-run export. `explain_output_retention(sim)`
+reports `retention_steps` for bounded dependency-only streams and `nothing`
+for full-history streams.
+
+## Lifecycle Changes
+
+Scene objects may be added, removed, reparented, moved, or have their geometry
+updated between or during timesteps:
 
 ```julia
-out_status, exported = run!(
-    sim,
-    meteo;
-    tracked_outputs=[req],
-    return_requested_outputs=true,
-)
+register_object!(scene, Object(:new_leaf; scale=:Leaf); parent=:plant_1)
+remove_object!(scene, :old_leaf)
+reparent_object!(scene, :leaf_3; parent=:plant_2)
+move_object!(scene, :leaf_4; geometry=new_geometry)
+update_geometry!(scene, :leaf_5, new_geometry)
 ```
+
+Structural changes invalidate compiled object/model bindings. Movement and
+geometry changes invalidate environment bindings without rebuilding structural
+input carriers. The next `run!(scene)` step refreshes the necessary caches.
+
+## Compatibility Runtime
+
+Historical `ModelMapping` and MTG mapping simulations still work through
+qualified compatibility constructors such as
+`PlantSimEngine.ModelMapping(...)`, `PlantSimEngine.MultiScaleModel(...)`,
+`PlantSimEngine.InputBindings(...)`, and
+`PlantSimEngine.TimeStepModel(...)`.
+
+Those names are no longer the primary API. For new work, use:
+
+- `ModelMapping(...)` -> `Scene(...)` plus object-local `ModelSpec(...)`
+  applications;
+- `MultiScaleModel(...)` -> `Inputs(...)`;
+- `InputBindings(...)` -> selector fields inside `Inputs(...)`;
+- `MeteoBindings(...)` / `MeteoWindow(...)` -> `Environment(...)`,
+  `meteo_hint(...)`, and model/application clocks;
+- `HardDomains(...)` -> `Calls(...)`;
+- `Route(...)` and `AllDomains(...)` -> consumer-side `Inputs(...)`;
+- `TimeStepModel(...)` -> `TimeStep(...)`.
+
+See [Migrating To The Scene/Object API](migration_scene_object.md) for worked
+translation patterns.

@@ -196,10 +196,10 @@ The resource storage and internode emergence models now need a couple of extra w
 The :Root organ is added to the mapping with its own models. New parameters need to be initialized.
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Scene => ToyDegreeDaysCumulModel(),
 :Plant => (
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
             :carbon_captured=>[:Leaf],
@@ -212,7 +212,7 @@ mapping = ModelMapping(
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
 :Internode => (        
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapped_variables=[:TT_cu => :Scene,
             PreviousTimeStep(:water_stock)=>:Plant,
@@ -220,7 +220,7 @@ mapping = ModelMapping(
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-:Root => ( MultiScaleModel(
+:Root => ( PlantSimEngine.MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
             mapped_variables=[PreviousTimeStep(:carbon_stock)=>:Plant,
             PreviousTimeStep(:water_stock)=>:Plant],

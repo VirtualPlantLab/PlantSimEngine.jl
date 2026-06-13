@@ -49,7 +49,7 @@ using PlantSimEngine, PlantMeteo, Dates
 using PlantSimEngine.Examples
 
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-m = ModelMapping(
+m = PlantSimEngine.ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -68,7 +68,7 @@ status(m)
 Let's say that `m` is our complete model, and that we want to reduce the degrees of freedom by constraining the value of `var9` to a measurement, which was previously computed by `Process7Model`, a soft-dependency model. It is very easy to do this in PlantSimEngine: just remove the model from the model list and give the value of the measurement in the status:
 
 ```@example usepkg
-m2 = ModelMapping(
+m2 = PlantSimEngine.ModelMapping(
     Process1Model(2.0), 
     Process2Model(),
     Process3Model(),
@@ -103,7 +103,7 @@ end
 Now we can create a new model list with the new model for `process7`:
 
 ```@example usepkg
-m3 = ModelMapping(
+m3 = PlantSimEngine.ModelMapping(
     ForceProcess1Model(), 
     Process2Model(),
     Process3Model(),

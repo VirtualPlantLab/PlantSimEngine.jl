@@ -1,5 +1,11 @@
 # Introduction to multi-rate execution
 
+!!! warning "Legacy mapping configuration"
+    The scheduling concepts remain valid, but this page uses qualified
+    compatibility transforms. New scene/object simulations configure rates
+    with `TimeStep(...)`, value transfer with `Inputs(...)`, and meteorology
+    with `Environment(...)`.
+
 This page introduces the basic ideas behind multi-rate execution in
 PlantSimEngine.
 
@@ -24,7 +30,7 @@ Before building a larger example, it helps to establish two important rules:
 
 ### Simple example with implicit meteo cadence
 
-Model may define a trait calles `timestep_hint` that describes the acceptable and preferred cadences for that model. However, that trait is purely descriptive: it does not force the model to run at any particular rate. If you want to force a model to run at a specific cadence, you must declare an explicit `TimeStepModel(...)` in the mapping. Otherwise, the model will simply run whenever the meteo cadence allows it to, and the `timestep_hint` can be used for validation or explanation but does not silently reschedule the model.
+Model may define a trait calles `timestep_hint` that describes the acceptable and preferred cadences for that model. However, that trait is purely descriptive: it does not force the model to run at any particular rate. If you want to force a model to run at a specific cadence, you must declare an explicit `PlantSimEngine.TimeStepModel(...)` in the mapping. Otherwise, the model will simply run whenever the meteo cadence allows it to, and the `timestep_hint` can be used for validation or explanation but does not silently reschedule the model.
 
 Let's define a tiny model that simply counts how many times it ran, then feed it
 three 30-minute weather rows:
@@ -54,10 +60,10 @@ end
 PlantSimEngine.timestep_hint(::Type{<:TutorialMeteoDrivenModel}) = (; required=(Minute(30), Hour(2)), preferred=Hour(1))
 ```
 
-This model is designed to run between every 30 minutes and every 2 hours, with a preferred cadence of 1 hour. Let's make a mapping with the model but without an explicit `TimeStepModel(...)`:
+This model is designed to run between every 30 minutes and every 2 hours, with a preferred cadence of 1 hour. Let's make a mapping with the model but without an explicit `PlantSimEngine.TimeStepModel(...)`:
 
 ```@example multirate_timestep_flow
-mapping = ModelMapping(:Leaf => (TutorialMeteoDrivenModel(Ref(0)),))
+mapping = PlantSimEngine.ModelMapping(:Leaf => (TutorialMeteoDrivenModel(Ref(0)),))
 ```
 
 Let's define a 30-minute weather table with three rows:
@@ -100,7 +106,7 @@ that, PlantSimEngine needs instructions for two distinct questions:
 - how to combine 30-minute meteorological rows into the hourly meteo seen by the
   coarse model.
 
-That is what `InputBindings(...)` and `MeteoBindings(...)` are for.
+That is what `PlantSimEngine.InputBindings(...)` and `PlantSimEngine.MeteoBindings(...)` are for.
 In this tiny example, we keep the mapping simple by declaring the default
 reduction policy on the source model itself with `output_policy(...)`. Since `A`
 has a unique producer on the same scale, PlantSimEngine can infer the source
@@ -145,22 +151,22 @@ end
 Now we can declare a mapping that says the hourly model runs every hour, even though its source data arrives every 30 minutes. We also declare how to reduce the meteorological inputs to match the hourly cadence:
 
 ```@example multirate_timestep_flow
-mapping_coarse = ModelMapping(
+mapping_coarse = PlantSimEngine.ModelMapping(
     :Leaf => (
         ModelSpec(TutorialHalfHourSourceModel(Ref(0))),
         ModelSpec(TutorialHourlyIntegratorModel()) |>
-        TimeStepModel(Hour(1)) |>
-        MeteoBindings(; T=MeanWeighted()),
+        PlantSimEngine.TimeStepModel(Hour(1)) |>
+        PlantSimEngine.MeteoBindings(; T=MeanWeighted()),
     ),
 )
 ```
 
-Setting the `TimeStepModel(Hour(1))` forces the second model to run hourly. Since it consumes `A` from the first model, PlantSimEngine looks at the source model's `output_policy(...)` and sees that it should integrate `A` over the hour using the duration of each 30-minute row as weights.
+Setting the `PlantSimEngine.TimeStepModel(Hour(1))` forces the second model to run hourly. Since it consumes `A` from the first model, PlantSimEngine looks at the source model's `output_policy(...)` and sees that it should integrate `A` over the hour using the duration of each 30-minute row as weights.
 
 !!! note
-    If we had omitted `TimeStepModel(Hour(1))`, the hourly model would have simply run on each 30-minute row, and the `output_policy(...)` on the source model would not have been triggered. The hourly model would have received the original 30-minute `A` values instead of an hourly aggregate. This illustrates the key point: `TimeStepModel(...)` is what triggers the multi-rate coupling and the use of reduction policies.
+    If we had omitted `PlantSimEngine.TimeStepModel(Hour(1))`, the hourly model would have simply run on each 30-minute row, and the `output_policy(...)` on the source model would not have been triggered. The hourly model would have received the original 30-minute `A` values instead of an hourly aggregate. This illustrates the key point: `PlantSimEngine.TimeStepModel(...)` is what triggers the multi-rate coupling and the use of reduction policies.
 
-In our example, the hourly model does not declare a `timestep_hint`, so it can run at any cadence. By declaring `TimeStepModel(Hour(1))`, we explicitly force it to run hourly, which means it will receive aggregated inputs and meteo.
+In our example, the hourly model does not declare a `timestep_hint`, so it can run at any cadence. By declaring `PlantSimEngine.TimeStepModel(Hour(1))`, we explicitly force it to run hourly, which means it will receive aggregated inputs and meteo.
 
 !!! note
     Because our hourly model does not declare a `timestep_hint`, it is flexible and can run at any cadence. However, if we had declared a `timestep_hint` that did not include hourly as an acceptable cadence, then PlantSimEngine would have raised an error when we tried to force it to run hourly. Consequently, it is usually a good practice to declare a `timestep_hint` when writing a model, because it helps to ensure that the model is used in a way that is consistent with its design and intended use.

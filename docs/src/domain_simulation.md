@@ -1,5 +1,12 @@
 # Domain simulations
 
+!!! warning "Legacy configuration API"
+    This page documents the domain prototype retained for regression coverage.
+    Its constructors are not exported and require qualified
+    `PlantSimEngine.*` names.
+    New scenarios should use the unified scene/object API described in
+    [Migrating To The Scene/Object API](migration_scene_object.md).
+
 Domain simulations let you reuse complete plant, soil, scene, or environment
 model mappings without renaming their internal scales and processes.
 
@@ -16,7 +23,7 @@ chosen only to show domain coupling and multi-rate execution.
 First we define a few small models. The plant domains compute absorbed radiation
 and transpiration hourly. The soil domain computes water content and evaporation
 hourly. The scene domain runs daily and consumes all plant transpiration plus
-soil evaporation through explicit `AllDomains(...)` value dependencies. These
+soil evaporation through explicit `PlantSimEngine.AllDomains(...)` value dependencies. These
 dependencies read already-published producer streams; they do not manually run
 the producer models.
 
@@ -88,13 +95,13 @@ PlantSimEngine.inputs_(::DocDomainSceneEvapotranspirationModel) = NamedTuple()
 PlantSimEngine.outputs_(::DocDomainSceneEvapotranspirationModel) = (evapotranspiration=0.0,)
 
 PlantSimEngine.dep(::DocDomainSceneEvapotranspirationModel) = (
-    plant_transpiration=AllDomains(kind=:plant, process=:doc_domain_plant_transpiration, var=:transpiration, policy=Integrate()),
-    soil_evaporation=AllDomains(kind=:soil, process=:doc_domain_soil_evaporation, var=:evaporation, policy=Integrate()),
+    plant_transpiration=PlantSimEngine.AllDomains(kind=:plant, process=:doc_domain_plant_transpiration, var=:transpiration, policy=Integrate()),
+    soil_evaporation=PlantSimEngine.AllDomains(kind=:soil, process=:doc_domain_soil_evaporation, var=:evaporation, policy=Integrate()),
 )
 
 function PlantSimEngine.run!(::DocDomainSceneEvapotranspirationModel, models, status, meteo, constants=nothing, extra=nothing)
-    plant_values = dependency_values(extra, :plant_transpiration)
-    soil_values = dependency_values(extra, :soil_evaporation)
+    plant_values = PlantSimEngine.dependency_values(extra, :plant_transpiration)
+    soil_values = PlantSimEngine.dependency_values(extra, :soil_evaporation)
     status.evapotranspiration =
         sum(filter(x -> !isnothing(x), plant_values)) +
         sum(filter(x -> !isnothing(x), soil_values))
@@ -109,34 +116,34 @@ could be completely different plant models, with different processes and
 different internal mappings.
 
 ```@example domains
-oil_palm_mapping = ModelMapping(
-    ModelSpec(DocDomainAbsorbedRadiationModel(0.5)) |> TimeStepModel(Hour(1)),
-    ModelSpec(DocDomainPlantTranspirationModel(0.01)) |> TimeStepModel(Hour(1)),
+oil_palm_mapping = PlantSimEngine.ModelMapping(
+    ModelSpec(DocDomainAbsorbedRadiationModel(0.5)) |> PlantSimEngine.TimeStepModel(Hour(1)),
+    ModelSpec(DocDomainPlantTranspirationModel(0.01)) |> PlantSimEngine.TimeStepModel(Hour(1)),
     status=(absorbed_radiation=0.0, transpiration=0.0),
 )
 
-maize_mapping = ModelMapping(
-    ModelSpec(DocDomainAbsorbedRadiationModel(0.3)) |> TimeStepModel(Hour(1)),
-    ModelSpec(DocDomainPlantTranspirationModel(0.02)) |> TimeStepModel(Hour(1)),
+maize_mapping = PlantSimEngine.ModelMapping(
+    ModelSpec(DocDomainAbsorbedRadiationModel(0.3)) |> PlantSimEngine.TimeStepModel(Hour(1)),
+    ModelSpec(DocDomainPlantTranspirationModel(0.02)) |> PlantSimEngine.TimeStepModel(Hour(1)),
     status=(absorbed_radiation=0.0, transpiration=0.0),
 )
 
-soil_mapping = ModelMapping(
-    ModelSpec(DocDomainSoilWaterModel(0.35)) |> TimeStepModel(Hour(1)),
-    ModelSpec(DocDomainSoilEvaporationModel(0.2)) |> TimeStepModel(Hour(1)),
+soil_mapping = PlantSimEngine.ModelMapping(
+    ModelSpec(DocDomainSoilWaterModel(0.35)) |> PlantSimEngine.TimeStepModel(Hour(1)),
+    ModelSpec(DocDomainSoilEvaporationModel(0.2)) |> PlantSimEngine.TimeStepModel(Hour(1)),
     status=(soil_water_content=0.0, evaporation=0.0),
 )
 
-scene_mapping = ModelMapping(
-    ModelSpec(DocDomainSceneEvapotranspirationModel()) |> TimeStepModel(Day(1)),
+scene_mapping = PlantSimEngine.ModelMapping(
+    ModelSpec(DocDomainSceneEvapotranspirationModel()) |> PlantSimEngine.TimeStepModel(Day(1)),
     status=(evapotranspiration=0.0,),
 )
 
-simulation_mapping = SimulationMapping(
-    Domain(:oil_palm, oil_palm_mapping; kind=:plant),
-    Domain(:maize, maize_mapping; kind=:plant),
-    Domain(:soil, soil_mapping; kind=:soil),
-    Domain(:scene, scene_mapping; kind=:scene),
+simulation_mapping = PlantSimEngine.SimulationMapping(
+    PlantSimEngine.Domain(:oil_palm, oil_palm_mapping; kind=:plant),
+    PlantSimEngine.Domain(:maize, maize_mapping; kind=:plant),
+    PlantSimEngine.Domain(:soil, soil_mapping; kind=:soil),
+    PlantSimEngine.Domain(:scene, scene_mapping; kind=:scene),
 )
 nothing
 ```
@@ -163,7 +170,7 @@ Domain simulations expose small structured explanation helpers. These are meant
 for users and for agents that need to repair a mapping from concrete symbols.
 
 ```@example domains
-sort([(row.domain, row.kind) for row in explain_domains(sim)])
+sort([(row.domain, row.kind) for row in PlantSimEngine.explain_domains(sim)])
 ```
 
 ```@example domains
@@ -172,7 +179,7 @@ sort([(row.domain, row.process, row.dt_seconds) for row in explain_schedule(sim)
 
 ```@example domains
 sort(
-    [(row.dependency, string(row.producer), row.policy) for row in explain_domain_dependencies(sim)];
+    [(row.dependency, string(row.producer), row.policy) for row in PlantSimEngine.explain_domain_dependencies(sim)];
     by=string,
 )
 ```
@@ -182,26 +189,26 @@ The model-level explanation also includes the weather variables declared with
 `meteo_outputs_`:
 
 ```@example domains
-[(row.domain, row.process, collect(keys(row.meteo_inputs))) for row in explain_domain_models(sim) if !isempty(row.meteo_inputs)]
+[(row.domain, row.process, collect(keys(row.meteo_inputs))) for row in PlantSimEngine.explain_domain_models(sim) if !isempty(row.meteo_inputs)]
 ```
 
 ## Explicit routes
 
-`AllDomains(...)` value dependencies are the most direct way for a scene model
+`PlantSimEngine.AllDomains(...)` value dependencies are the most direct way for a scene model
 to consume several domain outputs. Routes are another option when you want to
 materialize values into the target status before the target model runs.
 
 ```julia
-Route(
-    from=AllDomains(kind=:plant, process=:plant_transpiration, var=:transpiration),
-    to=DomainRouteTarget(:scene, var=:plant_transpirations, process=:scene_evapotranspiration),
-    cardinality=ManyToOneVector(),
+PlantSimEngine.Route(
+    from=PlantSimEngine.AllDomains(kind=:plant, process=:plant_transpiration, var=:transpiration),
+    to=PlantSimEngine.DomainRouteTarget(:scene, var=:plant_transpirations, process=:scene_evapotranspiration),
+    cardinality=PlantSimEngine.ManyToOneVector(),
 )
 ```
 
-Use `ManyToOneVector()` when the target model needs one value per matching
-producer, and `ManyToOneAggregate(f)` when it needs a scalar reduction. For an
-MTG-backed target domain, `OneToManyBroadcast()` can broadcast one source value
+Use `PlantSimEngine.ManyToOneVector()` when the target model needs one value per matching
+producer, and `PlantSimEngine.ManyToOneAggregate(f)` when it needs a scalar reduction. For an
+MTG-backed target domain, `PlantSimEngine.OneToManyBroadcast()` can broadcast one source value
 into every status at the target scale before that domain runs.
 
 When a route targets a single-status domain variable consumed by one target
@@ -216,19 +223,19 @@ not require every timestep to publish vectors with the same length.
 
 ## Hard-domain dependencies
 
-Use `HardDomains(...)` when a model must manually run selected producer
+Use `PlantSimEngine.HardDomains(...)` when a model must manually run selected producer
 models, for example to control an iterative energy-balance solver:
 
 ```julia
 PlantSimEngine.dep(::SceneEnergyBalanceModel) = (
-    leaf_energy=HardDomains(kind=:plant, scale=:Leaf, process=:leaf_energy_balance),
+    leaf_energy=PlantSimEngine.HardDomains(kind=:plant, scale=:Leaf, process=:leaf_energy_balance),
 )
 
 function PlantSimEngine.run!(::SceneEnergyBalanceModel, models, status, meteo, constants=nothing, extra=nothing)
-    leaf_targets = dependency_targets(extra, :leaf_energy)
+    leaf_targets = PlantSimEngine.dependency_targets(extra, :leaf_energy)
     for iteration in 1:10
         for target in leaf_targets
-            run_target!(target)
+            PlantSimEngine.run_target!(target)
         end
         converged(status) && break
     end
@@ -248,7 +255,7 @@ calls:
 
 ```julia
 function PlantSimEngine.run!(::PhyllochronModel, models, status, meteo, constants, extra)
-    run_target!(models, status, :phytomer_emission; meteo=meteo, constants=constants, extra=extra)
+    PlantSimEngine.run_target!(models, status, :phytomer_emission; meteo=meteo, constants=constants, extra=extra)
     return nothing
 end
 ```
@@ -260,9 +267,9 @@ When running on an MTG, the `selector` decides which subtree roots belong to
 the domain:
 
 ```julia
-oil_palm = Domain(:oil_palm, xpalm_mapping; kind=:plant, selector=node -> node[:species] == :oil_palm)
-maize = Domain(:maize, maize_mapping; kind=:plant, selector=node -> node[:species] == :maize)
-sim = run!(scene_mtg, SimulationMapping(oil_palm, maize, scene), meteo)
+oil_palm = PlantSimEngine.Domain(:oil_palm, xpalm_mapping; kind=:plant, selector=node -> node[:species] == :oil_palm)
+maize = PlantSimEngine.Domain(:maize, maize_mapping; kind=:plant, selector=node -> node[:species] == :maize)
+sim = run!(scene_mtg, PlantSimEngine.SimulationMapping(oil_palm, maize, scene), meteo)
 ```
 
 Status inspection keeps both the domain-local view and the global scale view:
@@ -275,7 +282,7 @@ status(sim, :Leaf)             # all leaves across graph-backed domains
 
 If a declared graph scale currently has no active statuses, for example after
 pruning all leaves, these status queries return `Status[]`. The same empty scale
-is reported by `explain_domain_statuses(sim)` with `nstatuses=0`.
+is reported by `PlantSimEngine.explain_domain_statuses(sim)` with `nstatuses=0`.
 
 Selectors can also match several non-overlapping roots, for example
 `selector=:Plant` to run one mapping over every plant subtree. Selectors that

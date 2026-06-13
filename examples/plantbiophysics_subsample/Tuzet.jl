@@ -58,7 +58,7 @@ using PlantMeteo, PlantSimEngine, PlantBiophysics
 meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
 
 leaf =
-    ModelMapping(
+    PlantSimEngine.ModelMapping(
         stomatal_conductance = Tuzet(0.03, 12.0, -1.5, 2.0, 30.0),
         status = (Cₛ = 380.0, Ψₗ = -1.0)
     )

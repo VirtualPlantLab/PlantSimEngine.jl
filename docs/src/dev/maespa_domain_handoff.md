@@ -1,8 +1,9 @@
-# MAESPA-Style Domain Example Handoff
+# MAESPA-Style Domain And Scene Example Handoff
 
 The example in `examples/maespa_domain_example.jl` is the executable test bed
-for the current hard-domain and scene microclimate prototype. It is also a good
-migration target for the future unified scene/object design.
+for the current hard-domain prototype and the unified scene/object migration.
+The domain path remains as regression coverage while the scene/object path is
+the target API acceptance example.
 
 ## Current Example Shape
 
@@ -20,6 +21,66 @@ migration target for the future unified scene/object design.
   `:soil_water` target.
 - Plant allocation runs daily through the normal plant-local dependency graph.
 
+## Unified Scene/Object Example Shape
+
+The same file now also provides `build_maespa_unified_scene(...)` and
+`run_maespa_scene_example(...)`.
+
+- The scene is a single object graph with a `:Scene` object, one shared
+  `:Soil` object, and two mounted plant instances.
+- Species A and B are reusable `ObjectTemplate`s. Each instance mounts the
+  same leaf model stack shape inside a named plant subtree, with different
+  species parameters.
+- The leaf stack uses the copied PlantBiophysics subsample models:
+  `Monteith`, `Fvcb`, and `Tuzet`.
+- `Monteith` declares a scene `Calls(:photosynthesis => ...)` application, and
+  `Fvcb` declares `Calls(:stomatal_conductance => ...)`. The scene runtime
+  builds the small hard-dependency `models` bundle expected by these generic
+  kernels.
+- `SceneEB` is a scene application:
+
+```julia
+ModelSpec(scene_model; name=:scene_eb) |>
+    AppliesTo(One(scale=:Scene)) |>
+    Calls(
+        :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+        :soil => One(kind=:soil, scale=:Soil, process=:soil_water),
+    ) |>
+    TimeStep(Dates.Hour(1))
+```
+
+- `LAIModel` is a scene application with a single `Inputs(...)` leaf-area
+  binding:
+
+```julia
+ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
+    AppliesTo(One(scale=:Scene)) |>
+    Inputs(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(),
+                               process=:leaf_state, var=:leaf_area)) |>
+    TimeStep(Dates.Day(1))
+```
+
+- Plant allocation is a plant-local application:
+
+```julia
+ModelSpec(AllocA(...); name=:allocation) |>
+    AppliesTo(One(scale=:Plant)) |>
+    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon)) |>
+    TimeStep(Dates.Day(1))
+```
+
+The scene runtime still uses the existing generic model kernel signature:
+
+```julia
+run!(model, models, status, meteo, constants, extra)
+```
+
+For manual scene calls, `run_call!(target; meteo=local_meteo)` lets a parent
+solver pass trial microclimate directly into the callee. The default is
+`publish=false`, so trial calls mutate target status without publishing
+temporal samples or environment outputs. This is how `SceneEB` controls the
+iterative canopy T/VPD solution.
+
 ## Manual Call Expectations
 
 - `Calls(:energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance))`
@@ -27,8 +88,8 @@ migration target for the future unified scene/object design.
   bridge.
 - `Calls(:soil => One(kind=:soil, process=:soil_water))` selects the shared
   soil model through the current hard-domain bridge.
-- `dependency_targets(extra, :energy_balance)` returns executable leaf targets.
-- `run_call!(target; publish=false)` is used during trial iterations.
+- `call_targets(extra, :energy_balance)` returns executable leaf targets.
+- `run_call!(target)` is used during trial iterations.
 - `run_call!(target; publish=true)` is used for the accepted final solution
   so outputs are appended once to domain streams and `DomainSimulation.outputs`.
 - Trial target runs mutate target status. Irreversible accumulators such as
@@ -60,7 +121,10 @@ computes `leaf_area` and `lai` in the scene domain.
 
 ## Verification Expectations
 
-The focused test `test/test-maespa-domain-example.jl` should verify:
+The focused test `test/test-maespa-domain-example.jl` verifies both the domain
+regression path and the unified scene/object path.
+
+For the domain path it should verify:
 
 - Species A has two leaves and species B has three leaves.
 - `:energy_balance` hard-domain outputs are published once per leaf per hour.
@@ -72,13 +136,39 @@ The focused test `test/test-maespa-domain-example.jl` should verify:
 - Daily allocation differs between the two plant species because their
   allocation parameters differ.
 
-## Future Migration Target
+For the unified scene/object path it should verify:
 
-The MAESPA example has already moved away from explicit user-level
-`Route(...)` and `HardDomains(...)`: leaf area materialization is declared with
-`Inputs(...)`, and manual energy-balance calls are declared with `Calls(...)`.
+- The object graph contains five leaves, two plant instances, one shared soil
+  object, and one scene object.
+- `explain_instances(scene)` reports species A and B instance membership and
+  their mounted application ids.
+- `explain_calls(compiled)` reports the scene energy-balance calls to all leaf
+  energy-balance applications and the shared soil application.
+- Nested leaf calls report `Monteith -> Fvcb -> Tuzet`.
+- `explain_model_bundles(compiled)` confirms that every leaf energy-balance
+  target receives the precompiled `energy_balance`, `photosynthesis`, and
+  `stomatal_conductance` model bundle expected by the copied PlantBiophysics
+  kernels.
+- `explain_bindings(compiled)` reports live-reference leaf-area and
+  plant-local leaf-carbon bindings.
+- `explain_schedule(compiled)` reports hourly scene energy balance, daily LAI
+  and allocation clocks, and manual-call-only leaf/soil applications.
+- `run_maespa_scene_example(...)` returns a `SceneSimulation` in
+  `result.simulation`, so `collect_outputs(result.simulation)` and
+  `explain_outputs(result.simulation)` expose the scene-local output streams.
+- If `OutputRequest(...)` values are passed through the scene run, requested
+  exports should be available from `collect_outputs(result.simulation,
+  :request_name)` using the same retained scene output streams.
+- Scene microclimate, leaf energy, plant allocation, and soil feedback remain
+  finite and coupled after a 25-hour run.
 
-Expected migration:
+## Remaining Migration Target
+
+The MAESPA example has now moved away from explicit user-level `Route(...)` and
+`HardDomains(...)` in the scene/object path. The domain path still exists as
+regression coverage until the old domain runtime is removed.
+
+The target public form is:
 
 ```julia
 ModelSpec(LAIModel(ground_area)) |>

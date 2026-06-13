@@ -17,7 +17,7 @@ meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"),
 ### Single-scale simulation
 ##############################
 
-models_singlescale = ModelMapping(
+models_singlescale = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2),
@@ -29,7 +29,7 @@ outputs_singlescale = run!(models_singlescale, meteo_day)
 ##############################
 #### Direct translation of the single-scale simulation
 ##############################
-mapping_pseudo_multiscale = ModelMapping(
+mapping_pseudo_multiscale = PlantSimEngine.ModelMapping(
     :Plant => (
         ToyLAIModel(),
         Beer(0.5),
@@ -69,13 +69,13 @@ end
 #### Actual multiscale version of the single-scale simulation
 ##############################
 
-mapping_multiscale = ModelMapping(
+mapping_multiscale = PlantSimEngine.ModelMapping(
     :Scene => (
         ToyTt_CuModel(),
         Status(TT_cu=0.0),
     ),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => (:Scene => :TT_cu),

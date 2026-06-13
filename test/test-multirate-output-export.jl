@@ -97,10 +97,10 @@ end
     meteo4 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 4))
 
     # Stream-only producer remains exportable when process is explicit.
-    mapping_stream = ModelMapping(
+    mapping_stream = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
-            TimeStepModel(1.0) |>
+            TimeStep(1.0) |>
             OutputRouting(; X=:stream_only),
         ),
     )
@@ -131,10 +131,10 @@ end
     )
 
     # Canonical routing allows omitting process in requests.
-    mapping_canonical = ModelMapping(
+    mapping_canonical = PlantSimEngine.ModelMapping(
         :Leaf => (
             ModelSpec(MRExportSourceModel(Ref(0))) |>
-            TimeStepModel(1.0),
+            TimeStep(1.0),
         ),
     )
 
@@ -147,14 +147,27 @@ end
     )
     exported_auto = collect_outputs(sim_canonical; sink=DataFrame)
     @test exported_auto[:x_auto][:, :value] == [1.0, 2.0, 3.0, 4.0]
+    @test_throws "`application=` in `OutputRequest` is only supported" run!(
+        sim_canonical,
+        meteo4,
+        executor=SequentialEx(),
+        tracked_outputs=[
+            OutputRequest(
+                :Leaf,
+                :X;
+                name=:x_application_unsupported,
+                application=:leaf_source,
+            ),
+        ],
+    )
 
     # Optional direct export return from run! on GraphSimulation.
     sim_direct = PlantSimEngine.GraphSimulation(
         mtg,
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
-                TimeStepModel(1.0),
+                TimeStep(1.0),
             ),
         ),
         nsteps=4,
@@ -174,10 +187,10 @@ end
     # Optional direct export return from run! on MTG + mapping entry point.
     out_status_mtg, out_requested_mtg = run!(
         mtg,
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             :Leaf => (
                 ModelSpec(MRExportSourceModel(Ref(0))) |>
-                TimeStepModel(1.0),
+                TimeStep(1.0),
             ),
         ),
         meteo4;
@@ -198,17 +211,17 @@ end
         Atmosphere(T=30.0, Wind=1.0, Rh=0.65),
         Atmosphere(T=40.0, Wind=1.0, Rh=0.65),
     ])
-    dynamic_mapping = ModelMapping(
+    dynamic_mapping = PlantSimEngine.ModelMapping(
         :Plant => (
             ModelSpec(MRDynamicGrowModel()) |>
-            TimeStepModel(1.0) |>
-            ScopeModel(:plant),
+            TimeStep(1.0) |>
+            PlantSimEngine.ScopeModel(:plant),
         ),
         :Leaf => (
             ModelSpec(MRDynamicLeafSourceModel()) |>
-            MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
-            TimeStepModel(1.0) |>
-            ScopeModel(:plant),
+            PlantSimEngine.MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
+            TimeStep(1.0) |>
+            PlantSimEngine.ScopeModel(:plant),
         ),
     )
     dynamic_sim = PlantSimEngine.GraphSimulation(
@@ -238,17 +251,17 @@ end
     # vectors when temporal outputs are exported.
     many_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     many_plant = Node(many_mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
-    many_mapping = ModelMapping(
+    many_mapping = PlantSimEngine.ModelMapping(
         :Plant => (
             ModelSpec(MRDynamicGrowManyModel()) |>
-            TimeStepModel(1.0) |>
-            ScopeModel(_mr_custom_plant_scope),
+            TimeStep(1.0) |>
+            PlantSimEngine.ScopeModel(_mr_custom_plant_scope),
         ),
         :Leaf => (
             ModelSpec(MRDynamicLeafSourceModel()) |>
-            MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
-            TimeStepModel(1.0) |>
-            ScopeModel(_mr_custom_plant_scope),
+            PlantSimEngine.MultiScaleModel([:nleaves => (:Plant => :nleaves)]) |>
+            TimeStep(1.0) |>
+            PlantSimEngine.ScopeModel(_mr_custom_plant_scope),
         ),
     )
     many_sim = PlantSimEngine.GraphSimulation(
@@ -283,15 +296,15 @@ end
 
     meteo8 = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], 8))
 
-    mapping_defaults = ModelMapping(
+    mapping_defaults = PlantSimEngine.ModelMapping(
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=MRDefaultLeafSourceModel(Ref(0)),
                 mapped_variables=[:X => (:Plant => :X)],
             ),
         ),
         :Plant => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=MRDefaultPlantAggModel(),
                 mapped_variables=[:XP => (:Scene => :XP)],
             ),

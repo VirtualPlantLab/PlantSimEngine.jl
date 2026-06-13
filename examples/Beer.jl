@@ -45,7 +45,7 @@ initialisations for `LAI` (m² m⁻²): the leaf area index.
 # Examples
 
 ```julia
-m = ModelMapping(Beer(0.5), status=(LAI=2.0,))
+m = PlantSimEngine.ModelMapping(Beer(0.5), status=(LAI=2.0,))
 
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_q=300.0)
 
@@ -95,7 +95,7 @@ using PlantSimEngine.Examples
 Create a model list with a Beer model, and fit it to the data:
 
 ```julia
-m = ModelMapping(Beer(0.6), status=(LAI=2.0,))
+m = PlantSimEngine.ModelMapping(Beer(0.6), status=(LAI=2.0,))
 meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
 run!(m, meteo)
 df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])

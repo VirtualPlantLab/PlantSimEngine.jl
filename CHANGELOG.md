@@ -21,7 +21,7 @@ and substantially expands the documentation.
 The main user-facing breaking change in this release is the move toward
 `Symbol`-based scale names in mappings and multi-scale configuration. Code that
 still uses string scales such as `"Leaf"` or `"Plant"` should be updated to use
-symbols such as `:Leaf` and `:Plant`, especially in `ModelMapping(...)`,
+symbols such as `:Leaf` and `:Plant`, especially in `PlantSimEngine.ModelMapping(...)`,
 `MultiScaleModel(...)`, and explicit multi-rate bindings. `ModelList` is also on
 the deprecation path in favor of `ModelMapping`, so this release is a good time
 to migrate mapping code to the newer API.
@@ -77,12 +77,12 @@ to migrate mapping code to the newer API.
 
 ### Deprecated
 
-- `run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)`
+- `run!(::ModelList, ...)` is deprecated. Use `run!(PlantSimEngine.ModelMapping(...), ...)`
   instead.
 - `run!` with collections of `ModelList` is deprecated. Use collections of
   `ModelMapping` instead.
 - `run!(mtg, mapping::AbstractDict, ...)` is deprecated. Construct a
-  `ModelMapping(...)` first, or call `run!(mtg, ModelMapping(mapping), ...)`.
+  `PlantSimEngine.ModelMapping(...)` first, or call `run!(mtg, PlantSimEngine.ModelMapping(mapping), ...)`.
 - String scale names are deprecated in multi-scale mapping APIs. Use `Symbol`
   scales such as `:Leaf` instead of `"Leaf"`.
 - `ModelList` remains available for now but is being phased out in favor of
@@ -93,7 +93,7 @@ to migrate mapping code to the newer API.
 #### 1. Replace ad hoc mappings with `ModelMapping`
 
 If you previously used `ModelList(...)` directly for single-scale runs, or a
-plain `Dict` for MTG runs, migrate to `ModelMapping(...)`.
+plain `Dict` for MTG runs, migrate to `PlantSimEngine.ModelMapping(...)`.
 
 Before:
 
@@ -113,13 +113,13 @@ mapping = Dict(
 After:
 
 ```julia
-leaf = ModelMapping(
+leaf = PlantSimEngine.ModelMapping(
     process1 = Process1Model(),
     process2 = Process2Model(),
     status = (x = 1.0,),
 )
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
     :Plant => (ToyGrowthModel(),),
 )
@@ -133,7 +133,7 @@ When a model should run at a cadence different from the meteo, wrap it in
 Typical pattern:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         ModelSpec(HourlyLeafModel()) |> TimeStepModel(1.0),
     ),
@@ -180,7 +180,7 @@ If your mappings still use string scales, migrate them to symbols.
 Before:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     "Leaf" => (ToyAssimModel(),),
 )
 
@@ -191,7 +191,7 @@ MultiScaleModel([:A => "Leaf"])
 After:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
 )
 

@@ -42,29 +42,143 @@ include("../examples/maespa_domain_example.jl")
     @test plant_a_status.daily_growth != plant_b_status.daily_growth
     @test plant_a_status.leaf_pool != plant_b_status.leaf_pool
 
-    deps = explain_domain_dependencies(sim)
+    deps = PlantSimEngine.explain_domain_dependencies(sim)
     @test count(row -> row.mode == :hard_domain && row.dependency == :energy_balance, deps) == 2
     @test count(row -> row.mode == :hard_domain && row.dependency == :soil, deps) == 1
 
-    @test length(sim.outputs[(DomainModelKey(:plant_A, :Leaf, :energy_balance), :λE)]) == 2 * 24
-    @test length(sim.outputs[(DomainModelKey(:plant_B, :Leaf, :energy_balance), :λE)]) == 3 * 24
-    @test length(sim.outputs[(DomainModelKey(:soil, :Default, :soil_water), :psi_soil)]) == 24
-    @test length(sim.outputs[(DomainModelKey(:scene, :Default, :lai_dynamic), :lai)]) == 1
-    @test length(sim.outputs[(DomainModelKey(:scene, :Default, :scene_eb), :scene_transpiration)]) == 24
+    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:plant_A, :Leaf, :energy_balance), :λE)]) == 2 * 24
+    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:plant_B, :Leaf, :energy_balance), :λE)]) == 3 * 24
+    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:soil, :Default, :soil_water), :psi_soil)]) == 24
+    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:scene, :Default, :lai_dynamic), :lai)]) == 1
+    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:scene, :Default, :scene_eb), :scene_transpiration)]) == 24
     @test status(sim, :soil).transpiration ≈ scene_status.scene_transpiration
     @test status(sim, :soil).psi_soil ≈ scene_status.psi_soil
+end
+
+@testset "MAESPA-style unified scene example" begin
+    result = run_maespa_scene_example(; nhours=25, check=true)
+    scene = result.scene
+    compiled = result.compiled
+
+    @test length(scene_objects(scene; scale=:Leaf)) == 5
+    @test length(scene_objects(scene; scale=:Leaf, species=:A)) == 2
+    @test length(scene_objects(scene; scale=:Leaf, species=:B)) == 3
+    @test length(scene_objects(scene; scale=:Plant)) == 2
+    @test length(scene_objects(scene; kind=:soil)) == 1
+
+    instance_rows = explain_instances(scene)
+    @test Set(row.name for row in instance_rows) == Set([:plant_A, :plant_B])
+    plant_a_instance = only(row for row in instance_rows if row.name == :plant_A)
+    plant_b_instance = only(row for row in instance_rows if row.name == :plant_B)
+    @test plant_a_instance.object_ids == [:plant_A, :plant_A_axis, :plant_A_leaf_1, :plant_A_leaf_2]
+    @test plant_b_instance.object_ids == [:plant_B, :plant_B_axis, :plant_B_leaf_1, :plant_B_leaf_2, :plant_B_leaf_3]
+    @test :plant_A__energy_balance in plant_a_instance.application_ids
+    @test :plant_B__allocation in plant_b_instance.application_ids
+
+    calls = explain_calls(compiled)
+    scene_energy_call = only(row for row in calls if row.application_id == :scene_eb && row.call == :energy_balance)
+    @test scene_energy_call.callee_object_ids == [
+        :plant_A_leaf_1,
+        :plant_A_leaf_2,
+        :plant_B_leaf_1,
+        :plant_B_leaf_2,
+        :plant_B_leaf_3,
+    ]
+    @test Set(scene_energy_call.callee_application_ids) == Set([:plant_A__energy_balance, :plant_B__energy_balance])
+    @test scene_energy_call.publication_policy == :explicit_accept
+    @test !scene_energy_call.default_publish
+    @test scene_energy_call.accepted_publish
+    scene_soil_call = only(row for row in calls if row.application_id == :scene_eb && row.call == :soil)
+    @test scene_soil_call.callee_object_ids == [:soil]
+    @test scene_soil_call.callee_application_ids == [:soil_water]
+    @test count(row -> row.call == :photosynthesis, calls) == 5
+    @test count(row -> row.call == :stomatal_conductance, calls) == 5
+
+    leaf_energy_bundle = only(
+        row for row in explain_model_bundles(compiled)
+        if row.application_id == :plant_A__energy_balance &&
+           row.object_id == :plant_A_leaf_1
+    )
+    @test leaf_energy_bundle.processes == [
+        :energy_balance,
+        :photosynthesis,
+        :stomatal_conductance,
+    ]
+    @test leaf_energy_bundle.model_types == [Monteith{Float64,Int64}, Fvcb{Float64}, Tuzet{Float64}]
+
+    bindings = explain_bindings(compiled)
+    lai_binding = only(row for row in bindings if row.application_id == :lai_dynamic && row.input == :leaf_areas)
+    @test lai_binding.carrier_kind == :ref_vector
+    @test lai_binding.copy_semantics == :live_references
+    @test lai_binding.source_ids == scene_energy_call.callee_object_ids
+    plant_a_allocation_binding = only(row for row in bindings if row.application_id == :plant_A__allocation)
+    plant_b_allocation_binding = only(row for row in bindings if row.application_id == :plant_B__allocation)
+    @test plant_a_allocation_binding.source_ids == [:plant_A_leaf_1, :plant_A_leaf_2]
+    @test plant_b_allocation_binding.source_ids == [:plant_B_leaf_1, :plant_B_leaf_2, :plant_B_leaf_3]
+
+    schedule = explain_schedule(compiled)
+    @test only(row for row in schedule if row.application_id == :scene_eb).root_scheduled
+    @test only(row for row in schedule if row.application_id == :plant_A__energy_balance).manual_call_only
+    @test only(row for row in schedule if row.application_id == :soil_water).manual_call_only
+    @test only(row for row in schedule if row.application_id == :plant_A__allocation).dt_steps == 24.0
+    @test only(row for row in schedule if row.application_id == :lai_dynamic).dt_steps == 24.0
+
+    scene_simulation = result.simulation
+    @test scene_simulation isa SceneSimulation
+    output_rows = collect_outputs(scene_simulation; sink=nothing)
+    @test count(row -> row.variable == :λE, output_rows) == 5 * 25
+    @test count(row -> row.object_id == :soil && row.variable == :psi_soil, output_rows) == 25
+    @test count(row -> row.object_id == :scene && row.variable == :scene_transpiration, output_rows) == 25
+    @test count(row -> row.object_id == :scene && row.variable == :lai, output_rows) == 2
+    @test count(row -> row.variable == :daily_growth, output_rows) == 2 * 2
+    output_summary = explain_outputs(scene_simulation)
+    @test only(row for row in output_summary if row.object_id == :scene && row.variable == :scene_transpiration).nsamples == 25
+    @test only(row for row in output_summary if row.object_id == :plant_A_leaf_1 && row.variable == :λE).application_id == :plant_A__energy_balance
+
+    scene_status = only(scene_objects(scene; scale=:Scene)).status
+    last_meteo = last(maespa_meteo(; nhours=25))
+    vpd_above = max(0.01, last_meteo.VPD)
+    @test isfinite(scene_status.canopy_tair)
+    @test isfinite(scene_status.canopy_vpd)
+    @test isfinite(scene_status.canopy_rh)
+    @test scene_status.canopy_tair >= last_meteo.T - 10.0
+    @test scene_status.canopy_tair <= last_meteo.T + 10.0
+    @test scene_status.canopy_vpd >= max(0.01, vpd_above - 1.5)
+    @test scene_status.canopy_vpd <= vpd_above + 1.5
+    @test scene_status.scene_transpiration > 0.0
+    @test scene_status.iterations > 0
+
+    leaf_statuses = [object.status for object in scene_objects(scene; scale=:Leaf)]
+    @test scene_status.leaf_area ≈ sum(st.leaf_area for st in leaf_statuses)
+    @test scene_status.lai ≈ scene_status.leaf_area
+    @test collect(scene_status.leaf_areas) ≈ getproperty.(leaf_statuses, :leaf_area)
+    @test all(st -> isfinite(st.Tₗ), leaf_statuses)
+    @test all(st -> isfinite(st.A), leaf_statuses)
+    @test all(st -> isfinite(st.λE), leaf_statuses)
+    @test any(st -> abs(st.Tₗ - scene_status.canopy_tair) > 1.0e-6, leaf_statuses)
+
+    plant_a_status = only(scene_objects(scene; name=:plant_A)).status
+    plant_b_status = only(scene_objects(scene; name=:plant_B)).status
+    @test plant_a_status.daily_growth > 0.0
+    @test plant_b_status.daily_growth > 0.0
+    @test plant_a_status.daily_growth != plant_b_status.daily_growth
+    @test plant_a_status.leaf_pool != plant_b_status.leaf_pool
+
+    soil_status = only(scene_objects(scene; kind=:soil)).status
+    @test soil_status.transpiration ≈ scene_status.scene_transpiration
+    @test soil_status.psi_soil ≈ scene_status.psi_soil
 end
 
 @testset "MAESPA-style domain example validation" begin
     mtg = build_maespa_scene()
     meteo = maespa_meteo(; nhours=1)
 
-    soil_mapping = ModelMapping(
-        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStepModel(Dates.Hour(1)),
+    soil_mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStep(Dates.Hour(1)),
         status=(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0),
     )
-    scene_mapping = ModelMapping(
-        ModelSpec(LAIModel(1.0)) |> TimeStepModel(Dates.Hour(1)),
+    scene_mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(LAIModel(1.0)) |> TimeStep(Dates.Hour(1)),
         ModelSpec(SceneEB(25, 0.03, 0.005)) |>
         Calls(
             :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
@@ -85,9 +199,9 @@ end
             iterations=0,
         ),
     )
-    missing_leaf_mapping = SimulationMapping(
-        Domain(:soil, soil_mapping; kind=:soil),
-        Domain(:scene, scene_mapping; kind=:scene),
+    missing_leaf_mapping = PlantSimEngine.SimulationMapping(
+        PlantSimEngine.Domain(:soil, soil_mapping; kind=:soil),
+        PlantSimEngine.Domain(:scene, scene_mapping; kind=:scene),
     )
     @test_throws "Hard domain dependency `energy_balance`" run!(mtg, missing_leaf_mapping, meteo, check=true, executor=SequentialEx())
 
@@ -95,7 +209,7 @@ end
     scene_status = Status(lai=0.0, leaf_area=0.0)
     @test_throws "SceneEB did not converge after 0 iterations" _solve_scene_energy_balance!(
         SceneEB(0, 0.03, 0.005),
-        ModelTarget[],
+        PlantSimEngine.ModelTarget[],
         soil_target,
         scene_status,
         first(meteo),

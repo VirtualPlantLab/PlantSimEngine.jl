@@ -62,15 +62,15 @@ function PlantSimEngine.run!(::EnvironmentGraphTemperatureUpdateModel, models, s
 end
 
 PlantSimEngine.dep(::EnvironmentSceneHardGraphUpdateModel) = (
-    leaf_temperature=HardDomains(kind=:plant, scale=:Leaf, process=:environment_graph_temperature_update),
+    leaf_temperature=PlantSimEngine.HardDomains(kind=:plant, scale=:Leaf, process=:environment_graph_temperature_update),
 )
 PlantSimEngine.inputs_(::EnvironmentSceneHardGraphUpdateModel) = NamedTuple()
 PlantSimEngine.outputs_(::EnvironmentSceneHardGraphUpdateModel) = (hard_temperature_sum=0.0,)
 
 function PlantSimEngine.run!(::EnvironmentSceneHardGraphUpdateModel, models, status, meteo, constants=nothing, extra=nothing)
-    targets = dependency_targets(extra, :leaf_temperature)
+    targets = PlantSimEngine.dependency_targets(extra, :leaf_temperature)
     for target in targets
-        run_target!(target; publish=true)
+        PlantSimEngine.run_target!(target; publish=true)
     end
     status.hard_temperature_sum = sum(target.status.T for target in targets)
     return nothing
@@ -202,13 +202,13 @@ end
     @test base_step_seconds(global_backend) == 3600.0
     @test environment_variables(GlobalConstant(nothing)) == Set{Symbol}()
 
-    mapping = ModelMapping(
-        ModelSpec(EnvironmentProbeModel()) |> TimeStepModel(Dates.Hour(1)),
+    mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(EnvironmentProbeModel()) |> TimeStep(Dates.Hour(1)),
         status=(meteo_seen=0.0,),
     )
-    simulation_mapping = SimulationMapping(
-        Domain(:plant_a, mapping; kind=:plant),
-        Domain(:plant_b, mapping; kind=:plant),
+    simulation_mapping = PlantSimEngine.SimulationMapping(
+        PlantSimEngine.Domain(:plant_a, mapping; kind=:plant),
+        PlantSimEngine.Domain(:plant_b, mapping; kind=:plant),
     )
 
     sim = run!(simulation_mapping, ProbeEnvironmentBackend(3, 3600.0), check=true)
@@ -221,37 +221,37 @@ end
     @test environment.base_step_seconds == 3600.0
     @test :CO2 in environment.variables
 
-    bound_mapping = ModelMapping(
+    bound_mapping = PlantSimEngine.ModelMapping(
         ModelSpec(EnvironmentProbeModel()) |>
-            TimeStepModel(Dates.Hour(1)) |>
-            MeteoBindings(; CO2=(source=:Ca, reducer=MeanReducer())),
+            TimeStep(Dates.Hour(1)) |>
+            PlantSimEngine.MeteoBindings(; CO2=(source=:Ca, reducer=MeanReducer())),
         status=(meteo_seen=0.0,),
     )
     bound_sim = run!(
-        SimulationMapping(Domain(:plant_a, bound_mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, bound_mapping; kind=:plant)),
         ProbeEnvironmentBackend(1, 3600.0),
         check=true,
     )
     @test status(bound_sim, :plant_a).meteo_seen ≈ 11.42
 
     @test_throws "CO2" run!(
-        SimulationMapping(Domain(:plant_a, mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, mapping; kind=:plant)),
         MissingCO2EnvironmentBackend(),
         check=true,
     )
     @test_throws "CO2" run!(
-        SimulationMapping(Domain(:plant_a, mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, mapping; kind=:plant)),
         nothing,
         check=true,
     )
 
-    update_mapping = ModelMapping(
-        ModelSpec(EnvironmentTemperatureUpdateModel()) |> TimeStepModel(Dates.Hour(1)),
+    update_mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(EnvironmentTemperatureUpdateModel()) |> TimeStep(Dates.Hour(1)),
         status=(T=0.0,),
     )
     scattering_backend = ScatteringEnvironmentBackend(2, 3600.0, NamedTuple[], Any[])
     scatter_sim = run!(
-        SimulationMapping(Domain(:plant_a, update_mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, update_mapping; kind=:plant)),
         scattering_backend,
         check=true,
     )
@@ -266,17 +266,17 @@ end
     ]
 
     @test_throws "GlobalConstant is immutable" run!(
-        SimulationMapping(Domain(:plant_a, update_mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, update_mapping; kind=:plant)),
         Atmosphere(T=20.0, Rh=0.65, Wind=1.0, duration=Dates.Hour(1)),
         check=true,
     )
 
-    bad_mapping = ModelMapping(
-        ModelSpec(EnvironmentBadOutputModel()) |> TimeStepModel(Dates.Hour(1)),
+    bad_mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(EnvironmentBadOutputModel()) |> TimeStep(Dates.Hour(1)),
         status=NamedTuple(),
     )
     @test_throws "status does not contain" run!(
-        SimulationMapping(Domain(:plant_a, bad_mapping; kind=:plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, bad_mapping; kind=:plant)),
         ScatteringEnvironmentBackend(1, 3600.0, NamedTuple[], Any[]),
         check=true,
     )
@@ -286,19 +286,19 @@ end
     leaf_1 = Node(plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     leaf_2 = Node(plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 2, 2))
     leaf_ids = sort([node_id(leaf_1), node_id(leaf_2)])
-    graph_mapping = ModelMapping(
+    graph_mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(EnvironmentGraphLeafProbeModel()) |> TimeStepModel(Dates.Hour(1)),
+            ModelSpec(EnvironmentGraphLeafProbeModel()) |> TimeStep(Dates.Hour(1)),
         ),
     )
     graph_backend = GraphEnvironmentBackend(2, 3600.0, NamedTuple[], Any[])
     graph_sim = run!(
         scene,
-        SimulationMapping(Domain(:plant_a, graph_mapping; kind=:plant, selector=plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, graph_mapping; kind=:plant, selector=plant)),
         graph_backend,
         check=true,
     )
-    graph_values = graph_sim.outputs[(DomainModelKey(:plant_a, :Leaf, :environment_graph_leaf_probe), :meteo_seen)]
+    graph_values = graph_sim.outputs[(PlantSimEngine.DomainModelKey(:plant_a, :Leaf, :environment_graph_leaf_probe), :meteo_seen)]
     @test graph_values == [
         [20.0 + 1.0 + 0.1 * leaf_ids[1] + 0.410, 20.0 + 1.0 + 0.1 * leaf_ids[2] + 0.410],
         [20.0 + 2.0 + 0.1 * leaf_ids[1] + 0.410, 20.0 + 2.0 + 0.1 * leaf_ids[2] + 0.410],
@@ -311,15 +311,15 @@ end
     scatter_scene = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     scatter_plant = Node(scatter_scene, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     scatter_leaf = Node(scatter_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
-    scatter_mapping = ModelMapping(
+    scatter_mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(EnvironmentGraphTemperatureUpdateModel()) |> TimeStepModel(Dates.Hour(1)),
+            ModelSpec(EnvironmentGraphTemperatureUpdateModel()) |> TimeStep(Dates.Hour(1)),
         ),
     )
     graph_scatter_backend = GraphEnvironmentBackend(1, 3600.0, NamedTuple[], Any[])
     graph_scatter_sim = run!(
         scatter_scene,
-        SimulationMapping(Domain(:plant_a, scatter_mapping; kind=:plant, selector=scatter_plant)),
+        PlantSimEngine.SimulationMapping(PlantSimEngine.Domain(:plant_a, scatter_mapping; kind=:plant, selector=scatter_plant)),
         graph_scatter_backend,
         check=true,
     )
@@ -339,21 +339,21 @@ end
     hard_scatter_scene = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     hard_scatter_plant = Node(hard_scatter_scene, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     hard_scatter_leaf = Node(hard_scatter_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
-    hard_scatter_mapping = ModelMapping(
+    hard_scatter_mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
-            ModelSpec(EnvironmentGraphTemperatureUpdateModel()) |> TimeStepModel(Dates.Hour(1)),
+            ModelSpec(EnvironmentGraphTemperatureUpdateModel()) |> TimeStep(Dates.Hour(1)),
         ),
     )
-    hard_scatter_scene_mapping = ModelMapping(
-        ModelSpec(EnvironmentSceneHardGraphUpdateModel()) |> TimeStepModel(Dates.Hour(1)),
+    hard_scatter_scene_mapping = PlantSimEngine.ModelMapping(
+        ModelSpec(EnvironmentSceneHardGraphUpdateModel()) |> TimeStep(Dates.Hour(1)),
         status=(hard_temperature_sum=0.0,),
     )
     hard_graph_scatter_backend = GraphEnvironmentBackend(1, 3600.0, NamedTuple[], Any[])
     hard_graph_scatter_sim = run!(
         hard_scatter_scene,
-        SimulationMapping(
-            Domain(:plant_a, hard_scatter_mapping; kind=:plant, selector=hard_scatter_plant),
-            Domain(:scene, hard_scatter_scene_mapping; kind=:scene),
+        PlantSimEngine.SimulationMapping(
+            PlantSimEngine.Domain(:plant_a, hard_scatter_mapping; kind=:plant, selector=hard_scatter_plant),
+            PlantSimEngine.Domain(:scene, hard_scatter_scene_mapping; kind=:scene),
         ),
         hard_graph_scatter_backend,
         check=true,

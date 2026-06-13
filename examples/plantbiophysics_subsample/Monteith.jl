@@ -510,7 +510,7 @@ More information [here](https://docs.julialang.org/en/v1/stdlib/Logging/#Environ
 meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
 
 # Using a constant value for Gs:
-leaf = ModelMapping(
+leaf = PlantSimEngine.ModelMapping(
     energy_balance = Monteith(),
     photosynthesis = Fvcb(),
     stomatal_conductance = ConstantGs(0.0, 0.0011),
@@ -522,7 +522,7 @@ leaf.status.Rn
 julia> 12.902547446281233
 
 # Using the model from Medlyn et al. (2011) for Gs:
-leaf = ModelMapping(
+leaf = PlantSimEngine.ModelMapping(
     energy_balance = Monteith(),
     photosynthesis = Fvcb(),
     stomatal_conductance = Medlyn(0.03, 12.0),

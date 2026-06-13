@@ -34,7 +34,7 @@ Behavior:
 
 - unspecified outputs fall back to `HoldLast()`;
 - used by runtime when resolving cross-clock reads;
-- used as default policy for inferred `InputBindings(...)` when users do not provide explicit bindings;
+- used as default policy for inferred `PlantSimEngine.InputBindings(...)` when users do not provide explicit bindings;
 - hint-only and lazy: policy is applied only for outputs that are actually consumed/exported.
   Declaring a policy for an unused output does not trigger integration work.
 
@@ -51,7 +51,7 @@ Users can always override or complement this trait at mapping level:
 
 ```julia
 ModelSpec(MyConsumerModel()) |>
-InputBindings(
+PlantSimEngine.InputBindings(
     ;
     carbon_assimilation=(process=:myproducer, var=:carbon_assimilation, policy=HoldLast()), # override trait default
     carbon_assimilation_max=(process=:myproducer, var=:carbon_assimilation, policy=Aggregate(MaxReducer())), # complement with extra derived input
@@ -60,7 +60,7 @@ InputBindings(
 
 ### `timestep_hint(::Type{<:MyModel})`
 
-Optional compatibility hint when `TimeStepModel(...)` is not provided.
+Optional compatibility hint when `PlantSimEngine.TimeStepModel(...)` is not provided.
 
 Default:
 
@@ -95,8 +95,8 @@ Expected value:
 
 Where:
 
-- `bindings` is compatible with `MeteoBindings(...)`,
-- `window` is compatible with `MeteoWindow(...)`.
+- `bindings` is compatible with `PlantSimEngine.MeteoBindings(...)`,
+- `window` is compatible with `PlantSimEngine.MeteoWindow(...)`.
 
 ### `meteo_inputs_(::MyModel)`
 ### `meteo_outputs_(::MyModel)`
@@ -149,11 +149,11 @@ Defaults are conservative (`dependent`) and can be overridden when safe.
 Runtime precedence is intentionally explicit:
 
 1. Input policy:
-   explicit `InputBindings(..., policy=...)` > inferred from producer `output_policy` > `HoldLast()`.
+   explicit `PlantSimEngine.InputBindings(..., policy=...)` > inferred from producer `output_policy` > `HoldLast()`.
 1. Timestep:
-   `TimeStepModel(...)` > `timespec(model)` when non-default > meteo base step.
+   `PlantSimEngine.TimeStepModel(...)` > `timespec(model)` when non-default > meteo base step.
 1. Meteo sampling:
-   explicit `MeteoBindings(...)`/`MeteoWindow(...)` > `meteo_hint(...)` > runtime defaults.
+   explicit `PlantSimEngine.MeteoBindings(...)`/`PlantSimEngine.MeteoWindow(...)` > `meteo_hint(...)` > runtime defaults.
 
 ## Is everything documented?
 

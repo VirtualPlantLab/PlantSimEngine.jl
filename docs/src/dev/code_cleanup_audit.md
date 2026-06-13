@@ -44,12 +44,12 @@ and some are still internal dependencies rather than shallow exported shims.
 
 | Priority | Compatibility surface | Evidence | Migration note |
 | --- | --- | --- | --- |
-| Done | `ModelList` public API and legacy backing type | Formerly in `src/PlantSimEngine.jl`; `src/component_models/ModelList.jl`; `src/mtg/mapping/mapping.jl` | `ModelList` has been removed. Use `ModelMapping(model...; status=..., type_promotion=...)` for single-scale simulations. |
+| Done | `ModelList` public API and legacy backing type | Formerly in `src/PlantSimEngine.jl`; `src/component_models/ModelList.jl`; `src/mtg/mapping/mapping.jl` | `ModelList` has been removed. Use `PlantSimEngine.ModelMapping(model...; status=..., type_promotion=...)` for single-scale simulations. |
 | Done | `run!(::ModelList, ...)` | Formerly in `src/run.jl` direct `ModelList` methods | `run!(::ModelList, ...)` has been removed. Wrap models in `ModelMapping` before running. |
 | Done | Batch `run!` for collections of `ModelList` or single-scale mappings | Formerly in `src/run.jl` collection methods | Batch `run!([mapping1, mapping2], meteo)` and `run!(Dict(...), meteo)` are removed. Use an explicit loop or comprehension and call `run!` per mapping. |
-| Done | `run!(mtg, mapping::AbstractDict, ...)` | Formerly in `src/run.jl` | Passing a raw `Dict` to multiscale `run!` is removed. Construct `ModelMapping(dict)` first, or use `ModelMapping(:Scale => models, ...)`. |
+| Done | `run!(mtg, mapping::AbstractDict, ...)` | Formerly in `src/run.jl` | Passing a raw `Dict` to multiscale `run!` is removed. Construct `PlantSimEngine.ModelMapping(dict)` first, or use `PlantSimEngine.ModelMapping(:Scale => models, ...)`. |
 | Done | String scale names | `src/mtg/mapping/mapping.jl`; `src/mtg/MultiScaleModel.jl`; `src/mtg/model_spec_inference.jl`; `src/time/runtime/bindings.jl` | String scale names are removed. Use symbols everywhere, for example `:Leaf` instead of `"Leaf"`. |
-| Done | `ModelMapping(Float64 => Float32)` as old type-promotion shorthand | Formerly in `src/mtg/mapping/mapping.jl` | `ModelMapping(Float64 => Float32)` is removed. Use `Dict(Float64 => Float32)` as the `type_promotion` value. |
+| Done | `PlantSimEngine.ModelMapping(Float64 => Float32)` as old type-promotion shorthand | Formerly in `src/mtg/mapping/mapping.jl` | `PlantSimEngine.ModelMapping(Float64 => Float32)` is removed. Use `Dict(Float64 => Float32)` as the `type_promotion` value. |
 | Done | Old output indexing helpers on multiscale output dictionaries | Formerly in `src/mtg/GraphSimulation.jl` | `outputs(out_dict, key)` and `outputs(out_dict, i)` are removed. Use `convert_outputs(out_dict, sink)` and index the converted table or dictionary explicitly. |
 
 `ModelMapping{SingleScale}` now uses an internal single-scale backing container

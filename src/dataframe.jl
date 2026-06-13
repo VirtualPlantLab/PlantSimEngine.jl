@@ -11,7 +11,7 @@ using PlantSimEngine
 using DataFrames
 
 # Creating a ModelMapping
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model(),
@@ -22,13 +22,13 @@ models = ModelMapping(
 df = DataFrame(models)
 
 # Converting to a Dict of ModelMappings
-models = ModelMapping(
-    :Leaf => ModelMapping(
+models = PlantSimEngine.ModelMapping(
+    :Leaf => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    :InterNode => ModelMapping(
+    :InterNode => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()

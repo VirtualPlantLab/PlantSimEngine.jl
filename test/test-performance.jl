@@ -22,8 +22,8 @@ nrows = nrow(meteo_day)
 
 vc = [0 for i in 1:nrows]
 
-mapping1 = ModelMapping(process1=ToySleepModel(), status=(a=vc,))
-mapping2 = ModelMapping(process1=ToySleepModel(), status=(a=vc,))
+mapping1 = PlantSimEngine.ModelMapping(process1=ToySleepModel(), status=(a=vc,))
+mapping2 = PlantSimEngine.ModelMapping(process1=ToySleepModel(), status=(a=vc,))
 
 @testset begin
     "Check number of threads"
@@ -66,7 +66,7 @@ end
     using Dates
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         ToyLAIModel(),
         Beer(0.5),
         status=(TT_cu=cumsum(meteo_day.TT),)

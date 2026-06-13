@@ -6,7 +6,7 @@ using PlantSimEngine.Examples
 using PlantMeteo, Dates, MultiScaleTreeGraph
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2);
@@ -24,7 +24,7 @@ In the [Converting a single-scale simulation to multi-scale](@ref) page, a singl
 ```@example usepkg
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
-models_singlescale = ModelMapping(
+models_singlescale = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyRUEGrowthModel(0.2);
@@ -55,10 +55,10 @@ function PlantSimEngine.outputs_(::ToyTt_CuModel)
     (TT_cu=0.0,)
 end
 
-mapping_multiscale = ModelMapping(
+mapping_multiscale = PlantSimEngine.ModelMapping(
     :Scene => ToyTt_CuModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,
@@ -78,10 +78,10 @@ outputs_multiscale = run!(mtg_multiscale, mapping_multiscale, meteo_day)
 ### Output comparison
 
 ```@setup usepkg
-mapping_multiscale = ModelMapping(
+mapping_multiscale = PlantSimEngine.ModelMapping(
     :Scene => ToyTt_CuModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,

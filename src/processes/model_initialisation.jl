@@ -30,10 +30,10 @@ using PlantSimEngine.Examples
 to_initialize(process1=Process1Model(1.0), process2=Process2Model())
 
 # Or using a component directly:
-models = ModelMapping(process1=Process1Model(1.0), process2=Process2Model())
+models = PlantSimEngine.ModelMapping(process1=Process1Model(1.0), process2=Process2Model())
 to_initialize(models)
 
-m = ModelMapping(
+m = PlantSimEngine.ModelMapping(
     (
         process1=Process1Model(1.0),
         process2=Process2Model()
@@ -52,13 +52,13 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-mapping = ModelMapping(
-    :Leaf => ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
+    :Leaf => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    :Internode => ModelMapping(
+    :Internode => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
     )
 )
@@ -179,12 +179,12 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 models = Dict(
-    :Leaf => ModelMapping(
+    :Leaf => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model()
     ),
-    :Internode => ModelMapping(
+    :Internode => PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
     )
 )
@@ -292,7 +292,7 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()
@@ -367,7 +367,7 @@ using PlantSimEngine
 # Load the dummy models given as example in the package:
 using PlantSimEngine.Examples
 
-models = ModelMapping(
+models = PlantSimEngine.ModelMapping(
     process1=Process1Model(1.0),
     process2=Process2Model(),
     process3=Process3Model()

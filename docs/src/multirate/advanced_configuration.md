@@ -1,5 +1,11 @@
 # Advanced multi-rate configuration
 
+!!! warning "Legacy mapping configuration"
+    The qualified transforms on this page are compatibility internals. New
+    scene/object configurations place source and temporal policy in
+    `Inputs(...)`, cadence in `TimeStep(...)`, and meteo policy in
+    `Environment(...)`.
+
 This page collects the multi-rate features that were intentionally kept in the
 background on the first two pages:
 
@@ -18,25 +24,25 @@ declarations to a mapping.
 
 PlantSimEngine tries to keep simple mappings concise:
 
-- if a model does not declare `TimeStepModel(...)`, it follows the meteo
+- if a model does not declare `PlantSimEngine.TimeStepModel(...)`, it follows the meteo
   cadence;
-- if an input has a unique producer, `InputBindings(...)` can often be omitted;
+- if an input has a unique producer, `PlantSimEngine.InputBindings(...)` can often be omitted;
 - if a model consumes common `Atmosphere` variables at a coarser cadence,
-  PlantMeteo default transforms can often replace explicit `MeteoBindings(...)`;
+  PlantMeteo default transforms can often replace explicit `PlantSimEngine.MeteoBindings(...)`;
 - if an exported variable has a unique canonical publisher, `OutputRequest(...)`
   can often omit `process=`.
 
 The sections below focus on the cases where that implicit behavior becomes too
 ambiguous or too limiting.
 
-## 2. Explicit model-to-model bindings with `InputBindings(...)`
+## 2. Explicit model-to-model bindings with `PlantSimEngine.InputBindings(...)`
 
 The tutorial pages rely on unique-producer inference plus `output_policy(...)`
 declared on the source models. That is the simplest setup, but it stops being
 enough as soon as several candidate producers exist or when you want to override
 the default resampling rule.
 
-Use explicit `InputBindings(...)` when:
+Use explicit `PlantSimEngine.InputBindings(...)` when:
 
 - several models can produce the same input variable;
 - the same process exists at several reachable scales;
@@ -50,8 +56,8 @@ the day:
 
 ```julia
 plant_daily_spec = ModelSpec(TutorialPlantDailyModel()) |>
-    TimeStepModel(ClockSpec(24.0, 0.0)) |>
-    InputBindings(;
+    PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+    PlantSimEngine.InputBindings(;
         leaf_assim_h=(
             process=:tutorialleafhourly,
             scale=:Leaf,
@@ -65,14 +71,14 @@ This is more verbose than inference, but the resulting mapping is also more
 explicit: anyone reading it can see exactly where the data comes from and how it
 is reduced.
 
-## 3. Explicit meteorological aggregation with `MeteoBindings(...)`
+## 3. Explicit meteorological aggregation with `PlantSimEngine.MeteoBindings(...)`
 
 For common `Atmosphere` variables, PlantSimEngine delegates weather sampling to
 PlantMeteo, and PlantMeteo already defines default transforms. In practice, this
-means you often do not need `MeteoBindings(...)` for variables such as `T`,
+means you often do not need `PlantSimEngine.MeteoBindings(...)` for variables such as `T`,
 `Rh`, or aliases like `Ri_SW_q`.
 
-Add explicit `MeteoBindings(...)` when:
+Add explicit `PlantSimEngine.MeteoBindings(...)` when:
 
 - you want a non-default reducer;
 - the target variable should come from a differently named source variable;
@@ -84,8 +90,8 @@ shortwave radiation energy:
 
 ```julia
 plant_daily_spec = ModelSpec(TutorialPlantDailyModel()) |>
-    TimeStepModel(ClockSpec(24.0, 0.0)) |>
-    MeteoBindings(
+    PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+    PlantSimEngine.MeteoBindings(
         ;
         T=MeanWeighted(),
         Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
@@ -96,31 +102,31 @@ And this variant shows a more genuinely custom rule:
 
 ```julia
 plant_daily_spec = ModelSpec(TutorialPlantDailyModel()) |>
-    TimeStepModel(ClockSpec(24.0, 0.0)) |>
-    MeteoBindings(
+    PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+    PlantSimEngine.MeteoBindings(
         ;
         T=(source=:T, reducer=MaxReducer()),
         rad_peak=(source=:Ri_SW_f, reducer=MaxReducer()),
     )
 ```
 
-The important point is that `MeteoBindings(...)` is not only about reducing
+The important point is that `PlantSimEngine.MeteoBindings(...)` is not only about reducing
 weather from fast to slow. It is also a way to state the semantics of that
 reduction explicitly.
 
-## 4. Calendar-aligned windows with `MeteoWindow(...)`
+## 4. Calendar-aligned windows with `PlantSimEngine.MeteoWindow(...)`
 
 By default, coarser meteo sampling uses rolling windows that follow the model
 clock. That is often sufficient, but some models are tied to civil periods such
 as "the current day" or "the current week".
 
-In those cases, use `MeteoWindow(...)` to replace the default trailing window
+In those cases, use `PlantSimEngine.MeteoWindow(...)` to replace the default trailing window
 with a calendar-aligned one:
 
 ```julia
 plant_daily_spec = ModelSpec(TutorialPlantDailyModel()) |>
-    TimeStepModel(ClockSpec(24.0, 0.0)) |>
-    MeteoWindow(
+    PlantSimEngine.TimeStepModel(ClockSpec(24.0, 0.0)) |>
+    PlantSimEngine.MeteoWindow(
         CalendarWindow(
             :day;
             anchor=:current_period,

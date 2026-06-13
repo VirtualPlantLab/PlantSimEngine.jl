@@ -30,6 +30,10 @@ makedocs(;
             "Key Concepts" => "./prerequisites/key_concepts.md",
             "Julia language basics" => "./prerequisites/julia_basics.md",
         ],
+        "Scene/Object simulations" => [
+            "Quickstart" => "./scene_object/quickstart.md",
+            "Migrating from mappings and domains" => "migration_scene_object.md",
+        ],
         "Step by step - Single-scale simulations" => [
             "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
             "Coupling" => "./step_by_step/simple_model_coupling.md",
@@ -41,8 +45,7 @@ makedocs(;
             "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
             "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",
         ],
-        "Execution" => "model_execution.md",
-        "Domain simulations" => "domain_simulation.md",
+        "Model execution" => "model_execution.md",
         "Model traits" => "model_traits.md",
         "AI agent skill" => "agent_skill.md",
         "Working with data" => [
@@ -52,7 +55,7 @@ makedocs(;
             "Visualizing outputs and data" => "./working_with_data/visualising_outputs.md",
             "Floating-point considerations" => "./working_with_data/floating_point_accumulation_error.md",
         ],
-        "Moving to multiscale" => [
+        "Legacy MTG mapping tutorials" => [
             "Multiscale considerations" => "./multiscale/multiscale_considerations.md",
             "Converting a simulation to multi-scale" => "./multiscale/single_to_multiscale.md",
             "More variable mapping examples" => "./multiscale/multiscale.md",
@@ -65,7 +68,7 @@ makedocs(;
             ],
             "Visualizing our toy plant with PlantGeom" => "./multiscale/multiscale_example_4.md",
         ],
-        "Multi-rate tutorials" => [
+        "Legacy mapping multi-rate tutorials" => [
             "Introduction to multi-rate execution" => "./multirate/introduction.md",
             "Step-by-step hourly/daily/weekly simulation" => "./multirate/multirate_tutorial.md",
             "Advanced multi-rate configuration" => "./multirate/advanced_configuration.md",
@@ -82,8 +85,13 @@ makedocs(;
         "Development designs" => [
             "Multi-domain simulation design" => "./dev/multi_domain_simulation_design.md",
             "Multi-domain simulation plan" => "./dev/multi_domain_simulation_plan.md",
+            "Unified scene/object design" => "./dev/unified_scene_object_design.md",
+            "Unified scene/object implementation plan" => "./dev/unified_scene_object_implementation_plan.md",
+            "Unified scene/object completion audit" => "./dev/unified_scene_object_completion_audit.md",
             "MAESPA-style domain example handoff" => "./dev/maespa_domain_handoff.md",
+            "Legacy domain regression API" => "domain_simulation.md",
             "Code cleanup audit" => "./dev/code_cleanup_audit.md",
+            "Release notes handoff" => "./dev/release_notes_handoff.md",
         ],
         "Developer guidelines" => "developers.md",
         "Roadmap" => "planned_features.md",

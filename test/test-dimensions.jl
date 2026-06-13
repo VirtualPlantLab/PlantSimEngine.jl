@@ -31,14 +31,14 @@
     #   @test_throws DimensionMismatch PlantSimEngine.check_dimensions(tst3, w2)
 
     # ModelMapping and Weather must be checked for equal length
-    m1 = ModelMapping(
+    m1 = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=1.0, var2=2.0)
     )
     @test PlantSimEngine.check_dimensions(m1, w1) === nothing
 
-    m2 = ModelMapping(
+    m2 = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         status=(var1=[1.0, 2.0], var2=2.0)

@@ -31,9 +31,9 @@ julia> using PlantSimEngine.Examples;
 ```
 
 ```jldoctest mylabel
-julia> mapping = ModelMapping( \
+julia> mapping = PlantSimEngine.ModelMapping( \
             :Plant => \
-                MultiScaleModel( \
+                PlantSimEngine.MultiScaleModel( \
                     model=ToyCAllocationModel(), \
                     mapped_variables=[ \
                         :carbon_assimilation => [:Leaf], \
@@ -43,7 +43,7 @@ julia> mapping = ModelMapping( \
                 ), \
             :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), \
             :Leaf => ( \
-                MultiScaleModel( \
+                PlantSimEngine.MultiScaleModel( \
                     model=ToyAssimModel(), \
                     mapped_variables=[:soil_water_content => :Soil => :soil_water_content,], \
                 ), \

@@ -14,7 +14,7 @@ meteo = Weather(
     var2 = 0.3
     leaf[:var2] = var2
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
             Process1Model(1.0),
             Process2Model(),
@@ -31,9 +31,9 @@ meteo = Weather(
 end
 
 # A mapping that actually works (same as before but with the init for TT):
-mapping_1 = ModelMapping(
+mapping_1 = PlantSimEngine.ModelMapping(
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 # inputs
@@ -43,7 +43,7 @@ mapping_1 = ModelMapping(
                 :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyPlantRmModel(),
             mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
@@ -54,7 +54,7 @@ mapping_1 = ModelMapping(
         Status(TT=10.0)
     ),
     :Leaf => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyAssimModel(),
             mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
             # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -158,7 +158,7 @@ end
     @test isa(organs_statuses[:Leaf][1][:carbon_demand], Float32)
     @test isa(organs_statuses[:Soil][1][:soil_water_content], Float32)
 
-    mapping_promoted = ModelMapping(Dict(mapping_1); type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
+    mapping_promoted = PlantSimEngine.ModelMapping(Dict(mapping_1); type_promotion=Dict(Float64 => Float32, Vector{Float64} => Vector{Float32}))
     sim_promoted = PlantSimEngine.GraphSimulation(
         mtg_init,
         mapping_promoted;
@@ -237,9 +237,9 @@ end
 
 # Testing the mappings:
 @testset "Mapping: missing initialisation" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Plant =>
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -251,7 +251,7 @@ end
             ),
         :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -278,9 +278,9 @@ end
 end
 
 @testset "Mapping: missing organ in mapping (Soil)" begin
-    @test_throws "missing scale `Soil`" ModelMapping(
+    @test_throws "missing scale `Soil`" PlantSimEngine.ModelMapping(
         :Plant =>
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -292,7 +292,7 @@ end
             ),
         :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -313,9 +313,9 @@ mtg_var = let
 end
 
 @testset "Mapping: missing model at other scale (soil_water_content) + missing init + var1 from MTG" begin
-    @test_throws "not available at scale `Soil`" ModelMapping(
+    @test_throws "not available at scale `Soil`" PlantSimEngine.ModelMapping(
         :Plant =>
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -327,7 +327,7 @@ end
             ),
         :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -342,9 +342,9 @@ end
 end
 
 @testset "Mapping: missing init + var1 from MTG" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Plant =>
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -356,7 +356,7 @@ end
             ),
         :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :var3),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -384,7 +384,7 @@ end
 @testset "run! on MTG: simple mapping" begin
     #out = @test_nowarn run!(mtg, Dict(:Soil => (ToySoilWaterModel(),)), meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
-    sim = PlantSimEngine.GraphSimulation(mtg, ModelMapping(:Soil => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
+    sim = PlantSimEngine.GraphSimulation(mtg, PlantSimEngine.ModelMapping(:Soil => (ToySoilWaterModel(),)), nsteps=nsteps, check=true, outputs=nothing)
     out = run!(sim,meteo)
 
     @test sim.statuses[:Soil][1].node == soil
@@ -394,7 +394,7 @@ end
     @test collect(keys(sim.dependency_graph.roots))[1] == Pair(:Soil, :soil_water)
     @test sim.graph == mtg
 
-    leaf_mapping = ModelMapping(:Leaf => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
+    leaf_mapping = PlantSimEngine.ModelMapping(:Leaf => (ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0), Status(TT=10.0)))
     
     #out = run!(mtg, leaf_mapping, meteo)
     nsteps = PlantSimEngine.get_nsteps(meteo)
@@ -412,9 +412,9 @@ end
 
 # A mapping with all different types of mapping (single, multi-scale, model as is, or tuple of):
 @testset "run! on MTG with complete mapping (missing init)" begin
-    mapping_all = ModelMapping(
+    mapping_all = PlantSimEngine.ModelMapping(
         :Plant =>
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyCAllocationModel(),
                 mapped_variables=[
                     # inputs
@@ -426,7 +426,7 @@ end
             ),
         :Internode => ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
         :Leaf => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=ToyAssimModel(),
                 mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                 # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -541,7 +541,7 @@ end
 # Here we initialise var1 to a constant value:
 @testset "MTG initialisation" begin
     var1 = 1.0
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
             Process1Model(1.0),
             Process2Model(),
@@ -556,7 +556,7 @@ end
         @test_throws "Variable `var2` is not computed by any model, not initialised by the user in the status, and not found in the MTG at scale Leaf (checked for MTG node 5)." PlantSimEngine.init_simulation(mtg, mapping)
     end
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Leaf => (
             Process1Model(1.0),
             Process2Model(),
@@ -577,9 +577,9 @@ end
 end
 
 @testset "MTG with complex mapping" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
             :Plant => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
@@ -589,7 +589,7 @@ end
                         :carbon_allocation => [:Leaf, :Internode]
                     ]
                 ),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyPlantRmModel(),
                     mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
@@ -600,7 +600,7 @@ end
                 Status(TT=10.0, carbon_biomass=1.0)
             ),
             :Leaf => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyAssimModel(),
                     mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                     # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -634,9 +634,9 @@ end
 end
 
 @testset "MTG with dynamic output variables" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
             :Plant => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
@@ -646,7 +646,7 @@ end
                         :carbon_allocation => [:Leaf, :Internode]
                     ],
                 ),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyPlantRmModel(),
                     mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
                 ),
@@ -657,7 +657,7 @@ end
                 Status(TT=10.0, carbon_biomass=1.0)
             ),
             :Leaf => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyAssimModel(),
                     mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                     # Notice we provide :Soil, not [:Soil], so a single value is expected here

@@ -1,5 +1,10 @@
 # Step-by-step multi-rate tutorial (hourly + daily + weekly)
 
+!!! warning "Legacy mapping tutorial"
+    This tutorial is retained as compatibility coverage. New simulations should
+    express the same scheduling with `Scene`, `AppliesTo`, `Inputs`,
+    `TimeStep`, and `Environment`.
+
 This page builds a more complete MTG simulation that mixes three model rates:
 - hourly at `Leaf`,
 - daily at `Plant`,
@@ -11,7 +16,7 @@ If you want the conceptual overview first, start with
 [Introduction to multi-rate execution](introduction.md). This page assumes you
 already understand the two basic ideas introduced there:
 
-1. without `TimeStepModel(...)`, a model follows the meteo cadence;
+1. without `PlantSimEngine.TimeStepModel(...)`, a model follows the meteo cadence;
 2. once a model is forced to run more coarsely than its inputs, PlantSimEngine
    must reduce both model outputs and meteorological inputs to match that slower
    cadence.
@@ -175,7 +180,7 @@ This is the heart of the tutorial. The mapping below does three things at once:
 
 Two pieces are especially important here:
 
-- `TimeStepModel(...)` states the model cadence;
+- `PlantSimEngine.TimeStepModel(...)` states the model cadence;
 - PlantMeteo reduces meteorological inputs automatically when a model runs more
   coarsely than the weather data.
 
@@ -198,14 +203,14 @@ the leaf model is the fastest model in this example and directly consumes the
 hourly weather rows:
 
 ```@example multirate_tutorial
-leaf_spec = TutorialLeafHourlyModel() |> ModelSpec |> TimeStepModel(hourly)
+leaf_spec = TutorialLeafHourlyModel() |> ModelSpec |> PlantSimEngine.TimeStepModel(hourly)
 ```
 
 So at this point we have simply said: "run the leaf model every hour"
 
 The daily plant model is where multi-rate coupling becomes visible. It:
 
-- receives `leaf_assim_h` from the `:Leaf` scale through `MultiScaleModel(...)`;
+- receives `leaf_assim_h` from the `:Leaf` scale through `PlantSimEngine.MultiScaleModel(...)`;
 - runs daily;
 - receives daily meteorological aggregates from the hourly weather automatically.
 
@@ -221,8 +226,8 @@ directly. Instead, it sees a daily view of those data:
 plant_daily_spec = 
     TutorialPlantDailyModel() |> 
     ModelSpec |>
-    MultiScaleModel([:leaf_assim_h => :Leaf]) |>
-    TimeStepModel(daily)
+    PlantSimEngine.MultiScaleModel([:leaf_assim_h => :Leaf]) |>
+    PlantSimEngine.TimeStepModel(daily)
 ```
 
 This block is the first place where the "multi-rate" behavior is really visible:
@@ -238,7 +243,7 @@ explicit binding here:
 plant_weekly_spec = 
     TutorialPlantWeeklyModel() |>
     ModelSpec |>
-    TimeStepModel(weekly)
+    PlantSimEngine.TimeStepModel(weekly)
 ```
 
 So this weekly model effectively says: "take the daily plant assimilation stream,
@@ -247,7 +252,7 @@ reduce it again to my weekly cadence, and run once per week."
 We can now assemble the full mapping:
 
 ```@example multirate_tutorial
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (leaf_spec,),
     :Plant => (plant_daily_spec, plant_weekly_spec),
 )
@@ -257,30 +262,30 @@ Reading this mapping from top to bottom:
 
 - the `Leaf` model runs hourly and produces `leaf_assim_h`;
 - the daily `Plant` model receives leaf values from the `Leaf` scale through
-  `MultiScaleModel([:leaf_assim_h => :Leaf])`, then integrates them over a day;
+  `PlantSimEngine.MultiScaleModel([:leaf_assim_h => :Leaf])`, then integrates them over a day;
 - that same daily model also receives daily meteorological summaries through the
   default PlantMeteo sampling rules;
 - the weekly `Plant` model integrates the daily plant output into one weekly
   value.
 
 !!! note
-    In this tutorial, explicit `InputBindings(...)` are omitted because each
+    In this tutorial, explicit `PlantSimEngine.InputBindings(...)` are omitted because each
     input has a unique, inferable producer and the default reduction policy is
     declared on the source model with `output_policy(...)`.
 
-    In more complex mappings, you should use explicit `InputBindings(process=..., scale=..., var=..., policy=...)` when:
+    In more complex mappings, you should use explicit `PlantSimEngine.InputBindings(process=..., scale=..., var=..., policy=...)` when:
     - several models can produce the same input variable;
     - the same process exists at several reachable scales;
     - the source variable has a different name than the consumer input;
     - you want to override the producer's default policy for a specific mapping.
 
 !!! note
-    `MeteoBindings(...)` is also omitted on purpose in the main example.
+    `PlantSimEngine.MeteoBindings(...)` is also omitted on purpose in the main example.
     PlantSimEngine delegates weather sampling to PlantMeteo, which already
     defines default transformations for common `Atmosphere` variables such as
     `T`, `Rh`, and radiation aliases like `Ri_SW_q`.
 
-    Add explicit `MeteoBindings(...)` when:
+    Add explicit `PlantSimEngine.MeteoBindings(...)` when:
     - you want a non-default reducer;
     - the model expects a target variable with a different source name;
     - the variable is not covered by PlantMeteo default transforms;
@@ -289,9 +294,9 @@ Reading this mapping from top to bottom:
     ```@example multirate_tutorial
     # The same daily model, with weather aggregation rules written explicitly.
     plant_daily_spec_explicit_meteo = ModelSpec(TutorialPlantDailyModel()) |>
-        MultiScaleModel([:leaf_assim_h => :Leaf]) |>
-        TimeStepModel(daily) |>
-        MeteoBindings(
+        PlantSimEngine.MultiScaleModel([:leaf_assim_h => :Leaf]) |>
+        PlantSimEngine.TimeStepModel(daily) |>
+        PlantSimEngine.MeteoBindings(
             ;
             T=MeanWeighted(),
             Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
@@ -418,11 +423,11 @@ This page keeps the main walkthrough focused on a complete but still compact
 example. Once that example is clear, the next step is usually to learn the
 explicit configuration tools that become useful in larger mappings:
 
-- `InputBindings(...)` when inference is ambiguous or too implicit;
-- `MeteoBindings(...)` when PlantMeteo defaults are not enough;
-- `MeteoWindow(...)` for calendar-aligned aggregation;
+- `PlantSimEngine.InputBindings(...)` when inference is ambiguous or too implicit;
+- `PlantSimEngine.MeteoBindings(...)` when PlantMeteo defaults are not enough;
+- `PlantSimEngine.MeteoWindow(...)` for calendar-aligned aggregation;
 - `OutputRequest(...)` when you want explicit export-time clocks and policies;
-- `ScopeModel(...)`, `explain_model_specs(...)`, and `resolved_model_specs(...)`
+- `PlantSimEngine.ScopeModel(...)`, `explain_model_specs(...)`, and `resolved_model_specs(...)`
   for larger and harder-to-debug MTGs.
 
 Those topics are grouped in

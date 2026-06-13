@@ -80,7 +80,7 @@ We can now provide values for these variables in the `status` field. Direct
 before running:
 
 ```julia
-julia> mapping = ModelMapping(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3));
+julia> mapping = PlantSimEngine.ModelMapping(process1=Process1Model(1.0), process2=Process2Model(), process3=Process3Model(), status=(var1=15.0, var2=0.3));
 ```
 
 ```julia

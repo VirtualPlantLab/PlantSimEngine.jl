@@ -175,10 +175,10 @@ end
 PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsObjectIndependent()
 PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafCarbonCaptureModel}) = PlantSimEngine.IsTimeStepIndependent()
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Scene => ToyDegreeDaysCumulModel(),
 :Plant => (
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
             :carbon_captured=>[:Leaf],
@@ -191,7 +191,7 @@ mapping = ModelMapping(
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
 :Internode => (        
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapped_variables=[:TT_cu => :Scene,
             PreviousTimeStep(:water_stock)=>:Plant,
@@ -199,7 +199,7 @@ mapping = ModelMapping(
         ),        
         Status(carbon_organ_creation_consumed=0.0),
     ),
-:Root => ( MultiScaleModel(
+:Root => ( PlantSimEngine.MultiScaleModel(
             model=ToyRootGrowthModel(10.0, 50.0, 10),
             mapped_variables=[PreviousTimeStep(:carbon_stock)=>:Plant,
             PreviousTimeStep(:water_stock)=>:Plant],
@@ -416,10 +416,10 @@ end
 The new mapping only has straightforward changes. Some models cease to be multi-scale, others require new variables to be mapped for them. `carbon_root_creation_consumed` ceases to be a vector mapping and is a scalar variable.
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 :Scene => ToyDegreeDaysCumulModel(),
 :Plant => (
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
             :carbon_captured=>[:Leaf],
@@ -429,13 +429,13 @@ mapping = ModelMapping(
 
         ],
         ),
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyRootGrowthDecisionModel(10.0, 50.0),
     ),
         Status(water_stock = 0.0, carbon_stock = 0.0)
     ),
 :Internode => (        
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCustomInternodeEmergence(),#TT_emergence=20.0),
             mapped_variables=[:TT_cu => :Scene,
             :water_stock=>:Plant,
@@ -471,10 +471,10 @@ The solution is hopefully quite intuitive : when we compute resource stocks, we 
 The relevant part of the mapping that needs to be updated is the following:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
 ...
 :Plant => (
-    MultiScaleModel(
+    PlantSimEngine.MultiScaleModel(
         model=ToyStockComputationModel(),          
         mapped_variables=[
             :carbon_captured=>[:Leaf],

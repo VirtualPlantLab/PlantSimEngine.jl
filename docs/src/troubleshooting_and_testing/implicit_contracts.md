@@ -22,7 +22,7 @@ Many models are considered to be steady-state over that timeframe, but not all :
 
 If your meteo has 30-minute rows but a model appears to run hourly, check timestep resolution order:
 
-1. If model has explicit `TimeStepModel(...)`, it is used.
+1. If model has explicit `PlantSimEngine.TimeStepModel(...)`, it is used.
 2. Else if model `timespec(model)` is non-default, it is used.
 3. Else model uses meteo `duration`.
 
@@ -33,7 +33,7 @@ Then compatibility rules apply:
 3. Meteo aggregation/integration happens only for models with coarser effective clocks.
 
 Common cause:
-- model has explicit hourly `TimeStepModel(...)`, so 30-minute rows are intentionally aggregated to hourly runs.
+- model has explicit hourly `PlantSimEngine.TimeStepModel(...)`, so 30-minute rows are intentionally aggregated to hourly runs.
 
 Quick diagnostics:
 - Run `explain_model_specs(mapping_or_sim)` to see, per process, whether runtime clock comes from explicit `ModelSpec`, model `timespec`, or meteo base step.

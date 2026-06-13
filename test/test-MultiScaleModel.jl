@@ -11,13 +11,13 @@
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (:Plant => :plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => :Plant => :plant_surfaces) # Case 6
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => :Plant => :surface) == (PreviousTimeStep(:plant_surfaces, :unknown) => :Plant => :surface) # Case 6
     @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => [:Plant => :surface, :Leaf => :surface]) == (PreviousTimeStep(:plant_surfaces, :unknown) => [:Plant => :surface, :Leaf => :surface]) # Case 6
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => SameScale() => :plant_surfaces) # Case 7
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (SameScale() => :surface)) == (PreviousTimeStep(:plant_surfaces, :unknown) => SameScale() => :surface)
-    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (SameScale() => :surface), :test) == (PreviousTimeStep(:plant_surfaces, :test) => SameScale() => :surface)
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces)) == (PreviousTimeStep(:plant_surfaces, :unknown) => PlantSimEngine.SameScale() => :plant_surfaces) # Case 7
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (PlantSimEngine.SameScale() => :surface)) == (PreviousTimeStep(:plant_surfaces, :unknown) => PlantSimEngine.SameScale() => :surface)
+    @test PlantSimEngine._get_var(PreviousTimeStep(:plant_surfaces) => (PlantSimEngine.SameScale() => :surface), :test) == (PreviousTimeStep(:plant_surfaces, :test) => PlantSimEngine.SameScale() => :surface)
 end;
 
 @testset "MultiScaleModel: case 1" begin
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIModel(),
         mapped_variables=[:TT_cu => (:Scene => :TT_cu),],
     )
@@ -27,7 +27,7 @@ end;
 end;
 
 @testset "MultiScaleModel: case 2" begin
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIModel(),
         mapped_variables=[:TT_cu => [:Plant],],
     )
@@ -36,7 +36,7 @@ end;
     @test models.mapped_variables == [:TT_cu => [:Plant => :TT_cu]]
 
 
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIModel(),
         mapped_variables=[:TT_cu => [:Leaf, :Internode],],
     )
@@ -47,7 +47,7 @@ end;
 
 
 @testset "MultiScaleModel: case 2, several variables with different format" begin
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyCAllocationModel(),
         mapped_variables=[:carbon_assimilation => [:Leaf], :carbon_demand => [:Leaf, :Internode], :Rm => (:Plant => :Rm_plant)],
     )
@@ -58,7 +58,7 @@ end;
 
 
 @testset "MultiScaleModel: case with PreviousTimeStep => ..." begin
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyLAIfromLeafAreaModel(1.0),
         mapped_variables=[
             PreviousTimeStep(:plant_surfaces) => :Plant => :surface,
@@ -70,7 +70,7 @@ end;
 end;
 
 @testset "MultiScaleModel: several types of mapping" begin
-    models = MultiScaleModel(
+    models = PlantSimEngine.MultiScaleModel(
         model=ToyLightPartitioningModel(),
         mapped_variables=[
             :aPPFD_larger_scale => (:Scene => :aPPFD),

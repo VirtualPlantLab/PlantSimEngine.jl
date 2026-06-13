@@ -50,7 +50,9 @@ This change in design avoids model order ambiguity and also improves readability
 !!! note
     This section is a little more advanced and not recommended for beginners
 
-You may have noticed that sometimes a vector (1-dimensional array) variable is passed into the [`status`](@ref) component of a [`ModelMapping`](@ref) in documentation examples (An example here with cumulative thermal time : [Model switching](@ref)).
+You may have noticed that some legacy documentation examples pass a vector
+(1-dimensional array) variable into the [`status`](@ref) component of
+`PlantSimEngine.ModelMapping(...)` compatibility simulations.
 
 This is practical for simple simulations, or when quickly prototyping, to avoid having to write a model specifically for it. Whatever models make use of that variable are provided with one element corresponding to the current timestep every iteration.
 
@@ -84,7 +86,7 @@ using PlantMeteo, Dates
 meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
 
 # Direct translation of the single-scale simulation
-mapping_pseudo_multiscale = ModelMapping(
+mapping_pseudo_multiscale = PlantSimEngine.ModelMapping(
 :Plant => (
    ToyLAIModel(),
     Beer(0.5),

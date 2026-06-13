@@ -1,5 +1,10 @@
 # Multi-scale variable mapping
 
+!!! warning "Legacy MTG mapping configuration"
+    This page is retained for compatibility and migration reference. Use
+    `Scene`, `ObjectTemplate`, `ObjectInstance`, `AppliesTo`, and `Inputs` for
+    new multiscale simulations.
+
 The previous page showed how to convert a single-scale simulation to multi-scale.
 
 This page provides another example showcasing the nuances in variable mapping, with a more complex fully multiscale version of a prior simulation. The models will all be taken form the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples).
@@ -24,7 +29,7 @@ It resembles the ToyAssimGrowth model used in the single-scale simulation [Model
 Our mapping between scale and model is therefore:
 
 ```@example usepkg
-mapping = ModelMapping(:Leaf => ToyAssimModel())
+mapping = PlantSimEngine.ModelMapping(:Leaf => ToyAssimModel())
 ```
 
 Just like in single-scale simulations, we can call `to_initialize` to check whether variables need to be initialised. It will this time index by scale:
@@ -38,7 +43,7 @@ In this example, the ToyAssimModel needs `:aPPFD` and `:soil_water_content` as i
 The initialization values for the variables can be passed along via a [`Status`](@ref) object:
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         ToyAssimModel(),
         Status(aPPFD=1300.0, soil_water_content=0.5),
@@ -61,10 +66,10 @@ It also makes sense to have that model operate at a different scale than the :Le
 ToyAssimModel is now makes use of the `soil_water_content` variable from the `:Soil` scale, instead of at its own scale via the `Status` initialization. We therefore need to map `soil_water_content` from the :Soil to the :Leaf scale by wrapping `ToyAssimModel` in a `MultiScaleModel`:
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Soil => ToySoilWaterModel(),
     :Leaf => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyAssimModel(),
             mapped_variables=[:soil_water_content => :Soil => :soil_water_content,],
         ),
@@ -91,17 +96,17 @@ Once again, `to_initialize` returns an empty dictionary, meaning the mapping is 
 Let's now expand this mapping, to showcase other ways in which variables can be mapped from one scale to another. We'll keep the first two models, and add several more to simulate a couple of other processes within our plant.
 
 ```@example usepkg
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Scene => ToyDegreeDaysCumulModel(),
     :Plant => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyLAIModel(),
             mapped_variables=[
                 :TT_cu => :Scene,
             ],
         ),
         Beer(0.6),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCAllocationModel(),
             mapped_variables=[
                 :carbon_assimilation => [:Leaf],
@@ -109,13 +114,13 @@ mapping = ModelMapping(
                 :carbon_allocation => [:Leaf, :Internode]
             ],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyPlantRmModel(),
             mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
         ),
     ),
     :Internode => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapped_variables=[:TT => :Scene,],
         ),
@@ -123,11 +128,11 @@ mapping = ModelMapping(
         Status(carbon_biomass=1.0),
     ),
     :Leaf => (
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyAssimModel(),
             mapped_variables=[:soil_water_content => :Soil, :aPPFD => :Plant],
         ),
-        MultiScaleModel(
+        PlantSimEngine.MultiScaleModel(
             model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
             mapped_variables=[:TT => :Scene,],
         ),
@@ -144,7 +149,7 @@ nothing # hide
 This mapping might seem a little more daunting than previous examples, but several models should be recognizable in passing. In fact, you can consider this mapping to be an enhanced and more complex multi-scale version of a previous single-scale example, the coupling between photosynthesis model, a LAI model and a carbon biomass increment model, used in the [Model switching](@ref) subsection.
 
 ```julia
-models2 = ModelMapping(
+models2 = PlantSimEngine.ModelMapping(
     ToyLAIModel(),
     Beer(0.5),
     ToyAssimGrowthModel();

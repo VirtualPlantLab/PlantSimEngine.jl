@@ -836,7 +836,9 @@ function _model_specs_rows(model_specs)
                 application_name=application_name(spec),
                 applies_to=applies_to(spec),
                 value_inputs=value_inputs(spec),
+                input_origins=input_origins(spec),
                 model_calls=model_calls(spec),
+                call_origins=call_origins(spec),
                 environment=environment_config(spec),
                 timestep=timestep(spec),
                 timespec_default=timespec(model_(spec)),
@@ -903,7 +905,9 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
         application_name_desc = isnothing(row.application_name) ? "(unnamed)" : string(row.application_name)
         applies_to_desc = isnothing(row.applies_to) ? "(implicit legacy target)" : _stringify_compact(row.applies_to)
         value_inputs_desc = (row.value_inputs isa NamedTuple && isempty(keys(row.value_inputs))) ? "(none)" : _stringify_compact(row.value_inputs)
+        input_origins_desc = isempty(keys(row.input_origins)) ? "(none)" : _stringify_compact(row.input_origins)
         model_calls_desc = (row.model_calls isa NamedTuple && isempty(keys(row.model_calls))) ? "(none)" : _stringify_compact(row.model_calls)
+        call_origins_desc = isempty(keys(row.call_origins)) ? "(none)" : _stringify_compact(row.call_origins)
         environment_desc = isnothing(row.environment) ? "(default)" : _stringify_compact(row.environment)
         println(
             io,
@@ -919,8 +923,12 @@ function explain_model_specs(target; io::IO=stdout, infer::Bool=true, validate::
             applies_to_desc,
             ", value_inputs=",
             value_inputs_desc,
+            ", input_origins=",
+            input_origins_desc,
             ", model_calls=",
             model_calls_desc,
+            ", call_origins=",
+            call_origins_desc,
             ", environment=",
             environment_desc,
             ", timestep=",

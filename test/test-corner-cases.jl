@@ -172,13 +172,13 @@ end
 
 @testset "Multiscale nested hard dependencies" begin
 
-    mapping3Lvl = ModelMapping(:E1 => (
+    mapping3Lvl = PlantSimEngine.ModelMapping(:E1 => (
             Msg3LvlScaleAmontModel(),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=Msg3LvlScaleAvalModel(),
                 mapped_variables=[:e3 => :E3 => :e3, :b2 => :E2 => :b2, :g2 => :E2 => :g2],
             ),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=Msg3LvlScaleEchelle1Model(),
                 mapped_variables=[:e2 => :E2 => :e2, :f2 => :E2 => :f2,],
             ), Status(a=1.0,)# y = 1.0, z = 1.0)
@@ -186,14 +186,14 @@ end
         :E2 => (
             Msg3LvlScaleAmont2Model(),
             Msg3LvlScaleAval2Model(),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=Msg3LvlScaleEchelle2Model(),
                 mapped_variables=[:c => :E1 => :c, :e3 => :E3 => :e3, :f3 => :E3 => :f3,],
             ),
             Status(a2=1.0, i2=1.0,)
         ),
         :E3 => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=Msg3LvlScaleEchelle3Model(),
                 mapped_variables=[:c => :E1 => :c,],
             ),
@@ -334,9 +334,9 @@ end
 # actual testset
 
 @testset "Soft dependency whose parent is a hard dependency of a parent at a different scale" begin
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :E1 => (HardDepSameScaleEchelle1Model(),
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=HardDepSameScaleEchelle1bisModel(),
                 mapped_variables=[:e3 => :E3 => :e3],
             ),
@@ -451,7 +451,7 @@ end
 
 @testset "Process/model reuse at different scales" begin
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :E1 => (
             SingleModelScale1(),
             Status(in=1.0, in1=1.0),
@@ -465,7 +465,7 @@ end
             Status(in=1.0, in2bis=1.0),
         ),
         :E3 => (
-            MultiScaleModel(
+            PlantSimEngine.MultiScaleModel(
                 model=SingleModelScale3(),
                 mapped_variables=[:out1 => :E1 => :out1, :out2 => :E2 => :out2,],
             ),
@@ -520,7 +520,7 @@ end
     using PlantSimEngine, PlantMeteo, DataFrames
     using PlantSimEngine.Examples
     mtg = import_mtg_example()
-    m = ModelMapping(
+    m = PlantSimEngine.ModelMapping(
         :Leaf => (
             Process1Model(1.0),
             Status(var1=10.0, var2=1.0,)
@@ -556,7 +556,7 @@ end
     outs = Dict(:Default => (:var1,))
     mtg = MultiScaleTreeGraph.Node(MultiScaleTreeGraph.NodeMTG("/", :Default, 0, 0),)
 
-    mapping = ModelMapping(
+    mapping = PlantSimEngine.ModelMapping(
         :Default => (
             Process1Model(1.0),
             Status(var1=15.0, var2=0.3,),
@@ -607,7 +607,7 @@ end
         Atmosphere(T=18.0, Wind=1.0, Rh=0.65, Ri_PAR_f=100.0),
     ])
 
-    model = ModelMapping(
+    model = PlantSimEngine.ModelMapping(
         ToyToyModel(1),
         status=(a=1, b=0, c=0),
         #nsteps = length(meteo)

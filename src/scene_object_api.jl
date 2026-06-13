@@ -210,6 +210,7 @@ mutable struct Scene{R,A,E,I}
     environment_binding_cache::Any
     bindings_dirty::Bool
     environment_bindings_dirty::Bool
+    environment_dirty_objects::Union{Nothing,Set{ObjectId}}
     revision::Int
     environment_revision::Int
 end
@@ -347,14 +348,91 @@ function Scene(
         nothing,
         true,
         true,
+        nothing,
         0,
         0,
     )
     return _register_scene_objects!(scene, objects)
 end
 
-function _mark_environment_bindings_dirty!(scene::Scene)
-    scene.environment_binding_cache = nothing
+function _mtg_attribute(node, key::Symbol, default=nothing)
+    try
+        return node[key]
+    catch
+        return default
+    end
+end
+
+"""
+    objects_from_mtg(root; id=node_id, scale=symbol, kind=..., species=...,
+                     name=..., geometry=..., status=...)
+
+Adapt one MTG subtree to scene `Object` values. The MTG is traversed once;
+node ids and parent relations become stable scene-object identities and
+relations. Accessors may attach labels, geometry, and existing status objects
+without prescribing a plant architecture.
+"""
+function objects_from_mtg(
+    root::MultiScaleTreeGraph.Node;
+    id=node_id,
+    scale=symbol,
+    kind=node -> _mtg_attribute(node, :kind, nothing),
+    species=node -> _mtg_attribute(node, :species, nothing),
+    name=node -> _mtg_attribute(node, :name, nothing),
+    geometry=node -> _mtg_attribute(node, :geometry, nothing),
+    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
+)
+    objects = Object[]
+    MultiScaleTreeGraph.traverse!(root) do node
+        node_parent = parent(node)
+        parent_id = node === root || isnothing(node_parent) ? nothing : id(node_parent)
+        push!(
+            objects,
+            Object(
+                id(node);
+                scale=scale(node),
+                kind=kind(node),
+                species=species(node),
+                name=name(node),
+                parent=parent_id,
+                geometry=geometry(node),
+                status=status(node),
+            ),
+        )
+    end
+    return objects
+end
+
+"""
+    Scene(root::MultiScaleTreeGraph.Node; applications=(), instances=(),
+          environment=nothing, kwargs...)
+
+Build a unified scene directly from an MTG subtree. Extra keyword arguments
+are forwarded to [`objects_from_mtg`](@ref).
+"""
+function Scene(
+    root::MultiScaleTreeGraph.Node;
+    applications=(),
+    instances=(),
+    environment=nothing,
+    kwargs...,
+)
+    objects = objects_from_mtg(root; kwargs...)
+    return Scene(
+        objects...;
+        applications=applications,
+        instances=instances,
+        environment=environment,
+    )
+end
+
+function _mark_environment_bindings_dirty!(scene::Scene, object_id::Union{Nothing,ObjectId}=nothing)
+    if isnothing(object_id) || isnothing(scene.environment_binding_cache)
+        scene.environment_binding_cache = nothing
+        scene.environment_dirty_objects = nothing
+    elseif !isnothing(scene.environment_dirty_objects)
+        push!(scene.environment_dirty_objects, object_id)
+    end
     scene.environment_bindings_dirty = true
     scene.environment_revision += 1
     return scene
@@ -375,8 +453,9 @@ compiled_bindings(scene::Scene) = scene.binding_cache
 compiled_environment_bindings(scene::Scene) = scene.environment_binding_cache
 mark_environment_binding_dirty!(scene::Scene) = _mark_environment_bindings_dirty!(scene)
 function mark_environment_binding_dirty!(scene::Scene, id)
-    _scene_object(scene, id)
-    return _mark_environment_bindings_dirty!(scene)
+    object_id = ObjectId(id)
+    _scene_object(scene, object_id)
+    return _mark_environment_bindings_dirty!(scene, object_id)
 end
 function mark_environment_binding_dirty!(scene::Scene, object::Object)
     return mark_environment_binding_dirty!(scene, object.id)
@@ -520,7 +599,12 @@ end
 function update_geometry!(scene::Scene, id, geometry_or_position; invalidate_environment::Bool=true)
     object = _scene_object(scene, id)
     object.geometry = geometry_or_position
-    invalidate_environment && _mark_environment_bindings_dirty!(scene)
+    if invalidate_environment
+        _mark_environment_bindings_dirty!(scene, object.id)
+        for descendant_id in _geometry_inheriting_descendants(scene, object.id)
+            _mark_environment_bindings_dirty!(scene, descendant_id)
+        end
+    end
     return object
 end
 
@@ -552,6 +636,17 @@ _geometry_bounds(_) = nothing
 bounds(object::Object) = _geometry_bounds(geometry(object))
 bounds(status::Status) = _geometry_bounds(geometry(status))
 
+function _geometry_inheriting_descendants(scene::Scene, root_id::ObjectId)
+    ids = ObjectId[]
+    for child_id in _scene_object(scene, root_id).children
+        child = _scene_object(scene, child_id)
+        isnothing(geometry(child)) || continue
+        push!(ids, child_id)
+        append!(ids, _geometry_inheriting_descendants(scene, child_id))
+    end
+    return ids
+end
+
 function refresh_bindings!(scene::Scene, specs=scene.applications; force::Bool=false)
     uses_scene_applications = specs === scene.applications
     if !uses_scene_applications
@@ -566,8 +661,29 @@ end
 
 function refresh_environment_bindings!(scene::Scene, compiled=refresh_bindings!(scene); force::Bool=false)
     if force || scene.environment_bindings_dirty || isnothing(scene.environment_binding_cache)
-        scene.environment_binding_cache = compile_environment_bindings(scene, compiled)
+        if !force &&
+           !isnothing(scene.environment_binding_cache) &&
+           !isnothing(scene.environment_dirty_objects)
+            scene.environment_binding_cache = _refresh_environment_bindings_for_objects(
+                scene,
+                compiled,
+                scene.environment_binding_cache,
+                scene.environment_dirty_objects,
+            )
+        else
+            scene.environment_binding_cache = compile_environment_bindings(scene, compiled)
+        end
         scene.environment_bindings_dirty = false
+        scene.environment_dirty_objects = Set{ObjectId}()
+    else
+        reconciled = _reconcile_environment_binding_metadata(
+            scene,
+            compiled,
+            scene.environment_binding_cache,
+        )
+        scene.environment_binding_cache = isnothing(reconciled) ?
+                                          compile_environment_bindings(scene, compiled) :
+                                          reconciled
     end
     return scene.environment_binding_cache
 end
@@ -772,8 +888,15 @@ Scale(scale::Union{Symbol,AbstractString}) = Scale(Symbol(scale))
 
 struct Relation <: AbstractObjectSelector
     relation::Symbol
+    function Relation(relation::Symbol)
+        relation in _OBJECT_RELATIONS || error(
+            "Unsupported object relation `$(relation)`. Supported relations are $(_OBJECT_RELATIONS)."
+        )
+        return new(relation)
+    end
 end
-Relation(relation::Union{Symbol,AbstractString}) = Relation(Symbol(relation))
+const _OBJECT_RELATIONS = (:self, :parent, :children, :ancestors, :descendants, :siblings)
+Relation(relation::AbstractString) = Relation(Symbol(relation))
 
 _maybe_symbol(x) = isnothing(x) ? nothing : Symbol(x)
 
@@ -840,6 +963,16 @@ function _selector_with_application_prefix(
     application in template_application_names || return selector
     mounted_name = Symbol(instance_name, "__", application)
     return _rebuild_selector(selector, merge(selector_criteria, (; application=mounted_name)))
+end
+
+function _selector_with_previous_timestep(
+    selector::AbstractObjectMultiplicity,
+    previous::PreviousTimeStep,
+)
+    return _rebuild_selector(
+        selector,
+        merge(criteria(selector), (; policy=previous)),
+    )
 end
 
 function _mounted_application_name(spec, index::Int)
@@ -1053,6 +1186,37 @@ function _ancestor_id(scene::Scene, current_id::ObjectId; scale=nothing, kind=no
     end
 end
 
+function _ancestor_ids(scene::Scene, current_id::ObjectId)
+    ids = ObjectId[]
+    parent_id = _scene_object(scene, current_id).parent
+    while !isnothing(parent_id)
+        push!(ids, parent_id)
+        parent_id = _scene_object(scene, parent_id).parent
+    end
+    return ids
+end
+
+function _relation_object_ids(scene::Scene, relation::Symbol, context)
+    current_id = _object_id_from_context(context)
+    isnothing(current_id) && error(
+        "`Relation(:$(relation))` selectors require a current object context."
+    )
+    object = _scene_object(scene, current_id)
+    relation == :self && return ObjectId[current_id]
+    relation == :parent && return isnothing(object.parent) ? ObjectId[] : ObjectId[object.parent]
+    relation == :children && return copy(object.children)
+    relation == :ancestors && return _ancestor_ids(scene, current_id)
+    relation == :descendants && return _descendant_ids(scene, current_id)[2:end]
+    if relation == :siblings
+        isnothing(object.parent) && return ObjectId[]
+        return ObjectId[
+            sibling_id for sibling_id in _scene_object(scene, object.parent).children
+            if sibling_id != current_id
+        ]
+    end
+    error("Unsupported object relation `$(relation)`.")
+end
+
 function _selector_scope_from_positional(selectors)
     scopes = filter(
         selector -> selector isa Union{SceneScope,Self,SelfPlant,Ancestor,Scope},
@@ -1136,11 +1300,99 @@ function _scope_object_ids(scene::Scene, scope, context)
             candidate = ObjectId(scope.name)
             root_id = haskey(scene.registry.objects, candidate) ? candidate : nothing
         end
-        isnothing(root_id) && error("No named scope or object `$(scope.name)` found in the scene registry.")
+        if isnothing(root_id)
+            available = sort!(unique(Symbol[
+                keys(scene.registry.by_name)...,
+                (id.value for id in keys(scene.registry.objects))...,
+            ]); by=string)
+            suggestions = _near_symbol_matches(scope.name, available)
+            error(
+                "No named scope or object `$(scope.name)` found in the scene registry. ",
+                "available=$(available), suggestions=$(suggestions)."
+            )
+        end
         return _descendant_ids(scene, root_id)
     end
 
     error("Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.")
+end
+
+function _symbol_edit_distance(left::Symbol, right::Symbol)
+    a = collect(string(left))
+    b = collect(string(right))
+    previous = collect(0:length(b))
+    current = similar(previous)
+    for i in eachindex(a)
+        current[1] = i
+        for j in eachindex(b)
+            substitution = previous[j] + (a[i] == b[j] ? 0 : 1)
+            current[j + 1] = min(current[j] + 1, previous[j + 1] + 1, substitution)
+        end
+        previous, current = current, previous
+    end
+    return previous[end]
+end
+
+function _near_symbol_matches(requested, available)
+    isnothing(requested) && return Symbol[]
+    requested_symbol = Symbol(requested)
+    threshold = max(2, cld(length(string(requested_symbol)), 3))
+    ranked = Tuple{Int,Symbol}[
+        (_symbol_edit_distance(requested_symbol, candidate), candidate)
+        for candidate in available
+    ]
+    filter!(pair -> first(pair) <= threshold, ranked)
+    sort!(ranked; by=pair -> (first(pair), string(last(pair))))
+    return Symbol[last(pair) for pair in Iterators.take(ranked, 3)]
+end
+
+function _available_selector_labels(scene::Scene, candidate_ids)
+    objects = (_scene_object(scene, id) for id in candidate_ids)
+    scales = Symbol[]
+    kinds = Symbol[]
+    species = Symbol[]
+    names = Symbol[]
+    for object in objects
+        isnothing(object.scale) || push!(scales, object.scale)
+        isnothing(object.kind) || push!(kinds, object.kind)
+        isnothing(object.species) || push!(species, object.species)
+        isnothing(object.name) || push!(names, object.name)
+    end
+    return (
+        scales=sort!(unique!(scales); by=string),
+        kinds=sort!(unique!(kinds); by=string),
+        species=sort!(unique!(species); by=string),
+        names=sort!(unique!(names); by=string),
+    )
+end
+
+function _selector_resolution_error(
+    scene::Scene,
+    selector,
+    candidate_ids,
+    matched_ids;
+    context=nothing,
+    scale=nothing,
+    kind=nothing,
+    species=nothing,
+    name=nothing,
+)
+    available = _available_selector_labels(scene, candidate_ids)
+    suggestions = (
+        scale=_near_symbol_matches(scale, available.scales),
+        kind=_near_symbol_matches(kind, available.kinds),
+        species=_near_symbol_matches(species, available.species),
+        name=_near_symbol_matches(name, available.names),
+    )
+    expected = selector isa One ? "exactly one" : "zero or one"
+    context_id = _object_id_from_context(context)
+    error(
+        "Expected $(expected) object for selector `$(selector)`, got $(length(matched_ids)). ",
+        "context=$(isnothing(context_id) ? nothing : context_id.value), ",
+        "matched_ids=$([id.value for id in matched_ids]), ",
+        "requested=(scale=$(scale), kind=$(kind), species=$(species), name=$(name)), ",
+        "available=$(available), suggestions=$(suggestions)."
+    )
 end
 
 function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, name=nothing)
@@ -1164,10 +1416,15 @@ function _resolve_object_ids(
 )
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
-    isnothing(relation) || error("`Relation(...)` selector resolution is not implemented yet.")
 
     explicit_scope = _criteria_scope(criteria_)
-    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
+    scope = if !isnothing(explicit_scope)
+        explicit_scope
+    elseif isnothing(relation)
+        default_scope
+    else
+        nothing
+    end
     scale = _criteria_value(criteria_, :scale, Scale)
     kind = _criteria_value(criteria_, :kind, Kind)
     species = _criteria_value(criteria_, :species, Species)
@@ -1175,6 +1432,7 @@ function _resolve_object_ids(
 
     if default_to_context &&
        isnothing(explicit_scope) &&
+       isnothing(relation) &&
        isnothing(scale) &&
        isnothing(kind) &&
        isnothing(species) &&
@@ -1183,7 +1441,17 @@ function _resolve_object_ids(
         return ObjectId[_object_id_from_context(context)]
     end
 
-    candidate_ids = _scope_object_ids(scene, scope, context)
+    candidate_ids = if isnothing(relation)
+        _scope_object_ids(scene, scope, context)
+    else
+        related_ids = _relation_object_ids(scene, relation, context)
+        if isnothing(explicit_scope)
+            related_ids
+        else
+            scoped_ids = Set(_scope_object_ids(scene, explicit_scope, context))
+            ObjectId[id for id in related_ids if id in scoped_ids]
+        end
+    end
     ids = ObjectId[
         id for id in candidate_ids
         if _matches_object_criteria(_scene_object(scene, id); scale=scale, kind=kind, species=species, name=name)
@@ -1191,9 +1459,29 @@ function _resolve_object_ids(
     _sort_object_ids!(ids)
 
     if selector isa One && length(ids) != 1
-        error("Expected exactly one object for selector `$(selector)`, got $(length(ids)).")
+        _selector_resolution_error(
+            scene,
+            selector,
+            candidate_ids,
+            ids;
+            context=context,
+            scale=scale,
+            kind=kind,
+            species=species,
+            name=name,
+        )
     elseif selector isa OptionalOne && length(ids) > 1
-        error("Expected zero or one object for selector `$(selector)`, got $(length(ids)).")
+        _selector_resolution_error(
+            scene,
+            selector,
+            candidate_ids,
+            ids;
+            context=context,
+            scale=scale,
+            kind=kind,
+            species=species,
+            name=name,
+        )
     end
     return ids
 end
@@ -1242,6 +1530,7 @@ struct CompiledSceneCallBinding{SEL}
     consumer_id::ObjectId
     call::Symbol
     selector::SEL
+    origin::Symbol
     callee_object_ids::Vector{ObjectId}
     callee_application_ids::Vector{Symbol}
     process::Union{Nothing,Symbol}
@@ -1256,20 +1545,25 @@ struct CompiledEnvironmentBinding{B,C,S}
     backend::B
     cell::C
     required_inputs::Vector{Symbol}
+    source_inputs::Vector{Symbol}
     produced_outputs::Vector{Symbol}
     support::S
+    geometry_source_object_id::Union{Nothing,ObjectId}
+    geometry_source::Symbol
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I}
+struct CompiledEnvironmentBindings{SC,B,I,S,C}
     scene::SC
     bindings::B
     by_target::I
+    samplers_by_application::S
+    sample_cache::C
     scene_revision::Int
     environment_revision::Int
 end
 
-struct CompiledScene{SC,AP,AI,IB,CB,IBI,CBI,AO}
+struct CompiledScene{SC,AP,AI,IB,CB,IBI,CBI,MBI,AO}
     scene::SC
     applications::AP
     applications_by_id::AI
@@ -1277,6 +1571,7 @@ struct CompiledScene{SC,AP,AI,IB,CB,IBI,CBI,AO}
     call_bindings::CB
     input_bindings_by_target::IBI
     call_bindings_by_target::CBI
+    model_bundles_by_target::MBI
     application_order::AO
     revision::Int
 end
@@ -1321,14 +1616,22 @@ end
 function _compile_scene(scene::Scene, raw_specs)
     timeline = _scene_timeline(scene)
     applications = _compile_scene_applications(scene, raw_specs, timeline)
-    _validate_scene_writers!(applications)
-    input_bindings = _compile_scene_input_bindings(scene, applications)
-    _validate_scene_required_inputs!(scene, applications, input_bindings)
     call_bindings = _compile_scene_call_bindings(scene, applications)
+    _validate_scene_writers!(applications, call_bindings)
+    _prepare_scene_output_statuses!(scene, applications)
+    input_bindings = _compile_scene_input_bindings(scene, applications)
+    _prepare_scene_bound_input_statuses!(scene, applications, input_bindings)
+    _wire_scene_input_carriers!(scene, input_bindings)
+    _validate_scene_required_inputs!(scene, applications, input_bindings)
     input_bindings_by_target = _index_scene_bindings(input_bindings, :application_id, :consumer_id)
     call_bindings_by_target = _index_scene_bindings(call_bindings, :application_id, :consumer_id)
     application_order = _compile_scene_application_order(applications, input_bindings, call_bindings)
     applications_by_id = Dict(application.id => application for application in applications)
+    model_bundles_by_target = _compile_scene_model_bundles(
+        applications,
+        applications_by_id,
+        call_bindings_by_target,
+    )
     return CompiledScene(
         scene,
         applications,
@@ -1337,6 +1640,7 @@ function _compile_scene(scene::Scene, raw_specs)
         call_bindings,
         input_bindings_by_target,
         call_bindings_by_target,
+        model_bundles_by_target,
         application_order,
         scene.revision,
     )
@@ -1363,6 +1667,11 @@ function _compile_scene_applications(scene::Scene, raw_specs, timeline)
         app_id in ids && error("Duplicate compiled scene application id `$(app_id)`.")
         push!(ids, app_id)
         target_ids = resolve_object_ids(scene, selector)
+        spec = _scene_spec_with_meteo_hints(
+            scene,
+            spec,
+            _scene_application_hint_scale(scene, target_ids),
+        )
         model_overrides = _compiled_object_model_overrides(spec, target_ids, app_id)
         push!(
             applications,
@@ -1374,12 +1683,57 @@ function _compile_scene_applications(scene::Scene, raw_specs, timeline)
                 target_ids,
                 selector,
                 timestep(spec),
-                _scene_application_clock(spec, timeline),
+                _scene_application_clock(scene, spec, target_ids, timeline),
                 model_overrides,
             ),
         )
     end
     return applications
+end
+
+function _scene_spec_with_meteo_hints(scene::Scene, spec, scale::Symbol)
+    hint = _normalize_meteo_hint(scale, process(spec), meteo_hint(model_(spec)))
+
+    current_bindings = meteo_bindings(spec)
+    has_explicit_bindings = !(current_bindings isa NamedTuple && isempty(keys(current_bindings)))
+    new_bindings = has_explicit_bindings || isnothing(hint.bindings) ? current_bindings : hint.bindings
+    new_bindings = _scene_meteo_bindings_with_environment_sources(spec, new_bindings)
+
+    current_window = meteo_window(spec)
+    new_window = isnothing(current_window) && !isnothing(hint.window) ? hint.window : current_window
+
+    (new_bindings === current_bindings && new_window === current_window) && return spec
+    return ModelSpec(spec; meteo_bindings=new_bindings, meteo_window=new_window)
+end
+
+function _scene_meteo_bindings_with_environment_sources(spec, bindings)
+    sources = _environment_source_overrides(spec)
+    isempty(keys(sources)) && return bindings
+
+    bindings = bindings isa NamedTuple ? bindings : NamedTuple()
+    model_inputs = Set(Symbol.(keys(meteo_inputs_(spec))))
+    unknown = Symbol[target for target in keys(sources) if !(Symbol(target) in model_inputs)]
+    isempty(unknown) || error(
+        "`Environment(; sources=...)` for process `$(process(spec))` contains ",
+        "unknown model-facing meteo input(s) `$(Tuple(unknown))`. Declared ",
+        "`meteo_inputs_` are `$(Tuple(sort!(collect(model_inputs); by=string)))`."
+    )
+
+    targets = Symbol[Symbol(target) for target in keys(bindings)]
+    for target in keys(sources)
+        target = Symbol(target)
+        target in targets || push!(targets, target)
+    end
+
+    resolved = Pair{Symbol,Any}[]
+    for target in targets
+        rule = haskey(bindings, target) ?
+               _normalize_meteo_binding_rule(target, bindings[target]) :
+               (source=target, reducer=PlantMeteo.MeanWeighted())
+        source = haskey(sources, target) ? Symbol(sources[target]) : rule.source
+        push!(resolved, target => (source=source, reducer=rule.reducer))
+    end
+    return (; resolved...)
 end
 
 function _compiled_object_model_overrides(spec, target_ids, application_id::Symbol)
@@ -1412,11 +1766,19 @@ function _scene_output_names(application::CompiledSceneApplication)
     return Symbol[Symbol(var) for var in keys(outputs_(application.spec))]
 end
 
-function _scene_writer_groups(applications)
+function _scene_canonical_output_names(application::CompiledSceneApplication)
+    return Symbol[
+        variable for variable in _scene_output_names(application)
+        if _publish_mode_for_output(application.spec, variable) == :canonical
+    ]
+end
+
+function _scene_writer_groups(applications, skipped_application_ids=Set{Symbol}())
     groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
     for (index, application) in pairs(applications)
+        application.id in skipped_application_ids && continue
         for object_id in application.target_ids
-            for variable in _scene_output_names(application)
+            for variable in _scene_canonical_output_names(application)
                 push!(get!(groups, (object_id, variable), Tuple{Int,Any}[]), (index, application))
             end
         end
@@ -1474,8 +1836,17 @@ function _declares_update_without_previous_writer(spec, variable::Symbol, previo
     return false
 end
 
-function _validate_scene_writers!(applications)
-    for ((object_id, variable), indexed_writers) in _scene_writer_groups(applications)
+function _manual_call_application_ids(call_bindings)
+    ids = Set{Symbol}()
+    for binding in call_bindings
+        union!(ids, binding.callee_application_ids)
+    end
+    return ids
+end
+
+function _validate_scene_writers!(applications, call_bindings=())
+    manual_application_ids = _manual_call_application_ids(call_bindings)
+    for ((object_id, variable), indexed_writers) in _scene_writer_groups(applications, manual_application_ids)
         length(indexed_writers) <= 1 && continue
         sort!(indexed_writers; by=first)
         previous = CompiledSceneApplication[]
@@ -1502,9 +1873,20 @@ function _validate_scene_writers!(applications)
     return nothing
 end
 
-function _scene_application_clock(spec, timeline)
-    clock = _clock_from_spec_timestep(timestep(spec), timeline)
-    isnothing(clock) && return ClockSpec(1.0, 0.0)
+function _scene_application_hint_scale(scene::Scene, target_ids::Vector{ObjectId})
+    isempty(target_ids) && return :Scene
+    scales = unique!([_scene_object(scene, object_id).scale for object_id in target_ids])
+    length(scales) == 1 && return only(scales)
+    return :Mixed
+end
+
+function _scene_application_clock(scene::Scene, spec, target_ids::Vector{ObjectId}, timeline)
+    model = model_(spec)
+    source = _runtime_clock_source_for_spec(spec)
+    source == :meteo_base_step || return _model_clock(spec, model, timeline)
+    scale = _scene_application_hint_scale(scene, target_ids)
+    clock, hint_reason = _resolve_meteo_hint_clock(scale, process(spec), model, timeline)
+    isnothing(hint_reason) || error(hint_reason)
     return clock
 end
 
@@ -1514,6 +1896,39 @@ end
 
 function _selector_policy(selector::AbstractObjectMultiplicity)
     return _criteria_get(criteria(selector), :policy, HoldLast())
+end
+
+_selector_has_policy(selector::AbstractObjectMultiplicity) =
+    haskey(criteria(selector), :policy)
+
+function _scene_policy_from_source_application(applications_by_id, application_id::Symbol, source_var::Symbol)
+    application = get(applications_by_id, application_id, nothing)
+    isnothing(application) && error(
+        "No compiled scene application with id `$(application_id)` while resolving ",
+        "default output policy for `$(source_var)`."
+    )
+    return _policy_for_output(_application_default_model(application), source_var)
+end
+
+function _scene_selector_policy(selector::AbstractObjectMultiplicity, applications_by_id, source_application_ids, source_var::Symbol)
+    _selector_has_policy(selector) && return _selector_policy(selector)
+    isempty(source_application_ids) && return HoldLast()
+    length(source_application_ids) == 1 && return _scene_policy_from_source_application(
+        applications_by_id,
+        only(source_application_ids),
+        source_var,
+    )
+    policies = [
+        _scene_policy_from_source_application(applications_by_id, application_id, source_var)
+        for application_id in source_application_ids
+    ]
+    first_policy = first(policies)
+    all(policy -> policy == first_policy, policies) && return first_policy
+    error(
+        "Cannot infer default policy for scene input from `$(source_var)` because ",
+        "selector resolves several source applications `$(source_application_ids)` with ",
+        "different output policies. Add `policy=...` to `Inputs(...)`."
+    )
 end
 
 function _selector_window(selector::AbstractObjectMultiplicity)
@@ -1576,6 +1991,78 @@ function _ref_vector_carrier(refs)
     return RefVector(typed_refs)
 end
 
+function _status_with_reference(status::Status, variable::Symbol, reference::Base.RefValue)
+    names = propertynames(status)
+    if variable in names
+        references = ntuple(
+            index -> names[index] == variable ? reference : refvalue(status, names[index]),
+            length(names),
+        )
+        return Status(NamedTuple{names}(references))
+    end
+    extended_names = (names..., variable)
+    references = (ntuple(index -> refvalue(status, names[index]), length(names))..., reference)
+    return Status(NamedTuple{extended_names}(references))
+end
+
+function _status_with_default(status::Status, variable::Symbol, value)
+    variable in propertynames(status) && return status
+    return _status_with_reference(status, variable, Ref(value))
+end
+
+function _ensure_scene_object_status!(scene::Scene, object_id::ObjectId)
+    object = _scene_object(scene, object_id)
+    isnothing(object.status) && (object.status = Status())
+    object.status isa Status || error(
+        "Scene object `$(object_id.value)` uses model applications but its status has type ",
+        "`$(typeof(object.status))`. Use `Status(...)` or leave status as `nothing`."
+    )
+    return object.status
+end
+
+function _prepare_scene_output_statuses!(scene::Scene, applications)
+    for application in applications
+        defaults = merge(outputs_(application.spec), meteo_outputs_(application.spec))
+        for object_id in application.target_ids
+            status = _ensure_scene_object_status!(scene, object_id)
+            for (variable, value) in pairs(defaults)
+                status = _status_with_default(status, Symbol(variable), value)
+            end
+            _scene_object(scene, object_id).status = status
+        end
+    end
+    return scene
+end
+
+function _prepare_scene_bound_input_statuses!(scene::Scene, applications, bindings)
+    applications_by_id = Dict(application.id => application for application in applications)
+    for binding in bindings
+        status = _ensure_scene_object_status!(scene, binding.consumer_id)
+        binding.input in propertynames(status) && continue
+        application = applications_by_id[binding.application_id]
+        defaults = inputs_(application.spec)
+        binding.input in keys(defaults) || error(
+            "Bound input `$(binding.input)` is not declared by application `$(binding.application_id)`."
+        )
+        _scene_object(scene, binding.consumer_id).status =
+            _status_with_default(status, binding.input, getproperty(defaults, binding.input))
+    end
+    return scene
+end
+
+function _wire_scene_input_carriers!(scene::Scene, bindings)
+    for binding in bindings
+        binding.carrier_hint == :temporal_stream && continue
+        isnothing(binding.carrier) && continue
+        object = _scene_object(scene, binding.consumer_id)
+        status = object.status
+        status isa Status || continue
+        reference = binding.carrier isa Base.RefValue ? binding.carrier : Ref(binding.carrier)
+        object.status = _status_with_reference(status, binding.input, reference)
+    end
+    return scene
+end
+
 input_carrier(binding::CompiledSceneInputBinding) = binding.carrier
 has_reference_carrier(binding::CompiledSceneInputBinding) = !isnothing(binding.carrier)
 input_value(binding::CompiledSceneInputBinding) = _input_value(binding.carrier)
@@ -1584,7 +2071,14 @@ _input_value(carrier::Base.RefValue) = carrier[]
 _input_value(carrier::RefVector) = carrier
 _input_value(carrier::ObjectRefVector) = carrier
 
-function _matching_input_source_applications(applications_by_object, source_ids, source_var::Symbol, process_filter, application_filter)
+function _matching_input_source_applications(
+    applications_by_object,
+    source_ids,
+    source_var::Symbol,
+    process_filter,
+    application_filter;
+    allow_empty::Bool=false,
+)
     matches = Symbol[]
     for source_id in source_ids
         for application in get(applications_by_object, source_id, Any[])
@@ -1595,7 +2089,9 @@ function _matching_input_source_applications(applications_by_object, source_ids,
         end
     end
     unique!(matches)
-    if (!isnothing(process_filter) || !isnothing(application_filter)) && isempty(matches)
+    if !allow_empty &&
+       (!isnothing(process_filter) || !isnothing(application_filter)) &&
+       isempty(matches)
         error(
             "Input selector for source variable `$(source_var)` requested",
             isnothing(process_filter) ? "" : " process `$(process_filter)`",
@@ -1609,6 +2105,7 @@ end
 function _compile_scene_input_bindings(scene::Scene, applications)
     bindings = CompiledSceneInputBinding[]
     by_object = _applications_by_object(applications)
+    by_id = Dict(application.id => application for application in applications)
     for application in applications
         for consumer_id in application.target_ids
             declared_inputs = value_inputs(application.spec)
@@ -1626,11 +2123,12 @@ function _compile_scene_input_bindings(scene::Scene, applications)
                     consumer_id,
                     input_sym,
                     selector,
-                    :declared,
+                    get(input_origins(application.spec), input_sym, :model_spec),
                     by_object,
+                    by_id,
                 )
             end
-            _append_inferred_scene_input_bindings!(bindings, scene, application, consumer_id, declared_inputs, by_object)
+            _append_inferred_scene_input_bindings!(bindings, scene, application, consumer_id, declared_inputs, by_object, by_id)
         end
     end
     return bindings
@@ -1645,11 +2143,10 @@ function _push_scene_input_binding!(
     selector::AbstractObjectMultiplicity,
     origin::Symbol,
     applications_by_object,
+    applications_by_id,
     source_ids_override=nothing,
 )
     source_ids = isnothing(source_ids_override) ? _dependency_object_ids(scene, selector, consumer_id) : source_ids_override
-    isempty(source_ids) && selector isa OptionalOne && return bindings
-    policy = _selector_policy(selector)
     window = _selector_window(selector)
     source_var = _selector_var(selector, input_sym)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
@@ -1660,9 +2157,33 @@ function _push_scene_input_binding!(
         source_var,
         process_filter,
         application_filter,
+        allow_empty=selector isa OptionalOne,
     )
+    if selector isa OptionalOne &&
+       (!isnothing(process_filter) || !isnothing(application_filter)) &&
+       isempty(source_application_ids)
+        source_ids = ObjectId[]
+    end
+    policy = _scene_selector_policy(selector, applications_by_id, source_application_ids, source_var)
+    if policy isa PreviousTimeStep
+        policy.variable == input_sym || error(
+            "PreviousTimeStep marker for input `$(input_sym)` on application ",
+            "`$(application.id)` names `$(policy.variable)`. Use ",
+            "`PreviousTimeStep(:$(input_sym))`."
+        )
+    else
+        _validate_policy_instance(
+            _scene_object(scene, consumer_id).scale,
+            application.process,
+            input_sym,
+            policy,
+        )
+    end
     carrier = _input_carrier(scene, selector, source_ids, source_var)
-    carrier_hint = _carrier_hint(selector, policy, window)
+    carrier_hint =
+        isempty(source_ids) && selector isa OptionalOne ?
+        :optional_default :
+        _carrier_hint(selector, policy, window)
     _validate_scene_input_source!(
         scene,
         application,
@@ -1738,7 +2259,7 @@ function _same_object_output_applications(applications_by_object, application::C
     matches = CompiledSceneApplication[]
     for candidate in get(applications_by_object, object_id, Any[])
         candidate.id == application.id && continue
-        variable in _scene_output_names(candidate) || continue
+        variable in _scene_canonical_output_names(candidate) || continue
         push!(matches, candidate)
     end
     return matches
@@ -1751,6 +2272,7 @@ function _append_inferred_scene_input_bindings!(
     consumer_id::ObjectId,
     declared_inputs,
     applications_by_object,
+    applications_by_id,
 )
     declared_names = declared_inputs isa NamedTuple ? Set(Symbol.(keys(declared_inputs))) : Set{Symbol}()
     for input_sym in _scene_input_names(application)
@@ -1775,6 +2297,7 @@ function _append_inferred_scene_input_bindings!(
             selector,
             :inferred_same_object,
             applications_by_object,
+            applications_by_id,
             ObjectId[consumer_id],
         )
     end
@@ -1874,7 +2397,7 @@ function _compile_scene_call_bindings(scene::Scene, applications)
                     )
                 end
                 unique!(callee_application_ids)
-                if isempty(callee_application_ids)
+                if isempty(callee_application_ids) && !(selector isa OptionalOne)
                     error(
                         "Call `$(call_sym)` on application `$(application.id)` matched objects ",
                         "$([id.value for id in callee_object_ids]) but no model application",
@@ -1899,6 +2422,7 @@ function _compile_scene_call_bindings(scene::Scene, applications)
                         consumer_id,
                         call_sym,
                         selector,
+                        get(call_origins(application.spec), call_sym, :model_spec),
                         callee_object_ids,
                         callee_application_ids,
                         proc,
@@ -1930,6 +2454,7 @@ end
 
 function _scene_input_order_edges!(children, input_bindings, call_owners)
     for binding in input_bindings
+        binding.policy isa PreviousTimeStep && continue
         for source_id in binding.source_application_ids
             owners = get(call_owners, source_id, nothing)
             if isnothing(owners)
@@ -2063,6 +2588,7 @@ end
 
 function _scene_binding_carrier_kind(binding::CompiledSceneInputBinding)
     binding.carrier_hint == :temporal_stream && return :temporal_stream
+    binding.carrier_hint == :optional_default && return :optional_default
     carrier = binding.carrier
     isnothing(carrier) && return :unresolved
     carrier isa Base.RefValue && return :ref
@@ -2075,6 +2601,7 @@ function _scene_binding_copy_semantics(binding::CompiledSceneInputBinding)
     kind = _scene_binding_carrier_kind(binding)
     kind in (:ref, :ref_vector, :object_ref_vector) && return :live_references
     kind == :temporal_stream && return :materialized_temporal_value
+    kind == :optional_default && return :consumer_default
     kind == :unresolved && return :not_materialized
     return :backend_defined
 end
@@ -2111,19 +2638,39 @@ function explain_calls(compiled::CompiledScene)
             application_id=binding.application_id,
             consumer_id=binding.consumer_id.value,
             call=binding.call,
+            origin=binding.origin,
             callee_object_ids=[id.value for id in binding.callee_object_ids],
             callee_application_ids=binding.callee_application_ids,
             process=binding.process,
             application=binding.application,
             multiplicity=binding.multiplicity,
+            publication_policy=:explicit_accept,
+            default_publish=false,
+            accepted_publish=true,
+            resolved=!isempty(binding.callee_application_ids),
             selector=binding.selector,
         )
         for binding in compiled.call_bindings
     ]
 end
 
+function explain_model_bundles(compiled::CompiledScene)
+    return [
+        (
+            application_id=application_id,
+            object_id=object_id.value,
+            processes=collect(keys(models)),
+            model_types=[typeof(model) for model in values(models)],
+        )
+        for ((application_id, object_id), models) in sort!(
+            collect(compiled.model_bundles_by_target);
+            by=pair -> (string(first(pair)[1]), string(first(pair)[2].value)),
+        )
+    ]
+end
+
 function explain_writers(compiled::CompiledScene)
-    groups = _scene_writer_groups(compiled.applications)
+    groups = _scene_writer_groups(compiled.applications, _manual_call_application_ids(compiled))
     rows = NamedTuple[]
     for ((object_id, variable), indexed_writers) in groups
         sort!(indexed_writers; by=first)
@@ -2180,6 +2727,31 @@ end
 
 bind_environment(backend, object::Object, support, config=nothing) = :global
 
+function _environment_binding_object(scene::Scene, object::Object)
+    !isnothing(geometry(object)) && return object, object.id, :self
+    ancestor_id = object.parent
+    while !isnothing(ancestor_id)
+        ancestor = _scene_object(scene, ancestor_id)
+        if !isnothing(geometry(ancestor))
+            proxy = Object(
+                object.id;
+                scale=object.scale,
+                kind=object.kind,
+                species=object.species,
+                name=object.name,
+                parent=object.parent,
+                children=object.children,
+                geometry=geometry(ancestor),
+                status=object.status,
+                applications=object.applications,
+            )
+            return proxy, ancestor.id, :ancestor
+        end
+        ancestor_id = ancestor.parent
+    end
+    return object, nothing, :global
+end
+
 function _scene_environment_entities(scene::Scene)
     return [
         (
@@ -2225,18 +2797,30 @@ function _environment_variable_names(vars)
     return Symbol[Symbol(var) for var in keys(vars)]
 end
 
-function _compile_environment_bindings(scene::Scene, compiled::CompiledScene)
+function _environment_source_variable_names(model_spec)
+    return Symbol[Symbol(source) for (_, source) in _environment_sampling_rules(model_spec)]
+end
+
+function _compile_environment_bindings_for_applications(scene::Scene, applications)
     bindings = CompiledEnvironmentBinding[]
-    for application in compiled.applications
+    for application in applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(scene, config)
         provider = _environment_provider_from_config(config, backend)
         required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
+        source_inputs = _environment_source_variable_names(application.spec)
         produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
         for object_id in application.target_ids
             object = _scene_object(scene, object_id)
             support = _object_environment_support(application, object)
-            cell = bind_environment(backend, object, support, _environment_config_payload(config))
+            binding_object, geometry_source_object_id, geometry_source =
+                _environment_binding_object(scene, object)
+            cell = bind_environment(
+                backend,
+                binding_object,
+                support,
+                _environment_config_payload(config),
+            )
             push!(
                 bindings,
                 CompiledEnvironmentBinding(
@@ -2246,8 +2830,11 @@ function _compile_environment_bindings(scene::Scene, compiled::CompiledScene)
                     backend,
                     cell,
                     required_inputs,
+                    source_inputs,
                     produced_outputs,
                     support,
+                    geometry_source_object_id,
+                    geometry_source,
                     config,
                 ),
             )
@@ -2256,9 +2843,95 @@ function _compile_environment_bindings(scene::Scene, compiled::CompiledScene)
     return bindings
 end
 
+_compile_environment_bindings(scene::Scene, compiled::CompiledScene) =
+    _compile_environment_bindings_for_applications(scene, compiled.applications)
+
+function _validate_scene_environment_inputs!(bindings, applications_by_id)
+    missing_rows = NamedTuple[]
+    for binding in bindings
+        available = environment_variables(binding.backend)
+        isnothing(available) && continue
+        application = applications_by_id[binding.application_id]
+        for (target, source) in _environment_sampling_rules(application.spec)
+            source in available && continue
+            push!(
+                missing_rows,
+                (
+                    application_id=binding.application_id,
+                    object_id=binding.object_id.value,
+                    process=application.process,
+                    target=target,
+                    source=source,
+                    available=Tuple(sort!(collect(available); by=string)),
+                ),
+            )
+        end
+    end
+    isempty(missing_rows) && return nothing
+    details = join(
+        [
+            string(
+                row.application_id,
+                "/",
+                row.object_id,
+                " (",
+                row.process,
+                ") needs `",
+                row.target,
+                "` from source `",
+                row.source,
+                "`; available=",
+                row.available,
+            )
+            for row in missing_rows
+        ],
+        "; ",
+    )
+    error("Scene environment is missing required meteo inputs: ", details)
+end
+
+function _scene_environment_samplers(bindings)
+    samplers_by_application = Dict{Symbol,Any}()
+    prepared_sources = Tuple{Any,Any}[]
+    for binding in bindings
+        haskey(samplers_by_application, binding.application_id) && continue
+        binding.backend isa GlobalConstant || continue
+        meteo = environment_meteo(binding.backend)
+        source_index = findfirst(entry -> entry[1] === meteo, prepared_sources)
+        sampler = if isnothing(source_index)
+            prepared = _prepare_meteo_sampler(meteo)
+            push!(prepared_sources, (meteo, prepared))
+            prepared
+        else
+            prepared_sources[source_index][2]
+        end
+        samplers_by_application[binding.application_id] = sampler
+    end
+    return samplers_by_application
+end
+
+function _compiled_environment_bindings(
+    scene::Scene,
+    bindings,
+    by_target,
+    samplers_by_application=_scene_environment_samplers(bindings),
+    sample_cache=Dict{Tuple{Symbol,Int},Any}(),
+)
+    return CompiledEnvironmentBindings(
+        scene,
+        bindings,
+        by_target,
+        samplers_by_application,
+        sample_cache,
+        scene.revision,
+        scene.environment_revision,
+    )
+end
+
 function compile_environment_bindings(scene::Scene, compiled::CompiledScene=refresh_bindings!(scene))
     _update_scene_environment_indices!(scene, compiled)
     bindings = _compile_environment_bindings(scene, compiled)
+    _validate_scene_environment_inputs!(bindings, compiled.applications_by_id)
     by_target = Dict(
         (binding.application_id, binding.object_id) => binding
         for binding in bindings
@@ -2266,12 +2939,133 @@ function compile_environment_bindings(scene::Scene, compiled::CompiledScene=refr
     length(by_target) == length(bindings) || error(
         "Environment binding compilation produced duplicate `(application_id, object_id)` targets."
     )
-    return CompiledEnvironmentBindings(
+    return _compiled_environment_bindings(scene, bindings, by_target)
+end
+
+function _same_environment_backend(a, b)
+    a === b && return true
+    if a isa GlobalConstant && b isa GlobalConstant
+        return environment_meteo(a) === environment_meteo(b)
+    end
+    return false
+end
+
+function _same_environment_support(a, b)
+    return a.domain == b.domain &&
+           a.scale == b.scale &&
+           a.process == b.process &&
+           a.status === b.status
+end
+
+function _reconcile_environment_binding_metadata(
+    scene::Scene,
+    compiled::CompiledScene,
+    cached::CompiledEnvironmentBindings,
+)
+    expected_count = sum(length(application.target_ids) for application in compiled.applications)
+    expected_count == length(cached.bindings) || return nothing
+
+    bindings = CompiledEnvironmentBinding[]
+    changed = false
+    for application in compiled.applications
+        config = environment_config(application.spec)
+        backend = _environment_backend_from_config(scene, config)
+        provider = _environment_provider_from_config(config, backend)
+        required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
+        source_inputs = _environment_source_variable_names(application.spec)
+        produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
+        for object_id in application.target_ids
+            key = (application.id, object_id)
+            old = get(cached.by_target, key, nothing)
+            isnothing(old) && return nothing
+            object = _scene_object(scene, object_id)
+            support = _object_environment_support(application, object)
+            _, geometry_source_object_id, geometry_source =
+                _environment_binding_object(scene, object)
+            _same_environment_backend(old.backend, backend) || return nothing
+            old.provider == provider || return nothing
+            isequal(old.config, config) || return nothing
+            old.geometry_source_object_id == geometry_source_object_id ||
+                return nothing
+            old.geometry_source == geometry_source || return nothing
+            _same_environment_support(old.support, support) || return nothing
+
+            if old.required_inputs == required_inputs &&
+               old.source_inputs == source_inputs &&
+               old.produced_outputs == produced_outputs
+                push!(bindings, old)
+            else
+                changed = true
+                push!(
+                    bindings,
+                    CompiledEnvironmentBinding(
+                        application.id,
+                        object_id,
+                        provider,
+                        backend,
+                        old.cell,
+                        required_inputs,
+                        source_inputs,
+                        produced_outputs,
+                        support,
+                        geometry_source_object_id,
+                        geometry_source,
+                        config,
+                    ),
+                )
+            end
+        end
+    end
+    changed || return cached
+    _validate_scene_environment_inputs!(bindings, compiled.applications_by_id)
+    by_target = Dict(
+        (binding.application_id, binding.object_id) => binding
+        for binding in bindings
+    )
+    return _compiled_environment_bindings(scene, bindings, by_target)
+end
+
+function _refresh_environment_bindings_for_objects(
+    scene::Scene,
+    compiled::CompiledScene,
+    cached::CompiledEnvironmentBindings,
+    dirty_object_ids,
+)
+    _update_scene_environment_indices!(scene, compiled)
+    dirty = Set(dirty_object_ids)
+    replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
+    for application in compiled.applications
+        selected_ids = ObjectId[id for id in application.target_ids if id in dirty]
+        isempty(selected_ids) && continue
+        partial_application = CompiledSceneApplication(
+            application.id,
+            application.spec,
+            application.process,
+            application.name,
+            selected_ids,
+            application.applies_to,
+            application.timestep,
+            application.clock,
+            application.model_overrides,
+        )
+        for binding in _compile_environment_bindings_for_applications(scene, (partial_application,))
+            replacements[(binding.application_id, binding.object_id)] = binding
+        end
+    end
+    bindings = CompiledEnvironmentBinding[
+        get(replacements, (binding.application_id, binding.object_id), binding)
+        for binding in cached.bindings
+    ]
+    _validate_scene_environment_inputs!(bindings, compiled.applications_by_id)
+    by_target = Dict(
+        (binding.application_id, binding.object_id) => binding for binding in bindings
+    )
+    return _compiled_environment_bindings(
         scene,
         bindings,
         by_target,
-        scene.revision,
-        scene.environment_revision,
+        cached.samplers_by_application,
+        cached.sample_cache,
     )
 end
 
@@ -2284,7 +3078,14 @@ function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
             backend_type=isnothing(binding.backend) ? nothing : typeof(binding.backend),
             cell=binding.cell,
             required_inputs=binding.required_inputs,
+            source_inputs=binding.source_inputs,
             produced_outputs=binding.produced_outputs,
+            temporal_sampler=!isnothing(
+                get(compiled.samplers_by_application, binding.application_id, nothing),
+            ),
+            geometry_source_object_id=isnothing(binding.geometry_source_object_id) ?
+                                      nothing : binding.geometry_source_object_id.value,
+            geometry_source=binding.geometry_source,
             support=binding.support,
             config=binding.config,
         )
@@ -2296,17 +3097,25 @@ function explain_environment_bindings(scene::Scene)
     return explain_environment_bindings(refresh_environment_bindings!(scene))
 end
 
-struct SceneRunContext{CS,EB,A,TS,C}
+struct SceneOutputRetentionPlan
+    retain_all::Bool
+    temporal_dependencies::Set{Tuple{Symbol,Symbol}}
+    requested_outputs::Set{Tuple{Symbol,Symbol}}
+    dependency_horizons::Dict{Tuple{Symbol,Symbol},Float64}
+end
+
+struct SceneRunContext{CS,EB,A,TS,OR,C}
     compiled::CS
     environment_bindings::EB
     application::A
     object_id::ObjectId
     temporal_streams::TS
+    output_retention::OR
     time::Float64
     constants::C
 end
 
-struct SceneCallTarget{CS,EB,A,S,TS,C}
+struct SceneCallTarget{CS,EB,A,S,TS,OR,C}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -2314,9 +3123,44 @@ struct SceneCallTarget{CS,EB,A,S,TS,C}
     model
     status::S
     temporal_streams::TS
+    output_retention::OR
     time::Float64
     constants::C
 end
+
+abstract type AbstractSceneExecutionBatch end
+
+struct CompiledSceneExecutionTarget{M,S,MB,IB,EB}
+    object_id::ObjectId
+    model::M
+    status::S
+    models::MB
+    input_bindings::IB
+    environment_binding::EB
+end
+
+struct CompiledSceneExecutionBatch{A,T<:AbstractVector} <: AbstractSceneExecutionBatch
+    application::A
+    targets::T
+end
+
+struct CompiledSceneExecutionPlan{B}
+    batches::B
+    scene_revision::Int
+    environment_revision::Int
+end
+
+struct SceneSimulation{S,CS,EB,EP,OR,TS,R}
+    scene::S
+    compiled::CS
+    environment_bindings::EB
+    execution_plan::EP
+    output_retention::OR
+    temporal_streams::TS
+    output_requests::R
+end
+
+scene_outputs(sim::SceneSimulation) = sim.temporal_streams
 
 function _compiled_application_by_id(compiled::CompiledScene, id::Symbol)
     application = get(compiled.applications_by_id, id, nothing)
@@ -2344,20 +3188,84 @@ function _set_status_if_present!(status::Status, variable::Symbol, value)
     return status
 end
 
-_scene_stream_key(object_id::ObjectId, variable::Symbol) = (object_id, variable)
+_scene_stream_key(application_id::Symbol, object_id::ObjectId, variable::Symbol) =
+    (application_id, object_id, variable)
 
-function _scene_publish_outputs!(streams, application::CompiledSceneApplication, object_id::ObjectId, status, time::Real)
+function _scene_retain_output(
+    retention::SceneOutputRetentionPlan,
+    application_id::Symbol,
+    variable::Symbol,
+)
+    retention.retain_all && return true
+    key = (application_id, variable)
+    return key in retention.temporal_dependencies ||
+           key in retention.requested_outputs
+end
+
+_scene_retain_output(::Nothing, application_id::Symbol, variable::Symbol) = true
+
+function _scene_prune_dependency_stream!(
+    samples,
+    retention::SceneOutputRetentionPlan,
+    application_id::Symbol,
+    variable::Symbol,
+    time::Real,
+)
+    retention.retain_all && return samples
+    key = (application_id, variable)
+    key in retention.requested_outputs && return samples
+    key in retention.temporal_dependencies || return samples
+    horizon = get(retention.dependency_horizons, key, 0.0)
+    if horizon <= 0.0
+        length(samples) > 1 && deleteat!(samples, 1:(length(samples) - 1))
+        return samples
+    end
+    cutoff = float(time) - horizon + 1.0
+    filter!(sample -> sample[1] >= cutoff - 1.0e-8, samples)
+    return samples
+end
+
+_scene_prune_dependency_stream!(samples, ::Nothing, application_id, variable, time) =
+    samples
+
+function _scene_publish_outputs!(
+    streams,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+    status,
+    time::Real,
+    retention=nothing,
+)
     isnothing(streams) && return nothing
     for variable in keys(outputs_(application.spec))
         var = Symbol(variable)
+        _scene_retain_output(retention, application.id, var) || continue
         hasproperty(status, var) || error(
             "Application `$(application.id)` declares output `$(var)`, but object ",
             "`$(object_id.value)` status has no such variable."
         )
-        key = _scene_stream_key(object_id, var)
-        samples = get!(streams, key, Tuple{Float64,Any}[])
+        key = _scene_stream_key(application.id, object_id, var)
+        value = getproperty(status, var)
+        samples = get(streams, key, nothing)
+        if isnothing(samples)
+            samples = Tuple{Float64,typeof(value)}[]
+            streams[key] = samples
+        elseif !(value isa fieldtype(eltype(samples), 2))
+            error(
+                "Output `$(application.id).$(var)` on object `$(object_id.value)` changed ",
+                "value type from `$(fieldtype(eltype(samples), 2))` to `$(typeof(value))`. ",
+                "Scene temporal streams require a stable output type."
+            )
+        end
         filter!(sample -> !isapprox(sample[1], float(time); atol=1.0e-8, rtol=0.0), samples)
-        push!(samples, (float(time), getproperty(status, var)))
+        push!(samples, (float(time), value))
+        _scene_prune_dependency_stream!(
+            samples,
+            retention,
+            application.id,
+            var,
+            time,
+        )
     end
     return nothing
 end
@@ -2374,8 +3282,54 @@ function _scene_latest_sample(samples, time::Real)
     return latest
 end
 
+function _scene_linear_value(v_left, v_right, α)
+    applicable(-, v_right, v_left) || return nothing
+    delta = v_right - v_left
+    increment = if applicable(*, α, delta)
+        α * delta
+    elseif applicable(*, delta, α)
+        delta * α
+    else
+        return nothing
+    end
+    applicable(+, v_left, increment) || return nothing
+    return v_left + increment
+end
+
+function _scene_interpolated_sample(samples, time::Real, policy::Interpolate)
+    isempty(samples) && return nothing
+    t = float(time)
+    prev_idx = findlast(sample -> sample[1] <= t + 1.0e-8, samples)
+    next_idx = findfirst(sample -> sample[1] >= t - 1.0e-8, samples)
+
+    if !isnothing(prev_idx) && !isnothing(next_idx)
+        t_prev, v_prev = samples[prev_idx]
+        t_next, v_next = samples[next_idx]
+        isapprox(t_prev, t_next; atol=1.0e-8, rtol=0.0) && return v_prev
+        policy.mode == :hold && return v_prev
+        α = (t - t_prev) / (t_next - t_prev)
+        interpolated = _scene_linear_value(v_prev, v_next, α)
+        return isnothing(interpolated) ? v_prev : interpolated
+    end
+
+    if !isnothing(prev_idx)
+        t_last, v_last = samples[prev_idx]
+        if policy.extrapolation == :linear && prev_idx >= 2
+            t_prev, v_prev = samples[prev_idx - 1]
+            if !isapprox(t_last, t_prev; atol=1.0e-8, rtol=0.0)
+                α = (t - t_last) / (t_last - t_prev)
+                extrapolated = _scene_linear_value(v_prev, v_last, one(α) + α)
+                !isnothing(extrapolated) && return extrapolated
+            end
+        end
+        return v_last
+    end
+
+    return first(samples)[2]
+end
+
 function _scene_window_samples(samples, t_start::Real, t_end::Real)
-    return Any[value for (sample_t, value) in samples if float(t_start) <= sample_t <= float(t_end)]
+    return [value for (sample_t, value) in samples if float(t_start) <= sample_t <= float(t_end)]
 end
 
 function _scene_window_reduce(values, durations, policy)
@@ -2417,37 +3371,127 @@ function _scene_input_window_steps(binding::CompiledSceneInputBinding, applicati
     return 1.0
 end
 
-function _scene_temporal_source_value(streams, source_id::ObjectId, source_var::Symbol, time::Real, policy, t_start::Real, timeline)
-    samples = get(streams, _scene_stream_key(source_id, source_var), nothing)
+function _scene_temporal_source_value(
+    streams,
+    application_id::Symbol,
+    source_id::ObjectId,
+    source_var::Symbol,
+    time::Real,
+    policy,
+    t_start::Real,
+    timeline,
+)
+    samples = get(streams, _scene_stream_key(application_id, source_id, source_var), nothing)
     isnothing(samples) && return policy isa Union{Integrate,Aggregate} ? 0.0 : nothing
     if policy isa HoldLast
         return _scene_latest_sample(samples, time)
+    elseif policy isa PreviousTimeStep
+        return _scene_latest_sample(samples, float(time) - 1.0)
     elseif policy isa Union{Integrate,Aggregate}
         values = _scene_window_samples(samples, t_start, time)
         durations = fill(timeline.base_step_seconds, length(values))
         return _scene_window_reduce(values, durations, policy)
     elseif policy isa Interpolate
-        return _scene_latest_sample(samples, time)
+        return _scene_interpolated_sample(samples, time, policy)
     end
     error("Unsupported scene temporal input policy `$(typeof(policy))`.")
 end
 
-function _scene_temporal_input_value(binding::CompiledSceneInputBinding, application::CompiledSceneApplication, streams, time::Real, timeline)
+function _scene_temporal_source_application(compiled::CompiledScene, binding::CompiledSceneInputBinding, source_id::ObjectId)
+    isempty(binding.source_application_ids) && error(
+        "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
+        "has no resolved source application. Add `process=` or `application=` to `Inputs(...)`."
+    )
+    matches = Symbol[
+        application_id for application_id in binding.source_application_ids
+        if source_id in _compiled_application_by_id(compiled, application_id).target_ids
+    ]
+    if length(matches) == 1
+        return only(matches)
+    elseif isempty(matches)
+        error(
+            "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
+            "has no source application matching object `$(source_id.value)`."
+        )
+    end
+    error(
+        "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
+        "has ambiguous source applications `$(matches)`. Add `application=...` to `Inputs(...)`."
+    )
+end
+
+function _scene_temporal_input_value(
+    compiled::CompiledScene,
+    binding::CompiledSceneInputBinding,
+    application::CompiledSceneApplication,
+    status::Status,
+    streams,
+    time::Real,
+    timeline,
+)
     window_steps = _scene_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
+    initial = status[binding.input]
     if binding.multiplicity == :many
-        return [
-            _scene_temporal_source_value(streams, source_id, binding.source_var, time, binding.policy, t_start, timeline)
+        values = [
+            _scene_temporal_source_value(
+                streams,
+                _scene_temporal_source_application(compiled, binding, source_id),
+                source_id,
+                binding.source_var,
+                time,
+                binding.policy,
+                t_start,
+                timeline,
+            )
             for source_id in binding.source_ids
         ]
+        if binding.policy isa PreviousTimeStep
+            initial_values = initial isa AbstractVector ? initial : ()
+            return [
+                isnothing(value) && index <= length(initial_values) ? initial_values[index] : value
+                for (index, value) in pairs(values)
+            ]
+        end
+        return values
     end
     source_id = only(binding.source_ids)
-    value = _scene_temporal_source_value(streams, source_id, binding.source_var, time, binding.policy, t_start, timeline)
+    value = _scene_temporal_source_value(
+        streams,
+        _scene_temporal_source_application(compiled, binding, source_id),
+        source_id,
+        binding.source_var,
+        time,
+        binding.policy,
+        t_start,
+        timeline,
+    )
+    isnothing(value) && binding.policy isa PreviousTimeStep && return initial
     isnothing(value) && error(
         "No temporal scene value available for input `$(binding.input)` from ",
         "`$(source_id.value).$(binding.source_var)` at t=$(time)."
     )
     return value
+end
+
+function _scene_temporal_input_value(
+    compiled::CompiledScene,
+    binding::CompiledSceneInputBinding,
+    application::CompiledSceneApplication,
+    streams,
+    time::Real,
+    timeline,
+)
+    status = _scene_object_status(compiled.scene, binding.consumer_id)
+    return _scene_temporal_input_value(
+        compiled,
+        binding,
+        application,
+        status,
+        streams,
+        time,
+        timeline,
+    )
 end
 
 function _scene_assign_input_value!(status::Status, variable::Symbol, value)
@@ -2474,15 +3518,50 @@ function _materialize_scene_inputs!(
     time::Real=1,
 )
     status = _scene_object_status(compiled.scene, object_id)
-    timeline = _scene_timeline(compiled.scene)
     bindings = get(compiled.input_bindings_by_target, (application.id, object_id), ())
+    timeline = nothing
     for binding in bindings
         if binding.carrier_hint == :temporal_stream
             isnothing(streams) && continue
-            value = _scene_temporal_input_value(binding, application, streams, time, timeline)
+            isnothing(timeline) && (timeline = _scene_timeline(compiled.scene))
+            value = _scene_temporal_input_value(
+                compiled,
+                binding,
+                application,
+                status,
+                streams,
+                time,
+                timeline,
+            )
             _scene_assign_input_value!(status, binding.input, value)
-        elseif has_reference_carrier(binding)
-            _set_status_if_present!(status, binding.input, input_value(binding))
+        end
+    end
+    return status
+end
+
+function _materialize_scene_inputs!(
+    status::Status,
+    bindings::Tuple,
+    compiled::CompiledScene,
+    application::CompiledSceneApplication,
+    streams=nothing,
+    time::Real=1,
+)
+    timeline = nothing
+    for binding in bindings
+        if binding.carrier_hint == :temporal_stream
+            isnothing(streams) && continue
+            isnothing(timeline) && (timeline = _scene_timeline(compiled.scene))
+            value = _scene_temporal_input_value(
+                compiled,
+                binding,
+                application,
+                status,
+                streams,
+                time,
+                timeline,
+            )
+            _scene_assign_input_value!(status, binding.input, value)
         end
     end
     return status
@@ -2495,8 +3574,37 @@ function _scene_meteo_for_model(
     time::Real,
 )
     binding = _environment_binding_for(env_bindings, application.id, object_id)
+    return _scene_meteo_for_binding(env_bindings, application, binding, time)
+end
+
+function _scene_meteo_for_binding(
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledSceneApplication,
+    binding,
+    time::Real,
+)
     isnothing(binding) && return nothing
     isnothing(binding.backend) && return nothing
+    if binding.backend isa GlobalConstant
+        sampler = get(env_bindings.samplers_by_application, application.id, nothing)
+        if !isnothing(sampler)
+            step = Int(round(time))
+            key = (application.id, step)
+            haskey(env_bindings.sample_cache, key) &&
+                return env_bindings.sample_cache[key]
+            meteo = environment_meteo(binding.backend)
+            raw_row = _meteo_row_at_step(meteo, step)
+            sampled = _sample_meteo_for_model(
+                sampler,
+                raw_row,
+                step,
+                application.clock,
+                application.spec,
+            )
+            env_bindings.sample_cache[key] = sampled
+            return sampled
+        end
+    end
     return sample_environment(binding.backend, binding.support, time, application.spec)
 end
 
@@ -2509,9 +3617,127 @@ function _scatter_scene_environment_outputs!(
 )
     isempty(keys(meteo_outputs_(application.spec))) && return nothing
     binding = _environment_binding_for(env_bindings, application.id, object_id)
+    return _scatter_scene_environment_outputs!(
+        application,
+        binding,
+        status,
+        time,
+    )
+end
+
+function _scatter_scene_environment_outputs!(
+    application::CompiledSceneApplication,
+    binding,
+    status,
+    time::Real,
+)
+    isempty(keys(meteo_outputs_(application.spec))) && return nothing
     isnothing(binding) && return nothing
     isnothing(binding.backend) && return nothing
     return scatter_environment_outputs!(binding.backend, binding.support, time, application.spec, status)
+end
+
+function _push_scene_model_entry!(pairs, names::Set{Symbol}, name::Symbol, model)
+    name in names && return nothing
+    push!(pairs, name => model)
+    push!(names, name)
+    return nothing
+end
+
+function _append_scene_model_dependencies!(
+    pairs,
+    names::Set{Symbol},
+    applications_by_id,
+    call_bindings_by_target,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+    seen::Set{Tuple{Symbol,ObjectId}},
+)
+    key = (application.id, object_id)
+    key in seen && return nothing
+    push!(seen, key)
+    _push_scene_model_entry!(
+        pairs,
+        names,
+        application.process,
+        _application_model(application, object_id),
+    )
+    bindings = get(call_bindings_by_target, key, ())
+    for binding in bindings
+        for application_id in binding.callee_application_ids
+            callee_application = get(applications_by_id, application_id, nothing)
+            isnothing(callee_application) && error(
+                "No compiled scene application with id `$(application_id)`."
+            )
+            matching_object_ids = ObjectId[
+                callee_object_id for callee_object_id in binding.callee_object_ids
+                if callee_object_id in callee_application.target_ids
+            ]
+            # Old-style hard-dependency kernels expect one model object per
+            # process field. Multi-object scene calls are exposed through
+            # `call_targets(extra, name)` instead.
+            length(matching_object_ids) == 1 || continue
+            _append_scene_model_dependencies!(
+                pairs,
+                names,
+                applications_by_id,
+                call_bindings_by_target,
+                callee_application,
+                only(matching_object_ids),
+                seen,
+            )
+        end
+    end
+    return nothing
+end
+
+function _compile_scene_model_bundle(
+    applications_by_id,
+    call_bindings_by_target,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+)
+    pairs = Pair{Symbol,Any}[]
+    names = Set{Symbol}()
+    seen = Set{Tuple{Symbol,ObjectId}}()
+    _append_scene_model_dependencies!(
+        pairs,
+        names,
+        applications_by_id,
+        call_bindings_by_target,
+        application,
+        object_id,
+        seen,
+    )
+    return NamedTuple{Tuple(first(pair) for pair in pairs)}(Tuple(last(pair) for pair in pairs))
+end
+
+function _compile_scene_model_bundles(applications, applications_by_id, call_bindings_by_target)
+    bundles = Dict{Tuple{Symbol,ObjectId},Any}()
+    for application in applications
+        for object_id in application.target_ids
+            bundles[(application.id, object_id)] = _compile_scene_model_bundle(
+                applications_by_id,
+                call_bindings_by_target,
+                application,
+                object_id,
+            )
+        end
+    end
+    return bundles
+end
+
+function _scene_models_for_application(
+    compiled::CompiledScene,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+)
+    key = (application.id, object_id)
+    models = get(compiled.model_bundles_by_target, key, nothing)
+    isnothing(models) && error(
+        "No compiled model bundle for application `$(application.id)` on object `$(object_id.value)`."
+    )
+    return models
 end
 
 function _run_scene_application!(
@@ -2522,18 +3748,114 @@ function _run_scene_application!(
     time::Real=1,
     constants=nothing,
     temporal_streams=nothing,
+    output_retention=nothing,
     publish::Bool=true,
+    meteo=nothing,
 )
     status = _materialize_scene_inputs!(compiled, application, object_id, temporal_streams, time)
-    meteo = _scene_meteo_for_model(env_bindings, application, object_id, time)
-    context = SceneRunContext(compiled, env_bindings, application, object_id, temporal_streams, float(time), constants)
+    meteo_value = isnothing(meteo) ? _scene_meteo_for_model(env_bindings, application, object_id, time) : meteo
+    context = SceneRunContext(
+        compiled,
+        env_bindings,
+        application,
+        object_id,
+        temporal_streams,
+        output_retention,
+        float(time),
+        constants,
+    )
     model = _application_model(application, object_id)
-    run!(model, nothing, status, meteo, constants, context)
+    models = _scene_models_for_application(compiled, application, object_id)
+    run!(model, models, status, meteo_value, constants, context)
     if publish
         _scatter_scene_environment_outputs!(env_bindings, application, object_id, status, time)
-        _scene_publish_outputs!(temporal_streams, application, object_id, status, time)
+        _scene_publish_outputs!(
+            temporal_streams,
+            application,
+            object_id,
+            status,
+            time,
+            output_retention,
+        )
     end
     return status
+end
+
+function _run_scene_execution_target!(
+    compiled::CompiledScene,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledSceneApplication,
+    target::CompiledSceneExecutionTarget;
+    time::Real=1,
+    constants=nothing,
+    temporal_streams=nothing,
+    output_retention=nothing,
+)
+    status = _materialize_scene_inputs!(
+        target.status,
+        target.input_bindings,
+        compiled,
+        application,
+        temporal_streams,
+        time,
+    )
+    meteo = _scene_meteo_for_binding(
+        env_bindings,
+        application,
+        target.environment_binding,
+        time,
+    )
+    context = SceneRunContext(
+        compiled,
+        env_bindings,
+        application,
+        target.object_id,
+        temporal_streams,
+        output_retention,
+        float(time),
+        constants,
+    )
+    run!(target.model, target.models, status, meteo, constants, context)
+    _scatter_scene_environment_outputs!(
+        application,
+        target.environment_binding,
+        status,
+        time,
+    )
+    _scene_publish_outputs!(
+        temporal_streams,
+        application,
+        target.object_id,
+        status,
+        time,
+        output_retention,
+    )
+    return status
+end
+
+function _run_scene_execution_batch!(
+    batch::CompiledSceneExecutionBatch,
+    compiled::CompiledScene,
+    env_bindings::CompiledEnvironmentBindings;
+    time::Real=1,
+    constants=nothing,
+    temporal_streams=nothing,
+    output_retention=nothing,
+)
+    _scene_application_should_run(batch.application, time) || return nothing
+    for target in batch.targets
+        _run_scene_execution_target!(
+            compiled,
+            env_bindings,
+            batch.application,
+            target;
+            time=time,
+            constants=constants,
+            temporal_streams=temporal_streams,
+            output_retention=output_retention,
+        )
+    end
+    return nothing
 end
 
 _scene_application_should_run(application::CompiledSceneApplication, t::Real) =
@@ -2545,6 +3867,236 @@ function _manual_call_application_ids(compiled::CompiledScene)
         union!(ids, binding.callee_application_ids)
     end
     return ids
+end
+
+function _compiled_scene_execution_target(
+    compiled::CompiledScene,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+)
+    status = _scene_object_status(compiled.scene, object_id)
+    model = _application_model(application, object_id)
+    models = _scene_models_for_application(compiled, application, object_id)
+    input_bindings = get(
+        compiled.input_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
+    environment_binding = _environment_binding_for(
+        env_bindings,
+        application.id,
+        object_id,
+    )
+    return CompiledSceneExecutionTarget(
+        object_id,
+        model,
+        status,
+        models,
+        input_bindings,
+        environment_binding,
+    )
+end
+
+function _typed_scene_execution_targets(targets, first_index::Int, last_index::Int)
+    target_type = typeof(targets[first_index])
+    typed = Vector{target_type}(undef, last_index - first_index + 1)
+    for (destination, source) in enumerate(first_index:last_index)
+        typed[destination] = targets[source]
+    end
+    return typed
+end
+
+function _append_scene_execution_batches!(
+    batches,
+    application::CompiledSceneApplication,
+    targets,
+)
+    isempty(targets) && return batches
+    first_index = firstindex(targets)
+    target_type = typeof(targets[first_index])
+    for index in (first_index + 1):lastindex(targets)
+        typeof(targets[index]) == target_type && continue
+        push!(
+            batches,
+            CompiledSceneExecutionBatch(
+                application,
+                _typed_scene_execution_targets(targets, first_index, index - 1),
+            ),
+        )
+        first_index = index
+        target_type = typeof(targets[index])
+    end
+    push!(
+        batches,
+        CompiledSceneExecutionBatch(
+            application,
+            _typed_scene_execution_targets(targets, first_index, lastindex(targets)),
+        ),
+    )
+    return batches
+end
+
+function compile_scene_execution_plan(
+    compiled::CompiledScene,
+    env_bindings::CompiledEnvironmentBindings,
+)
+    manual_application_ids = _manual_call_application_ids(compiled)
+    batches = AbstractSceneExecutionBatch[]
+    for application in _ordered_scene_applications(compiled)
+        application.id in manual_application_ids && continue
+        targets = Any[
+            _compiled_scene_execution_target(
+                compiled,
+                env_bindings,
+                application,
+                object_id,
+            )
+            for object_id in application.target_ids
+        ]
+        _append_scene_execution_batches!(batches, application, targets)
+    end
+    return CompiledSceneExecutionPlan(
+        batches,
+        compiled.revision,
+        env_bindings.environment_revision,
+    )
+end
+
+function explain_execution_plan(plan::CompiledSceneExecutionPlan)
+    return [
+        (
+            batch_index=index,
+            application_id=batch.application.id,
+            process=batch.application.process,
+            object_ids=[target.object_id.value for target in batch.targets],
+            batch_size=length(batch.targets),
+            target_type=eltype(batch.targets),
+            model_type=fieldtype(eltype(batch.targets), :model),
+            status_type=fieldtype(eltype(batch.targets), :status),
+            model_bundle_type=fieldtype(eltype(batch.targets), :models),
+            input_bindings_type=fieldtype(eltype(batch.targets), :input_bindings),
+            environment_binding_type=fieldtype(
+                eltype(batch.targets),
+                :environment_binding,
+            ),
+            inner_loop_dispatch=:concrete_homogeneous_batch,
+        )
+        for (index, batch) in pairs(plan.batches)
+    ]
+end
+
+function explain_execution_plan(sim::SceneSimulation)
+    return explain_execution_plan(sim.execution_plan)
+end
+
+function explain_execution_plan(scene::Scene)
+    compiled = refresh_bindings!(scene)
+    environment_bindings = refresh_environment_bindings!(scene, compiled)
+    return explain_execution_plan(
+        compile_scene_execution_plan(compiled, environment_bindings),
+    )
+end
+
+function compile_scene_output_retention(
+    compiled::CompiledScene,
+    output_requests;
+    retain_all::Bool=false,
+)
+    temporal_dependencies = Set{Tuple{Symbol,Symbol}}()
+    dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
+    timeline = _scene_timeline(compiled.scene)
+    for binding in compiled.input_bindings
+        binding.carrier_hint == :temporal_stream || continue
+        consumer = _compiled_application_by_id(compiled, binding.application_id)
+        window_steps = _scene_input_window_steps(binding, consumer, timeline)
+        for application_id in binding.source_application_ids
+            source = _compiled_application_by_id(compiled, application_id)
+            required = if binding.policy isa Union{Integrate,Aggregate}
+                float(window_steps)
+            elseif binding.policy isa Union{Interpolate,PreviousTimeStep}
+                max(2.0, float(source.clock.dt) + 1.0)
+            else
+                0.0
+            end
+            key = (application_id, binding.source_var)
+            push!(
+                temporal_dependencies,
+                key,
+            )
+            dependency_horizons[key] = max(
+                get(dependency_horizons, key, 0.0),
+                required,
+            )
+        end
+    end
+
+    requested_outputs = Set{Tuple{Symbol,Symbol}}()
+    names = Set{Symbol}()
+    for request in output_requests
+        request.name in names && error(
+            "Duplicate output request name `$(request.name)`. Request names must be unique."
+        )
+        push!(names, request.name)
+        application = _scene_request_application(
+            compiled.scene,
+            compiled,
+            request,
+        )
+        push!(requested_outputs, (application.id, request.var))
+    end
+    return SceneOutputRetentionPlan(
+        retain_all,
+        temporal_dependencies,
+        requested_outputs,
+        dependency_horizons,
+    )
+end
+
+function explain_output_retention(sim::SceneSimulation)
+    plan = sim.output_retention
+    keys_to_explain = if plan.retain_all
+        Set(
+            (application.id, Symbol(variable))
+            for application in sim.compiled.applications
+            for variable in keys(outputs_(application.spec))
+        )
+    else
+        union(plan.temporal_dependencies, plan.requested_outputs)
+    end
+    return [
+        (
+            application_id=application_id,
+            variable=variable,
+            reasons=plan.retain_all ?
+                    (:default_all,) :
+                    Tuple(
+                        reason for (reason, keys) in (
+                            :temporal_dependency => plan.temporal_dependencies,
+                            :output_request => plan.requested_outputs,
+                        )
+                        if (application_id, variable) in keys
+                    ),
+            retention_steps=plan.retain_all ||
+                            (application_id, variable) in plan.requested_outputs ?
+                            nothing :
+                            get(
+                                plan.dependency_horizons,
+                                (application_id, variable),
+                                0.0,
+                            ),
+            current_target_count=length(
+                _compiled_application_by_id(
+                    sim.compiled,
+                    application_id,
+                ).target_ids,
+            ),
+        )
+        for (application_id, variable) in sort!(
+            collect(keys_to_explain);
+            by=key -> (string(first(key)), string(last(key))),
+        )
+    ]
 end
 
 function _scene_call_targets(context::SceneRunContext, name::Symbol)
@@ -2571,6 +4123,7 @@ function _scene_call_targets(context::SceneRunContext, name::Symbol)
                         _application_model(callee_application, object_id),
                         status,
                         context.temporal_streams,
+                        context.output_retention,
                         context.time,
                         context.constants,
                     ),
@@ -2581,10 +4134,36 @@ function _scene_call_targets(context::SceneRunContext, name::Symbol)
     return targets
 end
 
-dependency_targets(context::SceneRunContext, name::Symbol) = _scene_call_targets(context, name)
-dependency_target(context::SceneRunContext, name::Symbol) = only(dependency_targets(context, name))
+"""
+    call_targets(context::SceneRunContext, name)
+    call_target(context::SceneRunContext, name)
 
-function run_call!(target::SceneCallTarget; publish::Bool=true)
+Return manually executable targets declared with `Calls(...)` for the current
+scene/object model call. `call_target` requires exactly one matching target.
+Execute returned targets with [`run_call!`](@ref).
+"""
+call_targets(context::SceneRunContext, name::Symbol) = _scene_call_targets(context, name)
+call_targets(context::SceneRunContext, name::AbstractString) =
+    call_targets(context, Symbol(name))
+call_target(context::SceneRunContext, name::Symbol) = only(call_targets(context, name))
+call_target(context::SceneRunContext, name::AbstractString) =
+    call_target(context, Symbol(name))
+
+dependency_targets(context::SceneRunContext, name::Symbol) = call_targets(context, name)
+dependency_targets(context::SceneRunContext, name::AbstractString) =
+    call_targets(context, name)
+dependency_target(context::SceneRunContext, name::Symbol) = call_target(context, name)
+dependency_target(context::SceneRunContext, name::AbstractString) =
+    call_target(context, name)
+
+"""
+    run_call!(target::SceneCallTarget; publish=false, meteo=nothing)
+
+Run a manually selected model call. By default, the call mutates its target
+status without publishing outputs or environment updates, which is suitable
+for trial iterations. Pass `publish=true` once for the accepted state.
+"""
+function run_call!(target::SceneCallTarget; publish::Bool=false, meteo=nothing)
     _run_scene_application!(
         target.compiled,
         target.environment_bindings,
@@ -2593,36 +4172,317 @@ function run_call!(target::SceneCallTarget; publish::Bool=true)
         time=target.time,
         constants=target.constants,
         temporal_streams=target.temporal_streams,
+        output_retention=target.output_retention,
         publish=publish,
+        meteo=meteo,
     )
     return target
 end
 
-function run!(scene::Scene; steps::Integer=1, constants=nothing)
+function run!(
+    scene::Scene;
+    steps::Integer=1,
+    constants=nothing,
+    tracked_outputs=nothing,
+)
     compiled = refresh_bindings!(scene)
     env_bindings = refresh_environment_bindings!(scene, compiled)
-    manual_application_ids = _manual_call_application_ids(compiled)
-    temporal_streams = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Float64,Any}}}()
-    ordered_applications = _ordered_scene_applications(compiled)
+    empty!(env_bindings.sample_cache)
+    execution_plan = compile_scene_execution_plan(compiled, env_bindings)
+    output_requests = _normalize_output_requests(tracked_outputs)
+    output_retention = compile_scene_output_retention(
+        compiled,
+        output_requests;
+        retain_all=isnothing(tracked_outputs),
+    )
+    temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
     for step in 1:steps
-        for application in ordered_applications
-            application.id in manual_application_ids && continue
-            _scene_application_should_run(application, step) || continue
-            for object_id in application.target_ids
-                _run_scene_application!(
-                    compiled,
-                    env_bindings,
-                    application,
-                    object_id;
-                    time=step,
-                    constants=constants,
-                    temporal_streams=temporal_streams,
-                    publish=true,
-                )
-            end
+        if bindings_dirty(scene)
+            compiled = refresh_bindings!(scene)
+            env_bindings = refresh_environment_bindings!(scene, compiled)
+            execution_plan = compile_scene_execution_plan(compiled, env_bindings)
+            output_retention = compile_scene_output_retention(
+                compiled,
+                output_requests;
+                retain_all=isnothing(tracked_outputs),
+            )
+        elseif environment_bindings_dirty(scene)
+            env_bindings = refresh_environment_bindings!(scene, compiled)
+            execution_plan = compile_scene_execution_plan(compiled, env_bindings)
+        end
+        for batch in execution_plan.batches
+            _run_scene_execution_batch!(
+                batch,
+                compiled,
+                env_bindings;
+                time=step,
+                constants=constants,
+                temporal_streams=temporal_streams,
+                output_retention=output_retention,
+            )
         end
     end
-    return scene
+    if bindings_dirty(scene)
+        compiled = refresh_bindings!(scene)
+        env_bindings = refresh_environment_bindings!(scene, compiled)
+        execution_plan = compile_scene_execution_plan(compiled, env_bindings)
+        output_retention = compile_scene_output_retention(
+            compiled,
+            output_requests;
+            retain_all=isnothing(tracked_outputs),
+        )
+    elseif environment_bindings_dirty(scene)
+        env_bindings = refresh_environment_bindings!(scene, compiled)
+        execution_plan = compile_scene_execution_plan(compiled, env_bindings)
+    end
+    return SceneSimulation(
+        scene,
+        compiled,
+        env_bindings,
+        execution_plan,
+        output_retention,
+        temporal_streams,
+        output_requests,
+    )
+end
+
+function _scene_output_rows(sim::SceneSimulation, filter_object=nothing, filter_var=nothing)
+    rows = NamedTuple[]
+    for ((application_id, object_id, variable), samples) in sort!(
+        collect(sim.temporal_streams);
+        by=pair -> (string(first(pair)[1]), string(first(pair)[2].value), string(first(pair)[3])),
+    )
+        isnothing(filter_object) || object_id == ObjectId(filter_object) || continue
+        isnothing(filter_var) || variable == Symbol(filter_var) || continue
+        for (time, value) in samples
+            push!(
+                rows,
+                (
+                    timestep=Int(round(time)),
+                    time=time,
+                    application_id=application_id,
+                    object_id=object_id.value,
+                    variable=variable,
+                    value=value,
+                ),
+            )
+        end
+    end
+    sort!(rows; by=row -> (row.timestep, string(row.object_id), string(row.variable)))
+    return rows
+end
+
+function _materialize_scene_output_rows(rows, sink)
+    isnothing(sink) && return rows
+    sink === DataFrames.DataFrame && return DataFrames.DataFrame(rows)
+    return sink(rows)
+end
+
+function _scene_request_application(scene::Scene, compiled::CompiledScene, request)
+    candidates = CompiledSceneApplication[]
+    for application in compiled.applications
+        request.var in keys(outputs_(application.spec)) || continue
+        isnothing(request.process) || application.process == request.process || continue
+        isnothing(request.application) ||
+            application.id == request.application ||
+            application.name == request.application ||
+            continue
+        _scene_application_matches_scale(scene, application, request.scale) || continue
+        if isnothing(request.process) &&
+           isnothing(request.application) &&
+           _publish_mode_for_output(application.spec, request.var) == :stream_only
+            continue
+        end
+        push!(candidates, application)
+    end
+    if isempty(candidates)
+        error(
+            "No scene output publisher found for `$(request.scale).$(request.var)`",
+            isnothing(request.application) ?
+            (isnothing(request.process) ? "." : " from process `$(request.process)`.") :
+            " from application `$(request.application)`.",
+        )
+    elseif length(candidates) > 1
+        error(
+            "Ambiguous scene output publishers for `$(request.scale).$(request.var)`: ",
+            join((application.id for application in candidates), ", "),
+            ". Provide `application=` or make one publisher canonical.",
+        )
+    end
+    return only(candidates)
+end
+
+function _scene_request_application(sim::SceneSimulation, request)
+    return _scene_request_application(sim.scene, sim.compiled, request)
+end
+
+function _selector_declared_scale(selector::AbstractObjectMultiplicity)
+    selector_criteria = criteria(selector)
+    scale = _criteria_get(selector_criteria, :scale, nothing)
+    !isnothing(scale) && return scale
+    for positional_selector in _criteria_get(selector_criteria, :selectors, ())
+        positional_selector isa Scale && return positional_selector.scale
+    end
+    return nothing
+end
+
+function _scene_application_matches_scale(
+    scene::Scene,
+    application::CompiledSceneApplication,
+    scale::Symbol,
+)
+    declared_scale = _selector_declared_scale(application.applies_to)
+    declared_scale == scale && return true
+    for object_id in application.target_ids
+        object = get(scene.registry.objects, object_id, nothing)
+        !isnothing(object) && object.scale == scale && return true
+    end
+    return false
+end
+
+function _scene_stream_object_matches_scale(
+    scene::Scene,
+    application::CompiledSceneApplication,
+    object_id::ObjectId,
+    scale::Symbol,
+)
+    object = get(scene.registry.objects, object_id, nothing)
+    !isnothing(object) && return object.scale == scale
+    declared_scale = _selector_declared_scale(application.applies_to)
+    return isnothing(declared_scale) || declared_scale == scale
+end
+
+function _scene_request_clock(request, timeline)
+    isnothing(request.clock) && return ClockSpec(1.0, 0.0)
+    clock = _clock_from_spec_timestep(request.clock, timeline)
+    isnothing(clock) && error(
+        "Unsupported clock specification `$(typeof(request.clock))` in ",
+        "OutputRequest `$(request.name)`.",
+    )
+    return clock
+end
+
+function _scene_requested_value(samples, time, t_start, policy, timeline)
+    if policy isa HoldLast
+        value = _scene_latest_sample(samples, time)
+        return isnothing(value) ? missing : value
+    elseif policy isa Interpolate
+        value = _scene_interpolated_sample(samples, time, policy)
+        return isnothing(value) ? missing : value
+    elseif policy isa Union{Integrate,Aggregate}
+        values = _scene_window_samples(samples, t_start, time)
+        isempty(values) && return missing
+        durations = fill(timeline.base_step_seconds, length(values))
+        return _scene_window_reduce(values, durations, policy)
+    end
+    error("Unsupported scene output request policy `$(typeof(policy))`.")
+end
+
+function _scene_requested_output_rows(
+    sim::SceneSimulation,
+    request,
+)
+    application = _scene_request_application(sim, request)
+    timeline = _scene_timeline(sim.scene)
+    clock = _scene_request_clock(request, timeline)
+    source_rows = [
+        (object_id=object_id, samples=samples)
+        for ((application_id, object_id, variable), samples) in sim.temporal_streams
+        if application_id == application.id &&
+           variable == request.var &&
+           _scene_stream_object_matches_scale(sim.scene, application, object_id, request.scale)
+    ]
+    isempty(source_rows) && return NamedTuple[]
+    nonempty_source_rows = [row for row in source_rows if !isempty(row.samples)]
+    isempty(nonempty_source_rows) && return NamedTuple[]
+    max_time = maximum(last(row.samples)[1] for row in nonempty_source_rows)
+    rows = NamedTuple[]
+    for time in 1:Int(floor(max_time))
+        _should_run_at_time(clock, float(time)) || continue
+        t_start = float(time) - float(clock.dt) + 1.0
+        for row in sort!(nonempty_source_rows; by=row -> string(row.object_id.value))
+            first_sample_time = first(row.samples)[1]
+            last_sample_time = last(row.samples)[1]
+            first_sample_time <= float(time) <= last_sample_time || continue
+            push!(
+                rows,
+                (
+                    timestep=time,
+                    time=float(time),
+                    scale=request.scale,
+                    process=application.process,
+                    application_id=application.id,
+                    variable=request.var,
+                    object_id=row.object_id.value,
+                    value=_scene_requested_value(
+                        row.samples,
+                        float(time),
+                        t_start,
+                        request.policy,
+                        timeline,
+                    ),
+                ),
+            )
+        end
+    end
+    return rows
+end
+
+function _collect_scene_requested_outputs(sim::SceneSimulation, sink)
+    outputs = Dict{Symbol,Any}()
+    for request in sim.output_requests
+        haskey(outputs, request.name) && error(
+            "Duplicate output request name `$(request.name)`. Request names must be unique."
+        )
+        outputs[request.name] = _materialize_scene_output_rows(
+            _scene_requested_output_rows(sim, request),
+            sink,
+        )
+    end
+    return outputs
+end
+
+function collect_outputs(sim::SceneSimulation; sink=DataFrames.DataFrame)
+    isempty(sim.output_requests) || return _collect_scene_requested_outputs(sim, sink)
+    return _materialize_scene_output_rows(_scene_output_rows(sim), sink)
+end
+
+function collect_outputs(sim::SceneSimulation, name::Symbol; sink=DataFrames.DataFrame)
+    matches = [request for request in sim.output_requests if request.name == name]
+    isempty(matches) && error(
+        "No scene output request named `$(name)`. Available request names are ",
+        isempty(sim.output_requests) ? "none." : join((request.name for request in sim.output_requests), ", "),
+    )
+    length(matches) == 1 || error(
+        "Duplicate scene output request name `$(name)`. Request names must be unique."
+    )
+    request = only(matches)
+    return _materialize_scene_output_rows(
+        _scene_requested_output_rows(sim, request),
+        sink,
+    )
+end
+
+function collect_outputs(sim::SceneSimulation, object_id, variable::Symbol; sink=DataFrames.DataFrame)
+    return _materialize_scene_output_rows(_scene_output_rows(sim, object_id, variable), sink)
+end
+
+function explain_outputs(sim::SceneSimulation)
+    return [
+        (
+            application_id=application_id,
+            object_id=object_id.value,
+            variable=variable,
+            nsamples=length(samples),
+            first_time=isempty(samples) ? nothing : first(samples)[1],
+            last_time=isempty(samples) ? nothing : last(samples)[1],
+            value_type=isempty(samples) ? Union{} : typeof(last(samples)[2]),
+        )
+        for ((application_id, object_id, variable), samples) in sort!(
+            collect(sim.temporal_streams);
+            by=pair -> (string(first(pair)[1]), string(first(pair)[2].value), string(first(pair)[3])),
+        )
+    ]
 end
 
 struct ObjectAddress{SC,K,SP,S,N,P,V,R,M}
@@ -2639,14 +4499,14 @@ end
 
 function ObjectAddress(selector::AbstractObjectMultiplicity)
     c = criteria(selector)
-    scope = haskey(c, :within) ? c.within : nothing
-    kind = haskey(c, :kind) ? c.kind : nothing
-    species = haskey(c, :species) ? c.species : nothing
-    scale = haskey(c, :scale) ? c.scale : nothing
+    scope = _criteria_scope(c)
+    kind = _criteria_value(c, :kind, Kind)
+    species = _criteria_value(c, :species, Species)
+    scale = _criteria_value(c, :scale, Scale)
     name = haskey(c, :name) ? c.name : nothing
     process = haskey(c, :process) ? c.process : nothing
     var = haskey(c, :var) ? c.var : nothing
-    relation = haskey(c, :relation) ? c.relation : nothing
+    relation = _criteria_value(c, :relation, Relation)
     return ObjectAddress(scope, kind, species, scale, name, process, var, relation, multiplicity(selector))
 end
 
@@ -2678,10 +4538,24 @@ function _normalize_application_bindings(bindings::Tuple)
         binding isa Pair || error(
             "Expected `var => selector` pairs in `Inputs(...)` or `Calls(...)`, got `$(typeof(binding))`."
         )
-        first(binding) isa Union{Symbol,AbstractString} || error(
-            "Binding names in `Inputs(...)` and `Calls(...)` must be symbols or strings."
-        )
-        push!(pairs, Symbol(first(binding)) => last(binding))
+        key = first(binding)
+        selector = last(binding)
+        if key isa PreviousTimeStep
+            selector isa AbstractObjectMultiplicity || error(
+                "A `PreviousTimeStep(...)` input must map to `One(...)`, ",
+                "`OptionalOne(...)`, or `Many(...)`."
+            )
+            push!(
+                pairs,
+                key.variable => _selector_with_previous_timestep(selector, key),
+            )
+        else
+            key isa Union{Symbol,AbstractString} || error(
+                "Binding names in `Inputs(...)` and `Calls(...)` must be symbols, ",
+                "strings, or `PreviousTimeStep(:input)` markers."
+            )
+            push!(pairs, Symbol(key) => selector)
+        end
     end
     return (; pairs...)
 end
@@ -2717,6 +4591,29 @@ end
 
 function _merge_value_inputs(defaults::NamedTuple, explicit::NamedTuple)
     return (; pairs(defaults)..., pairs(explicit)...)
+end
+
+function _binding_origins(defaults::NamedTuple, explicit::NamedTuple)
+    origins = Pair{Symbol,Symbol}[]
+    for name in keys(defaults)
+        push!(origins, Symbol(name) => :model_default)
+    end
+    for name in keys(explicit)
+        push!(origins, Symbol(name) => :model_spec)
+    end
+    return (; origins...)
+end
+
+function _normalize_binding_origins(origins::NamedTuple, bindings::NamedTuple)
+    normalized = Pair{Symbol,Symbol}[]
+    for name in keys(bindings)
+        origin = haskey(origins, name) ? Symbol(getproperty(origins, name)) : :model_spec
+        origin in (:model_default, :model_spec) || error(
+            "Unsupported binding origin `$(origin)` for `$(name)`."
+        )
+        push!(normalized, Symbol(name) => origin)
+    end
+    return (; normalized...)
 end
 
 function _legacy_multiscale_rhs_from_input_selector(selector::AbstractObjectMultiplicity)

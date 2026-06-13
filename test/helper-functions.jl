@@ -59,10 +59,13 @@ end
 
 # Helper used to compare a single-scale `ModelMapping` run with its generated
 # multiscale equivalent.
-function check_multiscale_simulation_is_equivalent_begin(mapping::ModelMapping, meteo)
+function check_multiscale_simulation_is_equivalent_begin(
+    mapping::PlantSimEngine.ModelMapping,
+    meteo,
+)
     _, models_at_scale = only(pairs(mapping))
     status_nt = NamedTuple(something(PlantSimEngine.get_status(models_at_scale), Status()))
-    models = ModelMapping(PlantSimEngine.get_models(models_at_scale)...; status=status_nt)
+    models = PlantSimEngine.ModelMapping(PlantSimEngine.get_models(models_at_scale)...; status=status_nt)
     mtg, mapping, out = PlantSimEngine.modellist_to_mapping(models, status_nt; nsteps=length(meteo), outputs=nothing)
     return mtg, mapping, out
 end
@@ -72,14 +75,21 @@ function check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, m
     return compare_outputs_modellist_mapping(modellist_outputs, graph_sim)
 end
 
-function check_multiscale_simulation_is_equivalent(mapping::ModelMapping, meteo)
+function check_multiscale_simulation_is_equivalent(
+    mapping::PlantSimEngine.ModelMapping,
+    meteo,
+)
     modellist_outputs = run!(mapping, meteo)
     mtg, mapping_mt, out = check_multiscale_simulation_is_equivalent_begin(mapping, meteo)
     return check_multiscale_simulation_is_equivalent_end(modellist_outputs, mtg, mapping_mt, out, meteo)
 end
 
 # Quick and naive first version. Doesn't check if everything is timestep parallelizable, doesn't check for nthreads etc.
-function run_single_and_multi_thread_modellist(mapping::ModelMapping, tracked_outputs, meteo)
+function run_single_and_multi_thread_modellist(
+    mapping::PlantSimEngine.ModelMapping,
+    tracked_outputs,
+    meteo,
+)
     out_seq = run!(mapping, meteo; tracked_outputs=tracked_outputs, executor=SequentialEx())
     mapping_mt = copy(mapping)
     out_mt = run!(mapping_mt, meteo; tracked_outputs=tracked_outputs, executor=ThreadedEx())
@@ -135,22 +145,22 @@ function get_modellist_bank()
 
     status_tuples = [vals, vals2, vals3, vals4, vals5, vals6]
 
-    models = [ModelMapping(
+    models = [PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             status=vals
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             ToyLAIModel(),
             Beer(0.5),
             ToyRUEGrowthModel(rue),
             status=vals2,
-        ), ModelMapping(
+        ), PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
             status=vals3
-        ), ModelMapping(
+        ), PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -159,7 +169,7 @@ function get_modellist_bank()
             process6=Process6Model(),
             # process7=Process7Model(),
             status=vals4
-        ), ModelMapping(
+        ), PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -168,7 +178,7 @@ function get_modellist_bank()
             process6=Process6Model(),
             process7=Process7Model(),
             status=vals5
-        ), ModelMapping(
+        ), PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -208,24 +218,24 @@ function get_modelmapping_bank()
     status_tuples = [vals, vals2, vals3, vals4, vals5, vals6]
 
     mappings = [
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             status=vals
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             ToyLAIModel(),
             Beer(0.5),
             ToyRUEGrowthModel(rue);
             status=vals2
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
             status=vals3
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -234,7 +244,7 @@ function get_modelmapping_bank()
             process6=Process6Model(),
             status=vals4
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -244,7 +254,7 @@ function get_modelmapping_bank()
             process7=Process7Model(),
             status=vals5
         ),
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             process1=Process1Model(1.0),
             process2=Process2Model(),
             process3=Process3Model(),
@@ -269,50 +279,50 @@ end
 # Could add some mtg variation too
 function get_simple_mapping_bank()
     mappings = [
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             :Scene => ToyDegreeDaysCumulModel(),
             :Plant => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyLAIModel(),
                     mapped_variables=[:TT_cu => (:Scene => :TT_cu),],),
                 Beer(0.6),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         :carbon_assimilation => [:Leaf],
                         :carbon_demand => [:Leaf, :Internode],
                         :carbon_allocation => [:Leaf, :Internode],],),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyPlantRmModel(),
                     mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],),),
             :Internode => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                     mapped_variables=[:TT => (:Scene => :TT),],),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyInternodeEmergence(TT_emergence=20.0),
                     mapped_variables=[:TT_cu => (:Scene => :TT_cu)],),
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                 Status(carbon_biomass=1.0)),
             :Leaf => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyAssimModel(),
                     mapped_variables=[:soil_water_content => (:Soil => :soil_water_content), :aPPFD => (:Plant => :aPPFD)],),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
                     mapped_variables=[:TT => (:Scene => :TT),],),
                 ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
                 Status(carbon_biomass=1.0)),
             :Soil => (ToySoilWaterModel(),),),
         ##########
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             :Default => (
                 Process1Model(1.0),
                 Status(var1=15.0, var2=0.3,),),),
         ##########
-        ModelMapping(
+        PlantSimEngine.ModelMapping(
             :Plant => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyCAllocationModel(),
                     mapped_variables=[
                         # inputs
@@ -320,7 +330,7 @@ function get_simple_mapping_bank()
                         :carbon_demand => [:Leaf, :Internode],
                         # outputs
                         :carbon_allocation => [:Leaf, :Internode],],),
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyPlantRmModel(),
                     mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],),),
             :Internode => (
@@ -328,7 +338,7 @@ function get_simple_mapping_bank()
                 ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
                 Status(TT=10.0, carbon_biomass=1.0)),
             :Leaf => (
-                MultiScaleModel(
+                PlantSimEngine.MultiScaleModel(
                     model=ToyAssimModel(),
                     mapped_variables=[:soil_water_content => (:Soil => :soil_water_content),],
                     # Notice we provide :Soil, not [:Soil], so a single value is expected here
@@ -375,7 +385,12 @@ function get_simple_mapping_bank()
 end
 
 
-function test_filtered_output_begin(m::ModelMapping, status_tuple, requested_outputs, meteo)
+function test_filtered_output_begin(
+    m::PlantSimEngine.ModelMapping,
+    status_tuple,
+    requested_outputs,
+    meteo,
+)
 
     nsteps = PlantSimEngine.get_nsteps(meteo)
     preallocated_outputs = PlantSimEngine.pre_allocate_outputs(m, requested_outputs, nsteps)
@@ -402,7 +417,12 @@ function test_filtered_output(mtg, mapping, nsteps, outputs_mapping, meteo, filt
     return compare_outputs_modellist_mapping(filtered_outputs_modellist, graphsim)
 end
 
-function test_filtered_output(m::ModelMapping, status_tuple, requested_outputs, meteo)
+function test_filtered_output(
+    m::PlantSimEngine.ModelMapping,
+    status_tuple,
+    requested_outputs,
+    meteo,
+)
     mtg, mapping, outputs_mapping, nsteps, filtered_outputs_modellist =
         test_filtered_output_begin(m, status_tuple, requested_outputs, meteo)
 

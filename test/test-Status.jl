@@ -32,7 +32,7 @@ end
 
 @testset "Testing ModelMapping Status" begin
     # Create a ModelMapping
-    models = ModelMapping(
+    models = PlantSimEngine.ModelMapping(
         process1=Process1Model(1.0),
         process2=Process2Model(),
         process3=Process3Model(),

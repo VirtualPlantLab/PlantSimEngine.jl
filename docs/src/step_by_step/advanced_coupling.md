@@ -1,64 +1,154 @@
 # Coupling more complex models
 
-```@setup usepkg
-using PlantSimEngine, PlantMeteo, Dates
-# Import the example models defined in the `Examples` sub-module:
+```@setup scene_advanced_coupling
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
-m = ModelMapping(
-    Process1Model(2.0), 
-    Process2Model(),
-    Process3Model(),
-    Process4Model(),
-    Process5Model(),
-    Process6Model(),
-    Process7Model(),
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
 )
 ```
 
-When two or more models have a two-way interdependency (rather than variables flowing out only one-way from one model into the next), we describe it as a [hard dependency](@ref hard_dependency_def).
+Most model coupling is a value dependency: one model writes an output, another
+model reads it as an input. Some models need tighter control. For example, an
+energy-balance model may call photosynthesis and stomatal-conductance models
+several times while it iterates leaf temperature.
 
-This kind of interdependency requires a little more work from the user/modeler for PlantSimEngine to be able to automatically create the dependency graph.
+That second case is a manual call dependency. In the scene/object API it is
+declared with `Calls(...)`.
 
-## Declaring hard dependencies
+## Soft inputs and manual calls
 
-A model that explicitly and directly calls another process in its [`run!`](@ref) function is part of a hard dependency, or a hard-coupled model. 
+Use `Inputs(...)` or inferred same-object bindings when a model only needs a
+value. Use `Calls(...)` when the parent model must directly run another model
+inside its own `run!` method.
 
-Let's go through the example processes and models from a script provided by the package here [examples/dummy.jl](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/dummy.jl)
+The example process models in `examples/dummy.jl` contain both patterns:
 
-In this script, we declare seven processes and seven models, one for each process. The processes are simply called "process1", "process2"..., and the model implementations are called `Process1Model`, `Process2Model`...
+- `Process4Model` computes `var1` and `var2`;
+- `Process1Model` consumes `var1` and `var2` and computes `var3`;
+- `Process2Model` manually calls process 1, then computes `var4` and `var5`;
+- `Process3Model` manually calls process 2, then computes `var6`;
+- `Process5Model`, `Process6Model`, and `Process7Model` use regular soft
+  value dependencies.
 
-When run, `Process2Model` calls another process's [`run!`](@ref) function explicitely, which requires defining that process as a hard-dependency of `Process2Model` :
+## Declaring manual calls in the scenario
+
+`Calls(...)` is scenario-level wiring. The model kernel remains generic; the
+scenario decides which concrete application is called.
+
+```@example scene_advanced_coupling
+complex_scene = Scene(
+    Object(:scene; scale=:Scene, kind=:scene, status=Status(var0=2.0));
+    applications=(
+        ModelSpec(Process4Model(); name=:prepare_inputs) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process1Model(2.0); name=:process1) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process2Model(); name=:process2) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Calls(:process1 => One(scale=:Scene, process=:process1)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process3Model(); name=:process3) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Calls(:process2 => One(scale=:Scene, process=:process2)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process5Model(); name=:process5) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process7Model(); name=:process7) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+
+        ModelSpec(Process6Model(); name=:process6) |>
+            AppliesTo(One(scale=:Scene)) |>
+            TimeStep(Day(1)),
+    ),
+    environment=meteo_day,
+)
+
+compiled = refresh_bindings!(complex_scene)
+select(
+    DataFrame(explain_calls(compiled)),
+    :application_id,
+    :call,
+    :callee_application_ids,
+    :callee_object_ids,
+    :publication_policy,
+)
+```
+
+Applications selected by `Calls(...)` are not scheduled as independent root
+applications under their caller. They run only when the parent calls them.
+This gives the parent full call-stack control.
+
+## Running the coupled scene
+
+The regular soft dependencies are still inferred from `inputs_` and
+`outputs_`. The scheduler combines those soft edges with the call ownership
+rules:
+
+```@example scene_advanced_coupling
+select(
+    DataFrame(explain_schedule(compiled)),
+    :application_id,
+    :manual_call_only,
+    :execution_index,
+    :clock,
+)
+```
+
+Run one timestep:
+
+```@example scene_advanced_coupling
+complex_sim = run!(complex_scene; steps=1, constants=Constants())
+complex_status = only(scene_objects(complex_scene; scale=:Scene)).status
+(
+    var3=complex_status.var3,
+    var5=complex_status.var5,
+    var6=complex_status.var6,
+    var8=complex_status.var8,
+)
+```
+
+## Writing new hard-coupled models
+
+For new scene/object models, retrieve manual-call targets from the runtime
+context and execute them explicitly:
 
 ```julia
-function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants, extra)
-    # computing var3 using process1:
-    run_target!(models, status, :process1; meteo=meteo, constants=constants, extra=extra)
-    # computing var4 and var5:
-    status.var4 = status.var3 * 2.0
-    status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
+function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
+                             constants, extra)
+    for target in call_targets(extra, :leaf_energy)
+        run_call!(target; meteo=trial_meteo(model, status))
+    end
+
+    for target in call_targets(extra, :leaf_energy)
+        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
+    end
+
+    return nothing
 end
 ```
 
-`Process2Model` is coupled to another process (`process1`), and calls its model's `run` function. The [`run!`](@ref) function is called with the same arguments as the [`run!`](@ref) function of the model that calls it, except that we pass the process we want to simulate as the first argument.
+`run_call!` defaults to `publish=false`, which is useful for trial iterations.
+Use `publish=true` for the accepted state so temporal streams and mutable
+environment outputs are published once.
 
-!!! note
-    We don't enforce any type of model to simulate `process1`. This is the reason why we can switch so easily between model implementations for any process, by just changing the model in the [`ModelMapping`](@ref).
+The MAESPA-style example uses the same mechanism: a scene energy-balance model
+calls all selected leaf energy-balance models and the shared soil model while
+it solves canopy microclimate.
 
-A hard-dependency must always be declared to PlantSimEngine. This is done by adding a method to the `dep` function when implementing the model. For example, the hard-dependency to `process1` into `Process2Model` is declared as follows:
-
-```julia
-PlantSimEngine.dep(::Process2Model) = (process1=AbstractProcess1Model,)
-```
-
-This way PlantSimEngine knows that `Process2Model` needs a model for the simulation of the `process1` process. To avoid imposing a specific model to be coupled with `Process2Model`, the dependency only requires a model that is a subtype of the abstract parent type `AbstractProcess1Model`. This avoids constraining to the specific `Process1Model` implementation, meaning an alternate model computing the same variables for the same process is still interchangeable with `Process1Model`.
-
-While not encouraged, if you have a valid reason to force the coupling with a particular model, you can force the dependency to require that model specifically. For example, if we want to use only `Process1Model` for the simulation of `process1`, we would declare the dependency as follows:
-
-```julia
-PlantSimEngine.dep(::Process2Model) = (process1=Process1Model,)
-```
-
-## Examples in the wild
-
-You can find a typical example in a companion package: [PlantBioPhysics.jl](https://github.com/VEZY/PlantBiophysics.jl). An energy balance model, the [Monteith model](https://github.com/VEZY/PlantBiophysics.jl/blob/master/src/processes/energy/Monteith.jl), needs to [iteratively run a photosynthesis model](https://github.com/VEZY/PlantBiophysics.jl/blob/c1a75f294109d52dc619f764ce51c6ca1ea897e8/src/processes/energy/Monteith.jl#L154) in its [`run!`](@ref) function.
+Older code may still show `dep(model)` with hard dependencies and
+`PlantSimEngine.ModelMapping(...)`. Those mechanisms are compatibility
+implementation details for old examples. New scenario wiring should use
+`Calls(...)`; model authors should keep kernels generic and only require manual
+calls when the model really needs call-stack control.

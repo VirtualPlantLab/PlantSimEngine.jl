@@ -140,23 +140,21 @@ export register_object!, remove_object!, reparent_object!, move_object!, update_
 export bindings_dirty, environment_bindings_dirty, scene_revision, environment_revision
 export compiled_bindings, compiled_environment_bindings, mark_environment_binding_dirty!
 export refresh_environment_bindings!, compile_environment_bindings, bind_environment
-export object_ids, scene_objects, resolve_object_ids, resolve_objects, explain_objects, explain_instances, explain_scopes
+export objects_from_mtg, object_ids, scene_objects, resolve_object_ids, resolve_objects, explain_objects, explain_instances, explain_scopes
 export geometry, position, bounds
 export CompiledScene, CompiledSceneApplication, CompiledSceneInputBinding, CompiledSceneCallBinding
-export compile_scene, explain_scene_applications, explain_bindings, explain_calls, explain_writers
+export compile_scene, explain_scene_applications, explain_bindings, explain_calls, explain_model_bundles, explain_writers
 export ObjectRefVector, input_carrier, input_value, has_reference_carrier
-export SceneRunContext, SceneCallTarget
+export SceneRunContext, SceneCallTarget, SceneSimulation, scene_outputs, explain_outputs
+export explain_execution_plan, explain_output_retention
 export CompiledEnvironmentBinding, CompiledEnvironmentBindings, explain_environment_bindings
 export SceneScope, Self, SelfPlant, Ancestor, Scope, Kind, Species, Scale, Relation
 export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
-export MultiScaleModel, ModelMapping, ModelSpec, SameScale, Updates, TimeStepModel, InputBindings, MeteoBindings, MeteoWindow, OutputRouting, ScopeModel
+export ModelSpec, Updates, OutputRouting
 export resolved_model_specs, explain_model_specs
-export Domain, SimulationMapping, DomainSimulation, DomainModelKey, AllDomains, HardDomains
-export Route, DomainRouteTarget, RouteCardinality
-export ManyToOneVector, ManyToOneAggregate, OneToManyBroadcast, SpatialSample, SpatialScatterAdd
-export dependency_values, dependency_targets, dependency_target, model_target, run_target!, run_call!, ModelTarget, explain_domains, explain_domain_models, explain_domain_statuses, explain_schedule, explain_domain_dependencies, explain_routes
+export call_target, call_targets, run_call!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status, TimeStepTable, status
 export init_status!
