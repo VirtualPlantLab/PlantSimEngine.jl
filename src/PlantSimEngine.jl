@@ -111,9 +111,6 @@ include("time/runtime/output_export.jl")
 include("time/runtime/meteo_sampling.jl")
 include("time/runtime/environment_backends.jl")
 
-# Domain-aware simulation scaffolding:
-include("domains/domain_simulation.jl")
-
 # Simulation:
 include("run.jl")
 

@@ -28,7 +28,7 @@ gives agents the package-specific conventions they need for:
 - implementing or wrapping models with `@process`, `inputs_`, `outputs_`,
   `run!`, hard dependencies, and model traits.
 
-The legacy `ModelMapping`, `MultiScaleModel`, domain, and route APIs remain
+The legacy `ModelMapping` and `MultiScaleModel` APIs remain
 useful when maintaining existing simulations, but agents should not select them
 for new scene/object scenarios. See
 [Migrating To The Scene/Object API](migration_scene_object.md).

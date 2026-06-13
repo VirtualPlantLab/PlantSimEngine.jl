@@ -18,11 +18,11 @@ PlantSimEngine has two main user roles:
   `inputs_`, `outputs_`, `dep`, `meteo_inputs_`, `meteo_outputs_`, `run!`,
   model traits, and focused tests.
 
-For new multiscale, multi-plant, soil, scene, or microclimate work, prefer the
-unified scene/object API. Use `ModelMapping`, `MultiScaleModel`, `Domain`,
-`Route`, `AllDomains`, and `HardDomains` only when maintaining legacy
-simulations during the breaking migration. `ModelMapping` is not exported, so
-that compatibility code must spell it `PlantSimEngine.ModelMapping(...)`.
+For new multiscale, multi-plant, soil, scene, or microclimate work, use the
+unified scene/object API. Historical `ModelMapping` and `MultiScaleModel`
+simulations remain available for released-code migration. `ModelMapping` is
+not exported, so compatibility code must spell it
+`PlantSimEngine.ModelMapping(...)`.
 
 ## First Steps
 

@@ -1,7 +1,7 @@
 # Migrating To The Scene/Object API
 
-The scene/object API replaces the separate multiscale mapping and domain
-configuration systems with one object-address graph.
+The scene/object API replaces the historical multiscale mapping system with
+one object-address graph.
 
 New scenario code should be organized around:
 
@@ -17,7 +17,7 @@ TimeStep
 Environment
 ```
 
-Model implementations do not need to know about scenes, plants, domains, or
+Model implementations do not need to know about scenes, plants, objects, or
 timesteps. They keep the existing kernel contract:
 
 ```julia
@@ -34,9 +34,8 @@ equivalents.
 
 ## Scenario Structure
 
-Legacy simulations split configuration between `ModelMapping`,
-`MultiScaleModel`, `Domain`, and `SimulationMapping`. The unified API stores
-runtime entities in one `Scene`:
+Legacy simulations split configuration between `ModelMapping` and
+`MultiScaleModel`. The unified API stores runtime entities in one `Scene`:
 
 `ModelMapping` is no longer exported. While migrating historical code, use
 `PlantSimEngine.ModelMapping(...)` explicitly; new scenarios should use the
@@ -132,27 +131,9 @@ Inputs(
 Same-rate bindings use shared references or reference vectors when possible.
 Cross-rate bindings use typed temporal streams.
 
-## Cross-Domain Values And Routes
+## Scene-Wide Values
 
-Replace `AllDomains(...)` and user-written `Route(...)` with an input selector
-on the consuming application.
-
-Legacy:
-
-```julia
-Route(
-    from=AllDomains(
-        kind=:plant,
-        scale=:Leaf,
-        process=:transpiration,
-        var=:transpiration,
-    ),
-    to=DomainRouteTarget(:scene, var=:leaf_transpiration),
-    cardinality=ManyToOneVector(),
-)
-```
-
-Unified:
+Use an input selector on the consuming application:
 
 ```julia
 ModelSpec(SceneWaterBalance(); name=:scene_water) |>
@@ -173,7 +154,7 @@ source variable, and temporal policy rather than a route implementation.
 
 ## Manual Hard Calls
 
-Replace `HardDomains(...)` with `Calls(...)`.
+Use `Calls(...)` when a parent model must control child execution.
 
 ```julia
 ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
@@ -221,7 +202,8 @@ state must use `publish=true`.
 
 ## Multiple Plants And Species
 
-Replace repeated plant domains with `ObjectTemplate` and `ObjectInstance`.
+Represent repeated plant configurations with `ObjectTemplate` and
+`ObjectInstance`.
 
 ```julia
 oil_palm = ObjectTemplate(
@@ -463,12 +445,8 @@ targets. They are intended for both users and coding agents.
 
 | Legacy configuration | Scene/object replacement |
 | --- | --- |
-| `ModelMapping` scale/domain assembly | `Scene` objects plus model applications |
+| `ModelMapping` scale assembly | `Scene` objects plus model applications |
 | `MultiScaleModel(...)` | consumer `Inputs(...)` |
-| `Route(...)` | compiler-selected carrier from `Inputs(...)` |
-| `AllDomains(...)` | object selector inside `Inputs(...)` |
-| `HardDomains(...)` | `Calls(...)` |
-| `Domain(...)` | `ObjectTemplate` and `ObjectInstance` |
 | `TimeStepModel(...)` | `TimeStep(...)` |
 | `InputBindings(...)` | source, policy, and window on `Inputs(...)` |
 | `MeteoBindings(...)` | automatic environment binding or `Environment(...)` |
@@ -476,6 +454,6 @@ targets. They are intended for both users and coding agents.
 | `SameScale()` rename | `Inputs(:local => One(within=Self(), var=:source))` |
 
 The executable MAESPA migration in
-`examples/maespa_domain_example.jl` demonstrates two plant species, shared
+`examples/maespa_scene_example.jl` demonstrates two plant species, shared
 soil, plant-local aggregation, scene-wide iterative energy balance, hourly and
 daily models, and automatic environment binding.

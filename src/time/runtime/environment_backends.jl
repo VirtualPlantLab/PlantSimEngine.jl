@@ -10,13 +10,13 @@ packages can subtype this and implement `sample`, `scatter!`, `update_index!`,
 abstract type AbstractEnvironmentBackend end
 
 """
-    EnvironmentSupport(domain, scale, process, status)
+    EnvironmentSupport(application, scale, process, status)
 
 Minimal support descriptor passed to environment backends when a model samples
 or scatters environmental variables.
 """
 struct EnvironmentSupport{S}
-    domain::Symbol
+    application::Symbol
     scale::Symbol
     process::Symbol
     status::S
@@ -196,7 +196,7 @@ function sample(backend::GlobalConstant, variable::Symbol, support::EnvironmentS
     meteo = _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
     isnothing(meteo) && return nothing
     hasproperty(meteo, variable) || error(
-        "GlobalConstant meteo does not provide variable `$(variable)` for `$(support.domain)/$(support.scale)/$(support.process)`."
+        "GlobalConstant meteo does not provide variable `$(variable)` for `$(support.application)/$(support.scale)/$(support.process)`."
     )
     return getproperty(meteo, variable)
 end
@@ -215,7 +215,7 @@ end
 
 scatter!(backend::GlobalConstant, variable::Symbol, support::EnvironmentSupport, value, time) = error(
     "GlobalConstant is immutable and cannot receive environment output `$(variable)` from ",
-    "`$(support.domain)/$(support.scale)/$(support.process)`."
+    "`$(support.application)/$(support.scale)/$(support.process)`."
 )
 
 """
@@ -306,12 +306,12 @@ function sample_environment(
     pairs = Pair{Symbol,Any}[]
     for (target, source) in _environment_sampling_rules(model_spec)
         isnothing(row) && error(
-            "GlobalConstant meteo is `nothing`, but `$(support.domain)/$(support.scale)/$(support.process)` ",
+            "GlobalConstant meteo is `nothing`, but `$(support.application)/$(support.scale)/$(support.process)` ",
             "requires meteo variable `$(target)`."
         )
         hasproperty(row, source) || error(
             "GlobalConstant meteo does not provide source variable `$(source)` for model-facing variable ",
-            "`$(target)` in `$(support.domain)/$(support.scale)/$(support.process)`."
+            "`$(target)` in `$(support.application)/$(support.scale)/$(support.process)`."
         )
         push!(pairs, target => getproperty(row, source))
     end
@@ -324,7 +324,7 @@ end
 function _environment_output_value(status, variable::Symbol, support::EnvironmentSupport)
     hasproperty(status, variable) && return getproperty(status, variable)
     error(
-        "Model `$(support.domain)/$(support.scale)/$(support.process)` declares environment output ",
+        "Model `$(support.application)/$(support.scale)/$(support.process)` declares environment output ",
         "`$(variable)` in `meteo_outputs_`, but its status does not contain `$(variable)`. ",
         "Expose the computed value as a same-named `outputs_` variable or initialize it in the status."
     )

@@ -663,39 +663,17 @@ timestep(m::ModelSpec) = m.timestep
 inputs_(m::ModelSpec) = inputs_(model_(m))
 outputs_(m::ModelSpec) = outputs_(model_(m))
 
-function _model_spec_dependency_selector(dep_name::Symbol, selector)
-    return selector
-end
-
-function _model_spec_dependency_selector(dep_name::Symbol, selector::Input)
-    return nothing
-end
-
 function _normalize_model_spec_dependencies(deps::NamedTuple)
     normalized = Pair{Symbol,Any}[]
     for (dep_name, selector) in pairs(deps)
         selector isa Union{Input,Call} && continue
-        normalized_selector = _model_spec_dependency_selector(dep_name, selector)
-        isnothing(normalized_selector) && continue
-        push!(normalized, dep_name => normalized_selector)
-    end
-    return (; normalized...)
-end
-
-function _model_spec_call_dependencies(spec::ModelSpec)
-    calls = model_calls(spec)
-    calls isa NamedTuple || return NamedTuple()
-    normalized = Pair{Symbol,Any}[]
-    for (dep_name, selector) in pairs(calls)
-        push!(normalized, dep_name => _model_spec_dependency_selector(dep_name, selector))
+        push!(normalized, dep_name => selector)
     end
     return (; normalized...)
 end
 
 function dep(m::ModelSpec)
-    model_deps = _normalize_model_spec_dependencies(dep(model_(m)))
-    call_deps = _model_spec_call_dependencies(m)
-    return (; pairs(model_deps)..., pairs(call_deps)...)
+    return _normalize_model_spec_dependencies(dep(model_(m)))
 end
 init_variables(m::ModelSpec; verbose::Bool=true) = init_variables(model_(m); verbose=verbose)
 meteo_inputs_(m::ModelSpec) = meteo_inputs_(model_(m))

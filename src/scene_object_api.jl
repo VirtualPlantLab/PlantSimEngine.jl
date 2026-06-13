@@ -900,7 +900,7 @@ Relation(relation::AbstractString) = Relation(Symbol(relation))
 
 _maybe_symbol(x) = isnothing(x) ? nothing : Symbol(x)
 
-const _OBJECT_ADDRESS_SYMBOL_FIELDS = (:kind, :domain, :species, :scale, :name, :process, :var, :relation, :application)
+const _OBJECT_ADDRESS_SYMBOL_FIELDS = (:kind, :species, :scale, :name, :process, :var, :relation, :application)
 
 function _normalize_object_selector_value(key::Symbol, value)
     key in _OBJECT_ADDRESS_SYMBOL_FIELDS && return _maybe_symbol(value)
@@ -2951,7 +2951,7 @@ function _same_environment_backend(a, b)
 end
 
 function _same_environment_support(a, b)
-    return a.domain == b.domain &&
+    return a.application == b.application &&
            a.scale == b.scale &&
            a.process == b.process &&
            a.status === b.status
@@ -4149,13 +4149,6 @@ call_target(context::SceneRunContext, name::Symbol) = only(call_targets(context,
 call_target(context::SceneRunContext, name::AbstractString) =
     call_target(context, Symbol(name))
 
-dependency_targets(context::SceneRunContext, name::Symbol) = call_targets(context, name)
-dependency_targets(context::SceneRunContext, name::AbstractString) =
-    call_targets(context, name)
-dependency_target(context::SceneRunContext, name::Symbol) = call_target(context, name)
-dependency_target(context::SceneRunContext, name::AbstractString) =
-    call_target(context, name)
-
 """
     run_call!(target::SceneCallTarget; publish=false, meteo=nothing)
 
@@ -4622,7 +4615,7 @@ function _legacy_multiscale_rhs_from_input_selector(selector::AbstractObjectMult
 
     # The current MTG mapping layer only understands scale/variable mappings.
     # Keep richer object filters as unified metadata for the future compiler.
-    unsupported = (:kind, :domain, :species, :name, :process, :relation)
+    unsupported = (:kind, :species, :name, :process, :relation)
     any(key -> haskey(c, key) && !isnothing(getproperty(c, key)), unsupported) && return nothing
 
     scale = c.scale

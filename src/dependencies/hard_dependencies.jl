@@ -5,10 +5,6 @@
 
 Compute the hard dependencies between models.
 """
-abstract type AbstractDomainDependencySelector end
-
-_is_domain_dependency_selector(x) = x isa AbstractDomainDependencySelector
-
 function _normalize_hard_dependency_scales(scales, process::Symbol, dependency_process::Symbol)
     if scales isa Symbol
         return [scales]
@@ -50,7 +46,6 @@ function hard_dependencies(models; scale=nothing, verbose::Bool=true)
         length(level_1_dep) == 0 && continue # if there is no dependency we skip the iteration
         dep_graph[process].dependency = level_1_dep
         for (p, depend) in pairs(level_1_dep) # for each dependency of the model i. p=:leaf_rank; depend=pairs(level_1_dep)[p]
-            _is_domain_dependency_selector(depend) && continue
             # The dependency can be given as multiscale, e.g. `leaf_area=AbstractLeaf_AreaModel => [m.leaf_symbol],`
             # This means we should search this model in another scale. This is not done here, but after the call to this 
             # function in the other method for `hard_dependencies` below.

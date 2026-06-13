@@ -250,5 +250,5 @@ accepted state should use `publish=true`.
   helpers, environment helpers, and explanation helpers.
 - [Model traits](../model_traits.md) documents `inputs_`, `outputs_`, `dep`,
   `timespec`, `output_policy`, `meteo_inputs_`, and `meteo_outputs_`.
-- [MAESPA-style domain example handoff](../dev/maespa_domain_handoff.md)
+- [MAESPA-style scene example handoff](../dev/maespa_scene_handoff.md)
   records the current multi-plant scene energy-balance acceptance example.

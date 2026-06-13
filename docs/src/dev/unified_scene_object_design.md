@@ -1,5 +1,11 @@
 # Unified Scene/Object Design
 
+> **Historical design note**
+>
+> This document records the redesign process. Names such as `Domain`,
+> `Route`, `AllDomains`, and `HardDomains` refer to an unreleased intermediate
+> prototype that has been removed from the package.
+
 This page records the target breaking design discussed after the multi-domain
 prototype. It intentionally supersedes the user-facing distinction between
 `MultiScaleModel(...)` mappings and `Route(...)` cross-domain materialization.

@@ -32,7 +32,7 @@ makedocs(;
         ],
         "Scene/Object simulations" => [
             "Quickstart" => "./scene_object/quickstart.md",
-            "Migrating from mappings and domains" => "migration_scene_object.md",
+            "Migrating from mappings" => "migration_scene_object.md",
         ],
         "Step by step - Single-scale simulations" => [
             "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
@@ -83,13 +83,10 @@ makedocs(;
             "Example models" => "./API/API_examples.md",
             "Internal API" => "./API/API_private.md",],
         "Development designs" => [
-            "Multi-domain simulation design" => "./dev/multi_domain_simulation_design.md",
-            "Multi-domain simulation plan" => "./dev/multi_domain_simulation_plan.md",
             "Unified scene/object design" => "./dev/unified_scene_object_design.md",
             "Unified scene/object implementation plan" => "./dev/unified_scene_object_implementation_plan.md",
             "Unified scene/object completion audit" => "./dev/unified_scene_object_completion_audit.md",
-            "MAESPA-style domain example handoff" => "./dev/maespa_domain_handoff.md",
-            "Legacy domain regression API" => "domain_simulation.md",
+            "MAESPA-style scene example handoff" => "./dev/maespa_scene_handoff.md",
             "Code cleanup audit" => "./dev/code_cleanup_audit.md",
             "Release notes handoff" => "./dev/release_notes_handoff.md",
         ],

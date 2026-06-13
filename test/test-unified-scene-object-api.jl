@@ -633,7 +633,15 @@ function PlantSimEngine.bind_environment(
 )
     object_geometry = geometry(object)
     cell = isnothing(object_geometry) ? :global : object_geometry.cell
-    push!(backend.binds, (object=object.id.value, application=support.domain, cell=cell, config=config))
+    push!(
+        backend.binds,
+        (
+            object=object.id.value,
+            application=support.application,
+            cell=cell,
+            config=config,
+        ),
+    )
     return cell
 end
 
@@ -704,7 +712,7 @@ function PlantSimEngine.scatter!(
     push!(
         backend.writes,
         (
-            application=support.domain,
+            application=support.application,
             process=support.process,
             cell=cell,
             variable=variable,
@@ -1250,10 +1258,7 @@ end
     @test model_calls(spec).stomata isa One
     @test PlantSimEngine.call_origins(spec).stomata == :model_spec
     @test object_address(model_calls(spec).stomata).process == :stomatal_conductance
-    call_dep = dep(spec).stomata
-    @test call_dep isa PlantSimEngine.HardDomains
-    @test call_dep.scale == :Leaf
-    @test call_dep.process == :stomatal_conductance
+    @test isempty(dep(spec))
     @test PlantSimEngine.timestep(spec) == Hour(1)
     @test environment_config(spec) isa PlantSimEngine.EnvironmentConfig
     @test environment_config(spec).config.provider == :global
@@ -1354,10 +1359,7 @@ end
           :model_default
     @test model_calls(default_call_spec).stomata.criteria.scale == :Leaf
     @test model_calls(default_call_spec).stomata.criteria.process == :stomatal_conductance
-    default_call_dep = dep(default_call_spec).stomata
-    @test default_call_dep isa PlantSimEngine.HardDomains
-    @test default_call_dep.scale == :Leaf
-    @test default_call_dep.process == :stomatal_conductance
+    @test isempty(dep(default_call_spec))
 
     override_call_spec = ModelSpec(SceneObjectDefaultCallConsumerModel()) |>
                          Calls(:stomata => One(scale=:Internode, process=:water_status))
@@ -1365,10 +1367,7 @@ end
     @test PlantSimEngine.call_origins(override_call_spec).stomata ==
           :model_spec
     @test model_calls(override_call_spec).stomata.criteria.process == :water_status
-    override_call_dep = dep(override_call_spec).stomata
-    @test override_call_dep isa PlantSimEngine.HardDomains
-    @test override_call_dep.scale == :Internode
-    @test override_call_dep.process == :water_status
+    @test isempty(dep(override_call_spec))
 
     compiled_specs = (
         ModelSpec(SceneObjectStomataModel(); name=:stomata) |>

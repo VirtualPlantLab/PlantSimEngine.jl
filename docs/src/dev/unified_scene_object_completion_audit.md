@@ -11,10 +11,9 @@ Audit date: June 12, 2026.
 The unified scene/object redesign is implemented as the primary public
 configuration API.
 
-The retained mapping and domain implementations form an explicitly qualified
-compatibility and regression layer. They are not exported, are grouped under
-legacy documentation sections, and are not used by the native MAESPA
-acceptance path.
+The retained mapping implementation forms an explicitly qualified
+compatibility and regression layer. The unreleased domain prototype was
+removed after the scene/object runtime replaced it.
 
 ## Public Contract
 
@@ -32,8 +31,8 @@ TimeStep
 Environment
 ```
 
-Legacy scenario constructors such as `ModelMapping`, `MultiScaleModel`,
-`Domain`, `Route`, `AllDomains`, and `HardDomains` are not exported.
+Legacy scenario constructors such as `ModelMapping` and `MultiScaleModel` are
+not exported.
 
 Evidence:
 
@@ -59,7 +58,7 @@ Evidence:
 | Automatic meteorology and microclimate | `meteo_inputs_`, `meteo_outputs_`, global and spatial backends, ancestor geometry fallback, source remapping, model hints, tabular aggregation, cached bindings, and mutable backend scattering |
 | Structured agent explanations | Object, instance, scope, application, binding, call, model-bundle, environment, schedule, writer, execution-plan, output, and retention explanations returning structured rows |
 | Output ownership and retention | Application-qualified streams, `OutputRouting`, `OutputRequest(application=...)`, dynamic-object exports, and bounded policy-specific dependency histories |
-| MAESPA acceptance case | `build_maespa_unified_scene` and `run_maespa_scene_example` use `ObjectTemplate`, `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`, and `TimeStep`; verified by `test/test-maespa-domain-example.jl` |
+| MAESPA acceptance case | `build_maespa_scene` and `run_maespa_example` use `ObjectTemplate`, `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`, and `TimeStep`; verified by `test/test-maespa-scene-example.jl` |
 | Documentation and migration | Scene/object-first README, home page, quickstart, execution guide, public API, migration guide, and explicitly labeled legacy reference sections |
 
 ## Verification
@@ -68,7 +67,7 @@ The following gates passed from a clean, controllable Kaimon Julia session:
 
 ```text
 test/test-unified-scene-object-api.jl
-test/test-maespa-domain-example.jl
+test/test-maespa-scene-example.jl
 test/test-multirate-output-export.jl
 test/runtests.jl
 docs/make.jl
@@ -85,15 +84,16 @@ does not weaken the behavioral verification above.
 
 ## Compatibility Boundary
 
-Historical mapping/domain source and tests remain intentionally available for:
+Historical mapping source and tests remain intentionally available for:
 
 - migration comparison;
 - regression evidence;
 - downstream users that need a qualified transition path.
 
 They must remain qualified as `PlantSimEngine.*` and must not be presented as
-the primary API. Removing this compatibility layer entirely is a separate
-cleanup decision, not unfinished scene/object functionality.
+the primary API. The branch-only domain prototype and its tests were removed
+because they were never released and no longer serve as a compatibility
+boundary.
 
 Requested output histories are still materialized after a run. Dependency-only
 temporal histories are bounded, but a fully online output sink would be an

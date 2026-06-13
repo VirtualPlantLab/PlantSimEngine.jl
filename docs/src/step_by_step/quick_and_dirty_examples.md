@@ -147,7 +147,7 @@ PlantBiophysics. A typical PlantBiophysics energy-balance setup uses
 stomatal-conductance models, then call `run_call!(target; publish=true)` once
 for the accepted solution.
 
-See [MAESPA-style domain example handoff](../dev/maespa_domain_handoff.md) for
+See [MAESPA-style scene example handoff](../dev/maespa_scene_handoff.md) for
 the current multi-plant energy-balance acceptance example.
 
 ## Compatibility Note

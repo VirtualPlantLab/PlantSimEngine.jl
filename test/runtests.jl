@@ -54,12 +54,8 @@ include("helper-functions.jl")
         include("test-environment-backends.jl")
     end
 
-    @testset "Domain simulation" begin
-        include("test-domain-simulation.jl")
-    end
-
-    @testset "MAESPA-style domain example" begin
-        include("test-maespa-domain-example.jl")
+    @testset "MAESPA-style scene example" begin
+        include("test-maespa-scene-example.jl")
     end
 
     @testset "MultiScaleModel" begin

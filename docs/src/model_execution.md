@@ -346,8 +346,6 @@ Those names are no longer the primary API. For new work, use:
 - `InputBindings(...)` -> selector fields inside `Inputs(...)`;
 - `MeteoBindings(...)` / `MeteoWindow(...)` -> `Environment(...)`,
   `meteo_hint(...)`, and model/application clocks;
-- `HardDomains(...)` -> `Calls(...)`;
-- `Route(...)` and `AllDomains(...)` -> consumer-side `Inputs(...)`;
 - `TimeStepModel(...)` -> `TimeStep(...)`.
 
 See [Migrating To The Scene/Object API](migration_scene_object.md) for worked

@@ -281,7 +281,7 @@ PlantSimEngine.dep(::MRHardParentModel) = (mrhardchild=AbstractMrhardchildModel,
 PlantSimEngine.inputs_(::MRHardParentModel) = NamedTuple()
 PlantSimEngine.outputs_(::MRHardParentModel) = (A=-Inf,)
 function PlantSimEngine.run!(::MRHardParentModel, models, status, meteo, constants=nothing, extra=nothing)
-    PlantSimEngine.run_target!(models, status, :mrhardchild; meteo=meteo, constants=constants, extra=extra)
+    PlantSimEngine.run!(models.mrhardchild, models, status, meteo, constants, extra)
     status.A = 5.0
 end
 

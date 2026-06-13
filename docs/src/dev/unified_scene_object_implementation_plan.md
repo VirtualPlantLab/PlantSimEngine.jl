@@ -1,12 +1,12 @@
 # Unified Scene/Object Implementation Plan
 
-This plan is the persistent handoff for replacing the current domain/route and
-multiscale-mapping split with one scene/object address system.
+This plan is the persistent handoff for replacing the historical
+multiscale-mapping system and an unreleased domain prototype with one
+scene/object address system.
 
 The implementation can be incremental internally, but the target API is
-breaking. Do not try to preserve `MultiScaleModel(...)`, `Route(...)`,
-`AllDomains(...)`, or `HardDomains(...)` as primary user-facing concepts in the
-final design.
+breaking. Do not preserve experimental intermediate APIs as user-facing
+concepts in the final design.
 
 The target public surface should be centered on a small set of concepts:
 
@@ -26,24 +26,13 @@ Environment(...)
 This is the API memory target for users, modelers, and agents. Additional
 types should be selectors, model traits, or internal compiled carriers.
 
-## Current State To Preserve Until Replacement
+## Experimental Starting Point
 
-The current experimental branch already implements useful behavior:
-
-- `Domain`, `SimulationMapping`, and `DomainSimulation`;
-- single-status and MTG-backed domains;
-- graph-domain selectors for several plant instances/species;
-- `Route(...)` materialization into scene status;
-- `AllDomains(...)` stream/value dependencies;
-- `HardDomains(...)` targets and `run_target!`;
-- multi-rate domain scheduling with `Dates`;
-- environment backend protocol and constant meteo backend;
-- dynamic MTG add/remove/reparent support;
-- `Updates(...)` for ordered duplicate writers;
-- structured domain explanation helpers.
-
-Those features are the behavioral test bed for the new design. The new API
-should reproduce the same capabilities through unified object selections.
+The branch used a temporary domain runtime as a behavioral test bed for
+multi-object selection, cross-object values, manual child calls, multi-rate
+scheduling, environment backends, lifecycle changes, ordered writers, and
+structured explanations. The scene/object API reproduced those capabilities,
+then the temporary runtime was removed before release.
 
 ## Implementation Progress
 
@@ -372,12 +361,12 @@ should reproduce the same capabilities through unified object selections.
   from being treated as independent root writers when they intentionally update
   the same object status inside their parent call stack.
 - Added a unified scene/object MAESPA example path:
-  `build_maespa_unified_scene(...)` and `run_maespa_scene_example(...)`.
+  `build_maespa_scene(...)` and `run_maespa_example(...)`.
   It uses `ObjectTemplate`, `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`,
   and `TimeStep(Dates.Period)` with two plant species, one shared soil object,
   scene LAI, and scene energy balance.
-- `test/test-maespa-domain-example.jl` now verifies the unified scene/object
-  MAESPA path alongside the existing domain regression path.
+- `test/test-maespa-scene-example.jl` verifies the unified scene/object
+  MAESPA path.
 - `run!(scene)` now returns a `SceneSimulation` wrapper with the mutated
   `Scene`, compiled scene bindings, compiled environment bindings, and the
   scene-local temporal output streams. This keeps existing status mutation
@@ -474,10 +463,10 @@ should reproduce the same capabilities through unified object selections.
   preserving stable node-derived ids, parent relations, labels, geometry, and
   existing `:plantsimengine_status` objects through configurable accessors.
 
-The scene/object compiler is now executable: selectors normalize to object
+The scene/object compiler is executable: selectors normalize to object
 addresses, resolve before runtime, and compile into reference, temporal, call,
-writer, and environment carriers. The older mapping/domain compilers remain
-only as qualified compatibility implementations.
+writer, and environment carriers. The historical mapping compiler remains
+only as a qualified compatibility implementation.
 
 ## Phase 0: Public Contract Freeze
 
@@ -730,8 +719,8 @@ Acceptance tests:
 
 Implemented:
 
-- `run_call!(::SceneCallTarget)` now defaults to `publish=false`, matching the
-  manual-call contract and the legacy domain target behavior.
+- `run_call!(::SceneCallTarget)` defaults to `publish=false`, matching the
+  iterative manual-call contract.
 - One-shot accepted calls use `publish=true` explicitly.
 - An iterative hard-call regression executes two default non-publishing trials
   followed by one accepted call and verifies exactly one environment write and
@@ -796,9 +785,9 @@ Acceptance tests:
 
 MAESPA status:
 
-- the unified scene/object MAESPA path now uses `ObjectTemplate` and
-  `ObjectInstance` for species A and B. The old domain path remains only as
-  regression coverage until the domain runtime can be removed.
+- the unified scene/object MAESPA path uses `ObjectTemplate` and
+  `ObjectInstance` for species A and B. The temporary domain path has been
+  removed.
 
 ## Phase 5B: Object Lifecycle And Cache Invalidation
 
@@ -998,8 +987,8 @@ Migration documentation progress:
   inferred same-object bindings, `OutputRequest` retention, multi-object
   `Inputs(...)`, `RefVector` carrier explanations, and manual `Calls(...)`
   syntax.
-- The repository agent skill now teaches the unified public vocabulary first
-  and treats the old mapping/domain stack as legacy-maintenance knowledge.
+- The repository agent skill teaches the unified public vocabulary first and
+  treats the historical mapping stack as legacy-maintenance knowledge.
 - The public API page now starts with curated scene/object groups for scenario
   construction, selectors, coupling, lifecycle, environment, runtime, and
   structured explanations. Mapping-level multirate examples are labeled as
@@ -1007,17 +996,13 @@ Migration documentation progress:
 
 Current removal audit:
 
-- The legacy domain scenario surface is no longer exported:
-  `Domain`, `SimulationMapping`, `DomainSimulation`, `AllDomains`,
-  `HardDomains`, `Route`, route cardinalities, domain target helpers, and
-  domain explanation helpers remain available only through qualified
-  `PlantSimEngine.*` names for regression coverage.
+- The unreleased domain scenario and runtime subsystem has been deleted,
+  including its route carriers, dependency selectors, target helpers, tests,
+  examples, and documentation.
 - Public manual-call control now uses `call_target`, `call_targets`, and
-  `run_call!`. The old `dependency_target(s)` and `run_target!` spellings are
-  compatibility internals.
-- `SceneRunContext` now defines `call_target(s)` directly, including
-  string-name support. The old `dependency_target(s)` scene methods are thin
-  compatibility wrappers around the scene-native lookup.
+  `run_call!`.
+- `SceneRunContext` defines `call_target(s)` directly, including string-name
+  support.
 - The legacy mapping transforms are no longer exported:
   `MultiScaleModel`, `SameScale`, `TimeStepModel`, `InputBindings`,
   `MeteoBindings`, `MeteoWindow`, and `ScopeModel` require qualified
@@ -1039,7 +1024,7 @@ Current removal audit:
   It now documents compilation, same-rate reference carriers, temporal
   `Inputs(...)`, manual `Calls(...)`, `Updates(...)`, `TimeStep(...)`,
   environment binding, output retention, lifecycle cache invalidation, and
-  compatibility translations from the old mapping/domain runtime.
+  compatibility translations from the historical mapping runtime.
 - The detailed first simulation tutorial now starts from the scene/object API
   instead of `ModelMapping`. It introduces model kernels, object status,
   compiled applications, inferred same-object bindings, scene outputs, and a

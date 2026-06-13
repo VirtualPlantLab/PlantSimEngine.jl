@@ -235,8 +235,8 @@ environment writes are published exactly once.
 
 - [Scene/Object Quickstart](scene_object/quickstart.md) gives a compact
   runnable workflow using the new API.
-- [Migrating To The Scene/Object API](migration_scene_object.md) translates old
-  `ModelMapping`, `MultiScaleModel`, `Route`, and domain examples.
+- [Migrating To The Scene/Object API](migration_scene_object.md) translates
+  historical `ModelMapping` and `MultiScaleModel` examples.
 - [Public API](API/API_public.md) lists the scene/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,

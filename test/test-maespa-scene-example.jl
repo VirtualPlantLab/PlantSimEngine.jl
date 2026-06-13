@@ -1,62 +1,7 @@
-include("../examples/maespa_domain_example.jl")
+include("../examples/maespa_scene_example.jl")
 
-@testset "MAESPA-style domain example" begin
-    result = run_maespa_example(; nhours=24, check=true)
-    sim = result.simulation
-
-    @test length(status(sim, :Leaf)) == 5
-    @test length(status(sim, :plant_A, :Leaf)) == 2
-    @test length(status(sim, :plant_B, :Leaf)) == 3
-
-    scene_status = status(sim, :scene)
-    last_meteo = last(maespa_meteo(; nhours=24))
-    vpd_above = max(0.01, last_meteo.VPD)
-    @test isfinite(scene_status.canopy_tair)
-    @test isfinite(scene_status.canopy_vpd)
-    @test isfinite(scene_status.canopy_rh)
-    @test isfinite(scene_status.canopy_htot)
-    @test isfinite(scene_status.canopy_gcanop)
-    @test scene_status.canopy_tair >= last_meteo.T - 10.0
-    @test scene_status.canopy_tair <= last_meteo.T + 10.0
-    @test scene_status.canopy_vpd >= max(0.01, vpd_above - 1.5)
-    @test scene_status.canopy_vpd <= vpd_above + 1.5
-    @test scene_status.canopy_vpd > 0.0
-    @test 0.0 <= scene_status.canopy_rh <= 1.0
-    @test isfinite(scene_status.scene_transpiration)
-    @test scene_status.scene_transpiration > 0.0
-    @test scene_status.iterations > 0
-    @test scene_status.leaf_area ≈ sum(st.leaf_area for st in status(sim, :Leaf))
-    @test scene_status.lai ≈ scene_status.leaf_area
-    @test scene_status.leaf_areas ≈ getproperty.(status(sim, :Leaf), :leaf_area)
-
-    leaf_statuses = status(sim, :Leaf)
-    @test all(st -> isfinite(st.Tₗ), leaf_statuses)
-    @test all(st -> isfinite(st.A), leaf_statuses)
-    @test all(st -> isfinite(st.λE), leaf_statuses)
-    @test any(st -> abs(st.Tₗ - scene_status.canopy_tair) > 1.0e-6, leaf_statuses)
-
-    plant_a_status = only(status(sim, :plant_A, :Plant))
-    plant_b_status = only(status(sim, :plant_B, :Plant))
-    @test plant_a_status.daily_growth > 0.0
-    @test plant_b_status.daily_growth > 0.0
-    @test plant_a_status.daily_growth != plant_b_status.daily_growth
-    @test plant_a_status.leaf_pool != plant_b_status.leaf_pool
-
-    deps = PlantSimEngine.explain_domain_dependencies(sim)
-    @test count(row -> row.mode == :hard_domain && row.dependency == :energy_balance, deps) == 2
-    @test count(row -> row.mode == :hard_domain && row.dependency == :soil, deps) == 1
-
-    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:plant_A, :Leaf, :energy_balance), :λE)]) == 2 * 24
-    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:plant_B, :Leaf, :energy_balance), :λE)]) == 3 * 24
-    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:soil, :Default, :soil_water), :psi_soil)]) == 24
-    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:scene, :Default, :lai_dynamic), :lai)]) == 1
-    @test length(sim.outputs[(PlantSimEngine.DomainModelKey(:scene, :Default, :scene_eb), :scene_transpiration)]) == 24
-    @test status(sim, :soil).transpiration ≈ scene_status.scene_transpiration
-    @test status(sim, :soil).psi_soil ≈ scene_status.psi_soil
-end
-
-@testset "MAESPA-style unified scene example" begin
-    result = run_maespa_scene_example(; nhours=25, check=true)
+@testset "MAESPA-style scene example" begin
+    result = run_maespa_example(; nhours=25, check=true)
     scene = result.scene
     compiled = result.compiled
 
@@ -169,47 +114,14 @@ end
     @test soil_status.psi_soil ≈ scene_status.psi_soil
 end
 
-@testset "MAESPA-style domain example validation" begin
-    mtg = build_maespa_scene()
+@testset "MAESPA-style scene example validation" begin
     meteo = maespa_meteo(; nhours=1)
-
-    soil_mapping = PlantSimEngine.ModelMapping(
-        ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75)) |> TimeStep(Dates.Hour(1)),
-        status=(theta1=0.33, theta2=0.36, psi_soil=-0.10, transpiration=0.0, infiltration=0.0),
-    )
-    scene_mapping = PlantSimEngine.ModelMapping(
-        ModelSpec(LAIModel(1.0)) |> TimeStep(Dates.Hour(1)),
-        ModelSpec(SceneEB(25, 0.03, 0.005)) |>
-        Calls(
-            :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
-            :soil => One(kind=:soil, process=:soil_water),
-        ) |>
-        TimeStep(Dates.Hour(1)),
-        status=(
-            leaf_area=0.0,
-            lai=0.0,
-            canopy_tair=20.0,
-            canopy_vpd=1.0,
-            canopy_rh=0.7,
-            canopy_htot=0.0,
-            canopy_gcanop=0.0,
-            scene_transpiration=0.0,
-            scene_assimilation=0.0,
-            psi_soil=-0.1,
-            iterations=0,
-        ),
-    )
-    missing_leaf_mapping = PlantSimEngine.SimulationMapping(
-        PlantSimEngine.Domain(:soil, soil_mapping; kind=:soil),
-        PlantSimEngine.Domain(:scene, scene_mapping; kind=:scene),
-    )
-    @test_throws "Hard domain dependency `energy_balance`" run!(mtg, missing_leaf_mapping, meteo, check=true, executor=SequentialEx())
 
     soil_target = (status=Status(psi_soil=-0.1),)
     scene_status = Status(lai=0.0, leaf_area=0.0)
     @test_throws "SceneEB did not converge after 0 iterations" _solve_scene_energy_balance!(
         SceneEB(0, 0.03, 0.005),
-        PlantSimEngine.ModelTarget[],
+        SceneCallTarget[],
         soil_target,
         scene_status,
         first(meteo),

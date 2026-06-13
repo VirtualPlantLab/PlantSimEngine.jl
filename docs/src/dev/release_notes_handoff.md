@@ -29,45 +29,31 @@ Source details live in `code_cleanup_audit.md`.
 - Replaced many source-side validation `@assert`s with explicit errors.
 - Added `Updates(:var; after=:process)` for ordered duplicate writers.
 
-## Implemented Multi-Domain / Scene Prototype Features
+## Removed Unreleased Domain Prototype
 
-These features exist in the current prototype, but may be replaced by the
-unified scene/object API in a future breaking pass.
+The experimental domain runtime was developed and replaced on this branch
+before release. Its source, tests, examples, and documentation were removed
+rather than retained as compatibility code. The removed surface included the
+domain containers, cross-domain route types, domain dependency selectors,
+domain target handles, and domain-specific explanation helpers.
 
-- `Domain`, `SimulationMapping`, `DomainSimulation`, and `DomainModelKey`.
-- Single-status and MTG-backed domains.
-- Domain selectors that can select one or more MTG subtree roots.
-- Domain-local and global status views:
-  `status(sim, :plant_A, :Leaf)` and `status(sim, :Leaf)`.
-- Multi-rate domain execution using `Dates` periods.
-- `AllDomains(...)` stream/value dependencies.
-- `Route(...)` materialization with `ManyToOneVector`,
-  `ManyToOneAggregate`, and limited `OneToManyBroadcast` graph support.
-- `HardDomains(...)`, `dependency_targets`, `ModelTarget`, and
-  `run_target!` for manually controlled hard-domain calls.
-- Environment backend protocol:
-  `AbstractEnvironmentBackend`, `GlobalConstant`, `EnvironmentSupport`,
-  `sample_environment`, `scatter!`, `update_index!`, `get_nsteps`, and
-  `base_step_seconds`.
-- `meteo_inputs_` and `meteo_outputs_` declarations and validation.
-- Dynamic MTG add/remove/reparent runtime reindexing.
-- Domain explanation helpers:
-  `explain_domains`, `explain_domain_models`, `explain_domain_statuses`,
-  `explain_schedule`, `explain_domain_dependencies`, and `explain_routes`.
+The reusable behavior now lives in the scene/object runtime: object selectors,
+compiled `Inputs(...)`, manual `Calls(...)`, `Dates`-based scheduling,
+environment backends, dynamic object lifecycle handling, and structured
+explanations.
 
 ## Implemented MAESPA-Style Example Changes
 
-The current `examples/maespa_domain_example.jl` is the main executable example
+The current `examples/maespa_scene_example.jl` is the main executable example
 for multi-plant scene coupling.
 
 - Uses copied PlantBiophysics subsample models:
   `Monteith`, `Fvcb`, and `Tuzet`.
-- Uses two MTG-backed plant domains with different parameters and shared scale
-  names such as `:Plant` and `:Leaf`.
+- Uses two plant instances with different parameters and shared scale names
+  such as `:Plant` and `:Leaf`.
 - Uses a shared soil model.
 - Uses `SceneEB` with `ModelSpec(...) |> Calls(...)` to manually run leaf
-  `:energy_balance` and soil `:soil_water` targets through the current
-  hard-domain bridge.
+  `:energy_balance` and soil `:soil_water` targets.
 - Ports MAESPA-style canopy air temperature and VPD update through
   `tvpdcanopcalc` and `gbcanms`.
 - Treats input meteorology as above-canopy forcing and writes below-canopy
@@ -75,11 +61,9 @@ for multi-plant scene coupling.
   `canopy_tair`, `canopy_vpd`, `canopy_rh`, `canopy_htot`, and
   `canopy_gcanop`.
 - Adds `LAIModel` and declares plant leaf-area materialization with
-  `ModelSpec(...) |> Inputs(...)`, bridged internally to the current route
-  runtime.
+  `ModelSpec(...) |> Inputs(...)`.
 - Computes plant allocation daily from plant-local `leaf_carbon` vectors.
-- Adds `run_call!` as the unified scene/object spelling for manually executing
-  current `ModelTarget` call handles.
+- Adds `run_call!` for manually executing compiled scene call targets.
 - Adds model-level `Input(...)` and `Call(...)` dependency defaults through
   `dep(model)`, with scenario-level `Inputs(...)` and `Calls(...)` overriding
   those defaults in `ModelSpec`.
@@ -291,13 +275,13 @@ for multi-plant scene coupling.
   when validating canonical root writers, so hard-dependency children are not
   treated as independent root writers for variables they update inside a parent
   call stack.
-- Adds `build_maespa_unified_scene(...)` and `run_maespa_scene_example(...)`.
+- Adds `build_maespa_scene(...)` and `run_maespa_example(...)`.
   This unified scene/object MAESPA path uses `ObjectTemplate`,
   `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`, and
   `TimeStep(Dates.Period)` with two plant species, one shared soil object,
   scene LAI, and scene energy balance.
-- `test/test-maespa-domain-example.jl` now verifies the unified scene/object
-  MAESPA path alongside the domain regression path.
+- `test/test-maespa-scene-example.jl` verifies the unified scene/object
+  MAESPA path.
 - `run!(scene)` now returns a `SceneSimulation` wrapper containing the mutated
   scene, compiled object bindings, compiled environment bindings, and
   scene-local temporal output streams.
@@ -384,13 +368,9 @@ for multi-plant scene coupling.
   warmed 128-leaf inner-loop regression gate.
 - Manual `Calls(...)` handles now use the public
   `call_target(extra, name)`/`call_targets(extra, name)` lookup API followed by
-  `run_call!`. The older `dependency_target(s)` and `run_target!` spellings
-  remain internal compatibility helpers.
-- The legacy domain/route authoring surface is no longer exported:
-  `Domain`, `SimulationMapping`, `DomainSimulation`, `AllDomains`,
-  `HardDomains`, `Route`, route cardinalities, domain target helpers, and
-  domain explanation helpers require qualified `PlantSimEngine.*` access for
-  regression and migration work.
+  `run_call!`.
+- Removed the unreleased domain/route authoring and runtime subsystem after
+  scene/object feature parity was established.
 - Adds `objects_from_mtg(root; ...)` and `Scene(mtg; ...)` so existing MTG
   topology can be adapted once into the unified registry while preserving
   node-derived identity, parent relations, labels, geometry, and existing
@@ -403,11 +383,10 @@ for multi-plant scene coupling.
 
 ## Compatibility Boundary
 
-The scene/object runtime and its MAESPA acceptance path are implemented. The
-legacy configuration surface is retained only as an explicitly qualified
-compatibility and regression layer. It is not exported or presented as the
-primary API. The design, implementation history, and completion evidence are
-documented in:
+The scene/object runtime and its MAESPA acceptance path are implemented.
+Historical mapping APIs remain only as an explicitly qualified compatibility
+and regression layer. The unreleased domain prototype was removed. The design,
+implementation history, and completion evidence are documented in:
 
 - `unified_scene_object_design.md`
 - `unified_scene_object_implementation_plan.md`
@@ -420,15 +399,10 @@ The completed public migration is:
 - model mappings should be described as model applications:
   `ModelSpec(model; name=...) |> AppliesTo(...) |> Inputs(...) |> Calls(...)`;
 - `MultiScaleModel(...)` -> `Inputs(...)`.
-- `Route(...)` for normal value coupling -> consumer-side `Inputs(...)`.
-- `AllDomains(...)` selectors -> object selectors inside `Inputs(...)`.
-- `HardDomains(...)` -> `Calls(...)`.
 - `dep(model)` remains the model-level trait for default dependency intent:
   defaults can become `Input(...)` value bindings or `Call(...)` manual model
   calls, and scenario-level `ModelSpec` configuration overrides them.
-- `Domain(...)` as user-facing assembly -> scene object templates and
-  instances.
-- model target scales/domains -> `AppliesTo(...)` object selectors.
+- model target scales -> `AppliesTo(...)` object selectors.
 - `InputBindings(...)` -> source, policy, and window information on
   `Inputs(...)`.
 - `MeteoBindings(...)` and `MeteoWindow(...)` -> automatic environment
@@ -440,16 +414,16 @@ The completed public migration is:
 - explicit per-model meteo wiring -> automatic environment resolver plus
   cached environment bindings.
 
-Historical examples and tests that remain are intentionally retained as a
-separate qualified compatibility layer. Their continued existence does not
-make them part of the public scene/object API.
+Historical mapping examples and tests that remain are intentionally retained
+as a separate qualified compatibility layer. Their continued existence does
+not make them part of the public scene/object API.
 
 ## Migration Documentation Added
 
 - Added `docs/src/migration_scene_object.md` as the user-facing migration guide
-  from mappings, routes, and domains to the scene/object API.
-- Updated documentation navigation, home-page guidance, legacy domain and
-  multiscale warnings, and the canonical repository agent skill to direct new
+  from historical mappings to the scene/object API.
+- Updated documentation navigation, home-page guidance, multiscale warnings,
+  and the canonical repository agent skill to direct new
   scenarios toward `Scene`, `Object`, `AppliesTo`, `Inputs`, `Calls`,
   `Updates`, `TimeStep`, and `Environment`.
 - Replaced the documentation home-page quickstart with executable
@@ -469,7 +443,7 @@ make them part of the public scene/object API.
   guide. It now covers compilation, reference carriers, temporal `Inputs(...)`,
   manual `Calls(...)`, `Updates(...)`, `TimeStep(...)`, environment binding,
   retained outputs, lifecycle invalidation, and compatibility translations for
-  old mapping/domain constructs.
+  historical mapping constructs.
 - Rewrote the detailed first simulation tutorial to use the scene/object API.
   It now introduces `Scene`, `Object`, `ModelSpec`, `AppliesTo`, `TimeStep`,
   compiled applications, inferred same-object bindings, scene outputs, and a
