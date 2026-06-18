@@ -73,7 +73,7 @@ export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
 export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, MaxReducer, FirstReducer, LastReducer, RadiationEnergy
 export OutputRequest, collect_outputs
 export Scene, Object, ObjectId, SceneRegistry, ObjectTemplate, ObjectInstance, Override
-export register_object!, remove_object!, reparent_object!, move_object!, update_geometry!, refresh_bindings!
+export add_organ!, register_object!, remove_object!, reparent_object!, move_object!, update_geometry!, refresh_bindings!
 export bindings_dirty, environment_bindings_dirty, scene_revision, environment_revision
 export compiled_bindings, compiled_environment_bindings, mark_environment_binding_dirty!
 export refresh_environment_bindings!, compile_environment_bindings, bind_environment

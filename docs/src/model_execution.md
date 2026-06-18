@@ -318,11 +318,26 @@ updated between or during timesteps:
 
 ```julia
 register_object!(scene, Object(:new_leaf; scale=:Leaf); parent=:plant_1)
+leaf_status = add_organ!(
+    parent_node,
+    scene,
+    :+,
+    :Leaf,
+    3;
+    index=4,
+    attributes=(area=0.01,),
+    initial_status=(biomass=0.0,),
+)
 remove_object!(scene, :old_leaf)
-reparent_object!(scene, :leaf_3; parent=:plant_2)
-move_object!(scene, :leaf_4; geometry=new_geometry)
+reparent_object!(scene, :leaf_3, :plant_2)
+move_object!(scene, :leaf_4, new_geometry)
 update_geometry!(scene, :leaf_5, new_geometry)
 ```
+
+Use `add_organ!` for an MTG-backed scene. It creates the MTG node, initializes
+and attaches its `Status` with the scene's MTG policy, registers the scene
+object, and invalidates the affected bindings. `register_object!` is the
+low-level operation for callers that already own a complete `Object`.
 
 Structural changes invalidate compiled object/model bindings. Movement and
 geometry changes invalidate environment bindings without rebuilding structural

@@ -133,7 +133,12 @@ know its scenario timestep unless the scientific model explicitly requires it.
 
 ## Lifecycle
 
+- `add_organ!` is the high-level operation for MTG-backed growth. It creates
+  the node, reuses the scene's MTG status policy, applies initial values,
+  attaches the status, and registers the object.
 - `register_object!`, `remove_object!`, and `reparent_object!` mutate topology.
+- Use `register_object!` directly only when the caller already owns a fully
+  initialized `Object`.
 - Structural changes refresh application targets, value carriers, call
   targets, writer checks, and schedules between timesteps.
 - Geometry changes refresh only affected environment bindings when possible.

@@ -774,6 +774,42 @@ end
     run!(mtg_scene)
     @test only(scene_objects(mtg_scene; scale=:Leaf)).status.signal == 3.0
 
+    new_leaf_status = add_organ!(
+        mtg_plant,
+        mtg_scene,
+        :+,
+        :Leaf,
+        2;
+        index=2,
+        id=4,
+        attributes=(signal=4.0, color=:green),
+        initial_status=(signal=5.0, age=1),
+        kind=:plant,
+    )
+    @test new_leaf_status.node[:plantsimengine_status] === new_leaf_status
+    @test new_leaf_status.signal == 5.0
+    @test new_leaf_status.color == :green
+    @test new_leaf_status.age == 1
+    new_leaf_object = only(
+        object for object in scene_objects(mtg_scene; scale=:Leaf)
+        if object.id == ObjectId(:leaf_4)
+    )
+    @test new_leaf_object.status === new_leaf_status
+    @test new_leaf_object.parent == ObjectId(:plant_2)
+    @test bindings_dirty(mtg_scene)
+
+    child_count = length(MultiScaleTreeGraph.children(mtg_plant))
+    @test_throws ErrorException add_organ!(
+        mtg_plant,
+        mtg_scene,
+        :+,
+        :Leaf,
+        2;
+        index=3,
+        id=4,
+    )
+    @test length(MultiScaleTreeGraph.children(mtg_plant)) == child_count
+
     scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),

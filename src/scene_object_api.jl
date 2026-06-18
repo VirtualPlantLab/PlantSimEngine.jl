@@ -200,11 +200,22 @@ SceneRegistry() = SceneRegistry(
     Dict{Symbol,ObjectId}(),
 )
 
-mutable struct Scene{R,A,E,I}
+struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
+    id::I
+    scale::S
+    kind::K
+    species::SP
+    name::N
+    geometry::G
+    status::ST
+end
+
+mutable struct Scene{R,A,E,I,SA}
     registry::R
     applications::A
     environment::E
     instances::I
+    source_adapter::SA
     binding_cache::Any
     environment_binding_cache::Any
     bindings_dirty::Bool
@@ -332,6 +343,7 @@ function Scene(
     applications=(),
     instances=(),
     environment=nothing,
+    source_adapter=nothing,
 )
     objects, mounted_instances = _collect_scene_items(items, instances)
     instance_ids = _prepare_object_instances!(objects, mounted_instances)
@@ -343,6 +355,7 @@ function Scene(
         normalized_applications,
         environment,
         mounted_instances,
+        source_adapter,
         nothing,
         nothing,
         true,
@@ -381,21 +394,26 @@ function objects_from_mtg(
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
+    adapter = MTGObjectAdapter(id, scale, kind, species, name, geometry, status)
+    return _objects_from_mtg(root, adapter)
+end
+
+function _objects_from_mtg(root::MultiScaleTreeGraph.Node, adapter::MTGObjectAdapter)
     objects = Object[]
     MultiScaleTreeGraph.traverse!(root) do node
         node_parent = parent(node)
-        parent_id = node === root || isnothing(node_parent) ? nothing : id(node_parent)
+        parent_id = node === root || isnothing(node_parent) ? nothing : adapter.id(node_parent)
         push!(
             objects,
             Object(
-                id(node);
-                scale=scale(node),
-                kind=kind(node),
-                species=species(node),
-                name=name(node),
+                adapter.id(node);
+                scale=adapter.scale(node),
+                kind=adapter.kind(node),
+                species=adapter.species(node),
+                name=adapter.name(node),
                 parent=parent_id,
-                geometry=geometry(node),
-                status=status(node),
+                geometry=adapter.geometry(node),
+                status=adapter.status(node),
             ),
         )
     end
@@ -404,24 +422,32 @@ end
 
 """
     Scene(root::MultiScaleTreeGraph.Node; applications=(), instances=(),
-          environment=nothing, kwargs...)
+          environment=nothing, id=node_id, scale=symbol, status=..., ...)
 
-Build a unified scene directly from an MTG subtree. Extra keyword arguments
-are forwarded to [`objects_from_mtg`](@ref).
+Build a unified scene directly from an MTG subtree. The MTG accessors are
+retained and reused by [`add_organ!`](@ref) when the topology grows.
 """
 function Scene(
     root::MultiScaleTreeGraph.Node;
     applications=(),
     instances=(),
     environment=nothing,
-    kwargs...,
+    id=node_id,
+    scale=symbol,
+    kind=node -> _mtg_attribute(node, :kind, nothing),
+    species=node -> _mtg_attribute(node, :species, nothing),
+    name=node -> _mtg_attribute(node, :name, nothing),
+    geometry=node -> _mtg_attribute(node, :geometry, nothing),
+    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
-    objects = objects_from_mtg(root; kwargs...)
+    adapter = MTGObjectAdapter(id, scale, kind, species, name, geometry, status)
+    objects = _objects_from_mtg(root, adapter)
     return Scene(
         objects...;
         applications=applications,
         instances=instances,
         environment=environment,
+        source_adapter=adapter,
     )
 end
 
@@ -551,6 +577,104 @@ function register_object!(scene::Scene, object::Object; parent=object.parent)
     end
     _mark_bindings_dirty!(scene)
     return object
+end
+
+_runtime_scene(scene::Scene) = scene
+
+function _status_data!(data::Dict{Symbol,Any}, values)
+    values === nothing && return data
+    source = values isa Status ? NamedTuple(values) : values
+    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || error(
+        "Initial organ status must be a `Status`, `NamedTuple`, `AbstractDict`, ",
+        "`Base.Pairs`, or `nothing`, got `$(typeof(values))`."
+    )
+    for (key, value) in pairs(source)
+        Symbol(key) == :plantsimengine_status && continue
+        data[Symbol(key)] = value
+    end
+    return data
+end
+
+function _organ_status(adapter::MTGObjectAdapter, node, initial_status)
+    adapted_status = adapter.status(node)
+    data = Dict{Symbol,Any}()
+    _status_data!(data, MultiScaleTreeGraph.node_attributes(node))
+    _status_data!(data, adapted_status)
+    data[:node] = node
+    _status_data!(data, initial_status)
+    data[:node] = node
+    return Status((; data...))
+end
+
+"""
+    add_organ!(parent, runtime, link, symbol, scale; index=0, id, attributes=(),
+               initial_status=(), kind=nothing, species=nothing, name=nothing)
+
+Create an MTG node and register its corresponding scene object as one operation.
+`runtime` may be a [`Scene`](@ref), [`SceneRunContext`](@ref), or
+[`SceneSimulation`](@ref). The scene reuses the MTG accessors and status
+initializer supplied when it was constructed, then overlays `initial_status`.
+
+This is the public growth API. [`register_object!`](@ref) remains the low-level
+registry operation for callers that already own a fully initialized `Object`.
+"""
+function add_organ!(
+    parent_node::MultiScaleTreeGraph.Node,
+    runtime,
+    link,
+    organ_symbol,
+    mtg_scale::Integer;
+    index::Integer=0,
+    id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(parent_node)),
+    attributes=NamedTuple(),
+    initial_status=NamedTuple(),
+    kind=nothing,
+    species=nothing,
+    name=nothing,
+)
+    scene = _runtime_scene(runtime)
+    adapter = scene.source_adapter
+    adapter isa MTGObjectAdapter || error(
+        "`add_organ!` requires a scene constructed from an MTG. Use ",
+        "`register_object!` for scenes built directly from `Object` values."
+    )
+    parent_id = ObjectId(adapter.id(parent_node))
+    _scene_object(scene, parent_id)
+    root = MultiScaleTreeGraph.get_root(parent_node)
+    isnothing(MultiScaleTreeGraph.get_node(root, Int(id))) || error(
+        "MTG node id `$(id)` already exists."
+    )
+
+    node = MultiScaleTreeGraph.Node(
+        Int(id),
+        parent_node,
+        MultiScaleTreeGraph.NodeMTG(
+            Symbol(link),
+            Symbol(organ_symbol),
+            Int(index),
+            Int(mtg_scale),
+        ),
+        attributes,
+    )
+    try
+        status = _organ_status(adapter, node, initial_status)
+        node[:plantsimengine_status] = status
+        object = Object(
+            adapter.id(node);
+            scale=adapter.scale(node),
+            kind=isnothing(kind) ? adapter.kind(node) : kind,
+            species=isnothing(species) ? adapter.species(node) : species,
+            name=isnothing(name) ? adapter.name(node) : name,
+            parent=parent_id,
+            geometry=adapter.geometry(node),
+            status=status,
+        )
+        register_object!(scene, object)
+        return status
+    catch
+        MultiScaleTreeGraph.delete_node!(node)
+        rethrow()
+    end
 end
 
 function _remove_child_link!(scene::Scene, parent_id, child_id::ObjectId)
@@ -3187,6 +3311,9 @@ struct SceneSimulation{S,CS,EB,EP,OR,TS,R}
     temporal_streams::TS
     output_requests::R
 end
+
+_runtime_scene(context::SceneRunContext) = context.compiled.scene
+_runtime_scene(simulation::SceneSimulation) = simulation.scene
 
 scene_outputs(sim::SceneSimulation) = sim.temporal_streams
 

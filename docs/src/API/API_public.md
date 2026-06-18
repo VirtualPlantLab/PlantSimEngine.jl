@@ -40,6 +40,7 @@
 
 - `objects_from_mtg` and `Scene(mtg; ...)` adapt an MTG into the object
   registry.
+- `add_organ!` creates and initializes a new organ in an MTG-backed scene.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.
 - `move_object!` and `update_geometry!` change spatial state.

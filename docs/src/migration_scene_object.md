@@ -367,10 +367,23 @@ Use the public lifecycle operations:
 
 ```julia
 register_object!(scene, new_leaf; parent=:plant_1)
+new_leaf_status = add_organ!(
+    parent_node,
+    scene,
+    :+,
+    :Leaf,
+    3;
+    initial_status=(biomass=0.0,),
+)
 remove_object!(scene, :old_leaf)
 reparent_object!(scene, :leaf_2, :axis_3)
 move_object!(scene, :leaf_3, new_geometry)
 ```
+
+For MTG-backed growth, prefer `add_organ!`: it creates the MTG node and its
+scene object together and reuses the status initialization policy from
+`Scene(mtg; status=...)`. Use `register_object!` when adapting another topology
+backend or when a complete `Object` already exists.
 
 Structural changes refresh application targets, input carriers, call targets,
 writer validation, and schedules before the next timestep. Geometry-only
