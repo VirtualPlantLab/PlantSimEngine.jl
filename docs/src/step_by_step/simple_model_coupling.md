@@ -19,7 +19,8 @@ applications on objects, and the compiler wires the value dependencies.
 
 Make sure you have a working Julia environment with PlantSimEngine and the
 recommended companion packages. Details are provided on the
-[Installing and running PlantSimEngine](@ref) page.
+[Installing PlantSimEngine](../prerequisites/installing_plantsimengine.md)
+page.
 
 ## One object and one model
 
@@ -125,7 +126,6 @@ growth_status = only(scene_objects(growth_scene; scale=:Scene)).status
 (LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```
 
-Older examples used `PlantSimEngine.ModelMapping(...)` for this workflow. That
-constructor is retained as a qualified compatibility API, but new scenarios
-should start from `Scene`, `Object`, `ModelSpec`, `AppliesTo`, `Inputs`,
+Older examples used the removed mapping runtime for this workflow. New
+scenarios start from `Scene`, `Object`, `ModelSpec`, `AppliesTo`, `Inputs`,
 `Calls`, and `TimeStep`.

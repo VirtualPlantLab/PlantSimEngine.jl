@@ -49,13 +49,6 @@ function run!(::Beer, models, status, meteo, constants, extras)
 end
 ```
 
-Determine if parallelization is possible, and which traits to declare :
-
-```@example usepkg
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-```
-
 And that is all you need to get going, for this example with a single parameter and no interdependencies. 
 
 The [`@process`](@ref) macro does some boilerplate work described [here](@ref under_the_hood)
@@ -180,20 +173,20 @@ function run!(::Beer, models, status, meteo, constants, extras)
 ```
 
 - the model's type
-- models: the process-keyed model bundle passed by the runtime. In legacy
-  mapping simulations this comes from `PlantSimEngine.ModelMapping`; in
-  scene/object simulations it is compiled from the model application and its
+- models: the process-keyed model bundle compiled from the application and its
   `Calls(...)`.
 - status: a [`Status`](@ref) object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
 - meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
 - constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant, unit-conversion constants...)
 - extras: any other object you want to pass to your model, mostly for advanced usage, not detailed here
 
-A typical [`run!`](@ref) function can therefore make use of simulation constants, input/output variables accessible through the [`Status`](@ref object, or weather data. 
+A typical [`run!`](@ref) function can therefore use simulation constants,
+input/output variables accessible through the [`Status`](@ref) object, or
+weather data.
 
 Here is the [`run!`](@ref) implementation of the light interception model.
 Note that the input and output variables are accessed through the
-[`status`](@ref) argument:
+`status` argument:
 
 ```@example usepkg
 function run!(::Beer, models, status, meteo, constants, extras)
@@ -216,28 +209,10 @@ by the process name, then the parameter name. For example, the `k` parameter of
 the `Beer` model is found in `models.light_interception.k`.
 
 !!! warning
-    You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`. The troubleshooting subsection [Implementing a model: forgetting to import or prefix functions](@ref) showcases output errors that can occur when you forget to prefix.
-
-### Parallelization traits
-
-`PlantSimEngine` defines traits to get additional information about the models. At the moment, there are two traits implemented that help the package to know if a model can be run in parallel over space (*i.e.* objects) and/or time (*i.e.* time-steps).
-
-By default, all models are assumed to be **not** parallelizable over objects and time-steps, because it is the safest default. If your model is parallelizable, you should add the trait to the model.
-
-For example, if we want to add the trait for parallelization over objects to our `Beer` model, we would do:
-
-```@example usepkg
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
-```
-
-And if we want to add the trait for parallelization over time-steps to our `Beer` model, we would do:
-
-```@example usepkg
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-```
-
-!!! note
-    A model is parallelizable over objects if it does not call another model directly inside its code. Similarly, a model is parallelizable over time-steps if it does not get values from other time-steps directly inside its code. In practice, most of the models are parallelizable one way or another, but it is safer to assume they are not.
+    Prefix functions you extend with `PlantSimEngine.`, or import them first,
+    for example `import PlantSimEngine: inputs_, outputs_`. Otherwise Julia
+    defines an unrelated function in your module instead of adding a method to
+    PlantSimEngine's function.
 
 OK that's it! We now a full new model implementation for the light interception process! Other models might be more complex in terms of what computations they do, or how they couple with other models, but the approach remains the same.
 

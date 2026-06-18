@@ -1,137 +1,77 @@
 module PlantSimEngine
 
-# FOr data formatting:
+# Data formatting:
 import DataFrames
 import Tables
-import DataAPI
 import Dates
 
-import CSV # For reading csv files with variables()
+# Reading CSV files in `variables`.
+import CSV
 
-# For graph dependency:
-import AbstractTrees
 import Term
 import Markdown
 import Base: position
-
-# For multi-threading:
-import FLoops: @floop, @init, ThreadedEx, SequentialEx, DistributedEx
 
 # For MTG compatibility:
 import MultiScaleTreeGraph
 import MultiScaleTreeGraph: symbol, node_id
 
-# To compute mean:
+# Statistics helpers:
 import Statistics
 
-# For avoiding name conflicts when generating models from status vectors
-import SHA: sha1
-
+# Keep PlantMeteo names available for re-export without local wrapper types.
 using PlantMeteo
 
-# UninitializedVar + PreviousTimeStep:
+# Temporal input marker:
 include("variables_wrappers.jl")
-
-# Docs templates:
-include("doc_templates/mtg-related.jl")
 
 # Models:
 include("Abstract_model_structs.jl")
-include("mtg/node_mapping_types.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
 
-# Simulation row (status):
+# Object status and reference carriers:
 include("component_models/Status.jl")
 include("component_models/RefVector.jl")
 
-# Unified scene/object API:
+# Scene/object compiler and runtime:
 include("scene_object_api.jl")
 
-# Simulation table (time-step table, from PlantMeteo):
+# Time-step table adapter:
 include("component_models/TimeStepTable.jl")
 
-# Declaring the dependency graph
-include("dependencies/dependency_graph.jl")
-
-# Single-scale model container used internally by ModelMapping:
-include("component_models/SingleScaleModelSet.jl")
-include("mtg/MultiScaleModel.jl")
-include("mtg/ModelSpec.jl")
-include("mtg/mapping/mapping.jl")
-
-# Getters / setters for status:
-include("component_models/get_status.jl")
-
-# Transform into a dataframe:
-include("dataframe.jl")
-
-# Computing model dependencies:
-include("dependencies/soft_dependencies.jl")
-include("dependencies/hard_dependencies.jl")
-include("dependencies/traversal.jl")
-include("dependencies/is_graph_cyclic.jl")
-include("dependencies/printing.jl")
-include("dependencies/update_dependencies.jl")
-include("dependencies/dependencies.jl")
-include("dependencies/get_model_in_dependency_graph.jl")
-
-# MTG compatibility:
-include("mtg/GraphSimulation.jl")
-include("mtg/mapping/getters.jl")
-include("mtg/mapping/compute_mapping.jl")
-include("mtg/mapping/reverse_mapping.jl")
-include("mtg/model_spec_inference.jl")
-include("mtg/model_spec_validation.jl")
-include("mtg/initialisation.jl")
-include("mtg/save_results.jl")
-include("mtg/add_organ.jl")
+# Model application configuration:
+include("ModelSpec.jl")
 
 # Model evaluation (statistics):
 include("evaluation/statistics.jl")
 
 # Traits
 include("traits/table_traits.jl")
-include("traits/parallel_traits.jl")
 
 # Processes:
-include("processes/model_initialisation.jl")
 include("processes/models_inputs_outputs.jl")
 include("processes/process_generation.jl")
-include("checks/dimensions.jl")
 
-# Multi-rate runtime:
+# Scene timing and environment runtime:
 include("time/runtime/clocks.jl")
-include("time/runtime/scopes.jl")
-include("time/runtime/bindings.jl")
-include("time/runtime/input_resolution.jl")
-include("time/runtime/publishers.jl")
 include("time/runtime/output_export.jl")
 include("time/runtime/meteo_sampling.jl")
 include("time/runtime/environment_backends.jl")
 
-# Simulation:
-include("run.jl")
-
 # Fitting
 include("evaluation/fit.jl")
-
-# Utilities for mapping initialisation
-include("mtg/mapping/model_generation_from_status_vectors.jl")
 
 # Examples
 include("examples_import.jl")
 
 export PreviousTimeStep
 export AbstractModel
-export ScopeId, ClockSpec, ModelKey, OutputKey
+export ClockSpec
 export SchedulePolicy, HoldLast, Interpolate, Integrate, Aggregate
 export AbstractTimeReducer, MeanWeighted, MeanReducer, SumReducer, MinReducer, MaxReducer, FirstReducer, LastReducer, RadiationEnergy
-export OutputCache, HoldLastCache, InterpolateCache, IntegrateCache, AggregateCache
-export TemporalState
 export OutputRequest, collect_outputs
-export effective_rate_summary
 export Scene, Object, ObjectId, SceneRegistry, ObjectTemplate, ObjectInstance, Override
 export register_object!, remove_object!, reparent_object!, move_object!, update_geometry!, refresh_bindings!
 export bindings_dirty, environment_bindings_dirty, scene_revision, environment_revision
@@ -150,17 +90,14 @@ export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates, OutputRouting
-export resolved_model_specs, explain_model_specs
 export call_target, call_targets, run_call!, explain_schedule
 export RMSE, NRMSE, EF, dr
-export Status, TimeStepTable, status
-export init_status!
-export add_organ!, remove_organ!, reparent_organ!
+export Status, TimeStepTable
 export @process, process
-export to_initialize, is_initialized, init_variables, dep
-export inputs, outputs, variables, convert_outputs
+export init_variables, dep
+export inputs, outputs, variables
 export timespec, output_policy, timestep_hint, meteo_hint
-export input_bindings, meteo_bindings, meteo_window, output_routing, model_scope, updates
+export meteo_bindings, meteo_window, output_routing, updates
 export meteo_inputs, meteo_inputs_, meteo_outputs, meteo_outputs_
 export validate_meteo_inputs
 export AbstractEnvironmentBackend, EnvironmentSupport, GlobalConstant
@@ -172,8 +109,6 @@ export run!
 export fit
 
 # Re-exporting PlantMeteo main functions:
-export Atmosphere, TimeStepTable, Constants, Weather
+export Atmosphere, Constants, Weather
 
-# Re-exporting FLoops executors:
-export SequentialEx, ThreadedEx, DistributedEx
 end

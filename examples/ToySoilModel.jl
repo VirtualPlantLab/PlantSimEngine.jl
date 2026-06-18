@@ -31,8 +31,3 @@ PlantSimEngine.outputs_(::ToySoilWaterModel) = (soil_water_content=-Inf,)
 function PlantSimEngine.run!(m::ToySoilWaterModel, models, status, meteo, constants=nothing, extra=nothing)
     status.soil_water_content = rand(m.values)
 end
-
-# The computation of ToySoilWaterModel is independant of previous values and other objects. We can add this information as 
-# traits to the model to tell PlantSimEngine that it is safe to run the models in parallel:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToySoilWaterModel}) = PlantSimEngine.IsTimeStepIndependent()
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToySoilWaterModel}) = PlantSimEngine.IsObjectIndependent()

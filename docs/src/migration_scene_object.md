@@ -37,8 +37,7 @@ equivalents.
 Legacy simulations split configuration between `ModelMapping` and
 `MultiScaleModel`. The unified API stores runtime entities in one `Scene`:
 
-`ModelMapping` is no longer exported. While migrating historical code, use
-`PlantSimEngine.ModelMapping(...)` explicitly; new scenarios should use the
+`ModelMapping` has been removed. Historical code must be translated to the
 scene/object form below.
 
 ```julia

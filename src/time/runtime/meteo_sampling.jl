@@ -27,7 +27,7 @@ function _meteo_sampling_window(clock::ClockSpec, model_spec)
     return window
 end
 
-_normalize_meteo_reducer(reducer) = _normalize_time_reducer(reducer; context="meteo reducer")
+_normalize_meteo_reducer(reducer) = _normalize_policy_reducer(reducer)
 
 function _normalize_meteo_binding_rule(target::Symbol, rule)
     if rule isa NamedTuple
@@ -122,7 +122,7 @@ function _error_missing_meteo_inputs(missing_rows; subject::AbstractString, noun
         noun,
         " to ",
         target,
-        ", declare a `MeteoBindings(source=...)` remapping, ",
+        ", declare an `Environment(; sources=...)` remapping, ",
         "or remove the unused meteo input from the model trait."
     )
 end
@@ -133,7 +133,7 @@ end
 Validate declared `meteo_inputs_` against the available meteorological fields.
 
 The check is intentionally field-based and independent from units/backends. When
-`MeteoBindings` remap a declared model input from another source variable, the
+Environment source bindings remap a declared model input from another variable; the
 source variable is checked on the raw meteo object.
 """
 function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}}, meteo)
@@ -168,20 +168,6 @@ function validate_meteo_inputs(models::NamedTuple, meteo)
     return validate_meteo_inputs(specs, meteo)
 end
 
-function validate_meteo_inputs(mapping::ModelMapping, meteo)
-    specs = Dict{Symbol,Dict{Symbol,ModelSpec}}(
-        scale => parse_model_specs(declarations) for (scale, declarations) in pairs(mapping)
-    )
-    return validate_meteo_inputs(specs, meteo)
-end
-
-function validate_meteo_inputs(mapping::AbstractDict, meteo)
-    specs = Dict{Symbol,Dict{Symbol,ModelSpec}}(
-        Symbol(scale) => parse_model_specs(declarations) for (scale, declarations) in pairs(mapping)
-    )
-    return validate_meteo_inputs(specs, meteo)
-end
-
 function _meteo_transforms_for_model(model_spec)
     bindings = meteo_bindings(model_spec)
     isnothing(bindings) && return nothing
@@ -208,7 +194,7 @@ function _sample_meteo_for_model(
     isnothing(meteo_sampler) && begin
         if !isnothing(transforms) || !isnothing(window)
             @warn string(
-                "MeteoBindings or MeteoWindow were provided but weather sampler API is unavailable or meteo is not TimeStepTable{Atmosphere}. ",
+                "Environment sampling rules were provided but the weather sampler API is unavailable or meteorology is not TimeStepTable{Atmosphere}. ",
                 "Falling back to raw meteo rows."
             ) maxlog = 1
         end

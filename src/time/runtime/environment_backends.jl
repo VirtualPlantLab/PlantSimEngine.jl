@@ -80,8 +80,10 @@ _timeline_context(backend::GlobalConstant) = _timeline_context(environment_meteo
 
 function _meteo_row_at_step(meteo, i::Int)
     isnothing(meteo) && return nothing
-    get_nsteps(meteo) == 1 && return meteo
-    return first(Iterators.drop(Tables.rows(meteo), i - 1))
+    if meteo isa TimeStepTable || DataFormat(meteo) == TableAlike()
+        return first(Iterators.drop(Tables.rows(meteo), i - 1))
+    end
+    return meteo
 end
 
 function _available_meteo_variables(meteo)
@@ -353,7 +355,7 @@ end
 """
     explain_environment(simulation)
 
-Return a compact description of the environment backend used by a domain
+Return a compact description of the environment backend used by a scene
 simulation.
 """
 function explain_environment(simulation)

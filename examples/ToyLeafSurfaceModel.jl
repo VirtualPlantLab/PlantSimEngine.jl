@@ -40,8 +40,6 @@ function PlantSimEngine.run!(m::ToyLeafSurfaceModel, models, status, meteo, cons
 end
 
 # Can be parallelized over organs and time-steps:
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafSurfaceModel}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafSurfaceModel}) = PlantSimEngine.IsTimeStepDependent()
 
 
 
@@ -75,6 +73,3 @@ end
 function PlantSimEngine.run!(m::ToyPlantLeafSurfaceModel, models, status, meteo, constants, extra_args)
     status.surface = sum(status.leaf_surfaces)
 end
-
-# Can be parallelized over time-steps:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyPlantLeafSurfaceModel}) = PlantSimEngine.IsTimeStepDependent()

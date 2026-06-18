@@ -51,20 +51,6 @@ and it is typically a small positive value around 30–50 μmol mol⁻¹ under n
 
 This implementation uses Cₛ instead of Cᵢ. 
 
-# Examples
-
-```julia
-using PlantMeteo, PlantSimEngine, PlantBiophysics
-meteo = Atmosphere(T = 20.0, Wind = 1.0, P = 101.3, Rh = 0.65)
-
-leaf =
-    PlantSimEngine.ModelMapping(
-        stomatal_conductance = Tuzet(0.03, 12.0, -1.5, 2.0, 30.0),
-        status = (Cₛ = 380.0, Ψₗ = -1.0)
-    )
-run!(leaf, meteo)
-```
-
 # References
 
 Tuzet, A., Perrier, A., & Leuning, R. (2003). A coupled model of stomatal conductance, photosynthesis and transpiration. Plant, Cell & Environment, 26(7), 1097-1116.
@@ -99,7 +85,7 @@ Stomatal closure for CO₂ according to Tuzet et al. (2003).
 # Arguments
 
 - `::Tuzet`: an instance of the `Tuzet` model type.
-- `models::ModelMapping`: A `ModelMapping` struct holding the parameters for the models.
+- `models`: the process-keyed model bundle supplied by the scene runtime.
 - `status`: A status struct holding the variables for the models.
 - `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere). Is not used in this model.
 - `constants`: A constants struct holding the constants for the models. Is not used in this model.
@@ -120,8 +106,6 @@ function gs_closure(m::Tuzet, models, status, meteo, constants=nothing, extra=no
     (m.g1 / (status.Cₛ - m.Γ)) * fpsif
 end
 
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Tuzet}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Tuzet}) = PlantSimEngine.IsTimeStepIndependent()
 PlantSimEngine.timestep_hint(::Type{<:Tuzet}) = (
     required=(Dates.Minute(1), Dates.Hour(6)),
     preferred=Dates.Hour(1)

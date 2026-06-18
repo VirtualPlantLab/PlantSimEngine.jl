@@ -69,4 +69,3 @@ function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, const
 end
 
 # Can be parallelized over time-steps, but not objects (we have vectors of values coming from other objects as input):
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyCAllocationModel}) = PlantSimEngine.IsTimeStepIndependent()

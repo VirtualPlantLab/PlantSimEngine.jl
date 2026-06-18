@@ -150,9 +150,8 @@ for the accepted solution.
 See [MAESPA-style scene example handoff](../dev/maespa_scene_handoff.md) for
 the current multi-plant energy-balance acceptance example.
 
-## Compatibility Note
+## Migration Note
 
-Older examples used `PlantSimEngine.ModelMapping(...)`. That compatibility
-API remains available for historical material and regression tests, but new
-simulations should start from `Scene`, `Object`, `ModelSpec`, `AppliesTo`,
-`Inputs`, `Calls`, `Updates`, `TimeStep`, and `Environment`.
+The previous mapping runtime has been removed. Simulations start from `Scene`,
+`Object`, `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`,
+and `Environment`.

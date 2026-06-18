@@ -26,9 +26,10 @@ end
         (T=20.0, CO2=410.0, duration=Dates.Hour(1))
     ) === nothing
 
-    bound_spec =
-        ModelSpec(MeteoTraitConsumerModel()) |>
-        PlantSimEngine.MeteoBindings(; CO2=(source=:Ca, reducer=MeanReducer()))
+    bound_spec = ModelSpec(
+        MeteoTraitConsumerModel();
+        meteo_bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),
+    )
     bound_specs = Dict(:Leaf => Dict(:meteo_trait_consumer => bound_spec))
 
     @test_throws "Ca" PlantSimEngine.validate_meteo_inputs(
@@ -40,21 +41,12 @@ end
         (T=20.0, Ca=410.0, duration=Dates.Hour(1))
     ) === nothing
 
-    mapping = PlantSimEngine.ModelMapping(
-        MeteoTraitConsumerModel(),
-        status=(meteo_seen=0.0,),
+    scene = Scene(
+        Object(:leaf; scale=:Leaf, status=Status(meteo_seen=0.0));
+        applications=(
+            ModelSpec(MeteoTraitConsumerModel()) |> AppliesTo(One(scale=:Leaf)),
+        ),
+        environment=(T=20.0, CO2=410.0, duration=Dates.Hour(1)),
     )
-    @test_throws "CO2" PlantSimEngine.validate_meteo_inputs(
-        mapping,
-        Atmosphere(T=20.0, Rh=0.65, Wind=1.0, duration=Dates.Hour(1))
-    )
-    @test PlantSimEngine.validate_meteo_inputs(
-        mapping,
-        (T=20.0, CO2=410.0, duration=Dates.Hour(1))
-    ) === nothing
-
-    @test PlantSimEngine.validate_meteo_inputs(
-        Dict(:Leaf => (MeteoTraitConsumerModel(),)),
-        (T=20.0, CO2=410.0, duration=Dates.Hour(1))
-    ) === nothing
+    @test validate_meteo_inputs(scene) === nothing
 end

@@ -20,10 +20,8 @@ Depth = 4
     New multiscale, multi-plant, soil, scene, and microclimate scenarios should
     use the unified `Scene`/`Object` API with `AppliesTo`, `Inputs`, `Calls`,
     `Updates`, `TimeStep`, and `Environment`. See
-    [Migrating To The Scene/Object API](migration_scene_object.md). The old
-    domain, route, and mapping constructors are no longer exported; their
-    implementation remains temporarily available under qualified
-    `PlantSimEngine.*` names for regression coverage and migration work.
+    [Migrating To The Scene/Object API](migration_scene_object.md). Superseded
+    mapping constructors and their implementation have been removed.
 
 ## Overview
 
@@ -241,8 +239,6 @@ environment writes are published exactly once.
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
   `timespec`, `output_policy`, `meteo_inputs_`, and `meteo_outputs_`.
-- [Legacy MTG mapping tutorials](multiscale/multiscale_considerations.md) are
-  retained for existing simulations while the scene/object tutorials mature.
 
 ## Performance
 

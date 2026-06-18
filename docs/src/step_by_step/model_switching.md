@@ -105,6 +105,5 @@ implementation by replacing one `ModelSpec` or by using an
 `ObjectInstance(...; overrides=...)` when the change applies to one plant
 instance or one organ.
 
-Older tutorials showed the same idea with `PlantSimEngine.ModelMapping(...)`.
-That spelling remains available for compatibility code, but new scenario code
-should express model switching through scene model applications.
+The removed mapping runtime expressed the same idea differently. New scenario
+code expresses model switching through scene model applications.

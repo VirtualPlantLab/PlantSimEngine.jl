@@ -73,6 +73,3 @@ function PlantSimEngine.run!(::ToyAssimGrowthModel, models, status, meteo, const
     # The biomass is the biomass from the previous time-step plus the biomass increment:
     status.biomass += status.biomass_increment
 end
-
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimGrowthModel}) = PlantSimEngine.IsObjectIndependent()

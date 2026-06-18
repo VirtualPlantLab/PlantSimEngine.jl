@@ -17,9 +17,7 @@ TimeStep
 Environment
 ```
 
-Legacy `ModelMapping`, `MultiScaleModel`, domain, and route APIs are retained
-as compatibility tools while old examples are migrated. New scenarios should
-start from `Scene` and model applications.
+Scenarios are defined with `Scene` and model applications.
 
 ```@setup scene_object_quickstart
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
@@ -245,7 +243,7 @@ accepted state should use `publish=true`.
 ## Next Steps
 
 - [Migrating To The Scene/Object API](../migration_scene_object.md) translates
-  old `ModelMapping`, `MultiScaleModel`, domain, and route scenarios.
+  scenarios written with removed APIs.
 - [Public API](../API/API_public.md) lists constructors, selectors, lifecycle
   helpers, environment helpers, and explanation helpers.
 - [Model traits](../model_traits.md) documents `inputs_`, `outputs_`, `dep`,

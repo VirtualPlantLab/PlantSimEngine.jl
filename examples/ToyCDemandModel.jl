@@ -52,8 +52,3 @@ function PlantSimEngine.run!(::ToyCDemandModel, models, status, meteo, constants
     # The carbon demand is simply the biomass under optimal conditions divided by the duration of the development:
     status.carbon_demand = status.TT * models.carbon_demand.optimal_biomass / models.carbon_demand.development_duration
 end
-
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyCDemandModel}) = PlantSimEngine.IsObjectIndependent()
-# And also over time (time-steps):
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyCDemandModel}) = PlantSimEngine.IsTimeStepIndependent()

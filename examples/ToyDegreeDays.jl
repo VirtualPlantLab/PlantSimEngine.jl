@@ -29,8 +29,3 @@ function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, 
     status.TT = max(0.0, min(meteo.T, m.T_max) - m.T_base)
     status.TT_cu += status.TT
 end
-
-# The computation of ToyDegreeDaysCumulModel dependents on previous values, but it is independent of other objects.
-# The default trait is that models are dependent of other time-steps and object. So we need to change the default trait
-# for objects:
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyDegreeDaysCumulModel}) = PlantSimEngine.IsObjectIndependent()

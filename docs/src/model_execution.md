@@ -18,9 +18,7 @@ TimeStep
 Environment
 ```
 
-Legacy `ModelMapping`, `MultiScaleModel`, domain, and route APIs are retained
-as qualified compatibility tools while old examples are migrated. New
-scenarios should start from `Scene` and model applications.
+Scenarios start from `Scene` and model applications.
 
 ## Model Kernels And Applications
 
@@ -330,15 +328,9 @@ Structural changes invalidate compiled object/model bindings. Movement and
 geometry changes invalidate environment bindings without rebuilding structural
 input carriers. The next `run!(scene)` step refreshes the necessary caches.
 
-## Compatibility Runtime
+## Historical API Translation
 
-Historical `ModelMapping` and MTG mapping simulations still work through
-qualified compatibility constructors such as
-`PlantSimEngine.ModelMapping(...)`, `PlantSimEngine.MultiScaleModel(...)`,
-`PlantSimEngine.InputBindings(...)`, and
-`PlantSimEngine.TimeStepModel(...)`.
-
-Those names are no longer the primary API. For new work, use:
+The historical mapping runtime has been removed. Translate old code as follows:
 
 - `ModelMapping(...)` -> `Scene(...)` plus object-local `ModelSpec(...)`
   applications;

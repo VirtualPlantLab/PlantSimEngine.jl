@@ -29,10 +29,26 @@ and `Ri_PAR_f`.
 # Including example processes and models:
 using PlantSimEngine.Examples;
 
-m = PlantSimEngine.ModelMapping(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+meteo = Atmosphere(
+    T=20.0,
+    Wind=1.0,
+    P=101.3,
+    Rh=0.65,
+    Ri_PAR_f=300.0,
+    duration=Hour(1),
+)
+scene = Scene(
+    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
+    applications=(ModelSpec(Beer(0.6)) |> AppliesTo(One(scale=:Leaf)),),
+    environment=meteo,
+)
+run!(scene)
+leaf = only(scene_objects(scene; scale=:Leaf))
+df = DataFrame(
+    aPPFD=leaf.status.aPPFD,
+    LAI=leaf.status.LAI,
+    Ri_PAR_f=meteo.Ri_PAR_f[1],
+)
 fit(Beer, df)
 ```
 

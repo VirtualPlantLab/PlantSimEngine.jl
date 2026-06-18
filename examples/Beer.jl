@@ -21,9 +21,6 @@ struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
 end
 
-# Beer is parallelizable over time-steps and objects, so we can declare it as such using the trait:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
 
 """
     run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
@@ -35,8 +32,7 @@ of light extinction.
 # Arguments
 
 - `::Beer`: a Beer model, from the model list (*i.e.* m.light_interception)
-- `models`: A `ModelMapping` struct holding the parameters for the model with
-initialisations for `LAI` (m² m⁻²): the leaf area index.
+- `models`: the process-keyed model bundle supplied by the scene runtime.
 - `status`: the status of the model, usually the model list status (*i.e.* m.status)
 - `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
 - `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
@@ -45,13 +41,20 @@ initialisations for `LAI` (m² m⁻²): the leaf area index.
 # Examples
 
 ```julia
-m = PlantSimEngine.ModelMapping(Beer(0.5), status=(LAI=2.0,))
-
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_q=300.0)
-
-run!(m, meteo)
-
-m[:aPPFD]
+scene = Scene(
+    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
+    applications=(ModelSpec(Beer(0.5)) |> AppliesTo(One(scale=:Leaf)),),
+    environment=Atmosphere(
+        T=20.0,
+        Wind=1.0,
+        P=101.3,
+        Rh=0.65,
+        Ri_PAR_f=300.0,
+        duration=Hour(1),
+    ),
+)
+run!(scene)
+only(scene_objects(scene; scale=:Leaf)).status.aPPFD
 ```
 """
 function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
@@ -95,10 +98,14 @@ using PlantSimEngine.Examples
 Create a model list with a Beer model, and fit it to the data:
 
 ```julia
-m = PlantSimEngine.ModelMapping(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
+scene = Scene(
+    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
+    applications=(ModelSpec(Beer(0.6)) |> AppliesTo(One(scale=:Leaf)),),
+    environment=meteo,
+)
+run!(scene)
+leaf = only(scene_objects(scene; scale=:Leaf))
+df = DataFrame(aPPFD=leaf.status.aPPFD, LAI=leaf.status.LAI, Ri_PAR_f=meteo.Ri_PAR_f[1])
 fit(Beer, df)
 ```
 """

@@ -31,7 +31,7 @@ mutable struct Object
 end
 
 """
-    ObjectTemplate(applications=(); kind=nothing, species=nothing, mapping=applications, parameters=NamedTuple())
+    ObjectTemplate(applications=(); kind=nothing, species=nothing, parameters=NamedTuple())
 
 Reusable model-application bundle for one kind of scene object, such as a plant
 species. Each mounted `ObjectInstance` scopes unqualified `AppliesTo(...)`
@@ -56,10 +56,9 @@ function ObjectTemplate(
     applications=();
     kind=nothing,
     species=nothing,
-    mapping=applications,
     parameters=NamedTuple(),
 )
-    normalized_applications = _as_tuple(mapping)
+    normalized_applications = _as_tuple(applications)
     return ObjectTemplate(
         _maybe_symbol(kind),
         _maybe_symbol(species),
@@ -153,7 +152,7 @@ end
 process(model::ObjectModelOverrides) = process(model.base)
 inputs_(model::ObjectModelOverrides) = inputs_(model.base)
 outputs_(model::ObjectModelOverrides) = outputs_(model.base)
-dep(model::ObjectModelOverrides, nsteps=1) = dep(model.base, nsteps)
+dep(model::ObjectModelOverrides) = dep(model.base)
 timespec(model::ObjectModelOverrides) = timespec(model.base)
 output_policy(model::ObjectModelOverrides) = output_policy(model.base)
 meteo_inputs_(model::ObjectModelOverrides) = meteo_inputs_(model.base)
@@ -337,11 +336,11 @@ function Scene(
     objects, mounted_instances = _collect_scene_items(items, instances)
     instance_ids = _prepare_object_instances!(objects, mounted_instances)
     mounted_applications = _mount_object_instance_applications(mounted_instances, instance_ids)
-    normalized_applications = _as_tuple(applications)
-    all_applications = (normalized_applications..., mounted_applications...)
+    normalized_applications = collect(Any, _as_tuple(applications))
+    append!(normalized_applications, mounted_applications)
     scene = Scene(
         SceneRegistry(),
-        all_applications,
+        normalized_applications,
         environment,
         mounted_instances,
         nothing,
@@ -902,9 +901,21 @@ _maybe_symbol(x) = isnothing(x) ? nothing : Symbol(x)
 
 const _OBJECT_ADDRESS_SYMBOL_FIELDS = (:kind, :species, :scale, :name, :process, :var, :relation, :application)
 
+function _maybe_symbol_collection(value)
+    value isa Tuple && return Tuple(_maybe_symbol(item) for item in value)
+    value isa AbstractVector && return Tuple(_maybe_symbol(item) for item in value)
+    return _maybe_symbol(value)
+end
+
 function _normalize_object_selector_value(key::Symbol, value)
-    key in _OBJECT_ADDRESS_SYMBOL_FIELDS && return _maybe_symbol(value)
+    key in _OBJECT_ADDRESS_SYMBOL_FIELDS && return _maybe_symbol_collection(value)
     return value
+end
+
+function _object_matches_selector_value(object_value, requested)
+    isnothing(requested) && return true
+    requested isa Tuple && return object_value in requested
+    return object_value == requested
 end
 
 function _normalize_selector_kwargs(kwargs)
@@ -1396,10 +1407,10 @@ function _selector_resolution_error(
 end
 
 function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, species=nothing, name=nothing)
-    isnothing(scale) || object.scale == scale || return false
-    isnothing(kind) || object.kind == kind || return false
-    isnothing(species) || object.species == species || return false
-    isnothing(name) || object.name == name || return false
+    _object_matches_selector_value(object.scale, scale) || return false
+    _object_matches_selector_value(object.kind, kind) || return false
+    _object_matches_selector_value(object.species, species) || return false
+    _object_matches_selector_value(object.name, name) || return false
     return true
 end
 
@@ -1619,7 +1630,11 @@ function _compile_scene(scene::Scene, raw_specs)
     call_bindings = _compile_scene_call_bindings(scene, applications)
     _validate_scene_writers!(applications, call_bindings)
     _prepare_scene_output_statuses!(scene, applications)
-    input_bindings = _compile_scene_input_bindings(scene, applications)
+    input_bindings = _compile_scene_input_bindings(
+        scene,
+        applications,
+        _manual_call_application_ids(call_bindings),
+    )
     _prepare_scene_bound_input_statuses!(scene, applications, input_bindings)
     _wire_scene_input_carriers!(scene, input_bindings)
     _validate_scene_required_inputs!(scene, applications, input_bindings)
@@ -2102,7 +2117,11 @@ function _matching_input_source_applications(
     return matches
 end
 
-function _compile_scene_input_bindings(scene::Scene, applications)
+function _compile_scene_input_bindings(
+    scene::Scene,
+    applications,
+    manual_application_ids=Set{Symbol}(),
+)
     bindings = CompiledSceneInputBinding[]
     by_object = _applications_by_object(applications)
     by_id = Dict(application.id => application for application in applications)
@@ -2128,7 +2147,16 @@ function _compile_scene_input_bindings(scene::Scene, applications)
                     by_id,
                 )
             end
-            _append_inferred_scene_input_bindings!(bindings, scene, application, consumer_id, declared_inputs, by_object, by_id)
+            application.id in manual_application_ids && continue
+            _append_inferred_scene_input_bindings!(
+                bindings,
+                scene,
+                application,
+                consumer_id,
+                declared_inputs,
+                by_object,
+                by_id,
+            )
         end
     end
     return bindings
@@ -3397,7 +3425,27 @@ function _scene_temporal_source_value(
     error("Unsupported scene temporal input policy `$(typeof(policy))`.")
 end
 
+function _scene_temporal_source_value(
+    streams,
+    application_id::Nothing,
+    source_id::ObjectId,
+    source_var::Symbol,
+    time::Real,
+    policy,
+    t_start::Real,
+    timeline,
+)
+    policy isa PreviousTimeStep && return nothing
+    error(
+        "Temporal scene input from `$(source_id.value).$(source_var)` has no ",
+        "source application for policy `$(typeof(policy))`."
+    )
+end
+
 function _scene_temporal_source_application(compiled::CompiledScene, binding::CompiledSceneInputBinding, source_id::ObjectId)
+    if binding.policy isa PreviousTimeStep && isempty(binding.source_application_ids)
+        return nothing
+    end
     isempty(binding.source_application_ids) && error(
         "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
         "has no resolved source application. Add `process=` or `application=` to `Inputs(...)`."
@@ -3409,10 +3457,15 @@ function _scene_temporal_source_application(compiled::CompiledScene, binding::Co
     if length(matches) == 1
         return only(matches)
     elseif isempty(matches)
+        binding.policy isa PreviousTimeStep && return nothing
         error(
             "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
             "has no source application matching object `$(source_id.value)`."
         )
+    end
+    if binding.policy isa PreviousTimeStep
+        positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
+        return last(sort(matches; by=application_id -> get(positions, application_id, 0)))
     end
     error(
         "Temporal scene input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
@@ -3431,7 +3484,8 @@ function _scene_temporal_input_value(
 )
     window_steps = _scene_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
-    initial = status[binding.input]
+    initial = _input_value(binding.carrier)
+    isnothing(initial) && (initial = status[binding.input])
     if binding.multiplicity == :many
         values = [
             _scene_temporal_source_value(
@@ -4175,7 +4229,7 @@ end
 function run!(
     scene::Scene;
     steps::Integer=1,
-    constants=nothing,
+    constants=PlantMeteo.Constants(),
     tracked_outputs=nothing,
 )
     compiled = refresh_bindings!(scene)
@@ -4607,56 +4661,4 @@ function _normalize_binding_origins(origins::NamedTuple, bindings::NamedTuple)
         push!(normalized, Symbol(name) => origin)
     end
     return (; normalized...)
-end
-
-function _legacy_multiscale_rhs_from_input_selector(selector::AbstractObjectMultiplicity)
-    c = criteria(selector)
-    haskey(c, :scale) || return nothing
-
-    # The current MTG mapping layer only understands scale/variable mappings.
-    # Keep richer object filters as unified metadata for the future compiler.
-    unsupported = (:kind, :species, :name, :process, :relation)
-    any(key -> haskey(c, key) && !isnothing(getproperty(c, key)), unsupported) && return nothing
-
-    scale = c.scale
-    src_var = haskey(c, :var) ? c.var : nothing
-    if selector isa Many
-        return isnothing(src_var) ? [scale] : [scale => src_var]
-    elseif selector isa One || selector isa OptionalOne
-        return isnothing(src_var) ? scale : (scale => src_var)
-    end
-    return nothing
-end
-
-function _legacy_multiscale_from_value_inputs(bindings::NamedTuple, model=nothing)
-    mapped = Pair{Symbol,Any}[]
-    model_input_names = isnothing(model) ? nothing : Set(keys(inputs_(model)))
-    for (input_var, selector) in pairs(bindings)
-        input_sym = Symbol(input_var)
-        if !isnothing(model_input_names) && !(input_sym in model_input_names)
-            continue
-        end
-        selector isa AbstractObjectMultiplicity || continue
-        rhs = _legacy_multiscale_rhs_from_input_selector(selector)
-        isnothing(rhs) && continue
-        push!(mapped, input_sym => rhs)
-    end
-    return mapped
-end
-
-function _merge_legacy_multiscale(existing, derived::Vector{Pair{Symbol,Any}})
-    isempty(derived) && return existing
-    if isnothing(existing)
-        return derived
-    end
-    derived_inputs = Set(first(item) for item in derived)
-    merged = Pair{Any,Any}[]
-    for item in collect(existing)
-        mapped_input = first(item)
-        mapped_input = mapped_input isa PreviousTimeStep ? mapped_input.variable : mapped_input
-        mapped_input in derived_inputs && continue
-        push!(merged, item)
-    end
-    append!(merged, derived)
-    return merged
 end

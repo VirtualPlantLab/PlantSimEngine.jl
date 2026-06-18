@@ -55,8 +55,3 @@ function PlantSimEngine.run!(::ToyAssimModel, models, status, meteo, constants, 
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
     status.carbon_assimilation = status.aPPFD * models.carbon_assimilation.LUE * status.soil_water_content
 end
-
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyAssimModel}) = PlantSimEngine.IsObjectIndependent()
-# And also over time (time-steps):
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyAssimModel}) = PlantSimEngine.IsTimeStepIndependent()

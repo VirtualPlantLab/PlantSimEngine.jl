@@ -322,6 +322,22 @@ PlantSimEngine.dep(::SceneObjectSignalCallerModel) = (
     signal=Call(process=:scene_object_signal_source),
 )
 
+PlantSimEngine.@process "scene_object_manual_pair_caller" verbose = false
+struct SceneObjectManualPairCallerModel <:
+       AbstractScene_Object_Manual_Pair_CallerModel end
+PlantSimEngine.inputs_(::SceneObjectManualPairCallerModel) = NamedTuple()
+PlantSimEngine.outputs_(::SceneObjectManualPairCallerModel) = NamedTuple()
+function PlantSimEngine.run!(
+    ::SceneObjectManualPairCallerModel,
+    models,
+    status,
+    meteo,
+    constants=nothing,
+    extra=nothing,
+)
+    return nothing
+end
+
 function PlantSimEngine.run!(::SceneObjectSignalCallerModel, models, status, meteo, constants=nothing, extra=nothing)
     target = call_target(extra, "signal")
     run_call!(target; publish=true)
@@ -1263,47 +1279,15 @@ end
     @test environment_config(spec) isa PlantSimEngine.EnvironmentConfig
     @test environment_config(spec).config.provider == :global
 
-    # The old multirate metadata stays available while the compiler is migrated.
-    legacy_and_unified = spec |>
-                         PlantSimEngine.InputBindings(; var1=(process=:process1, var=:var3)) |>
-                         OutputRouting(; var3=:stream_only) |>
-                         PlantSimEngine.ScopeModel(:plant) |>
-                         Updates(:var3; after=:process1)
-    @test input_bindings(legacy_and_unified).var1.process == :process1
-    @test output_routing(legacy_and_unified).var3 == :stream_only
-    @test model_scope(legacy_and_unified) == :plant
-    @test updates(legacy_and_unified)[1].after == (:process1,)
-    @test value_inputs(legacy_and_unified) == value_inputs(spec)
-    @test model_calls(legacy_and_unified) == model_calls(spec)
-
-    rows = explain_model_specs(Dict(:Leaf => (spec,)); io=IOBuffer())
-    @test length(rows) == 1
-    @test rows[1].application_name == :leaf_energy
-    @test rows[1].applies_to === applies_to(spec)
-    @test rows[1].value_inputs == value_inputs(spec)
-    @test rows[1].input_origins == PlantSimEngine.input_origins(spec)
-    @test rows[1].model_calls == model_calls(spec)
-    @test rows[1].call_origins == PlantSimEngine.call_origins(spec)
-    @test rows[1].environment === environment_config(spec)
-
     leaf_assim = ModelSpec(ToyAssimModel()) |>
                  AppliesTo(Many(scale=:Leaf)) |>
                  Inputs(:soil_water_content => One(scale=:Soil, var=:soil_water_content))
-    @test length(PlantSimEngine.get_mapped_variables(leaf_assim)) == 1
-
-    mapping = Dict(
-        :Leaf => (leaf_assim,),
-        :Soil => (ToySoilWaterModel(),),
-    )
-    resolved = resolved_model_specs(mapping)
-    binding = input_bindings(resolved[:Leaf][:carbon_assimilation]).soil_water_content
-    @test binding.scale == :Soil
-    @test binding.var == :soil_water_content
-    @test binding.process == :soil_water
+    @test value_inputs(leaf_assim).soil_water_content.criteria.scale == :Soil
+    @test value_inputs(leaf_assim).soil_water_content.criteria.var ==
+          :soil_water_content
 
     rich_selector_spec = ModelSpec(ToyAssimModel()) |>
                          Inputs(:soil_water_content => One(kind=:soil, scale=:Soil, var=:soil_water_content))
-    @test isempty(PlantSimEngine.get_mapped_variables(rich_selector_spec))
     @test value_inputs(rich_selector_spec).soil_water_content.criteria.kind == :soil
 
     default_input_spec = ModelSpec(SceneObjectDefaultInputConsumerModel())
@@ -1312,16 +1296,12 @@ end
           :model_default
     @test value_inputs(default_input_spec).leaf_carbon.criteria.within isa Self
     @test !haskey(dep(default_input_spec), :leaf_carbon)
-    @test length(PlantSimEngine.get_mapped_variables(default_input_spec)) == 1
 
     override_input_spec = ModelSpec(SceneObjectDefaultInputConsumerModel()) |>
                           Inputs(:leaf_carbon => Many(scale=:Leaf, var=:carbon_override))
     @test value_inputs(override_input_spec).leaf_carbon.criteria.var == :carbon_override
     @test PlantSimEngine.input_origins(override_input_spec).leaf_carbon ==
           :model_spec
-    mapped = only(PlantSimEngine.get_mapped_variables(override_input_spec))
-    @test first(mapped) == :leaf_carbon
-    @test last(mapped) == [:Leaf => :carbon_override]
 
     default_input_origin_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -1368,6 +1348,35 @@ end
           :model_spec
     @test model_calls(override_call_spec).stomata.criteria.process == :water_status
     @test isempty(dep(override_call_spec))
+
+    manual_child_scene = Scene(
+        Object(
+            :manual_child_leaf;
+            scale=:Leaf,
+            status=Status(signal=0.0, observed_signal=0.0),
+        );
+        applications=(
+            ModelSpec(SceneObjectManualPairCallerModel(); name=:manual_parent) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Calls(
+                :source => One(scale=:Leaf, application=:manual_source),
+                :consumer => One(scale=:Leaf, application=:manual_consumer),
+            ),
+            ModelSpec(SceneObjectSignalSetModel(1.0); name=:root_source) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalSetModel(2.0); name=:manual_source) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(SceneObjectSignalConsumerModel(); name=:manual_consumer) |>
+            AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    manual_child_compiled = compile_scene(manual_child_scene)
+    @test isempty(
+        filter(
+            binding -> binding.application_id == :manual_consumer,
+            manual_child_compiled.input_bindings,
+        ),
+    )
 
     compiled_specs = (
         ModelSpec(SceneObjectStomataModel(); name=:stomata) |>
@@ -1872,6 +1881,32 @@ end
         row for row in explain_output_retention(lagged_cycle_simulation)
         if row.application_id == :cycle_b
     ).retention_steps == 2.0
+
+    lagged_external_state_scene = Scene(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
+        Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(signal=4.0)),
+        Object(:leaf_2; scale=:Leaf, kind=:plant, parent=:plant_1, status=Status(signal=6.0));
+        applications=(
+            ModelSpec(SceneObjectPlantSignalSumModel(); name=:plant_signal_sum) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(
+                PreviousTimeStep(:signals) => Many(
+                    scale=:Leaf,
+                    within=Self(),
+                    var=:signal,
+                ),
+            ),
+        ),
+    )
+    lagged_external_binding = only(
+        row for row in explain_bindings(refresh_bindings!(lagged_external_state_scene))
+        if row.application_id == :plant_signal_sum && row.input == :signals
+    )
+    @test lagged_external_binding.carrier_kind == :temporal_stream
+    @test isempty(lagged_external_binding.source_application_ids)
+    run!(lagged_external_state_scene; steps=2)
+    @test only(scene_objects(lagged_external_state_scene; scale=:Plant)).status.signal_total == 10.0
 
     mismatched_lag_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),

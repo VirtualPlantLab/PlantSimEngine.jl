@@ -32,5 +32,3 @@ PlantSimEngine.outputs_(::ToyLightPartitioningModel) = (aPPFD=-Inf,)
 function PlantSimEngine.run!(::ToyLightPartitioningModel, models, status, meteo, constants, extra)
     status.aPPFD = status.aPPFD_larger_scale * status.surface / status.total_surface
 end
-
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLightPartitioningModel}) = PlantSimEngine.IsTimeStepIndependent()

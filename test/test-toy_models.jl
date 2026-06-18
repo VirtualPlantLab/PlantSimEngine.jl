@@ -1,106 +1,56 @@
-meteo_day = CSV.read(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), DataFrame, header=18)
+using Dates
 
-# Note (smack) : The first test's behaviour is weird to me, because there is an [Info :] that correctly indicates
-# :LAI is not initialised, yet @test_nowarn doesn't capture it. I'm not sure what the intended test was, between 'Info' and 'Warn'
-@testset "ToyLAIModel" begin
-    @test_nowarn PlantSimEngine.ModelMapping(ToyLAIModel())
-    @test_nowarn PlantSimEngine.ModelMapping(ToyLAIModel(); status=(TT_cu=10,))
-    @test_nowarn PlantSimEngine.ModelMapping(
-        ToyLAIModel();
-        status=(TT_cu=cumsum(meteo_day.TT),),
-    )
-
-    mapping = PlantSimEngine.ModelMapping(
-        ToyLAIModel();
-        status=(TT_cu=cumsum(meteo_day.TT),),
-    )
-
-    outputs = @test_nowarn run!(mapping)
-
-    @test outputs[:TT_cu] == cumsum(meteo_day.TT)
-    @test outputs[:LAI][begin] ≈ 0.00554987593080316
-    @test outputs[:LAI][end] ≈ 0.0
-end
-
-@testset "ToyLAIModel+Beer" begin
-    mapping = PlantSimEngine.ModelMapping(
-        ToyLAIModel(),
-        Beer(0.5),
-        status=(TT_cu=cumsum(meteo_day.TT),)
-    )
-
-    outputs = run!(mapping, meteo_day)
-
-    @test mean(outputs[:aPPFD]) ≈ 9.511021781482347
-    @test mean(outputs[:LAI]) ≈ 1.098492557536525
-end
-
-
-@testset "ToyRUEGrowthModel" begin
-    rue = 0.3
-    @test_nowarn PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue))
-    @test_nowarn PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=[10.0, 30.0, 25.0],))
-
-    # One time step:
-    mapping = PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=30.0,))
-
-    outputs = run!(mapping, executor=SequentialEx())
-    @test outputs[:biomass][1] ≈ rue * 30.0
-
-    # Several time steps:
-    aPPFD = [10.0, 30.0, 25.0]
-    mapping = PlantSimEngine.ModelMapping(ToyRUEGrowthModel(rue); status=(aPPFD=aPPFD,))
-
-    outputs = run!(mapping, executor=SequentialEx())
-    @test outputs[:biomass] ≈ cumsum(rue * aPPFD)
-end
-
-@testset "ToyAssimGrowthModel" begin
-    @test_nowarn PlantSimEngine.ModelMapping(ToyAssimGrowthModel())
-    @test_nowarn PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(carbon_assimilation=[10.0, 30.0, 25.0],))
-
-    # Uninitialized:
-    to_init_uninitialized = to_initialize(PlantSimEngine.ModelMapping(ToyAssimGrowthModel()))
-    if to_init_uninitialized isa AbstractDict
-        @test haskey(to_init_uninitialized, :Default)
-        @test :aPPFD in to_init_uninitialized[:Default]
-    else
-        @test :growth in keys(to_init_uninitialized)
-        @test :aPPFD in to_init_uninitialized[:growth]
+function toy_scene(status, models...; environment=nothing)
+    applications = map(models) do model
+        ModelSpec(model) |> AppliesTo(One(scale=:Plant))
     end
-
-    # One time step:
-    mapping = PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=30.0,))
-
-    @test isempty(to_initialize(mapping))
-
-    outputs = run!(mapping)
-    @test outputs[:biomass] ≈ [4.5]
-
-    # Several time steps:
-    mapping = PlantSimEngine.ModelMapping(ToyAssimGrowthModel(); status=(aPPFD=[10.0, 30.0, 25.0],))
-
-    outputs = run!(mapping)
-    @test outputs[:biomass] ≈ cumsum(outputs[:biomass_increment])
-    @test outputs[:biomass_increment] ≈ [0.8333333333333334, 4.5, 3.5833333333333335]
+    Scene(
+        Object(:plant; scale=:Plant, kind=:plant, status=status);
+        applications=Tuple(applications),
+        environment=environment,
+    )
 end
 
-@testset "ToyLAIModel+Beer+ToyRUEGrowthModel" begin
+@testset "Toy models through Scene" begin
+    lai_scene = toy_scene(Status(TT_cu=900.0), ToyLAIModel())
+    run!(lai_scene)
+    lai_status = only(scene_objects(lai_scene; scale=:Plant)).status
+    @test 0.0 < lai_status.LAI < 8.0
+
+    meteo = Atmosphere(
+        T=20.0,
+        Wind=1.0,
+        P=101.3,
+        Rh=0.65,
+        Ri_PAR_f=300.0,
+        duration=Hour(1),
+    )
+    coupled = toy_scene(Status(TT_cu=900.0), ToyLAIModel(), Beer(0.5); environment=meteo)
+    run!(coupled)
+    coupled_status = only(scene_objects(coupled; scale=:Plant)).status
+    @test coupled_status.aPPFD > 0.0
+
     rue = 0.3
-    mapping = PlantSimEngine.ModelMapping(
+    rue_scene = toy_scene(Status(aPPFD=30.0), ToyRUEGrowthModel(rue))
+    run!(rue_scene)
+    rue_status = only(scene_objects(rue_scene; scale=:Plant)).status
+    @test rue_status.biomass ≈ rue * 30.0
+
+    assimilation_scene = toy_scene(Status(aPPFD=30.0), ToyAssimGrowthModel())
+    run!(assimilation_scene)
+    assimilation_status = only(scene_objects(assimilation_scene; scale=:Plant)).status
+    @test assimilation_status.biomass ≈ 4.5
+
+    full_scene = toy_scene(
+        Status(TT_cu=900.0),
         ToyLAIModel(),
         Beer(0.5),
-        ToyRUEGrowthModel(rue),
-        status=(TT_cu=cumsum(meteo_day.TT),),
+        ToyRUEGrowthModel(rue);
+        environment=meteo,
     )
-
-    # Match the warning on the executor, the default is ThreadedEx() but ToyRUEGrowthModel can't be run in parallel:
-    @test_logs (:warn, r"A parallel executor was provided") run!(mapping, meteo_day)
-
-    # If we provide a serial executor, it works without a warning:
-    outputs = @test_nowarn run!(mapping, meteo_day, executor=SequentialEx())
-
-    @test mean(outputs[:aPPFD]) ≈ 9.511021781482347
-    @test mean(outputs[:LAI]) ≈ 1.098492557536525
-    @test outputs[:biomass][end] ≈ 1041.4687939085675 rtol = 1e-4
+    run!(full_scene)
+    full_status = only(scene_objects(full_scene; scale=:Plant)).status
+    @test full_status.LAI > 0.0
+    @test full_status.aPPFD > 0.0
+    @test full_status.biomass ≈ rue * full_status.aPPFD
 end

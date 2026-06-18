@@ -41,6 +41,3 @@ function PlantSimEngine.run!(m::ToyCBiomassModel, models, status, meteo, constan
     status.carbon_biomass += status.carbon_biomass_increment
     status.growth_respiration = status.carbon_allocation - status.carbon_biomass_increment
 end
-
-# Can be parallelized over organs (but not time-steps, as it is incrementally updating the biomass in the status):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyCBiomassModel}) = PlantSimEngine.IsObjectIndependent()

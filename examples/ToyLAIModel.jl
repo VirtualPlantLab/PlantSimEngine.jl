@@ -57,8 +57,6 @@ end
 
 # The computation of ToyLAIModel is independant of previous values and other objects. We can add this information as 
 # traits to the model to tell PlantSimEngine that it is safe to run the models in parallel:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsTimeStepIndependent()
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLAIModel}) = PlantSimEngine.IsObjectIndependent()
 
 
 
@@ -96,4 +94,3 @@ function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, models, status, meteo, 
 end
 
 # The computation of ToyLAIfromLeafAreaModel is independant of previous values so we can compute it in parallel over time-steps:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLAIfromLeafAreaModel}) = PlantSimEngine.IsTimeStepIndependent()

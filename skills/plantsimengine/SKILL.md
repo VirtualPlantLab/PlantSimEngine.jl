@@ -18,11 +18,9 @@ PlantSimEngine has two main user roles:
   `inputs_`, `outputs_`, `dep`, `meteo_inputs_`, `meteo_outputs_`, `run!`,
   model traits, and focused tests.
 
-For new multiscale, multi-plant, soil, scene, or microclimate work, use the
-unified scene/object API. Historical `ModelMapping` and `MultiScaleModel`
-simulations remain available for released-code migration. `ModelMapping` is
-not exported, so compatibility code must spell it
-`PlantSimEngine.ModelMapping(...)`.
+Use the unified scene/object API for multiscale, multi-plant, soil, scene, and
+microclimate work. Translate released mapping-era code using
+`docs/src/migration_scene_object.md`.
 
 ## First Steps
 
@@ -242,7 +240,8 @@ Rules:
 - Use `NamedTuple()` for no inputs or no outputs.
 - Read and write model state through `status`. Do not store timestep-varying state in the model object.
 - Read weather through `meteo` and physical constants through `constants`.
-- In MTG runs, `extra` is the `GraphSimulation`; do not use user-defined `extra` arguments for MTG APIs.
+- In scene runs, `extra` is a `SceneRunContext`. Use its public hard-call and
+  lifecycle APIs rather than attaching unrelated user data.
 - If a variable appears in both `inputs_` and `outputs_` with the same name, remember that `variables(model)` merges declarations and later output declarations win.
 
 ### Wrapping existing code
@@ -290,12 +289,6 @@ Hard calls are never automatically executed for the parent. Trial
 Add traits only when they are true for the model implementation, not merely convenient for one scenario.
 
 ```julia
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:MyModel}) =
-    PlantSimEngine.IsTimeStepIndependent()
-
-PlantSimEngine.ObjectDependencyTrait(::Type{<:MyModel}) =
-    PlantSimEngine.IsObjectIndependent()
-
 PlantSimEngine.timespec(::Type{<:MyDailyModel}) = ClockSpec(24.0, 1.0)
 
 PlantSimEngine.output_policy(::Type{<:MyFluxModel}) = (

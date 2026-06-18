@@ -445,8 +445,6 @@ function PlantSimEngine.outputs_(::Monteith)
 end
 
 Base.eltype(x::Monteith) = typeof(x).parameters[1]
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Monteith}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Monteith}) = PlantSimEngine.IsTimeStepIndependent()
 # Multi-rate default for energy balance: keep relatively fine cadence.
 PlantSimEngine.timestep_hint(::Type{<:Monteith}) = (
     required=(Dates.Minute(1), Dates.Hour(2)),
@@ -481,7 +479,7 @@ the energy balance using the mass flux (~ Rn - λE).
 # Arguments
 
 - `::Monteith`: a Monteith model, usually from a model list (*i.e.* m.energy_balance)
-- `models`: A `ModelMapping` struct holding the parameters for the model with
+- `models`: the process-keyed model bundle supplied by the scene runtime, with
 initialisations for:
     - `Ra_SW_f` (W m-2): net shortwave radiation (PAR + NIR). Often computed from a light interception model
     - `sky_fraction` (0-2): view factor between the object and the sky for both faces (see details).
@@ -503,39 +501,6 @@ If you want the algorithm to print a message whenever it does not reach converge
 debugging mode by executing this in the REPL: `ENV["JULIA_DEBUG"] = PlantBiophysics`.
 
 More information [here](https://docs.julialang.org/en/v1/stdlib/Logging/#Environment-variables).
-
-# Examples
-
-```julia
-meteo = Atmosphere(T = 22.0, Wind = 0.8333, P = 101.325, Rh = 0.4490995)
-
-# Using a constant value for Gs:
-leaf = PlantSimEngine.ModelMapping(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = ConstantGs(0.0, 0.0011),
-    status = (Ra_SW_f = 13.747, sky_fraction = 1.0, d = 0.03)
-)
-
-run!(leaf,meteo)
-leaf.status.Rn
-julia> 12.902547446281233
-
-# Using the model from Medlyn et al. (2011) for Gs:
-leaf = PlantSimEngine.ModelMapping(
-    energy_balance = Monteith(),
-    photosynthesis = Fvcb(),
-    stomatal_conductance = Medlyn(0.03, 12.0),
-    status = (Ra_SW_f = 13.747, sky_fraction = 1.0, aPPFD = 1500.0, d = 0.03)
-)
-
-out_sim = run!(leaf,meteo)
-out_sim[:Rn]
-out_sim[:Ra_LW_f]
-out_sim[:A]
-
-df = PlantSimEngine.convert_outputs(out_sim, DataFrame)
-```
 
 # References
 

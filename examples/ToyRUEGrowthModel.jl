@@ -48,6 +48,5 @@ function PlantSimEngine.run!(::ToyRUEGrowthModel, models, status, meteo, constan
 end
 
 # And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyRUEGrowthModel}) = PlantSimEngine.IsObjectIndependent()
 
 # Note that this model cannot be parallelized over time because we use the biomass from the previous time-step.

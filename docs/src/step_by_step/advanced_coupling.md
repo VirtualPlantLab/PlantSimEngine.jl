@@ -147,8 +147,5 @@ The MAESPA-style example uses the same mechanism: a scene energy-balance model
 calls all selected leaf energy-balance models and the shared soil model while
 it solves canopy microclimate.
 
-Older code may still show `dep(model)` with hard dependencies and
-`PlantSimEngine.ModelMapping(...)`. Those mechanisms are compatibility
-implementation details for old examples. New scenario wiring should use
-`Calls(...)`; model authors should keep kernels generic and only require manual
-calls when the model really needs call-stack control.
+Scenario wiring uses `Calls(...)`. Model authors should keep kernels generic
+and only require manual calls when the model really needs call-stack control.

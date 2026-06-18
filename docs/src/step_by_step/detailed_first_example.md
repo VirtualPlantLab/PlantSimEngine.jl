@@ -28,7 +28,7 @@ Depth = 3
 Every script needs a Julia environment with PlantSimEngine installed. Most
 examples also use companion packages such as PlantMeteo for weather data and
 DataFrames for tabular outputs. Installation details are in
-[Installing and running PlantSimEngine](@ref).
+[Installing PlantSimEngine](../prerequisites/installing_plantsimengine.md).
 
 ## The Simulation Pieces
 
@@ -240,16 +240,14 @@ catch err
 end
 ```
 
-## Compatibility Note
+## Migration Note
 
-Older tutorials used `PlantSimEngine.ModelMapping(...)` for single-scale
-simulations. That compatibility API remains available for historical examples
-and regression tests, but new simulations should use `Scene`, `Object`,
-`ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`, and
-`Environment`.
+The previous mapping runtime has been removed. Simulations use `Scene`,
+`Object`, `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`,
+and `Environment`.
 
 See [Migrating To The Scene/Object API](../migration_scene_object.md) for the
-translation from old mapping and domain constructs.
+translation from the historical mapping API.
 
 ## Next Steps
 

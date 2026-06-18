@@ -37,50 +37,70 @@ function PlantSimEngine.run!(::UpdateBiomassObserverModel, models, status, meteo
     return nothing
 end
 
+function update_scene(applications...)
+    Scene(
+        Object(
+            :leaf;
+            scale=:Leaf,
+            status=Status(leaf_biomass=1.0, observed_biomass=-1.0),
+        );
+        applications=applications,
+        environment=Atmosphere(
+            T=20.0,
+            Rh=0.65,
+            Wind=1.0,
+            duration=Dates.Hour(1),
+        ),
+    )
+end
+
 @testset "ModelSpec Updates" begin
-    meteo = Atmosphere(T=20.0, Rh=0.65, Wind=1.0, duration=Dates.Hour(1))
-
-    @test_throws "Ambiguous canonical writers" PlantSimEngine.ModelMapping(
-        UpdateCarbonAllocationModel(),
-        UpdateLeafPruningModel(),
-        status=(leaf_biomass=1.0,),
+    @test_throws "Ambiguous canonical writers" compile_scene(
+        update_scene(
+            ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(UpdateLeafPruningModel()) |> AppliesTo(One(scale=:Leaf)),
+        ),
     )
 
-    mapping = PlantSimEngine.ModelMapping(
-        UpdateCarbonAllocationModel(),
+    scene = update_scene(
+        ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
         ModelSpec(UpdateLeafPruningModel()) |>
+        AppliesTo(One(scale=:Leaf)) |>
         Updates(:leaf_biomass; after=:update_carbon_allocation),
-        UpdateBiomassObserverModel(),
-        status=(leaf_biomass=1.0, observed_biomass=-1.0),
+        ModelSpec(UpdateBiomassObserverModel()) |> AppliesTo(One(scale=:Leaf)),
+    )
+    run!(scene)
+    leaf = only(scene_objects(scene; scale=:Leaf))
+    @test leaf.status.leaf_biomass == 0.0
+    @test leaf.status.observed_biomass == 0.0
+
+    @test_throws "without an ordering relation" compile_scene(
+        update_scene(
+            ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(UpdateLeafPruningModel()) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Updates(:leaf_biomass; after=:update_carbon_allocation),
+            ModelSpec(UpdateLeafSenescenceModel()) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Updates(:leaf_biomass; after=:update_carbon_allocation),
+        ),
     )
 
-    outputs = run!(mapping, meteo; executor=SequentialEx())
-    @test only(outputs[:leaf_biomass]) == 0.0
-    @test only(outputs[:observed_biomass]) == 0.0
-
-    graph_nodes = PlantSimEngine.traverse_dependency_graph(dep(mapping), false)
-    pruning_node = only(filter(node -> node.process == :update_leaf_pruning, graph_nodes))
-    @test any(parent -> parent.process == :update_carbon_allocation, pruning_node.parent)
-
-    @test_throws "without an ordering relation" PlantSimEngine.ModelMapping(
-        UpdateCarbonAllocationModel(),
-        ModelSpec(UpdateLeafPruningModel()) |>
-        Updates(:leaf_biomass; after=:update_carbon_allocation),
+    ordered = update_scene(
+        ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
         ModelSpec(UpdateLeafSenescenceModel()) |>
-        Updates(:leaf_biomass; after=:update_carbon_allocation),
-        status=(leaf_biomass=1.0,),
-    )
-
-    ordered_updates = PlantSimEngine.ModelMapping(
-        UpdateCarbonAllocationModel(),
-        ModelSpec(UpdateLeafSenescenceModel()) |>
+        AppliesTo(One(scale=:Leaf)) |>
         Updates(:leaf_biomass; after=:update_carbon_allocation),
         ModelSpec(UpdateLeafPruningModel()) |>
-        Updates(:leaf_biomass; after=(:update_carbon_allocation, :update_leaf_senescence)),
-        UpdateBiomassObserverModel(),
-        status=(leaf_biomass=1.0, observed_biomass=-1.0),
+        AppliesTo(One(scale=:Leaf)) |>
+        Updates(
+            :leaf_biomass;
+            after=(:update_carbon_allocation, :update_leaf_senescence),
+        ),
+        ModelSpec(UpdateBiomassObserverModel()) |> AppliesTo(One(scale=:Leaf)),
     )
-    ordered_outputs = run!(ordered_updates, meteo; executor=SequentialEx())
-    @test only(ordered_outputs[:leaf_biomass]) == 0.0
-    @test only(ordered_outputs[:observed_biomass]) == 0.0
+    run!(ordered)
+    ordered_leaf = only(scene_objects(ordered; scale=:Leaf))
+    @test ordered_leaf.status.leaf_biomass == 0.0
+    @test ordered_leaf.status.observed_biomass == 0.0
 end

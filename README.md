@@ -34,10 +34,8 @@ TimeStep
 Environment
 ```
 
-This API is the primary path for new multiscale, multi-plant, soil,
-microclimate, and scene-scale simulations. Older `ModelMapping`,
-`MultiScaleModel`, domain, and route APIs are retained only as qualified
-compatibility tools while existing examples are migrated.
+This is the package API for multiscale, multi-plant, soil, microclimate, and
+scene-scale simulations.
 
 ## Installation
 
