@@ -76,7 +76,7 @@ Inspect the inferred coupling:
 
 ```@example quick_scene_examples
 select(
-    DataFrame(explain_bindings(refresh_bindings!(lai_scene))),
+    DataFrame(explain_bindings(lai_scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -124,7 +124,7 @@ request = OutputRequest(
     :Scene,
     :biomass;
     name=:biomass_daily,
-    process=:growth,
+    application=:growth,
     policy=HoldLast(),
     clock=Day(1),
 )
@@ -133,7 +133,7 @@ requested_sim = run!(
     growth_scene;
     steps=5,
     constants=Constants(),
-    tracked_outputs=request,
+    outputs=request,
 )
 
 first(collect_outputs(requested_sim, :biomass_daily), 5)

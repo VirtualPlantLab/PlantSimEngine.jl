@@ -82,7 +82,10 @@ PlantSimEngine's approach to plant modeling represents a paradigm shift in how s
 
 - **Automatic Dependency Resolution:** The system automatically determines the relationships between different models and processes, eliminating the need for manual coupling.
 
-- **Seamless Parallelization:** Out-of-the-box support for parallel and distributed computation allows researchers to focus on the science rather than implementation details.
+- **Concrete Batched Execution:** The scene compiler groups compatible object
+  targets into concrete execution batches. A public parallel or distributed
+  executor is not currently provided; parallel execution remains planned work
+  that requires explicit correctness and independence guarantees.
 
 - **Flexible Model Integration:** The ability to easily combine models from different sources and at different scales facilitates more comprehensive and realistic simulations.
 

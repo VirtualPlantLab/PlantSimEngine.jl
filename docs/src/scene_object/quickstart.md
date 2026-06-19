@@ -17,7 +17,11 @@ TimeStep
 Environment
 ```
 
-Scenarios are defined with `Scene` and model applications.
+Scenarios are defined with `Scene` and model applications. A model is a
+reusable process implementation; an application is one configured use of that
+model, including its name, target objects, inputs, cadence, and environment.
+One application may run on many objects, and the same model may appear in
+several applications with different parameters or targets.
 
 ```@setup scene_object_quickstart
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
@@ -25,6 +29,16 @@ using PlantSimEngine.Examples
 ```
 
 ## One Object, Several Models
+
+For models that all run on one object, the concise constructor lowers directly
+to the ordinary Scene/Object representation:
+
+```julia
+scene = Scene(ModelA(), ModelB(); status=(initial_value=1.0,))
+```
+
+Use the explicit form below when applications need names, selectors, cadence,
+or other scenario policies.
 
 The first scene has one object, `:scene`, and three model applications:
 
@@ -60,7 +74,7 @@ scene = Scene(
 )
 
 sim = run!(scene; steps=30, constants=Constants())
-out = DataFrame(collect_outputs(sim; sink=nothing))
+out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
 
@@ -73,6 +87,11 @@ scene_status = only(scene_objects(scene; scale=:Scene)).status
 
 ## Inspect The Compiled Bindings
 
+Before running, `explain_initialization(scene)` classifies each variable as
+`:supplied`, `:generated`, `:producer_bound`, `:environment_bound`, or
+`:unresolved`. The report remains available when ordinary required values are
+missing, so it can be used to finish configuring a scene.
+
 The compiler infers unambiguous same-object dependencies from declared model
 inputs and outputs:
 
@@ -81,7 +100,7 @@ inputs and outputs:
 
 ```@example scene_object_quickstart
 select(
-    DataFrame(explain_bindings(refresh_bindings!(scene))),
+    DataFrame(explain_bindings(scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -107,16 +126,16 @@ select(
 
 ## Request Outputs
 
-By default, scene runs retain all published streams. For large scenes, pass
-`OutputRequest` values to retain and materialize only selected publisher
-streams plus any streams needed by temporal inputs.
+By default, scene runs retain no user output streams. Pass `outputs=:all` to
+retain every publisher, or pass `OutputRequest` values to retain and
+materialize selected streams plus those required by temporal inputs.
 
 ```@example scene_object_quickstart
 request = OutputRequest(
-    :Scene,
+    Many(scale=:Scene),
     :LAI;
     name=:lai_every_two_days,
-    process=:LAI_Dynamic,
+    application=:lai,
     policy=HoldLast(),
     clock=Day(2),
 )
@@ -125,7 +144,7 @@ requested_sim = run!(
     scene;
     steps=30,
     constants=Constants(),
-    tracked_outputs=request,
+    outputs=request,
 )
 
 collect_outputs(requested_sim, :lai_every_two_days; sink=nothing)[1:4]
@@ -181,7 +200,7 @@ The compiled binding shows a `RefVector` carrier:
 
 ```@example scene_object_quickstart
 select(
-    DataFrame(explain_bindings(refresh_bindings!(plant_scene))),
+    DataFrame(explain_bindings(plant_scene)),
     :application_id,
     :input,
     :source_ids,
@@ -190,7 +209,7 @@ select(
 )
 ```
 
-If the consumer model runs on each plant, use `within=Self()` to read only
+If the consumer model runs on each plant, use `within=Subtree()` to read only
 objects inside the current plant. Use `within=SceneScope()` when a scene model
 must aggregate all matching objects.
 
@@ -207,13 +226,13 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:energy_balance,
+            application=:energy_balance,
         ),
         :soil => One(
             kind=:soil,
             scale=:Soil,
             within=SceneScope(),
-            process=:soil_water,
+            application=:soil_water,
         ),
     ) |>
     TimeStep(Hour(1))

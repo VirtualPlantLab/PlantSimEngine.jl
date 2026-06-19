@@ -52,12 +52,12 @@ complex_scene = Scene(
 
         ModelSpec(Process2Model(); name=:process2) |>
             AppliesTo(One(scale=:Scene)) |>
-            Calls(:process1 => One(scale=:Scene, process=:process1)) |>
+            Calls(:process1 => One(scale=:Scene, application=:process1)) |>
             TimeStep(Day(1)),
 
         ModelSpec(Process3Model(); name=:process3) |>
             AppliesTo(One(scale=:Scene)) |>
-            Calls(:process2 => One(scale=:Scene, process=:process2)) |>
+            Calls(:process2 => One(scale=:Scene, application=:process2)) |>
             TimeStep(Day(1)),
 
         ModelSpec(Process5Model(); name=:process5) |>
@@ -75,9 +75,8 @@ complex_scene = Scene(
     environment=meteo_day,
 )
 
-compiled = refresh_bindings!(complex_scene)
 select(
-    DataFrame(explain_calls(compiled)),
+    DataFrame(explain_calls(complex_scene)),
     :application_id,
     :call,
     :callee_application_ids,
@@ -98,7 +97,7 @@ rules:
 
 ```@example scene_advanced_coupling
 select(
-    DataFrame(explain_schedule(compiled)),
+    DataFrame(explain_schedule(complex_scene)),
     :application_id,
     :manual_call_only,
     :execution_index,

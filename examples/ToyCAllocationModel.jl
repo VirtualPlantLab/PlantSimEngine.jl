@@ -68,4 +68,5 @@ function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, const
     end
 end
 
-# Can be parallelized over time-steps, but not objects (we have vectors of values coming from other objects as input):
+# This model reads values from several objects, so object-level independence
+# must not be assumed by a future executor.

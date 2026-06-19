@@ -1,8 +1,7 @@
 # Unified Scene/Object Implementation Plan
 
 This plan is the persistent handoff for replacing the historical
-multiscale-mapping system and an unreleased domain prototype with one
-scene/object address system.
+multiscale-mapping system with one scene/object address system.
 
 The implementation can be incremental internally, but the target API is
 breaking. Do not preserve experimental intermediate APIs as user-facing
@@ -26,14 +25,6 @@ Environment(...)
 This is the API memory target for users, modelers, and agents. Additional
 types should be selectors, model traits, or internal compiled carriers.
 
-## Experimental Starting Point
-
-The branch used a temporary domain runtime as a behavioral test bed for
-multi-object selection, cross-object values, manual child calls, multi-rate
-scheduling, environment backends, lifecycle changes, ordered writers, and
-structured explanations. The scene/object API reproduced those capabilities,
-then the temporary runtime was removed before release.
-
 ## Implementation Progress
 
 - Started Phase 0 by adding the public API vocabulary as real typed metadata:
@@ -47,7 +38,7 @@ then the temporary runtime was removed before release.
   `Scale`, `Relation`, `One`, `OptionalOne`, `Many`, and `ObjectAddress`.
 - Added initial `Scene`/`Object` registry types and lifecycle hooks:
   `register_object!`, `remove_object!`, `reparent_object!`, `move_object!`,
-  and `refresh_bindings!`.
+  and `Advanced.refresh_bindings!`.
 - Added registry-backed selector resolution with `resolve_object_ids` and
   `resolve_objects` for `SceneScope()`, `Self()`, `SelfPlant()`,
   `Ancestor(...)`, `Scope(...)`, positional selectors such as
@@ -69,7 +60,7 @@ then the temporary runtime was removed before release.
 - `ObjectAddress(selector)` now normalizes positional `Kind`, `Species`,
   `Scale`, scope, and `Relation` selectors instead of recording only keyword
   criteria.
-- Started the object-address compiler with `compile_scene(scene, specs)` and
+- Started the object-address compiler with `Advanced.compile_scene(scene, specs)` and
   compiled scene application/binding carriers. The compiler now resolves
   `AppliesTo(...)` target object ids, object-relative `Inputs(...)` source
   object ids, and object-relative `Calls(...)` callee object/application ids
@@ -80,7 +71,7 @@ then the temporary runtime was removed before release.
   window, and carrier hints.
 - Added status-backed compiled input carriers. When source objects already
   hold `Status` values, `Inputs(...)` bindings now precompile a scalar shared
-  `Ref`, a homogeneous `RefVector`, or an `ObjectRefVector` fallback for
+  `Ref`, a homogeneous `RefVector`, or an `Advanced.ObjectRefVector` fallback for
   heterogeneous reference-preserving vectors. `input_carrier`, `input_value`,
   and `has_reference_carrier` expose these carriers, and `explain_bindings`
   reports carrier kind, copy/reference semantics, carrier type, and reference
@@ -88,11 +79,11 @@ then the temporary runtime was removed before release.
 - Added conservative same-object input inference in the scene compiler. When a
   model declares an `inputs_` variable that is not covered by explicit/default
   `Inputs(...)`, and exactly one other application on the same object outputs
-  the same variable, `compile_scene` creates an inferred reference binding.
+  the same variable, `Advanced.compile_scene` creates an inferred reference binding.
   `explain_bindings` now reports binding `origin` values such as
   `:model_default`, `:model_spec`, and `:inferred_same_object`.
 - Compiled input bindings now carry producer metadata. When an `Inputs(...)`
-  selector uses `process=` or `application=`, `compile_scene` validates that a
+  selector uses `process=` or `application=`, `Advanced.compile_scene` validates that a
   matching source application exists for the selected source objects.
   `explain_bindings` reports `source_application_ids`, `process`, and
   `application` for agent-readable dependency diagnostics.
@@ -101,7 +92,7 @@ then the temporary runtime was removed before release.
   scene objects default to `SceneScope()`, while non-scene objects default to
   `Self()`. Shared scene/soil dependencies from organs should therefore use
   `within=SceneScope()` explicitly.
-- `compile_scene` now validates required status inputs from `inputs_(model)`.
+- `Advanced.compile_scene` now validates required status inputs from `inputs_(model)`.
   Each required input must either have a compiled binding or already exist on
   the target object `Status`; otherwise compilation errors with the concrete
   application id, object id, and input variable.
@@ -109,11 +100,11 @@ then the temporary runtime was removed before release.
   status is omitted, inserts missing `outputs_` and `meteo_outputs_` fields
   from model defaults, and inserts explicitly or implicitly bound input fields
   from `inputs_` defaults. Unbound external inputs remain compilation errors.
-- `compile_scene` now rejects `Inputs(...)` declarations whose left-hand
+- `Advanced.compile_scene` now rejects `Inputs(...)` declarations whose left-hand
   variable is not declared by the target model's `inputs_`. This catches
   misspelled or stale scenario bindings before they create silent unused
   metadata.
-- `compile_scene` now validates source availability for status-backed
+- `Advanced.compile_scene` now validates source availability for status-backed
   non-temporal `Inputs(...)` bindings. When selected source objects already
   have `Status` values, the requested source variable must resolve to
   references instead of silently compiling to an unused/no-op binding.
@@ -128,7 +119,7 @@ then the temporary runtime was removed before release.
 - Same-rate input carriers are installed directly into consumer `Status`
   reference cells during scene compilation. Scalar bindings share the source
   `Ref`; many-object bindings store the compiled `RefVector` or
-  `ObjectRefVector` once. The timestep runtime performs no assignment for
+  `Advanced.ObjectRefVector` once. The timestep runtime performs no assignment for
   these bindings, and a focused `Many(...)` materialization gate verifies zero
   allocations after compilation.
 - Reference wiring adds a missing bound input field to the consumer `Status`
@@ -137,14 +128,14 @@ then the temporary runtime was removed before release.
 - Added call ambiguity validation in the compiled scene view: a call can select
   by process when unique, and must use `application=:name` when several model
   applications with the same process match the same object.
-- Added a scene binding cache with `refresh_bindings!`, `bindings_dirty`,
-  `compiled_bindings`, and `scene_revision`. Object creation, removal,
+- Added a scene binding cache with `Advanced.refresh_bindings!`, `Advanced.bindings_dirty`,
+  `Advanced.compiled_bindings`, and `Advanced.scene_revision`. Object creation, removal,
   and reparenting now invalidate the compiled binding cache and bump a scene
   revision before the next refresh.
-- Added an environment binding cache with `refresh_environment_bindings!`,
-  `compile_environment_bindings`, `CompiledEnvironmentBinding`,
-  `CompiledEnvironmentBindings`, `environment_bindings_dirty`,
-  `compiled_environment_bindings`, `environment_revision`, and
+- Added an environment binding cache with `Advanced.refresh_environment_bindings!`,
+  `Advanced.compile_environment_bindings`, `Advanced.CompiledEnvironmentBinding`,
+  `Advanced.CompiledEnvironmentBindings`, `Advanced.environment_bindings_dirty`,
+  `Advanced.compiled_environment_bindings`, `Advanced.environment_revision`, and
   `explain_environment_bindings`. The compiler resolves each
   application/object environment provider, backend, required
   `meteo_inputs_`, produced `meteo_outputs_`, support descriptor, and backend
@@ -152,7 +143,7 @@ then the temporary runtime was removed before release.
 - Added the minimal scene geometry contract: `geometry(object_or_status)`,
   `position(object_or_status)`, and `bounds(object_or_status)`. Environment
   binding refreshes now call `update_index!(backend, entities)` once per
-  distinct backend before `bind_environment`, giving spatial backends a current
+  distinct backend before `Advanced.bind_environment`, giving spatial backends a current
   scene-wide object/entity list for precomputed microclimate lookup.
 - Automatic spatial binding now uses the nearest ancestor geometry when a
   target object has no geometry of its own. Existing backends still receive an
@@ -166,7 +157,7 @@ then the temporary runtime was removed before release.
   cached spatial bindings. If only `meteo_inputs_` or `meteo_outputs_` changes
   while application id, object, process, provider, backend, status, and geometry
   provenance remain unchanged, required/output metadata is updated while the
-  cached cell is reused without `update_index!` or `bind_environment`.
+  cached cell is reused without `update_index!` or `Advanced.bind_environment`.
 - `validate_meteo_inputs(scene)` and
   `validate_meteo_inputs(compiled_scene, meteo_or_backend)` now validate
   scene/object model application `meteo_inputs_` against the active
@@ -231,7 +222,7 @@ then the temporary runtime was removed before release.
   the runtime push it to the active microclimate backend.
 - Added root application scheduling from `TimeStep(...)` using `Dates.Period`
   values and the scene environment base step. `explain_schedule` on a
-  `CompiledScene` now reports each application clock, phase, timestep in base
+  `Advanced.CompiledScene` now reports each application clock, phase, timestep in base
   steps, timestep duration in seconds, and whether the application is scheduled
   as a root application or is manual-call-only.
 - Scene application scheduling now also honors a model's `timespec(...)` trait
@@ -240,20 +231,20 @@ then the temporary runtime was removed before release.
 - Scene application scheduling now validates `timestep_hint(...)` required
   bounds for base-step-derived clocks. Hints remain compatibility constraints;
   they do not override explicit `TimeStep(...)` or non-default `timespec(...)`.
-- `compile_scene` now computes a stable topological application order from
+- `Advanced.compile_scene` now computes a stable topological application order from
   resolved `Inputs(...)` producer edges and `Updates(...)` writer-order edges.
   Inputs produced by manual-call-only applications are redirected to the parent
   application that owns the `Calls(...)` call stack. `run!(scene)` uses this
   precompiled order instead of user declaration order, cycles fail at compile
   time, and `explain_schedule` reports `execution_index`.
-- `CompiledScene` now pre-indexes input and call bindings by
+- `Advanced.CompiledScene` now pre-indexes input and call bindings by
   `(application_id, object_id)`. Per-object input materialization and
   `call_target(s)` lookup uses these indexes instead of scanning every
   binding in the scene at each model call.
-- `CompiledScene` now also pre-indexes applications by application id.
+- `Advanced.CompiledScene` now also pre-indexes applications by application id.
   Hard-call target resolution and stable ordered-application materialization
   use this index instead of scanning or rebuilding lookup dictionaries.
-- `CompiledEnvironmentBindings` now pre-indexes environment bindings by
+- `Advanced.CompiledEnvironmentBindings` now pre-indexes environment bindings by
   `(application_id, object_id)`. Environment sampling and mutable environment
   output scattering use direct lookup instead of scanning all environment
   bindings for every model invocation.
@@ -263,7 +254,7 @@ then the temporary runtime was removed before release.
   scene/object runtime. Manual calls execute immediately under the parent call
   stack; applications selected by `Calls(...)` are skipped by the root
   `run!(scene)` loop and only execute through `run_call!`.
-- Added scene/object duplicate-writer validation. During `compile_scene`, each
+- Added scene/object duplicate-writer validation. During `Advanced.compile_scene`, each
   `(object, output variable)` now has one canonical writer unless later
   writers declare `Updates(:var; after=...)`. The `after` token can match a
   previous application id/name or process, so scenario authors can express
@@ -274,32 +265,27 @@ then the temporary runtime was removed before release.
   `Updates(...)` declarations used to validate ordered updates.
 - Extended `explain_model_specs` rows with application name, target selector,
   value inputs, manual calls, and environment metadata.
-- Started Phase 3 by bridging simple `Inputs(...)` declarations into the
-  existing MTG multiscale mapping carrier when the selector is representable as
-  a pure scale/variable mapping, for example
+- Started Phase 3 by compiling simple `Inputs(...)` declarations to typed
+  scale/variable carriers, for example
   `Inputs(:x => Many(scale=:Leaf, var=:y))`.
 - Added model-level `Input(...)` defaults from `dep(model)` into
   `ModelSpec` value inputs. Scenario-level `ModelSpec(...) |> Inputs(...)`
-  overrides those defaults and also replaces the corresponding internal legacy
-  mapping carrier for the same input.
-- Extended the Phase 3 bridge for domain simulations by generating internal
-  `Route(...)` carriers from supported consumer-side `Inputs(...)`
-  declarations, for example
-  `Inputs(:leaf_areas => Many(kind=:plant, scale=:Leaf, process=:leaf_state, var=:leaf_area))`.
-- Started Phase 4 by bridging `Calls(...)` declarations into the current
-  hard-domain dependency resolver when selectors can be represented by
-  `kind`, `domain`, `scale`, and `process`. Added `run_call!` as the unified
-  spelling over the current `ModelTarget` execution path.
+  overrides those defaults before the native binding is compiled.
+- Removed the intermediate scenario bridge after the scene/object compiler
+  gained native `Inputs(...)` support. Manual value-transfer carriers are not
+  retained as user-authored API.
+- Removed the intermediate dependency resolver after `Calls(...)` became
+  native scene/object metadata. Manual model execution now goes through
+  `call_target`, `call_targets`, and `run_call!`.
 - Added model-level `Call(...)` defaults from `dep(model)` into
   `ModelSpec` manual-call metadata. Scenario-level
   `ModelSpec(...) |> Calls(...)` overrides those defaults, and
   `dep(::ModelSpec)` excludes raw `Call(...)` trait entries so default calls
   are normalized through the same bridge as explicit calls.
-- Migrated the MAESPA example's scene energy-balance hard calls from
-  model-level `HardDomains(...)` to scenario-level
-  `ModelSpec(scene_model) |> Calls(...)`.
-- Migrated the MAESPA example's scene LAI leaf-area route from user-written
-  `Route(...)` to consumer-side `ModelSpec(LAIModel(...)) |> Inputs(...)`.
+- Migrated the MAESPA example's scene energy-balance hard calls to
+  scenario-level `ModelSpec(scene_model) |> Calls(...)`.
+- Migrated the MAESPA example's scene LAI leaf-area transfer to consumer-side
+  `ModelSpec(LAIModel(...)) |> Inputs(...)`.
 - Started Phase 5 with `ObjectTemplate` and `ObjectInstance`. A template stores
   reusable scene/object `ModelSpec`s plus default object labels, and an
   instance mounts those specs inside one named object subtree.
@@ -409,8 +395,7 @@ then the temporary runtime was removed before release.
 - Scene `OutputRequest(...)` now accepts `application=...` to select an
   explicit application id/name when the same process is mounted more than
   once. Explicit application selection can retain and export a
-  `:stream_only` publisher; legacy `GraphSimulation` export rejects this
-  scene-specific selector instead of ignoring it.
+  `:stream_only` publisher.
 - Each scene temporal stream owns a concrete `Vector{Tuple{Float64,T}}`
   selected from its first published value rather than boxing all values as
   `Any`. Output type changes fail explicitly, and `Interpolate`/`Integrate`
@@ -430,13 +415,13 @@ then the temporary runtime was removed before release.
 - Environment dirty tracking is now object-scoped for geometry-only changes.
   `move_object!`, `update_geometry!`, and
   `mark_environment_binding_dirty!(scene, object)` retain unaffected compiled
-  bindings and re-run `bind_environment` only for applications targeting the
+  bindings and re-run `Advanced.bind_environment` only for applications targeting the
   changed object. Structural changes and provider-wide invalidation still
   rebuild the complete environment cache.
 - Runtime lifecycle tests cover a model-created leaf joining a leaf
   application and plant-local `RefVector`, a pruned leaf leaving both before
   the next step, and a moved leaf switching mock microclimate cells.
-- `CompiledScene` now precompiles a process-keyed model bundle for every
+- `Advanced.CompiledScene` now precompiles a process-keyed model bundle for every
   `(application_id, object_id)` target. Generic hard-dependency kernels receive
   this cached bundle through their existing `models` argument without
   traversing `Calls(...)` or allocating temporary collections in the timestep
@@ -465,8 +450,8 @@ then the temporary runtime was removed before release.
 
 The scene/object compiler is executable: selectors normalize to object
 addresses, resolve before runtime, and compile into reference, temporal, call,
-writer, and environment carriers. The historical mapping compiler remains
-only as a qualified compatibility implementation.
+writer, and environment carriers. The historical mapping compiler has been
+removed.
 
 ## Phase 0: Public Contract Freeze
 
@@ -510,11 +495,11 @@ Implement:
 - `SceneObject` metadata with labels:
   `scale`, `kind`, `species`, optional `name`, parent id, child ids, and
   optional geometry/position handle.
-- `SceneRegistry` storing objects, parent/child relations, and indexes by
+- `Advanced.SceneRegistry` storing objects, parent/child relations, and indexes by
   label.
-- adapters from the current MTG/domain state into the registry:
-  each selected domain root and each MTG node gets an object id;
-  single-status domains get one object with `scale=:Default`.
+- adapters from existing MTG state into the registry:
+  each selected root and each MTG node gets an object id;
+  single-status simulations get one object with `scale=:Default`.
 - object lifecycle hooks for add/remove/reparent that mirror the existing MTG
   runtime reindexing.
 
@@ -556,13 +541,13 @@ Selectors must normalize to `ObjectAddress` objects with enough context to be
 resolved relative to a consuming object.
 
 Implement `AppliesTo(...)` using the same selector system. The target object
-set of a model application must never be hidden inside a domain key, mapping
-key, or implicit scale table.
+set of a model application must never be hidden inside a mapping key or
+implicit scale table.
 
 Definitions:
 
-- `Self()` means the current model application object or scope. It is the
-  current plant only when the model is applied at `scale=:Plant`.
+- `Self()` means only the current model application object.
+- `Subtree()` means the current object and its descendants.
 - `SelfPlant()` means the nearest containing plant scope.
 - `Ancestor(scale=:Plant)` is the generic selector form for `SelfPlant()`.
 - `SceneScope()` means the whole scene.
@@ -570,7 +555,7 @@ Definitions:
 
 Rules:
 
-- unqualified selectors inside a reusable plant mapping default to
+- unqualified selectors inside a reusable plant application bundle default to
   `within=Self()`;
 - scene-level selectors default to `within=SceneScope()`;
 - `One(...)` errors unless exactly one object resolves per consumer;
@@ -590,16 +575,15 @@ Acceptance tests:
 
 ## Phase 3: Unified Value Inputs
 
-Goal: replace `MultiScaleModel(...)` and user-written `Route(...)` with
-`Inputs(...)`, while using the existing `dep` trait as the model-level source
-of default dependency intent.
+Goal: use `Inputs(...)` as the only user-facing value-dependency declaration.
+Historical `MultiScaleModel(...)` mappings are migration sources only.
 
 Target API:
 
 ```julia
 ModelSpec(AllocationModel()) |>
     AppliesTo(Many(kind=:plant, scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon))
+    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
 
 ModelSpec(LAIModel(area)) |>
     AppliesTo(One(scale=:Scene)) |>
@@ -613,8 +597,7 @@ Implement:
   provide default value-input bindings.
 - normalized input bindings from target variable to `ObjectAddress`.
 - compiler pass that decides carrier:
-  direct reference, `RefVector`, temporal stream, or route-like
-  materialization.
+  direct reference, `RefVector`, temporal stream, or materialization.
 - status-default insertion for materialized target variables using the
   consumer model's `inputs_` default.
 - temporal policies on value inputs:
@@ -626,14 +609,15 @@ Rules:
 
 - model authors still declare `inputs_`; scenario authors decide where those
   inputs come from;
-- `dep(model)` may provide defaults for common value-input bindings, for both
-  current `ModelMapping`-style composition and future scene/object composition;
+- `dep(model)` may provide defaults for common value-input bindings in
+  scene/object composition;
 - scenario-level `ModelSpec(...) |> Inputs(...)` always wins over `dep(model)`
   defaults;
 - same-rate local links should keep reference semantics where possible;
 - cross-rate links always go through temporal state;
 - duplicate source candidates are errors unless the selector disambiguates;
-- route structs may remain internally but should not be required in examples.
+- materialization carriers, when needed, are internal compiler details
+  and are not user-authored structs;
 - same-rate scalar and many-object links should avoid copies when they can use
   aliases, shared refs, `RefVector`, or an equivalent typed carrier;
 - PlantSimEngine must preserve arbitrary value types, including units,
@@ -648,18 +632,18 @@ Carrier expectations:
 | same-rate many-object | `RefVector` or equivalent typed reference collection |
 | cross-rate | temporal stream sample |
 | integrate/aggregate | temporal window reduction |
-| materialized route | generated pre-run status assignment |
+| materialized cross-object input | generated pre-run status assignment |
 | environment | cached environment binding sample |
 
 Acceptance tests:
 
-- the MAESPA scene LAI route becomes an `Inputs(...)` declaration and produces
-  the same `lai` and `leaf_area`;
-- current plant allocation `MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]])`
+- the MAESPA scene LAI cross-object input is declared with `Inputs(...)` and
+  produces the same `lai` and `leaf_area`;
+- historical plant allocation `MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]])`
   becomes `Inputs(...)` and remains plant-local;
 - a same-scale rename currently expressed with `SameScale()` works through
   `Inputs(...)`;
-- multi-rate value inputs integrate graph-domain node streams by object id.
+- multi-rate value inputs integrate object streams by object id.
 - same-rate many-object bindings do not allocate per timestep in a benchmarked
   hot loop beyond unavoidable model work.
 - unitful or dual-number status values survive `Inputs(...)` without forced
@@ -667,11 +651,9 @@ Acceptance tests:
 
 ## Phase 4: Unified Model Calls
 
-Goal: replace `HardDomains(...)` with `Calls(...)`. `Calls(...)` is the
-required public API for manually controlled model execution and must be
-implemented in this phase, not deferred to a future rename. The same mechanism
-must also be usable from `dep(model)` so current hard-dependency traits become
-default call declarations.
+Goal: use `Calls(...)` as the only user-facing manual model-call declaration.
+The same mechanism must also be usable from `dep(model)` so hard-dependency
+traits become default call declarations.
 
 Target API:
 
@@ -679,7 +661,7 @@ Target API:
 ModelSpec(SceneEB()) |>
     AppliesTo(One(scale=:Scene)) |>
     Calls(:leaf_energy => Many(kind=:plant, scale=:Leaf, process=:energy_balance)) |>
-    Calls(:soil => One(kind=:soil, process=:soil_water))
+    Calls(:soil => One(kind=:soil, application=:soil_water))
 ```
 
 Implement:
@@ -786,8 +768,7 @@ Acceptance tests:
 MAESPA status:
 
 - the unified scene/object MAESPA path uses `ObjectTemplate` and
-  `ObjectInstance` for species A and B. The temporary domain path has been
-  removed.
+  `ObjectInstance` for species A and B.
 
 ## Phase 5B: Object Lifecycle And Cache Invalidation
 
@@ -801,7 +782,7 @@ register_object!(scene, object; parent)
 remove_object!(scene, object)
 reparent_object!(scene, object, new_parent)
 move_object!(scene, object, geometry_or_position)
-refresh_bindings!(scene)
+Advanced.refresh_bindings!(scene)
 ```
 
 Implement invalidation for:
@@ -853,7 +834,7 @@ Implement:
 - minimal geometry accessors or traits:
   `position`, `geometry`, and `bounds`.
 - backend protocol:
-  `bind_environment`, `sample_environment`, `scatter_environment!`, and
+  `Advanced.bind_environment`, `sample_environment`, `scatter_environment!`, and
   `refresh_environment!`.
 - `Environment(...)` overrides for scenario-specific resolver/backend choices.
 - `Environment(; sources=(CO2=:Ca,))` for scenario-specific environment source
@@ -897,8 +878,8 @@ Goal: make the unified graph the source of truth.
 Implement:
 
 - one compiler that builds a global dependency graph over object addresses;
-- route/materialization and multiscale reference wiring as internal carriers;
-- domain DAG scheduling replaced by object/scope dependency scheduling;
+- materialization and multiscale reference wiring as internal carriers;
+- object/scope dependency scheduling;
 - writer validation through the same graph, including `Updates(...)`;
 - model application scheduling from `AppliesTo(...)` target sets;
 - multirate scheduling based on `Dates.Period` values in `TimeStep(...)` and
@@ -917,8 +898,8 @@ Acceptance tests:
 
 - old `MultiScaleModel` examples rewritten with `Inputs(...)` produce matching
   outputs;
-- old `Route(...)` examples rewritten with `Inputs(...)` produce matching
-  outputs;
+- historical cross-object examples rewritten with `Inputs(...)` produce
+  matching outputs;
 - MAESPA hard-call example rewritten with `Calls(...)` produces matching
   outputs;
 - explanation helpers include enough concrete object ids, scales, processes,
@@ -936,21 +917,19 @@ Acceptance tests:
 
 Goal: remove the old configuration surface once parity is proven.
 
-Remove or demote:
+Removed:
 
 - `MultiScaleModel(...)` as public scenario configuration;
-- public `Route(...)` authoring for normal value inputs;
-- `AllDomains(...)` and `HardDomains(...)` as primary user API;
-- `Domain(...)` as a user-facing container when object templates/instances are
-  available.
+- superseded scenario containers and value-transfer authoring;
+- superseded manual-dependency selectors.
 
 Write migration notes:
 
 - `MultiScaleModel([:x => [:Leaf => :y]])` -> `Inputs(:x => Many(scale=:Leaf, var=:y))`;
-- `Route(from=AllDomains(...), to=...)` -> consumer `Inputs(...)`;
-- `HardDomains(...)` -> `Calls(...)`;
-- repeated species domains -> `ObjectTemplate` plus `ObjectInstance`;
-- explicit meteo routes -> environment resolver/binding backend.
+- cross-object value declarations -> consumer `Inputs(...)`;
+- manual dependency declarations -> `Calls(...)`;
+- repeated species assemblies -> `ObjectTemplate` plus `ObjectInstance`;
+- explicit meteo wiring -> environment resolver/binding backend.
 - `InputBindings(...)` -> source and temporal policy information inside
   `Inputs(...)`;
 - `MeteoBindings(...)` and `MeteoWindow(...)` -> `Environment(...)` and
@@ -965,59 +944,48 @@ Regression tests must cover all migrated examples before removal.
 Migration documentation progress:
 
 - Added `docs/src/migration_scene_object.md` with direct translations for
-  `MultiScaleModel`, `Route`, `AllDomains`, `HardDomains`, repeated `Domain`
-  instances, `TimeStepModel`, `InputBindings`, `MeteoBindings`,
-  `ScopeModel`, and `SameScale`.
+  `MultiScaleModel`, repeated object assemblies,
+  `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and
+  `SameScale`.
 - Documentation navigation and the home page now identify the scene/object API
-  as the target for new multiscale and multi-plant work. Legacy domain and
-  multiscale pages are explicitly labeled.
+  as the target for new multiscale and multi-plant work.
 - The documentation home page now uses executable scene/object examples as the
   primary quickstart. It shows `Scene`, `Object`, `ModelSpec`, `AppliesTo`,
   `Inputs`, `TimeStep`, automatic same-object binding inference, multi-object
-  `Many(...)` inputs, and manual `Calls(...)` syntax before linking to legacy
-  mapping tutorials.
+  `Many(...)` inputs, and manual `Calls(...)` syntax.
 - The repository README now mirrors the scene/object entry point instead of
   teaching `ModelMapping` first. It includes smoke-tested `Scene`/`Object`
   quickstart code, `Inputs(...)` multi-object coupling, conceptual
-  `Calls(...)` syntax, and links to the migration guide for compatibility
-  APIs.
+  `Calls(...)` syntax, and links to the migration guide.
 - Added `docs/src/scene_object/quickstart.md` as the first native
   scene/object tutorial page and promoted it in the documentation navigation.
   The page contains docs-tested examples for one-object model chaining,
   inferred same-object bindings, `OutputRequest` retention, multi-object
   `Inputs(...)`, `RefVector` carrier explanations, and manual `Calls(...)`
   syntax.
-- The repository agent skill teaches the unified public vocabulary first and
-  treats the historical mapping stack as legacy-maintenance knowledge.
+- The repository agent skill teaches the unified public vocabulary.
 - The public API page now starts with curated scene/object groups for scenario
   construction, selectors, coupling, lifecycle, environment, runtime, and
-  structured explanations. Mapping-level multirate examples are labeled as
-  legacy.
+  structured explanations.
 
 Current removal audit:
 
-- The unreleased domain scenario and runtime subsystem has been deleted,
-  including its route carriers, dependency selectors, target helpers, tests,
+- The unreleased intermediate scenario and runtime subsystem has been deleted,
+  including its carriers, dependency selectors, target helpers, tests,
   examples, and documentation.
 - Public manual-call control now uses `call_target`, `call_targets`, and
   `run_call!`.
 - `SceneRunContext` defines `call_target(s)` directly, including string-name
   support.
-- The legacy mapping transforms are no longer exported:
+- The legacy mapping transforms are removed:
   `MultiScaleModel`, `SameScale`, `TimeStepModel`, `InputBindings`,
-  `MeteoBindings`, `MeteoWindow`, and `ScopeModel` require qualified
-  `PlantSimEngine.*` access in compatibility tests and historical examples.
-- `ModelMapping` is no longer exported. Retained mapping tests, examples,
-  benchmarks, doctests, and historical tutorials explicitly use
-  `PlantSimEngine.ModelMapping(...)`, making the compatibility boundary
-  visible without deleting regression coverage.
-- Historical MTG mapping and mapping-level multirate pages are grouped under
-  explicitly named legacy sections in the documentation. Executable examples
-  use qualified compatibility constructors so they cannot be mistaken for the
-  exported public API.
-- The home page, execution page, MTG mapping tutorials, and mapping-level
-  multirate tutorials now identify their compatibility status and direct new
-  work to the scene/object API. A future documentation cleanup can replace
+  `MeteoBindings`, `MeteoWindow`, and `ScopeModel` are not retained as
+  compatibility constructors.
+- `ModelMapping` is removed. Retained documentation mentions it only as
+  historical migration context.
+- Historical MTG mapping and mapping-level multirate pages were removed from
+  the active documentation navigation. A future documentation cleanup can
+  replace
   these historical pages with equivalent scene/object tutorials rather than
   retaining them as migration reference.
 - The model execution page has been rewritten as a scene/object-first guide.
@@ -1042,26 +1010,19 @@ Current removal audit:
   repository README has also been replaced by native scene/object examples,
   and a dedicated scene/object quickstart is now available in the main
   documentation navigation.
-- Legacy multirate and mapping tests remain intentionally as qualified
-  compatibility regression coverage. Equivalent scene/object tests now cover
-  scheduling, temporal policies, binding inference and overrides, meteo
-  contracts and aggregation, output routing and application-qualified export,
-  and structured explanations. The legacy constructors are already absent
-  from exports.
+- Scene/object tests cover scheduling, temporal policies, binding inference
+  and overrides, meteo contracts and aggregation, output routing and
+  application-qualified export, and structured explanations. Legacy mapping
+  regression tests were removed with the old runtime.
 - Scene/object tests now include public meteo-contract validation parity for
   missing environment variables, explicit `Environment(; sources=...)`
   remapping, model-author `meteo_hint` source defaults, and validation against
   an explicit replacement meteo object/backend.
-- Test code has been migrated from `TimeStepModel(...)` to the canonical
-  `TimeStep(...)` spelling. Remaining legacy transform tests now qualify
-  legacy-only helpers such as `PlantSimEngine.InputBindings`,
-  `PlantSimEngine.ScopeModel`, and `PlantSimEngine.MultiScaleModel` in the
-  focused scaffolding test, reducing reliance on those names as exported
-  public API.
-- The unified MAESPA path is implemented and tested, so the legacy MAESPA
-  domain path is regression-only evidence. Its legacy constructors are
-  qualified explicitly, while the migrated kernel uses `AppliesTo`, `Inputs`,
-  `Calls`, `call_target(s)`, and `run_call!`.
+- Test code uses the canonical `TimeStep(...)` spelling and scene/object
+  modifiers. Legacy transform tests were removed with the old compatibility
+  constructors.
+- The unified MAESPA path is implemented and tested through `AppliesTo`,
+  `Inputs`, `Calls`, `call_target(s)`, and `run_call!`.
 
 ## Resolved API Decisions
 
@@ -1069,17 +1030,13 @@ Current removal audit:
   public selector names.
 - `Inputs(...)` is the preferred pipeable modifier. `ModelSpec(...; inputs=...)`
   is also accepted for programmatic construction.
-- `TimeStep(...)` is the canonical exported name. `TimeStepModel(...)` is an
-  internal compatibility transform for qualified historical code.
+- `TimeStep(...)` is the canonical timestep configuration.
 - `Environment(...)` owns provider/resolver/source configuration. Temporal
   value windows belong to the consuming `Inputs(...)` selector.
 - Object templates own reusable model applications and parameters, not plant
   topology construction. They consume explicit object trees or MTGs adapted
   through `objects_from_mtg`.
-- The old domain, route, multiscale, and mapping-transform implementations are
-  retained as an explicitly qualified compatibility and regression layer.
-  Their scenario constructors are not exported and are not part of the primary
-  API.
+- The old multiscale and mapping-transform implementations have been removed.
 
 ## Completion Evidence
 

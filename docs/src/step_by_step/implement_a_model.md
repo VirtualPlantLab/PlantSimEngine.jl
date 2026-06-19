@@ -41,11 +41,12 @@ end
 Write the [`run!`](@ref) function that operates on a single timestep : 
 
 ```@example usepkg
-function run!(::Beer, models, status, meteo, constants, extras)
-    status.PPFD =
+function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
+    status.aPPFD =
         meteo.Ri_PAR_f *
         exp(-models.light_interception.k * status.LAI) *
         constants.J_to_umol
+    return nothing
 end
 ```
 
@@ -169,7 +170,7 @@ applications, inputs, and manual calls. Each model has its own [`run!`](@ref)
 method for updating the current state. The function takes six arguments:
 
 ```julia
-function run!(::Beer, models, status, meteo, constants, extras)
+function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
 ```
 
 - the model's type
@@ -189,11 +190,12 @@ Note that the input and output variables are accessed through the
 `status` argument:
 
 ```@example usepkg
-function run!(::Beer, models, status, meteo, constants, extras)
-    status.PPFD =
+function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
+    status.aPPFD =
         meteo.Ri_PAR_f *
         exp(-models.light_interception.k * status.LAI) *
         constants.J_to_umol
+    return nothing
 end
 ```
 

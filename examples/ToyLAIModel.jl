@@ -55,10 +55,8 @@ function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=not
     end
 end
 
-# The computation of ToyLAIModel is independant of previous values and other objects. We can add this information as 
-# traits to the model to tell PlantSimEngine that it is safe to run the models in parallel:
-
-
+# ToyLAIModel is independent of previous values and other objects. The current
+# public runtime remains sequential and owns execution policy.
 
 # A second model at scene scale:
 """
@@ -93,4 +91,5 @@ function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, models, status, meteo, 
     status.LAI = status.total_surface / m.scene_area
 end
 
-# The computation of ToyLAIfromLeafAreaModel is independant of previous values so we can compute it in parallel over time-steps:
+# ToyLAIfromLeafAreaModel is independent of previous values, but execution
+# policy remains owned by the runtime.

@@ -412,11 +412,11 @@ function _maespa_species_template(species; monteith, fvcb, tuzet, allocation)
         (
             ModelSpec(monteith; name=:energy_balance) |>
             AppliesTo(Many(scale=:Leaf)) |>
-            Calls(:photosynthesis => One(scale=:Leaf, process=:photosynthesis)) |>
+            Calls(:photosynthesis => One(scale=:Leaf, application=:photosynthesis)) |>
             TimeStep(Dates.Hour(1)),
             ModelSpec(fvcb; name=:photosynthesis) |>
             AppliesTo(Many(scale=:Leaf)) |>
-            Calls(:stomatal_conductance => One(scale=:Leaf, process=:stomatal_conductance)) |>
+            Calls(:stomatal_conductance => One(scale=:Leaf, application=:stomatal_conductance)) |>
             TimeStep(Dates.Hour(1)),
             ModelSpec(tuzet; name=:stomatal_conductance) |>
             AppliesTo(Many(scale=:Leaf)) |>
@@ -426,7 +426,7 @@ function _maespa_species_template(species; monteith, fvcb, tuzet, allocation)
             TimeStep(Dates.Hour(1)),
             ModelSpec(allocation; name=:allocation) |>
             AppliesTo(One(scale=:Plant)) |>
-            Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon)) |>
+            Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)) |>
             TimeStep(Dates.Day(1)),
         );
         kind=:plant,
@@ -508,7 +508,7 @@ function build_maespa_scene(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa
             AppliesTo(One(scale=:Scene)) |>
             Calls(
                 :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
-                :soil => One(kind=:soil, scale=:Soil, process=:soil_water),
+                :soil => One(kind=:soil, scale=:Soil, application=:soil_water),
             ) |>
             TimeStep(Dates.Hour(1)),
             ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water) |>
@@ -535,9 +535,14 @@ end
 
 function run_maespa_example(; nhours=24, check=true)
     scene = build_maespa_scene(; meteo=maespa_meteo(; nhours=nhours))
-    compiled = compile_scene(scene)
-    check && refresh_environment_bindings!(scene, compiled)
-    simulation = run!(scene; steps=nhours, constants=PlantMeteo.Constants())
+    compiled = Advanced.compile_scene(scene)
+    check && Advanced.refresh_environment_bindings!(scene, compiled)
+    simulation = run!(
+        scene;
+        steps=nhours,
+        constants=PlantMeteo.Constants(),
+        outputs=:all,
+    )
     return (
         scene=scene,
         compiled=simulation.compiled,

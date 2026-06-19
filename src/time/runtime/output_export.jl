@@ -1,32 +1,48 @@
 """
-    OutputRequest(scale, var; name=var, process=nothing, application=nothing,
+    OutputRequest(selector, var; name=var, application=nothing, context=nothing,
                   policy=HoldLast(), clock=nothing)
+    OutputRequest(scale, var; kwargs...)
 
 Request retention and optional resampling of one scene output stream.
+
+The first form accepts the same `One`, `OptionalOne`, or `Many` selector used
+by `AppliesTo`, `Inputs`, `Calls`, and object queries. Passing a scale is a
+convenience for `Many(scale=scale)`.
 """
-struct OutputRequest{P<:Union{Nothing,Symbol},A<:Union{Nothing,Symbol},POL<:SchedulePolicy,C}
-    scale::Symbol
+struct OutputRequest{S<:AbstractObjectMultiplicity,P<:Union{Nothing,Symbol},A<:Union{Nothing,Symbol},CT,POL<:SchedulePolicy,C}
+    selector::S
     var::Symbol
     name::Symbol
     process::P
     application::A
+    context::CT
     policy::POL
     clock::C
 end
 
 function OutputRequest(
-    scale::Symbol,
+    selector::AbstractObjectMultiplicity,
     var::Symbol;
     name::Symbol=var,
     process=nothing,
     application=nothing,
+    context=nothing,
     policy::SchedulePolicy=HoldLast(),
     clock=nothing,
 )
+    if !isnothing(process)
+        Base.depwarn(
+            "`process=` in `OutputRequest` is deprecated; name the model application and use `application=`.",
+            :OutputRequest,
+        )
+    end
     proc = isnothing(process) ? nothing : Symbol(process)
     app = isnothing(application) ? nothing : Symbol(application)
-    return OutputRequest(scale, var, name, proc, app, policy, clock)
+    return OutputRequest(selector, var, name, proc, app, context, policy, clock)
 end
+
+OutputRequest(scale::Union{Symbol,AbstractString}, var::Symbol; kwargs...) =
+    OutputRequest(Many(scale=Symbol(scale)), var; kwargs...)
 
 function _export_clock(request::OutputRequest, timeline::TimelineContext)
     isnothing(request.clock) && return ClockSpec(1.0, 0.0)
@@ -41,7 +57,7 @@ function _normalize_output_requests(requests)
     isnothing(requests) && return OutputRequest[]
     requests isa OutputRequest && return OutputRequest[requests]
     requests isa AbstractVector{<:OutputRequest} || error(
-        "`tracked_outputs` must be `nothing`, an `OutputRequest`, or a vector of `OutputRequest`."
+        "`outputs` must be `:all`, `:none`, an `OutputRequest`, or a vector of `OutputRequest`."
     )
     return collect(requests)
 end

@@ -1,24 +1,16 @@
 # Unified Scene/Object Design
 
-> **Historical design note**
->
-> This document records the redesign process. Names such as `Domain`,
-> `Route`, `AllDomains`, and `HardDomains` refer to an unreleased intermediate
-> prototype that has been removed from the package.
-
-This page records the target breaking design discussed after the multi-domain
-prototype. It intentionally supersedes the user-facing distinction between
-`MultiScaleModel(...)` mappings and `Route(...)` cross-domain materialization.
+This page records the target breaking design for one scene/object
+configuration and runtime API.
 
 The central idea is:
 
-> Domains and scales are not fundamentally different concepts. They are both
-> selections over objects in one scene.
+> Structural groupings and scales are selections over objects in one scene.
 
 The engine should expose one way to say "this model input comes from these
 objects" and one way to say "this model must manually call these models". The
 compiler can then choose whether the runtime carrier is a `Ref`, `RefVector`,
-temporal stream, route materialization, or callable model handle.
+temporal stream, materialized value, or callable model handle.
 
 The public API should be simple enough to remember as:
 
@@ -104,20 +96,17 @@ Kind(:plant)
 Species(:oil_palm)
 ```
 
-`Self()` means the current model application object or scope. It does not
-always mean "the current plant". If a model runs on a `:Plant`, `Self()` means
-that plant object or subtree. If a model runs on an `:Axis`, it means that axis.
-If a model runs on a `:Leaf`, it means that leaf. If a model runs on the scene
-object, it means the scene object/scope.
+`Self()` means only the current model application object. `Subtree()` means
+that object and its descendants. Neither spelling changes meaning with scale.
 
 `SelfPlant()` is the nearest containing plant scope. The more generic form is
 `Ancestor(scale=:Plant)`. Use these when a model running below the plant scale
 must access siblings or state inside the containing plant.
 
-Reusable plant models should default to scope-relative queries. If an
-allocation model is applied to each `:Plant`, `Many(scale=:Leaf, within=Self())`
-means "the leaves inside this plant", not all leaves in the scene. The same
-query applied to an axis-scale model would mean "the leaves inside this axis".
+Reusable plant models should use scope-relative queries. If an allocation
+model is applied to each `:Plant`, `Many(scale=:Leaf, within=Subtree())` means
+"the leaves inside this plant", not all leaves in the scene. The same query
+applied to an axis-scale model means "the leaves inside this axis".
 
 Scene-level models widen the scope explicitly with `within=SceneScope()`.
 
@@ -148,7 +137,7 @@ The same template can be mounted several times:
 oil_palm = ObjectTemplate(
     kind=:plant,
     species=:oil_palm,
-    mapping=oil_palm_mapping,
+    applications=oil_palm_applications,
     parameters=oil_palm_parameters,
 )
 
@@ -228,14 +217,13 @@ is ambiguous.
 
 ## Unified Model Configuration
 
-`ModelSpec` should become the single scenario wrapper. `MultiScaleModel(...)`,
-`AllDomains(...)`, `HardDomains(...)`, and user-written `Route(...)` should be
-replaced by explicit value inputs and callable model calls.
+`ModelSpec` is the single scenario wrapper. Released mapping-era configuration
+is replaced by explicit value inputs and callable model calls.
 
 ### Applies To
 
 Use `AppliesTo(...)` to declare the object set where a model application runs.
-This should be first-class, not inferred from a domain or mapping key.
+This should be first-class, not inferred from a container or mapping key.
 
 ```julia
 ModelSpec(LeafState()) |>
@@ -255,9 +243,9 @@ application to a stable application id.
 ### Dependency Defaults From Traits
 
 Model authors should still declare `inputs_`, `outputs_`, and `dep`. In the
-new design, `dep(model)` becomes the model-level place for default dependency
-intent, for both the current `ModelMapping` use case and the future scene/object
-runtime.
+final design, `dep(model)` is the model-level place for default dependency
+intent. Historical `ModelMapping` declarations are migration inputs to the
+Scene/Object runtime, not a second supported path.
 
 The rule is:
 
@@ -272,7 +260,7 @@ For example, a plant allocation model can provide a plant-local default:
 
 ```julia
 dep(::PlantAllocationModel) = (
-    leaf_carbon = Input(Many(scale=:Leaf, within=Self(), var=:leaf_carbon)),
+    leaf_carbon = Input(Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)),
 )
 ```
 
@@ -314,7 +302,7 @@ Reusable plant allocation:
 ```julia
 ModelSpec(AllocationModel()) |>
     AppliesTo(Many(scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon))
+    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
 ```
 
 The same declaration must compile to:
@@ -322,7 +310,7 @@ The same declaration must compile to:
 - direct `Ref`/`RefVector` wiring when producer and consumer live in the same
   object graph and rate;
 - temporal stream reads when producer and consumer run at different rates;
-- current route materialization when target status must be assigned before a
+- materialization when target status must be assigned before a
   model runs;
 - source-status lookup for graph-backed object selections.
 
@@ -344,7 +332,7 @@ explainable:
 | same-rate `Many(...)` input | `RefVector` or equivalent typed reference collection | no copy for live values |
 | cross-rate input | temporal stream sample | value materialized for the consumer timestep |
 | `Integrate` or `Aggregate` input | temporal window reduction | reduced value materialized |
-| route-like target status input | compiler-generated materialization | assigned before consumer run |
+| materialized target status input | compiler-generated assignment | assigned before consumer run |
 | environment input | cached `EnvironmentBinding` sample | backend-defined value sample |
 
 This table is a required part of the design because performance, units,
@@ -370,7 +358,7 @@ ModelSpec(PlantAllocation()) |>
     AppliesTo(Many(kind=:plant, scale=:Plant)) |>
     Inputs(:leaf_assimilation => Many(
         scale=:Leaf,
-        within=Self(),
+        within=Subtree(),
         var=:assimilation,
         policy=Integrate(),
         window=Day(1),
@@ -420,7 +408,7 @@ ModelSpec(SceneEB()) |>
         scale=:Leaf,
         process=:energy_balance,
     )) |>
-    Calls(:soil => One(kind=:soil, process=:soil_water))
+    Calls(:soil => One(kind=:soil, application=:soil_water))
 ```
 
 Inside `run!`, the scene model receives call handles and calls
@@ -506,7 +494,7 @@ register_object!(scene, object; parent)
 remove_object!(scene, object)
 reparent_object!(scene, object, new_parent)
 move_object!(scene, object, geometry_or_position)
-refresh_bindings!(scene)
+Advanced.refresh_bindings!(scene)
 ```
 
 Spatial environment backends should depend on a small geometry contract, not on
@@ -579,7 +567,7 @@ backends.
 The environment backend protocol should be small and backend-oriented:
 
 ```julia
-bind_environment(scene, backend, object)
+Advanced.bind_environment(scene, backend, object)
 sample_environment(backend, binding, time, variables)
 scatter_environment!(backend, binding, values)
 refresh_environment!(backend, scene)
@@ -732,22 +720,10 @@ and bounded temporal-dependency streams.
 Errors should report concrete object labels, scope selectors, process names,
 variables, and suggested fixes.
 
-## Compatibility Position
+## API Position
 
-This is a breaking target design. It should preserve model kernels and the
-`run!(model, models, status, meteo, constants, extra)` contract when possible,
-but it may replace the scenario configuration surface:
-
-- `MultiScaleModel(...)` becomes `Inputs(...)`;
-- `Route(...)` becomes a compiler-generated carrier for `Inputs(...)`;
-- `AllDomains(...)` becomes a selector used inside `Inputs(...)`;
-- `HardDomains(...)` becomes `Calls(...)`;
-- `Domain(...)` becomes an object scope/template/instance concept;
-- `InputBindings(...)` becomes explicit policy and source information on
-  `Inputs(...)`;
-- `MeteoBindings(...)` becomes automatic environment binding plus optional
-  `Environment(...)` overrides;
-- `OutputRouting(...)` remains model-application output configuration or is
-  folded into a clearer output policy modifier;
-- `PreviousTimeStep(...)` remains a temporal policy/cycle-breaking marker in
-  the unified graph.
+This is a breaking design. It preserves model kernels and the
+`run!(model, models, status, meteo, constants, extra)` contract while replacing
+the scenario configuration surface with `Scene`, `Object`, `ModelSpec`,
+selectors, `Inputs(...)`, `Calls(...)`, `TimeStep(...)`, and
+`Environment(...)`.

@@ -87,7 +87,7 @@ scene = Scene(
 )
 
 sim = run!(scene; steps=30, constants=Constants())
-out = DataFrame(collect_outputs(sim; sink=nothing))
+out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
 

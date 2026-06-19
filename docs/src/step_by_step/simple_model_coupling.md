@@ -40,7 +40,7 @@ light_scene = Scene(
 )
 
 light_sim = run!(light_scene; steps=3, constants=Constants())
-first(DataFrame(collect_outputs(light_sim; sink=nothing)), 3)
+first(collect_outputs(light_sim; sink=DataFrame), 3)
 ```
 
 ## Coupling two models
@@ -68,9 +68,8 @@ coupled_scene = Scene(
     environment=meteo_day,
 )
 
-compiled = refresh_bindings!(coupled_scene)
 select(
-    DataFrame(explain_bindings(compiled)),
+    DataFrame(explain_bindings(coupled_scene)),
     :application_id,
     :input,
     :source_application_ids,

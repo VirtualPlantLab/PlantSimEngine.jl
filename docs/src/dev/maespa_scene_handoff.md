@@ -56,12 +56,12 @@ ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
     TimeStep(Dates.Day(1))
 ```
 
-Allocation is plant-local because its leaf selector uses `within=Self()`:
+Allocation is plant-local because its leaf selector uses `within=Subtree()`:
 
 ```julia
 ModelSpec(allocation; name=:allocation) |>
     AppliesTo(One(scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon)) |>
+    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)) |>
     TimeStep(Dates.Day(1))
 ```
 

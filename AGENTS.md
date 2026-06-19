@@ -70,6 +70,7 @@ Scope and topology:
 
 - `SceneScope()`
 - `Self()`: the current object
+- `Subtree()`: the current object and its descendants
 - `SelfPlant()`: the current plant instance/root
 - `Ancestor(...)`
 - `Scope(name)`
@@ -146,7 +147,9 @@ know its scenario timestep unless the scientific model explicitly requires it.
 
 ## Outputs
 
-- `run!(scene)` returns `SceneSimulation`.
+- `run!(scene; outputs=:none)` starts a fresh timeline and returns
+  `SceneSimulation`; use `outputs=:all` or output requests to retain streams.
+- `continue!(simulation)` and `step!(simulation)` advance the same timeline.
 - `scene_outputs(sim)` exposes retained typed streams.
 - `OutputRequest` selects retained/resampled outputs.
 - `collect_outputs(sim)` materializes output rows.
@@ -166,8 +169,18 @@ not overwrite each other.
 
 ## High-Signal Files
 
-- `src/scene_object_api.jl`: registry, selectors, compilation, execution,
-  lifecycle, hard calls, temporal streams, and output collection.
+- `src/scene_object_api.jl`: dependency-ordered include boundary for the sole
+  Scene/Object compiler and runtime.
+- `src/scene_object/registry_topology.jl`: objects, registry, templates,
+  instances, overrides, topology, and lifecycle ownership.
+- `src/scene_object/selectors.jl`: selector normalization and resolution.
+- `src/scene_object/compilation.jl`: applications, carriers, calls, writer
+  validation, schedules, and structured compilation explanations.
+- `src/scene_object/environment_bindings.jl`: global/spatial environment
+  bindings and invalidation.
+- `src/scene_object/runtime_outputs.jl`: execution, temporal streams, hard-call
+  publication, retention, and output collection.
+- `src/scene_object/scenario_dsl.jl`: small scenario construction helpers.
 - `src/ModelSpec.jl`: model application configuration.
 - `src/component_models/Status.jl`: reference-based status.
 - `src/component_models/RefVector.jl`: homogeneous reference vectors.
@@ -175,7 +188,8 @@ not overwrite each other.
 - `src/time/runtime/clocks.jl`: Dates-based timing.
 - `src/time/runtime/meteo_sampling.jl`: weather sampling.
 - `src/time/runtime/environment_backends.jl`: environment backend contract.
-- `test/test-unified-scene-object-api.jl`: primary behavioral coverage.
+- `test/test-unified-scene-object-api.jl`: broad integration coverage.
+- `test/test-scene-*.jl`: focused Scene/Object behavioral contracts.
 
 ## Change Checklist
 

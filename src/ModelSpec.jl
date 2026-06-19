@@ -32,9 +32,10 @@ end
 Scenario-level declaration that a model updates variables which may also be
 computed by another model at the same scale.
 
-`after` is intentionally scenario-level metadata: the model implementation stays
-reusable, while the simulation setup can declare ordering constraints that only
-exist in this coupling.
+`after` contains canonical application identifiers. It is intentionally
+scenario-level metadata: the model implementation stays reusable, while the
+simulation setup can declare ordering constraints that only exist in this
+coupling.
 """
 struct Updates{V,A}
     variables::V
@@ -56,14 +57,14 @@ _normalize_updates(updates::Updates) = (updates,)
 
 function _normalize_updates(updates::Tuple)
     all(update -> update isa Updates, updates) || error(
-        "Unsupported updates tuple. Use `Updates(:var; after=:process)` entries."
+        "Unsupported updates tuple. Use `Updates(:var; after=:application)` entries."
     )
     return updates
 end
 
 function _normalize_updates(updates::AbstractVector)
     all(update -> update isa Updates, updates) || error(
-        "Unsupported updates vector. Use `Updates(:var; after=:process)` entries."
+        "Unsupported updates vector. Use `Updates(:var; after=:application)` entries."
     )
     return Tuple(updates)
 end
@@ -73,7 +74,7 @@ function _normalize_updates(updates)
     updates == () && return ()
     error(
         "Unsupported updates metadata `$(updates)` of type `$(typeof(updates))`. ",
-        "Use `Updates(:var; after=:process)` or a tuple/vector of `Updates`."
+        "Use `Updates(:var; after=:application)` or a tuple/vector of `Updates`."
     )
 end
 

@@ -96,9 +96,8 @@ Before runtime, PlantSimEngine resolves selectors and builds a compiled scene.
 This avoids resolving object selections inside the timestep loop.
 
 ```@example detailed_scene
-compiled = refresh_bindings!(scene)
 select(
-    DataFrame(explain_scene_applications(compiled)),
+    DataFrame(explain_scene_applications(scene)),
     :application_id,
     :process,
     :target_ids,
@@ -109,14 +108,14 @@ select(
 initialized directly on the object status:
 
 ```@example detailed_scene
-explain_bindings(compiled)
+explain_bindings(scene)
 ```
 
 The schedule tells us when each application runs:
 
 ```@example detailed_scene
 select(
-    DataFrame(explain_schedule(compiled)),
+    DataFrame(explain_schedule(scene)),
     :application_id,
     :dt_seconds,
     :root_scheduled,
@@ -182,7 +181,7 @@ coupled_scene = Scene(
 )
 
 select(
-    DataFrame(explain_bindings(refresh_bindings!(coupled_scene))),
+    DataFrame(explain_bindings(coupled_scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -234,7 +233,7 @@ bad_scene = Scene(
 )
 
 try
-    refresh_bindings!(bad_scene)
+    explain_bindings(bad_scene)
 catch err
     first(sprint(showerror, err), 300)
 end

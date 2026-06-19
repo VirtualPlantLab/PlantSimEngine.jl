@@ -1,0 +1,130 @@
+struct ObjectAddress{SC,K,SP,S,N,P,V,R,M}
+    scope::SC
+    kind::K
+    species::SP
+    scale::S
+    name::N
+    process::P
+    var::V
+    relation::R
+    multiplicity::M
+end
+
+function ObjectAddress(selector::AbstractObjectMultiplicity)
+    c = criteria(selector)
+    scope = _criteria_scope(c)
+    kind = _criteria_value(c, :kind, Kind)
+    species = _criteria_value(c, :species, Species)
+    scale = _criteria_value(c, :scale, Scale)
+    name = haskey(c, :name) ? c.name : nothing
+    process = haskey(c, :process) ? c.process : nothing
+    var = haskey(c, :var) ? c.var : nothing
+    relation = _criteria_value(c, :relation, Relation)
+    return ObjectAddress(scope, kind, species, scale, name, process, var, relation, multiplicity(selector))
+end
+
+object_address(selector::AbstractObjectMultiplicity) = ObjectAddress(selector)
+
+struct Input{S}
+    selector::S
+end
+Input(; kwargs...) = Input(One(; kwargs...))
+
+struct Call{S}
+    selector::S
+end
+Call(; kwargs...) = Call(One(; kwargs...))
+
+struct EnvironmentConfig{C}
+    config::C
+end
+
+_normalize_application_name(name) = isnothing(name) ? nothing : Symbol(name)
+
+function _normalize_application_bindings(bindings::NamedTuple)
+    return bindings
+end
+
+function _normalize_application_bindings(bindings::Tuple)
+    pairs = Pair{Symbol,Any}[]
+    for binding in bindings
+        binding isa Pair || error(
+            "Expected `var => selector` pairs in `Inputs(...)` or `Calls(...)`, got `$(typeof(binding))`."
+        )
+        key = first(binding)
+        selector = last(binding)
+        if key isa PreviousTimeStep
+            selector isa AbstractObjectMultiplicity || error(
+                "A `PreviousTimeStep(...)` input must map to `One(...)`, ",
+                "`OptionalOne(...)`, or `Many(...)`."
+            )
+            push!(
+                pairs,
+                key.variable => _selector_with_previous_timestep(selector, key),
+            )
+        else
+            key isa Union{Symbol,AbstractString} || error(
+                "Binding names in `Inputs(...)` and `Calls(...)` must be symbols, ",
+                "strings, or `PreviousTimeStep(:input)` markers."
+            )
+            push!(pairs, Symbol(key) => selector)
+        end
+    end
+    return (; pairs...)
+end
+
+function _normalize_application_bindings(binding::Pair)
+    return _normalize_application_bindings((binding,))
+end
+
+function _normalize_application_bindings(bindings)
+    error(
+        "Unsupported binding declaration `$(bindings)` of type `$(typeof(bindings))`. ",
+        "Use pairs such as `:x => Many(...)` or keyword arguments."
+    )
+end
+
+function _model_default_value_inputs(model)
+    defaults = Pair{Symbol,Any}[]
+    for (dep_name, selector) in pairs(dep(model))
+        selector isa Input || continue
+        push!(defaults, Symbol(dep_name) => selector.selector)
+    end
+    return (; defaults...)
+end
+
+function _model_default_model_calls(model)
+    defaults = Pair{Symbol,Any}[]
+    for (dep_name, selector) in pairs(dep(model))
+        selector isa Call || continue
+        push!(defaults, Symbol(dep_name) => selector.selector)
+    end
+    return (; defaults...)
+end
+
+function _merge_value_inputs(defaults::NamedTuple, explicit::NamedTuple)
+    return (; pairs(defaults)..., pairs(explicit)...)
+end
+
+function _binding_origins(defaults::NamedTuple, explicit::NamedTuple)
+    origins = Pair{Symbol,Symbol}[]
+    for name in keys(defaults)
+        push!(origins, Symbol(name) => :model_default)
+    end
+    for name in keys(explicit)
+        push!(origins, Symbol(name) => :model_spec)
+    end
+    return (; origins...)
+end
+
+function _normalize_binding_origins(origins::NamedTuple, bindings::NamedTuple)
+    normalized = Pair{Symbol,Symbol}[]
+    for name in keys(bindings)
+        origin = haskey(origins, name) ? Symbol(getproperty(origins, name)) : :model_spec
+        origin in (:model_default, :model_spec) || error(
+            "Unsupported binding origin `$(origin)` for `$(name)`."
+        )
+        push!(normalized, Symbol(name) => origin)
+    end
+    return (; normalized...)
+end

@@ -49,7 +49,7 @@ objects.
 - `Calls(...)` binds manually controlled model calls;
 - `TimeStep(...)` selects the execution cadence;
 - `Environment(...)` configures environment sampling;
-- `Updates(...)` orders intentional additional writers;
+- `Updates(...; after=:application_id)` orders intentional additional writers;
 - `OutputRouting(...)` controls output publication.
 
 This keeps model implementations generic. Models do not need to know which

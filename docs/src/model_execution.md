@@ -50,13 +50,13 @@ provider is bound to it. The model implementation stays reusable.
 
 ## Compilation Before Runtime
 
-Before the timestep loop, `compile_scene(scene)` and `refresh_bindings!(scene)`
-resolve the scenario into concrete runtime carriers:
+Before the timestep loop, PlantSimEngine compiles the scene into concrete
+runtime carriers:
 
 1. `AppliesTo(...)` selectors are resolved to stable object ids.
 2. `Inputs(...)` selectors are resolved to source object/application ids.
 3. Same-rate inputs are wired as shared `Ref`s, `RefVector`s, or
-   `ObjectRefVector`s.
+   heterogeneous object-reference vectors.
 4. Temporal inputs are compiled as stream lookups with a policy such as
    `HoldLast`, `Interpolate`, `Integrate`, or `Aggregate`.
 5. `Calls(...)` declarations are compiled to callable target lists.
@@ -73,15 +73,13 @@ compiled indexes and carriers.
 Useful inspection helpers:
 
 ```julia
-compiled = refresh_bindings!(scene)
-
-explain_scene_applications(compiled)
-explain_bindings(compiled)
-explain_calls(compiled)
-explain_environment_bindings(refresh_environment_bindings!(scene, compiled))
-explain_schedule(compiled)
+explain_scene_applications(scene)
+explain_bindings(scene)
+explain_calls(scene)
+explain_environment_bindings(scene)
+explain_schedule(scene)
 explain_execution_plan(scene)
-explain_writers(compiled)
+explain_writers(scene)
 ```
 
 These explanations are intended for both users and agents. They report the
@@ -101,7 +99,7 @@ ModelSpec(SceneLAI(ground_area); name=:scene_lai) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:leaf_state,
+            application=:leaf_state,
             var=:leaf_area,
         ),
     )
@@ -116,7 +114,7 @@ the carrier supports it.
 If an input is not explicitly declared with `Inputs(...)`, the compiler can
 infer simple same-object bindings when exactly one producer on the same object
 outputs the same variable. Ambiguous producers are errors and should be
-disambiguated with `process=...`, `application=...`, or `var=...`.
+disambiguated with `application=...` and, when names differ, `var=...`.
 
 Use `PreviousTimeStep(:x) => selector` when a feedback dependency should read
 the previous sample instead of creating a same-timestep scheduling edge.
@@ -134,13 +132,13 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:energy_balance,
+            application=:energy_balance,
         ),
         :soil => One(
             kind=:soil,
             scale=:Soil,
             within=SceneScope(),
-            process=:soil_water,
+            application=:soil_water,
         ),
     ) |>
     TimeStep(Dates.Hour(1))
@@ -169,7 +167,7 @@ do not publish temporal samples or scatter mutable environment outputs. Call
 `run_call!(target; publish=true)` once for the accepted state.
 
 Applications selected only by `Calls(...)` are marked manual-call-only in
-`explain_schedule(compiled)` and are skipped by the root `run!(scene)` loop.
+`explain_schedule(scene)` and are skipped by the root `run!(scene)` loop.
 
 ## Duplicate Writers With Updates
 
@@ -187,8 +185,10 @@ ModelSpec(LeafPruning(); name=:leaf_pruning) |>
 ```
 
 This keeps ordinary duplicate outputs as errors while allowing cases such as
-allocation followed by pruning. `explain_writers(compiled)` reports writer
+allocation followed by pruning. `explain_writers(scene)` reports writer
 groups and the `Updates(...)` declarations that validate them.
+The `after` value is the canonical application identifier shown by
+`explain_scene_applications(scene)`, not the process name.
 
 ## Multirate Execution
 
@@ -204,8 +204,8 @@ ModelSpec(DailyPlantAllocation(); name=:allocation) |>
     Inputs(
         :leaf_assimilation => Many(
             scale=:Leaf,
-            within=Self(),
-            process=:leaf_assimilation,
+            within=Subtree(),
+            application=:leaf_assim,
             var=:A,
             policy=Integrate(),
             window=Dates.Day(1),
@@ -239,6 +239,10 @@ Supported policies are:
 
 `Integrate(...)` and `Aggregate(...)` accept reducer objects or callables that
 take either `(values)` or `(values, durations_seconds)`.
+
+Temporal windows are duration-based rolling windows. Calendar-aligned civil
+days and "previous complete period" selection are not part of the public API;
+there is no `CalendarWindow` compatibility type.
 
 ## Environment Sampling
 
@@ -276,21 +280,21 @@ sim = run!(scene; steps=30, constants=Constants())
 The returned `SceneSimulation` contains the mutated scene, compiled bindings,
 environment bindings, execution plan, and retained temporal output streams.
 
-By default, scene runs retain all published streams. For large scenes, pass
-`OutputRequest` values to retain only selected outputs and temporal dependency
-streams:
+By default, scene runs retain no user output streams. Pass `outputs=:all` to
+retain every published stream, or pass `OutputRequest` values to retain only
+selected outputs and required temporal dependency streams:
 
 ```julia
 request = OutputRequest(
-    :Leaf,
+    Many(scale=:Leaf),
     :A;
     name=:leaf_assimilation_daily,
-    process=:leaf_assimilation,
+    application=:leaf_assimilation,
     policy=Integrate(),
     clock=Dates.Day(1),
 )
 
-sim = run!(scene; steps=72, tracked_outputs=request)
+sim = run!(scene; steps=72, outputs=request)
 collect_outputs(sim, :leaf_assimilation_daily; sink=nothing)
 explain_output_retention(sim)
 ```
@@ -300,8 +304,18 @@ When several applications publish the same process and variable, use
 application directly and can also request an explicitly named
 `:stream_only` publisher.
 
-Set `tracked_outputs=OutputRequest[]` to retain no output streams unless they
-are required by temporal dependencies.
+`outputs=:none` retains no user output streams. Histories required by temporal
+dependencies are still maintained with bounded retention.
+
+`run!(scene; ...)` always starts a fresh result timeline. Continue an existing
+simulation without resetting its step index, environment position, multirate
+phase, or temporal histories with:
+
+```julia
+continue!(sim; steps=24)
+step!(sim)
+current_step(sim)
+```
 
 Temporal dependency streams that are not explicitly requested retain only the
 history required by their input policy. `HoldLast` keeps the latest sample,
@@ -341,7 +355,22 @@ low-level operation for callers that already own a complete `Object`.
 
 Structural changes invalidate compiled object/model bindings. Movement and
 geometry changes invalidate environment bindings without rebuilding structural
-input carriers. The next `run!(scene)` step refreshes the necessary caches.
+input carriers. The next `run!` or `continue!` timestep refreshes the necessary
+caches.
+
+Do not mutate `Object` topology, labels, or geometry fields directly. Direct
+field mutation bypasses registry indexes and cache invalidation and is
+unsupported. Use the lifecycle functions above. They validate prerequisites
+before mutating; in particular, `reparent_object!` rejects self-parenting and
+descendant cycles without changing existing links.
+
+Inside a lifecycle-capable model kernel, use `runtime_scene(extra)` to obtain
+the live scene. Objects created during a kernel call do not recursively execute
+inside that call. Structural targets, value carriers, call targets, writer
+validation, schedules, and output-request matches are refreshed at the next
+timestep boundary. Geometry-only mutations refresh affected environment
+bindings at that boundary; already published streams remain available for
+removed objects.
 
 ## Historical API Translation
 

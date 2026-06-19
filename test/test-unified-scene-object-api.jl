@@ -11,7 +11,7 @@ struct SceneObjectDefaultInputConsumerModel <: AbstractScene_Object_Default_Inpu
 PlantSimEngine.inputs_(::SceneObjectDefaultInputConsumerModel) = (leaf_carbon=[0.0],)
 PlantSimEngine.outputs_(::SceneObjectDefaultInputConsumerModel) = (plant_carbon=0.0,)
 PlantSimEngine.dep(::SceneObjectDefaultInputConsumerModel) = (
-    leaf_carbon=Input(Many(scale=:Leaf, within=Self(), var=:leaf_carbon)),
+    leaf_carbon=Input(Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)),
 )
 
 PlantSimEngine.@process "scene_object_default_call_consumer" verbose = false
@@ -551,7 +551,7 @@ PlantSimEngine.inputs_(::SceneObjectGrowthModel) = NamedTuple()
 PlantSimEngine.outputs_(::SceneObjectGrowthModel) = (created_count=0,)
 
 function PlantSimEngine.run!(::SceneObjectGrowthModel, models, status, meteo, constants=nothing, extra=nothing)
-    scene = extra.compiled.scene
+    scene = runtime_scene(extra)
     if isapprox(extra.time, 1.0) && !(ObjectId(:grown_leaf) in object_ids(scene; scale=:Leaf))
         register_object!(
             scene,
@@ -570,7 +570,7 @@ PlantSimEngine.inputs_(::SceneObjectPruningModel) = NamedTuple()
 PlantSimEngine.outputs_(::SceneObjectPruningModel) = (removed_count=0,)
 
 function PlantSimEngine.run!(::SceneObjectPruningModel, models, status, meteo, constants=nothing, extra=nothing)
-    scene = extra.compiled.scene
+    scene = runtime_scene(extra)
     if isapprox(extra.time, 2.0) && ObjectId(:leaf_2) in object_ids(scene; scale=:Leaf)
         remove_object!(scene, :leaf_2)
         status.removed_count += 1
@@ -587,7 +587,7 @@ PlantSimEngine.outputs_(::SceneObjectGeometryMoverModel) = (move_count=0,)
 
 function PlantSimEngine.run!(::SceneObjectGeometryMoverModel, models, status, meteo, constants=nothing, extra=nothing)
     if isapprox(extra.time, 1.0)
-        update_geometry!(extra.compiled.scene, :leaf_1, (cell=:cell_b,))
+        update_geometry!(runtime_scene(extra), :leaf_1, (cell=:cell_b,))
         status.move_count += 1
     end
     return nothing
@@ -796,7 +796,7 @@ end
     )
     @test new_leaf_object.status === new_leaf_status
     @test new_leaf_object.parent == ObjectId(:plant_2)
-    @test bindings_dirty(mtg_scene)
+    @test Advanced.bindings_dirty(mtg_scene)
 
     child_count = length(MultiScaleTreeGraph.children(mtg_plant))
     @test_throws ErrorException add_organ!(
@@ -864,7 +864,7 @@ end
     @test scene_scope.selector isa SceneScope
     @test scene_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :leaf_3, :plant_1, :plant_2, :scene, :soil]
     plant_1_scope = only(row for row in scope_rows if row.scope_type == :object_subtree && row.root_id == :plant_1)
-    @test plant_1_scope.selector isa Self
+    @test plant_1_scope.selector isa Subtree
     @test plant_1_scope.object_ids == [:axis_1, :leaf_1, :leaf_2, :plant_1]
     palm_2_scope = only(row for row in scope_rows if row.scope_type == :named_scope && row.name == :palm_2)
     @test palm_2_scope.selector isa Scope
@@ -881,9 +881,9 @@ end
     @test only(resolve_objects(selector_scene, One(scale=:Scene))).id == ObjectId(:scene)
     @test resolve_object_ids(selector_scene, Many(Kind(:plant), Scale(:Leaf))) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
-    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Self()); context=:plant_1) ==
+    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Subtree()); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2)]
-    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Self()); context=:leaf_2) ==
+    @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Subtree()); context=:leaf_2) ==
           [ObjectId(:leaf_2)]
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=SelfPlant()); context=:leaf_2) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2)]
@@ -938,7 +938,7 @@ end
     end
     @test contains(scope_selector_error, "available=[:axis_1")
     @test contains(scope_selector_error, "suggestions=[:palm_1, :palm_2]")
-    @test_throws ErrorException resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Self()))
+    @test_throws ErrorException resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Subtree()))
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
 
@@ -972,7 +972,7 @@ end
             ),
         ),
     )
-    relation_input_compiled = refresh_bindings!(relation_input_scene)
+    relation_input_compiled = Advanced.refresh_bindings!(relation_input_scene)
     relation_binding = only(
         row for row in explain_bindings(relation_input_compiled)
         if row.application_id == :leaf_consumer
@@ -994,7 +994,7 @@ end
             Inputs(
                 :signals => Many(
                     scale=:Leaf,
-                    within=Self(),
+                    within=Subtree(),
                     process=:scene_object_signal_source,
                     var=:signal,
                 ),
@@ -1071,7 +1071,7 @@ end
         ObjectId(:templated_plant_3),
         ObjectId(:templated_plant_4),
     ]
-    template_compiled = compile_scene(template_scene)
+    template_compiled = Advanced.compile_scene(template_scene)
     template_application_rows = explain_scene_applications(template_compiled)
     @test only(row for row in template_application_rows if row.application_id == :palm_1__signal_source).target_ids ==
           [:templated_leaf_1, :templated_leaf_1_exception]
@@ -1137,7 +1137,7 @@ end
         row.object_ids for row in explain_instances(template_scene)
         if row.name == :palm_2
     )
-    refreshed_template = refresh_bindings!(template_scene)
+    refreshed_template = Advanced.refresh_bindings!(template_scene)
     @test ObjectId(:templated_leaf_new) in
           refreshed_template.applications_by_id[:palm_2__signal_source].target_ids
     remove_object!(template_scene, :templated_leaf_new)
@@ -1212,7 +1212,7 @@ end
             ),
         ),
     )
-    @test_throws ErrorException compile_scene(unmatched_override_scene)
+    @test_throws ErrorException Advanced.compile_scene(unmatched_override_scene)
 
     call_template = ObjectTemplate(
         (
@@ -1253,7 +1253,7 @@ end
     leaf_selector = Many(
         kind="plant",
         scale=:Leaf,
-        within=Self(),
+        within=Subtree(),
         process="leaf_state",
         var="leaf_area",
         policy=Integrate(),
@@ -1262,14 +1262,14 @@ end
 
     @test leaf_selector.criteria.kind == :plant
     @test leaf_selector.criteria.scale == :Leaf
-    @test leaf_selector.criteria.within isa Self
+    @test leaf_selector.criteria.within isa Subtree
     @test leaf_selector.criteria.process == :leaf_state
     @test leaf_selector.criteria.var == :leaf_area
     @test leaf_selector.criteria.policy isa Integrate
     @test leaf_selector.criteria.window == Day(1)
 
     address = object_address(leaf_selector)
-    @test address.scope isa Self
+    @test address.scope isa Subtree
     @test address.kind == :plant
     @test address.scale == :Leaf
     @test address.process == :leaf_state
@@ -1279,9 +1279,9 @@ end
     @test One(Kind(:plant), Scale(:Leaf)).criteria.selectors == (Kind(:plant), Scale(:Leaf))
     @test object_address(OptionalOne(scale=:Scene)).multiplicity == :optional_one
 
-    default_input = Input(Many(scale=:Leaf, within=Self(), var=:leaf_carbon))
+    default_input = Input(Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
     @test default_input.selector isa Many
-    @test default_input.selector.criteria.within isa Self
+    @test default_input.selector.criteria.within isa Subtree
 
     default_call = Call(process=:stomatal_conductance)
     @test default_call.selector isa One
@@ -1292,7 +1292,7 @@ end
            AppliesTo(Many(kind=:plant, scale=:Leaf)) |>
            Inputs(
                :leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
-               :leaf_carbon => Many(scale=:Leaf, within=Self(), var=:leaf_carbon, policy=Integrate(), window=Day(1)),
+               :leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon, policy=Integrate(), window=Day(1)),
            ) |>
            Calls(:stomata => One(scale=:Leaf, process=:stomatal_conductance)) |>
            TimeStep(Hour(1)) |>
@@ -1330,7 +1330,7 @@ end
     @test value_inputs(default_input_spec).leaf_carbon isa Many
     @test PlantSimEngine.input_origins(default_input_spec).leaf_carbon ==
           :model_default
-    @test value_inputs(default_input_spec).leaf_carbon.criteria.within isa Self
+    @test value_inputs(default_input_spec).leaf_carbon.criteria.within isa Subtree
     @test !haskey(dep(default_input_spec), :leaf_carbon)
 
     override_input_spec = ModelSpec(SceneObjectDefaultInputConsumerModel()) |>
@@ -1350,7 +1350,7 @@ end
             status=Status(leaf_carbon=2.0, carbon_override=3.0),
         ),
     )
-    default_input_origin_compiled = compile_scene(
+    default_input_origin_compiled = Advanced.compile_scene(
         default_input_origin_scene,
         (
             default_input_spec |>
@@ -1359,7 +1359,7 @@ end
     )
     @test only(explain_bindings(default_input_origin_compiled)).origin ==
           :model_default
-    override_input_origin_compiled = compile_scene(
+    override_input_origin_compiled = Advanced.compile_scene(
         default_input_origin_scene,
         (
             override_input_spec |>
@@ -1406,7 +1406,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    manual_child_compiled = compile_scene(manual_child_scene)
+    manual_child_compiled = Advanced.compile_scene(manual_child_scene)
     @test isempty(
         filter(
             binding -> binding.application_id == :manual_consumer,
@@ -1421,7 +1421,7 @@ end
         AppliesTo(Many(scale=:Leaf)) |>
         Inputs(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area, policy=Integrate(), window=Day(1))),
     )
-    compiled = compile_scene(selector_scene, compiled_specs)
+    compiled = Advanced.compile_scene(selector_scene, compiled_specs)
     application_rows = explain_scene_applications(compiled)
     @test length(application_rows) == 2
     @test only(row for row in application_rows if row.application_id == :stomata).target_ids ==
@@ -1481,7 +1481,7 @@ end
     @test bundle_row.processes == [:scene_object_leaf_energy, :scene_object_stomata]
     @test bundle_row.model_types == [SceneObjectLeafEnergyModel, SceneObjectStomataModel]
 
-    compiled_environment = compile_environment_bindings(selector_scene, compiled)
+    compiled_environment = Advanced.compile_environment_bindings(selector_scene, compiled)
     execution_plan =
         PlantSimEngine.compile_scene_execution_plan(compiled, compiled_environment)
     execution_rows = explain_execution_plan(execution_plan)
@@ -1513,8 +1513,8 @@ end
             AppliesTo(Many(scale=:Leaf)),
         ),
     )
-    batch_compiled = refresh_bindings!(batch_scene)
-    batch_environment = refresh_environment_bindings!(batch_scene, batch_compiled)
+    batch_compiled = Advanced.refresh_bindings!(batch_scene)
+    batch_environment = Advanced.refresh_environment_bindings!(batch_scene, batch_compiled)
     batch_plan =
         PlantSimEngine.compile_scene_execution_plan(batch_compiled, batch_environment)
     @test length(batch_plan.batches) == 1
@@ -1584,9 +1584,9 @@ end
             ),
         ),
     )
-    heterogeneous_compiled = refresh_bindings!(heterogeneous_scene)
+    heterogeneous_compiled = Advanced.refresh_bindings!(heterogeneous_scene)
     heterogeneous_environment =
-        refresh_environment_bindings!(heterogeneous_scene, heterogeneous_compiled)
+        Advanced.refresh_environment_bindings!(heterogeneous_scene, heterogeneous_compiled)
     heterogeneous_plan = PlantSimEngine.compile_scene_execution_plan(
         heterogeneous_compiled,
         heterogeneous_environment,
@@ -1621,7 +1621,7 @@ end
         ModelSpec(SceneObjectLeafEnergyModel(); name=:leaf_energy) |>
         AppliesTo(Many(scale=:Leaf)),
     )
-    @test_throws ErrorException compile_scene(selector_scene, ambiguous_call_specs)
+    @test_throws ErrorException Advanced.compile_scene(selector_scene, ambiguous_call_specs)
 
     disambiguated_call_specs = (
         ModelSpec(SceneObjectStomataModel(); name=:sunlit_stomata) |>
@@ -1634,7 +1634,7 @@ end
         Inputs(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)) |>
         Calls(:stomata => One(process=:scene_object_stomata, application=:sunlit_stomata)),
     )
-    disambiguated = compile_scene(selector_scene, disambiguated_call_specs)
+    disambiguated = Advanced.compile_scene(selector_scene, disambiguated_call_specs)
     disambiguated_call = only(row for row in explain_calls(disambiguated) if row.consumer_id == :leaf_2)
     @test disambiguated_call.origin == :model_spec
     @test disambiguated_call.callee_application_ids == [:sunlit_stomata]
@@ -1680,7 +1680,7 @@ end
             ),
         ),
     )
-    optional_compiled = refresh_bindings!(optional_dependency_scene)
+    optional_compiled = Advanced.refresh_bindings!(optional_dependency_scene)
     optional_binding = only(explain_bindings(optional_compiled))
     @test optional_binding.multiplicity == :optional_one
     @test isempty(optional_binding.source_ids)
@@ -1712,7 +1712,7 @@ end
             Inputs(
                 :renamed_signal => One(
                     scale=:Leaf,
-                    within=Self(),
+                    within=Subtree(),
                     application=:signal_source,
                     var=:signal,
                 ),
@@ -1721,7 +1721,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    renamed_compiled = refresh_bindings!(renamed_input_scene)
+    renamed_compiled = Advanced.refresh_bindings!(renamed_input_scene)
     renamed_binding = only(explain_bindings(renamed_compiled))
     @test renamed_binding.input == :renamed_signal
     @test renamed_binding.source_var == :signal
@@ -1744,19 +1744,19 @@ end
         Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene, status=Status(signal_sum=0.0, temporal_total=0.0)),
         Object(:leaf_3; scale=:Leaf, kind=:plant, parent=:plant_2, status=Status(leaf_area=3.0)),
     )
-    plant_default_scope = compile_scene(
+    plant_default_scope = Advanced.compile_scene(
         default_scope_scene,
         (
             ModelSpec(SceneObjectTemporalSumModel(); name=:plant_leaf_sum) |>
             AppliesTo(Many(scale=:Plant)) |>
-            Inputs(:signal_sum => Many(scale=:Leaf, var=:leaf_area)),
+            Inputs(:signal_sum => Many(scale=:Leaf, within=Subtree(), var=:leaf_area)),
         ),
     )
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_1).source_ids ==
           [:leaf_1, :leaf_2]
     @test only(row for row in explain_bindings(plant_default_scope) if row.consumer_id == :plant_2).source_ids ==
           [:leaf_3]
-    scene_default_scope = compile_scene(
+    scene_default_scope = Advanced.compile_scene(
         default_scope_scene,
         (
             ModelSpec(SceneObjectTemporalSumModel(); name=:scene_leaf_sum) |>
@@ -1776,7 +1776,7 @@ end
         ModelSpec(SceneObjectSignalConsumerModel(); name=:signal_consumer) |>
         AppliesTo(One(scale=:Leaf)),
     )
-    inferred_compiled = compile_scene(inferred_input_scene, inferred_input_specs)
+    inferred_compiled = Advanced.compile_scene(inferred_input_scene, inferred_input_specs)
     inferred_binding = only(explain_bindings(inferred_compiled))
     @test inferred_binding.application_id == :signal_consumer
     @test inferred_binding.input == :signal
@@ -1812,7 +1812,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    generated_status_compiled = refresh_bindings!(generated_status_scene)
+    generated_status_compiled = Advanced.refresh_bindings!(generated_status_scene)
     generated_status = only(scene_objects(generated_status_scene; scale=:Leaf)).status
     @test generated_status isa Status
     @test Set(propertynames(generated_status)) ==
@@ -1830,7 +1830,7 @@ end
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
         applications=reverse(inferred_input_specs),
     )
-    reversed_compiled = refresh_bindings!(reversed_dependency_scene)
+    reversed_compiled = Advanced.refresh_bindings!(reversed_dependency_scene)
     @test length(reversed_compiled.applications_by_id) == length(reversed_compiled.applications)
     @test reversed_compiled.applications_by_id[:signal_source].process == :scene_object_signal_source
     @test reversed_compiled.applications_by_id[:signal_consumer].process == :scene_object_signal_consumer
@@ -1841,7 +1841,7 @@ end
     run!(reversed_dependency_scene)
     @test only(scene_objects(reversed_dependency_scene; scale=:Leaf)).status.observed_signal == 1.0
 
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         Scene(
             Object(:scene; scale=:Scene, kind=:scene),
             Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(cycle_a=0.0, cycle_b=0.0)),
@@ -1877,7 +1877,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    lagged_cycle_compiled = refresh_bindings!(lagged_cycle_scene)
+    lagged_cycle_compiled = Advanced.refresh_bindings!(lagged_cycle_scene)
     @test lagged_cycle_compiled.application_order == [:cycle_a, :cycle_b]
     lagged_binding = only(
         row for row in explain_bindings(lagged_cycle_compiled)
@@ -1889,7 +1889,7 @@ end
     lagged_cycle_simulation = run!(
         lagged_cycle_scene;
         steps=3,
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :cycle_a;
             name=:lagged_cycle_a,
@@ -1929,14 +1929,14 @@ end
             Inputs(
                 PreviousTimeStep(:signals) => Many(
                     scale=:Leaf,
-                    within=Self(),
+                    within=Subtree(),
                     var=:signal,
                 ),
             ),
         ),
     )
     lagged_external_binding = only(
-        row for row in explain_bindings(refresh_bindings!(lagged_external_state_scene))
+        row for row in explain_bindings(Advanced.refresh_bindings!(lagged_external_state_scene))
         if row.application_id == :plant_signal_sum && row.input == :signals
     )
     @test lagged_external_binding.carrier_kind == :temporal_stream
@@ -1968,9 +1968,9 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    @test_throws "PreviousTimeStep marker for input `cycle_b`" refresh_bindings!(mismatched_lag_scene)
+    @test_throws "PreviousTimeStep marker for input `cycle_b`" Advanced.refresh_bindings!(mismatched_lag_scene)
 
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         Scene(
             Object(:scene; scale=:Scene, kind=:scene),
             Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene),
@@ -1980,7 +1980,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         inferred_input_scene,
         (
             ModelSpec(SceneObjectSignalSourceModel(); name=:sunlit_signal) |>
@@ -2000,12 +2000,12 @@ end
         AppliesTo(One(scale=:Leaf)) |>
         Inputs(:signal => One(scale=:Leaf, var=:signal, process=:scene_object_signal_source, application=:signal_source)),
     )
-    filtered_binding = only(explain_bindings(compile_scene(inferred_input_scene, filtered_input_specs)))
+    filtered_binding = only(explain_bindings(Advanced.compile_scene(inferred_input_scene, filtered_input_specs)))
     @test filtered_binding.origin == :model_spec
     @test filtered_binding.source_application_ids == [:signal_source]
     @test filtered_binding.process == :scene_object_signal_source
     @test filtered_binding.application == :signal_source
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         inferred_input_scene,
         (
             filtered_input_specs[1],
@@ -2014,7 +2014,7 @@ end
             Inputs(:signal => One(scale=:Leaf, var=:signal, application=:missing_source)),
         ),
     )
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         inferred_input_scene,
         (
             filtered_input_specs[1],
@@ -2023,7 +2023,7 @@ end
             Inputs(:siggnal => One(scale=:Leaf, var=:signal, application=:signal_source)),
         ),
     )
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         inferred_input_scene,
         (
             filtered_input_specs[1],
@@ -2051,7 +2051,7 @@ end
         AppliesTo(Many(scale=:Leaf)) |>
         Inputs(:soil_water_content => One(scale=:Soil, within=SceneScope(), var=:soil_water_content)),
     )
-    carrier_compiled = compile_scene(carrier_scene, carrier_specs)
+    carrier_compiled = Advanced.compile_scene(carrier_scene, carrier_specs)
     carrier_rows = explain_bindings(carrier_compiled)
     leaf_1_carrier_bindings = carrier_compiled.input_bindings_by_target[(:carrier_consumer, ObjectId(:leaf_1))]
     @test length(leaf_1_carrier_bindings) == 2
@@ -2127,13 +2127,13 @@ end
             ),
         ),
     )
-    generic_carrier_compiled = refresh_bindings!(generic_carrier_scene)
+    generic_carrier_compiled = Advanced.refresh_bindings!(generic_carrier_scene)
     generic_carrier_binding = only(generic_carrier_compiled.input_bindings)
     @test input_carrier(generic_carrier_binding) isa
           PlantSimEngine.RefVector{SceneObjectDualLike{BigFloat}}
     @test eltype(input_carrier(generic_carrier_binding)) ==
           SceneObjectDualLike{BigFloat}
-    generic_carrier_sim = run!(generic_carrier_scene)
+    generic_carrier_sim = run!(generic_carrier_scene; outputs=:all)
     generic_scene_status = only(scene_objects(generic_carrier_scene; scale=:Scene)).status
     @test generic_scene_status.values === input_carrier(generic_carrier_binding)
     @test generic_scene_status.total == SceneObjectDualLike(big"4.0", big"2.0")
@@ -2160,39 +2160,39 @@ end
         Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
         applications=compiled_specs,
     )
-    @test bindings_dirty(cache_scene)
-    cached_a = refresh_bindings!(cache_scene)
-    @test cached_a isa CompiledScene
-    @test !bindings_dirty(cache_scene)
-    @test compiled_bindings(cache_scene) === cached_a
-    @test cached_a.revision == scene_revision(cache_scene)
-    @test refresh_bindings!(cache_scene) === cached_a
+    @test Advanced.bindings_dirty(cache_scene)
+    cached_a = Advanced.refresh_bindings!(cache_scene)
+    @test cached_a isa Advanced.CompiledScene
+    @test !Advanced.bindings_dirty(cache_scene)
+    @test Advanced.compiled_bindings(cache_scene) === cached_a
+    @test cached_a.revision == Advanced.scene_revision(cache_scene)
+    @test Advanced.refresh_bindings!(cache_scene) === cached_a
 
     register_object!(cache_scene, Object(:leaf_4; scale=:Leaf, kind=:plant, species=:oil_palm); parent=:plant_2)
-    @test bindings_dirty(cache_scene)
-    @test isnothing(compiled_bindings(cache_scene))
-    cached_b = refresh_bindings!(cache_scene)
+    @test Advanced.bindings_dirty(cache_scene)
+    @test isnothing(Advanced.compiled_bindings(cache_scene))
+    cached_b = Advanced.refresh_bindings!(cache_scene)
     @test cached_b !== cached_a
-    @test cached_b.revision == scene_revision(cache_scene)
+    @test cached_b.revision == Advanced.scene_revision(cache_scene)
     @test only(row for row in explain_scene_applications(cached_b) if row.application_id == :leaf_energy).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3, :leaf_4]
     @test only(row for row in explain_bindings(cached_b) if row.consumer_id == :leaf_3).source_ids ==
           [:leaf_3, :leaf_4]
 
     move_object!(cache_scene, :leaf_4, (x=3.0, y=0.0))
-    @test !bindings_dirty(cache_scene)
-    @test environment_bindings_dirty(cache_scene)
-    @test refresh_bindings!(cache_scene) === cached_b
+    @test !Advanced.bindings_dirty(cache_scene)
+    @test Advanced.environment_bindings_dirty(cache_scene)
+    @test Advanced.refresh_bindings!(cache_scene) === cached_b
     mark_environment_binding_dirty!(cache_scene)
-    @test !bindings_dirty(cache_scene)
+    @test !Advanced.bindings_dirty(cache_scene)
 
     reparent_object!(cache_scene, :leaf_4, :plant_1)
-    cached_c = refresh_bindings!(cache_scene)
+    cached_c = Advanced.refresh_bindings!(cache_scene)
     @test only(row for row in explain_bindings(cached_c) if row.consumer_id == :leaf_4).source_ids ==
           [:leaf_1, :leaf_2, :leaf_4]
 
     remove_object!(cache_scene, :leaf_4)
-    cached_d = refresh_bindings!(cache_scene)
+    cached_d = Advanced.refresh_bindings!(cache_scene)
     @test only(row for row in explain_scene_applications(cached_d) if row.application_id == :leaf_energy).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3]
 
@@ -2213,10 +2213,10 @@ end
         applications=environment_specs,
         environment=grid_backend,
     )
-    compiled_environment = refresh_environment_bindings!(environment_scene)
-    @test compiled_environment isa CompiledEnvironmentBindings
-    @test !environment_bindings_dirty(environment_scene)
-    @test compiled_environment_bindings(environment_scene) === compiled_environment
+    compiled_environment = Advanced.refresh_environment_bindings!(environment_scene)
+    @test compiled_environment isa Advanced.CompiledEnvironmentBindings
+    @test !Advanced.environment_bindings_dirty(environment_scene)
+    @test Advanced.compiled_environment_bindings(environment_scene) === compiled_environment
     @test length(compiled_environment.by_target) == length(compiled_environment.bindings)
     @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].cell == :cell_a
     @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].cell == :cell_b
@@ -2248,8 +2248,8 @@ end
         environment=(T=20.0,),
     )
     @test_throws "co2_probe" validate_meteo_inputs(missing_global_meteo_scene)
-    @test_throws "Scene environment is missing required meteo inputs" refresh_environment_bindings!(missing_global_meteo_scene)
-    @test_throws "source `CO2`" refresh_environment_bindings!(missing_global_meteo_scene)
+    @test_throws "Scene environment is missing required meteo inputs" Advanced.refresh_environment_bindings!(missing_global_meteo_scene)
+    @test_throws "source `CO2`" Advanced.refresh_environment_bindings!(missing_global_meteo_scene)
 
     application_environment_backend =
         SceneObjectMutableEnvironmentBackend(:cell_a => 23.0)
@@ -2270,10 +2270,10 @@ end
         environment=(T=20.0,),
     )
     @test validate_meteo_inputs(application_environment_scene) === nothing
-    @test validate_meteo_inputs(refresh_bindings!(application_environment_scene)) ===
+    @test validate_meteo_inputs(Advanced.refresh_bindings!(application_environment_scene)) ===
           nothing
     @test_throws "CO2" validate_meteo_inputs(
-        refresh_bindings!(application_environment_scene),
+        Advanced.refresh_bindings!(application_environment_scene),
         (T=20.0,),
     )
 
@@ -2289,14 +2289,14 @@ end
     )
     @test validate_meteo_inputs(remapped_global_meteo_scene) === nothing
     @test_throws "Ca" validate_meteo_inputs(
-        refresh_bindings!(remapped_global_meteo_scene),
+        Advanced.refresh_bindings!(remapped_global_meteo_scene),
         (T=20.0, CO2=415.0),
     )
     @test validate_meteo_inputs(
-        refresh_bindings!(remapped_global_meteo_scene),
+        Advanced.refresh_bindings!(remapped_global_meteo_scene),
         (T=20.0, Ca=415.0),
     ) === nothing
-    remapped_environment = refresh_environment_bindings!(remapped_global_meteo_scene)
+    remapped_environment = Advanced.refresh_environment_bindings!(remapped_global_meteo_scene)
     remapped_row = only(explain_environment_bindings(remapped_environment))
     @test remapped_row.required_inputs == [:T, :CO2]
     @test remapped_row.source_inputs == [:T, :Ca]
@@ -2316,11 +2316,11 @@ end
         environment=(T=21.0, Ca=420.0),
     )
     @test validate_meteo_inputs(hinted_global_meteo_scene) === nothing
-    hinted_environment = refresh_environment_bindings!(hinted_global_meteo_scene)
+    hinted_environment = Advanced.refresh_environment_bindings!(hinted_global_meteo_scene)
     hinted_row = only(explain_environment_bindings(hinted_environment))
     @test hinted_row.required_inputs == [:T, :CO2]
     @test hinted_row.source_inputs == [:T, :Ca]
-    hinted_application = refresh_bindings!(hinted_global_meteo_scene).applications_by_id[:co2_probe]
+    hinted_application = Advanced.refresh_bindings!(hinted_global_meteo_scene).applications_by_id[:co2_probe]
     @test meteo_bindings(hinted_application.spec).CO2.source == :Ca
     run!(hinted_global_meteo_scene)
     hinted_status = only(scene_objects(hinted_global_meteo_scene; scale=:Leaf)).status
@@ -2338,11 +2338,11 @@ end
         environment=(T=22.0, Ca=420.0, Cb=430.0),
     )
     hinted_override_row = only(
-        explain_environment_bindings(refresh_environment_bindings!(hinted_override_global_meteo_scene))
+        explain_environment_bindings(Advanced.refresh_environment_bindings!(hinted_override_global_meteo_scene))
     )
     @test hinted_override_row.source_inputs == [:T, :Cb]
     hinted_override_application =
-        refresh_bindings!(hinted_override_global_meteo_scene).applications_by_id[:co2_probe]
+        Advanced.refresh_bindings!(hinted_override_global_meteo_scene).applications_by_id[:co2_probe]
     @test meteo_bindings(hinted_override_application.spec).CO2.source == :Cb
     @test meteo_bindings(hinted_override_application.spec).CO2.reducer isa MeanReducer
     run!(hinted_override_global_meteo_scene)
@@ -2401,7 +2401,7 @@ end
             ),
             environment=windowed_weather,
         )
-        windowed_default_sim = run!(windowed_default_scene; steps=4)
+        windowed_default_sim = run!(windowed_default_scene; steps=4, outputs=:all)
         for leaf in scene_objects(windowed_default_scene; scale=:Leaf)
             @test leaf.status.temperature_seen == 25.0
             values = getproperty.(
@@ -2436,10 +2436,10 @@ end
             environment=windowed_weather,
         )
         windowed_override_application =
-            refresh_bindings!(windowed_override_scene).applications_by_id[:aggregated_probe]
+            Advanced.refresh_bindings!(windowed_override_scene).applications_by_id[:aggregated_probe]
         @test meteo_bindings(windowed_override_application.spec).CO2.source == :Cb
         @test meteo_bindings(windowed_override_application.spec).CO2.reducer isa MeanReducer
-        windowed_override_sim = run!(windowed_override_scene; steps=4)
+        windowed_override_sim = run!(windowed_override_scene; steps=4, outputs=:all)
         temperature_values = getproperty.(
             collect_outputs(
                 windowed_override_sim,
@@ -2479,16 +2479,16 @@ end
         ),
         environment=contract_backend,
     )
-    contract_compiled = refresh_bindings!(contract_scene)
+    contract_compiled = Advanced.refresh_bindings!(contract_scene)
     original_contract_bindings =
-        refresh_environment_bindings!(contract_scene, contract_compiled)
+        Advanced.refresh_environment_bindings!(contract_scene, contract_compiled)
     original_contract_binding =
         original_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
     @test original_contract_binding.required_inputs == [:T, :CO2]
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
 
-    revised_contract_compiled = compile_scene(
+    revised_contract_compiled = Advanced.compile_scene(
         contract_scene,
         (
             ModelSpec(SceneObjectTemperatureOnlyProbeModel(); name=:probe) |>
@@ -2497,7 +2497,7 @@ end
         ),
     )
     revised_contract_bindings =
-        refresh_environment_bindings!(contract_scene, revised_contract_compiled)
+        Advanced.refresh_environment_bindings!(contract_scene, revised_contract_compiled)
     revised_contract_binding =
         revised_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
     @test revised_contract_binding.required_inputs == [:T]
@@ -2505,18 +2505,18 @@ end
     @test revised_contract_binding !== original_contract_binding
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
-    @test refresh_environment_bindings!(
+    @test Advanced.refresh_environment_bindings!(
         contract_scene,
         revised_contract_compiled,
     ) === revised_contract_bindings
 
-    structural_environment_cache = refresh_bindings!(environment_scene)
+    structural_environment_cache = Advanced.refresh_bindings!(environment_scene)
     move_object!(environment_scene, :leaf_2, (cell=:cell_c,))
-    @test !bindings_dirty(environment_scene)
-    @test environment_bindings_dirty(environment_scene)
-    @test refresh_bindings!(environment_scene) === structural_environment_cache
-    refreshed_environment = refresh_environment_bindings!(environment_scene)
-    @test !environment_bindings_dirty(environment_scene)
+    @test !Advanced.bindings_dirty(environment_scene)
+    @test Advanced.environment_bindings_dirty(environment_scene)
+    @test Advanced.refresh_bindings!(environment_scene) === structural_environment_cache
+    refreshed_environment = Advanced.refresh_environment_bindings!(environment_scene)
+    @test !Advanced.environment_bindings_dirty(environment_scene)
     @test length(grid_backend.binds) == 6
     @test length(grid_backend.index_updates) == 2
     @test any(entity -> entity.id == :leaf_2 && entity.geometry == (cell=:cell_c,), grid_backend.index_updates[2])
@@ -2524,24 +2524,24 @@ end
 
     update_geometry!(environment_scene, :leaf_1, (cell=:cell_e,); invalidate_environment=false)
     @test geometry(only(object for object in scene_objects(environment_scene; scale=:Leaf) if object.id == ObjectId(:leaf_1))) == (cell=:cell_e,)
-    @test !environment_bindings_dirty(environment_scene)
+    @test !Advanced.environment_bindings_dirty(environment_scene)
     mark_environment_binding_dirty!(environment_scene, :leaf_1)
-    @test environment_bindings_dirty(environment_scene)
-    refreshed_after_mark = refresh_environment_bindings!(environment_scene)
-    @test !environment_bindings_dirty(environment_scene)
+    @test Advanced.environment_bindings_dirty(environment_scene)
+    refreshed_after_mark = Advanced.refresh_environment_bindings!(environment_scene)
+    @test !Advanced.environment_bindings_dirty(environment_scene)
     @test length(grid_backend.binds) == 8
     @test length(grid_backend.index_updates) == 3
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_e,), grid_backend.index_updates[3])
     @test only(row for row in explain_environment_bindings(refreshed_after_mark) if row.application_id == :probe && row.object_id == :leaf_1).cell == :cell_e
 
     register_object!(environment_scene, Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, geometry=(cell=:cell_d,)); parent=:plant_1)
-    @test bindings_dirty(environment_scene)
-    @test environment_bindings_dirty(environment_scene)
-    refreshed_with_new_leaf = refresh_environment_bindings!(environment_scene)
+    @test Advanced.bindings_dirty(environment_scene)
+    @test Advanced.environment_bindings_dirty(environment_scene)
+    refreshed_with_new_leaf = Advanced.refresh_environment_bindings!(environment_scene)
     @test length(grid_backend.binds) == 14
     @test length(grid_backend.index_updates) == 4
     @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[4])
-    @test only(row for row in explain_scene_applications(refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
+    @test only(row for row in explain_scene_applications(Advanced.refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3]
     @test only(row for row in explain_environment_bindings(refreshed_with_new_leaf) if row.application_id == :probe && row.object_id == :leaf_3).cell == :cell_d
 
@@ -2570,7 +2570,7 @@ end
         ),
         environment=inherited_grid_backend,
     )
-    inherited_bindings = refresh_environment_bindings!(inherited_environment_scene)
+    inherited_bindings = Advanced.refresh_environment_bindings!(inherited_environment_scene)
     inherited_rows = explain_environment_bindings(inherited_bindings)
     inherited_row = only(row for row in inherited_rows if row.object_id == :inherited_leaf)
     positioned_row = only(row for row in inherited_rows if row.object_id == :positioned_leaf)
@@ -2584,9 +2584,9 @@ end
     ]
 
     update_geometry!(inherited_environment_scene, :plant_1, (cell=:cell_b,))
-    @test environment_bindings_dirty(inherited_environment_scene)
+    @test Advanced.environment_bindings_dirty(inherited_environment_scene)
     refreshed_inherited_bindings =
-        refresh_environment_bindings!(inherited_environment_scene)
+        Advanced.refresh_environment_bindings!(inherited_environment_scene)
     refreshed_inherited_rows = explain_environment_bindings(refreshed_inherited_bindings)
     @test only(
         row for row in refreshed_inherited_rows if row.object_id == :inherited_leaf
@@ -2638,7 +2638,7 @@ end
     run!(runtime_scene)
     @test all(object.status.carrier_total == 4.0 for object in scene_objects(runtime_scene; scale=:Leaf))
     @test all(object.status.temperature_seen == 27.5 for object in scene_objects(runtime_scene; scale=:Leaf))
-    runtime_compiled = refresh_bindings!(runtime_scene)
+    runtime_compiled = Advanced.refresh_bindings!(runtime_scene)
     runtime_application = runtime_compiled.applications_by_id[:carrier_runtime]
     runtime_object_id = ObjectId(:leaf_1)
     PlantSimEngine._materialize_scene_inputs!(
@@ -2684,7 +2684,7 @@ end
     call_status = only(scene_objects(call_runtime_scene; scale=:Leaf)).status
     @test call_status.signal == 1.0
     @test call_status.called_signal == 1.0
-    call_schedule = explain_schedule(refresh_bindings!(call_runtime_scene))
+    call_schedule = explain_schedule(Advanced.refresh_bindings!(call_runtime_scene))
     @test only(row for row in call_schedule if row.application_id == :signal_source).manual_call_only
     @test !only(row for row in call_schedule if row.application_id == :signal_source).root_scheduled
     @test only(row for row in call_schedule if row.application_id == :signal_caller).root_scheduled
@@ -2771,7 +2771,7 @@ end
         ),
         environment=iterative_hard_call_backend,
     )
-    iterative_hard_call_sim = run!(iterative_hard_call_scene)
+    iterative_hard_call_sim = run!(iterative_hard_call_scene; outputs=:all)
     iterative_hard_call_status =
         only(scene_objects(iterative_hard_call_scene; scale=:Leaf)).status
     @test iterative_hard_call_status.temperature_seen == 32.0
@@ -2805,7 +2805,7 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    hard_call_order = refresh_bindings!(hard_call_order_scene)
+    hard_call_order = Advanced.refresh_bindings!(hard_call_order_scene)
     @test hard_call_order.applications_by_id[:signal_caller].process == :scene_object_signal_caller
     @test hard_call_order.application_order == [:signal_source, :signal_caller, :signal_consumer]
     run!(hard_call_order_scene)
@@ -2828,14 +2828,14 @@ end
         environment=(duration=Hour(1),),
     )
     temporal_binding = only(
-        row for row in explain_bindings(refresh_bindings!(temporal_input_scene))
+        row for row in explain_bindings(Advanced.refresh_bindings!(temporal_input_scene))
         if row.application_id == :scene_temporal_sum && row.input == :signal_sum
     )
     @test temporal_binding.carrier_hint == :temporal_stream
-    temporal_input_simulation = run!(temporal_input_scene; steps=3)
+    temporal_input_simulation = run!(temporal_input_scene; steps=3, outputs=:all)
     @test temporal_input_simulation isa SceneSimulation
     @test temporal_input_simulation.scene === temporal_input_scene
-    @test temporal_input_simulation.compiled isa CompiledScene
+    @test temporal_input_simulation.compiled isa Advanced.CompiledScene
     @test only(scene_objects(temporal_input_scene; scale=:Leaf)).status.signal == 3.0
     @test only(scene_objects(temporal_input_scene; scale=:Scene)).status.temporal_total == 5.0
     temporal_output_rows = collect_outputs(temporal_input_simulation; sink=nothing)
@@ -2877,7 +2877,7 @@ end
     tracked_output_simulation = run!(
         tracked_output_scene;
         steps=3,
-        tracked_outputs=tracked_output_request,
+        outputs=tracked_output_request,
     )
     tracked_output_rows = collect_outputs(
         tracked_output_simulation,
@@ -2926,7 +2926,7 @@ end
     auto_tracked_output_simulation = run!(
         auto_tracked_output_scene;
         steps=3,
-        tracked_outputs=OutputRequest(:Leaf, :signal; name=:signal_auto),
+        outputs=OutputRequest(:Leaf, :signal; name=:signal_auto),
     )
     auto_tracked_rows = collect_outputs(
         auto_tracked_output_simulation,
@@ -2954,7 +2954,7 @@ end
     )
     empty_retention_simulation = run!(
         empty_retention_scene;
-        tracked_outputs=OutputRequest[],
+        outputs=:none,
     )
     @test isempty(scene_outputs(empty_retention_simulation))
     @test isempty(explain_output_retention(empty_retention_simulation))
@@ -3004,7 +3004,7 @@ end
     selective_temporal_simulation = run!(
         selective_temporal_scene;
         steps=3,
-        tracked_outputs=selective_temporal_request,
+        outputs=selective_temporal_request,
     )
     @test Set(keys(scene_outputs(selective_temporal_simulation))) == Set([
         (:hourly_signal, ObjectId(:leaf_1), :signal),
@@ -3083,7 +3083,7 @@ end
     bounded_temporal_simulation = run!(
         bounded_temporal_scene;
         steps=19,
-        tracked_outputs=bounded_temporal_request,
+        outputs=bounded_temporal_request,
     )
     bounded_source_samples = scene_outputs(bounded_temporal_simulation)[
         (:hourly_signal, ObjectId(:leaf_1), :signal)
@@ -3118,7 +3118,7 @@ end
     temporal_holdlast_simulation = run!(
         temporal_holdlast_scene;
         steps=9,
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Scene,
             :temporal_total;
             name=:holdlast_total,
@@ -3147,12 +3147,12 @@ end
         environment=(duration=Hour(1),),
     )
     trait_policy_binding = only(
-        row for row in explain_bindings(refresh_bindings!(trait_policy_scene))
+        row for row in explain_bindings(Advanced.refresh_bindings!(trait_policy_scene))
         if row.application_id == :trait_policy_consumer && row.input == :signal_sum
     )
     @test trait_policy_binding.policy isa Aggregate
     @test trait_policy_binding.carrier_hint == :temporal_stream
-    trait_policy_simulation = run!(trait_policy_scene; steps=3)
+    trait_policy_simulation = run!(trait_policy_scene; steps=3, outputs=:all)
     @test only(scene_objects(trait_policy_scene; scale=:Scene)).status.temporal_total == 2.5
     @test getproperty.(
         collect_outputs(
@@ -3179,7 +3179,7 @@ end
         environment=(duration=Hour(1),),
     )
     explicit_policy_binding = only(
-        row for row in explain_bindings(refresh_bindings!(explicit_policy_scene))
+        row for row in explain_bindings(Advanced.refresh_bindings!(explicit_policy_scene))
         if row.application_id == :explicit_policy_consumer && row.input == :signal_sum
     )
     @test explicit_policy_binding.policy isa Integrate
@@ -3219,7 +3219,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    generic_integrate_simulation = run!(generic_integrate_scene; steps=3)
+    generic_integrate_simulation = run!(generic_integrate_scene; steps=3, outputs=:all)
     generic_integrate_values = getproperty.(
         collect_outputs(
             generic_integrate_simulation,
@@ -3262,7 +3262,7 @@ end
     interpolation_simulation = run!(
         interpolation_scene;
         steps=5,
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :observed_signal;
             name=:interpolated_signal,
@@ -3313,7 +3313,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    interpolation_hold_simulation = run!(interpolation_hold_scene; steps=6)
+    interpolation_hold_simulation = run!(interpolation_hold_scene; steps=6, outputs=:all)
     @test getproperty.(
         collect_outputs(
             interpolation_hold_simulation,
@@ -3348,7 +3348,7 @@ end
             ),
         ),
     )
-    @test_throws "Invalid interpolation mode `spline`" refresh_bindings!(invalid_interpolation_scene)
+    @test_throws "Invalid interpolation mode `spline`" Advanced.refresh_bindings!(invalid_interpolation_scene)
 
     stream_only_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -3363,12 +3363,12 @@ end
             AppliesTo(One(scale=:Leaf)),
         ),
     )
-    stream_only_compiled = refresh_bindings!(stream_only_scene)
+    stream_only_compiled = Advanced.refresh_bindings!(stream_only_scene)
     stream_only_writer = only(row for row in explain_writers(stream_only_compiled) if row.variable == :signal)
     @test stream_only_writer.application_ids == [:canonical_signal]
     stream_only_binding = only(row for row in explain_bindings(stream_only_compiled) if row.application_id == :signal_consumer)
     @test stream_only_binding.source_application_ids == [:canonical_signal]
-    stream_only_simulation = run!(stream_only_scene)
+    stream_only_simulation = run!(stream_only_scene; outputs=:all)
     stream_only_status = only(scene_objects(stream_only_scene; scale=:Leaf)).status
     @test stream_only_status.observed_signal == 1.0
     signal_rows = collect_outputs(stream_only_simulation, :leaf_1, :signal; sink=nothing)
@@ -3387,11 +3387,11 @@ end
     )
     @test_throws "No scene output publisher found" run!(
         stream_only_only_scene;
-        tracked_outputs=OutputRequest(:Leaf, :signal; name=:stream_signal_auto_fail),
+        outputs=OutputRequest(:Leaf, :signal; name=:stream_signal_auto_fail),
     )
     stream_only_requested = run!(
         stream_only_scene;
-        tracked_outputs=OutputRequest(:Leaf, :signal; name=:canonical_signal_request),
+        outputs=OutputRequest(:Leaf, :signal; name=:canonical_signal_request),
     )
     stream_only_requested_rows = collect_outputs(
         stream_only_requested,
@@ -3402,7 +3402,7 @@ end
     @test getproperty.(stream_only_requested_rows, :value) == [1.0]
     explicit_stream_application = run!(
         stream_only_scene;
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :signal;
             name=:stream_signal_by_application,
@@ -3418,7 +3418,7 @@ end
     @test getproperty.(explicit_stream_rows, :value) == [10.0]
     explicit_canonical_application = run!(
         stream_only_scene;
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :signal;
             name=:canonical_signal_by_application,
@@ -3435,7 +3435,7 @@ end
     @test getproperty.(explicit_canonical_rows, :value) == [1.0]
     @test_throws "application `missing_signal`" run!(
         stream_only_scene;
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :signal;
             name=:missing_signal_application,
@@ -3444,7 +3444,7 @@ end
     )
     @test_throws "Ambiguous scene output publishers" run!(
         stream_only_scene;
-        tracked_outputs=OutputRequest(
+        outputs=OutputRequest(
             :Leaf,
             :signal;
             name=:ambiguous_signal_request,
@@ -3463,18 +3463,18 @@ end
         ModelSpec(SceneObjectBiomassPrunerModel(); name=:leaf_pruning) |>
         AppliesTo(One(scale=:Leaf))
 
-    @test_throws ErrorException compile_scene(writer_scene, (biomass_source, biomass_pruner))
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(writer_scene, (biomass_source, biomass_pruner))
+    @test_throws ErrorException Advanced.compile_scene(
         writer_scene,
         (biomass_source, biomass_pruner |> Updates(:biomass; after=:water_status)),
     )
-    @test_throws ErrorException compile_scene(
+    @test_throws ErrorException Advanced.compile_scene(
         writer_scene,
         (biomass_pruner |> Updates(:biomass; after=:carbon_allocation), biomass_source),
     )
 
     ordered_pruner = biomass_pruner |> Updates(:biomass; after=:carbon_allocation)
-    writer_compiled = compile_scene(writer_scene, (biomass_source, ordered_pruner))
+    writer_compiled = Advanced.compile_scene(writer_scene, (biomass_source, ordered_pruner))
     writer_row = only(row for row in explain_writers(writer_compiled) if row.variable == :biomass)
     @test writer_row.object_id == :leaf_1
     @test writer_row.duplicate
@@ -3513,7 +3513,7 @@ end
             AppliesTo(Many(scale=:Leaf)),
             ModelSpec(SceneObjectPlantSignalSumModel(); name=:plant_signal_total) |>
             AppliesTo(One(scale=:Plant)) |>
-            Inputs(:signals => Many(scale=:Leaf, within=Self(), var=:signal)),
+            Inputs(:signals => Many(scale=:Leaf, within=Subtree(), var=:signal)),
             ModelSpec(SceneObjectPruningModel(); name=:pruning) |>
             AppliesTo(One(scale=:Scene)),
         ),
@@ -3530,11 +3530,11 @@ end
     lifecycle_simulation = run!(
         lifecycle_scene;
         steps=3,
-        tracked_outputs=lifecycle_output_request,
+        outputs=lifecycle_output_request,
     )
-    @test !bindings_dirty(lifecycle_scene)
-    @test !environment_bindings_dirty(lifecycle_scene)
-    @test lifecycle_simulation.compiled.revision == scene_revision(lifecycle_scene)
+    @test !Advanced.bindings_dirty(lifecycle_scene)
+    @test !Advanced.environment_bindings_dirty(lifecycle_scene)
+    @test lifecycle_simulation.compiled.revision == Advanced.scene_revision(lifecycle_scene)
     @test Set(object_ids(lifecycle_scene; scale=:Leaf)) ==
           Set([ObjectId(:leaf_1), ObjectId(:grown_leaf)])
     lifecycle_status = only(scene_objects(lifecycle_scene; scale=:Scene)).status
@@ -3552,7 +3552,7 @@ end
     )
     @test lifecycle_execution_row.object_ids == [:grown_leaf, :leaf_1]
     @test lifecycle_simulation.execution_plan.scene_revision ==
-          scene_revision(lifecycle_scene)
+          Advanced.scene_revision(lifecycle_scene)
     @test haskey(
         lifecycle_simulation.compiled.model_bundles_by_target,
         (:leaf_signal, ObjectId(:grown_leaf)),
@@ -3614,9 +3614,9 @@ end
         ),
         environment=moving_environment_backend,
     )
-    moving_environment_simulation = run!(moving_environment_scene; steps=2)
-    @test !bindings_dirty(moving_environment_scene)
-    @test !environment_bindings_dirty(moving_environment_scene)
+    moving_environment_simulation = run!(moving_environment_scene; steps=2, outputs=:all)
+    @test !Advanced.bindings_dirty(moving_environment_scene)
+    @test !Advanced.environment_bindings_dirty(moving_environment_scene)
     @test only(scene_objects(moving_environment_scene; scale=:Scene)).status.move_count == 1
     @test only(scene_objects(moving_environment_scene; scale=:Leaf)).status.temperature_seen == 30.0
     moving_probe_rows = collect_outputs(
@@ -3641,7 +3641,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    multirate_compiled = refresh_bindings!(multirate_scene)
+    multirate_compiled = Advanced.refresh_bindings!(multirate_scene)
     schedule_rows = explain_schedule(multirate_compiled)
     @test only(schedule_rows).application_id == :hourly_signal
     @test only(schedule_rows).dt_steps == 2.0
@@ -3658,7 +3658,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    trait_clock_compiled = refresh_bindings!(trait_clock_scene)
+    trait_clock_compiled = Advanced.refresh_bindings!(trait_clock_scene)
     trait_clock_schedule = only(explain_schedule(trait_clock_compiled))
     @test trait_clock_schedule.application_id == :trait_clock_signal
     @test trait_clock_schedule.dt_steps == 2.0
@@ -3676,7 +3676,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    override_schedule = only(explain_schedule(refresh_bindings!(trait_clock_override_scene)))
+    override_schedule = only(explain_schedule(Advanced.refresh_bindings!(trait_clock_override_scene)))
     @test override_schedule.dt_steps == 1.0
     run!(trait_clock_override_scene; steps=5)
     @test only(scene_objects(trait_clock_override_scene; scale=:Leaf)).status.signal == 5.0
@@ -3690,7 +3690,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    @test_throws "outside `timestep_hint.required=1 day`" refresh_bindings!(strict_hint_scene)
+    @test_throws "outside `timestep_hint.required=1 day`" Advanced.refresh_bindings!(strict_hint_scene)
 
     strict_hint_override_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -3702,7 +3702,7 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    @test only(explain_schedule(refresh_bindings!(strict_hint_override_scene))).dt_steps == 1.0
+    @test only(explain_schedule(Advanced.refresh_bindings!(strict_hint_override_scene))).dt_steps == 1.0
     run!(strict_hint_override_scene; steps=2)
     @test only(scene_objects(strict_hint_override_scene; scale=:Leaf)).status.signal == 2.0
 end

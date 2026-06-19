@@ -1,84 +1,97 @@
 # Code Cleanup Audit
 
-This page records cleanup candidates found during the scene/object experimental
-branch audit. It is intentionally biased toward code health and release-note
-planning rather than immediate implementation.
+## Status
 
-See also:
+The compatibility cleanup is implemented on the `multi-plants` branch.
 
-- `release_notes_handoff.md` for the consolidated release-note source.
-- `unified_scene_object_design.md` for the scene/object redesign.
-- `unified_scene_object_implementation_plan.md` for the implementation handoff
-  of that future design.
+The package now has one scenario compiler and runtime: the scene/object API.
+The following superseded implementations were removed rather than deprecated:
 
-Priority meanings:
+- `ModelList` and `SingleScaleModelSet`;
+- `ModelMapping` and `MultiScaleModel`;
+- `DependencyGraph`, `HardDependencyNode`, and `SoftDependencyNode`;
+- `GraphSimulation` and the MTG mapping runner;
+- mapping-specific multirate input resolution and output export;
+- the unreleased domain prototype that preceded the scene/object API,
+  including `Domain`, `SimulationMapping`, `Route`, `AllDomains`,
+  `HardDomains`, and its separate scheduler, runtime, environment bridge, and
+  output publisher;
+- mapping-only initialization, dataframe, dimension, and topology helpers;
+- unused parallel-executor traits after removal of the executor runtime;
+- dead `UninitializedVar`, `RefVariable`, `TreeAlike`, and `StatusView` types;
+- the unreleased `ObjectTemplate(...; mapping=...)` alias and legacy
+  selector-to-mapping conversion helpers;
+- compatibility tests, tutorials, and executable examples.
 
-- P0: architectural compatibility removal or high-impact breaking cleanup.
-- P1: should be handled before stabilizing the new API.
-- P2: useful cleanup with moderate risk or blast radius.
-- P3: lower-risk cleanup or follow-up once nearby code is touched.
+Migration details are retained in
+[`migration_scene_object.md`](../migration_scene_object.md) and
+[`release_notes_handoff.md`](release_notes_handoff.md).
 
-## Functions With Mergeable Intent
+## Current Ownership
 
-These functions are not always wrong as separate Julia methods. The cleanup
-target is duplicated control flow, not legitimate multiple dispatch.
+| Concern | Owner |
+| --- | --- |
+| Object registry, selectors, compilation, execution, lifecycle | `src/scene_object_api.jl` |
+| Model application configuration | `src/ModelSpec.jl` |
+| Status and reference vectors | `src/component_models/Status.jl`, `src/component_models/RefVector.jl` |
+| Dates-based clocks and policies | `src/time/multirate.jl`, `src/time/runtime/clocks.jl` |
+| Weather sampling | `src/time/runtime/meteo_sampling.jl` |
+| Environment backends | `src/time/runtime/environment_backends.jl` |
+| Output request definition | `src/time/runtime/output_export.jl` |
 
-| Priority | Functions | Evidence | Recommended cleanup |
-| --- | --- | --- | --- |
-| Done | `_resolve_input_windowed`, `_resolve_input_interpolate`, `_resolve_input_holdlast` | `src/time/runtime/input_resolution.jl` | Policy-specific wrappers now delegate to `_resolve_input_from_policy!`, with shared vector/scalar source lookup and policy-specific sampling dispatch. |
-| Done | `_normalize_meteo_reducer`, `_resolve_window_reducer` | `src/time/runtime/meteo_sampling.jl`; `src/time/runtime/input_resolution.jl` | Merged through `_normalize_time_reducer(...; context=...)`. |
-| Done | `validate_meteo_inputs(model_specs, meteo)` and `validate_meteo_inputs(model_specs, backend)` | `src/time/runtime/meteo_sampling.jl`; `src/time/runtime/environment_backends.jl` | Shared missing-row collection and diagnostic formatting through `_collect_missing_meteo_rows` and `_error_missing_meteo_inputs`. |
-| Done | `_required_horizon_for_export_policy` and `_required_horizon_for_policy` | `src/time/runtime/output_export.jl`; `src/time/runtime/publishers.jl` | Export code now delegates to `_required_horizon_for_policy(policy, clock.dt, source_dt)`. |
-| Done | `_normalize_meteo_window` and `_runtime_meteo_window` | `src/mtg/ModelSpec.jl`; `src/time/runtime/meteo_sampling.jl` | Runtime meteo-window normalization now calls `_normalize_meteo_window`. |
-| Done | `Status` and `StatusView` Base interface methods | `src/component_models/Status.jl`; `src/component_models/StatusView.jl` | Shared small private helpers for values, tuple conversion, iteration, and indexed iteration while keeping storage-specific access and mutation methods separate. |
-| Done | Tutorial helper functions repeated in toy multiscale examples | `examples/ToyMultiScalePlantTutorial/ToyPlantSimulation2.jl`; `examples/ToyMultiScalePlantTutorial/ToyPlantSimulation3.jl` | Extracted shared MTG navigation helpers to `examples/ToyMultiScalePlantTutorial/ToyPlantHelpers.jl` and included it with `@__DIR__` so tutorial scripts remain standalone. |
-| Done | Test helper flows that run a graph simulation and compare outputs | `test/helper-functions.jl` | Shared `run_graphsim_for_comparison` for generated multiscale comparison and filtered-output comparison paths. |
+## Remaining Review Rules
 
-## Backward Compatibility To Remove
+Future cleanup should reject:
 
-This section is the release-note source list. Removing these items is breaking,
-and some are still internal dependencies rather than shallow exported shims.
+- a second scenario/runtime abstraction parallel to `Scene`;
+- compatibility wrappers for unreleased APIs;
+- package-specific behavior in PlantSimEngine;
+- model kernels that know their scenario object, timestep, or coupling unless
+  the scientific algorithm requires a hard call;
+- dynamic per-object dispatch or copying in hot loops when compiled typed
+  batches and reference carriers are available;
+- undocumented public names or agent instructions that describe removed APIs.
 
-| Priority | Compatibility surface | Evidence | Migration note |
-| --- | --- | --- | --- |
-| Done | `ModelList` public API and legacy backing type | Formerly in `src/PlantSimEngine.jl`; `src/component_models/ModelList.jl`; `src/mtg/mapping/mapping.jl` | `ModelList` has been removed. Use `PlantSimEngine.ModelMapping(model...; status=..., type_promotion=...)` for single-scale simulations. |
-| Done | `run!(::ModelList, ...)` | Formerly in `src/run.jl` direct `ModelList` methods | `run!(::ModelList, ...)` has been removed. Wrap models in `ModelMapping` before running. |
-| Done | Batch `run!` for collections of `ModelList` or single-scale mappings | Formerly in `src/run.jl` collection methods | Batch `run!([mapping1, mapping2], meteo)` and `run!(Dict(...), meteo)` are removed. Use an explicit loop or comprehension and call `run!` per mapping. |
-| Done | `run!(mtg, mapping::AbstractDict, ...)` | Formerly in `src/run.jl` | Passing a raw `Dict` to multiscale `run!` is removed. Construct `PlantSimEngine.ModelMapping(dict)` first, or use `PlantSimEngine.ModelMapping(:Scale => models, ...)`. |
-| Done | String scale names | `src/mtg/mapping/mapping.jl`; `src/mtg/MultiScaleModel.jl`; `src/mtg/model_spec_inference.jl`; `src/time/runtime/bindings.jl` | String scale names are removed. Use symbols everywhere, for example `:Leaf` instead of `"Leaf"`. |
-| Done | `PlantSimEngine.ModelMapping(Float64 => Float32)` as old type-promotion shorthand | Formerly in `src/mtg/mapping/mapping.jl` | `PlantSimEngine.ModelMapping(Float64 => Float32)` is removed. Use `Dict(Float64 => Float32)` as the `type_promotion` value. |
-| Done | Old output indexing helpers on multiscale output dictionaries | Formerly in `src/mtg/GraphSimulation.jl` | `outputs(out_dict, key)` and `outputs(out_dict, i)` are removed. Use `convert_outputs(out_dict, sink)` and index the converted table or dictionary explicitly. |
+## Verification
 
-`ModelMapping{SingleScale}` now uses an internal single-scale backing container
-instead of the removed public `ModelList` API.
+Current cleanup evidence:
 
-## Non-Idiomatic Julia Patterns
+- the `src` tree contains only the scene/object runtime and supporting status,
+  time, environment, fitting, trait, and example files;
+- empty directories left by removed subsystems were deleted;
+- `git diff --check` passes;
+- PlantSimEngine precompiles and loads from a clean Kaimon session;
+- `test/test-unified-scene-object-api.jl` passes 576 tests;
+- the complete package environment passes 885 tests, including Aqua and
+  doctests;
+- `test/test-fitting.jl` passes;
+- the documentation build passes, including executable examples and
+  cross-reference checks;
+- repository search finds no superseded scenario-runtime definitions or
+  references in source, tests, examples, README, public docs, or the packaged
+  agent skill;
+- remaining `ModelMapping` and `MultiScaleModel` references outside
+  development notes are migration text that explicitly points historical code
+  to the scene/object API.
+- repository search finds no `Domain`, `SimulationMapping`, `Route`,
+  `AllDomains`, or `HardDomains` implementations, exports, tests, examples, or
+  public documentation. The only remaining references are development/release
+  notes that record their removal from this unreleased branch;
+- ignored `.DS_Store` files were removed from the working tree outside `.git`.
+- `ModelSpec` pipe-helper boilerplate was consolidated behind shared internal
+  helpers while keeping the public `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
+  `Environment`, `Updates`, and `OutputRouting` grammar unchanged.
+- the duplicate `Advanced.TimeStepTable` export was removed from the PlantMeteo
+  re-export block; `Advanced.TimeStepTable` remains exported once from the core status
+  export list.
+- stale `PlantSimEngine.Examples` exports for the deleted
+  `ToyInternodeEmergence` example were removed.
 
-| Priority | Pattern | Evidence | Recommended cleanup |
-| --- | --- | --- | --- |
-| Done | Source-side `@assert` used for user/data validation | Formerly in MTG initialization, mapping, output conversion, and save-result helpers | Converted to explicit `if` checks and `error` messages in this cleanup pass. Remaining `@assert` uses are limited to tests and documentation examples. |
-| Done | `ModelSpec(model::AbstractModel)` checks `model isa MultiScaleModel`, which is effectively dead | `src/mtg/ModelSpec.jl` | Added an explicit `ModelSpec(::MultiScaleModel)` method and removed the dead branch from the `AbstractModel` constructor. |
-| Done | `Symbol("")` sentinel for same-scale/no-op mappings | `src/mtg/MultiScaleModel.jl`; `src/mtg/mapping/mapping.jl`; `src/dependencies/dependency_graph.jl` | Replaced the magic sentinel with the typed `SameScale()` marker and reject `Symbol("")` in new mappings. |
-| Done | Policy handling by large `isa` branch chains | `src/time/runtime/input_resolution.jl` | Input resolution now dispatches on policy type through `_resolved_policy_value_for_source` and `_resolve_input_for_policy!`, with shared source-resolution helpers. |
-| Done | Scope selectors accept strings and hard-code built-in scale names | `src/time/runtime/scopes.jl`; `src/mtg/ModelSpec.jl` | Scope selectors now reject strings at construction and runtime callable results must return `ScopeId` or `Symbol`. Built-in selector symbols remain explicit and validated. |
-| Done | Normalizer fallbacks return unknown values unchanged | `src/mtg/ModelSpec.jl` | Fallbacks for input bindings, meteo bindings, and output routing now fail at construction with explicit errors. String scope selectors now error instead of being converted. |
-| Done | Broad `Any` and anonymous named tuples in runtime storage | `src/mtg/mapping/mapping.jl`; `src/mtg/GraphSimulation.jl`; `src/time/multirate.jl`; `src/time/runtime/output_export.jl` | Added semantic aliases for model-rate declarations and temporal streams, typed reverse multiscale mappings as `Symbol => Symbol`, and replaced anonymous export-plan named tuples with `OutputExportPlan`. Remaining `Any` storage is for user-provided values/statuses and open extension hooks. |
-| Done | Awkward container signatures with broad `AbstractArray` / verbose `where` clauses | `src/dataframe.jl`; `src/checks/dimensions.jl` | Simplified collection signatures to `AbstractVector`/`AbstractDict` forms without unnecessary `where` wrappers. |
+Downstream verification:
 
-## Brittle Or Overloaded Code
-
-| Priority | Location | Risk | Recommended cleanup |
-| --- | --- | --- | --- |
-| Done | `src/dependencies/soft_dependencies.jl` hard-dependency redirection | Nested hard-dependency redirection is duplicated, walks parents with a depth cap, and can match by process without enough scale context. | Extracted shared owner-resolution helpers for nested hard dependencies, with scale-aware matching, ambiguity checks, and finalized soft-node validation. |
-| Done | `src/time/runtime/input_resolution.jl` fallback resolution | Same-node, ancestor, and candidate-scan fallback can silently change behavior when topology or scope changes. | Built a shared source-status resolver that centralizes same-node, ancestor, vector, and unique-candidate fallback with scalar ambiguity validation. |
-| Done | `src/mtg/initialisation.jl` `RefVector` population | Vector input order depends on MTG traversal order and can drift after growth/removal. | Added `reindex_runtime_topology!` to sort statuses by MTG node id and rebuild downstream `RefVector`s from current statuses after initialization and topology mutations. |
-| Done | `src/mtg/mapping/compute_mapping.jl` and `src/mtg/mapping/mapping.jl` mapping sentinels/invariants | Magic sentinel values make mapping control flow fragile. | Same-scale mappings now use `SameScale()` instead of `Symbol("")`; explicit validation rejects the old sentinel. |
-| Done | `src/mtg/add_organ.jl` topology mutation | Add/remove/reparent updates local status and refs, but scope-derived temporal keys and environment indexes need centralized invalidation. | Add/remove/reparent now centralize runtime topology reindexing; reparent clears temporal state for the moved subtree before rebuilding status and `RefVector` indexes. |
-| Done | `examples/maespa_scene_example.jl` scene model | The example mixes solver math, call-target orchestration, publication, soil feedback, and carbon updates. | Split scene energy-balance solving, leaf publication/carbon update, and soil feedback into separate helpers; added tests for selector mismatch, convergence failure, publication counts, and soil feedback. |
-| Done | `src/dependencies/is_graph_cyclic.jl` cycle keys | Cycle detection keys nodes by model value and scale, which can conflate reused model objects. | Traversal now uses dependency-node identity through `IdDict`; cycle reports are converted back to `(model => scale)` for existing diagnostics. |
-| Done | `src/time/runtime/bindings.jl` and input binding inference | Producer candidates can lose renamed source-variable identity. | Added `ProducerVariable(input, source)` dependency metadata for renamed multiscale producers, and candidate inference now matches on the consumer input while returning the producer source variable. |
-
-## Suggested Cleanup Order
-
-All originally listed cleanup items are now marked done. Keep this page as the
-release-note source list and add new rows only for newly discovered cleanup work.
+- PlantBiophysics passes 117/117 tests against this working tree.
+- XPalm's uncommitted Scene/Object migration executes 74/75 assertions. The
+  remaining assertion retains the removed runtime's first-step LAI value,
+  while the explicit current dependency order produces zero from the initial
+  zero-biomass leaf before plant/scene aggregation. PlantSimEngine intentionally
+  contains no package-specific compatibility workaround for that stale fixture.

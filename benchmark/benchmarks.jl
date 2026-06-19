@@ -20,32 +20,40 @@ const SUITE = BenchmarkGroup()
 SUITE[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
 
 # "PSE benchmark"
-include("test-PSE-benchmark.jl")
-SUITE[suite_name]["PSE"] = @benchmarkable do_benchmark_on_heavier_mtg()
+include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
+SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
+    scene,
+    requests,
+    nsteps,
+) setup = ((scene, requests, nsteps) = setup_heavier_scene_benchmark())
 
-if isdefined(PlantSimEngine, :ModelSpec) # Only in new versions
-    include("test-multirate-buffer-benchmark.jl")
-    mtg_mr, mapping_mr, meteo_mr, reqs_mr, tracked_mr, nsteps_mr = setup_multirate_buffer_benchmark()
-    SUITE[suite_name]["PSE_multirate_status_tracked_run"] = @benchmarkable benchmark_multirate_status_tracked_run($mtg_mr, $mapping_mr, $meteo_mr, $tracked_mr, $nsteps_mr)
-    SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run($mtg_mr, $mapping_mr, $meteo_mr, $reqs_mr, $tracked_mr, $nsteps_mr)
-end
+include(joinpath(@__DIR__, "test-multirate-buffer-benchmark.jl"))
+SUITE[suite_name]["PSE_multirate_retain_all_run"] = @benchmarkable benchmark_multirate_retain_all_run(
+    scene,
+    nsteps,
+) setup = ((scene, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
+SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run(
+    scene,
+    requests,
+    nsteps,
+) setup = ((scene, requests, nsteps) = setup_multirate_buffer_benchmark())
+
 # "PBP benchmark"
-include("test-plantbiophysics.jl")
+include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
 SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
-
-leaf, meteo = setup_benchmark_plantbiophysics_multitimestep()
-SUITE[suite_name]["PBP_multiple_timesteps_MT"] = @benchmarkable benchmark_plantbiophysics_multitimestep_MT($leaf, $meteo)
-SUITE[suite_name]["PBP_multiple_timesteps_ST"] = @benchmarkable benchmark_plantbiophysics_multitimestep_ST($leaf, $meteo)
+SUITE[suite_name]["PBP_batch_run"] = @benchmarkable benchmark_plantbiophysics_batch(
+    scenes,
+) setup = (scenes = setup_benchmark_plantbiophysics_batch())
 
 # "XPalm benchmark" 
-include("test-xpalm.jl")
+include(joinpath(@__DIR__, "test-xpalm.jl"))
 SUITE[suite_name]["XPalm_setup"] = @benchmarkable xpalm_default_param_create() seconds = 120
 
-palm, models, out_vars, meteo = xpalm_default_param_create()
-sim_outputs = xpalm_default_param_run(palm, models, out_vars, meteo)
-
-SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run(palm, models, out_vars, meteo) setup = ((palm, models, out_vars, meteo) = xpalm_default_param_create())
-SUITE[suite_name]["XPalm_convert_outputs"] = @benchmarkable xpalm_default_param_convert_outputs($sim_outputs)
+SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run(
+    scene,
+    requests,
+    nsteps,
+) setup = ((scene, requests, nsteps) = xpalm_default_param_create())
 
 #tune!(SUITE)
 #results = run(SUITE, verbose=true)

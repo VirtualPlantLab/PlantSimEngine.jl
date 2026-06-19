@@ -20,8 +20,9 @@ struct ToySoilWaterModel{T<:Union{AbstractRange{Float64},AbstractVector{Float64}
     values::T
 end
 
-# Defining a method with keyword arguments and default values:
-ToySoilWaterModel(values=[0.5]) = ToySoilWaterModel(values)
+# Defining a zero-argument default without shadowing the generated positional
+# constructor.
+ToySoilWaterModel() = ToySoilWaterModel([0.5])
 
 # Defining the inputs and outputs of the model:
 PlantSimEngine.inputs_(::ToySoilWaterModel) = NamedTuple()

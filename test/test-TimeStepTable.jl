@@ -1,6 +1,6 @@
-@testset "Testing TimeStepTable{Status}" begin
+@testset "Testing Advanced.TimeStepTable{Status}" begin
     vars = Status(Ra_SW_f=13.747, sky_fraction=1.0, d=0.03, aPPFD=1500)
-    ts = TimeStepTable([vars, vars])
+    ts = Advanced.TimeStepTable([vars, vars])
 
     @test Tables.istable(typeof(ts))
 

@@ -1,6 +1,4 @@
 using PlantSimEngine
-using MultiScaleTreeGraph
-using PlantMeteo
 using Dates
 
 PlantSimEngine.@process "mrbenchsource" verbose = false
@@ -30,69 +28,63 @@ function PlantSimEngine.run!(::MRBenchConsumer24Model, models, status, meteo, co
     status.Y24 = sum(status.X)
 end
 
-function _build_multirate_benchmark_mtg(nleaves::Int)
-    mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
-    plant = Node(mtg, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
-    internode = Node(plant, MultiScaleTreeGraph.NodeMTG("/", :Internode, 1, 2))
-
-    for i in 1:nleaves
-        Node(internode, MultiScaleTreeGraph.NodeMTG("+", :Leaf, i, 2))
-    end
-
-    return mtg
+function _build_multirate_benchmark_objects(nleaves::Int)
+    objects = Object[
+        Object(:plant; scale=:Plant),
+    ]
+    append!(
+        objects,
+        [Object(Symbol(:leaf_, i); scale=:Leaf, parent=:plant) for i in 1:nleaves],
+    )
+    return objects
 end
 
 function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
-    mtg = _build_multirate_benchmark_mtg(nleaves)
-
-    mapping = PlantSimEngine.ModelMapping(
-        :Leaf => (
-            ModelSpec(MRBenchSourceModel(Ref(0))) |> TimeStepModel(1.0),
-        ),
-        :Plant => (
-            ModelSpec(MRBenchConsumer4Model()) |>
-            MultiScaleModel([:X => [:Leaf]]) |>
-            TimeStepModel(ClockSpec(4.0, 1.0)) |>
-            InputBindings(; X=(process=:mrbenchsource, var=:X, scale=:Leaf, policy=Integrate())),
-            ModelSpec(MRBenchConsumer24Model()) |>
-            MultiScaleModel([:X => [:Leaf]]) |>
-            TimeStepModel(ClockSpec(24.0, 1.0)) |>
-            InputBindings(; X=(process=:mrbenchsource, var=:X, scale=:Leaf, policy=Integrate())),
-        ),
+    objects = _build_multirate_benchmark_objects(nleaves)
+    applications = (
+        ModelSpec(MRBenchSourceModel(Ref(0)); name=:hourly_source) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            TimeStep(Hour(1)),
+        ModelSpec(MRBenchConsumer4Model(); name=:four_hour_consumer) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(:X => Many(
+                scale=:Leaf,
+                within=Subtree(),
+                application=:hourly_source,
+                var=:X,
+                policy=Integrate(),
+                window=Hour(4),
+            )) |>
+            TimeStep(Hour(4)),
+        ModelSpec(MRBenchConsumer24Model(); name=:daily_consumer) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(:X => Many(
+                scale=:Leaf,
+                within=Subtree(),
+                application=:hourly_source,
+                var=:X,
+                policy=Integrate(),
+                window=Day(1),
+            )) |>
+            TimeStep(Day(1)),
     )
 
     nsteps = 24 * ndays
-    meteo = Weather(repeat([Atmosphere(T=20.0, Wind=1.0, Rh=0.65)], nsteps))
+    meteo = [(T=20.0, Wind=1.0, Rh=0.65, duration=Hour(1)) for _ in 1:nsteps]
+    scene = Scene(objects...; applications=applications, environment=meteo)
 
     reqs = [
-        OutputRequest(:Leaf, :X; name=:x_hourly, process=:mrbenchsource, policy=HoldLast()),
-        OutputRequest(:Leaf, :X; name=:x_daily_sum, process=:mrbenchsource, policy=Integrate(), clock=ClockSpec(24.0, 1.0)),
+        OutputRequest(:Plant, :Y4; name=:four_hour_total, application=:four_hour_consumer),
+        OutputRequest(:Plant, :Y24; name=:daily_total, application=:daily_consumer),
+        OutputRequest(:Leaf, :X; name=:x_daily_sum, application=:hourly_source, policy=Integrate(), clock=Day(1)),
     ]
-
-    tracked = Dict(:Plant => (:Y4, :Y24), :Leaf => (:X,))
-    return mtg, mapping, meteo, reqs, tracked, nsteps
+    return scene, reqs, nsteps
 end
 
-function benchmark_multirate_status_tracked_run(mtg, mapping, meteo, tracked, nsteps)
-    run!(
-        mtg,
-        mapping,
-        meteo,
-        nsteps=nsteps,
-        check=true,
-        executor=SequentialEx(),
-        tracked_outputs=tracked
-    )
+function benchmark_multirate_retain_all_run(scene, nsteps)
+    return run!(scene; steps=nsteps, outputs=:all)
 end
 
-function benchmark_multirate_output_request_run(mtg, mapping, meteo, reqs, tracked, nsteps)
-    run!(
-        mtg,
-        mapping,
-        meteo,
-        nsteps=nsteps,
-        check=true,
-        executor=SequentialEx(),
-        tracked_outputs=reqs
-    )
+function benchmark_multirate_output_request_run(scene, reqs, nsteps)
+    return run!(scene; steps=nsteps, outputs=reqs)
 end

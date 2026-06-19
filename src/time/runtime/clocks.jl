@@ -149,12 +149,23 @@ function _validate_meteo_duration(meteo)
     if meteo isa Atmosphere
         _base_step_seconds_from_meteo_row(meteo; require_duration=true)
     elseif meteo isa TimeStepTable || DataFormat(meteo) == TableAlike()
+        base_seconds = nothing
         for (i, row) in enumerate(Tables.rows(meteo))
-            _base_step_seconds_from_meteo_row(
+            seconds = _base_step_seconds_from_meteo_row(
                 row;
                 require_duration=true,
                 context="meteorology row $(i)",
             )
+            if isnothing(base_seconds)
+                base_seconds = seconds
+            elseif !isapprox(seconds, base_seconds; atol=1.0e-9, rtol=0.0)
+                error(
+                    "Inconsistent `duration` in meteorology row $(i): ",
+                    "$(seconds) seconds does not match the base step ",
+                    "$(base_seconds) seconds from row 1. Scene scheduling ",
+                    "requires a fixed environment base step."
+                )
+            end
         end
     elseif DataFormat(meteo) == SingletonAlike() && hasproperty(meteo, :duration)
         _base_step_seconds_from_meteo_row(meteo; require_duration=true)

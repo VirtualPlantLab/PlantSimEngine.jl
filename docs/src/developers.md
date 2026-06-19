@@ -36,8 +36,9 @@ Run the standard test suite from the repository root:
 julia --project=test test/runtests.jl
 ```
 
-Some tests exercise threaded execution, so it is worth running them with more
-than one Julia thread when validating parallel behavior.
+The current public runtime is sequential. Running with multiple Julia threads
+does not enable a parallel Scene executor; parallel execution remains roadmap
+work and requires dedicated correctness tests before it becomes public.
 
 ### Documentation
 

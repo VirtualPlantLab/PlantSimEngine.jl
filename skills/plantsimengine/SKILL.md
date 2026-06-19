@@ -30,13 +30,25 @@ microclimate work. Translate released mapping-era code using
    - Search for process definitions with `rg "@process|abstract type Abstract.*Model" src examples docs test`.
    - Search for model APIs with `rg "inputs_\\(|outputs_\\(|PlantSimEngine.run!|dep\\(" src examples test`.
 3. Check model IO with `inputs(model)`, `outputs(model)`, `variables(model)`, and process identity with `process(model)` when available.
-4. Compile scenarios early with `refresh_bindings!(scene)` and inspect
+4. Validate scenarios early with `explain_initialization(scene)` and inspect
    `explain_scene_applications`, `explain_bindings`, `explain_calls`,
    `explain_schedule`, `explain_writers`, and environment bindings.
+5. Use `explain_initialization(scene)` before running to distinguish supplied,
+   generated, producer-bound, environment-bound, and unresolved variables.
 
 ## User Workflow: Existing Models
 
 ### Build the object graph
+
+For one object with ordinary same-object inference, use the thin constructor
+that lowers directly to the same Scene/Object runtime:
+
+```julia
+scene = Scene(ModelA(), ModelB(); status=(initial_value=1.0,))
+```
+
+Use the explicit object graph below as soon as models require different target
+sets or scenario policies.
 
 Represent every runtime entity as an `Object` with stable identity and useful
 labels. Plant topology remains scenario-defined.
@@ -83,8 +95,9 @@ scene = Scene(scene_objects...; applications=applications, environment=backend)
 ```
 
 Use explicit application names when a process is applied more than once to the
-same object set. Selectors can disambiguate producers by `process=` and
-`application=`.
+same object set. Singular producer references use `application=`. A
+`Many(process=...)` filter is reserved for explicit discovery across several
+applications, such as mounted template instances.
 
 ### Couple values with Inputs
 
@@ -96,8 +109,8 @@ ModelSpec(AllocationModel(); name=:allocation) |>
     Inputs(
         :leaf_carbon => Many(
             scale=:Leaf,
-            within=Self(),
-            process=:leaf_carbon,
+            within=Subtree(),
+            application=:leaf_carbon,
             var=:leaf_carbon,
         ),
     )
@@ -106,8 +119,9 @@ ModelSpec(AllocationModel(); name=:allocation) |>
 Semantics:
 
 - `One(...)`, `OptionalOne(...)`, and `Many(...)` make multiplicity explicit.
-- `Self()` is the consumer object or subtree. `SelfPlant()` is the nearest
-  containing plant. `SceneScope()` selects across the scene.
+- `Self()` is only the consumer object. `Subtree()` is that object plus its
+  descendants. `SelfPlant()` is the nearest containing plant and its subtree.
+  `SceneScope()` selects across the scene.
 - Same-rate scalar and many-object inputs use shared `Ref`s or reference
   vectors where possible.
 - Cross-rate values use typed temporal streams.
@@ -147,7 +161,7 @@ ModelSpec(DailyPlantModel(); name=:daily_plant) |>
     Inputs(
         :leaf_fluxes => Many(
             scale=:Leaf,
-            within=Self(),
+            within=Subtree(),
             var=:flux,
             policy=Integrate(),
             window=Dates.Day(1),
@@ -185,24 +199,22 @@ the affected environment bindings.
 ### Validate the compiled scenario
 
 ```julia
-compiled = refresh_bindings!(scene)
-explain_scene_applications(compiled)
-explain_bindings(compiled)
-explain_calls(compiled)
-explain_schedule(compiled)
-explain_writers(compiled)
-explain_model_bundles(compiled)
+explain_scene_applications(scene)
+explain_bindings(scene)
+explain_calls(scene)
+explain_schedule(scene)
+explain_writers(scene)
+explain_model_bundles(scene)
 ```
 
-Run with `simulation = run!(scene; steps=n)` and inspect
-`collect_outputs(simulation)` or `explain_outputs(simulation)`. Use
-`run!(scene; tracked_outputs=OutputRequest(...))` when the user needs
-resampled scene outputs; requests are materialized from retained typed streams
-after the run, and dynamic objects are exported only across their own sample
-interval. With explicit `tracked_outputs`, retained streams are pruned to
-requested application/variable streams plus temporal `Inputs(...)`
-dependencies; use `explain_output_retention(simulation)` to inspect that
-decision.
+Run with `simulation = run!(scene; steps=n, outputs=:none)`. Use
+`outputs=:all` or `outputs=OutputRequest(...)` when the user needs retained or
+resampled outputs. Requests are materialized from retained typed streams after
+the run, and dynamic objects are exported only across their own sample
+interval. Continue the same time/environment/multirate state with
+`continue!(simulation; steps=n)` or `step!(simulation)`. Use
+`explain_output_retention(scene; outputs=...)` before a long run and
+`explain_output_retention(simulation)` afterward.
 
 ## Modeler Workflow: New Or Wrapped Models
 
@@ -241,7 +253,8 @@ Rules:
 - Read and write model state through `status`. Do not store timestep-varying state in the model object.
 - Read weather through `meteo` and physical constants through `constants`.
 - In scene runs, `extra` is a `SceneRunContext`. Use its public hard-call and
-  lifecycle APIs rather than attaching unrelated user data.
+  lifecycle APIs rather than attaching unrelated user data. Obtain the live
+  scene with `runtime_scene(extra)`; do not inspect `extra.compiled.scene`.
 - If a variable appears in both `inputs_` and `outputs_` with the same name, remember that `variables(model)` merges declarations and later output declarations win.
 
 ### Wrapping existing code
@@ -304,13 +317,24 @@ PlantSimEngine.meteo_hint(::Type{<:MyModel}) = (
 )
 ```
 
-Parallel traits are mainly for single-scale execution. Multirate MTG runs are currently sequential.
+There is currently no public parallel executor API. Do not promise parallel or
+distributed execution; establish correctness and independence before any
+future parallel implementation.
+
+### Source ownership
+
+- `src/scene_object_api.jl` is only the dependency-ordered include boundary.
+- `src/scene_object/registry_topology.jl` owns objects, instances, and lifecycle.
+- `src/scene_object/selectors.jl` owns selector resolution.
+- `src/scene_object/compilation.jl` owns bindings, calls, writers, and schedules.
+- `src/scene_object/environment_bindings.jl` owns environment coupling.
+- `src/scene_object/runtime_outputs.jl` owns execution and output streams.
 
 ## Validation Checklist
 
 For user scenarios:
 
-- `refresh_bindings!(scene)` succeeds.
+- `explain_initialization(scene)` contains no unresolved required values.
 - `explain_scene_applications` shows the expected application/object pairs.
 - `explain_bindings` shows the intended source ids, source applications,
   temporal policies, and carrier semantics.
@@ -320,7 +344,7 @@ For user scenarios:
   batches; unexpected one-object batches usually indicate heterogeneous model,
   status, binding, or environment types.
 - Cycles are absent or intentionally broken with `PreviousTimeStep`.
-- Ambiguous producers are resolved with `process=` or `application=`.
+- Ambiguous singular producers are resolved with `application=`.
 - Environment explanations show the expected provider, cell, geometry source,
   source variables, and whether a temporal sampler is compiled.
 

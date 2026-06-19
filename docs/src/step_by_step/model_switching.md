@@ -60,7 +60,7 @@ growth model reads `aPPFD`, which is produced by the light interception model:
 
 ```@example scene_model_switching
 select(
-    DataFrame(explain_bindings(refresh_bindings!(rue_scene))),
+    DataFrame(explain_bindings(rue_scene)),
     :application_id,
     :input,
     :source_application_ids,

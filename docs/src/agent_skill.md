@@ -22,6 +22,10 @@ gives agents the package-specific conventions they need for:
 - reasoning about model-clock weather aggregation, `meteo_hint` reducers, and
   scenario source overrides;
 - inspecting compiled scenarios with structured explanation helpers;
+- reporting supplied, generated, bound, and unresolved variables with
+  `explain_initialization`;
+- accessing the live scene from lifecycle-capable kernels with
+  `runtime_scene(extra)`;
 - inspecting homogeneous runtime batches with `explain_execution_plan`;
 - collecting raw or requested scene outputs with `scene_outputs`,
   `OutputRequest`, `collect_outputs`, and `explain_output_retention`;

@@ -5,6 +5,8 @@
 ### Scenario and model applications
 
 - `Scene` stores objects, model applications, instances, and environment.
+- `Scene(model, models...; status=...)` is the concise one-object form and
+  lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
 - `ObjectTemplate` and `ObjectInstance` reuse a model across instances.
 - `ModelSpec(model; name=...)` identifies one model application.
@@ -14,15 +16,15 @@
 
 - `Inputs(...)` declares value dependencies.
 - `Calls(...)` declares manually executable child models.
-- `Updates(:variable; after=...)` orders intentional duplicate writers.
+- `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
 - `run_call!(target; publish=false)` executes a trial hard call.
 
 ### Selectors
 
 - Multiplicity: `One(...)`, `OptionalOne(...)`, and `Many(...)`.
-- Scope: `SceneScope()`, `Self()`, `SelfPlant()`, `Ancestor(...)`, and
-  `Scope(name)`.
+- Scope: `SceneScope()`, `Self()`, `Subtree()`, `SelfPlant()`,
+  `Ancestor(...)`, and `Scope(name)`.
 - Labels and topology: `Kind(...)`, `Species(...)`, `Scale(...)`, and
   `Relation(...)`.
 
@@ -34,19 +36,26 @@
 - `Environment(...)` configures environment providers and source remapping.
 - Models declare environment variables with `meteo_inputs_` and
   `meteo_outputs_`.
-- `OutputRequest(...)` selects retained and resampled scene output streams.
+- `OutputRequest(selector, variable; ...)` selects retained and optionally
+  resampled streams using the same object selector grammar.
 
 ### Lifecycle
 
 - `objects_from_mtg` and `Scene(mtg; ...)` adapt an MTG into the object
   registry.
 - `add_organ!` creates and initializes a new organ in an MTG-backed scene.
+- `runtime_scene(extra)` gives lifecycle-capable kernels sanctioned access to
+  the live scene from their `SceneRunContext`.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.
 - `move_object!` and `update_geometry!` change spatial state.
-- `refresh_bindings!` recompiles structural bindings.
-- `refresh_environment_bindings!` recompiles spatial environment bindings.
-- `run!(scene; steps=...)` returns a `SceneSimulation`.
+- Supported lifecycle operations automatically invalidate and refresh the
+  affected structural or spatial bindings before the next timestep.
+- `run!(scene; steps=..., outputs=:none)` starts a fresh result timeline and
+  returns a `SceneSimulation`.
+- `continue!(simulation; steps=...)` and `step!(simulation)` advance an
+  existing timeline without resetting temporal state.
+- `current_step(simulation)` reports the accepted timeline position.
 - `collect_outputs(sim)` materializes retained output streams.
 
 ### Explanations
@@ -66,9 +75,26 @@ Use structured explanation helpers instead of inspecting internals:
 - `explain_execution_plan`
 - `explain_output_retention`
 - `explain_outputs`
+- `explain_initialization`
 
 See [Migrating To The Scene/Object API](../migration_scene_object.md) for
 translations from removed APIs.
+
+## Advanced compiler API
+
+```@docs
+PlantSimEngine.Advanced
+```
+
+Compiler representations, cache refresh operations, and low-level binding
+compilers live under `PlantSimEngine.Advanced`. They are intended for package
+integration, diagnostics development, and compiler work rather than ordinary
+scenario composition. Prefer the public `explain_*` functions, which accept a
+`Scene` directly, over manually compiling and inspecting fields.
+
+Examples include `Advanced.compile_scene`, `Advanced.refresh_bindings!`, and
+the `Advanced.CompiledScene` family. These qualified APIs may evolve more
+quickly than the default modeling interface.
 
 ## Index
 

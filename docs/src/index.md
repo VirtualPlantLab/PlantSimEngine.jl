@@ -44,6 +44,24 @@ TimeStep
 Environment
 ```
 
+### Models And Applications
+
+A model is a reusable implementation of a process. A model application is one
+configured use of that model in a scene: it gives the use a name, selects its
+target objects, and configures its inputs, calls, timestep, and environment.
+
+| Concept | Meaning |
+|:--|:--|
+| Process | The biological or physical operation, such as light interception |
+| Model | An implementation of that process, such as `Beer` |
+| Application | One configured use of a model in a `Scene` |
+| Target | An object on which that application executes |
+
+One application can target many objects. The same model can also be used in
+several named applications with different parameters, selectors, or cadence.
+During compilation, PlantSimEngine resolves each application into its concrete
+`(application, object)` executions.
+
 This means the same model can be reused on one object, many leaves, several
 plant species, a shared soil object, or a scene-scale energy-balance solver
 without changing the model implementation.
@@ -124,8 +142,8 @@ scene = Scene(
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, constants=Constants())
-out = DataFrame(collect_outputs(sim; sink=nothing))
+sim = run!(scene; steps=30, constants=Constants(), outputs=:all)
+out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
 
@@ -135,7 +153,7 @@ bindings from each model's declared inputs and outputs:
 
 ```@example readme
 select(
-    DataFrame(explain_bindings(refresh_bindings!(scene))),
+    DataFrame(explain_bindings(scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -149,16 +167,16 @@ The outputs can be plotted like any other tabular result:
 ```@example readme
 using CairoMakie
 
-lai = out[out.variable .== :LAI, :]
-appfd = out[out.variable .== :aPPFD, :]
+lai = out[out.variable .== :LAI, :value]
+appfd = out[out.variable .== :aPPFD, :value]
+tt_cu = out[out.variable .== :TT_cu, :value]
 
-fig = Figure(size=(800, 520))
-ax1 = Axis(fig[1, 1], ylabel="LAI")
-lines!(ax1, lai.timestep, Float64.(lai.value), color=:mediumseagreen)
+fig = Figure(resolution=(800, 600))
+ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
+lines!(ax, tt_cu, lai, color=:mediumseagreen)
 
-ax2 = Axis(fig[2, 1], xlabel="Day", ylabel="aPPFD")
-lines!(ax2, appfd.timestep, Float64.(appfd.value), color=:firebrick)
-
+ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
+lines!(ax2, tt_cu, appfd, color=:firebrick1)
 fig
 ```
 
@@ -189,11 +207,11 @@ plant_scene = PlantSimEngine.Scene(
 
 run!(plant_scene)
 scene_status = only(scene_objects(plant_scene; scale=:Scene)).status
-(total_surface=scene_status.total_surface, LAI=scene_status.LAI)
+scene_status
 ```
 
 The same `Many(...)` selector would be plant-local if the consumer ran on a
-plant and used `within=Self()`. This is the same mechanism used for plant
+plant and used `within=Subtree()`. This is the same mechanism used for plant
 allocation models that sum their own leaves, scene models that aggregate all
 plants, and microclimate solvers that select objects inside one environment
 cell.
@@ -212,13 +230,13 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:energy_balance,
+            application=:energy_balance,
         ),
         :soil => One(
             kind=:soil,
             scale=:Soil,
             within=SceneScope(),
-            process=:soil_water,
+            application=:soil_water,
         ),
     ) |>
     TimeStep(Hour(1))
@@ -249,12 +267,12 @@ hundreds of microseconds, and PlantBiophysics.jl models using PlantSimEngine
 have been measured much faster than equivalent implementations in typical
 scientific scripting languages.
 
-For performance-sensitive scenes, inspect the compiled representation:
+For performance-sensitive scenes, inspect the supported structured
+explanations:
 
 ```julia
-compiled = refresh_bindings!(scene)
-explain_bindings(compiled)
-explain_schedule(compiled)
+explain_bindings(scene)
+explain_schedule(scene)
 explain_execution_plan(scene)
 ```
 

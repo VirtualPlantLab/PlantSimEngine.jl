@@ -1,46 +1,69 @@
 # Release Notes Handoff
 
-This page is the persistent release-note source for work done during the
-multi-domain and cleanup branch. Keep it factual: mark what is implemented,
-what is removed, and what is only planned.
+This page is the persistent release-note source for the scene/object redesign
+and cleanup branch. Keep it factual: mark what is implemented, what is removed,
+and what is only planned.
 
 ## Implemented Breaking Cleanup
 
 Source details live in `code_cleanup_audit.md`.
 
-- Removed public `ModelList` usage. New simulations should use `Scene` and
-  model applications. Retained mapping compatibility code can use
-  `PlantSimEngine.ModelMapping(model...; status=...)`.
-- Removed direct `run!(::ModelList, ...)`; retained mapping code must wrap
-  models in `PlantSimEngine.ModelMapping`.
-- Removed batch `run!` over collections/dictionaries of single-scale mappings;
-  use explicit loops or comprehensions.
-- Removed raw `Dict` multiscale `run!(mtg, dict, ...)`; construct
-  `PlantSimEngine.ModelMapping(dict)` first.
+- Removed `ModelList`, `ModelMapping`, `GraphSimulation`, `MultiScaleModel`,
+  and the separate mapping dependency/runtime stack. Use `Scene`, `Object`,
+  and model applications.
+- Removed direct and batch mapping `run!` methods.
 - Removed string scale names. Use symbols, for example `:Leaf`.
-- Removed `PlantSimEngine.ModelMapping(Float64 => Float32)` promotion shorthand. Use a
-  `Dict(Float64 => Float32)` as the `type_promotion` value.
-- Removed `ModelMapping` from exports. Historical mapping simulations remain
-  available through the explicitly qualified
-  `PlantSimEngine.ModelMapping(...)` compatibility API.
+- Removed mapping-specific type-promotion configuration.
+- Removed `ModelMapping` completely; it is not retained as a qualified
+  compatibility API.
 - Removed old multiscale output indexing helpers. Convert outputs explicitly
   before indexing.
-- Replaced the `Symbol("")` same-scale sentinel with `SameScale()`.
+- Replaced mapping-specific same-scale rename sentinels with
+  `Inputs(:local => One(within=Self(), var=:source))`.
+- Removed unused parallel-executor traits after deleting the executor runtime.
+- Removed dead mapping-era wrappers and traits: `UninitializedVar`,
+  `RefVariable`, `TreeAlike`, and `StatusView`.
+- Removed the unreleased `ObjectTemplate(...; mapping=...)` alias and dead
+  selector-to-mapping conversion helpers.
+- Removed stale `PlantSimEngine.Examples` exports for the deleted
+  `ToyInternodeEmergence` example.
 - Replaced many source-side validation `@assert`s with explicit errors.
-- Added `Updates(:var; after=:process)` for ordered duplicate writers.
+- Added `Updates(:var; after=:application)` for ordered duplicate writers.
+- Added `runtime_scene(runtime)` as the sanctioned live-scene accessor for
+  `SceneRunContext` and `SceneSimulation`; kernels no longer need to inspect
+  `extra.compiled.scene`.
+- Added `explain_initialization(scene)` with structured `:supplied`,
+  `:generated`, `:producer_bound`, `:environment_bound`, and `:unresolved`
+  dispositions.
+- Added `Scene(model, models...; status=...)` as a thin one-object constructor
+  that lowers to the normal object and `ModelSpec` representation.
+- Calendar-aligned windows remain unsupported. Temporal windows use
+  duration-based `Dates.Period` semantics.
 
-## Removed Unreleased Domain Prototype
+## Removed Unreleased Scenario Prototype
 
-The experimental domain runtime was developed and replaced on this branch
+An experimental scenario runtime was developed and replaced on this branch
 before release. Its source, tests, examples, and documentation were removed
-rather than retained as compatibility code. The removed surface included the
-domain containers, cross-domain route types, domain dependency selectors,
-domain target handles, and domain-specific explanation helpers.
+rather than retained as compatibility code.
+
+The removed API included `Domain`, `SimulationMapping`, `Route`,
+`AllDomains`, and `HardDomains`, together with the domain scheduler, run loops,
+route materialization, environment bridge, graph runner, and output publisher.
+Because this API was never released, there is no compatibility layer or user
+migration path for it.
 
 The reusable behavior now lives in the scene/object runtime: object selectors,
 compiled `Inputs(...)`, manual `Calls(...)`, `Dates`-based scheduling,
 environment backends, dynamic object lifecycle handling, and structured
 explanations.
+
+Dynamic MTG growth now has one public high-level operation: `add_organ!`.
+An MTG-backed `Scene` retains the accessors and status initializer used during
+initial adaptation. `add_organ!` reuses that policy for new nodes, merges
+explicit initial values, attaches the resulting `Status`, registers the scene
+object, and invalidates runtime bindings. `register_object!` remains available
+as the low-level registry operation. XPalm and PlantGeom were migrated away
+from package-local wrappers that duplicated this lifecycle sequence.
 
 ## Implemented MAESPA-Style Example Changes
 
@@ -83,9 +106,9 @@ for multi-plant scene coupling.
   constrained by an explicit scope.
 - `ObjectAddress` explanations now preserve positional selector criteria such
   as `Scale(:Leaf)` and `Relation(:parent)`.
-- Adds the first compiled scene/object view with `compile_scene`,
-  `CompiledScene`, `CompiledSceneApplication`, `CompiledSceneInputBinding`,
-  `CompiledSceneCallBinding`, `explain_scene_applications`,
+- Adds the first compiled scene/object view with `Advanced.compile_scene`,
+  `Advanced.CompiledScene`, `Advanced.CompiledSceneApplication`, `Advanced.CompiledSceneInputBinding`,
+  `Advanced.CompiledSceneCallBinding`, `explain_scene_applications`,
   `explain_bindings`, and `explain_calls`.
 - The compiled scene view resolves `AppliesTo(...)`, `Inputs(...)`, and
   `Calls(...)` to object ids ahead of runtime, and reports temporal policy,
@@ -96,7 +119,7 @@ for multi-plant scene coupling.
   to `Self()`. Cross-scope shared dependencies, such as leaf models reading
   soil state, should use `within=SceneScope()` explicitly.
 - Adds status-backed compiled input carriers for the scene/object view:
-  scalar shared refs, homogeneous `RefVector`s, and `ObjectRefVector` fallback
+  scalar shared refs, homogeneous `RefVector`s, and `Advanced.ObjectRefVector` fallback
   carriers. `input_carrier`, `input_value`, and `has_reference_carrier` expose
   them for tests, diagnostics, and future runtime execution.
 - Same-rate scene inputs are now wired into consumer `Status` references once
@@ -114,14 +137,14 @@ for multi-plant scene coupling.
   semantics, making reference-wired inputs and materialized temporal values
   explicit for users and agents.
 - Adds scene binding cache helpers:
-  `refresh_bindings!`, `bindings_dirty`, `compiled_bindings`, and
-  `scene_revision`. Object registration, removal, and reparenting invalidate
+  `Advanced.refresh_bindings!`, `Advanced.bindings_dirty`, `Advanced.compiled_bindings`, and
+  `Advanced.scene_revision`. Object registration, removal, and reparenting invalidate
   cached compiled bindings before the next refresh.
 - Adds scene/object environment binding cache helpers:
-  `refresh_environment_bindings!`, `compile_environment_bindings`,
-  `CompiledEnvironmentBinding`, `CompiledEnvironmentBindings`,
-  `environment_bindings_dirty`, `compiled_environment_bindings`,
-  `environment_revision`, and `explain_environment_bindings`.
+  `Advanced.refresh_environment_bindings!`, `Advanced.compile_environment_bindings`,
+  `Advanced.CompiledEnvironmentBinding`, `Advanced.CompiledEnvironmentBindings`,
+  `Advanced.environment_bindings_dirty`, `Advanced.compiled_environment_bindings`,
+  `Advanced.environment_revision`, and `explain_environment_bindings`.
 - Adds `geometry`, `position`, and `bounds` accessors for scene objects/statuses.
   Environment binding refreshes call `update_index!(backend, entities)` before
   binding objects to backend cells/layers, so spatial backends can precompute
@@ -161,18 +184,18 @@ for multi-plant scene coupling.
 - Compiled input bindings now validate `Inputs(...)` `process=`/`application=`
   filters when they are provided, and `explain_bindings` reports
   `source_application_ids`, `process`, and `application`.
-- `compile_scene` now errors for required `inputs_(model)` variables that are
+- `Advanced.compile_scene` now errors for required `inputs_(model)` variables that are
   neither bound through `Inputs(...)`/inference nor present on the target object
   `Status`.
-- `compile_scene` now prepares model-owned status schemas automatically:
+- `Advanced.compile_scene` now prepares model-owned status schemas automatically:
   model-targeted objects may omit `Status`, declared model/environment outputs
   are inserted from trait defaults, and bound consumer inputs are generated
   from `inputs_` defaults. External unbound inputs still require explicit
   initialization.
-- `compile_scene` now rejects `Inputs(...)` entries whose receiving variable is
+- `Advanced.compile_scene` now rejects `Inputs(...)` entries whose receiving variable is
   not declared by the model's `inputs_`, making binding typos explicit at
   compile time.
-- `compile_scene` now validates status-backed non-temporal `Inputs(...)`
+- `Advanced.compile_scene` now validates status-backed non-temporal `Inputs(...)`
   source availability, so bindings that select existing source objects but no
   source `Status` reference fail at compile time instead of becoming no-ops.
 - Scene/object runtime now publishes model outputs to scene-local temporal
@@ -201,13 +224,13 @@ for multi-plant scene coupling.
   Dependencies on manual-call-only applications are redirected to their parent
   caller, same-timestep cycles fail during compilation, and
   `explain_schedule` reports `execution_index`.
-- `CompiledScene` now pre-indexes input and call bindings by application and
+- `Advanced.CompiledScene` now pre-indexes input and call bindings by application and
   object id. Runtime input materialization and hard-call lookup no longer scan
   all scene bindings for every object/model invocation.
-- `CompiledScene` now pre-indexes applications by application id, removing
+- `Advanced.CompiledScene` now pre-indexes applications by application id, removing
   application scans from hard-call target resolution and dictionary rebuilding
   from ordered execution setup.
-- `CompiledEnvironmentBindings` now pre-indexes environment bindings by
+- `Advanced.CompiledEnvironmentBindings` now pre-indexes environment bindings by
   application and object id, removing the scene-wide binding scan from
   environment sampling and output scattering.
 - Adds `SceneRunContext` and `SceneCallTarget`; scene/object models can use
@@ -216,7 +239,7 @@ for multi-plant scene coupling.
 - Applications selected by `Calls(...)` are skipped by the root
   `run!(scene)` loop and execute only through explicit `run_call!`, preserving
   parent-controlled hard-call execution.
-- Adds scene/object duplicate-writer validation in `compile_scene`. A variable
+- Adds scene/object duplicate-writer validation in `Advanced.compile_scene`. A variable
   may have only one canonical writer per object unless later writers declare
   `Updates(:var; after=...)`, where `after` can match a previous application
   id/name or process.
@@ -317,8 +340,7 @@ for multi-plant scene coupling.
   explicit process matches both a stream-only and a canonical publisher.
 - `OutputRequest(...)` now accepts `application=...` for scene/object runs.
   This disambiguates repeated applications of the same process and permits
-  explicit export of a named `:stream_only` publisher. Legacy
-  `GraphSimulation` output export rejects this scene-specific selector.
+  explicit export of a named `:stream_only` publisher.
 - Scene temporal streams now retain a concrete value type per
   application/object/output stream. Type changes fail explicitly, while
   generic values such as `BigFloat` remain typed through publication,
@@ -353,7 +375,7 @@ for multi-plant scene coupling.
 - Added runtime lifecycle coverage for organ creation, pruning, plant-local
   `RefVector` refresh, historical output retention for removed objects, and
   movement between mock microclimate cells.
-- `CompiledScene` now precompiles one process-keyed model bundle per
+- `Advanced.CompiledScene` now precompiles one process-keyed model bundle per
   application/object target. Generic hard-dependency kernels receive this
   cached bundle through the existing `models` argument, avoiding recursive
   `Calls(...)` traversal and temporary collection allocation in the timestep
@@ -369,7 +391,7 @@ for multi-plant scene coupling.
 - Manual `Calls(...)` handles now use the public
   `call_target(extra, name)`/`call_targets(extra, name)` lookup API followed by
   `run_call!`.
-- Removed the unreleased domain/route authoring and runtime subsystem after
+- Removed the unreleased intermediate authoring and runtime subsystem after
   scene/object feature parity was established.
 - Adds `objects_from_mtg(root; ...)` and `Scene(mtg; ...)` so existing MTG
   topology can be adapted once into the unified registry while preserving
@@ -384,9 +406,9 @@ for multi-plant scene coupling.
 ## Compatibility Boundary
 
 The scene/object runtime and its MAESPA acceptance path are implemented.
-Historical mapping APIs remain only as an explicitly qualified compatibility
-and regression layer. The unreleased domain prototype was removed. The design,
-implementation history, and completion evidence are documented in:
+Historical mapping APIs and the unreleased intermediate prototype were
+removed. The design, implementation history, and completion evidence are
+documented in:
 
 - `unified_scene_object_design.md`
 - `unified_scene_object_implementation_plan.md`
@@ -394,8 +416,8 @@ implementation history, and completion evidence are documented in:
 
 The completed public migration is:
 
-- replace historical qualified compatibility tutorials with native
-  scene/object tutorials where long-term coverage is still valuable;
+- replace historical tutorials with native scene/object tutorials where
+  long-term coverage is still valuable;
 - model mappings should be described as model applications:
   `ModelSpec(model; name=...) |> AppliesTo(...) |> Inputs(...) |> Calls(...)`;
 - `MultiScaleModel(...)` -> `Inputs(...)`.
@@ -414,9 +436,9 @@ The completed public migration is:
 - explicit per-model meteo wiring -> automatic environment resolver plus
   cached environment bindings.
 
-Historical mapping examples and tests that remain are intentionally retained
-as a separate qualified compatibility layer. Their continued existence does
-not make them part of the public scene/object API.
+Historical mapping examples, tests, and runtime files were removed after the
+scene/object acceptance path reached feature parity. Migration information is
+kept in this release-note handoff and the user-facing migration guide.
 
 ## Migration Documentation Added
 
@@ -430,11 +452,10 @@ not make them part of the public scene/object API.
   scene/object examples. The page now introduces `Scene`, `Object`,
   `ModelSpec`, `AppliesTo`, `Inputs`, `TimeStep`, inferred same-object
   bindings, multi-object `Many(...)` inputs, and manual `Calls(...)` syntax
-  before linking to legacy mapping reference pages.
+  before linking to the migration guide.
 - Replaced the repository README examples with scene/object-first examples.
   The README now introduces `Scene`, `Object`, model applications,
-  multi-object `Inputs(...)`, and `Calls(...)`, and treats `ModelMapping` /
-  `MultiScaleModel` as compatibility APIs.
+  multi-object `Inputs(...)`, and `Calls(...)`.
 - Added a native scene/object quickstart page to the main documentation
   navigation. It provides docs-tested examples for one-object model chaining,
   inferred bindings, requested output retention, multi-object `Inputs(...)`,
@@ -442,25 +463,21 @@ not make them part of the public scene/object API.
 - Rewrote the model execution page as the current scene/object execution
   guide. It now covers compilation, reference carriers, temporal `Inputs(...)`,
   manual `Calls(...)`, `Updates(...)`, `TimeStep(...)`, environment binding,
-  retained outputs, lifecycle invalidation, and compatibility translations for
+  retained outputs, lifecycle invalidation, and migration translations for
   historical mapping constructs.
 - Rewrote the detailed first simulation tutorial to use the scene/object API.
   It now introduces `Scene`, `Object`, `ModelSpec`, `AppliesTo`, `TimeStep`,
   compiled applications, inferred same-object bindings, scene outputs, and a
-  compatibility note for historical `ModelMapping` examples.
+  migration note for historical examples.
 - Rewrote the quick examples page to use native scene/object snippets for
   Beer light interception, degree-days/LAI/light coupling, biomass growth, and
-  retained `OutputRequest` exports. Historical `ModelMapping` usage is now
-  confined to the compatibility note.
+  retained `OutputRequest` exports. Historical mapping usage is confined to
+  migration records.
 - Rewrote the standard model coupling, model switching, and coupling more
   complex models tutorials around the scene/object API. These pages now show
   inferred same-object value bindings, switching one `ModelSpec` application,
-  execution-plan explanations, and `Calls(...)` manual-call wiring before
-  mentioning `PlantSimEngine.ModelMapping(...)` as compatibility syntax.
-- Removed legacy mapping transforms from exports:
+  execution-plan explanations, and `Calls(...)` manual-call wiring.
+- Removed legacy mapping transforms and their runtime implementations:
   `MultiScaleModel`, `SameScale`, `TimeStepModel`, `InputBindings`,
-  `MeteoBindings`, `MeteoWindow`, and `ScopeModel`. Historical executable
-  examples use qualified compatibility names and are grouped under legacy
-  documentation sections.
-- Added a curated unified scene/object map to the public API page and labeled
-  the remaining mapping-level multirate reference as legacy.
+  `MeteoBindings`, `MeteoWindow`, and `ScopeModel`.
+- Added a curated unified scene/object map to the public API page.

@@ -1,60 +1,77 @@
-#using Pkg
-#Pkg.develop("PlantSimEngine")
-#using PlantSimEngine
-
-using Pkg
-#Pkg.add(url="https://github.com/PalmStudio/XPalm.jl#dev")
-#Pkg.instantiate()
-using Test
-using PlantMeteo#, MultiScaleTreeGraph
-#using CairoMakie, AlgebraOfGraphics
-using DataFrames, CSV, Statistics
-using Dates
-using XPalm
 using BenchmarkTools
+using CSV
+using DataFrames
+using Dates
+using PlantSimEngine
+using XPalm
+
+function _xpalm_output_requests(scene, vars)
+    applications = explain_scene_applications(scene)
+    requests = OutputRequest[]
+    for (scale, variables) in pairs(vars)
+        for variable in variables
+            scale_symbol = Symbol(scale)
+            variable_symbol = Symbol(variable)
+            candidates = [
+                row.application_id
+                for row in applications
+                if (
+                    scale_symbol in row.target_scales ||
+                    object_address(row.applies_to).scale == scale_symbol
+                ) && variable_symbol in row.outputs
+            ]
+            isempty(candidates) && error(
+                "No XPalm benchmark output publisher for `$(scale_symbol).$(variable_symbol)`.",
+            )
+            push!(
+                requests,
+                OutputRequest(
+                    scale_symbol,
+                    variable_symbol;
+                    name=Symbol(scale, "__", variable),
+                    application=last(candidates),
+                ),
+            )
+        end
+    end
+    return requests
+end
 
 function xpalm_default_param_create()
-    meteo = CSV.read(joinpath(dirname(dirname(pathof(XPalm))), "0-data", "meteo.csv"), DataFrame)
-    #meteo.duration = [Dates.Day(i[1:1]) for i in meteo.duration]
-    m = Weather(meteo)
-
-    out_vars = Dict{Symbol,Any}(
-        :Scene => (:lai,),
-        # :Scene => (:LAI, :scene_leaf_area, :aPPFD, :TEff),
-        # :Plant => (:plant_age, :ftsw, :newPhytomerEmergence, :aPPFD, :plant_leaf_area, :carbon_assimilation, :carbon_offer_after_rm, :Rm, :TT_since_init, :TEff, :phytomer_count, :newPhytomerEmergence),
-        :Leaf => (:Rm, :potential_area, :TT_since_init, :TEff, :biomass, :carbon_demand, :carbon_allocation,),
-        # :Leaf => (:Rm, :potential_area),
-        # :Internode => (:Rm, :carbon_allocation, :carbon_demand),
-        :Male => (:Rm,),
-        # :Female => (:biomass,),
-        # :Soil => (:TEff, :ftsw, :root_depth),
+    meteo = CSV.read(
+        joinpath(dirname(dirname(pathof(XPalm))), "0-data", "meteo.csv"),
+        DataFrame,
     )
+    :duration in propertynames(meteo) ||
+        (meteo.duration = fill(Day(1), nrow(meteo)))
 
-    # Example 1: Run the model with the default parameters (but output as a DataFrame):
-    palm = XPalm.Palm(initiation_age=0, parameters=XPalm.default_parameters())
-    models = XPalm.model_mapping(palm)
-    return palm, models, out_vars, m
+    vars = Dict{Symbol,Any}(
+        :Scene => (:lai,),
+        :Leaf => (
+            :Rm,
+            :potential_area,
+            :TT_since_init,
+            :biomass,
+            :carbon_demand,
+        ),
+        :Male => (:Rm,),
+    )
+    palm = XPalm.Palm(
+        initiation_age=0,
+        parameters=XPalm.default_parameters(),
+    )
+    scene = XPalm.xpalm_scene(palm; environment=meteo)
+    return scene, _xpalm_output_requests(scene, vars), nrow(meteo)
 end
 
-function xpalm_default_param_run(palm, models, out_vars, meteo)
-    sim_outputs = PlantSimEngine.run!(palm.mtg, models, meteo, tracked_outputs=out_vars, executor=PlantSimEngine.SequentialEx(), check=false)
-    return sim_outputs
+function xpalm_default_param_run(scene, requests, nsteps)
+    return PlantSimEngine.run!(
+        scene;
+        steps=nsteps,
+        outputs=requests,
+    )
 end
 
-function xpalm_default_param_convert_outputs(sim_outputs)
-    df = PlantSimEngine.convert_outputs(sim_outputs, DataFrame, no_value=missing)
-    return df
+function xpalm_default_param_collect_outputs(simulation)
+    return PlantSimEngine.collect_outputs(simulation; sink=DataFrame)
 end
-
-
-println(Pkg.status("XPalm"))
-
-#=@testset "XPalm simple test" begin
-    # default number of seconds is 5
-    b_XP = @benchmark xpalm_default_param_run() seconds = 120
-
-    #N = length(b_XP.times)
-
-    @test mean(b_XP.times*1e-9) > 10
-    @test mean(b_XP.times*1e-9) < 15
-end =#

@@ -1,5 +1,43 @@
 # Migrating To The Scene/Object API
 
+## Refining early Scene/Object code
+
+The stabilized public surface makes several early Scene/Object behaviors
+explicit:
+
+| Early spelling or behavior | Stabilized API |
+| --- | --- |
+| `Self()` searched self and descendants | `Self()` selects only the current object; use `Subtree()` for self plus descendants |
+| omitted `tracked_outputs` retained everything | use explicit `outputs=:all`; the safe default is `outputs=:none` |
+| `tracked_outputs=requests` | `outputs=requests` |
+| `OutputRequest(:Leaf, :x; process=:p)` | `OutputRequest(Many(scale=:Leaf), :x; application=:app)` |
+| repeated unnamed applications gained numbered IDs | name every repeated application with `ModelSpec(...; name=...)` |
+| calling `run!(scene)` again implicitly looked like continuation | use `continue!(simulation)` or `step!(simulation)` |
+| compiler/cache types imported from the default namespace | qualify them through `PlantSimEngine.Advanced` |
+
+`tracked_outputs` remains a targeted deprecation bridge. It maps `nothing` to
+`outputs=:all`, an empty request vector to `outputs=:none`, and requests to the
+equivalent `outputs` value. `process=` in `OutputRequest` is likewise a bridge
+to application-qualified requests. Singular scenario-level `Inputs` and
+`Calls` also deprecate process-only filters; model-authored `Input`/`Call`
+defaults may still discover a process because they cannot know scenario
+application names. `Many(process=...)` remains an explicit discovery query for
+collecting several applications, such as the mounted applications from several
+instances. New singular scenario references should use `application=`. The
+deprecated bridges are scheduled for removal in PlantSimEngine 0.15.
+
+Calling `run!(scene; ...)` always creates a fresh result timeline starting at
+step one, even when object status has already been mutated by an earlier run.
+Continue the same timeline, environment position, temporal histories, and
+multirate phase with:
+
+```julia
+simulation = run!(scene; steps=24, outputs=requests)
+continue!(simulation; steps=24)
+step!(simulation)
+@assert current_step(simulation) == 49
+```
+
 The scene/object API replaces the historical multiscale mapping system with
 one object-address graph.
 
@@ -104,16 +142,16 @@ ModelSpec(AllocationModel(); name=:allocation) |>
     Inputs(
         :leaf_carbon => Many(
             scale=:Leaf,
-            within=Self(),
+            within=Subtree(),
             var=:leaf_carbon,
         ),
     )
 ```
 
-`Self()` is relative to the object where the consumer runs. A plant-scale
-allocation model therefore reads only leaves inside that plant. Use
+`Self()` selects only the object where the consumer runs. A plant-scale
+allocation model uses `Subtree()` to read leaves below that plant. Use
 `SceneScope()` for scene-wide aggregation and `SelfPlant()` to select the
-nearest containing plant from an organ.
+nearest containing plant and its subtree from an organ.
 
 Same-object renaming uses the same syntax:
 
@@ -142,7 +180,7 @@ ModelSpec(SceneWaterBalance(); name=:scene_water) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:transpiration,
+            application=:transpiration,
             var=:transpiration,
         ),
     )
@@ -163,13 +201,13 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:energy_balance,
+            application=:energy_balance,
         ),
         :soil => One(
             kind=:soil,
             scale=:Soil,
             within=SceneScope(),
-            process=:soil_water,
+            application=:soil_water,
         ),
     )
 ```
@@ -215,7 +253,7 @@ oil_palm = ObjectTemplate(
         Inputs(
             :leaf_carbon => Many(
                 scale=:Leaf,
-                within=Self(),
+                within=Subtree(),
                 var=:leaf_carbon,
             ),
         ),
@@ -263,8 +301,8 @@ ModelSpec(DailyPlantModel(); name=:daily_plant) |>
     Inputs(
         :leaf_fluxes => Many(
             scale=:Leaf,
-            within=Self(),
-            process=:leaf_flux,
+            within=Subtree(),
+            application=:leaf_flux,
             var=:flux,
             policy=Integrate(),
             window=Day(1),
@@ -404,15 +442,15 @@ structured diagnostics, and `collect_outputs(sim)` for tabular rows.
 
 ```julia
 request = OutputRequest(
-    :Leaf,
+    Many(scale=:Leaf),
     :transpiration;
     name=:leaf_transpiration_daily,
-    process=:leaf_energy,
+    application=:leaf_energy,
     policy=Integrate(),
     clock=Day(1),
 )
 
-sim = run!(scene; steps=48, tracked_outputs=request)
+sim = run!(scene; steps=48, outputs=request)
 daily = collect_outputs(sim, :leaf_transpiration_daily)
 ```
 
@@ -422,10 +460,9 @@ dynamic objects only over the interval where that object published samples.
 If several scene applications implement the same process, add
 `application=:application_name` to select one explicitly. This is also the
 way to request a named `:stream_only` publisher.
-When `tracked_outputs` is explicit, the runtime retains only requested
-application/variable streams plus streams needed by temporal `Inputs(...)`.
-Passing `tracked_outputs=OutputRequest[]` therefore keeps no output streams
-unless a temporal dependency requires one. Use `explain_output_retention(sim)`
+`outputs=:none` retains no user streams. Passing explicit requests retains only
+their application/variable streams plus streams needed by temporal
+`Inputs(...)`. Use `explain_output_retention(sim)`
 to inspect why each retained stream was kept. Dependency-only streams retain a
 bounded policy-specific horizon, while requested streams keep complete
 histories for post-run export. Export is not yet a fully online path.
@@ -435,18 +472,16 @@ histories for post-run export. Export is not yet a fully online path.
 Use structured explanations instead of inspecting internal dictionaries:
 
 ```julia
-compiled = refresh_bindings!(scene)
-
 explain_objects(scene)
 explain_instances(scene)
 explain_scopes(scene)
-explain_scene_applications(compiled)
-explain_bindings(compiled)
-explain_calls(compiled)
-explain_environment_bindings(refresh_environment_bindings!(scene, compiled))
-explain_schedule(compiled)
-explain_writers(compiled)
-explain_model_bundles(compiled)
+explain_scene_applications(scene)
+explain_bindings(scene)
+explain_calls(scene)
+explain_environment_bindings(scene)
+explain_schedule(scene)
+explain_writers(scene)
+explain_model_bundles(scene)
 ```
 
 These functions return structured rows with concrete object ids, application

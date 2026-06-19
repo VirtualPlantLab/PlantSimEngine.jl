@@ -47,6 +47,4 @@ function PlantSimEngine.run!(::ToyRUEGrowthModel, models, status, meteo, constan
     status.biomass += status.biomass_increment
 end
 
-# And optionally, we can tell PlantSimEngine that we can safely parallelize our model over space (objects):
-
-# Note that this model cannot be parallelized over time because we use the biomass from the previous time-step.
+# The model uses biomass from the previous timestep, so time steps are stateful.
