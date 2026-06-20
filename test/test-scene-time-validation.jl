@@ -10,6 +10,15 @@ function PlantSimEngine.run!(::TimeValidationCounterModel, models, status, meteo
     status.count += 1
 end
 
+PlantSimEngine.@process "time_validation_override_hint" verbose = false
+struct TimeValidationOverrideHintModel <: AbstractTime_Validation_Override_HintModel end
+PlantSimEngine.inputs_(::TimeValidationOverrideHintModel) = NamedTuple()
+PlantSimEngine.outputs_(::TimeValidationOverrideHintModel) = (count=0,)
+PlantSimEngine.timestep_hint(::Type{<:TimeValidationOverrideHintModel}) = Day(1)
+function PlantSimEngine.run!(::TimeValidationOverrideHintModel, models, status, meteo, constants, extra)
+    status.count += 1
+end
+
 function time_validation_scene(environment; cadence=nothing)
     spec = ModelSpec(TimeValidationCounterModel(); name=:counter) |>
            AppliesTo(One(scale=:Scene))
@@ -58,4 +67,29 @@ end
     simulation = run!(scene; steps=1, outputs=:all)
     @test only(scene_objects(scene)).status.count == 1
     @test length(scene_outputs(simulation)[(:counter, ObjectId(:scene), :count)]) == 1
+end
+
+@testset "object overrides preserve timestep hints" begin
+    template = ObjectTemplate((
+        ModelSpec(TimeValidationOverrideHintModel(); name=:counter) |>
+            AppliesTo(Many(scale=:Leaf)),
+    ))
+    instance = ObjectInstance(
+        :plant,
+        template;
+        root=Object(:plant_root; scale=:Plant),
+        objects=(
+            Object(:leaf_a; scale=:Leaf, parent=:plant_root),
+            Object(:leaf_b; scale=:Leaf, parent=:plant_root),
+        ),
+        object_overrides=(
+            Override(
+                object=:leaf_b,
+                application=:counter,
+                model=TimeValidationOverrideHintModel(),
+            ),
+        ),
+    )
+    scene = Scene(instance; environment=(duration=Hour(1),))
+    @test_throws "outside `timestep_hint.required=1 day`" Advanced.refresh_bindings!(scene)
 end

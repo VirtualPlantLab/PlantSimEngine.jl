@@ -76,6 +76,40 @@ end
         @test values(:mean_Rh) == [0.5, 0.65]
         @test values(:mean_radiation) == [100.0, 250.0]
         @test values(:radiation_energy) ≈ [0.36, 1.8]
+
+        template = ObjectTemplate((
+            ModelSpec(MeteoSamplingProbeModel(); name=:probe) |>
+                AppliesTo(Many(scale=:Leaf)) |>
+                TimeStep(Hour(2)) |>
+                Environment(provider=:global),
+        ))
+        instance = ObjectInstance(
+            :plant,
+            template;
+            root=Object(:plant_root; scale=:Plant),
+            objects=(
+                Object(:leaf_a; scale=:Leaf, parent=:plant_root),
+                Object(:leaf_b; scale=:Leaf, parent=:plant_root),
+            ),
+            object_overrides=(
+                Override(
+                    object=:leaf_b,
+                    application=:probe,
+                    model=MeteoSamplingProbeModel(),
+                ),
+            ),
+        )
+        override_scene = Scene(instance; environment=weather)
+        override_compiled = Advanced.refresh_bindings!(override_scene)
+        override_spec = override_compiled.applications_by_id[:plant__probe].spec
+        @test meteo_window(override_spec) isa PlantMeteo.RollingWindow
+        @test meteo_window(override_spec).dt == 2.0
+        @test meteo_bindings(override_spec).Ri_SW_q.reducer isa RadiationEnergy
+        run!(override_scene; steps=4)
+        for object in scene_objects(override_scene; scale=:Leaf)
+            @test object.status.mean_T == 25.0
+            @test object.status.radiation_energy ≈ 1.8
+        end
     else
         @test_skip "PlantMeteo weather sampler API unavailable"
     end

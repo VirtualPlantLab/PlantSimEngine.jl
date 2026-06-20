@@ -161,6 +161,8 @@ outputs_(model::ObjectModelOverrides) = outputs_(model.base)
 dep(model::ObjectModelOverrides) = dep(model.base)
 timespec(model::ObjectModelOverrides) = timespec(model.base)
 output_policy(model::ObjectModelOverrides) = output_policy(model.base)
+timestep_hint(model::ObjectModelOverrides) = timestep_hint(model.base)
+meteo_hint(model::ObjectModelOverrides) = meteo_hint(model.base)
 meteo_inputs_(model::ObjectModelOverrides) = meteo_inputs_(model.base)
 meteo_outputs_(model::ObjectModelOverrides) = meteo_outputs_(model.base)
 
@@ -747,8 +749,28 @@ function _remove_child_link!(scene::Scene, parent_id, child_id::ObjectId)
     return nothing
 end
 
+function _instance_roots_in_subtree(scene::Scene, root_id::ObjectId)
+    subtree_ids = Set(_descendant_ids(scene, root_id))
+    roots = ObjectId[
+        _instance_root_id(instance) for instance in scene.instances
+        if _instance_root_id(instance) in subtree_ids
+    ]
+    return _sort_object_ids!(roots)
+end
+
+function _validate_mutable_object_subtree!(scene::Scene, object::Object, operation::Symbol)
+    instance_roots = _instance_roots_in_subtree(scene, object.id)
+    isempty(instance_roots) && return nothing
+    error(
+        "Cannot $(operation) object `$(object.id.value)` because its subtree contains ",
+        "immutable ObjectInstance root(s) `$([id.value for id in instance_roots])`. ",
+        "Mutate ordinary instance descendants instead.",
+    )
+end
+
 function remove_object!(scene::Scene, id; recursive::Bool=true)
     object = _scene_object(scene, id)
+    _validate_mutable_object_subtree!(scene, object, :remove)
     if !recursive && !isempty(object.children)
         error("Cannot remove object `$(object.id.value)` with children unless `recursive=true`.")
     end
@@ -764,6 +786,7 @@ end
 
 function reparent_object!(scene::Scene, id, new_parent)
     object = _scene_object(scene, id)
+    _validate_mutable_object_subtree!(scene, object, :reparent)
     new_parent_id = isnothing(new_parent) ? nothing : ObjectId(new_parent)
     if !isnothing(new_parent_id)
         haskey(scene.registry.objects, new_parent_id) || error("No scene object with id `$(new_parent_id.value)`.")

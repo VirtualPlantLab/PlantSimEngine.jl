@@ -80,3 +80,57 @@ PlantSimEngine.run!(::TemporalReducerTwoArgModel, models, status, meteo, constan
     )
     @test_throws "must accept values or values and durations" Advanced.refresh_bindings!(invalid_scene)
 end
+
+@testset "coarse producer samples are weighted by held overlap" begin
+    observed_segments = Ref{Any}(nothing)
+    integral = function (values, durations)
+        if length(values) == 3
+            observed_segments[] = (values=copy(values), durations=copy(durations))
+        end
+        return sum(values .* durations)
+    end
+    weighted_mean = (values, durations) -> sum(values .* durations) / sum(durations)
+
+    scene = Scene(
+        Object(:leaf; scale=:Leaf);
+        applications=(
+            ModelSpec(TemporalReducerSourceModel(); name=:source) |>
+                AppliesTo(One(scale=:Leaf)) |>
+                TimeStep(Hour(2)),
+            ModelSpec(TemporalReducerTwoArgModel(); name=:integral) |>
+                AppliesTo(One(scale=:Leaf)) |>
+                Inputs(:reduced => One(
+                    scale=:Leaf,
+                    application=:source,
+                    var=:signal,
+                    policy=Aggregate(integral),
+                    window=Hour(4),
+                )) |>
+                TimeStep(Hour(4)),
+            ModelSpec(TemporalReducerOneArgModel(); name=:weighted_mean) |>
+                AppliesTo(One(scale=:Leaf)) |>
+                Inputs(:reduced => One(
+                    scale=:Leaf,
+                    application=:source,
+                    var=:signal,
+                    policy=Aggregate(weighted_mean),
+                    window=Hour(4),
+                )) |>
+                TimeStep(Hour(4)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    retention = only(
+        row for row in explain_output_retention(scene)
+        if row.application_id == :source && row.variable == :signal
+    )
+    @test retention.retention_steps == 5.0
+
+    run!(scene; steps=5)
+    @test observed_segments[].values == [1.0, 2.0, 3.0]
+    @test observed_segments[].durations == [3600.0, 7200.0, 3600.0]
+    status = only(scene_objects(scene)).status
+    @test status.two_arg == 28_800.0
+    @test status.one_arg == 2.0
+end

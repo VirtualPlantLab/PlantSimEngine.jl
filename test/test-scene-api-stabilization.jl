@@ -317,6 +317,45 @@ end
     @test isnothing(only(scene_objects(scene; scale=:Plant)).parent)
 end
 
+@testset "instance roots are immutable lifecycle anchors" begin
+    template = ObjectTemplate((
+        ModelSpec(StabilizationSourceModel(); name=:source) |>
+            AppliesTo(Many(scale=:Leaf)),
+    ))
+    instance = ObjectInstance(
+        :plant_instance,
+        template;
+        root=Object(:plant; scale=:Plant, parent=:branch),
+        objects=(Object(:leaf; scale=:Leaf, parent=:plant),),
+    )
+    scene = Scene(
+        Object(:world; scale=:Scene),
+        Object(:outside; scale=:Branch),
+        Object(:branch; scale=:Branch, parent=:world),
+        instance,
+    )
+
+    @test_throws "immutable ObjectInstance root" remove_object!(scene, :plant)
+    @test_throws "immutable ObjectInstance root" remove_object!(scene, :branch)
+    @test object_ids(scene) == ObjectId.([:branch, :leaf, :outside, :plant, :world])
+    @test only(scene_objects(scene; name=:plant_instance)).id == ObjectId(:plant)
+
+    @test_throws "immutable ObjectInstance root" reparent_object!(scene, :plant, :outside)
+    @test_throws "immutable ObjectInstance root" reparent_object!(scene, :branch, :outside)
+    @test only(resolve_object_ids(scene, One(Relation(:parent)); context=:plant)) ==
+          ObjectId(:branch)
+    @test only(resolve_object_ids(scene, One(Relation(:parent)); context=:branch)) ==
+          ObjectId(:world)
+
+    reparent_object!(scene, :leaf, :outside)
+    @test only(resolve_object_ids(scene, One(Relation(:parent)); context=:leaf)) ==
+          ObjectId(:outside)
+    reparent_object!(scene, :leaf, :plant)
+    removed = remove_object!(scene, :leaf)
+    @test removed.id == ObjectId(:leaf)
+    @test isempty(resolve_object_ids(scene, Many(scale=:Leaf)))
+end
+
 @testset "continuation refreshes lifecycle targets and preserves history" begin
     scene = Scene(
         Object(:leaf_1; scale=:Leaf);

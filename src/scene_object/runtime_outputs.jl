@@ -275,8 +275,27 @@ function _scene_interpolated_sample(samples, time::Real, policy::Interpolate)
     return first(samples)[2]
 end
 
-function _scene_window_samples(samples, t_start::Real, t_end::Real)
-    return [value for (sample_t, value) in samples if float(t_start) <= sample_t <= float(t_end)]
+function _scene_window_segments(samples, t_start::Real, t_end::Real, base_step_seconds::Real)
+    value_type = fieldtype(eltype(samples), 2)
+    isempty(samples) && return (value_type[], Float64[])
+    window_start = float(t_start)
+    window_stop = float(t_end) + 1.0
+    first_index = findlast(sample -> sample[1] < window_start, samples)
+    first_index = isnothing(first_index) ? firstindex(samples) : first_index
+
+    values = value_type[]
+    durations = Float64[]
+    for index in first_index:lastindex(samples)
+        sample_t, value = samples[index]
+        sample_t >= window_stop && break
+        next_t = index == lastindex(samples) ? window_stop : samples[index + 1][1]
+        segment_start = max(float(sample_t), window_start)
+        segment_stop = min(float(next_t), window_stop)
+        segment_stop > segment_start || continue
+        push!(values, value)
+        push!(durations, (segment_stop - segment_start) * float(base_step_seconds))
+    end
+    return values, durations
 end
 
 function _scene_window_reduce(values, durations, policy)
@@ -335,8 +354,12 @@ function _scene_temporal_source_value(
     elseif policy isa PreviousTimeStep
         return _scene_latest_sample(samples, float(time) - 1.0)
     elseif policy isa Union{Integrate,Aggregate}
-        values = _scene_window_samples(samples, t_start, time)
-        durations = fill(timeline.base_step_seconds, length(values))
+        values, durations = _scene_window_segments(
+            samples,
+            t_start,
+            time,
+            timeline.base_step_seconds,
+        )
         return _scene_window_reduce(values, durations, policy)
     elseif policy isa Interpolate
         return _scene_interpolated_sample(samples, time, policy)
@@ -989,7 +1012,7 @@ function compile_scene_output_retention(
         for application_id in binding.source_application_ids
             source = _compiled_application_by_id(compiled, application_id)
             required = if binding.policy isa Union{Integrate,Aggregate}
-                float(window_steps)
+                float(window_steps) + max(0.0, float(source.clock.dt) - 1.0)
             elseif binding.policy isa Union{Interpolate,PreviousTimeStep}
                 max(2.0, float(source.clock.dt) + 1.0)
             else
@@ -1488,9 +1511,13 @@ function _scene_requested_value(samples, time, t_start, policy, timeline)
         value = _scene_interpolated_sample(samples, time, policy)
         return isnothing(value) ? missing : value
     elseif policy isa Union{Integrate,Aggregate}
-        values = _scene_window_samples(samples, t_start, time)
+        values, durations = _scene_window_segments(
+            samples,
+            t_start,
+            time,
+            timeline.base_step_seconds,
+        )
         isempty(values) && return missing
-        durations = fill(timeline.base_step_seconds, length(values))
         return _scene_window_reduce(values, durations, policy)
     end
     error("Unsupported scene output request policy `$(typeof(policy))`.")
