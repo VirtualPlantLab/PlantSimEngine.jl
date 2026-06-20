@@ -80,6 +80,21 @@ Use structured explanation helpers instead of inspecting internals:
 See [Migrating To The Scene/Object API](../migration_scene_object.md) for
 translations from removed APIs.
 
+### Scene graph visualization and editing
+
+- `compile_scene_report(scene; strict=false)` preserves partial graph state and
+  structured diagnostics for incomplete or cyclic scenes.
+- `scene_graph_view(scene; level=:applications)` returns the typed graph view.
+- `scene_graph_view_json(scene)` serializes the same DTO used by the browser.
+- `write_scene_graph_view(path, scene)` writes a self-contained static viewer.
+- `edit_graph(scene)` starts the optional HTTP editor after `using HTTP`.
+- `current_scene(session)`, `undo!(session)`, `redo!(session)`, and
+  `close(session)` control an interactive session from Julia.
+
+See [Visualize And Edit A Scene](../guides/graph_visualizer_editor.md) for the
+runnable workflow, model discovery, selector previews, cycle breaking, and
+Documenter embedding.
+
 ## Advanced compiler API
 
 ```@docs

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applicationPortId, applicationsForPort, deriveCandidatePortIds, endpointsForCandidate, modelsForPort, selectorSuggestion } from "./App";
-import type { ApplicationGraphNode, GraphPort, ModelDescriptor, SceneGraphView } from "./types";
+import { applicationPortId, applicationsForPort, deriveCandidatePortIds, endpointsForCandidate, modelsForPort, objectSubtreeIds, selectorSuggestion } from "./App";
+import type { ApplicationGraphNode, GraphPort, ModelDescriptor, ObjectGraphNode, SceneGraphView } from "./types";
 
 const output: GraphPort = { id: applicationPortId("source", "output", "signal"), name: "signal", role: "output", default: 0, defaultJulia: "0", expectedType: "Int" };
 const input: GraphPort = { id: applicationPortId("consumer", "input", "signal"), name: "signal", role: "input", default: 0, defaultJulia: "0", expectedType: "Int" };
@@ -40,17 +40,33 @@ describe("selector suggestions", () => {
   });
 });
 
+describe("object topology scoping", () => {
+  it("includes the selected object and all descendants", () => {
+    const objects: ObjectGraphNode[] = [
+      object("plant", null),
+      object("leaf", "plant"),
+      object("cell", "leaf"),
+      object("soil", null),
+    ];
+    expect(new Set(objectSubtreeIds(objects, "plant"))).toEqual(new Set(["plant", "leaf", "cell"]));
+  });
+});
+
 function application(id: string, inputs: GraphPort[], outputs: GraphPort[], targetIds: unknown[]): ApplicationGraphNode {
   return {
     id: `application:${id}`, applicationId: id, name: id, process: id, modelType: id, modelName: id, module: "Main", package: null,
     modelParameters: {}, selector: { type: "One", multiplicity: "one", criteria: { selectors: [], scale: "Leaf" }, julia: "" },
     targetIds, targetCount: targetIds.length, targetScales: ["Leaf"], targetKinds: [], targetSpecies: [], targetInstances: [], timestep: null, clock: null,
-    inputs, outputs, environmentInputs: [], environmentOutputs: [], modelStorage: "shared_application", objectOverrides: [],
+    inputs, outputs, environmentInputs: [], environmentOutputs: [], inputBindings: {}, callBindings: {}, environment: null, meteoBindings: {}, meteoWindow: null, outputRouting: {}, updates: [], modelStorage: "shared_application", objectOverrides: [],
   };
 }
 
 function model(name: string, inputs: Record<string, unknown>, outputs: Record<string, unknown>): ModelDescriptor {
   return { type: name, name, module: "Main", package: null, process: name, processType: name, inputs, outputs, environmentInputs: {}, environmentOutputs: {}, constructor: { fields: [], parameterGroups: {}, hasZeroArgConstructor: true, constructible: true } };
+}
+
+function object(id: string, parent: string | null): ObjectGraphNode {
+  return { id: `object:${id}`, objectId: id, scale: null, kind: null, species: null, name: id, instance: null, parent, children: [], hasGeometry: false, hasStatus: false };
 }
 
 function graphView(applications: ApplicationGraphNode[], modelLibrary: ModelDescriptor[]): SceneGraphView {

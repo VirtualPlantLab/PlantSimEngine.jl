@@ -13,7 +13,10 @@ struct RemoveSceneTemplateApplication <: AbstractSceneGraphEdit
     application_id::Symbol
 end
 
-RemoveSceneTemplateApplication(instance, application_id) =
+RemoveSceneTemplateApplication(
+    instance::Union{Symbol,AbstractString},
+    application_id::Union{Symbol,AbstractString},
+) =
     RemoveSceneTemplateApplication(Symbol(instance), Symbol(application_id))
 
 struct ReplaceSceneApplicationModel{M<:AbstractModel} <: AbstractSceneGraphEdit
@@ -124,7 +127,10 @@ struct ReparentSceneObject <: AbstractSceneGraphEdit
     parent_id::Union{Nothing,ObjectId}
 end
 
-ReparentSceneObject(object_id, parent_id) = ReparentSceneObject(
+ReparentSceneObject(
+    object_id::Union{ObjectId,Symbol,AbstractString,Integer},
+    parent_id::Union{Nothing,ObjectId,Symbol,AbstractString,Integer},
+) = ReparentSceneObject(
     ObjectId(object_id),
     isnothing(parent_id) ? nothing : ObjectId(parent_id),
 )
@@ -156,7 +162,10 @@ struct RemoveSceneObjectStatus <: AbstractSceneGraphEdit
     variable::Symbol
 end
 
-RemoveSceneObjectStatus(object_id, variable) =
+RemoveSceneObjectStatus(
+    object_id::Union{ObjectId,Symbol,AbstractString,Integer},
+    variable::Union{Symbol,AbstractString},
+) =
     RemoveSceneObjectStatus(ObjectId(object_id), Symbol(variable))
 
 struct SetSceneObjectMetadata{C} <: AbstractSceneGraphEdit
@@ -181,7 +190,10 @@ struct RemoveSceneInstanceOverride <: AbstractSceneGraphEdit
     application_id::Symbol
 end
 
-RemoveSceneInstanceOverride(instance, application_id) =
+RemoveSceneInstanceOverride(
+    instance::Union{Symbol,AbstractString},
+    application_id::Union{Symbol,AbstractString},
+) =
     RemoveSceneInstanceOverride(Symbol(instance), Symbol(application_id))
 
 struct SetSceneObjectOverride{M<:AbstractModel} <: AbstractSceneGraphEdit
@@ -200,7 +212,11 @@ struct RemoveSceneObjectOverride <: AbstractSceneGraphEdit
     application_id::Symbol
 end
 
-RemoveSceneObjectOverride(instance, object_id, application_id) =
+RemoveSceneObjectOverride(
+    instance::Union{Symbol,AbstractString},
+    object_id::Union{ObjectId,Symbol,AbstractString,Integer},
+    application_id::Union{Symbol,AbstractString},
+) =
     RemoveSceneObjectOverride(Symbol(instance), ObjectId(object_id), Symbol(application_id))
 
 """
@@ -328,7 +344,7 @@ function _apply_scene_graph_edit!(scene::Scene, edit::UpdateSceneApplication)
             "Scene application `$(edit.name)` already exists.",
         )
     end
-    return _replace_scene_edit_spec!(
+    _replace_scene_edit_spec!(
         scene,
         edit.application_id,
         ModelSpec(
@@ -339,6 +355,12 @@ function _apply_scene_graph_edit!(scene::Scene, edit::UpdateSceneApplication)
             timestep=edit.timestep,
         ),
     )
+    edit.name == edit.application_id || _rewrite_scene_application_references!(
+        scene,
+        edit.application_id,
+        edit.name,
+    )
+    return scene
 end
 
 function _apply_scene_graph_edit!(scene::Scene, edit::RenameSceneApplication)
@@ -346,11 +368,54 @@ function _apply_scene_graph_edit!(scene::Scene, edit::RenameSceneApplication)
         "Scene application `$(edit.name)` already exists.",
     )
     spec = _scene_edit_spec(scene, edit.application_id)
-    return _replace_scene_edit_spec!(
+    _replace_scene_edit_spec!(
         scene,
         edit.application_id,
         ModelSpec(spec; name=edit.name),
     )
+    _rewrite_scene_application_references!(scene, edit.application_id, edit.name)
+    return scene
+end
+
+function _rewrite_scene_selector_application(selector, old_id::Symbol, new_id::Symbol)
+    selector isa AbstractObjectMultiplicity || return selector
+    rewritten = (; (
+        Symbol(key) => (
+            Symbol(key) == :application && value == old_id ? new_id : value
+        )
+        for (key, value) in pairs(criteria(selector))
+    )...)
+    return _rebuild_selector(selector, rewritten)
+end
+
+function _rewrite_scene_application_references!(scene::Scene, old_id::Symbol, new_id::Symbol)
+    for (index, raw_spec) in pairs(scene.applications)
+        spec = as_model_spec(raw_spec)
+        inputs = (; (
+            Symbol(name) => _rewrite_scene_selector_application(selector, old_id, new_id)
+            for (name, selector) in pairs(spec.inputs)
+        )...)
+        calls = (; (
+            Symbol(name) => _rewrite_scene_selector_application(selector, old_id, new_id)
+            for (name, selector) in pairs(spec.calls)
+        )...)
+        target = _rewrite_scene_selector_application(spec.applies_to, old_id, new_id)
+        updates_ = Tuple(
+            Updates(
+                _update_variables(update)...;
+                after=Tuple(item == old_id ? new_id : item for item in _update_after(update)),
+            )
+            for update in spec.updates
+        )
+        scene.applications[index] = ModelSpec(
+            spec;
+            inputs=inputs,
+            calls=calls,
+            applies_to=target,
+            updates=updates_,
+        )
+    end
+    return scene
 end
 
 function _apply_scene_graph_edit!(scene::Scene, edit::SetSceneApplicationTargets)
@@ -663,6 +728,16 @@ function _scene_edit_template_application_id(instance::ObjectInstance, applicati
     return only(matches)
 end
 
+function _scene_edit_template_application_spec(instance::ObjectInstance, application_id::Symbol)
+    base_name = _scene_edit_template_application_id(instance, application_id)
+    specs = Tuple(as_model_spec(item) for item in instance.template.applications)
+    matches = [
+        spec for (index, spec) in pairs(specs)
+        if _mounted_application_name(spec, index) == base_name
+    ]
+    return base_name, only(matches)
+end
+
 function _scene_edit_normalize_instance(
     instance::ObjectInstance;
     template=instance.template,
@@ -774,7 +849,12 @@ end
 
 function _apply_scene_graph_edit!(scene::Scene, edit::SetSceneInstanceOverride)
     _, instance = _scene_edit_instance(scene, edit.instance)
-    application = _scene_edit_template_application_id(instance, edit.application_id)
+    application, spec = _scene_edit_template_application_spec(instance, edit.application_id)
+    _validate_model_override_contract!(
+        model_(spec),
+        edit.model;
+        description="Instance override for `$(edit.instance)` application `$(application)`",
+    )
     overrides = _scene_edit_namedtuple_set(instance.overrides, application, edit.model)
     return _scene_edit_replace_instance(
         scene,
@@ -799,7 +879,12 @@ end
 
 function _apply_scene_graph_edit!(scene::Scene, edit::SetSceneObjectOverride)
     _, instance = _scene_edit_instance(scene, edit.instance)
-    application = _scene_edit_template_application_id(instance, edit.application_id)
+    application, spec = _scene_edit_template_application_spec(instance, edit.application_id)
+    _validate_model_override_contract!(
+        model_(spec),
+        edit.model;
+        description="Object override for `$(edit.object_id.value)` application `$(application)`",
+    )
     object_ids = Set(_instance_object_ids(scene, instance))
     edit.object_id in object_ids || error(
         "Object `$(edit.object_id.value)` does not belong to instance `$(edit.instance)`.",

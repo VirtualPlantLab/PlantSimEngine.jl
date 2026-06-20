@@ -66,7 +66,8 @@ export function ObjectForm({
   </div>;
 }
 
-function parentObjectId(parent: string | null | undefined) {
-  if (!parent) return "";
-  return parent.startsWith("object:") ? parent.slice("object:".length) : parent;
+function parentObjectId(parent: unknown | null | undefined) {
+  if (parent === null || parent === undefined || parent === "") return "";
+  const value = String(parent);
+  return value.startsWith("object:") ? value.slice("object:".length) : value;
 }

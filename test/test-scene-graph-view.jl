@@ -2,11 +2,13 @@ abstract type AbstractSceneGraphSourceModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractSceneGraphConsumerModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractSceneGraphCycleAModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractSceneGraphCycleBModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractSceneGraphEnvironmentModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractSceneGraphSourceModel}) = :scene_graph_source
 PlantSimEngine.process_(::Type{AbstractSceneGraphConsumerModel}) = :scene_graph_consumer
 PlantSimEngine.process_(::Type{AbstractSceneGraphCycleAModel}) = :scene_graph_cycle_a
 PlantSimEngine.process_(::Type{AbstractSceneGraphCycleBModel}) = :scene_graph_cycle_b
+PlantSimEngine.process_(::Type{AbstractSceneGraphEnvironmentModel}) = :scene_graph_environment
 
 struct SceneGraphSourceModel{T} <: AbstractSceneGraphSourceModel
     coefficient::T
@@ -27,6 +29,12 @@ PlantSimEngine.outputs_(::SceneGraphCycleAModel) = (x=-Inf,)
 struct SceneGraphCycleBModel <: AbstractSceneGraphCycleBModel end
 PlantSimEngine.inputs_(::SceneGraphCycleBModel) = (x=-Inf,)
 PlantSimEngine.outputs_(::SceneGraphCycleBModel) = (y=-Inf,)
+
+struct SceneGraphEnvironmentModel <: AbstractSceneGraphEnvironmentModel end
+PlantSimEngine.inputs_(::SceneGraphEnvironmentModel) = NamedTuple()
+PlantSimEngine.outputs_(::SceneGraphEnvironmentModel) = (result=-Inf,)
+PlantSimEngine.meteo_inputs_(::SceneGraphEnvironmentModel) = (T=-Inf,)
+PlantSimEngine.meteo_outputs_(::SceneGraphEnvironmentModel) = (leaf_temperature=-Inf,)
 
 @testset "Scene graph discovery" begin
     @test AbstractSceneGraphSourceModel in available_processes()
@@ -302,6 +310,47 @@ end
     @test environment_config(spec) == (provider=:scene, sources=(T=:temperature,))
     @test output_routing(spec) == (signal=:stream_only,)
     @test only(updates(spec)).variables == (:signal,)
+    configured_application = only(scene_graph_view(configured).applications)
+    @test configured_application["environment"]["provider"] == "scene"
+    @test configured_application["outputRouting"]["signal"] == "stream_only"
+    @test configured_application["updates"] == [Dict(
+        "variables" => ["signal"],
+        "after" => ["driver"],
+    )]
+
+    ordered_writers = Scene(
+        Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
+        applications=(
+            ModelSpec(SceneGraphSourceModel(1.0); name=:first_writer) |>
+                AppliesTo(One(name=:leaf)),
+            ModelSpec(SceneGraphSourceModel(2.0); name=:second_writer) |>
+                AppliesTo(One(name=:leaf)) |>
+                Updates(:signal; after=:first_writer),
+        ),
+    )
+    update_edge = only(
+        edge for edge in scene_graph_view(ordered_writers).edges
+        if edge["kind"] == "update_order"
+    )
+    @test update_edge["sourceApplicationId"] == "first_writer"
+    @test update_edge["targetApplicationId"] == "second_writer"
+    @test update_edge["variables"] == ["signal"]
+
+    environment_scene = Scene(
+        Object(:leaf; name=:leaf, scale=:Leaf);
+        applications=(
+            ModelSpec(SceneGraphEnvironmentModel(); name=:environment_user) |>
+                AppliesTo(One(name=:leaf)),
+        ),
+    )
+    environment_edges = [
+        edge for edge in scene_graph_view(environment_scene).edges
+        if edge["kind"] == "environment_binding" && edge["projection"] == "applications"
+    ]
+    @test length(environment_edges) == 2
+    @test Set(edge["sourceVariable"] for edge in environment_edges) ==
+          Set(["T", "leaf_temperature"])
+    @test all(haskey(edge, "provider") for edge in environment_edges)
 
     metadata = apply_scene_graph_edit(
         configured,
@@ -315,6 +364,102 @@ end
     without_status = apply_scene_graph_edit(metadata, RemoveSceneObjectStatus(:leaf, :driver))
     @test isnothing(only(scene_objects(without_status)).status)
     @test only(scene_objects(metadata)).status.driver == 1.0
+end
+
+@testset "Scene graph edit command coverage" begin
+    scene = Scene(
+        Object(:source_object; name=:source_object, scale=:Leaf, status=Status(driver=1.0)),
+        Object(:consumer_object; name=:consumer_object, scale=:Plant);
+        applications=(
+            ModelSpec(SceneGraphSourceModel(); name=:source) |>
+                AppliesTo(One(name=:source_object)),
+            ModelSpec(SceneGraphConsumerModel(); name=:consumer) |>
+                AppliesTo(One(name=:consumer_object)),
+        ),
+    )
+
+    configured = apply_scene_graph_edit(
+        scene,
+        SetSceneApplicationTargets(:consumer, OptionalOne(name=:consumer_object)),
+    )
+    configured = apply_scene_graph_edit(
+        configured,
+        SetSceneInputBinding(
+            :consumer,
+            :signal,
+            One(name=:source_object, application=:source, var=:signal),
+        ),
+    )
+    configured = apply_scene_graph_edit(
+        configured,
+        SetSceneCallBinding(
+            :consumer,
+            :source_call,
+            One(name=:source_object, application=:source),
+        ),
+    )
+    configured = apply_scene_graph_edit(
+        configured,
+        SetSceneApplicationTimeStep(:consumer, ClockSpec(2.0)),
+    )
+    configured = apply_scene_graph_edit(
+        configured,
+        SetSceneUpdateOrdering(:consumer, (Updates(:result; after=:source),)),
+    )
+
+    consumer = PlantSimEngine._scene_edit_spec(configured, :consumer)
+    @test applies_to(consumer) isa OptionalOne
+    @test PlantSimEngine.criteria(value_inputs(consumer).signal).application == :source
+    @test PlantSimEngine.criteria(model_calls(consumer).source_call).application == :source
+    @test consumer.timestep == ClockSpec(2.0)
+    consumer_view = only(
+        application for application in scene_graph_view(configured).applications
+        if application["applicationId"] == "consumer"
+    )
+    @test haskey(consumer_view["inputBindings"], "signal")
+    @test haskey(consumer_view["callBindings"], "source_call")
+
+    renamed = apply_scene_graph_edit(configured, RenameSceneApplication(:source, :driver_source))
+    renamed_consumer = PlantSimEngine._scene_edit_spec(renamed, :consumer)
+    @test PlantSimEngine.criteria(value_inputs(renamed_consumer).signal).application == :driver_source
+    @test PlantSimEngine.criteria(model_calls(renamed_consumer).source_call).application == :driver_source
+    @test PlantSimEngine._update_after(only(updates(renamed_consumer))) == (:driver_source,)
+    @test_throws "already exists" apply_scene_graph_edit(
+        renamed,
+        RenameSceneApplication(:driver_source, :consumer),
+    )
+
+    without_input = apply_scene_graph_edit(
+        renamed,
+        RemoveSceneInputBinding(:consumer, :signal),
+    )
+    @test isempty(value_inputs(PlantSimEngine._scene_edit_spec(without_input, :consumer)))
+    without_call = apply_scene_graph_edit(
+        without_input,
+        RemoveSceneCallBinding(:consumer, :source_call),
+    )
+    @test isempty(model_calls(PlantSimEngine._scene_edit_spec(without_call, :consumer)))
+
+    with_objects = apply_scene_graph_edit(
+        without_call,
+        AddSceneObject(Object(:child; name=:child, scale=:Leaf, parent=:consumer_object)),
+    )
+    with_objects = apply_scene_graph_edit(
+        with_objects,
+        ReparentSceneObject(:child, :source_object),
+    )
+    @test PlantSimEngine._scene_object(with_objects, ObjectId(:child)).parent == ObjectId(:source_object)
+    with_objects = apply_scene_graph_edit(
+        with_objects,
+        SetSceneObjectStatuses([:source_object, :child], :shared_value, 5),
+    )
+    @test all(
+        PlantSimEngine._scene_object(with_objects, ObjectId(id)).status.shared_value == 5
+        for id in (:source_object, :child)
+    )
+    without_child = apply_scene_graph_edit(with_objects, RemoveSceneObject(:child))
+    @test !(ObjectId(:child) in object_ids(without_child))
+    @test ObjectId(:child) in object_ids(with_objects)
 end
 
 function scene_graph_override_fixture()
@@ -375,6 +520,10 @@ end
     )
     @test restored_b["modelParameters"]["coefficient"]["value"] == 1.0
     @test scene_graph_view(scene).metadata["applicationCount"] == 2
+    @test_throws Exception apply_scene_graph_edit(
+        scene,
+        SetSceneInstanceOverride(:plant_b, :source, SceneGraphConsumerModel()),
+    )
 end
 
 @testset "Scene graph object override edit" begin
@@ -400,6 +549,10 @@ end
         if application["applicationId"] == "plant_a__source"
     )
     @test restored_application["modelStorage"] == "shared_application"
+    @test_throws Exception apply_scene_graph_edit(
+        scene,
+        SetSceneObjectOverride(:plant_a, :leaf_a, :source, SceneGraphConsumerModel()),
+    )
 end
 
 

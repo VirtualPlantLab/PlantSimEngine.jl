@@ -77,6 +77,32 @@ export function ApplicationNode({ data, selected }: NodeProps<ApplicationFlowNod
               onCycleBreak={data.onCycleBreak}
             />
           </div>
+          {(data.environmentInputs.length > 0 || data.environmentOutputs.length > 0) && <div className="ports-grid environment-ports">
+            <PortColumn
+              title="Environment inputs"
+              side="input"
+              ports={data.environmentInputs}
+              required={required}
+              candidates={new Set()}
+              previous={new Set()}
+              cycleBreaks={new Set()}
+              cycleBreakMode={false}
+              application={data}
+              onPortClick={data.onPortClick}
+            />
+            <PortColumn
+              title="Environment outputs"
+              side="output"
+              ports={data.environmentOutputs}
+              required={required}
+              candidates={new Set()}
+              previous={new Set()}
+              cycleBreaks={new Set()}
+              cycleBreakMode={false}
+              application={data}
+              onPortClick={data.onPortClick}
+            />
+          </div>}
         </>
       )}
     </section>

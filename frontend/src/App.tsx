@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { ApplicationForm, type ApplicationFormValue } from "./ApplicationForm";
+import { ApplicationConfigurationForm } from "./ApplicationConfigurationForm";
 import { BindingForm, type BindingEndpoints, type BindingFormValue } from "./BindingForm";
 import { ObjectForm, type ObjectFormValue } from "./ObjectForm";
 import { OverrideForm, type OverrideFormValue } from "./OverrideForm";
@@ -41,15 +42,20 @@ import type {
   ApplicationGraphNode,
   DetailMode,
   EditorState,
+  EnvironmentGraphNode,
   ExecutionGraphNode,
   GraphPort,
   GraphViewMode,
+  InstanceDescriptor,
   ModelDescriptor,
   ObjectGraphNode,
   RuntimeApplicationNode,
   RuntimeEntityNode,
   SceneGraphEdge,
   SceneGraphView,
+  SceneRootDescriptor,
+  SelectorPreview,
+  TargetPreview,
 } from "./types";
 import "./styles.css";
 
@@ -57,7 +63,8 @@ type FlowNode = Node<RuntimeApplicationNode | RuntimeEntityNode>;
 type FlowEdge = Edge<SceneGraphEdge>;
 type CandidatePopover = { port: GraphPort; application: ApplicationGraphNode; x: number; y: number };
 type CycleBreakSelection = { application: ApplicationGraphNode; port: GraphPort };
-type InspectorSelection = ApplicationGraphNode | ObjectGraphNode | ExecutionGraphNode | SceneGraphEdge | null;
+type InspectorSelection = ApplicationGraphNode | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode | SceneRootDescriptor | SceneGraphEdge | null;
+type GraphScopeFilter = { label: string; objectIds: unknown[] };
 type ApplicationFormState = {
   mode: "add" | "update";
   scope?: "application" | "template";
@@ -77,6 +84,7 @@ export default function App() {
   const [detailMode, setDetailMode] = useState<DetailMode>(() => loadInitialGraph().metadata.applicationCount > 24 ? "overview" : "detail");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<InspectorSelection>(null);
+  const [scopeFilter, setScopeFilter] = useState<GraphScopeFilter | null>(null);
   const [selectedPort, setSelectedPort] = useState<GraphPort | null>(null);
   const [candidate, setCandidate] = useState<CandidatePopover | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -94,9 +102,12 @@ export default function App() {
   const [canRedo, setCanRedo] = useState(false);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [applicationForm, setApplicationForm] = useState<ApplicationFormState | null>(null);
+  const [targetPreview, setTargetPreview] = useState<TargetPreview | null>(null);
   const [objectForm, setObjectForm] = useState<ObjectFormState | null>(null);
   const [overrideApplication, setOverrideApplication] = useState<ApplicationGraphNode | null>(null);
+  const [configurationApplicationId, setConfigurationApplicationId] = useState<string | null>(null);
   const [bindingForm, setBindingForm] = useState<BindingEndpoints | null>(null);
+  const [bindingPreview, setBindingPreview] = useState<SelectorPreview | null>(null);
   const [cycleBreakMode, setCycleBreakMode] = useState(false);
   const [cycleBreakSelection, setCycleBreakSelection] = useState<CycleBreakSelection | null>(null);
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
@@ -128,6 +139,10 @@ export default function App() {
     }
     return index;
   }, [graph.applications]);
+  const scopedObjectIds = useMemo(
+    () => scopeFilter ? new Set(scopeFilter.objectIds.map(objectKey)) : null,
+    [scopeFilter],
+  );
 
   useEffect(() => {
     if (!editorConfig?.websocketUrl) return;
@@ -142,6 +157,12 @@ export default function App() {
       setAutosavePath(payload.autosavePath ?? null);
       setSavePath(payload.savePath ?? null);
       setRecentPaths(payload.recentPaths ?? []);
+      if (payload.selectorPreview) setBindingPreview(payload.selectorPreview);
+      if (payload.targetPreview) setTargetPreview(payload.targetPreview);
+      if (payload.ok === false) {
+        setBindingPreview(null);
+        setTargetPreview(null);
+      }
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
       setFeedback(payload.ok === false ? payload.diagnostics?.[0] || "The edit failed." : null);
@@ -176,6 +197,7 @@ export default function App() {
       view,
       detailMode,
       query,
+      scopedObjectIds,
       unresolvedPortIds,
       previousPortIds,
       candidatePortIds,
@@ -191,19 +213,32 @@ export default function App() {
     const layoutMode: LayoutMode = view === "topology" ? "topology" : detailMode === "overview" ? "overview" : "data_flow";
     layoutGraph(nextNodes, nextEdges, layoutMode).then(setNodes);
     setEdges(nextEdges);
-  }, [candidatePortIds, cycleBreakMode, cycleBreakPortIds, cyclicApplications, detailMode, graph, openCandidates, previousPortIds, query, setEdges, setNodes, unresolvedPortIds, view]);
+  }, [candidatePortIds, cycleBreakMode, cycleBreakPortIds, cyclicApplications, detailMode, graph, openCandidates, previousPortIds, query, scopedObjectIds, setEdges, setNodes, unresolvedPortIds, view]);
 
   const inspectSelection = useCallback((_: unknown, node: FlowNode) => {
     if (node.data.nodeKind === "application") {
       setSelected(applicationById.get(node.data.applicationId) ?? null);
     } else {
       setSelected(node.data.detail);
+      if (node.data.nodeKind === "object") {
+        const object = node.data.detail as ObjectGraphNode;
+        setScopeFilter({
+          label: `subtree ${object.name || String(object.objectId)}`,
+          objectIds: objectSubtreeIds(graph.objects, object.objectId),
+        });
+      } else if (node.data.nodeKind === "instance") {
+        const instance = node.data.detail as InstanceDescriptor;
+        setScopeFilter({ label: `instance ${instance.name}`, objectIds: instance.objectIds });
+      } else if (node.data.nodeKind === "scene") {
+        setScopeFilter(null);
+      }
     }
     setSelectedPort(null);
-  }, [applicationById]);
+  }, [applicationById, graph.objects]);
 
   const selectCandidateModel = useCallback((model: ModelDescriptor) => {
     if (!candidate) return;
+    setTargetPreview(null);
     setApplicationForm({
       mode: "add",
       initialModelType: model.type,
@@ -267,6 +302,19 @@ export default function App() {
     setOverrideApplication(null);
   }, [connected, sendCommand]);
 
+  const removeOverride = useCallback((value: OverrideFormValue) => {
+    if (!connected) {
+      setFeedback("Removing an override requires an interactive Julia editor session.");
+      return;
+    }
+    sendCommand({
+      action: "edit",
+      kind: value.scope === "instance" ? "remove_instance_override" : "remove_object_override",
+      ...value,
+    });
+    setOverrideApplication(null);
+  }, [connected, sendCommand]);
+
   const connectPorts = useCallback((connection: Connection) => {
     if (!connection.sourceHandle || !connection.targetHandle) return;
     const source = portIndex.get(connection.sourceHandle);
@@ -281,12 +329,17 @@ export default function App() {
       targetApplication: target.application,
       targetPort: target.port,
     });
+    setBindingPreview(null);
   }, [portIndex]);
 
   const activeInitialization = useMemo(() => {
     if (!selected) return graph.initialization;
     if ("applicationId" in selected) return graph.initialization.filter((row) => row.applicationId === selected.applicationId);
     if ("objectId" in selected) return graph.initialization.filter((row) => String(row.objectId) === String(selected.objectId));
+    if ("objectIds" in selected) {
+      const ids = new Set(selected.objectIds.map(objectKey));
+      return graph.initialization.filter((row) => ids.has(objectKey(row.objectId)));
+    }
     return graph.initialization;
   }, [graph.initialization, selected]);
 
@@ -325,7 +378,7 @@ export default function App() {
               {detailMode === "overview" ? "Overview Mode - Show Detailed View" : "Show Overview"}
             </button>
           )}
-          {editorConfig && <button data-testid="add-application" onClick={() => setApplicationForm({ mode: "add" })}><Plus size={15} /> Add application</button>}
+          {editorConfig && <button data-testid="add-application" onClick={() => { setTargetPreview(null); setApplicationForm({ mode: "add" }); }}><Plus size={15} /> Add application</button>}
           {editorConfig && <button data-testid="add-object" onClick={() => setObjectForm({ mode: "add" })}><Plus size={15} /> Add object</button>}
           {editorConfig && <button disabled={!canUndo} onClick={() => sendCommand({ action: "undo" })} aria-label="Undo"><Undo2 size={15} /></button>}
           {editorConfig && <button disabled={!canRedo} onClick={() => sendCommand({ action: "redo" })} aria-label="Redo"><Redo2 size={15} /></button>}
@@ -351,6 +404,13 @@ export default function App() {
         </section>
       )}
       {feedback && <div className="editor-feedback">{feedback}<button onClick={() => setFeedback(null)}><X size={14} /></button></div>}
+      {scopeFilter && (
+        <section className="graph-scope-filter" data-testid="graph-scope-filter">
+          <span>Showing {view === "resolved" ? "executions" : view === "applications" ? "applications" : "topology"} for <strong>{scopeFilter.label}</strong> ({scopeFilter.objectIds.length} objects)</span>
+          {view === "topology" && <button onClick={() => setView("applications")}>Show related applications</button>}
+          <button aria-label="Clear graph scope" onClick={() => setScopeFilter(null)}><X size={14} /> Clear</button>
+        </section>
+      )}
 
       <section className="scene-workspace">
         <div className="flow-wrap">
@@ -378,18 +438,22 @@ export default function App() {
           port={selectedPort}
           initialization={activeInitialization}
           interactive={connected}
-          onEditApplication={(application) => setApplicationForm({
-            mode: "update",
-            scope: application.targetInstances.length > 0 ? "template" : "application",
-            instance: application.targetInstances[0],
-            application,
-          })}
+          onEditApplication={(application) => {
+            setTargetPreview(null);
+            setApplicationForm({
+              mode: "update",
+              scope: application.targetInstances.length > 0 ? "template" : "application",
+              instance: application.targetInstances[0],
+              application,
+            });
+          }}
           onRemoveApplication={(application) => sendCommand({
             action: "edit",
             kind: application.targetInstances.length > 0 ? "remove_template_application" : "remove_application",
             instance: application.targetInstances[0],
             applicationId: application.applicationId,
           })}
+          onConfigureApplication={(application) => setConfigurationApplicationId(application.applicationId)}
           onOverrideApplication={setOverrideApplication}
           onEditObject={(object) => setObjectForm({ mode: "update", object })}
           onRemoveObject={(object) => sendCommand({ action: "edit", kind: "remove_object", objectId: object.objectId, recursive: true })}
@@ -404,6 +468,7 @@ export default function App() {
           onSelectModel={selectCandidateModel}
           onSelectApplication={(application) => {
             setBindingForm(endpointsForCandidate(candidate, application));
+            setBindingPreview(null);
             setCandidate(null);
           }}
           onClose={() => setCandidate(null)}
@@ -423,18 +488,30 @@ export default function App() {
           initialModelType={applicationForm.initialModelType}
           suggestedSelector={applicationForm.suggestedSelector}
           nameReadOnly={applicationForm.scope === "template"}
+          preview={targetPreview}
+          onPreview={(selector) => { setTargetPreview(null); sendCommand({ action: "preview_application_targets", selector }); }}
           onSubmit={submitApplication}
-          onClose={() => setApplicationForm(null)}
+          onClose={() => { setApplicationForm(null); setTargetPreview(null); }}
         />
       )}
       {bindingForm && (
-        <BindingForm endpoints={bindingForm} objects={graph.objects} onSubmit={submitBinding} onClose={() => setBindingForm(null)} />
+        <BindingForm
+          endpoints={bindingForm}
+          objects={graph.objects}
+          preview={bindingPreview}
+          onPreview={(value) => { setBindingPreview(null); sendCommand({ action: "preview_input_binding", ...value }); }}
+          onSubmit={submitBinding}
+          onClose={() => { setBindingForm(null); setBindingPreview(null); }}
+        />
       )}
       {objectForm && (
         <ObjectForm mode={objectForm.mode} objects={graph.objects} object={objectForm.object} onSubmit={submitObject} onClose={() => setObjectForm(null)} />
       )}
       {overrideApplication && (
-        <OverrideForm application={overrideApplication} models={graph.modelLibrary} instances={graph.instances} onSubmit={submitOverride} onClose={() => setOverrideApplication(null)} />
+        <OverrideForm application={overrideApplication} models={graph.modelLibrary} instances={graph.instances} onSubmit={submitOverride} onRemove={removeOverride} onClose={() => setOverrideApplication(null)} />
+      )}
+      {configurationApplicationId && applicationById.get(configurationApplicationId) && (
+        <ApplicationConfigurationForm application={applicationById.get(configurationApplicationId)!} applications={graph.applications} onCommand={sendCommand} onClose={() => setConfigurationApplicationId(null)} />
       )}
       {cycleBreakSelection && (
         <CycleBreakDialog
@@ -463,6 +540,7 @@ function buildNodes({
   view,
   detailMode,
   query,
+  scopedObjectIds,
   unresolvedPortIds,
   previousPortIds,
   candidatePortIds,
@@ -477,6 +555,7 @@ function buildNodes({
   view: GraphViewMode;
   detailMode: DetailMode;
   query: string;
+  scopedObjectIds: Set<string> | null;
   unresolvedPortIds: Set<string>;
   previousPortIds: Set<string>;
   candidatePortIds: Set<string>;
@@ -489,7 +568,37 @@ function buildNodes({
 }): FlowNode[] {
   const matches = (value: unknown) => !query || JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
   if (view === "topology") {
-    return graph.objects.filter(matches).map((object) => ({
+    const sceneDetail: SceneRootDescriptor = {
+      entity: "scene",
+      objectCount: graph.metadata.objectCount,
+      instanceCount: graph.metadata.instanceCount,
+      applicationCount: graph.metadata.applicationCount,
+    };
+    const sceneNode: FlowNode = {
+      id: "scene:root",
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "scene",
+        title: graph.metadata.title || "Scene",
+        subtitle: "scene root",
+        badges: [`${graph.metadata.instanceCount} instances`, `${graph.metadata.objectCount} objects`],
+        detail: sceneDetail,
+      },
+    };
+    const instanceNodes: FlowNode[] = graph.instances.filter(matches).map((instance) => ({
+      id: instance.id,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "instance",
+        title: instance.name,
+        subtitle: [instance.kind, instance.species].filter(Boolean).join(" · ") || "object instance",
+        badges: [`${instance.objectIds.length} objects`, `${instance.applicationIds.length} applications`, `${instance.instanceOverrides.length + instance.objectOverrides.length} overrides`],
+        detail: instance,
+      },
+    }));
+    const objectNodes: FlowNode[] = graph.objects.filter(matches).map((object) => ({
       id: object.id,
       type: "entity",
       position: { x: 0, y: 0 },
@@ -501,10 +610,13 @@ function buildNodes({
         detail: object,
       },
     }));
+    return [sceneNode, ...instanceNodes, ...objectNodes];
   }
   if (view === "resolved") {
     const applications = new Map(graph.applications.map((application) => [application.applicationId, application]));
-    return graph.executions.filter(matches).map((execution) => {
+    const executionNodes: FlowNode[] = graph.executions
+      .filter((execution) => !scopedObjectIds || scopedObjectIds.has(objectKey(execution.objectId)))
+      .filter(matches).map((execution) => {
       const application = applications.get(execution.applicationId);
       return {
         id: execution.id,
@@ -515,14 +627,17 @@ function buildNodes({
           title: execution.applicationId,
           subtitle: `object ${String(execution.objectId)}`,
           badges: [shortType(execution.modelType), execution.overridden ? "override" : "shared"],
-          inputPortIds: application?.inputs.map((port) => port.id) ?? [],
-          outputPortIds: application?.outputs.map((port) => port.id) ?? [],
+          inputPortIds: [...(application?.inputs ?? []), ...(application?.environmentInputs ?? [])].map((port) => port.id),
+          outputPortIds: [...(application?.outputs ?? []), ...(application?.environmentOutputs ?? [])].map((port) => port.id),
           detail: execution,
         },
       };
     });
+    return [...executionNodes, ...environmentNodes(graph, "resolved")];
   }
-  return graph.applications.filter(matches).map((application) => ({
+  const applicationNodes: FlowNode[] = graph.applications
+    .filter((application) => !scopedObjectIds || application.targetIds.some((id) => scopedObjectIds.has(objectKey(id))))
+    .filter(matches).map((application) => ({
     id: application.id,
     type: "application",
     position: { x: 0, y: 0 },
@@ -541,10 +656,38 @@ function buildNodes({
       onCycleBreak,
     },
   }));
+  return [...applicationNodes, ...environmentNodes(graph, "applications")];
 }
 
+function environmentNodes(graph: SceneGraphView, projection: "applications" | "resolved"): FlowNode[] {
+  const relevant = graph.edges.filter((edge) => edge.kind === "environment_binding" && edge.projection === projection);
+  const ids = new Set(relevant.flatMap((edge) => [edge.source, edge.target]).filter((id) => id.startsWith("environment:")));
+  return [...ids].map((id) => {
+    const provider = id.slice("environment:".length);
+    const inputs = uniqueStrings(relevant.filter((edge) => edge.target === id).map((edge) => edge.targetPort).filter(Boolean) as string[]);
+    const outputs = uniqueStrings(relevant.filter((edge) => edge.source === id).map((edge) => edge.sourcePort).filter(Boolean) as string[]);
+    return {
+      id,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "environment",
+        title: provider,
+        subtitle: "environment provider",
+        badges: [`${outputs.length} inputs`, `${inputs.length} outputs`],
+        inputPortIds: inputs,
+        outputPortIds: outputs,
+        detail: { provider },
+      },
+    };
+  });
+}
+
+function uniqueStrings(values: string[]) { return [...new Set(values)]; }
+
 function buildEdges(graph: SceneGraphView, view: GraphViewMode): FlowEdge[] {
-  return graph.edges
+  const sourceEdges = view === "topology" ? [...graph.edges, ...topologyContainerEdges(graph)] : graph.edges;
+  return sourceEdges
     .filter((edge) => edgeProjectionMatches(edge, view))
     .map((edge) => ({
       id: edge.id,
@@ -563,6 +706,65 @@ function buildEdges(graph: SceneGraphView, view: GraphViewMode): FlowEdge[] {
     }));
 }
 
+function topologyContainerEdges(graph: SceneGraphView): SceneGraphEdge[] {
+  const edges: SceneGraphEdge[] = [];
+  const instanceObjectIds = new Set(graph.instances.flatMap((instance) => instance.objectIds.map(objectKey)));
+  for (const instance of graph.instances) {
+    edges.push({
+      id: `topology:scene:${instance.id}`,
+      source: "scene:root",
+      target: instance.id,
+      kind: "object_topology",
+      projection: "topology",
+      cycle: false,
+    });
+    edges.push({
+      id: `topology:${instance.id}:object:${String(instance.rootId)}`,
+      source: instance.id,
+      target: `object:${String(instance.rootId)}`,
+      kind: "object_topology",
+      projection: "topology",
+      cycle: false,
+    });
+  }
+  for (const object of graph.objects) {
+    if (object.parent === null && !instanceObjectIds.has(objectKey(object.objectId))) {
+      edges.push({
+        id: `topology:scene:${object.id}`,
+        source: "scene:root",
+        target: object.id,
+        kind: "object_topology",
+        projection: "topology",
+        cycle: false,
+      });
+    }
+  }
+  return edges;
+}
+
+export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): unknown[] {
+  const children = new Map<string, unknown[]>();
+  for (const object of objects) {
+    if (object.parent === null) continue;
+    const key = objectKey(object.parent);
+    children.set(key, [...(children.get(key) ?? []), object.objectId]);
+  }
+  const result: unknown[] = [];
+  const pending: unknown[] = [rootId];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    const key = objectKey(id);
+    if (visited.has(key)) continue;
+    visited.add(key);
+    result.push(id);
+    pending.push(...(children.get(key) ?? []));
+  }
+  return result;
+}
+
+function objectKey(value: unknown) { return String(value); }
+
 function edgeProjectionMatches(edge: SceneGraphEdge, view: GraphViewMode) {
   const projection = (edge as SceneGraphEdge & { projection?: string }).projection;
   if (view === "topology") return edge.kind === "object_topology";
@@ -575,6 +777,7 @@ function edgeColor(edge: SceneGraphEdge) {
   if (edge.kind === "previous_timestep") return "#317b62";
   if (edge.kind === "manual_call") return "#be6a54";
   if (edge.kind === "object_topology") return "#7b7167";
+  if (edge.kind === "environment_binding") return "#367b8b";
   return "#a59687";
 }
 
@@ -668,7 +871,7 @@ export function endpointsForCandidate(candidate: CandidatePopover, application: 
   return { sourceApplication: candidate.application, sourcePort: candidate.port, targetApplication: application, targetPort };
 }
 
-function Inspector({ selection, port, initialization, interactive, onEditApplication, onRemoveApplication, onOverrideApplication, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: SceneGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
+function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: SceneGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
   const application = selection && "applicationId" in selection && "selector" in selection ? selection as ApplicationGraphNode : null;
   const object = selection && "objectId" in selection && !("applicationId" in selection) ? selection as ObjectGraphNode : null;
   return (
@@ -676,7 +879,7 @@ function Inspector({ selection, port, initialization, interactive, onEditApplica
       <header><strong>Inspector</strong>{selection && <span>{selectionLabel(selection)}</span>}</header>
       {!selection && <div className="empty-inspector"><Boxes size={28} /><p>Select an application, object, execution, or relationship.</p></div>}
       {selection && <pre>{JSON.stringify(selection, null, 2)}</pre>}
-      {application && interactive && <div className="inspector-actions"><button onClick={() => onEditApplication(application)}>{application.targetInstances.length > 0 ? "Edit shared template" : "Edit application"}</button>{application.targetInstances.length > 0 && <button onClick={() => onOverrideApplication(application)}>Create override</button>}<button className="danger" onClick={() => onRemoveApplication(application)}>{application.targetInstances.length > 0 ? "Remove from shared template" : "Remove application"}</button></div>}
+      {application && interactive && <div className="inspector-actions"><button onClick={() => onEditApplication(application)}>{application.targetInstances.length > 0 ? "Edit shared template" : "Edit application"}</button>{application.targetInstances.length === 0 && <button data-testid="configure-application" onClick={() => onConfigureApplication(application)}>Configure coupling</button>}{application.targetInstances.length > 0 && <button onClick={() => onOverrideApplication(application)}>Create override</button>}<button className="danger" onClick={() => onRemoveApplication(application)}>{application.targetInstances.length > 0 ? "Remove from shared template" : "Remove application"}</button></div>}
       {object && interactive && <div className="inspector-actions"><button onClick={() => onEditObject(object)}>Edit object</button><button className="danger" onClick={() => onRemoveObject(object)}>Remove object and descendants</button></div>}
       {port && <section><h4>Selected variable</h4><code>{port.name}</code><p>{port.expectedType}</p></section>}
       {selection && initialization.length > 0 && (
@@ -775,6 +978,9 @@ function Overlay({ title, onClose, children }: { title: string; onClose: () => v
 function selectionLabel(selection: Exclude<InspectorSelection, null>) {
   if ("applicationId" in selection) return selection.applicationId;
   if ("objectId" in selection) return String(selection.objectId);
+  if ("objectIds" in selection) return selection.name;
+  if ("entity" in selection) return "Scene";
+  if ("provider" in selection) return selection.provider;
   return selection.kind.replaceAll("_", " ");
 }
 

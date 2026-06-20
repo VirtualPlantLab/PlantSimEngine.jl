@@ -35,6 +35,10 @@ PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
         @test payload["graph"]["metadata"]["applicationCount"] == 1
         @test occursin("scene = Scene", payload["sceneCode"])
 
+        static_view = HTTP.get("http://$(session.host):$(session.port)/static?token=$(session.token)")
+        @test static_view.status == 200
+        @test occursin("pse-scene-graph-data", String(static_view.body))
+
         consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer) |>
                         AppliesTo(One(name=:leaf))
         apply_edit!(session, AddSceneApplication(consumer_spec))
@@ -81,10 +85,30 @@ end
             "action" => "open_scene_code",
             "path" => snapshot_path,
         ))
+        response["ok"] || error(join(response["diagnostics"], "\n"))
         @test response["ok"]
         @test length(scene_objects(current_scene(session))) == 1
         @test session.save_path == snapshot_path
         @test first(session.recent_paths) == snapshot_path
+
+        reopened = edit_graph(; port=0, open_browser=false, autosave=false)
+        try
+            @test snapshot_path in reopened.recent_paths
+        finally
+            close(reopened)
+        end
+        recovered = edit_graph(
+            ;
+            port=0,
+            open_browser=false,
+            autosave=false,
+            recover_path=snapshot_path,
+        )
+        try
+            @test length(scene_objects(current_scene(recovered))) == 1
+        finally
+            close(recovered)
+        end
     finally
         close(session)
     end
@@ -111,6 +135,23 @@ end
         @test object_response["ok"]
         @test length(scene_objects(current_scene(session))) == 1
 
+        target_history_length = length(session.history)
+        target_preview = editor_extension._handle_command!(session, Dict(
+            "action" => "preview_application_targets",
+            "selector" => Dict(
+                "multiplicity" => "many",
+                "criteria" => Dict(
+                    "selectors" => Any[],
+                    "within" => Dict("type" => "SceneScope"),
+                    "scale" => "Leaf",
+                ),
+            ),
+        ))
+        @test target_preview["ok"]
+        @test target_preview["targetPreview"]["count"] == 1
+        @test target_preview["targetPreview"]["objectIds"] == ["leaf"]
+        @test length(session.history) == target_history_length
+
         source_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
             "kind" => "add_application",
@@ -127,6 +168,32 @@ end
         ))
         @test source_response["ok"]
 
+        environment_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_environment_provider",
+            "applicationId" => "source",
+            "provider" => "scene",
+        ))
+        @test environment_response["ok"]
+        source_application = only(
+            PlantSimEngine.as_model_spec(spec) for spec in current_scene(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) == :source
+        )
+        @test environment_config(source_application).provider == :scene
+
+        routing_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_output_routing",
+            "applicationId" => "source",
+            "output" => "signal",
+            "route" => "stream_only",
+        ))
+        @test routing_response["ok"]
+        @test only(
+            application for application in routing_response["graph"]["applications"]
+            if application["applicationId"] == "source"
+        )["outputRouting"]["signal"] == "stream_only"
+
         consumer_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
             "kind" => "add_application",
@@ -141,9 +208,33 @@ end
         ))
         @test consumer_response["ok"]
 
-        binding_response = editor_extension._handle_command!(session, Dict(
+        call_selector = Dict(
+            "multiplicity" => "one",
+            "criteria" => Dict(
+                "selectors" => Any[],
+                "within" => Dict("type" => "Self"),
+                "application" => "source",
+            ),
+        )
+        call_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
-            "kind" => "set_input_binding",
+            "kind" => "set_call_binding",
+            "applicationId" => "consumer",
+            "call" => "source_call",
+            "selector" => call_selector,
+        ))
+        @test call_response["ok"]
+        @test call_response["graph"]["metadata"]["callCount"] == 1
+        remove_call_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "remove_call_binding",
+            "applicationId" => "consumer",
+            "call" => "source_call",
+        ))
+        @test remove_call_response["ok"]
+        @test remove_call_response["graph"]["metadata"]["callCount"] == 0
+
+        binding_command = Dict(
             "applicationId" => "consumer",
             "input" => "signal",
             "selector" => Dict(
@@ -156,6 +247,27 @@ end
                     "policy" => Dict("type" => "HoldLast"),
                 ),
             ),
+        )
+        history_length = length(session.history)
+        preview_response = editor_extension._handle_command!(session, merge(
+            binding_command,
+            Dict("action" => "preview_input_binding"),
+        ))
+        @test preview_response["ok"]
+        @test preview_response["selectorPreview"]["bindingCount"] == 1
+        @test preview_response["selectorPreview"]["consumerObjectIds"] == ["leaf"]
+        @test preview_response["selectorPreview"]["sourceObjectIds"] == ["leaf"]
+        @test preview_response["selectorPreview"]["sourceApplicationIds"] == ["source"]
+        @test length(session.history) == history_length
+        consumer_before = only(
+            PlantSimEngine.as_model_spec(spec) for spec in current_scene(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) == :consumer
+        )
+        @test isempty(consumer_before.inputs)
+
+        binding_response = editor_extension._handle_command!(session, merge(
+            binding_command,
+            Dict("action" => "edit", "kind" => "set_input_binding"),
         ))
         @test binding_response["ok"]
         @test binding_response["graph"]["metadata"]["bindingCount"] == 1
@@ -186,7 +298,9 @@ end
     template = ObjectTemplate(
         (
             ModelSpec(EditorSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+                AppliesTo(Many(scale=:Leaf)) |>
+                Environment((provider=:scene,)) |>
+                OutputRouting((signal=:stream_only,)),
         );
         kind=:plant,
         species=:test_species,
@@ -208,9 +322,12 @@ end
         ),
     )
     code = editor_extension._scene_to_julia(original)
+    @test occursin("defined in Main", code)
     @test occursin("template_1 = ObjectTemplate", code)
     @test occursin("instances = (", code)
     @test occursin("Override(", code)
+    @test occursin("Environment((provider = :scene,))", code)
+    @test occursin("OutputRouting((signal = :stream_only,))", code)
     @test !occursin("ObjectModelOverrides", code)
 
     restored = Base.include_string(Main, code, "generated_scene_editor_test.jl")
@@ -220,4 +337,25 @@ end
     @test restored_view.metadata["instanceCount"] == original_view.metadata["instanceCount"]
     @test Set(application["applicationId"] for application in restored_view.applications) ==
           Set(application["applicationId"] for application in original_view.applications)
+    restored_source = PlantSimEngine.as_model_spec(first(first(restored.instances).template.applications))
+    @test environment_config(restored_source).config == (provider=:scene,)
+    @test output_routing(restored_source) == (signal=:stream_only,)
+
+    local_scene = Scene(Object(
+        :local_leaf;
+        name=:local_leaf,
+        scale=:Leaf,
+        status=Status(driver=1.0),
+        applications=(
+            ModelSpec(EditorSourceModel(); name=:local_source) |>
+                AppliesTo(One(name=:local_leaf)),
+        ),
+    ))
+    local_code = editor_extension._scene_to_julia(local_scene)
+    @test occursin("applications=(ModelSpec", local_code)
+    restored_local = Base.include_string(Main, local_code, "generated_local_scene_editor_test.jl")
+    restored_local_application = only(only(scene_objects(restored_local)).applications)
+    @test PlantSimEngine.application_name(
+        PlantSimEngine.as_model_spec(restored_local_application),
+    ) == :local_source
 end

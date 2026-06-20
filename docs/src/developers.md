@@ -72,6 +72,58 @@ If a change affects public APIs or execution behavior, check both `CI` and
 `Integration` before merging. Benchmark results are useful for regressions, but
 should be interpreted alongside the test results.
 
+## Graph Viewer Frontend
+
+The static viewer and HTTP editor share the React application under
+`frontend/`. PlantSimEngine releases include the production bundle in
+`frontend/dist`, because Julia package installations do not run Node or Vite.
+The content hash in asset filenames is intentional: it prevents browsers and
+documentation hosts from reusing stale JavaScript after a release.
+
+Install the frontend development dependencies from the repository root:
+
+```sh
+cd frontend
+npm ci
+```
+
+Run the fast checks while developing:
+
+```sh
+npm run typecheck
+npm test
+```
+
+Build the production assets after changing TypeScript, CSS, or frontend
+dependencies:
+
+```sh
+npm run build
+```
+
+Commit the resulting `frontend/dist` changes together with the source changes.
+Do not commit `frontend/node_modules`, Playwright reports, screenshots, videos,
+or local test output.
+
+The end-to-end suite starts a real Julia `edit_graph` session and controls it
+with Chromium:
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+Use `npm run test:e2e:ui` for a headed local debugging session. The tests use
+stable `data-testid` attributes for commands and confirm mutations through the
+Julia `/state` endpoint. Avoid assertions against generated CSS classes or
+implementing PlantSimEngine selector semantics in TypeScript.
+
+Core graph DTO and edit tests live in `test/test-scene-graph-view.jl`.
+HTTP-extension tests live in `test/test-scene-graph-editor-extension.jl`.
+When changing the graph schema, update those Julia tests, frontend types, unit
+tests, Playwright scenarios, and the committed production bundle in the same
+change.
+
 ## Documentation impact
 
 Changes in PlantSimEngine often require documentation updates beyond the page you

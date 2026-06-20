@@ -26,6 +26,7 @@ cycle.
 """
 struct SceneCompilationReport
     scene::Scene
+    initial_status_variables::Dict{ObjectId,Set{Symbol}}
     applications::Any
     input_bindings::Any
     call_bindings::Any
@@ -174,6 +175,58 @@ function _scene_graph_compiled(
     )
 end
 
+function _scene_graph_fallback_application(scene, raw_spec, timeline)
+    spec = as_model_spec(raw_spec)
+    selector = applies_to(spec)
+    selector isa AbstractObjectMultiplicity || error(
+        "Model application for process `$(process(spec))` has no valid `AppliesTo(...)` selector.",
+    )
+    application_id = something(application_name(spec), process(spec))
+    target_ids = resolve_object_ids(scene, selector)
+    return CompiledSceneApplication(
+        application_id,
+        spec,
+        process(spec),
+        application_name(spec),
+        target_ids,
+        selector,
+        timestep(spec),
+        _scene_application_clock(scene, spec, target_ids, timeline),
+        _compiled_object_model_overrides(spec, target_ids, application_id),
+    )
+end
+
+function _scene_graph_compile_applications(scene, timeline, diagnostics)
+    applications = _scene_graph_phase!(diagnostics, :applications, CompiledSceneApplication[]) do
+        _compile_scene_applications(scene, Tuple(scene.applications), timeline)
+    end
+    isempty(applications) || return applications
+    isempty(scene.applications) && return applications
+
+    recovered = CompiledSceneApplication[]
+    recovered_ids = Set{Symbol}()
+    for raw_spec in scene.applications
+        try
+            application = _scene_graph_fallback_application(scene, raw_spec, timeline)
+            application.id in recovered_ids && error(
+                "Duplicate recovered scene application id `$(application.id)`.",
+            )
+            push!(recovered_ids, application.id)
+            push!(recovered, application)
+        catch err
+            spec = as_model_spec(raw_spec)
+            application_id = something(application_name(spec), process(spec))
+            push!(diagnostics, _scene_graph_diagnostic(
+                err,
+                :application_recovery;
+                application_ids=[application_id],
+                suggestions=["Fix the application selector or authored configuration."],
+            ))
+        end
+    end
+    return recovered
+end
+
 """
     compile_scene_report(scene; strict=false)
 
@@ -185,6 +238,12 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
     # Compilation wires reference carriers and prepares generated status fields.
     # A viewer must not mutate the user's editable or pre-run Scene merely by
     # inspecting it, so all diagnostic compilation happens on a structural copy.
+    initial_status_variables = Dict(
+        object.id => Set{Symbol}(
+            object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[],
+        )
+        for object in values(scene.registry.objects)
+    )
     scene = deepcopy(scene)
     if strict
         compiled = compile_scene(scene)
@@ -195,6 +254,7 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
         )
         return SceneCompilationReport(
             scene,
+            initial_status_variables,
             compiled.applications,
             compiled.input_bindings,
             compiled.call_bindings,
@@ -212,6 +272,7 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
     end
     isnothing(timeline) && return SceneCompilationReport(
         scene,
+        initial_status_variables,
         CompiledSceneApplication[],
         CompiledSceneInputBinding[],
         CompiledSceneCallBinding[],
@@ -222,11 +283,10 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
         nothing,
     )
 
-    applications = _scene_graph_phase!(diagnostics, :applications, CompiledSceneApplication[]) do
-        _compile_scene_applications(scene, Tuple(scene.applications), timeline)
-    end
+    applications = _scene_graph_compile_applications(scene, timeline, diagnostics)
     isempty(applications) && !isempty(scene.applications) && return SceneCompilationReport(
         scene,
+        initial_status_variables,
         applications,
         CompiledSceneInputBinding[],
         CompiledSceneCallBinding[],
@@ -262,7 +322,14 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
         _wire_scene_input_carriers!(scene, input_bindings)
     end
 
-    children = _scene_graph_dependency_children(applications, input_bindings, call_bindings)
+    children = Dict{Symbol,Set{Symbol}}()
+    _scene_graph_phase!(diagnostics, :dependency_inputs, nothing) do
+        call_owners = _scene_call_owners(call_bindings)
+        _scene_input_order_edges!(children, input_bindings, call_owners)
+    end
+    _scene_graph_phase!(diagnostics, :update_order, nothing) do
+        _scene_update_order_edges!(children, applications)
+    end
     cycles = _scene_graph_cycle_components(applications, children)
     application_order = Symbol[]
     if isempty(cycles)
@@ -304,6 +371,7 @@ function compile_scene_report(scene::Scene; strict::Bool=false)
 
     return SceneCompilationReport(
         scene,
+        initial_status_variables,
         applications,
         input_bindings,
         call_bindings,
@@ -431,11 +499,14 @@ end
 
 function _scene_graph_application_dict(scene, application)
     model = _application_default_model(application)
+    spec = application.spec
     inputs = inputs_(application.spec)
     outputs = outputs_(application.spec)
     environment_inputs = meteo_inputs_(application.spec)
     environment_outputs = meteo_outputs_(application.spec)
     target_objects = [_scene_object(scene, id) for id in application.target_ids]
+    environment = environment_config(spec)
+    environment_payload = environment isa EnvironmentConfig ? environment.config : environment
     return Dict{String,Any}(
         "id" => _scene_graph_application_node_id(application.id),
         "applicationId" => string(application.id),
@@ -463,6 +534,25 @@ function _scene_graph_application_dict(scene, application)
         "outputs" => [_scene_graph_port(application, :output, name, value) for (name, value) in pairs(outputs)],
         "environmentInputs" => [_scene_graph_port(application, :environment_input, name, value) for (name, value) in pairs(environment_inputs)],
         "environmentOutputs" => [_scene_graph_port(application, :environment_output, name, value) for (name, value) in pairs(environment_outputs)],
+        "inputBindings" => Dict(
+            string(name) => _scene_graph_selector_dict(selector)
+            for (name, selector) in pairs(value_inputs(spec))
+        ),
+        "callBindings" => Dict(
+            string(name) => _scene_graph_selector_dict(selector)
+            for (name, selector) in pairs(model_calls(spec))
+        ),
+        "environment" => _scene_graph_json_value(environment_payload),
+        "meteoBindings" => _scene_graph_json_value(meteo_bindings(spec)),
+        "meteoWindow" => _scene_graph_json_value(meteo_window(spec)),
+        "outputRouting" => _scene_graph_json_value(output_routing(spec)),
+        "updates" => [
+            Dict(
+                "variables" => collect(string.(_update_variables(update))),
+                "after" => collect(string.(_update_after(update))),
+            )
+            for update in updates(spec)
+        ],
         "modelStorage" => isnothing(application.model_overrides) ? "shared_application" : "per_object_override",
         "objectOverrides" => isnothing(application.model_overrides) ? Any[] : [
             Dict(
@@ -661,6 +751,139 @@ function _scene_graph_call_edges(report, level)
     return collect(values(edges))
 end
 
+function _scene_graph_update_edges(report)
+    application_ids = Set(application.id for application in report.applications)
+    edges = Dict{String,Any}[]
+    for application in report.applications
+        for update in updates(application.spec)
+            variables = _update_variables(update)
+            for predecessor in _update_after(update)
+                predecessor in application_ids || continue
+                edge_id = string(
+                    "update:", predecessor, ":", application.id, ":",
+                    join(string.(variables), ","),
+                )
+                push!(edges, Dict{String,Any}(
+                    "id" => edge_id,
+                    "source" => _scene_graph_application_node_id(predecessor),
+                    "target" => _scene_graph_application_node_id(application.id),
+                    "sourceApplicationId" => string(predecessor),
+                    "targetApplicationId" => string(application.id),
+                    "variables" => collect(string.(variables)),
+                    "kind" => "update_order",
+                    "projection" => "applications",
+                    "cycle" => false,
+                ))
+            end
+        end
+    end
+    return edges
+end
+
+function _scene_graph_environment_edges(report, level)
+    environment_bindings = try
+        _compile_environment_bindings_for_applications(report.scene, report.applications)
+    catch
+        Any[]
+    end
+    if isempty(environment_bindings)
+        for application in report.applications
+            required_inputs = Symbol.(keys(meteo_inputs_(application.spec)))
+            produced_outputs = Symbol.(keys(meteo_outputs_(application.spec)))
+            isempty(required_inputs) && isempty(produced_outputs) && continue
+            source_inputs = _environment_source_variable_names(application.spec)
+            config = environment_config(application.spec)
+            provider = try
+                _environment_provider_from_config(
+                    config,
+                    _environment_backend_from_config(report.scene, config),
+                )
+            catch
+                :scene
+            end
+            for object_id in application.target_ids
+                push!(environment_bindings, (
+                    application_id=application.id,
+                    object_id=object_id,
+                    provider=provider,
+                    required_inputs=required_inputs,
+                    source_inputs=source_inputs,
+                    produced_outputs=produced_outputs,
+                ))
+            end
+        end
+    end
+    edges = Dict{String,Dict{String,Any}}()
+    for binding in environment_bindings
+        provider_id = string("environment:", binding.provider)
+        target_id = level == :resolved ?
+                    _scene_graph_execution_node_id(binding.application_id, binding.object_id) :
+                    _scene_graph_application_node_id(binding.application_id)
+        object_suffix = level == :resolved ? string(":", binding.object_id.value) : ""
+        for (target_variable, source_variable) in zip(binding.required_inputs, binding.source_inputs)
+            edge_id = string(
+                "environment-input:", binding.provider, ":", source_variable, ":",
+                binding.application_id, ":", target_variable, object_suffix,
+            )
+            edge = get!(edges, edge_id) do
+                Dict{String,Any}(
+                    "id" => edge_id,
+                    "source" => provider_id,
+                    "target" => target_id,
+                    "sourcePort" => string(provider_id, ":output:", source_variable),
+                    "targetPort" => _scene_graph_port_id(
+                        binding.application_id,
+                        :environment_input,
+                        target_variable,
+                    ),
+                    "sourceVariable" => string(source_variable),
+                    "targetVariable" => string(target_variable),
+                    "targetApplicationId" => string(binding.application_id),
+                    "sourceObjectIds" => Any[],
+                    "targetObjectIds" => Any[],
+                    "provider" => string(binding.provider),
+                    "kind" => "environment_binding",
+                    "projection" => string(level),
+                    "cycle" => false,
+                )
+            end
+            push!(edge["targetObjectIds"], _scene_graph_json_value(binding.object_id.value))
+            unique!(edge["targetObjectIds"])
+        end
+        for variable in binding.produced_outputs
+            edge_id = string(
+                "environment-output:", binding.application_id, ":", variable, ":",
+                binding.provider, object_suffix,
+            )
+            edge = get!(edges, edge_id) do
+                Dict{String,Any}(
+                    "id" => edge_id,
+                    "source" => target_id,
+                    "target" => provider_id,
+                    "sourcePort" => _scene_graph_port_id(
+                        binding.application_id,
+                        :environment_output,
+                        variable,
+                    ),
+                    "targetPort" => string(provider_id, ":input:", variable),
+                    "sourceVariable" => string(variable),
+                    "targetVariable" => string(variable),
+                    "sourceApplicationId" => string(binding.application_id),
+                    "sourceObjectIds" => Any[],
+                    "targetObjectIds" => Any[],
+                    "provider" => string(binding.provider),
+                    "kind" => "environment_binding",
+                    "projection" => string(level),
+                    "cycle" => false,
+                )
+            end
+            push!(edge["sourceObjectIds"], _scene_graph_json_value(binding.object_id.value))
+            unique!(edge["sourceObjectIds"])
+        end
+    end
+    return collect(values(edges))
+end
+
 function _scene_graph_structure_edges(scene, applications)
     edges = Dict{String,Any}[]
     for object in values(scene.registry.objects)
@@ -704,12 +927,7 @@ function _scene_graph_diagnostic_dict(diagnostic::SceneGraphDiagnostic)
 end
 
 function _scene_graph_initialization(report)
-    supplied = Dict(
-        object.id => Set{Symbol}(
-            object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[],
-        )
-        for object in values(report.scene.registry.objects)
-    )
+    supplied = report.initial_status_variables
     bindings = Dict(
         (binding.application_id, binding.consumer_id, binding.input) => binding
         for binding in report.input_bindings
@@ -893,6 +1111,12 @@ function compile_scene_graph(compiled::CompiledScene; level=:applications)
     )
     report = SceneCompilationReport(
         compiled.scene,
+        Dict(
+            object.id => Set{Symbol}(
+                object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[],
+            )
+            for object in values(compiled.scene.registry.objects)
+        ),
         compiled.applications,
         compiled.input_bindings,
         compiled.call_bindings,
@@ -920,6 +1144,9 @@ function _scene_graph_view(report::SceneCompilationReport, level)
         _scene_graph_binding_edges(report, :resolved),
         _scene_graph_call_edges(report, :applications),
         _scene_graph_call_edges(report, :resolved),
+        _scene_graph_update_edges(report),
+        _scene_graph_environment_edges(report, :applications),
+        _scene_graph_environment_edges(report, :resolved),
         _scene_graph_structure_edges(report.scene, report.applications),
     )
     sort!(edges; by=edge -> edge["id"])

@@ -5,6 +5,29 @@ using PlantMeteo
 using DataFrames, CSV
 using Documenter
 using CairoMakie
+using PlantSimEngine.Examples
+
+function build_scene_graph_example()
+    output_dir = joinpath(@__DIR__, "src", "assets")
+    mkpath(output_dir)
+    scene = Scene(
+        Object(:plant; name=:plant, scale=:Plant, kind=:plant, status=Status(TT=12.0));
+        applications=(
+            ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
+                AppliesTo(One(name=:plant)),
+            ModelSpec(ToyLAIModel(); name=:lai) |>
+                AppliesTo(One(name=:plant)),
+            ModelSpec(Beer(0.6); name=:light_interception) |>
+                AppliesTo(One(name=:plant)),
+        ),
+    )
+    write_scene_graph_view(
+        joinpath(output_dir, "scene_graph_example.html"),
+        scene,
+    )
+end
+
+build_scene_graph_example()
 
 DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames, CSV, CairoMakie); recursive=true)
 
@@ -38,6 +61,7 @@ makedocs(;
         ],
         "Building Scenarios" => [
             "Coupling models" => "./guides/coupling.md",
+            "Visualize and edit a Scene" => "./guides/graph_visualizer_editor.md",
             "Model Switching" => "./step_by_step/model_switching.md",
             "Implementing a process" => "./step_by_step/implement_a_process.md",
             "Implementing a model" => "./step_by_step/implement_a_model.md",

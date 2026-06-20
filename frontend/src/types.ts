@@ -46,6 +46,13 @@ export type ApplicationGraphNode = {
   outputs: GraphPort[];
   environmentInputs: GraphPort[];
   environmentOutputs: GraphPort[];
+  inputBindings: Record<string, SelectorDescriptor>;
+  callBindings: Record<string, SelectorDescriptor>;
+  environment: Record<string, unknown> | null;
+  meteoBindings: Record<string, unknown>;
+  meteoWindow: unknown;
+  outputRouting: Record<string, string>;
+  updates: Array<{ variables: string[]; after: string[] }>;
   modelStorage: "shared_application" | "per_object_override";
   objectOverrides: Array<Record<string, unknown>>;
 };
@@ -58,8 +65,8 @@ export type ObjectGraphNode = {
   species: string | null;
   name: string | null;
   instance: string | null;
-  parent: string | null;
-  children: string[];
+  parent: unknown | null;
+  children: unknown[];
   hasGeometry: boolean;
   hasStatus: boolean;
 };
@@ -106,6 +113,8 @@ export type SceneGraphEdge = {
   policy?: string;
   selector?: SelectorDescriptor;
   call?: string;
+  variables?: string[];
+  provider?: string;
   projection?: "applications" | "topology" | "resolved" | "targets";
   cycle: boolean;
 };
@@ -233,13 +242,24 @@ export type RuntimeApplicationNode = ApplicationGraphNode & {
 };
 
 export type RuntimeEntityNode = {
-  nodeKind: "object" | "execution";
+  nodeKind: "scene" | "instance" | "object" | "execution" | "environment";
   title: string;
   subtitle: string;
   badges: string[];
   inputPortIds?: string[];
   outputPortIds?: string[];
-  detail: ObjectGraphNode | ExecutionGraphNode;
+  detail: SceneRootDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode;
+};
+
+export type EnvironmentGraphNode = {
+  provider: string;
+};
+
+export type SceneRootDescriptor = {
+  entity: "scene";
+  objectCount: number;
+  instanceCount: number;
+  applicationCount: number;
 };
 
 export type EditorState = {
@@ -253,4 +273,21 @@ export type EditorState = {
   autosavePath?: string | null;
   savePath?: string | null;
   recentPaths?: string[];
+  selectorPreview?: SelectorPreview;
+  targetPreview?: TargetPreview;
+};
+
+export type SelectorPreview = {
+  applicationId: string;
+  input: string;
+  consumerObjectIds: unknown[];
+  sourceObjectIds: unknown[];
+  sourceApplicationIds: string[];
+  bindingCount: number;
+  diagnostics: string[];
+};
+
+export type TargetPreview = {
+  objectIds: unknown[];
+  count: number;
 };

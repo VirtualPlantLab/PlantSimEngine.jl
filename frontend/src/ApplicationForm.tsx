@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Check, X } from "lucide-react";
-import type { ApplicationGraphNode, ModelConstructorField, ModelDescriptor, ObjectGraphNode, SelectorDescriptor } from "./types";
+import { Check, Eye, X } from "lucide-react";
+import type { ApplicationGraphNode, ModelConstructorField, ModelDescriptor, ObjectGraphNode, SelectorDescriptor, TargetPreview } from "./types";
 
 export type ApplicationFormValue = {
   applicationId?: string;
@@ -19,6 +19,8 @@ export function ApplicationForm({
   initialModelType,
   suggestedSelector,
   nameReadOnly=false,
+  preview,
+  onPreview,
   onSubmit,
   onClose,
 }: {
@@ -29,6 +31,8 @@ export function ApplicationForm({
   initialModelType?: string;
   suggestedSelector?: SelectorDescriptor;
   nameReadOnly?: boolean;
+  preview: TargetPreview | null;
+  onPreview: (selector: SelectorDescriptor) => void;
   onSubmit: (value: ApplicationFormValue) => void;
   onClose: () => void;
 }) {
@@ -43,6 +47,9 @@ export function ApplicationForm({
   const [kind, setKind] = useState(stringCriterion(initialSelector, "kind"));
   const [species, setSpecies] = useState(stringCriterion(initialSelector, "species"));
   const [objectName, setObjectName] = useState(stringCriterion(initialSelector, "name"));
+  const initialWithin = structuredCriterion(initialSelector, "within");
+  const [scope, setScope] = useState(initialWithin?.type === "Scope" ? "named_scope" : "scene");
+  const [scopeName, setScopeName] = useState(initialWithin?.type === "Scope" ? String(initialWithin.name || "") : "");
   const [timestepMode, setTimestepMode] = useState<"default" | "clock">(application?.timestep ? "clock" : "default");
   const [dt, setDt] = useState("1.0");
   const [phase, setPhase] = useState("0.0");
@@ -65,18 +72,23 @@ export function ApplicationForm({
     return clauses.length ? clauses.join(", ") : "all scene objects";
   }, [kind, objectName, scale, species]);
 
-  const submit = () => {
+  const selector = (): SelectorDescriptor => {
     const criteria: Record<string, unknown> = { selectors: [] };
+    criteria.within = scope === "named_scope" && scopeName ? { type: "Scope", name: scopeName } : { type: "SceneScope" };
     if (scale) criteria.scale = scale;
     if (kind) criteria.kind = kind;
     if (species) criteria.species = species;
     if (objectName) criteria.name = objectName;
+    return { type: selectorType(multiplicity), multiplicity, criteria, julia: "" };
+  };
+
+  const submit = () => {
     onSubmit({
       applicationId: application?.applicationId,
       modelType,
       name: name.trim(),
       parameters,
-      selector: { type: selectorType(multiplicity), multiplicity, criteria, julia: "" },
+      selector: selector(),
       timestep: timestepMode === "clock" ? { mode: "clock", dt, phase } : { mode: "default" },
     });
   };
@@ -94,12 +106,16 @@ export function ApplicationForm({
           <fieldset><legend>Target selector</legend>
             <div className="form-grid">
               <label>Multiplicity<select value={multiplicity} onChange={(event) => setMultiplicity(event.target.value as SelectorDescriptor["multiplicity"])}><option value="one">One</option><option value="optional_one">Optional one</option><option value="many">Many</option></select></label>
+              <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="scene">Whole scene</option><option value="named_scope">Named object subtree</option></select></label>
+              {scope === "named_scope" && <SelectCriterion label="Scope root" value={scopeName} options={options.names} onChange={setScopeName} />}
               <SelectCriterion label="Scale" value={scale} options={options.scales} onChange={setScale} />
               <SelectCriterion label="Kind" value={kind} options={options.kinds} onChange={setKind} />
               <SelectCriterion label="Species" value={species} options={options.species} onChange={setSpecies} />
               <SelectCriterion label="Object name" value={objectName} options={options.names} onChange={setObjectName} />
             </div>
             <p className="selector-summary">Julia will resolve <strong>{multiplicity.replace("_", " ")}</strong> target from {targetSummary}.</p>
+            <button className="selector-preview-button" type="button" onClick={() => onPreview(selector())} data-testid="application-target-preview"><Eye size={15} /> Preview targets in Julia</button>
+            {preview && <section className="selector-preview" data-testid="application-target-preview-result"><strong>{preview.count} target object{preview.count === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(String).join(", ") || "No targets"}</code></section>}
           </fieldset>
 
           <fieldset><legend>Timestep</legend><div className="form-grid"><label>Mode<select value={timestepMode} onChange={(event) => setTimestepMode(event.target.value as "default" | "clock")}><option value="default">Model or environment default</option><option value="clock">Explicit clock</option></select></label>{timestepMode === "clock" && <><label>Step<input value={dt} onChange={(event) => setDt(event.target.value)} /></label><label>Phase<input value={phase} onChange={(event) => setPhase(event.target.value)} /></label></>}</div></fieldset>
@@ -142,5 +158,6 @@ function displayDefault(value: unknown, type: string) {
 function defaultApplicationName(model: ModelDescriptor | null) { return model?.process || model?.name || "application"; }
 function defaultSelector(objects: ObjectGraphNode[]): SelectorDescriptor { const scale = unique(objects.map((object) => object.scale))[0]; return { type: "Many", multiplicity: "many", criteria: scale ? { selectors: [], scale } : { selectors: [] }, julia: "" }; }
 function stringCriterion(selector: SelectorDescriptor, key: string) { const value = selector.criteria[key]; return typeof value === "string" ? value : ""; }
+function structuredCriterion(selector: SelectorDescriptor, key: string) { const value = selector.criteria[key]; return value && typeof value === "object" ? value as Record<string, unknown> : null; }
 function selectorType(value: SelectorDescriptor["multiplicity"]) { return value === "one" ? "One" : value === "optional_one" ? "OptionalOne" : "Many"; }
 function unique(values: Array<string | null>) { return [...new Set(values.filter((value): value is string => Boolean(value)))].sort(); }
