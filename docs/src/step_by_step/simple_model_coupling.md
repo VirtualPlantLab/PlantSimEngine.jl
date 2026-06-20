@@ -24,22 +24,21 @@ page.
 
 ## One object and one model
 
-A scene contains objects. A model application says where a model runs and at
-which timestep. Here a light interception model runs on the scene object and
-reads `LAI` from that object's status:
+A scene contains objects. A model application says where a model runs. Here a
+light interception model runs on the scene object, uses the environment's
+daily cadence, and reads `LAI` from that object's status:
 
 ```@example scene_coupling
 light_scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene, status=Status(LAI=2.0));
     applications=(
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-light_sim = run!(light_scene; steps=3, constants=Constants())
+light_sim = run!(light_scene; steps=3, outputs=:all)
 first(collect_outputs(light_sim; sink=DataFrame), 3)
 ```
 
@@ -54,16 +53,13 @@ coupled_scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
@@ -86,7 +82,7 @@ the timestep loop does not copy values between models.
 Run the coupled scene:
 
 ```@example scene_coupling
-coupled_sim = run!(coupled_scene; steps=5, constants=Constants())
+coupled_sim = run!(coupled_scene; steps=5)
 coupled_status = only(scene_objects(coupled_scene; scale=:Scene)).status
 (TT_cu=coupled_status.TT_cu, LAI=coupled_status.LAI, aPPFD=coupled_status.aPPFD)
 ```
@@ -102,25 +98,21 @@ growth_scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyRUEGrowthModel(0.2); name=:growth) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-growth_sim = run!(growth_scene; steps=5, constants=Constants())
+growth_sim = run!(growth_scene; steps=5)
 growth_status = only(scene_objects(growth_scene; scale=:Scene)).status
 (LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```

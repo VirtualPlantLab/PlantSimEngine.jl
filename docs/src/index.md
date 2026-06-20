@@ -113,7 +113,8 @@ This example runs three existing toy models on one scene object:
 3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
 The model kernels are unchanged; the scene application layer says where they
-run and at which cadence.
+run. Since no `TimeStep` is specified, these applications use the daily
+cadence of `meteo_day`.
 
 ```@example readme
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
@@ -128,21 +129,18 @@ scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, constants=Constants(), outputs=:all)
+sim = run!(scene; steps=30, outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -186,12 +184,12 @@ Use `Inputs(...)` when a model needs values from selected objects. Here the
 scene-scale LAI model reads live references to all plant surfaces in the scene:
 
 ```@example readme
-plant_scene = PlantSimEngine.Scene(
-    PlantSimEngine.Object(:scene; scale=:Scene, kind=:scene),
-    PlantSimEngine.Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
-                          status=Status(surface=12.0)),
-    PlantSimEngine.Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
-                          status=Status(surface=8.0));
+plant_scene = Scene(
+    Object(:scene; scale=:Scene, kind=:scene),
+    Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=12.0)),
+    Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=8.0));
     applications=(
         ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai) |>
             AppliesTo(One(scale=:Scene)) |>

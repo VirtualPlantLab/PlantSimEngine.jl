@@ -108,10 +108,9 @@ scene = Scene(
     mtg;
     applications=applications,
     environment=meteo,
-    id=node -> Symbol(symbol(node), "_", node_id(node)),
-    kind=node -> node_kind(node),
-    species=node -> node_species(node),
-    geometry=node -> node_geometry(node),
+    kind=node_kind,
+    species=node_species,
+    geometry=node_geometry,
 )
 ```
 

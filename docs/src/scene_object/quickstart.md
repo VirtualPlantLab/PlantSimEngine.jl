@@ -37,8 +37,8 @@ to the ordinary Scene/Object representation:
 scene = Scene(ModelA(), ModelB(); status=(initial_value=1.0,))
 ```
 
-Use the explicit form below when applications need names, selectors, cadence,
-or other scenario policies.
+Use the explicit form below when applications need names, selectors, or other
+scenario policies.
 
 The first scene has one object, `:scene`, and three model applications:
 
@@ -47,7 +47,8 @@ The first scene has one object, `:scene`, and three model applications:
 - `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
 The model implementations are ordinary PlantSimEngine kernels. The scene
-application layer decides where they run and at which cadence.
+application layer decides where they run. With no explicit `TimeStep`, these
+applications use the environment cadence.
 
 ```@example scene_object_quickstart
 meteo_day = read_weather(
@@ -59,21 +60,18 @@ scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, constants=Constants())
+sim = run!(scene; steps=30, outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -143,7 +141,6 @@ request = OutputRequest(
 requested_sim = run!(
     scene;
     steps=30,
-    constants=Constants(),
     outputs=request,
 )
 

@@ -239,6 +239,10 @@ Supported policies are:
 
 `Integrate(...)` and `Aggregate(...)` accept reducer objects or callables that
 take either `(values)` or `(values, durations_seconds)`.
+For duration-aware reducers, each producer value is held until the next
+producer execution and weighted by the portion of that interval overlapping
+the consumer window. This includes the last value published before the window
+when it remains active inside the window.
 
 Temporal windows are duration-based rolling windows. Calendar-aligned civil
 days and "previous complete period" selection are not part of the public API;
@@ -274,7 +278,7 @@ model-to-model temporal values.
 Run a scene with:
 
 ```julia
-sim = run!(scene; steps=30, constants=Constants())
+sim = run!(scene; steps=30)
 ```
 
 The returned `SceneSimulation` contains the mutated scene, compiled bindings,
@@ -362,7 +366,10 @@ Do not mutate `Object` topology, labels, or geometry fields directly. Direct
 field mutation bypasses registry indexes and cache invalidation and is
 unsupported. Use the lifecycle functions above. They validate prerequisites
 before mutating; in particular, `reparent_object!` rejects self-parenting and
-descendant cycles without changing existing links.
+descendant cycles without changing existing links. `ObjectInstance` roots are
+immutable lifecycle anchors: removing or reparenting a root, or an ancestor
+whose subtree contains one, is rejected atomically. Ordinary descendants may
+still be added, removed, or reparented.
 
 Inside a lifecycle-capable model kernel, use `runtime_scene(extra)` to obtain
 the live scene. Objects created during a kernel call do not recursively execute

@@ -35,13 +35,12 @@ scene = Scene(
     );
     applications=(
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=3, constants=Constants())
+sim = run!(scene; steps=3, outputs=:all)
 first(collect_outputs(sim), 3)
 ```
 
@@ -53,22 +52,19 @@ value bindings from model inputs and outputs.
 
 ```@example quick_scene_examples
 lai_scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene, status=Status(TT_cu=0.0));
+    Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-lai_sim = run!(lai_scene; steps=5, constants=Constants())
+lai_sim = run!(lai_scene; steps=5, outputs=:all)
 first(collect_outputs(lai_sim), 8)
 ```
 
@@ -92,25 +88,21 @@ same object.
 
 ```@example quick_scene_examples
 growth_scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene, status=Status(TT_cu=0.0));
+    Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
         ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
         ModelSpec(ToyRUEGrowthModel(0.2); name=:growth) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-growth_sim = run!(growth_scene; steps=5, constants=Constants())
+growth_sim = run!(growth_scene; steps=5)
 growth_status = only(scene_objects(growth_scene; scale=:Scene)).status
 (LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```
@@ -132,7 +124,6 @@ request = OutputRequest(
 requested_sim = run!(
     growth_scene;
     steps=5,
-    constants=Constants(),
     outputs=request,
 )
 

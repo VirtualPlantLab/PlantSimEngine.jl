@@ -108,7 +108,7 @@ select(
 Run one timestep:
 
 ```@example scene_advanced_coupling
-complex_sim = run!(complex_scene; steps=1, constants=Constants())
+complex_sim = run!(complex_scene; steps=1)
 complex_status = only(scene_objects(complex_scene; scale=:Scene)).status
 (
     var3=complex_status.var3,

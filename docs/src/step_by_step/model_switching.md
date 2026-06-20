@@ -50,7 +50,7 @@ function plant_scene_with_growth(growth_model; growth_name=:growth)
 end
 
 rue_scene = plant_scene_with_growth(ToyRUEGrowthModel(0.2))
-rue_sim = run!(rue_scene; steps=10, constants=Constants())
+rue_sim = run!(rue_scene; steps=10)
 rue_status = only(scene_objects(rue_scene; scale=:Scene)).status
 (growth_model=:ToyRUEGrowthModel, biomass=rue_status.biomass)
 ```
@@ -77,7 +77,7 @@ respiration. The rest of the scene does not need to change:
 
 ```@example scene_model_switching
 assim_scene = plant_scene_with_growth(ToyAssimGrowthModel())
-assim_sim = run!(assim_scene; steps=10, constants=Constants())
+assim_sim = run!(assim_scene; steps=10)
 assim_status = only(scene_objects(assim_scene; scale=:Scene)).status
 (
     growth_model=:ToyAssimGrowthModel,

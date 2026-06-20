@@ -128,7 +128,7 @@ select(
 Run the scene with [`run!`](@ref):
 
 ```@example detailed_scene
-sim = run!(scene; steps=3, constants=Constants())
+sim = run!(scene; steps=3)
 ```
 
 The object status stores the latest value:
@@ -196,7 +196,7 @@ model sees the value written by the LAI model without copying it.
 Run the coupled scene:
 
 ```@example detailed_scene
-coupled_sim = run!(coupled_scene; steps=5, constants=Constants())
+coupled_sim = run!(coupled_scene; steps=5, outputs=:all)
 first(collect_outputs(coupled_sim), 8)
 ```
 

@@ -72,21 +72,18 @@ scene = Scene(
     Object(:scene; scale=:Scene, kind=:scene);
     applications=(
         ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
 
         ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+            AppliesTo(One(scale=:Scene)),
     ),
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, constants=Constants())
+sim = run!(scene; steps=30, outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -97,7 +94,7 @@ declared inputs and outputs: `ToyLAIModel` receives `TT_cu` from
 
 ```julia
 select(
-    DataFrame(explain_bindings(refresh_bindings!(scene))),
+    DataFrame(explain_bindings(scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -188,10 +185,10 @@ Useful inspection helpers include:
 ```julia
 explain_objects(scene)
 explain_scopes(scene)
-explain_bindings(refresh_bindings!(scene))
-explain_calls(refresh_bindings!(scene))
+explain_bindings(scene)
+explain_calls(scene)
 explain_environment_bindings(scene)
-explain_schedule(refresh_bindings!(scene))
+explain_schedule(scene)
 explain_execution_plan(scene)
 ```
 
