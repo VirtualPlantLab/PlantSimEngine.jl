@@ -216,6 +216,7 @@ struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
     name::N
     geometry::G
     status::ST
+    max_node_id::Base.RefValue{Int}
 end
 
 mutable struct Scene{R,A,E,I,SA}
@@ -229,6 +230,7 @@ mutable struct Scene{R,A,E,I,SA}
     bindings_dirty::Bool
     environment_bindings_dirty::Bool
     environment_dirty_objects::Union{Nothing,Set{ObjectId}}
+    binding_dirty_objects::Union{Nothing,Set{ObjectId}}
     revision::Int
     environment_revision::Int
 end
@@ -369,6 +371,7 @@ function Scene(
         true,
         true,
         nothing,
+        Set{ObjectId}(),
         0,
         0,
     )
@@ -454,7 +457,16 @@ function objects_from_mtg(
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
-    adapter = MTGObjectAdapter(id, scale, kind, species, name, geometry, status)
+    adapter = MTGObjectAdapter(
+        id,
+        scale,
+        kind,
+        species,
+        name,
+        geometry,
+        status,
+        Ref(MultiScaleTreeGraph.max_id(root)),
+    )
     return _objects_from_mtg(root, adapter)
 end
 
@@ -500,7 +512,16 @@ function Scene(
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
-    adapter = MTGObjectAdapter(id, scale, kind, species, name, geometry, status)
+    adapter = MTGObjectAdapter(
+        id,
+        scale,
+        kind,
+        species,
+        name,
+        geometry,
+        status,
+        Ref(MultiScaleTreeGraph.max_id(root)),
+    )
     objects = _objects_from_mtg(root, adapter)
     return Scene(
         objects...;
@@ -523,18 +544,23 @@ function _mark_environment_bindings_dirty!(scene::Scene, object_id::Union{Nothin
     return scene
 end
 
-function _mark_bindings_dirty!(scene::Scene)
-    scene.binding_cache = nothing
+function _mark_bindings_dirty!(scene::Scene, object_id::Union{Nothing,ObjectId}=nothing)
+    if isnothing(object_id)
+        scene.binding_cache = nothing
+        scene.binding_dirty_objects = nothing
+    elseif !isnothing(scene.binding_dirty_objects)
+        push!(scene.binding_dirty_objects, object_id)
+    end
     scene.bindings_dirty = true
     scene.revision += 1
-    return _mark_environment_bindings_dirty!(scene)
+    return _mark_environment_bindings_dirty!(scene, object_id)
 end
 
 bindings_dirty(scene::Scene) = scene.bindings_dirty
 environment_bindings_dirty(scene::Scene) = scene.environment_bindings_dirty
 scene_revision(scene::Scene) = scene.revision
 environment_revision(scene::Scene) = scene.environment_revision
-compiled_bindings(scene::Scene) = scene.binding_cache
+compiled_bindings(scene::Scene) = scene.bindings_dirty ? nothing : scene.binding_cache
 compiled_environment_bindings(scene::Scene) = scene.environment_binding_cache
 mark_environment_binding_dirty!(scene::Scene) = _mark_environment_bindings_dirty!(scene)
 function mark_environment_binding_dirty!(scene::Scene, id)
@@ -642,7 +668,7 @@ function register_object!(scene::Scene, object::Object; parent=object.parent)
         parent_object = registry.objects[object.parent]
         object.id in parent_object.children || push!(parent_object.children, object.id)
     end
-    _mark_bindings_dirty!(scene)
+    _mark_bindings_dirty!(scene, object.id)
     return object
 end
 
@@ -690,7 +716,7 @@ function add_organ!(
     organ_symbol,
     mtg_scale::Integer;
     index::Integer=0,
-    id=MultiScaleTreeGraph.new_id(MultiScaleTreeGraph.get_root(parent_node)),
+    id=nothing,
     attributes=NamedTuple(),
     initial_status=NamedTuple(),
     kind=nothing,
@@ -706,12 +732,19 @@ function add_organ!(
     parent_id = ObjectId(adapter.id(parent_node))
     _scene_object(scene, parent_id)
     root = MultiScaleTreeGraph.get_root(parent_node)
-    isnothing(MultiScaleTreeGraph.get_node(root, Int(id))) || error(
-        "MTG node id `$(id)` already exists."
+    node_id = if isnothing(id)
+        adapter.max_node_id[] += 1
+    else
+        explicit_id = Int(id)
+        adapter.max_node_id[] = max(adapter.max_node_id[], explicit_id)
+        explicit_id
+    end
+    isnothing(MultiScaleTreeGraph.get_node(root, node_id)) || error(
+        "MTG node id `$(node_id)` already exists."
     )
 
     node = MultiScaleTreeGraph.Node(
-        Int(id),
+        node_id,
         parent_node,
         MultiScaleTreeGraph.NodeMTG(
             Symbol(link),
@@ -868,8 +901,18 @@ function refresh_bindings!(scene::Scene, specs=scene.applications; force::Bool=f
         return compile_scene(scene, specs)
     end
     if force || scene.bindings_dirty || isnothing(scene.binding_cache)
-        scene.binding_cache = compile_scene(scene, scene.applications)
+        can_extend = !force &&
+                     !isnothing(scene.binding_cache) &&
+                     !isnothing(scene.binding_dirty_objects) &&
+                     !isempty(scene.binding_dirty_objects)
+        scene.binding_cache = can_extend ?
+                              _extend_compiled_scene(
+            scene,
+            scene.binding_cache,
+            scene.binding_dirty_objects,
+        ) : compile_scene(scene, scene.applications)
         scene.bindings_dirty = false
+        scene.binding_dirty_objects = Set{ObjectId}()
     end
     return scene.binding_cache
 end

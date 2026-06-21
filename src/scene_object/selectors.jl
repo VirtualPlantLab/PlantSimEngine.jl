@@ -313,7 +313,17 @@ function _mount_object_instance_applications(instances, instance_ids)
     return Tuple(mounted)
 end
 
-_sort_object_ids!(ids) = sort!(ids; by=id -> string(id.value))
+function _object_id_isless(left::ObjectId, right::ObjectId)
+    left_value = left.value
+    right_value = right.value
+    if typeof(left_value) === typeof(right_value) &&
+       hasmethod(isless, Tuple{typeof(left_value),typeof(right_value)})
+        return isless(left_value, right_value)
+    end
+    return isless(string(left_value), string(right_value))
+end
+
+_sort_object_ids!(ids) = sort!(ids; lt=_object_id_isless)
 
 function _object_id_from_context(context)
     isnothing(context) && return nothing
@@ -493,6 +503,84 @@ function _scope_object_ids(scene::Scene, scope, context)
     error("Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.")
 end
 
+function _registry_selector_ids(index, requested)
+    isnothing(requested) && return nothing
+    requested_values = requested isa Tuple ? requested : (requested,)
+    ids = Set{ObjectId}()
+    for value in requested_values
+        union!(ids, get(index, Symbol(value), Set{ObjectId}()))
+    end
+    return ids
+end
+
+function _indexed_object_ids(scene::Scene; scale=nothing, kind=nothing, species=nothing, name=nothing)
+    candidate_sets = Set{ObjectId}[]
+    for ids in (
+        _registry_selector_ids(scene.registry.by_scale, scale),
+        _registry_selector_ids(scene.registry.by_kind, kind),
+        _registry_selector_ids(scene.registry.by_species, species),
+    )
+        isnothing(ids) || push!(candidate_sets, ids)
+    end
+    if !isnothing(name)
+        names = name isa Tuple ? name : (name,)
+        push!(
+            candidate_sets,
+            Set{ObjectId}(
+                id for candidate_name in names
+                for id in (get(scene.registry.by_name, Symbol(candidate_name), nothing),)
+                if !isnothing(id)
+            ),
+        )
+    end
+    isempty(candidate_sets) && return nothing
+    sort!(candidate_sets; by=length)
+    ids = copy(first(candidate_sets))
+    for candidates in Iterators.drop(candidate_sets, 1)
+        intersect!(ids, candidates)
+    end
+    return ObjectId[ids...]
+end
+
+function _object_is_in_subtree(scene::Scene, object_id::ObjectId, root_id::ObjectId)
+    current_id = object_id
+    while true
+        current_id == root_id && return true
+        parent_id = _scene_object(scene, current_id).parent
+        isnothing(parent_id) && return false
+        current_id = parent_id
+    end
+end
+
+function _scope_contains_object(scene::Scene, scope, context, object_id::ObjectId)
+    (isnothing(scope) || scope isa SceneScope) && return true
+    return if scope isa Self
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error("`Self()` selectors require a current object context.")
+        object_id == current_id
+    elseif scope isa Subtree
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error("`Subtree()` selectors require a current object context.")
+        _object_is_in_subtree(scene, object_id, current_id)
+    elseif scope isa SelfPlant
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
+        plant_id = _ancestor_id(scene, current_id; scale=:Plant)
+        isnothing(plant_id) && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
+        _object_is_in_subtree(scene, object_id, plant_id)
+    elseif scope isa Ancestor
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
+        ancestor_id = _ancestor_id(scene, current_id; scale=scope.scale, include_self=false)
+        isnothing(ancestor_id) && error(
+            "No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`."
+        )
+        _object_is_in_subtree(scene, object_id, ancestor_id)
+    else
+        object_id in Set(_scope_object_ids(scene, scope, context))
+    end
+end
+
 function _symbol_edit_distance(left::Symbol, right::Symbol)
     a = collect(string(left))
     b = collect(string(right))
@@ -579,6 +667,115 @@ function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, s
     return true
 end
 
+function _selector_matches_object_id(
+    scene::Scene,
+    selector::AbstractObjectMultiplicity,
+    object_id::ObjectId;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
+    criteria_ = criteria(selector)
+    relation = _criteria_value(criteria_, :relation, Relation)
+    explicit_scope = _criteria_scope(criteria_)
+    scale = _criteria_value(criteria_, :scale, Scale)
+    kind = _criteria_value(criteria_, :kind, Kind)
+    species = _criteria_value(criteria_, :species, Species)
+    name = haskey(criteria_, :name) ? criteria_.name : nothing
+    if default_to_context &&
+       isnothing(explicit_scope) &&
+       isnothing(relation) &&
+       isnothing(scale) &&
+       isnothing(kind) &&
+       isnothing(species) &&
+       isnothing(name) &&
+       !isnothing(context)
+        return object_id == _object_id_from_context(context)
+    end
+    object = _scene_object(scene, object_id)
+    _matches_object_criteria(object; scale=scale, kind=kind, species=species, name=name) ||
+        return false
+    if isnothing(relation)
+        scope = isnothing(explicit_scope) ? default_scope : explicit_scope
+        if scope isa Ancestor && !isnothing(scale) && scale == scope.scale
+            current_id = _object_id_from_context(context)
+            isnothing(current_id) && error(
+                "`Ancestor(...)` selectors require a current object context."
+            )
+            return object_id == _ancestor_id(
+                scene,
+                current_id;
+                scale=scope.scale,
+                include_self=false,
+            )
+        end
+        return _scope_contains_object(scene, scope, context, object_id)
+    end
+    object_id in _relation_object_ids(scene, relation, context) || return false
+    return isnothing(explicit_scope) ||
+           _scope_contains_object(scene, explicit_scope, context, object_id)
+end
+
+function _selector_matches_any_object_id(
+    scene::Scene,
+    selector::AbstractObjectMultiplicity,
+    object_ids;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
+    criteria_ = criteria(selector)
+    relation = _criteria_value(criteria_, :relation, Relation)
+    explicit_scope = _criteria_scope(criteria_)
+    scale = _criteria_value(criteria_, :scale, Scale)
+    kind = _criteria_value(criteria_, :kind, Kind)
+    species = _criteria_value(criteria_, :species, Species)
+    name = haskey(criteria_, :name) ? criteria_.name : nothing
+    if default_to_context &&
+       isnothing(explicit_scope) &&
+       isnothing(relation) &&
+       isnothing(scale) &&
+       isnothing(kind) &&
+       isnothing(species) &&
+       isnothing(name) &&
+       !isnothing(context)
+        return _object_id_from_context(context) in object_ids
+    end
+    related_ids = isnothing(relation) ? nothing : Set(_relation_object_ids(scene, relation, context))
+    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
+    if isnothing(relation) && scope isa Ancestor && !isnothing(scale) && scale == scope.scale
+        current_id = _object_id_from_context(context)
+        isnothing(current_id) && error(
+            "`Ancestor(...)` selectors require a current object context."
+        )
+        ancestor_id = _ancestor_id(
+            scene,
+            current_id;
+            scale=scope.scale,
+            include_self=false,
+        )
+        isnothing(ancestor_id) && return false
+        ancestor_id in object_ids || return false
+        object = _scene_object(scene, ancestor_id)
+        return _matches_object_criteria(
+            object;
+            scale=scale,
+            kind=kind,
+            species=species,
+            name=name,
+        )
+    end
+    for object_id in object_ids
+        object = _scene_object(scene, object_id)
+        _matches_object_criteria(object; scale=scale, kind=kind, species=species, name=name) ||
+            continue
+        isnothing(related_ids) || object_id in related_ids || continue
+        _scope_contains_object(scene, scope, context, object_id) || continue
+        return true
+    end
+    return false
+end
+
 function resolve_object_ids(scene::Scene, selector::AbstractObjectMultiplicity; context=nothing)
     return _resolve_object_ids(scene, selector; context=context)
 end
@@ -617,8 +814,39 @@ function _resolve_object_ids(
         return ObjectId[_object_id_from_context(context)]
     end
 
+    indexed_ids = _indexed_object_ids(
+        scene;
+        scale=scale,
+        kind=kind,
+        species=species,
+        name=name,
+    )
     candidate_ids = if isnothing(relation)
-        _scope_object_ids(scene, scope, context)
+        if scope isa Ancestor && !isnothing(scale) && scale == scope.scale
+            current_id = _object_id_from_context(context)
+            isnothing(current_id) && error(
+                "`Ancestor(...)` selectors require a current object context."
+            )
+            ancestor_id = _ancestor_id(
+                scene,
+                current_id;
+                scale=scope.scale,
+                include_self=false,
+            )
+            isnothing(ancestor_id) ? ObjectId[] : ObjectId[ancestor_id]
+        elseif isnothing(indexed_ids)
+            _scope_object_ids(scene, scope, context)
+        elseif isnothing(scope) || scope isa SceneScope
+            indexed_ids
+        elseif length(indexed_ids) * 4 <= length(scene.registry.objects)
+            ObjectId[
+                id for id in indexed_ids
+                if _scope_contains_object(scene, scope, context, id)
+            ]
+        else
+            scoped_ids = Set(_scope_object_ids(scene, scope, context))
+            ObjectId[id for id in indexed_ids if id in scoped_ids]
+        end
     else
         related_ids = _relation_object_ids(scene, relation, context)
         if isnothing(explicit_scope)
@@ -634,11 +862,27 @@ function _resolve_object_ids(
     ]
     _sort_object_ids!(ids)
 
+    diagnostic_candidate_ids = if isempty(ids) && !isnothing(indexed_ids)
+        if isnothing(relation)
+            _scope_object_ids(scene, scope, context)
+        else
+            related_ids = _relation_object_ids(scene, relation, context)
+            if isnothing(explicit_scope)
+                related_ids
+            else
+                scoped_ids = Set(_scope_object_ids(scene, explicit_scope, context))
+                ObjectId[id for id in related_ids if id in scoped_ids]
+            end
+        end
+    else
+        candidate_ids
+    end
+
     if selector isa One && length(ids) != 1
         _selector_resolution_error(
             scene,
             selector,
-            candidate_ids,
+            diagnostic_candidate_ids,
             ids;
             context=context,
             scale=scale,
@@ -650,7 +894,7 @@ function _resolve_object_ids(
         _selector_resolution_error(
             scene,
             selector,
-            candidate_ids,
+            diagnostic_candidate_ids,
             ids;
             context=context,
             scale=scale,

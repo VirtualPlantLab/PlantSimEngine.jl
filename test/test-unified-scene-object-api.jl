@@ -810,6 +810,17 @@ end
     )
     @test length(MultiScaleTreeGraph.children(mtg_plant)) == child_count
 
+    auto_id_leaf_status = add_organ!(
+        mtg_plant,
+        mtg_scene,
+        :+,
+        :Leaf,
+        2;
+        index=3,
+    )
+    @test node_id(auto_id_leaf_status.node) == 5
+    @test auto_id_leaf_status.node[:plantsimengine_status] === auto_id_leaf_status
+
     scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),
@@ -2063,6 +2074,14 @@ end
     )
     @test has_reference_carrier(leaf_area_binding)
     @test input_carrier(leaf_area_binding) isa PlantSimEngine.RefVector
+    leaf_2_area_binding = only(
+        binding for binding in carrier_compiled.input_bindings
+        if binding.application_id == :carrier_consumer &&
+           binding.consumer_id == ObjectId(:leaf_2) &&
+           binding.input == :leaf_areas
+    )
+    @test input_carrier(leaf_2_area_binding) === input_carrier(leaf_area_binding)
+    @test leaf_2_area_binding.source_ids === leaf_area_binding.source_ids
     @test input_value(leaf_area_binding)[1] == 1.0
     input_value(leaf_area_binding)[1] = 4.0
     leaf_1_object = only(object for object in scene_objects(carrier_scene; scale=:Leaf) if object.id == ObjectId(:leaf_1))
@@ -2148,6 +2167,24 @@ end
             (:dual_sum, ObjectId(:scene), :total)
         ],
     ) == Tuple{Float64,SceneObjectDualLike{BigFloat}}
+    original_generic_carrier = input_carrier(generic_carrier_binding)
+    register_object!(
+        generic_carrier_scene,
+        Object(
+            :leaf_3;
+            scale=:Leaf,
+            kind=:plant,
+            status=Status(dual_value=SceneObjectDualLike(big"4.5", big"3.5")),
+        );
+        parent=:scene,
+    )
+    extended_generic_compiled = Advanced.refresh_bindings!(generic_carrier_scene)
+    extended_generic_binding = only(extended_generic_compiled.input_bindings)
+    @test input_carrier(extended_generic_binding) === original_generic_carrier
+    @test extended_generic_binding.source_ids ==
+          ObjectId[ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
+    @test input_value(extended_generic_binding)[3] ==
+          SceneObjectDualLike(big"4.5", big"3.5")
 
     cache_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2415,7 +2452,7 @@ end
             )
             @test values == [10.0, 25.0]
         end
-        @test length(windowed_default_sim.environment_bindings.sample_cache) == 2
+        @test isempty(windowed_default_sim.environment_bindings.sample_cache)
         @test all(
             row -> row.temporal_sampler,
             explain_environment_bindings(windowed_default_sim.environment_bindings),

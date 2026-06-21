@@ -165,12 +165,15 @@ function _scene_graph_compiled(
         scene,
         applications,
         applications_by_id,
+        _applications_by_object(applications),
         input_bindings,
         call_bindings,
         input_by_target,
         call_by_target,
+        _index_dynamic_input_bindings(scene, input_bindings),
         model_bundles,
         application_order,
+        _scene_timeline(scene),
         scene.revision,
     )
 end

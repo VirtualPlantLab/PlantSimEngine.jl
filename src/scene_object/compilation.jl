@@ -66,17 +66,42 @@ struct CompiledEnvironmentBindings{SC,B,I,S,C}
     environment_revision::Int
 end
 
-struct CompiledScene{SC,AP,AI,IB,CB,IBI,CBI,MBI,AO}
+struct CompiledScene{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBI,AO,TL}
     scene::SC
     applications::AP
     applications_by_id::AI
+    applications_by_object::ABO
     input_bindings::IB
     call_bindings::CB
     input_bindings_by_target::IBI
     call_bindings_by_target::CBI
+    dynamic_input_binding_indices::DBI
     model_bundles_by_target::MBI
     application_order::AO
+    timeline::TL
     revision::Int
+end
+
+function _dynamic_binding_scale_keys(scene::Scene, binding)
+    binding.origin == :inferred_same_object && return Symbol[]
+    selector_criteria = criteria(binding.selector)
+    explicit_scope = _criteria_scope(selector_criteria)
+    default_scope = _default_dependency_scope(scene, binding.consumer_id)
+    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
+    scope isa Self && return Symbol[]
+    scale = _criteria_value(selector_criteria, :scale, Scale)
+    isnothing(scale) && return Union{Nothing,Symbol}[nothing]
+    return Symbol[Symbol(value) for value in (scale isa Tuple ? scale : (scale,))]
+end
+
+function _index_dynamic_input_bindings(scene::Scene, bindings)
+    index = Dict{Union{Nothing,Symbol},Vector{Int}}()
+    for (binding_index, binding) in pairs(bindings)
+        for scale in _dynamic_binding_scale_keys(scene, binding)
+            push!(get!(index, scale, Int[]), binding_index)
+        end
+    end
+    return index
 end
 
 function _index_scene_bindings(bindings, application_field::Symbol, object_field::Symbol)
@@ -132,6 +157,7 @@ function _compile_scene(scene::Scene, raw_specs; validate_required_inputs::Bool=
         applications,
         _manual_call_application_ids(call_bindings),
     )
+    _share_many_input_bindings!(scene, input_bindings)
     _prepare_scene_bound_input_statuses!(scene, applications, input_bindings)
     _wire_scene_input_carriers!(scene, input_bindings)
     validate_required_inputs &&
@@ -149,12 +175,452 @@ function _compile_scene(scene::Scene, raw_specs; validate_required_inputs::Bool=
         scene,
         applications,
         applications_by_id,
+        _applications_by_object(applications),
         input_bindings,
         call_bindings,
         input_bindings_by_target,
         call_bindings_by_target,
+        _index_dynamic_input_bindings(scene, input_bindings),
         model_bundles_by_target,
         application_order,
+        timeline,
+        scene.revision,
+    )
+end
+
+function _new_application_targets(scene::Scene, applications, added_ids)
+    targets = Dict{Symbol,Vector{ObjectId}}()
+    for application in applications
+        matched = ObjectId[
+            object_id for object_id in added_ids
+            if _selector_matches_object_id(scene, application.applies_to, object_id)
+        ]
+        isempty(matched) && continue
+        new_count = length(application.target_ids) + length(matched)
+        if (application.applies_to isa One && new_count != 1) ||
+           (application.applies_to isa OptionalOne && new_count > 1)
+            return nothing
+        end
+        targets[application.id] = matched
+    end
+    return targets
+end
+
+function _compile_added_consumer_bindings!(
+    bindings,
+    scene,
+    application,
+    consumer_id,
+    manual_application_ids,
+    applications_by_object,
+    applications_by_id,
+)
+    declared_inputs = value_inputs(application.spec)
+    declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
+    for (input_name, selector) in pairs(declared_inputs)
+        input_sym = Symbol(input_name)
+        origin = get(input_origins(application.spec), input_sym, :model_spec)
+        _validate_declared_scene_input_name!(application, input_sym)
+        _push_scene_input_binding!(
+            bindings,
+            scene,
+            application,
+            consumer_id,
+            input_sym,
+            selector,
+            origin,
+            applications_by_object,
+            applications_by_id,
+        )
+    end
+    application.id in manual_application_ids && return bindings
+    _append_inferred_scene_input_bindings!(
+        bindings,
+        scene,
+        application,
+        consumer_id,
+        declared_inputs,
+        applications_by_object,
+        applications_by_id,
+    )
+    return bindings
+end
+
+function _many_binding_scope_anchor(scene::Scene, binding::CompiledSceneInputBinding)
+    selector_criteria = criteria(binding.selector)
+    !isnothing(_criteria_get(selector_criteria, :relation, nothing)) &&
+        return (:consumer, binding.consumer_id)
+    explicit_scope = _criteria_scope(selector_criteria)
+    scope = isnothing(explicit_scope) ?
+            _default_dependency_scope(scene, binding.consumer_id) : explicit_scope
+    if isnothing(scope) || scope isa SceneScope
+        return (:scene,)
+    elseif scope isa SelfPlant
+        return (:plant, _ancestor_id(scene, binding.consumer_id; scale=:Plant))
+    elseif scope isa Scope
+        return (:scope, scope.name)
+    elseif scope isa Ancestor
+        return (
+            :ancestor,
+            _ancestor_id(
+                scene,
+                binding.consumer_id;
+                scale=scope.scale,
+                include_self=false,
+            ),
+        )
+    end
+    return (:consumer, binding.consumer_id)
+end
+
+function _many_binding_share_key(scene::Scene, binding::CompiledSceneInputBinding)
+    binding.multiplicity == :many || return nothing
+    isnothing(binding.carrier) && return nothing
+    return (
+        binding.selector,
+        _many_binding_scope_anchor(scene, binding),
+        binding.source_var,
+        binding.process,
+        binding.application,
+        binding.carrier_hint,
+        typeof(binding.carrier),
+    )
+end
+
+function _binding_with_shared_many_sources(
+    binding::CompiledSceneInputBinding,
+    canonical::CompiledSceneInputBinding,
+)
+    return CompiledSceneInputBinding(
+        binding.application_id,
+        binding.consumer_id,
+        binding.input,
+        binding.selector,
+        binding.origin,
+        canonical.source_ids,
+        canonical.source_application_ids,
+        binding.source_var,
+        binding.process,
+        binding.application,
+        binding.multiplicity,
+        binding.policy,
+        binding.window,
+        binding.carrier_hint,
+        canonical.carrier,
+    )
+end
+
+function _share_many_input_binding!(cache, scene::Scene, binding)
+    key = _many_binding_share_key(scene, binding)
+    isnothing(key) && return binding
+    canonical = get(cache, key, nothing)
+    if isnothing(canonical)
+        cache[key] = binding
+        return binding
+    end
+    if canonical.source_ids != binding.source_ids ||
+       canonical.source_application_ids != binding.source_application_ids
+        cache[(key, binding.consumer_id)] = binding
+        return binding
+    end
+    return _binding_with_shared_many_sources(binding, canonical)
+end
+
+function _share_many_input_bindings!(scene::Scene, bindings; cache=Dict{Any,Any}())
+    for index in eachindex(bindings)
+        bindings[index] = _share_many_input_binding!(cache, scene, bindings[index])
+    end
+    return cache
+end
+
+function _many_input_binding_cache(scene::Scene, bindings)
+    cache = Dict{Any,Any}()
+    for binding in bindings
+        key = _many_binding_share_key(scene, binding)
+        isnothing(key) || haskey(cache, key) || (cache[key] = binding)
+    end
+    return cache
+end
+
+function _append_added_many_sources!(
+    scene::Scene,
+    binding::CompiledSceneInputBinding,
+    added_ids,
+    applications_by_object,
+)
+    binding.multiplicity == :many || return false
+    default_scope = _default_dependency_scope(scene, binding.consumer_id)
+    new_source_ids = ObjectId[
+        object_id for object_id in added_ids if
+        _selector_matches_object_id(
+            scene,
+            binding.selector,
+            object_id;
+            context=binding.consumer_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        ) && !(object_id in binding.source_ids)
+    ]
+    isempty(new_source_ids) && return true
+    _sort_object_ids!(new_source_ids)
+
+    # The growth path allocates monotonically increasing IDs. Appending preserves the
+    # selector's stable order and, critically, keeps the carrier already installed in
+    # the consumer status. Non-monotonic explicit IDs use the general rebuild path.
+    if !isempty(binding.source_ids) &&
+       !_object_id_isless(last(binding.source_ids), first(new_source_ids))
+        return false
+    end
+
+    new_carrier = _input_carrier(scene, binding.selector, new_source_ids, binding.source_var)
+    isnothing(new_carrier) && return false
+    existing_refs = parent(binding.carrier)
+    new_refs = parent(new_carrier)
+    eltype(new_refs) <: eltype(existing_refs) || return false
+    append!(existing_refs, new_refs)
+    append!(binding.source_ids, new_source_ids)
+
+    new_application_ids = _matching_input_source_applications(
+        applications_by_object,
+        new_source_ids,
+        binding.source_var,
+        binding.process,
+        binding.application;
+        allow_empty=binding.selector isa OptionalOne,
+    )
+    for application_id in new_application_ids
+        application_id in binding.source_application_ids ||
+            push!(binding.source_application_ids, application_id)
+    end
+    return true
+end
+
+function _extend_compiled_scene(scene::Scene, compiled::CompiledScene, added_objects)
+    added_ids = ObjectId[id for id in added_objects if haskey(scene.registry.objects, id)]
+    isempty(added_ids) && return compile_scene(scene, scene.applications)
+    new_targets = _new_application_targets(scene, compiled.applications, added_ids)
+    isnothing(new_targets) && return compile_scene(scene, scene.applications)
+
+    for application in compiled.applications
+        append!(application.target_ids, get(new_targets, application.id, ObjectId[]))
+        _sort_object_ids!(application.target_ids)
+    end
+    applications = compiled.applications
+    applications_by_id = Dict(application.id => application for application in applications)
+    applications_by_object = compiled.applications_by_object
+    for application in applications
+        for object_id in get(new_targets, application.id, ObjectId[])
+            push!(get!(applications_by_object, object_id, Any[]), application)
+        end
+    end
+
+    has_calls = any(applications) do application
+        calls = model_calls(application.spec)
+        calls isa NamedTuple && !isempty(keys(calls))
+    end
+    timeline = _scene_timeline(scene)
+    added_applications = CompiledSceneApplication[]
+    for application in applications
+        target_ids = get(new_targets, application.id, ObjectId[])
+        isempty(target_ids) && continue
+        push!(
+            added_applications,
+            CompiledSceneApplication(
+                application.id,
+                application.spec,
+                application.process,
+                application.name,
+                target_ids,
+                application.applies_to,
+                application.timestep,
+                application.clock,
+                application.model_overrides,
+            ),
+        )
+    end
+    existing_calls_affected = false
+    if has_calls
+        existing_calls_affected = any(compiled.call_bindings) do binding
+            _selector_matches_any_object_id(
+                scene,
+                binding.selector,
+                added_ids;
+                context=binding.consumer_id,
+                default_to_context=true,
+                default_scope=_default_dependency_scope(scene, binding.consumer_id),
+            )
+        end
+    end
+    new_call_bindings = has_calls ?
+                        _compile_scene_call_bindings(
+        scene,
+        added_applications,
+        applications,
+        ;
+        by_object=applications_by_object,
+    ) : CompiledSceneCallBinding[]
+    call_bindings = if existing_calls_affected
+        _compile_scene_call_bindings(
+            scene,
+            applications;
+            by_object=applications_by_object,
+        )
+    else
+        bindings = copy(compiled.call_bindings)
+        append!(bindings, new_call_bindings)
+        bindings
+    end
+    _validate_scene_call_cadences!(applications, call_bindings, timeline)
+    _validate_scene_writers!(added_applications, call_bindings)
+    _prepare_scene_output_statuses!(scene, added_applications)
+
+    manual_application_ids = _manual_call_application_ids(call_bindings)
+    input_bindings = copy(compiled.input_bindings)
+    input_bindings_by_target = copy(compiled.input_bindings_by_target)
+    changed_bindings = CompiledSceneInputBinding[]
+    processed_many_sources = IdDict{Any,Nothing}()
+    candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
+    for object_id in added_ids
+        object_scale = _scene_object(scene, object_id).scale
+        isnothing(object_scale) || union!(
+            candidate_binding_indices,
+            get(compiled.dynamic_input_binding_indices, object_scale, Int[]),
+        )
+    end
+    for index in candidate_binding_indices
+        binding = input_bindings[index]
+        if binding.multiplicity == :many && haskey(processed_many_sources, binding.source_ids)
+            continue
+        end
+        default_scope = _default_dependency_scope(scene, binding.consumer_id)
+        _selector_matches_any_object_id(
+            scene,
+            binding.selector,
+            added_ids;
+            context=binding.consumer_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        ) || continue
+        _append_added_many_sources!(
+            scene,
+            binding,
+            added_ids,
+            applications_by_object,
+        ) && begin
+            processed_many_sources[binding.source_ids] = nothing
+            continue
+        end
+        application = applications_by_id[binding.application_id]
+        replacement = CompiledSceneInputBinding[]
+        _push_scene_input_binding!(
+            replacement,
+            scene,
+            application,
+            binding.consumer_id,
+            binding.input,
+            binding.selector,
+            binding.origin,
+            applications_by_object,
+            applications_by_id,
+        )
+        replacement_binding = only(replacement)
+        input_bindings[index] = replacement_binding
+        push!(changed_bindings, replacement_binding)
+        target = (binding.application_id, binding.consumer_id)
+        input_bindings_by_target[target] = Tuple(
+            existing === binding ? replacement_binding : existing
+            for existing in get(input_bindings_by_target, target, ())
+        )
+    end
+    previous_binding_count = length(input_bindings)
+    many_binding_cache = _many_input_binding_cache(scene, input_bindings)
+    for application in applications
+        for consumer_id in get(new_targets, application.id, ObjectId[])
+            first_new_binding = length(input_bindings) + 1
+            _compile_added_consumer_bindings!(
+                input_bindings,
+                scene,
+                application,
+                consumer_id,
+                manual_application_ids,
+                applications_by_object,
+                applications_by_id,
+            )
+            last_new_binding = length(input_bindings)
+            if first_new_binding <= last_new_binding
+                for binding_index in first_new_binding:last_new_binding
+                    input_bindings[binding_index] = _share_many_input_binding!(
+                        many_binding_cache,
+                        scene,
+                        input_bindings[binding_index],
+                    )
+                end
+                new_bindings = input_bindings[first_new_binding:last_new_binding]
+                append!(changed_bindings, new_bindings)
+                input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
+            end
+        end
+    end
+    dynamic_input_binding_indices = Dict{Union{Nothing,Symbol},Vector{Int}}(
+        scale => copy(indices)
+        for (scale, indices) in compiled.dynamic_input_binding_indices
+    )
+    for binding_index in (previous_binding_count + 1):length(input_bindings)
+        binding = input_bindings[binding_index]
+        for scale in _dynamic_binding_scale_keys(scene, binding)
+            push!(get!(dynamic_input_binding_indices, scale, Int[]), binding_index)
+        end
+    end
+
+    _prepare_scene_bound_input_statuses!(scene, added_applications, changed_bindings)
+    _wire_scene_input_carriers!(scene, changed_bindings)
+    _validate_scene_required_inputs!(scene, added_applications, changed_bindings)
+    call_bindings_by_target = if existing_calls_affected
+        _index_scene_bindings(call_bindings, :application_id, :consumer_id)
+    elseif isempty(new_call_bindings)
+        compiled.call_bindings_by_target
+    else
+        indexed = copy(compiled.call_bindings_by_target)
+        merge!(
+            indexed,
+            _index_scene_bindings(new_call_bindings, :application_id, :consumer_id),
+        )
+        indexed
+    end
+    application_order = compiled.application_order
+    model_bundles_by_target = if existing_calls_affected
+        _compile_scene_model_bundles(
+            applications,
+            applications_by_id,
+            call_bindings_by_target,
+        )
+    else
+        bundles = copy(compiled.model_bundles_by_target)
+        for application in added_applications
+            for object_id in application.target_ids
+                bundles[(application.id, object_id)] = _compile_scene_model_bundle(
+                    applications_by_id,
+                    call_bindings_by_target,
+                    application,
+                    object_id,
+                )
+            end
+        end
+        bundles
+    end
+    return CompiledScene(
+        scene,
+        applications,
+        applications_by_id,
+        applications_by_object,
+        input_bindings,
+        call_bindings,
+        input_bindings_by_target,
+        call_bindings_by_target,
+        dynamic_input_binding_indices,
+        model_bundles_by_target,
+        application_order,
+        timeline,
         scene.revision,
     )
 end
@@ -1178,8 +1644,14 @@ function _matching_callee_applications(applications, object_id::ObjectId, proc, 
     return matches
 end
 
-function _compile_scene_call_bindings(scene::Scene, applications)
-    by_object = _applications_by_object(applications)
+function _compile_scene_call_bindings(
+    scene::Scene,
+    applications,
+    lookup_applications=applications,
+    ;
+    by_object=nothing,
+)
+    isnothing(by_object) && (by_object = _applications_by_object(lookup_applications))
     bindings = CompiledSceneCallBinding[]
     for application in applications
         calls = model_calls(application.spec)
@@ -1394,7 +1866,7 @@ function _application_model_dispatch(application::CompiledSceneApplication)
 end
 
 function explain_schedule(compiled::CompiledScene)
-    timeline = _scene_timeline(compiled.scene)
+    timeline = compiled.timeline
     manual_application_ids = _manual_call_application_ids(compiled)
     execution_positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
     return [

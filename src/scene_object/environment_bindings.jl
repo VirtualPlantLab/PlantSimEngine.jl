@@ -332,6 +332,25 @@ function _refresh_environment_bindings_for_objects(
 )
     _update_scene_environment_indices!(scene, compiled)
     dirty = Set(dirty_object_ids)
+    for application in compiled.applications
+        selected_ids = ObjectId[id for id in application.target_ids if id in dirty]
+        isempty(selected_ids) && continue
+        has_new_target = any(
+            object_id -> !haskey(cached.by_target, (application.id, object_id)),
+            selected_ids,
+        )
+        has_new_target || continue
+        config = environment_config(application.spec)
+        backend = _environment_backend_from_config(scene, config)
+        backend isa GlobalConstant && continue
+        bindings = _compile_environment_bindings(scene, compiled)
+        _validate_scene_environment_inputs!(bindings, compiled.applications_by_id)
+        by_target = Dict(
+            (binding.application_id, binding.object_id) => binding
+            for binding in bindings
+        )
+        return _compiled_environment_bindings(scene, bindings, by_target)
+    end
     replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
     for application in compiled.applications
         selected_ids = ObjectId[id for id in application.target_ids if id in dirty]
@@ -351,10 +370,34 @@ function _refresh_environment_bindings_for_objects(
             replacements[(binding.application_id, binding.object_id)] = binding
         end
     end
+    added_targets = Tuple{Symbol,ObjectId}[
+        target for target in keys(replacements)
+        if !haskey(cached.by_target, target)
+    ]
+    if length(added_targets) == length(replacements)
+        append!(cached.bindings, values(replacements))
+        merge!(cached.by_target, replacements)
+        _validate_scene_environment_inputs!(values(replacements), compiled.applications_by_id)
+        return _compiled_environment_bindings(
+            scene,
+            cached.bindings,
+            cached.by_target,
+            cached.samplers_by_application,
+            cached.sample_cache,
+        )
+    end
     bindings = CompiledEnvironmentBinding[
         get(replacements, (binding.application_id, binding.object_id), binding)
         for binding in cached.bindings
     ]
+    cached_targets = Set(keys(cached.by_target))
+    append!(
+        bindings,
+        (
+            binding for (target, binding) in replacements
+            if !(target in cached_targets)
+        ),
+    )
     _validate_scene_environment_inputs!(bindings, compiled.applications_by_id)
     by_target = Dict(
         (binding.application_id, binding.object_id) => binding for binding in bindings
@@ -395,4 +438,3 @@ end
 function explain_environment_bindings(scene::Scene)
     return explain_environment_bindings(refresh_environment_bindings!(scene))
 end
-
