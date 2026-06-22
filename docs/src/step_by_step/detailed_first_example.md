@@ -68,27 +68,18 @@ model reads `LAI`, so we initialize that variable on the object status.
 
 ```@example detailed_scene
 scene = Scene(
-    Object(
-        :scene;
-        scale=:Scene,
-        kind=:scene,
-        status=Status(LAI=2.0),
-    );
-    applications=(
-        ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
-    ),
+    Beer(0.5);
+    status=(LAI=2.0,),
     environment=meteo_day,
+    timestep=Day(1),
 )
 ```
 
-`ModelSpec(...)` wraps a reusable model kernel with scenario-level decisions:
-
-- `name=:light_interception` gives the application a stable name;
-- `AppliesTo(One(scale=:Scene))` says it runs on the scene object;
-- `TimeStep(Day(1))` says it runs daily;
-- `environment=meteo_day` supplies weather values such as radiation.
+The concise constructor creates one ordinary scene object and one application
+for each supplied model. `status` initializes that object, `timestep` applies a
+common daily cadence, and `environment` supplies weather values such as
+radiation. Use explicit `ModelSpec` and selectors when applications need
+different policies or targets.
 
 ## Inspecting The Compiled Scene
 
@@ -158,26 +149,12 @@ Because `Beer` reads `LAI`, the compiler can infer the same-object binding.
 
 ```@example detailed_scene
 coupled_scene = Scene(
-    Object(
-        :scene;
-        scale=:Scene,
-        kind=:scene,
-        status=Status(TT_cu=0.0),
-    );
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
-
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
-
-        ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.5);
+    status=(TT_cu=0.0,),
     environment=meteo_day,
+    timestep=Day(1),
 )
 
 select(
@@ -224,11 +201,7 @@ because no model in this scene computes it before `ToyLAIModel` reads it:
 
 ```@example detailed_scene
 bad_scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyLAIModel();
     environment=meteo_day,
 )
 

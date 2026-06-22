@@ -20,16 +20,13 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 
 scene = Scene(
-    Object(:plant; name=:plant, scale=:Plant, kind=:plant,
-           status=Status(TT=12.0));
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(name=:plant)),
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(name=:plant)),
-        ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(name=:plant)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.6);
+    status=(TT=12.0,),
+    id=:plant,
+    scale=:Plant,
+    kind=:plant,
 )
 
 view = scene_graph_view(scene)

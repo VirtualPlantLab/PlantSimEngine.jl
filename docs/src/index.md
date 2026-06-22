@@ -126,17 +126,9 @@ meteo_day = read_weather(
 )
 
 scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.6);
     environment=meteo_day,
 )
 

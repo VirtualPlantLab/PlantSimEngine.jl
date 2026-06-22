@@ -381,7 +381,7 @@ end
 """
     Scene(model::AbstractModel, models::AbstractModel...;
           status=NamedTuple(), id=:scene, scale=:Scene, kind=:scene,
-          name=id, environment=nothing)
+          name=id, environment=nothing, timestep=nothing)
 
 Construct a concise one-object simulation. This is syntax lowering only: it
 creates one ordinary [`Object`](@ref), one normal `ModelSpec` per model, and a
@@ -391,6 +391,7 @@ scenes.
 
 Use explicit `Object`, `ModelSpec`, and selector construction when applications
 need names, different cadences, explicit coupling, or different target sets.
+Use `timestep` to apply one common cadence to every supplied model.
 """
 function Scene(
     model::AbstractModel,
@@ -401,6 +402,7 @@ function Scene(
     kind=:scene,
     name=id,
     environment=nothing,
+    timestep=nothing,
 )
     object_name = isnothing(name) ? nothing : Symbol(string(name))
     object_status = if status isa Status || isnothing(status)
@@ -415,7 +417,8 @@ function Scene(
     end
     selector = isnothing(object_name) ? One(scale=scale) : One(name=object_name)
     applications = map((model, models...)) do application_model
-        ModelSpec(application_model) |> AppliesTo(selector)
+        application = ModelSpec(application_model) |> AppliesTo(selector)
+        isnothing(timestep) ? application : application |> TimeStep(timestep)
     end
     return Scene(
         Object(

@@ -27,16 +27,8 @@ Depth = 2
 
 ```@example quick_scene_examples
 scene = Scene(
-    Object(
-        :scene;
-        scale=:Scene,
-        kind=:scene,
-        status=Status(LAI=2.0),
-    );
-    applications=(
-        ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    Beer(0.5);
+    status=(LAI=2.0,),
     environment=meteo_day,
 )
 
@@ -52,15 +44,9 @@ value bindings from model inputs and outputs.
 
 ```@example quick_scene_examples
 lai_scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.5);
     environment=meteo_day,
 )
 
@@ -88,17 +74,10 @@ same object.
 
 ```@example quick_scene_examples
 growth_scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(Beer(0.5); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(ToyRUEGrowthModel(0.2); name=:growth) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.5),
+    ToyRUEGrowthModel(0.2);
     environment=meteo_day,
 )
 

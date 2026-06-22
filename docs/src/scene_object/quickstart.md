@@ -37,8 +37,8 @@ to the ordinary Scene/Object representation:
 scene = Scene(ModelA(), ModelB(); status=(initial_value=1.0,))
 ```
 
-Use the explicit form below when applications need names, selectors, or other
-scenario policies.
+Use the explicit form later in this guide when applications need names,
+selectors, or other scenario policies.
 
 The first scene has one object, `:scene`, and three model applications:
 
@@ -57,17 +57,9 @@ meteo_day = read_weather(
 )
 
 scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.6);
     environment=meteo_day,
 )
 
@@ -93,8 +85,8 @@ missing, so it can be used to finish configuring a scene.
 The compiler infers unambiguous same-object dependencies from declared model
 inputs and outputs:
 
-- `:lai` reads `TT_cu` from `:degree_days`;
-- `:light_interception` reads `LAI` from `:lai`.
+- `:LAI_Dynamic` reads `TT_cu` from `:Degreedays`;
+- `:light_interception` reads `LAI` from `:LAI_Dynamic`.
 
 ```@example scene_object_quickstart
 select(
@@ -133,7 +125,7 @@ request = OutputRequest(
     Many(scale=:Scene),
     :LAI;
     name=:lai_every_two_days,
-    application=:lai,
+    application=:LAI_Dynamic,
     policy=HoldLast(),
     clock=Day(2),
 )

@@ -5,8 +5,8 @@
 ### Scenario and model applications
 
 - `Scene` stores objects, model applications, instances, and environment.
-- `Scene(model, models...; status=...)` is the concise one-object form and
-  lowers to the same object/application representation.
+- `Scene(model, models...; status=..., timestep=...)` is the concise one-object
+  form and lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
 - `ObjectTemplate` and `ObjectInstance` reuse a model across instances.
 - `ModelSpec(model; name=...)` identifies one model application.

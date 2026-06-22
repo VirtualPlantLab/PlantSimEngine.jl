@@ -44,7 +44,12 @@ For one object with ordinary same-object inference, use the thin constructor
 that lowers directly to the same Scene/Object runtime:
 
 ```julia
-scene = Scene(ModelA(), ModelB(); status=(initial_value=1.0,))
+scene = Scene(
+    ModelA(),
+    ModelB();
+    status=(initial_value=1.0,),
+    timestep=Dates.Hour(1),
+)
 ```
 
 Use the explicit object graph below as soon as models require different target

@@ -90,6 +90,17 @@ end
     @test length(scene.applications) == 2
     @test only(scene_objects(scene)).id == ObjectId(:scene)
 
+    timed_scene = Scene(
+        StabilizationSourceModel(),
+        StabilizationConsumerModel();
+        status=(supplied=2.0,),
+        timestep=Dates.Hour(2),
+    )
+    @test all(
+        row -> row.timestep == Dates.Hour(2),
+        explain_scene_applications(timed_scene),
+    )
+
     explicit_scene = Scene(
         Object(:scene; scale=:Scene, kind=:scene, name=:scene, status=Status(supplied=2.0));
         applications=(

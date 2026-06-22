@@ -42,8 +42,10 @@ of light extinction.
 
 ```julia
 scene = Scene(
-    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
-    applications=(ModelSpec(Beer(0.5)) |> AppliesTo(One(scale=:Leaf)),),
+    Beer(0.5);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
     environment=Atmosphere(
         T=20.0,
         Wind=1.0,
@@ -99,8 +101,10 @@ Create a model list with a Beer model, and fit it to the data:
 
 ```julia
 scene = Scene(
-    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
-    applications=(ModelSpec(Beer(0.6)) |> AppliesTo(One(scale=:Leaf)),),
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
     environment=meteo,
 )
 run!(scene)

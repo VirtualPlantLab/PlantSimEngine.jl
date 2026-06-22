@@ -69,17 +69,9 @@ meteo_day = read_weather(
 )
 
 scene = Scene(
-    Object(:scene; scale=:Scene, kind=:scene);
-    applications=(
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(ToyLAIModel(); name=:lai) |>
-            AppliesTo(One(scale=:Scene)),
-
-        ModelSpec(Beer(0.6); name=:light_interception) |>
-            AppliesTo(One(scale=:Scene)),
-    ),
+    ToyDegreeDaysCumulModel(),
+    ToyLAIModel(),
+    Beer(0.6);
     environment=meteo_day,
 )
 
@@ -90,7 +82,7 @@ first(out, 6)
 
 The compiler infers the unambiguous same-object bindings from each model's
 declared inputs and outputs: `ToyLAIModel` receives `TT_cu` from
-`:degree_days`, and `Beer` receives `LAI` from `:lai`.
+`:Degreedays`, and `Beer` receives `LAI` from `:LAI_Dynamic`.
 
 ```julia
 select(

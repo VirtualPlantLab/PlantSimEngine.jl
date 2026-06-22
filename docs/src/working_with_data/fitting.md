@@ -33,10 +33,10 @@ meteo = Atmosphere(
 )
 
 scene = Scene(
-    Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
-    applications=(
-        ModelSpec(Beer(0.6)) |> AppliesTo(One(scale=:Leaf)),
-    ),
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
     environment=meteo,
 )
 
