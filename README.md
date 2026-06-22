@@ -20,10 +20,10 @@ A modeler writes generic kernels with:
   `meteo_outputs_` traits
 - `run!(model, models, status, meteo, constants, extra)`
 
-A simulation author assembles those kernels on objects in a scene with:
+A simulation author assembles those kernels on objects in a model with:
 
 ```julia
-Scene
+CompositeModel
 Object
 ModelSpec
 AppliesTo
@@ -35,7 +35,7 @@ Environment
 ```
 
 This is the package API for multiscale, multi-plant, soil, microclimate, and
-scene-scale simulations.
+model-scale simulations.
 
 ## Installation
 
@@ -53,7 +53,7 @@ using PlantSimEngine
 
 ## Quickstart
 
-This example runs three existing toy models on one scene object:
+This example runs three existing toy models on one model object:
 
 1. `ToyDegreeDaysCumulModel` computes daily thermal time.
 2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
@@ -68,14 +68,14 @@ meteo_day = read_weather(
     duration=Dates.Day,
 )
 
-scene = Scene(
+model = CompositeModel(
     ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
     Beer(0.6);
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, outputs=:all)
+sim = run!(model; steps=30, outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -86,7 +86,7 @@ declared inputs and outputs: `ToyLAIModel` receives `TT_cu` from
 
 ```julia
 select(
-    DataFrame(explain_bindings(scene)),
+    DataFrame(explain_bindings(model)),
     :application_id,
     :input,
     :source_application_ids,
@@ -98,11 +98,11 @@ select(
 ## Multi-Object Coupling
 
 Use `Inputs(...)` when a model needs values from selected objects. This
-scene-scale LAI model reads live references to the surface of every plant in
-the scene:
+model-scale LAI model reads live references to the surface of every plant in
+the model:
 
 ```julia
-plant_scene = Scene(
+plant_scene = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene),
     Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
            status=Status(surface=12.0)),
@@ -122,18 +122,18 @@ plant_scene = Scene(
 )
 
 run!(plant_scene)
-scene_status = only(scene_objects(plant_scene; scale=:Scene)).status
+scene_status = only(model_objects(plant_scene; scale=:Scene)).status
 (total_surface=scene_status.total_surface, LAI=scene_status.LAI)
 ```
 
 Use `within=Self()` for plant-local aggregations, for example a plant
 allocation model summing only the leaves inside the current plant. Use
-`within=SceneScope()` for scene-wide aggregation.
+`within=SceneScope()` for model-wide aggregation.
 
 ## Manual Calls
 
 Use `Calls(...)` when a parent model must directly run selected child models,
-for example a scene energy-balance solver that iterates leaf temperatures:
+for example a model energy-balance solver that iterates leaf temperatures:
 
 ```julia
 ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
@@ -175,21 +175,21 @@ iterations, and `run_call!(target; publish=true)` publishes the accepted state.
 Useful inspection helpers include:
 
 ```julia
-explain_objects(scene)
-explain_scopes(scene)
-explain_bindings(scene)
-explain_calls(scene)
-explain_environment_bindings(scene)
-explain_schedule(scene)
-explain_execution_plan(scene)
+explain_objects(model)
+explain_scopes(model)
+explain_bindings(model)
+explain_calls(model)
+explain_environment_bindings(model)
+explain_schedule(model)
+explain_execution_plan(model)
 ```
 
 ## Documentation
 
 - [Stable documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable)
 - [Development documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev)
-- [Scene/object quickstart](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/scene_object/quickstart/)
-- [Scene/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_scene_object/)
+- [CompositeModel/object quickstart](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/composite_model/quickstart/)
+- [CompositeModel/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_composite_model/)
 - [Public API reference](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/API/API_public/)
 
 ## Projects That Use PlantSimEngine
@@ -209,8 +209,8 @@ hundreds of microseconds, and PlantBiophysics.jl models using PlantSimEngine
 have been measured much faster than equivalent implementations in typical
 scientific scripting languages.
 
-For performance-sensitive scenes, inspect the compiled representation with
-`explain_execution_plan(scene)` to see homogeneous batches and concrete carrier
+For performance-sensitive composite models, inspect the compiled representation with
+`explain_execution_plan(model)` to see homogeneous batches and concrete carrier
 types.
 
 ## License And Contributions

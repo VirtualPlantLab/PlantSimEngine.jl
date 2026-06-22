@@ -6,7 +6,7 @@ and cache controls are intentionally listed separately under
 
 ## Scenario composition
 
-- Scene structure: `Scene`, `Object`, `ObjectId`, `ObjectTemplate`,
+- CompositeModel structure: `CompositeModel`, `Object`, `ObjectId`, `CompositeModelTemplate`,
   `ObjectInstance`, `Override`.
 - Applications: `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
   `Environment`, `Updates`, `OutputRouting`.
@@ -21,26 +21,26 @@ and cache controls are intentionally listed separately under
   `Scope`, `Relation`.
 - Labels: `Kind`, `Species`, `Scale`.
 - Normalized addresses: `ObjectAddress`, `object_address`.
-- Queries: `object_ids`, `scene_objects`, `resolve_object_ids`,
+- Queries: `object_ids`, `model_objects`, `resolve_object_ids`,
   `resolve_objects`.
 - Object data: `geometry`, `position`, `bounds`.
 
 ## Execution, lifecycle, and outputs
 
-- Execution: `run!`, `continue!`, `step!`, `SceneSimulation`, `current_step`,
-  `runtime_scene`.
-- Output selection and collection: `OutputRequest`, `scene_outputs`,
+- Execution: `run!`, `continue!`, `step!`, `Simulation`, `current_step`,
+  `runtime_model`.
+- Output selection and collection: `OutputRequest`, `outputs`,
   `collect_outputs`.
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
-- Hard calls: `SceneRunContext`, `SceneCallTarget`, `call_target`,
+- Hard calls: `RunContext`, `CallTarget`, `call_target`,
   `call_targets`, `run_call!`.
 
 ## Structured explanations
 
 - Structure: `explain_objects`, `explain_instances`, `explain_scopes`.
-- Compilation: `explain_scene_applications`, `explain_bindings`,
+- Compilation: `explain_applications`, `explain_bindings`,
   `explain_calls`, `explain_model_bundles`, `explain_writers`,
   `explain_schedule`, `explain_execution_plan`.
 - Initialization, environment, and outputs: `explain_initialization`,
@@ -89,17 +89,17 @@ user functions.
 
 `PlantSimEngine.Advanced` contains the qualified compiler and cache API:
 
-- registries and compiled representations: `SceneRegistry`, `CompiledScene`,
-  `CompiledSceneApplication`, `CompiledSceneInputBinding`,
-  `CompiledSceneCallBinding`, `CompiledEnvironmentBinding`,
+- registries and compiled representations: `ObjectRegistry`, `CompiledCompositeModel`,
+  `CompiledModelApplication`, `CompiledModelInputBinding`,
+  `CompiledModelCallBinding`, `CompiledEnvironmentBinding`,
   `CompiledEnvironmentBindings`;
 - carrier and adapter implementation types: `ObjectRefVector`,
   `TimeStepTable`;
-- compiler and cache operations: `compile_scene`, `refresh_bindings!`,
+- compiler and cache operations: `compile_composite_model`, `refresh_bindings!`,
   `refresh_environment_bindings!`, `compile_environment_bindings`,
   `bind_environment`;
 - cache diagnostics: `bindings_dirty`, `environment_bindings_dirty`,
-  `scene_revision`, `environment_revision`, `compiled_bindings`,
+  `model_revision`, `environment_revision`, `compiled_bindings`,
   `compiled_environment_bindings`.
 
 These names require explicit qualification or `using PlantSimEngine.Advanced`.

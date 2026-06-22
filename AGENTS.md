@@ -1,7 +1,7 @@
 # PlantSimEngine Agent And Developer Guide
 
-PlantSimEngine composes process models over a unified scene/object registry.
-The repository contains one scenario compiler and runtime: the scene/object
+PlantSimEngine composes process models over a unified composite-model/object registry.
+The repository contains one scenario compiler and runtime: the composite-model/object
 API.
 
 ## Core Model Contract
@@ -21,21 +21,21 @@ PlantSimEngine.run!(model, models, status, meteo, constants, extra)
 ```
 
 `models` is a process-keyed bundle compiled from `Calls(...)`. `extra` is a
-`SceneRunContext` and provides `call_target`, `call_targets`, and lifecycle
+`RunContext` and provides `call_target`, `call_targets`, and lifecycle
 access.
 
-## Scene Structure
+## CompositeModel Structure
 
-- `Scene` owns a `SceneRegistry`, model applications, instances, and an
+- `CompositeModel` owns a `ObjectRegistry`, model applications, instances, and an
   environment.
 - `Object` is one runtime entity with stable `ObjectId`, labels, parent,
   geometry, and `Status`.
 - Plant architecture is not prescribed. Users choose scales and topology.
-- `ObjectTemplate` and `ObjectInstance` reuse the same model definitions across
+- `CompositeModelTemplate` and `ObjectInstance` reuse the same model definitions across
   several plants or objects.
 - `Override` replaces one application model for selected objects without
   splitting the logical application.
-- `objects_from_mtg` and `Scene(mtg; ...)` adapt MTG topology into the same
+- `objects_from_mtg` and `CompositeModel(mtg; ...)` adapt MTG topology into the same
   registry.
 
 ## Model Applications
@@ -135,7 +135,7 @@ know its scenario timestep unless the scientific model explicitly requires it.
 ## Lifecycle
 
 - `add_organ!` is the high-level operation for MTG-backed growth. It creates
-  the node, reuses the scene's MTG status policy, applies initial values,
+  the node, reuses the model's MTG status policy, applies initial values,
   attaches the status, and registers the object.
 - `register_object!`, `remove_object!`, and `reparent_object!` mutate topology.
 - Use `register_object!` directly only when the caller already owns a fully
@@ -147,10 +147,10 @@ know its scenario timestep unless the scientific model explicitly requires it.
 
 ## Outputs
 
-- `run!(scene; outputs=:none)` starts a fresh timeline and returns
-  `SceneSimulation`; use `outputs=:all` or output requests to retain streams.
+- `run!(model; outputs=:none)` starts a fresh timeline and returns
+  `Simulation`; use `outputs=:all` or output requests to retain streams.
 - `continue!(simulation)` and `step!(simulation)` advance the same timeline.
-- `scene_outputs(sim)` exposes retained typed streams.
+- `outputs(sim)` exposes retained typed streams.
 - `OutputRequest` selects retained/resampled outputs.
 - `collect_outputs(sim)` materializes output rows.
 - `explain_output_retention(sim)` reports why each stream is retained.
@@ -169,18 +169,18 @@ not overwrite each other.
 
 ## High-Signal Files
 
-- `src/scene_object_api.jl`: dependency-ordered include boundary for the sole
-  Scene/Object compiler and runtime.
-- `src/scene_object/registry_topology.jl`: objects, registry, templates,
+- `src/composite_model_api.jl`: dependency-ordered include boundary for the sole
+  CompositeModel/Object compiler and runtime.
+- `src/composite_model/registry_topology.jl`: objects, registry, templates,
   instances, overrides, topology, and lifecycle ownership.
-- `src/scene_object/selectors.jl`: selector normalization and resolution.
-- `src/scene_object/compilation.jl`: applications, carriers, calls, writer
+- `src/composite_model/selectors.jl`: selector normalization and resolution.
+- `src/composite_model/compilation.jl`: applications, carriers, calls, writer
   validation, schedules, and structured compilation explanations.
-- `src/scene_object/environment_bindings.jl`: global/spatial environment
+- `src/composite_model/environment_bindings.jl`: global/spatial environment
   bindings and invalidation.
-- `src/scene_object/runtime_outputs.jl`: execution, temporal streams, hard-call
+- `src/composite_model/runtime_outputs.jl`: execution, temporal streams, hard-call
   publication, retention, and output collection.
-- `src/scene_object/scenario_dsl.jl`: small scenario construction helpers.
+- `src/composite_model/scenario_dsl.jl`: small scenario construction helpers.
 - `src/ModelSpec.jl`: model application configuration.
 - `src/component_models/Status.jl`: reference-based status.
 - `src/component_models/RefVector.jl`: homogeneous reference vectors.
@@ -188,8 +188,8 @@ not overwrite each other.
 - `src/time/runtime/clocks.jl`: Dates-based timing.
 - `src/time/runtime/meteo_sampling.jl`: weather sampling.
 - `src/time/runtime/environment_backends.jl`: environment backend contract.
-- `test/test-unified-scene-object-api.jl`: broad integration coverage.
-- `test/test-scene-*.jl`: focused Scene/Object behavioral contracts.
+- `test/test-unified-model-object-api.jl`: broad integration coverage.
+- `test/test-model-*.jl`: focused CompositeModel/Object behavioral contracts.
 
 ## Change Checklist
 

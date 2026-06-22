@@ -479,7 +479,7 @@ the energy balance using the mass flux (~ Rn - λE).
 # Arguments
 
 - `::Monteith`: a Monteith model, usually from a model list (*i.e.* m.energy_balance)
-- `models`: the process-keyed model bundle supplied by the scene runtime, with
+- `models`: the process-keyed model bundle supplied by the model runtime, with
 initialisations for:
     - `Ra_SW_f` (W m-2): net shortwave radiation (PAR + NIR). Often computed from a light interception model
     - `sky_fraction` (0-2): view factor between the object and the sky for both faces (see details).
@@ -550,7 +550,7 @@ function PlantSimEngine.run!(::Monteith, models, status, meteo, constants=PlantM
             status.sky_fraction, constants.K₀, constants.σ)
         #= ? NB: we use the sky fraction here (0-2) instead of the view factor (0-1) because:
             - we consider both sides of the leaf at the same time (1 -> leaf sees sky on one face)
-            - we consider all objects in the scene have the same temperature as the leaf
+            - we consider all objects in the model have the same temperature as the leaf
             of interest except the atmosphere. So the leaf exchange thermal energy_balance only with
             the atmosphere. =#
         # status.Ra_LW_f = (grey_body(meteo.T,1.0) - grey_body(status.Tₗ, 1.0))*status.sky_fraction

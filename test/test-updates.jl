@@ -38,7 +38,7 @@ function PlantSimEngine.run!(::UpdateBiomassObserverModel, models, status, meteo
 end
 
 function update_scene(applications...)
-    Scene(
+    CompositeModel(
         Object(
             :leaf;
             scale=:Leaf,
@@ -55,14 +55,14 @@ function update_scene(applications...)
 end
 
 @testset "ModelSpec Updates" begin
-    @test_throws "Ambiguous canonical writers" Advanced.compile_scene(
+    @test_throws "Ambiguous canonical writers" Advanced.compile_composite_model(
         update_scene(
             ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
             ModelSpec(UpdateLeafPruningModel()) |> AppliesTo(One(scale=:Leaf)),
         ),
     )
 
-    scene = update_scene(
+    model = update_scene(
         ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
         ModelSpec(UpdateLeafPruningModel()) |>
         AppliesTo(One(scale=:Leaf)) |>
@@ -77,12 +77,12 @@ end
             ),
         ),
     )
-    run!(scene)
-    leaf = only(scene_objects(scene; scale=:Leaf))
+    run!(model)
+    leaf = only(model_objects(model; scale=:Leaf))
     @test leaf.status.leaf_biomass == 0.0
     @test leaf.status.observed_biomass == 0.0
 
-    @test_throws "without an ordering relation" Advanced.compile_scene(
+    @test_throws "without an ordering relation" Advanced.compile_composite_model(
         update_scene(
             ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
             ModelSpec(UpdateLeafPruningModel()) |>
@@ -116,7 +116,7 @@ end
         ),
     )
     run!(ordered)
-    ordered_leaf = only(scene_objects(ordered; scale=:Leaf))
+    ordered_leaf = only(model_objects(ordered; scale=:Leaf))
     @test ordered_leaf.status.leaf_biomass == 0.0
     @test ordered_leaf.status.observed_biomass == 0.0
 end

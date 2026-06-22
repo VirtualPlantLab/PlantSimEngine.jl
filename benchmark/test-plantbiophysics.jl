@@ -64,8 +64,8 @@ end
 
 function benchmark_plantbiophysics_batch(scenes)
     constants = Constants()
-    for scene in scenes
-        run!(scene; constants=constants, outputs=:none)
+    for model in scenes
+        run!(model; constants=constants, outputs=:none)
     end
     return nothing
 end

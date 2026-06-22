@@ -1,7 +1,7 @@
 import { BaseEdge, EdgeLabelRenderer, Position, getSmoothStepPath, type Edge, type EdgeProps } from "@xyflow/react";
-import type { SceneGraphEdge } from "./types";
+import type { ModelGraphEdge } from "./types";
 
-type SceneFlowEdge = Edge<SceneGraphEdge, "sceneEdge">;
+type SceneFlowEdge = Edge<ModelGraphEdge, "sceneEdge">;
 
 export function DependencyEdge({
   id,
@@ -43,7 +43,7 @@ export function DependencyEdge({
   );
 }
 
-function edgeLabel(data?: SceneGraphEdge) {
+function edgeLabel(data?: ModelGraphEdge) {
   if (!data) return "";
   if (data.kind === "manual_call") return data.call || "call";
   if (data.kind === "object_topology" || data.kind === "application_target") return "";

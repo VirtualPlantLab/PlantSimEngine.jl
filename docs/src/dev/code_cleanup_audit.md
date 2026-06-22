@@ -4,7 +4,7 @@
 
 The compatibility cleanup is implemented on the `multi-plants` branch.
 
-The package now has one scenario compiler and runtime: the scene/object API.
+The package now has one scenario compiler and runtime: the composite-model/object API.
 The following superseded implementations were removed rather than deprecated:
 
 - `ModelList` and `SingleScaleModelSet`;
@@ -12,26 +12,26 @@ The following superseded implementations were removed rather than deprecated:
 - `DependencyGraph`, `HardDependencyNode`, and `SoftDependencyNode`;
 - `GraphSimulation` and the MTG mapping runner;
 - mapping-specific multirate input resolution and output export;
-- the unreleased domain prototype that preceded the scene/object API,
+- the unreleased domain prototype that preceded the composite-model/object API,
   including `Domain`, `SimulationMapping`, `Route`, `AllDomains`,
   `HardDomains`, and its separate scheduler, runtime, environment bridge, and
   output publisher;
 - mapping-only initialization, dataframe, dimension, and topology helpers;
 - unused parallel-executor traits after removal of the executor runtime;
 - dead `UninitializedVar`, `RefVariable`, `TreeAlike`, and `StatusView` types;
-- the unreleased `ObjectTemplate(...; mapping=...)` alias and legacy
+- the unreleased `CompositeModelTemplate(...; mapping=...)` alias and legacy
   selector-to-mapping conversion helpers;
 - compatibility tests, tutorials, and executable examples.
 
 Migration details are retained in
-[`migration_scene_object.md`](../migration_scene_object.md) and
+[`migration_composite_model.md`](../migration_composite_model.md) and
 [`release_notes_handoff.md`](release_notes_handoff.md).
 
 ## Current Ownership
 
 | Concern | Owner |
 | --- | --- |
-| Object registry, selectors, compilation, execution, lifecycle | `src/scene_object_api.jl` |
+| Object registry, selectors, compilation, execution, lifecycle | `src/composite_model_api.jl` |
 | Model application configuration | `src/ModelSpec.jl` |
 | Status and reference vectors | `src/component_models/Status.jl`, `src/component_models/RefVector.jl` |
 | Dates-based clocks and policies | `src/time/multirate.jl`, `src/time/runtime/clocks.jl` |
@@ -43,7 +43,7 @@ Migration details are retained in
 
 Future cleanup should reject:
 
-- a second scenario/runtime abstraction parallel to `Scene`;
+- a second scenario/runtime abstraction parallel to `CompositeModel`;
 - compatibility wrappers for unreleased APIs;
 - package-specific behavior in PlantSimEngine;
 - model kernels that know their scenario object, timestep, or coupling unless
@@ -56,12 +56,12 @@ Future cleanup should reject:
 
 Current cleanup evidence:
 
-- the `src` tree contains only the scene/object runtime and supporting status,
+- the `src` tree contains only the composite-model/object runtime and supporting status,
   time, environment, fitting, trait, and example files;
 - empty directories left by removed subsystems were deleted;
 - `git diff --check` passes;
 - PlantSimEngine precompiles and loads from a clean Kaimon session;
-- `test/test-unified-scene-object-api.jl` passes 576 tests;
+- `test/test-unified-model-object-api.jl` passes 576 tests;
 - the complete package environment passes 885 tests, including Aqua and
   doctests;
 - `test/test-fitting.jl` passes;
@@ -72,7 +72,7 @@ Current cleanup evidence:
   agent skill;
 - remaining `ModelMapping` and `MultiScaleModel` references outside
   development notes are migration text that explicitly points historical code
-  to the scene/object API.
+  to the composite-model/object API.
 - repository search finds no `Domain`, `SimulationMapping`, `Route`,
   `AllDomains`, or `HardDomains` implementations, exports, tests, examples, or
   public documentation. The only remaining references are development/release
@@ -90,8 +90,8 @@ Current cleanup evidence:
 Downstream verification:
 
 - PlantBiophysics passes 117/117 tests against this working tree.
-- XPalm's uncommitted Scene/Object migration executes 74/75 assertions. The
+- XPalm's uncommitted CompositeModel/Object migration executes 74/75 assertions. The
   remaining assertion retains the removed runtime's first-step LAI value,
   while the explicit current dependency order produces zero from the initial
-  zero-biomass leaf before plant/scene aggregation. PlantSimEngine intentionally
+  zero-biomass leaf before plant/model aggregation. PlantSimEngine intentionally
   contains no package-specific compatibility workaround for that stale fixture.

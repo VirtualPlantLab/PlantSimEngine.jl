@@ -85,7 +85,7 @@ Stomatal closure for CO₂ according to Tuzet et al. (2003).
 # Arguments
 
 - `::Tuzet`: an instance of the `Tuzet` model type.
-- `models`: the process-keyed model bundle supplied by the scene runtime.
+- `models`: the process-keyed model bundle supplied by the model runtime.
 - `status`: A status struct holding the variables for the models.
 - `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere). Is not used in this model.
 - `constants`: A constants struct holding the constants for the models. Is not used in this model.

@@ -37,15 +37,15 @@ meteo = Atmosphere(
     Ri_PAR_f=300.0,
     duration=Hour(1),
 )
-scene = Scene(
+model = CompositeModel(
     Beer(0.6);
     status=(LAI=2.0,),
     id=:leaf,
     scale=:Leaf,
     environment=meteo,
 )
-run!(scene)
-leaf = only(scene_objects(scene; scale=:Leaf))
+run!(model)
+leaf = only(model_objects(model; scale=:Leaf))
 df = DataFrame(
     aPPFD=leaf.status.aPPFD,
     LAI=leaf.status.LAI,

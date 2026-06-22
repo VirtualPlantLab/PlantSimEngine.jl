@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { applicationPortId, applicationsForPort, deriveCandidatePortIds, endpointsForCandidate, modelsForPort, objectSubtreeIds, selectorSuggestion } from "./App";
-import type { ApplicationGraphNode, GraphPort, ModelDescriptor, ObjectGraphNode, SceneGraphView } from "./types";
+import type { ApplicationGraphNode, GraphPort, ModelDescriptor, ObjectGraphNode, ModelGraphView } from "./types";
 
 const output: GraphPort = { id: applicationPortId("source", "output", "signal"), name: "signal", role: "output", default: 0, defaultJulia: "0", expectedType: "Int" };
 const input: GraphPort = { id: applicationPortId("consumer", "input", "signal"), name: "signal", role: "input", default: 0, defaultJulia: "0", expectedType: "Int" };
@@ -69,9 +69,9 @@ function object(id: string, parent: string | null): ObjectGraphNode {
   return { id: `object:${id}`, objectId: id, scale: null, kind: null, species: null, name: id, instance: null, parent, children: [], hasGeometry: false, hasStatus: false };
 }
 
-function graphView(applications: ApplicationGraphNode[], modelLibrary: ModelDescriptor[]): SceneGraphView {
+function graphView(applications: ApplicationGraphNode[], modelLibrary: ModelDescriptor[]): ModelGraphView {
   return {
-    schemaVersion: 1, level: "applications", metadata: { title: "", sceneRevision: 0, objectCount: 1, instanceCount: 0, applicationCount: applications.length, executionCount: applications.length, bindingCount: 0, callCount: 0, unresolvedInitializationCount: 0, cyclic: false, strictlyCompiled: true },
+    schemaVersion: 1, level: "applications", metadata: { title: "", modelRevision: 0, objectCount: 1, instanceCount: 0, applicationCount: applications.length, executionCount: applications.length, bindingCount: 0, callCount: 0, unresolvedInitializationCount: 0, cyclic: false, strictlyCompiled: true },
     objects: [], instances: [], applications, executions: [], edges: [], modelLibrary, initialization: [], diagnostics: [], cycles: [], availableActions: [],
   };
 }

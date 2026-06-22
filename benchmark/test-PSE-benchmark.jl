@@ -20,7 +20,7 @@ PlantSimEngine.outputs_(m::ToyInternodeCrazyEmergence) = (TT_cu_emergence=0.0,)
 
 function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, meteo, constants=nothing, extra=nothing)
 
-    scene = runtime_scene(extra)
+    model = runtime_model(extra)
 
     #root = get_root(status.node)
 
@@ -30,21 +30,21 @@ function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, models, status, mete
 
     if length(MultiScaleTreeGraph.children(status.node)) == 1 && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
 
-        status_new_internode = add_organ!(status.node, scene, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
-        add_organ!(status_new_internode.node, scene, "+", :Leaf, 2; index=1, initial_status=(carbon_biomass=1.0,))
+        status_new_internode = add_organ!(status.node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
+        add_organ!(status_new_internode.node, model, "+", :Leaf, 2; index=1, initial_status=(carbon_biomass=1.0,))
         status_new_internode.TT_cu_emergence = status.TT_cu
     elseif (length(MultiScaleTreeGraph.children(status.node)) >= 2 && length(MultiScaleTreeGraph.children(status.node)) < 7) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-        status_new_internode = add_organ!(status.node, scene, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=4, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=5, initial_status=(carbon_biomass=1.0,))
+        status_new_internode = add_organ!(status.node, model, "<", :Internode, 2; index=1, initial_status=(carbon_biomass=1.0, TT_cu_emergence=0.0))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=4, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=5, initial_status=(carbon_biomass=1.0,))
         status_new_internode.TT_cu_emergence = status.TT_cu
     elseif (length(MultiScaleTreeGraph.children(status.node)) >= 7 && length(MultiScaleTreeGraph.children(status.node)) < 30) && status.TT_cu - status.TT_cu_emergence >= m.TT_emergence
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=6, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=7, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=8, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=9, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=10, initial_status=(carbon_biomass=1.0,))
-        add_organ!(status.node, scene, "+", :Leaf, 2; index=11, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=6, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=7, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=8, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=9, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=10, initial_status=(carbon_biomass=1.0,))
+        add_organ!(status.node, model, "+", :Leaf, 2; index=11, initial_status=(carbon_biomass=1.0,))
 
     end
 
@@ -60,7 +60,7 @@ function _benchmark_mtg_status(node)
     return Status((; data...))
 end
 
-function setup_heavier_scene_benchmark()
+function setup_heavier_model_benchmark()
     mtg = import_mtg_example()
 
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
@@ -104,7 +104,7 @@ function setup_heavier_scene_benchmark()
             AppliesTo(One(scale=:Soil)),
     )
 
-    scene = Scene(
+    model = CompositeModel(
         mtg;
         applications=applications,
         environment=meteo_day,
@@ -117,14 +117,14 @@ function setup_heavier_scene_benchmark()
         OutputRequest(:Plant, :carbon_offer; name=:plant_carbon_offer, application=:plant_allocation),
         OutputRequest(:Soil, :soil_water_content; name=:soil_water, application=:soil_water),
     ]
-    return scene, requests, length(meteo_day)
+    return model, requests, length(meteo_day)
 end
 
-function benchmark_heavier_scene(scene, requests, nsteps)
-    return run!(scene; steps=nsteps, outputs=requests)
+function benchmark_heavier_scene(model, requests, nsteps)
+    return run!(model; steps=nsteps, outputs=requests)
 end
 
 function do_benchmark_on_heavier_mtg()
-    scene, requests, nsteps = setup_heavier_scene_benchmark()
-    return benchmark_heavier_scene(scene, requests, nsteps)
+    model, requests, nsteps = setup_heavier_model_benchmark()
+    return benchmark_heavier_scene(model, requests, nsteps)
 end

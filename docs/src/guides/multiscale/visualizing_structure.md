@@ -1,4 +1,4 @@
-# Visualizing Scene Structure
+# Visualizing Composite model Structure
 
 Use `explain_objects`, `explain_scopes`, and `explain_instances` to
 obtain stable rows for plotting. Draw nodes by object ID and edges from parent

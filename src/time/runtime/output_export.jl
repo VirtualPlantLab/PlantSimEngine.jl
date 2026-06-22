@@ -3,7 +3,7 @@
                   policy=HoldLast(), clock=nothing)
     OutputRequest(scale, var; kwargs...)
 
-Request retention and optional resampling of one scene output stream.
+Request retention and optional resampling of one model output stream.
 
 The first form accepts the same `One`, `OptionalOne`, or `Many` selector used
 by `AppliesTo`, `Inputs`, `Calls`, and object queries. Passing a scale is a

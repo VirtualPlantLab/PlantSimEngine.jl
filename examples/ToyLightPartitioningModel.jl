@@ -11,7 +11,7 @@ Computes the light partitioning based on relative surface.
 
 # Inputs
 
-- `aPPFD`: the absorbed photosynthetic photon flux density at the larger scale (*e.g.* scene), in mol[PAR] m⁻² time-step⁻¹ 
+- `aPPFD`: the absorbed photosynthetic photon flux density at the larger scale (*e.g.* model), in mol[PAR] m⁻² time-step⁻¹
 
 # Outputs
 

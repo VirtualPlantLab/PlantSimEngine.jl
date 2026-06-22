@@ -20,10 +20,10 @@ The numerical kernel is implemented with:
 PlantSimEngine.run!(model, models, status, meteo, constants, extra)
 ```
 
-## Scenes And Objects
+## Composite Models And Objects
 
-A `Scene` contains objects and model applications. An `Object` can represent a
-scene, plant, soil volume, axis, internode, leaf, sensor, or any other simulated
+A `CompositeModel` contains objects and model applications. An `Object` can represent a
+model, plant, soil volume, axis, internode, leaf, sensor, or any other simulated
 entity. PlantSimEngine does not impose one plant architecture.
 
 Objects can carry:
@@ -35,8 +35,8 @@ Objects can carry:
 - mutable `Status`;
 - object-local model applications.
 
-`ObjectTemplate` packages reusable applications for a species or object type.
-`ObjectInstance` mounts the template in a scene. Several instances can share
+`CompositeModelTemplate` packages reusable applications for a species or object type.
+`ObjectInstance` mounts the template in a model. Several instances can share
 models and parameters while declaring targeted overrides for exceptional
 objects.
 
@@ -53,7 +53,7 @@ objects.
 - `OutputRouting(...)` controls output publication.
 
 This keeps model implementations generic. Models do not need to know which
-scene, object, timestep, or coupling scenario will use them.
+model, object, timestep, or coupling scenario will use them.
 
 ## Soft And Manual Dependencies
 
@@ -61,7 +61,7 @@ Ordinary dependencies are inferred by matching model inputs with outputs and
 are compiled into an acyclic execution order. `Inputs(...)` is used when the
 source is cross-object, renamed, temporal, or otherwise ambiguous.
 
-Some algorithms need direct call-stack control. For example, a scene energy
+Some algorithms need direct call-stack control. For example, a model energy
 balance may repeatedly call leaf energy-balance models until canopy
 microclimate converges. Such dependencies are bound with `Calls(...)`; the
 parent invokes them with `run_call!`.
@@ -94,7 +94,7 @@ PlantSimEngine treats scale and object hierarchy as scenario data. A plant may
 use leaves directly under a plant, or axes, segments, internodes, roots, and
 other intermediate levels. Selectors express relationships such as one source,
 many descendants, the current plant, an ancestor, or all matching objects in
-the scene.
+the model.
 
 MultiScaleTreeGraph objects can be imported with `objects_from_mtg`, but the
-runtime operates on the same scene/object representation afterward.
+runtime operates on the same composite-model/object representation afterward.

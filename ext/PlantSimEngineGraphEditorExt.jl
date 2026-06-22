@@ -3,10 +3,10 @@ module PlantSimEngineGraphEditorExt
 import HTTP
 import JSON
 import PlantSimEngine
-import PlantSimEngine: edit_graph, current_scene, apply_edit!, undo!, redo!
+import PlantSimEngine: edit_graph, current_model, apply_edit!, undo!, redo!
 
-mutable struct GraphEditorSession <: PlantSimEngine.AbstractSceneGraphEditorSession
-    scene::PlantSimEngine.Scene
+mutable struct GraphEditorSession <: PlantSimEngine.AbstractModelGraphEditorSession
+    model::PlantSimEngine.CompositeModel
     history::Vector{Any}
     future::Vector{Any}
     server::Any
@@ -20,7 +20,7 @@ mutable struct GraphEditorSession <: PlantSimEngine.AbstractSceneGraphEditorSess
     recent_paths::Vector{String}
 end
 
-current_scene(session::GraphEditorSession) = session.scene
+current_model(session::GraphEditorSession) = session.model
 
 function Base.close(session::GraphEditorSession)
     try
@@ -32,29 +32,29 @@ function Base.close(session::GraphEditorSession)
 end
 
 function Base.show(io::IO, session::GraphEditorSession)
-    print(io, "GraphEditorSession(url=$(repr(session.url)), applications=$(length(session.scene.applications)))")
+    print(io, "GraphEditorSession(url=$(repr(session.url)), applications=$(length(session.model.applications)))")
 end
 
 function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
     println(io, "PlantSimEngineGraphEditorExt.GraphEditorSession")
     println(io, "  Open in browser: $(session.url)")
     println(io, "  State JSON: $(_state_url(session))")
-    println(io, "  Current scene: current_scene(session)")
+    println(io, "  Current model: current_model(session)")
     println(io, "  Quit session: close(session)")
     isnothing(session.autosave_path) || println(io, "  Recovery autosave: $(session.autosave_path)")
     isnothing(session.save_path) || println(io, "  Saving changes to: $(session.save_path)")
 end
 
 """
-    edit_graph([scene]; host="127.0.0.1", port=0, open_browser=true,
+    edit_graph([model]; host="127.0.0.1", port=0, open_browser=true,
                autosave=true, allow_remote=false, allow_julia_eval=nothing)
 
-Start a local Scene graph editor. Julia owns the current Scene and applies all
+Start a local Model graph editor. Julia owns the current Composite model and applies all
 semantic edits received from the browser. Call `edit_graph()` to start from an
-empty Scene and `close(session)` to stop the server.
+empty Composite model and `close(session)` to stop the server.
 """
 function edit_graph(
-    scene::PlantSimEngine.Scene=PlantSimEngine.Scene();
+    model::PlantSimEngine.CompositeModel=PlantSimEngine.CompositeModel();
     host::AbstractString="127.0.0.1",
     port::Integer=0,
     open_browser::Bool=true,
@@ -70,7 +70,7 @@ function edit_graph(
         "Graph editor sessions are limited to localhost by default. Pass `allow_remote=true` only for a trusted network.",
     )
     effective_allow_julia_eval = isnothing(allow_julia_eval) ? !allow_remote : allow_julia_eval
-    initial_scene = isnothing(recover_path) ? deepcopy(scene) : _load_scene_file(
+    initial_model = isnothing(recover_path) ? deepcopy(model) : _load_model_file(
         _normalized_path(recover_path);
         allow_julia_eval=effective_allow_julia_eval,
     )
@@ -84,7 +84,7 @@ function edit_graph(
     ) : nothing
     remembered_paths = isnothing(recent_paths) ? _load_recent_paths() : String.(recent_paths)
     session = GraphEditorSession(
-        initial_scene,
+        initial_model,
         Any[],
         Any[],
         server,
@@ -100,34 +100,34 @@ function edit_graph(
     session_ref[] = session
     isnothing(session.save_path) || _remember_path!(session, session.save_path)
     isnothing(recover_path) || _remember_path!(session, _normalized_path(recover_path))
-    _persist_scene!(session)
+    _persist_model!(session)
     open_browser && _open_in_default_browser(session.url)
     return session
 end
 
-function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractSceneGraphEdit)
-    candidate = PlantSimEngine.apply_scene_graph_edit(session.scene, edit)
-    push!(session.history, session.scene)
+function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractModelGraphEdit)
+    candidate = PlantSimEngine.apply_model_graph_edit(session.model, edit)
+    push!(session.history, session.model)
     empty!(session.future)
-    session.scene = candidate
-    _persist_scene!(session)
-    return session.scene
+    session.model = candidate
+    _persist_model!(session)
+    return session.model
 end
 
 function undo!(session::GraphEditorSession)
-    isempty(session.history) && return session.scene
-    push!(session.future, session.scene)
-    session.scene = pop!(session.history)
-    _persist_scene!(session)
-    return session.scene
+    isempty(session.history) && return session.model
+    push!(session.future, session.model)
+    session.model = pop!(session.history)
+    _persist_model!(session)
+    return session.model
 end
 
 function redo!(session::GraphEditorSession)
-    isempty(session.future) && return session.scene
-    push!(session.history, session.scene)
-    session.scene = pop!(session.future)
-    _persist_scene!(session)
-    return session.scene
+    isempty(session.future) && return session.model
+    push!(session.history, session.model)
+    session.model = pop!(session.future)
+    _persist_model!(session)
+    return session.model
 end
 
 _session_token(server) = string(hash((time_ns(), getpid(), objectid(server))); base=16) *
@@ -166,12 +166,12 @@ function _handle_http(session::GraphEditorSession, stream::HTTP.Stream)
     if path == "/" || path == "/index.html"
         return _write_response(stream, 200, "text/html; charset=utf-8", _editor_html(session))
     elseif path == "/static"
-        view = PlantSimEngine.scene_graph_view(session.scene)
+        view = PlantSimEngine.model_graph_view(session.model)
         return _write_response(
             stream,
             200,
             "text/html; charset=utf-8",
-            PlantSimEngine.scene_graph_view_html(view),
+            PlantSimEngine.model_graph_view_html(view),
         )
     elseif path == "/state"
         return _write_response(stream, 200, "application/json", _state_json(session))
@@ -249,25 +249,25 @@ function _handle_command!(session, command)
             redo!(session)
         elseif action == "edit"
             apply_edit!(session, _edit_from_command(session, command))
-        elseif action == "save_scene_code"
+        elseif action == "save_model_code"
             session.save_path = _normalized_path(String(command["path"]))
             _remember_path!(session, session.save_path)
-            _persist_scene!(session)
-        elseif action == "open_scene_code"
+            _persist_model!(session)
+        elseif action == "open_model_code"
             path = _normalized_path(String(command["path"]))
-            candidate = _load_scene_file(path; allow_julia_eval=session.allow_julia_eval)
-            push!(session.history, session.scene)
+            candidate = _load_model_file(path; allow_julia_eval=session.allow_julia_eval)
+            push!(session.history, session.model)
             empty!(session.future)
-            session.scene = candidate
+            session.model = candidate
             session.save_path = path
             _remember_path!(session, path)
-            _persist_scene!(session)
+            _persist_model!(session)
         elseif action == "preview_input_binding"
             return _preview_input_binding_payload(session, command)
         elseif action == "preview_application_targets"
             return _preview_application_targets_payload(session, command)
         elseif action in ("open_add_application", "begin_add_application")
-            # This command only focuses/prefills frontend state. The Scene is
+            # This command only focuses/prefills frontend state. The Composite model is
             # changed by a subsequent add_application edit.
         else
             error("Unsupported graph editor command action `$(action)`.")
@@ -280,10 +280,10 @@ end
 
 function _preview_application_targets_payload(session, command)
     selector = _selector_from_payload(command["selector"])
-    target_ids = PlantSimEngine.resolve_object_ids(session.scene, selector)
+    target_ids = PlantSimEngine.resolve_object_ids(session.model, selector)
     payload = _state_payload(session)
     payload["targetPreview"] = Dict{String,Any}(
-        "objectIds" => [PlantSimEngine._scene_graph_json_value(id.value) for id in target_ids],
+        "objectIds" => [PlantSimEngine._model_graph_json_value(id.value) for id in target_ids],
         "count" => length(target_ids),
     )
     return payload
@@ -292,15 +292,15 @@ end
 function _preview_input_binding_payload(session, command)
     application_id = Symbol(command["applicationId"])
     input = Symbol(command["input"])
-    candidate = PlantSimEngine.apply_scene_graph_edit(
-        session.scene,
-        PlantSimEngine.SetSceneInputBinding(
+    candidate = PlantSimEngine.apply_model_graph_edit(
+        session.model,
+        PlantSimEngine.SetModelInputBinding(
             application_id,
             input,
             _selector_from_payload(command["selector"]),
         ),
     )
-    report = PlantSimEngine.compile_scene_report(candidate)
+    report = PlantSimEngine.compile_model_report(candidate)
     bindings = [
         binding for binding in report.input_bindings
         if binding.application_id == application_id && binding.input == input
@@ -310,11 +310,11 @@ function _preview_input_binding_payload(session, command)
         "applicationId" => string(application_id),
         "input" => string(input),
         "consumerObjectIds" => unique([
-            PlantSimEngine._scene_graph_json_value(binding.consumer_id.value)
+            PlantSimEngine._model_graph_json_value(binding.consumer_id.value)
             for binding in bindings
         ]),
         "sourceObjectIds" => unique([
-            PlantSimEngine._scene_graph_json_value(source_id.value)
+            PlantSimEngine._model_graph_json_value(source_id.value)
             for binding in bindings for source_id in binding.source_ids
         ]),
         "sourceApplicationIds" => unique([
@@ -330,135 +330,135 @@ end
 function _edit_from_command(session, command)
     kind = String(get(command, "kind", ""))
     application_id = Symbol(get(command, "applicationId", ""))
-    kind == "remove_application" && return PlantSimEngine.RemoveSceneApplication(application_id)
-    kind == "remove_template_application" && return PlantSimEngine.RemoveSceneTemplateApplication(
+    kind == "remove_application" && return PlantSimEngine.RemoveModelApplication(application_id)
+    kind == "remove_template_application" && return PlantSimEngine.RemoveModelTemplateApplication(
         command["instance"],
         application_id,
     )
-    kind == "mark_previous_timestep" && return PlantSimEngine.MarkScenePreviousTimeStep(
+    kind == "mark_previous_timestep" && return PlantSimEngine.MarkModelPreviousTimeStep(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "unmark_previous_timestep" && return PlantSimEngine.UnmarkScenePreviousTimeStep(
+    kind == "unmark_previous_timestep" && return PlantSimEngine.UnmarkModelPreviousTimeStep(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "break_cycle" && return PlantSimEngine.BreakSceneCycle(
+    kind == "break_cycle" && return PlantSimEngine.BreakModelCycle(
         application_id,
         Symbol(command["input"]),
         Bool(get(command, "initializeMissing", false)),
         _parameter_value(session, get(command, "initialValue", nothing)),
     )
-    kind == "set_application_targets" && return PlantSimEngine.SetSceneApplicationTargets(
+    kind == "set_application_targets" && return PlantSimEngine.SetModelApplicationTargets(
         application_id,
         _selector_from_payload(command["selector"]),
     )
-    kind == "set_input_binding" && return PlantSimEngine.SetSceneInputBinding(
+    kind == "set_input_binding" && return PlantSimEngine.SetModelInputBinding(
         application_id,
         Symbol(command["input"]),
         _selector_from_payload(command["selector"]),
     )
-    kind == "remove_input_binding" && return PlantSimEngine.RemoveSceneInputBinding(
+    kind == "remove_input_binding" && return PlantSimEngine.RemoveModelInputBinding(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "set_call_binding" && return PlantSimEngine.SetSceneCallBinding(
+    kind == "set_call_binding" && return PlantSimEngine.SetModelCallBinding(
         application_id,
         Symbol(command["call"]),
         _selector_from_payload(command["selector"]),
     )
-    kind == "remove_call_binding" && return PlantSimEngine.RemoveSceneCallBinding(
+    kind == "remove_call_binding" && return PlantSimEngine.RemoveModelCallBinding(
         application_id,
         Symbol(command["call"]),
     )
-    kind == "set_timestep" && return PlantSimEngine.SetSceneApplicationTimeStep(
+    kind == "set_timestep" && return PlantSimEngine.SetModelApplicationTimeStep(
         application_id,
         _timestep_from_payload(get(command, "timestep", nothing)),
     )
-    kind == "set_application_environment" && return PlantSimEngine.SetSceneApplicationEnvironment(
+    kind == "set_application_environment" && return PlantSimEngine.SetModelApplicationEnvironment(
         application_id,
         _configuration_from_payload(session, get(command, "configuration", nothing)),
     )
-    kind == "set_environment_provider" && return PlantSimEngine.SetSceneApplicationEnvironment(
+    kind == "set_environment_provider" && return PlantSimEngine.SetModelApplicationEnvironment(
         application_id,
-        _environment_with_provider(session.scene, application_id, command["provider"]),
+        _environment_with_provider(session.model, application_id, command["provider"]),
     )
-    kind == "set_output_routing" && return PlantSimEngine.SetSceneOutputRouting(
+    kind == "set_output_routing" && return PlantSimEngine.SetModelOutputRouting(
         application_id,
         Symbol(command["output"]),
         Symbol(command["route"]),
     )
-    kind == "set_update_ordering" && return PlantSimEngine.SetSceneUpdateOrdering(
+    kind == "set_update_ordering" && return PlantSimEngine.SetModelUpdateOrdering(
         application_id,
         _updates_from_payload(get(command, "updates", Any[])),
     )
-    kind == "set_object_status" && return PlantSimEngine.SetSceneObjectStatus(
+    kind == "set_object_status" && return PlantSimEngine.SetModelObjectStatus(
         command["objectId"],
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
-    kind == "set_object_statuses" && return PlantSimEngine.SetSceneObjectStatuses(
+    kind == "set_object_statuses" && return PlantSimEngine.SetModelObjectStatuses(
         command["objectIds"],
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
-    kind == "remove_object_status" && return PlantSimEngine.RemoveSceneObjectStatus(
+    kind == "remove_object_status" && return PlantSimEngine.RemoveModelObjectStatus(
         command["objectId"],
         Symbol(command["variable"]),
     )
-    kind in ("set_object_metadata", "update_object") && return PlantSimEngine.SetSceneObjectMetadata(
+    kind in ("set_object_metadata", "update_object") && return PlantSimEngine.SetModelObjectMetadata(
         PlantSimEngine.ObjectId(command["objectId"]),
         _metadata_from_payload(get(command, "configuration", Dict())),
     )
-    kind == "add_object" && return PlantSimEngine.AddSceneObject(
+    kind == "add_object" && return PlantSimEngine.AddModelObject(
         _object_from_command(session, command),
     )
-    kind == "remove_object" && return PlantSimEngine.RemoveSceneObject(
+    kind == "remove_object" && return PlantSimEngine.RemoveModelObject(
         command["objectId"];
         recursive=Bool(get(command, "recursive", true)),
     )
-    kind == "reparent_object" && return PlantSimEngine.ReparentSceneObject(
+    kind == "reparent_object" && return PlantSimEngine.ReparentModelObject(
         command["objectId"],
         get(command, "parentId", nothing),
     )
-    kind == "set_instance_override" && return PlantSimEngine.SetSceneInstanceOverride(
+    kind == "set_instance_override" && return PlantSimEngine.SetModelInstanceOverride(
         command["instance"],
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
-    kind == "remove_instance_override" && return PlantSimEngine.RemoveSceneInstanceOverride(
+    kind == "remove_instance_override" && return PlantSimEngine.RemoveModelInstanceOverride(
         command["instance"],
         application_id,
     )
-    kind == "set_object_override" && return PlantSimEngine.SetSceneObjectOverride(
+    kind == "set_object_override" && return PlantSimEngine.SetModelObjectOverride(
         command["instance"],
         command["objectId"],
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
-    kind == "remove_object_override" && return PlantSimEngine.RemoveSceneObjectOverride(
+    kind == "remove_object_override" && return PlantSimEngine.RemoveModelObjectOverride(
         command["instance"],
         command["objectId"],
         application_id,
     )
     kind == "add_application" && return _add_application_edit(session, command)
     kind == "update_application" && return _update_application_edit(session, command)
-    kind == "update_template_application" && return PlantSimEngine.UpdateSceneTemplateApplication(
+    kind == "update_template_application" && return PlantSimEngine.UpdateModelTemplateApplication(
         Symbol(command["instance"]),
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
         _selector_from_payload(command["selector"]),
         _timestep_from_payload(get(command, "timestep", nothing)),
     )
-    kind == "replace_application_model" && return PlantSimEngine.ReplaceSceneApplicationModel(
+    kind == "replace_application_model" && return PlantSimEngine.ReplaceModelApplicationModel(
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
-    error("Unsupported Scene graph edit kind `$(kind)`.")
+    error("Unsupported Model graph edit kind `$(kind)`.")
 end
 
-function _environment_with_provider(scene, application_id, provider)
-    spec = PlantSimEngine._scene_edit_spec(scene, application_id)
+function _environment_with_provider(model, application_id, provider)
+    spec = PlantSimEngine._model_edit_spec(model, application_id)
     current = PlantSimEngine.environment_config(spec)
     current isa PlantSimEngine.EnvironmentConfig && (current = current.config)
     current_values = current isa NamedTuple ? current : NamedTuple()
@@ -533,7 +533,7 @@ end
 function _update_application_edit(session, command)
     application_id = Symbol(command["applicationId"])
     model = _construct_model(session, command["modelType"], get(command, "parameters", Dict()))
-    return PlantSimEngine.UpdateSceneApplication(
+    return PlantSimEngine.UpdateModelApplication(
         application_id,
         model,
         Symbol(get(command, "name", string(application_id))),
@@ -553,7 +553,7 @@ function _add_application_edit(session, command)
         applies_to=selector,
         timestep=timestep,
     )
-    return PlantSimEngine.AddSceneApplication(spec)
+    return PlantSimEngine.AddModelApplication(spec)
 end
 
 function _resolve_model_type(label)
@@ -681,7 +681,7 @@ function _timestep_from_payload(payload)
 end
 
 function _state_payload(session; ok=true, diagnostics=String[])
-    graph = JSON.parse(PlantSimEngine.scene_graph_view_json(session.scene))
+    graph = JSON.parse(PlantSimEngine.model_graph_view_json(session.model))
     return Dict{String,Any}(
         "ok" => ok,
         "diagnostics" => diagnostics,
@@ -689,7 +689,7 @@ function _state_payload(session; ok=true, diagnostics=String[])
         "canUndo" => !isempty(session.history),
         "canRedo" => !isempty(session.future),
         "url" => session.url,
-        "sceneCode" => _scene_to_julia(session.scene),
+        "modelCode" => _model_to_julia(session.model),
         "autosavePath" => session.autosave_path,
         "savePath" => session.save_path,
         "recentPaths" => session.recent_paths,
@@ -706,7 +706,7 @@ function _remember_path!(session, path)
 end
 
 function _recent_paths_file()
-    return joinpath(tempdir(), "PlantSimEngineGraphEditor", "recent-scenes.json")
+    return joinpath(tempdir(), "PlantSimEngineGraphEditor", "recent-models.json")
 end
 
 function _load_recent_paths()
@@ -728,46 +728,46 @@ function _persist_recent_paths!(paths)
     return path
 end
 
-function _load_scene_file(path; allow_julia_eval::Bool)
-    allow_julia_eval || error("Opening Julia Scene files is disabled for this editor session.")
-    isfile(path) || error("Scene file `$(path)` does not exist.")
+function _load_model_file(path; allow_julia_eval::Bool)
+    allow_julia_eval || error("Opening Julia Composite model files is disabled for this editor session.")
+    isfile(path) || error("Composite model file `$(path)` does not exist.")
     module_name = Symbol("PlantSimEngineGraphRecovery_", string(time_ns(); base=16))
     workspace = Module(module_name)
     Core.eval(workspace, :(using PlantSimEngine))
     included = Base.include(workspace, path)
-    scene = isdefined(workspace, :scene) ? getfield(workspace, :scene) : included
-    scene isa PlantSimEngine.Scene || error(
-        "Scene file `$(path)` must assign its final PlantSimEngine.Scene to `scene`.",
+    model = isdefined(workspace, :model) ? getfield(workspace, :model) : included
+    model isa PlantSimEngine.CompositeModel || error(
+        "Composite model file `$(path)` must assign its final PlantSimEngine.CompositeModel to `model`.",
     )
-    return scene
+    return model
 end
 
 _state_json(session) = JSON.json(_state_payload(session))
 
 function _editor_html(session)
-    view = PlantSimEngine.scene_graph_view(session.scene)
-    html = PlantSimEngine.scene_graph_view_html(view)
+    view = PlantSimEngine.model_graph_view(session.model)
+    html = PlantSimEngine.model_graph_view_html(view)
     config = replace(JSON.json(Dict("websocketUrl" => _websocket_url(session))), "</" => "<\\/")
     script = "<script type=\"application/json\" id=\"pse-editor-config\">$(config)</script>"
     return replace(html, "</head>" => "$(script)</head>")
 end
 
-function _scene_to_julia(scene)
+function _model_to_julia(model)
     io = IOBuffer()
     diagnostics = String[]
-    modules = _scene_code_modules(scene)
+    modules = _model_code_modules(model)
     for module_name in sort!(collect(modules))
         println(io, "using $(module_name)")
     end
     println(io)
-    if !isnothing(scene.source_adapter)
-        push!(diagnostics, "The Scene source_adapter is runtime-specific and is not reconstructed by generated code.")
+    if !isnothing(model.source_adapter)
+        push!(diagnostics, "The Composite model source_adapter is runtime-specific and is not reconstructed by generated code.")
     end
-    for model in _scene_code_models(scene)
+    for model in _model_code_models(model)
         Base.moduleroot(parentmodule(typeof(model))) === Main || continue
         push!(
             diagnostics,
-            "Model $(typeof(model)) is defined in Main. Define or include that model before evaluating this generated Scene script.",
+            "Model $(typeof(model)) is defined in Main. Define or include that model before evaluating this generated Composite model script.",
         )
     end
     for diagnostic in unique(diagnostics)
@@ -775,13 +775,13 @@ function _scene_to_julia(scene)
     end
     isempty(diagnostics) || println(io)
     println(io, "objects = (")
-    for object in PlantSimEngine.scene_objects(scene)
+    for object in PlantSimEngine.model_objects(model)
         println(io, "    ", _object_code(object), ",")
     end
     println(io, ")")
 
     templates = Any[]
-    for instance in scene.instances
+    for instance in model.instances
         any(template -> template === instance.template, templates) || push!(templates, instance.template)
     end
     for (index, template) in pairs(templates)
@@ -789,10 +789,10 @@ function _scene_to_julia(scene)
         println(io, "template_$(index) = ", _template_code(template))
     end
 
-    if !isempty(scene.instances)
+    if !isempty(model.instances)
         println(io)
         println(io, "instances = (")
-        for instance in scene.instances
+        for instance in model.instances
             template_index = only(index for (index, template) in pairs(templates) if template === instance.template)
             println(io, "    ", _instance_code(instance, template_index), ",")
         end
@@ -803,40 +803,40 @@ function _scene_to_julia(scene)
     end
 
     mounted_ids = Set{Symbol}()
-    for instance in scene.instances
-        union!(mounted_ids, PlantSimEngine._instance_application_ids(scene, instance))
+    for instance in model.instances
+        union!(mounted_ids, PlantSimEngine._instance_application_ids(model, instance))
     end
     global_applications = [
-        application for application in scene.applications
-        if PlantSimEngine._scene_edit_application_id(application) ∉ mounted_ids
+        application for application in model.applications
+        if PlantSimEngine._model_edit_application_id(application) ∉ mounted_ids
     ]
     println(io, "applications = (")
     for application in global_applications
         println(io, "    ", _application_code(PlantSimEngine.as_model_spec(application)), ",")
     end
     println(io, ")")
-    environment = isnothing(scene.environment) ? "nothing" : repr(scene.environment)
-    print(io, "scene = Scene(objects...; applications=applications, instances=instances, environment=$(environment))")
+    environment = isnothing(model.environment) ? "nothing" : repr(model.environment)
+    print(io, "model = CompositeModel(objects...; applications=applications, instances=instances, environment=$(environment))")
     return String(take!(io))
 end
 
-function _scene_code_models(scene)
+function _model_code_models(model)
     models = Any[]
     add_application = function (application)
-        model = PlantSimEngine.model_(PlantSimEngine.as_model_spec(application))
-        if model isa PlantSimEngine.ObjectModelOverrides
-            push!(models, model.base)
-            append!(models, values(model.overrides))
+        process_model = PlantSimEngine.model_(PlantSimEngine.as_model_spec(application))
+        if process_model isa PlantSimEngine.ObjectModelOverrides
+            push!(models, process_model.base)
+            append!(models, values(process_model.overrides))
         else
-            push!(models, model)
+            push!(models, process_model)
         end
     end
-    foreach(add_application, scene.applications)
-    for object in PlantSimEngine.scene_objects(scene)
+    foreach(add_application, model.applications)
+    for object in PlantSimEngine.model_objects(model)
         isnothing(object.applications) && continue
         foreach(add_application, object.applications)
     end
-    for instance in scene.instances
+    for instance in model.instances
         foreach(add_application, instance.template.applications)
         append!(models, values(instance.overrides))
         append!(models, (override.model for override in instance.object_overrides))
@@ -844,13 +844,13 @@ function _scene_code_models(scene)
     return models
 end
 
-function _scene_code_modules(scene)
+function _model_code_modules(model)
     modules = Set{String}(["PlantSimEngine"])
     add_model = function (model)
         module_ = Base.moduleroot(parentmodule(typeof(model)))
         module_ in (Base, Core, Main) || push!(modules, string(nameof(module_)))
     end
-    foreach(add_model, _scene_code_models(scene))
+    foreach(add_model, _model_code_models(model))
     return modules
 end
 
@@ -882,7 +882,7 @@ function _template_code(template)
         ("        " * _application_code(PlantSimEngine.as_model_spec(application)) * "," for application in template.applications),
         "\n",
     )
-    return "ObjectTemplate((\n$(applications)\n    ); kind=$(repr(template.kind)), species=$(repr(template.species)), parameters=$(repr(template.parameters)))"
+    return "CompositeModelTemplate((\n$(applications)\n    ); kind=$(repr(template.kind)), species=$(repr(template.species)), parameters=$(repr(template.parameters)))"
 end
 
 function _instance_code(instance, template_index)
@@ -938,8 +938,8 @@ function _application_code(spec)
     return code
 end
 
-function _persist_scene!(session)
-    code = _scene_to_julia(session.scene) * "\n"
+function _persist_model!(session)
+    code = _model_to_julia(session.model) * "\n"
     isnothing(session.autosave_path) || _atomic_write(session.autosave_path, code)
     isnothing(session.save_path) || _atomic_write(session.save_path, code)
     return nothing
@@ -965,7 +965,7 @@ function _default_autosave_path()
         tempdir(),
         "PlantSimEngineGraphEditor",
         string("session-", time_ns()),
-        "scene.autosave.jl",
+        "model.autosave.jl",
     )
 end
 

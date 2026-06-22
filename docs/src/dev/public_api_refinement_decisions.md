@@ -1,7 +1,7 @@
 # Public API refinement decisions
 
-This decision record defines the target public contract for the Scene/Object
-API. The Scene/Object compiler and runtime remain the only supported scenario
+This decision record defines the target public contract for the CompositeModel/Object
+API. The CompositeModel/Object compiler and runtime remain the only supported scenario
 runtime.
 
 ## Terminology and identity
@@ -9,7 +9,7 @@ runtime.
 - An **object** is one runtime entity with a stable `ObjectId`.
 - A **model** is one scientific implementation of a process.
 - A **process** is model metadata and may have several applications.
-- An **application** is one named, configured occurrence of a model in a scene.
+- An **application** is one named, configured occurrence of a model in a model.
 - User declarations that identify a producer, writer, update predecessor, call
   target, or output stream use application identity.
 - Process queries are discovery filters. They are not substitutes for an
@@ -32,7 +32,7 @@ Scope names have one meaning:
 - `Subtree()` selects the current object and all of its descendants.
 - `SelfPlant()` selects the current object's plant root and its descendants.
 - `Ancestor(...)` selects the matching ancestor's subtree.
-- `SceneScope()` searches the whole scene.
+- `SceneScope()` searches the whole model.
 - `Scope(name)` searches the named object's subtree.
 - `Relation(...)` selects objects with the requested topological relationship.
 
@@ -45,10 +45,10 @@ Cross-object coupling is always visible in the declaration through `Subtree`,
 `run!` uses an explicit `outputs` keyword:
 
 ```julia
-run!(scene; outputs=:none)
-run!(scene; outputs=:all)
-run!(scene; outputs=request)
-run!(scene; outputs=requests)
+run!(model; outputs=:none)
+run!(model; outputs=:all)
+run!(model; outputs=request)
+run!(model; outputs=requests)
 ```
 
 The default is `outputs=:none`. Temporal dependency streams required by the
@@ -66,8 +66,8 @@ to `OutputRequest(Many(scale=:Leaf), :x)` during migration.
 
 ## Execution and continuation
 
-`run!(scene; steps=n, ...)` starts a fresh result timeline at step one while
-mutating scene status. It returns a live `SceneSimulation` execution handle.
+`run!(model; steps=n, ...)` starts a fresh result timeline at step one while
+mutating model status. It returns a live `Simulation` execution handle.
 
 `continue!(simulation; steps=n)` advances that simulation from its current
 step, preserving retained streams, temporal dependency history, environment
@@ -75,7 +75,7 @@ position, and multirate clock phase. It returns the same simulation.
 
 `step!(simulation)` is equivalent to `continue!(simulation; steps=1)`.
 
-Calling `run!` on an already-mutated scene intentionally creates a new result
+Calling `run!` on an already-mutated model intentionally creates a new result
 timeline. Users who intend temporal continuation use `continue!`; the distinct
 operation prevents an accidental step-index reset.
 
@@ -86,7 +86,7 @@ timestep using the existing targeted invalidation contract.
 
 The default namespace is organized around:
 
-- scene composition and execution;
+- model composition and execution;
 - model-author declarations and kernel helpers;
 - supported structured explanations;
 - documented environment extension interfaces.
@@ -100,7 +100,7 @@ promise that ordinary users should depend on it.
 ## Compatibility policy
 
 - Removed legacy mapping/executor APIs are not restored.
-- Current Scene/Object spellings receive targeted deprecations only when they
+- Current CompositeModel/Object spellings receive targeted deprecations only when they
   have a clear replacement.
 - New canonical spellings are implemented and tested before deprecated aliases
   are removed.

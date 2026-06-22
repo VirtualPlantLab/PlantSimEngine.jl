@@ -15,7 +15,7 @@ model reads it as an input. Some models need tighter control. For example, an
 energy-balance model may call photosynthesis and stomatal-conductance models
 several times while it iterates leaf temperature.
 
-That second case is a manual call dependency. In the scene/object API it is
+That second case is a manual call dependency. In the composite-model/object API it is
 declared with `Calls(...)`.
 
 ## Soft inputs and manual calls
@@ -39,7 +39,7 @@ The example process models in `examples/dummy.jl` contain both patterns:
 scenario decides which concrete application is called.
 
 ```@example scene_advanced_coupling
-complex_scene = Scene(
+complex_scene = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene, status=Status(var0=2.0));
     applications=(
         ModelSpec(Process4Model(); name=:prepare_inputs) |>
@@ -89,7 +89,7 @@ Applications selected by `Calls(...)` are not scheduled as independent root
 applications under their caller. They run only when the parent calls them.
 This gives the parent full call-stack control.
 
-## Running the coupled scene
+## Running the coupled model
 
 The regular soft dependencies are still inferred from `inputs_` and
 `outputs_`. The scheduler combines those soft edges with the call ownership
@@ -109,7 +109,7 @@ Run one timestep:
 
 ```@example scene_advanced_coupling
 complex_sim = run!(complex_scene; steps=1)
-complex_status = only(scene_objects(complex_scene; scale=:Scene)).status
+complex_status = only(model_objects(complex_scene; scale=:Scene)).status
 (
     var3=complex_status.var3,
     var5=complex_status.var5,
@@ -120,7 +120,7 @@ complex_status = only(scene_objects(complex_scene; scale=:Scene)).status
 
 ## Writing new hard-coupled models
 
-For new scene/object models, retrieve manual-call targets from the runtime
+For new composite-model/object models, retrieve manual-call targets from the runtime
 context and execute them explicitly:
 
 ```julia
@@ -142,7 +142,7 @@ end
 Use `publish=true` for the accepted state so temporal streams and mutable
 environment outputs are published once.
 
-The MAESPA-style example uses the same mechanism: a scene energy-balance model
+The MAESPA-style example uses the same mechanism: a model energy-balance model
 calls all selected leaf energy-balance models and the shared soil model while
 it solves canopy microclimate.
 

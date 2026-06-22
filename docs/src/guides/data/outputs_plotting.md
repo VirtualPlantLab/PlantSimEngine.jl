@@ -1,17 +1,17 @@
 # Collecting And Plotting Outputs
 
-Run a scene to obtain `SceneSimulation`, then call `collect_outputs(sim)` for
+Run a model to obtain `Simulation`, then call `collect_outputs(sim)` for
 ordinary analysis. Rows identify application, object, variable, timestep/time,
 and value, so repeated processes cannot overwrite one another. Convert the rows
 to a `DataFrame`, filter by application/object/variable, group, and plot.
 
 Runs default to `outputs=:none`. Use `outputs=:all` only when complete stream
 history is intentional; selected requests are the memory-safe choice for large
-scenes. Raw rows have the stable columns `timestep`, `time`, `application_id`,
+composite models. Raw rows have the stable columns `timestep`, `time`, `application_id`,
 `object_id`, `variable`, and `value`. Requested/resampled rows additionally
 identify `scale` and `process`. A temporal request emits `missing` when its
 policy cannot produce a value for a scheduled output time.
-`time` is expressed in scene base-step coordinates; application clock metadata
+`time` is expressed in model base-step coordinates; application clock metadata
 is reported by `explain_schedule(simulation)`. Values retain their concrete
 types, so unit-bearing model outputs remain unit-bearing in collected rows.
 
@@ -32,9 +32,9 @@ PlantSimEngine.outputs_(::DocsOutputCounter) = (value=0,)
 PlantSimEngine.run!(::DocsOutputCounter, models, status, meteo, constants, extra) =
     (status.value += 1)
 
-scene = Scene(DocsOutputCounter(); environment=(duration=Hour(1),))
+model = CompositeModel(DocsOutputCounter(); environment=(duration=Hour(1),))
 simulation = run!(
-    scene;
+    model;
     steps=3,
     outputs=OutputRequest(
         One(scale=:Scene),

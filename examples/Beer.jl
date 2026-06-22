@@ -32,7 +32,7 @@ of light extinction.
 # Arguments
 
 - `::Beer`: a Beer model, from the model list (*i.e.* m.light_interception)
-- `models`: the process-keyed model bundle supplied by the scene runtime.
+- `models`: the process-keyed model bundle supplied by the model runtime.
 - `status`: the status of the model, usually the model list status (*i.e.* m.status)
 - `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
 - `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
@@ -41,7 +41,7 @@ of light extinction.
 # Examples
 
 ```julia
-scene = Scene(
+model = CompositeModel(
     Beer(0.5);
     status=(LAI=2.0,),
     id=:leaf,
@@ -55,8 +55,8 @@ scene = Scene(
         duration=Hour(1),
     ),
 )
-run!(scene)
-only(scene_objects(scene; scale=:Leaf)).status.aPPFD
+run!(model)
+only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 """
 function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
@@ -100,15 +100,15 @@ using PlantSimEngine.Examples
 Create a model list with a Beer model, and fit it to the data:
 
 ```julia
-scene = Scene(
+model = CompositeModel(
     Beer(0.6);
     status=(LAI=2.0,),
     id=:leaf,
     scale=:Leaf,
     environment=meteo,
 )
-run!(scene)
-leaf = only(scene_objects(scene; scale=:Leaf))
+run!(model)
+leaf = only(model_objects(model; scale=:Leaf))
 df = DataFrame(aPPFD=leaf.status.aPPFD, LAI=leaf.status.LAI, Ri_PAR_f=meteo.Ri_PAR_f[1])
 fit(Beer, df)
 ```

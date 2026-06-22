@@ -12,11 +12,11 @@ ordering.
 
 Use this debugging order:
 
-1. `explain_initialization(scene)` for missing state or environment values.
-2. `explain_bindings(scene)` for source scope and multiplicity.
-3. `explain_writers(scene)` for competing canonical outputs.
-4. `explain_calls(scene)` for call-only targets and target cardinality.
-5. `explain_schedule(scene)` for cadence and root ordering.
+1. `explain_initialization(model)` for missing state or environment values.
+2. `explain_bindings(model)` for source scope and multiplicity.
+3. `explain_writers(model)` for competing canonical outputs.
+4. `explain_calls(model)` for call-only targets and target cardinality.
+5. `explain_schedule(model)` for cadence and root ordering.
 6. `explain_outputs(simulation)` after execution for publication history.
 
 A trial call must not mutate accepted output history or scatter mutable
@@ -25,7 +25,7 @@ Convergence and failure policy belongs to the parent model: it decides the
 iteration limit, tolerance, fallback, and whether any state is accepted.
 
 Structural mutation is also transactional at the timestep boundary. A new
-organ is registered immediately in the scene registry but does not recursively
+organ is registered immediately in the model registry but does not recursively
 run during the kernel that created it. Before the next timestep, compilation
 refreshes targets, carriers, calls, writer validation, schedules, and requested
 outputs. Geometry-only movement refreshes only affected spatial bindings where

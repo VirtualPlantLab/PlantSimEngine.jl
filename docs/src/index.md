@@ -17,10 +17,10 @@ Depth = 4
 ```
 
 !!! warning "Configuration API migration"
-    New multiscale, multi-plant, soil, scene, and microclimate scenarios should
-    use the unified `Scene`/`Object` API with `AppliesTo`, `Inputs`, `Calls`,
+    New multiscale, multi-plant, soil, model, and microclimate scenarios should
+    use the unified `CompositeModel`/`Object` API with `AppliesTo`, `Inputs`, `Calls`,
     `Updates`, `TimeStep`, and `Environment`. See
-    [Migrating To The Scene/Object API](migration_scene_object.md). Superseded
+    [Migrating To The CompositeModel/Object API](migration_composite_model.md). Superseded
     mapping constructors and their implementation have been removed.
 
 ## Overview
@@ -28,12 +28,12 @@ Depth = 4
 `PlantSimEngine` is a Julia framework for building soil-plant-atmosphere
 simulations from small process models. A modeler writes reusable kernels with
 `inputs_`, `outputs_`, optional dependency traits, and `run!`. A simulation
-author then assembles those kernels on objects in a `Scene`.
+author then assembles those kernels on objects in a `CompositeModel`.
 
 The current public scenario API is organized around:
 
 ```julia
-Scene
+CompositeModel
 Object
 ModelSpec
 AppliesTo
@@ -47,14 +47,14 @@ Environment
 ### Models And Applications
 
 A model is a reusable implementation of a process. A model application is one
-configured use of that model in a scene: it gives the use a name, selects its
+configured use of that model in a model: it gives the use a name, selects its
 target objects, and configures its inputs, calls, timestep, and environment.
 
 | Concept | Meaning |
 |:--|:--|
 | Process | The biological or physical operation, such as light interception |
 | Model | An implementation of that process, such as `Beer` |
-| Application | One configured use of a model in a `Scene` |
+| Application | One configured use of a model in a `CompositeModel` |
 | Target | An object on which that application executes |
 
 One application can target many objects. The same model can also be used in
@@ -63,7 +63,7 @@ During compilation, PlantSimEngine resolves each application into its concrete
 `(application, object)` executions.
 
 This means the same model can be reused on one object, many leaves, several
-plant species, a shared soil object, or a scene-scale energy-balance solver
+plant species, a shared soil object, or a model-scale energy-balance solver
 without changing the model implementation.
 
 ## Why PlantSimEngine?
@@ -73,12 +73,12 @@ without changing the model implementation.
 - **Explicit coupling**: `Inputs(...)` declares value dependencies, while
   `Calls(...)` gives iterative parent solvers manual control over hard model
   calls.
-- **Object-based multiscale scenes**: scales are labels on objects, so a plant
+- **Object-based multiscale composite models**: scales are labels on objects, so a plant
   can be described as plants, axes, internodes, leaves, roots, voxels, or any
   topology the model requires.
 - **Multirate execution**: use `TimeStep(Dates.Hour(1))`,
   `TimeStep(Dates.Day(1))`, and temporal policies such as `Integrate()` or
-  `HoldLast()` in the same scene.
+  `HoldLast()` in the same model.
 - **Automatic environment binding**: global weather and spatial microclimate
   backends are bound through `Environment(...)` and model `meteo_inputs_` /
   `meteo_outputs_` traits.
@@ -104,15 +104,15 @@ Use it from Julia with:
 using PlantSimEngine
 ```
 
-## Quickstart: One Scene Object
+## Quickstart: One CompositeModel Object
 
-This example runs three existing toy models on one scene object:
+This example runs three existing toy models on one model object:
 
 1. `ToyDegreeDaysCumulModel` computes daily thermal time.
 2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
 3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
-The model kernels are unchanged; the scene application layer says where they
+The model kernels are unchanged; the model application layer says where they
 run. Since no `TimeStep` is specified, these applications use the daily
 cadence of `meteo_day`.
 
@@ -125,14 +125,14 @@ meteo_day = read_weather(
     duration=Dates.Day,
 )
 
-scene = Scene(
+model = CompositeModel(
     ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
     Beer(0.6);
     environment=meteo_day,
 )
 
-sim = run!(scene; steps=30, outputs=:all)
+sim = run!(model; steps=30, outputs=:all)
 out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
@@ -143,7 +143,7 @@ bindings from each model's declared inputs and outputs:
 
 ```@example readme
 select(
-    DataFrame(explain_bindings(scene)),
+    DataFrame(explain_bindings(model)),
     :application_id,
     :input,
     :source_application_ids,
@@ -173,10 +173,10 @@ fig
 ## Multi-Object Inputs
 
 Use `Inputs(...)` when a model needs values from selected objects. Here the
-scene-scale LAI model reads live references to all plant surfaces in the scene:
+model-scale LAI model reads live references to all plant surfaces in the model:
 
 ```@example readme
-plant_scene = Scene(
+plant_scene = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene),
     Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
            status=Status(surface=12.0)),
@@ -196,20 +196,20 @@ plant_scene = Scene(
 )
 
 run!(plant_scene)
-scene_status = only(scene_objects(plant_scene; scale=:Scene)).status
+scene_status = only(model_objects(plant_scene; scale=:Scene)).status
 scene_status
 ```
 
 The same `Many(...)` selector would be plant-local if the consumer ran on a
 plant and used `within=Subtree()`. This is the same mechanism used for plant
-allocation models that sum their own leaves, scene models that aggregate all
+allocation models that sum their own leaves, model models that aggregate all
 plants, and microclimate solvers that select objects inside one environment
 cell.
 
 ## Manual Calls For Iterative Solvers
 
 Use `Calls(...)` when a parent model must directly run another model, for
-example a scene energy-balance solver that iterates leaf temperatures until
+example a model energy-balance solver that iterates leaf temperatures until
 convergence:
 
 ```julia
@@ -239,11 +239,11 @@ environment writes are published exactly once.
 
 ## Where To Go Next
 
-- [Scene/Object Quickstart](scene_object/quickstart.md) gives a compact
+- [CompositeModel/Object Quickstart](composite_model/quickstart.md) gives a compact
   runnable workflow using the new API.
-- [Migrating To The Scene/Object API](migration_scene_object.md) translates
+- [Migrating To The CompositeModel/Object API](migration_composite_model.md) translates
   historical `ModelMapping` and `MultiScaleModel` examples.
-- [Public API](API/API_public.md) lists the scene/object constructors,
+- [Public API](API/API_public.md) lists the composite-model/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
   `timespec`, `output_policy`, `meteo_inputs_`, and `meteo_outputs_`.
@@ -257,13 +257,13 @@ hundreds of microseconds, and PlantBiophysics.jl models using PlantSimEngine
 have been measured much faster than equivalent implementations in typical
 scientific scripting languages.
 
-For performance-sensitive scenes, inspect the supported structured
+For performance-sensitive composite models, inspect the supported structured
 explanations:
 
 ```julia
-explain_bindings(scene)
-explain_schedule(scene)
-explain_execution_plan(scene)
+explain_bindings(model)
+explain_schedule(model)
+explain_execution_plan(model)
 ```
 
 These helpers expose resolved objects, carriers, copy/reference semantics,

@@ -1,4 +1,4 @@
-"""Internal timing context for one scene run."""
+"""Internal timing context for one model run."""
 struct TimelineContext
     base_step_seconds::Float64
 end
@@ -162,7 +162,7 @@ function _validate_meteo_duration(meteo)
                 error(
                     "Inconsistent `duration` in meteorology row $(i): ",
                     "$(seconds) seconds does not match the base step ",
-                    "$(base_seconds) seconds from row 1. Scene scheduling ",
+                    "$(base_seconds) seconds from row 1. Composite model scheduling ",
                     "requires a fixed environment base step."
                 )
             end

@@ -1,9 +1,9 @@
-# How Multiscale Scenes Execute
+# How Multiscale Composite Models Execute
 
 One application executes once for every object selected by `AppliesTo`. State
 belongs to the object, while topology and labels belong to the scenario.
 `Self()` is the current object, `SelfPlant()` is its plant-instance root, and
-`SceneScope()` is scene-wide. Cardinality wrappers decide whether zero, one,
+`SceneScope()` is model-wide. Cardinality wrappers decide whether zero, one,
 or many matches are valid.
 
 More objects mean more qualified streams. Removing an object stops future
@@ -22,10 +22,10 @@ Canonical selector patterns are:
 
 `Self()` always means the current target object. It never implicitly means the
 model, process, species, or plant. Prefer object IDs and labels for identity,
-and use `Scope(name)` only when the scene explicitly defines that scope.
+and use `Scope(name)` only when the model explicitly defines that scope.
 
 One application produces a separate stream for every selected object and
 output variable. Stream keys also include application identity, so repeated
 applications of the same process cannot overwrite each other. Use
-`explain_scene_applications`, `explain_objects`, and `explain_bindings` to
+`explain_applications`, `explain_objects`, and `explain_bindings` to
 verify target and source multiplicities before a long run.

@@ -8,15 +8,15 @@ It complements the [decision record](public_api_refinement_decisions.md) and the
 
 | Requirement | Supported contract | Evidence |
 |:--|:--|:--|
-| Public boundary | Composition, model-author, diagnostic, and extension symbols are exported by default; compiler/cache representations live under `PlantSimEngine.Advanced`. | `test-scene-api-stabilization.jl` checks the namespace boundary; Documenter's missing-doc check covers exported docstrings. |
+| Public boundary | Composition, model-author, diagnostic, and extension symbols are exported by default; compiler/cache representations live under `PlantSimEngine.Advanced`. | `test-model-api-stabilization.jl` checks the namespace boundary; Documenter's missing-doc check covers exported docstrings. |
 | Application identity | Repeated process applications require explicit names. Inputs, calls, outputs, and `Updates(...; after=...)` use canonical application IDs. Singular process lookup is a deprecation bridge; `Many(process=...)` remains explicit discovery. | Stabilization, binding-inference, hard-call, output, and update tests cover repeated applications and actionable ambiguity errors. |
-| Selector grammar | `Self()` is one object, `Subtree()` is that object plus descendants, `SelfPlant()` is the containing plant, and `SceneScope()` is the scene. `One`, `OptionalOne`, and `Many` share the same criteria across targeting, coupling, lookup, and outputs. | Multi-plant selector tests, instance/template tests, lifecycle tests, and XPalm downstream tests. |
+| Selector grammar | `Self()` is one object, `Subtree()` is that object plus descendants, `SelfPlant()` is the containing plant, and `SceneScope()` is the model. `One`, `OptionalOne`, and `Many` share the same criteria across targeting, coupling, lookup, and outputs. | Multi-plant selector tests, instance/template tests, lifecycle tests, and XPalm downstream tests. |
 | Outputs | `outputs=:none` is the safe default; `:all` and selector-based `OutputRequest`s are explicit. Request names are unique, application identity is preserved, and removed-object history remains collectable. | Output-boundary, runtime-matrix, multirate, lifecycle-history, and allocation tests. |
 | Execution ownership | `run!` starts a fresh simulation; `continue!` and `step!` advance its live handle without resetting time, streams, schedules, or environment position. | Split-run equivalence, multirate-boundary, environment-resume, and lifecycle-continuation tests. |
-| Construction and initialization | `Scene(models...; status=...)` lowers to ordinary objects and `ModelSpec`s. `explain_initialization` reports application, object, origin, defaults, expected/provided types, and remedies without running kernels. | Concise/explicit lowering equivalence and initialization report tests. |
-| Diagnostics | Supported explanation functions accept `Scene` directly and compiled views where useful; simulation overloads avoid field inspection. Results are structured vectors that can be filtered with ordinary Julia predicates. | Structured explanation assertions throughout the scene test matrix and documentation examples. |
+| Construction and initialization | `CompositeModel(models...; status=...)` lowers to ordinary objects and `ModelSpec`s. `explain_initialization` reports application, object, origin, defaults, expected/provided types, and remedies without running kernels. | Concise/explicit lowering equivalence and initialization report tests. |
+| Diagnostics | Supported explanation functions accept `CompositeModel` directly and compiled views where useful; simulation overloads avoid field inspection. Results are structured vectors that can be filtered with ordinary Julia predicates. | Structured explanation assertions throughout the model test matrix and documentation examples. |
 | Lifecycle | Registration, MTG growth, removal, reparenting, movement, and geometry updates are the supported mutation paths. Cycle/self-parent failures are atomic; structural and geometry invalidation remain targeted. | Stabilization, unified integration, environment, and lifecycle-output tests. |
-| Model-author API | The kernel remains `run!(model, models, status, meteo, constants, extra)`. `runtime_scene`, call-target accessors, traits, and lifecycle helpers are the supported context surface. | `test-model-contract.jl`, hard-call tests, growing-plant tutorial, and downstream model suites. |
+| Model-author API | The kernel remains `run!(model, models, status, meteo, constants, extra)`. `runtime_model`, call-target accessors, traits, and lifecycle helpers are the supported context surface. | `test-model-contract.jl`, hard-call tests, growing-plant tutorial, and downstream model suites. |
 | Compatibility | `tracked_outputs`, singular scenario `process=` references, output-request `process=`, and process-only overrides have targeted warnings and documented replacements, scheduled for removal in 0.15. Mapping runtimes are not restored. | Migration guide plus compatibility tests. |
 
 ## Validation matrix
@@ -38,6 +38,6 @@ retention modes, fresh/continued execution, and homogeneous hot-loop allocation.
 ## Deliberate compatibility boundary
 
 Compiled structs and cache controls are qualified advanced APIs and may evolve.
-Direct mutation of `Object` or `Scene` fields is unsupported. Historical
+Direct mutation of `Object` or `CompositeModel` fields is unsupported. Historical
 `ModelMapping`, executor, and status-vector runtimes are outside the compatibility
 surface and must not be reintroduced.

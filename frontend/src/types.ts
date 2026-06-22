@@ -95,7 +95,7 @@ export type ExecutionGraphNode = {
   overridden: boolean;
 };
 
-export type SceneGraphEdge = {
+export type ModelGraphEdge = {
   id: string;
   source: string;
   target: string;
@@ -196,12 +196,12 @@ export type ModelDescriptor = {
   };
 };
 
-export type SceneGraphView = {
+export type ModelGraphView = {
   schemaVersion: number;
   level: "applications" | "topology" | "resolved";
   metadata: {
     title: string;
-    sceneRevision: number;
+    modelRevision: number;
     objectCount: number;
     instanceCount: number;
     applicationCount: number;
@@ -216,7 +216,7 @@ export type SceneGraphView = {
   instances: InstanceDescriptor[];
   applications: ApplicationGraphNode[];
   executions: ExecutionGraphNode[];
-  edges: SceneGraphEdge[];
+  edges: ModelGraphEdge[];
   modelLibrary: ModelDescriptor[];
   initialization: InitializationDescriptor[];
   diagnostics: GraphDiagnostic[];
@@ -242,21 +242,21 @@ export type RuntimeApplicationNode = ApplicationGraphNode & {
 };
 
 export type RuntimeEntityNode = {
-  nodeKind: "scene" | "instance" | "object" | "execution" | "environment";
+  nodeKind: "model" | "instance" | "object" | "execution" | "environment";
   title: string;
   subtitle: string;
   badges: string[];
   inputPortIds?: string[];
   outputPortIds?: string[];
-  detail: SceneRootDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode;
+  detail: ModelRootDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode;
 };
 
 export type EnvironmentGraphNode = {
   provider: string;
 };
 
-export type SceneRootDescriptor = {
-  entity: "scene";
+export type ModelRootDescriptor = {
+  entity: "model";
   objectCount: number;
   instanceCount: number;
   applicationCount: number;
@@ -264,12 +264,12 @@ export type SceneRootDescriptor = {
 
 export type EditorState = {
   ok: boolean;
-  graph: SceneGraphView;
+  graph: ModelGraphView;
   diagnostics: string[];
   canUndo: boolean;
   canRedo: boolean;
   url: string;
-  sceneCode?: string;
+  modelCode?: string;
   autosavePath?: string | null;
   savePath?: string | null;
   recentPaths?: string[];

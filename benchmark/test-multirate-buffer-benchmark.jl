@@ -71,20 +71,20 @@ function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
 
     nsteps = 24 * ndays
     meteo = [(T=20.0, Wind=1.0, Rh=0.65, duration=Hour(1)) for _ in 1:nsteps]
-    scene = Scene(objects...; applications=applications, environment=meteo)
+    model = CompositeModel(objects...; applications=applications, environment=meteo)
 
     reqs = [
         OutputRequest(:Plant, :Y4; name=:four_hour_total, application=:four_hour_consumer),
         OutputRequest(:Plant, :Y24; name=:daily_total, application=:daily_consumer),
         OutputRequest(:Leaf, :X; name=:x_daily_sum, application=:hourly_source, policy=Integrate(), clock=Day(1)),
     ]
-    return scene, reqs, nsteps
+    return model, reqs, nsteps
 end
 
-function benchmark_multirate_retain_all_run(scene, nsteps)
-    return run!(scene; steps=nsteps, outputs=:all)
+function benchmark_multirate_retain_all_run(model, nsteps)
+    return run!(model; steps=nsteps, outputs=:all)
 end
 
-function benchmark_multirate_output_request_run(scene, reqs, nsteps)
-    return run!(scene; steps=nsteps, outputs=reqs)
+function benchmark_multirate_output_request_run(model, reqs, nsteps)
+    return run!(model; steps=nsteps, outputs=reqs)
 end

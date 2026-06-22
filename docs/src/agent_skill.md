@@ -12,7 +12,7 @@ Users can download the `skills/plantsimengine` folder and tell their agent to
 use the `plantsimengine` skill when working with PlantSimEngine.jl. The skill
 gives agents the package-specific conventions they need for:
 
-- building object graphs with `Scene`, `Object`, `ObjectTemplate`, and
+- building object graphs with `CompositeModel`, `Object`, `CompositeModelTemplate`, and
   `ObjectInstance`;
 - applying models with `ModelSpec` and `AppliesTo`;
 - coupling values and manual model calls with `Inputs` and `Calls`;
@@ -24,16 +24,16 @@ gives agents the package-specific conventions they need for:
 - inspecting compiled scenarios with structured explanation helpers;
 - reporting supplied, generated, bound, and unresolved variables with
   `explain_initialization`;
-- accessing the live scene from lifecycle-capable kernels with
-  `runtime_scene(extra)`;
+- accessing the live model from lifecycle-capable kernels with
+  `runtime_model(extra)`;
 - inspecting homogeneous runtime batches with `explain_execution_plan`;
-- collecting raw or requested scene outputs with `scene_outputs`,
+- collecting raw or requested model outputs with `outputs`,
   `OutputRequest`, `collect_outputs`, and `explain_output_retention`;
 - implementing or wrapping models with `@process`, `inputs_`, `outputs_`,
   `run!`, hard dependencies, and model traits.
 
 The superseded `ModelMapping` and `MultiScaleModel` runtimes have been removed.
-Use [Migrating To The Scene/Object API](migration_scene_object.md) when
+Use [Migrating To The CompositeModel/Object API](migration_composite_model.md) when
 translating historical code.
 
 The canonical source is [`skills/plantsimengine/SKILL.md`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/skills/plantsimengine/SKILL.md).

@@ -2,14 +2,14 @@
 CurrentModule = PlantSimEngine
 ```
 
-# Visualize And Edit A Scene
+# Visualize And Edit A CompositeModel
 
-The Scene graph shows how model applications, objects, and compiled value
+The CompositeModel graph shows how model applications, objects, and compiled value
 bindings fit together before a simulation runs. Use the static visualizer when
 you want an inspectable HTML artifact, and the interactive editor when you want
-browser actions to update a Julia [`Scene`](@ref).
+browser actions to update a Julia [`CompositeModel`](@ref).
 
-## A Small Scene
+## A Small CompositeModel
 
 This example applies three toy models to one plant object. The compiler infers
 the same-object `TT_cu` and `LAI` bindings from the declared input and output
@@ -19,7 +19,7 @@ names.
 using PlantSimEngine
 using PlantSimEngine.Examples
 
-scene = Scene(
+model = CompositeModel(
     ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
     Beer(0.6);
@@ -29,7 +29,7 @@ scene = Scene(
     kind=:plant,
 )
 
-view = scene_graph_view(scene)
+view = model_graph_view(model)
 view.metadata
 ```
 
@@ -38,14 +38,14 @@ embeds it below.
 
 ```@raw html
 <iframe
-  id="pse-scene-graph-example"
-  title="Interactive PlantSimEngine Scene graph example"
+  id="pse-model-graph-example"
+  title="Interactive PlantSimEngine CompositeModel graph example"
   style="width: 100%; height: 720px; border: 1px solid #d8cdbc; border-radius: 6px;"
   loading="lazy">
 </iframe>
 <script>
-  document.getElementById("pse-scene-graph-example").src =
-    `${documenterBaseURL}/assets/scene_graph_example.html`;
+  document.getElementById("pse-model-graph-example").src =
+    `${documenterBaseURL}/assets/model_graph_example.html`;
 </script>
 ```
 
@@ -53,7 +53,7 @@ The default **Applications** projection groups all concrete executions of one
 application into one card. Use **Objects** to inspect topology and **Executions**
 to inspect concrete `(application, object)` pairs. Search, diagnostics,
 initialization, selectors, parameters, and resolved edge details remain
-available in the static viewer. The topology projection includes scene and
+available in the static viewer. The topology projection includes model and
 instance containers; selecting an instance or object subtree scopes the
 application and execution projections until the filter is cleared.
 
@@ -63,7 +63,7 @@ The static visualizer is part of PlantSimEngine core and does not load a web
 server:
 
 ```julia
-path = write_scene_graph_view("scene-graph.html", scene)
+path = write_model_graph_view("model-graph.html", model)
 ```
 
 The output bundles the graph payload, JavaScript, and CSS in one HTML file. It
@@ -73,7 +73,7 @@ package can generate the file from `docs/make.jl` and place it under
 
 ```julia
 mkpath(joinpath(@__DIR__, "src", "assets"))
-write_scene_graph_view(
+write_model_graph_view(
     joinpath(@__DIR__, "src", "assets", "default_scene.html"),
     default_scene(),
 )
@@ -99,38 +99,38 @@ Then start a session:
 using PlantSimEngine
 using HTTP
 
-session = edit_graph(scene)
+session = edit_graph(model)
 ```
 
 The default browser opens automatically. The returned session also prints its
 URL and shutdown command. Julia remains authoritative: browser edits are sent
-as semantic commands, applied transactionally to a candidate Scene, compiled,
+as semantic commands, applied transactionally to a candidate CompositeModel, compiled,
 and returned as a fresh graph state.
 
 Inspect the current result or stop the server with:
 
 ```julia
-edited_scene = current_scene(session)
+edited_scene = current_model(session)
 close(session)
 ```
 
-Call `edit_graph()` without a Scene to start from an empty scenario. Use
+Call `edit_graph()` without a CompositeModel to start from an empty scenario. Use
 `open_browser=false` on remote machines or when a test controls the browser.
 
 ## What Can Be Edited
 
 The editor supports:
 
-- scene objects, metadata, status initialization, and parent topology;
+- model objects, metadata, status initialization, and parent topology;
 - model applications, constructor parameters, target selectors, and cadence;
 - explicit value bindings, hard calls, output routing, and update ordering;
 - shared template applications plus instance-level and object-level overrides;
 - dependency cycles through an explicit `PreviousTimeStep` break action;
-- undo, redo, temporary recovery autosaves, and readable Julia Scene scripts.
+- undo, redo, temporary recovery autosaves, and readable Julia CompositeModel scripts.
 
 Application target and binding dialogs can ask Julia to preview the concrete
 objects selected by a declaration. This is important for `Many`, relative
-scopes such as `SelfPlant`, and scenes containing several plant instances.
+scopes such as `SelfPlant`, and composite models containing several plant instances.
 
 ## Models From Other Packages
 
@@ -143,19 +143,19 @@ using PlantSimEngine
 using PlantBiophysics
 using HTTP
 
-session = edit_graph(scene)
+session = edit_graph(model)
 ```
 
 The `+` buttons next to ports use exact declared variable names only. For an
 input named `LAI`, the editor lists loaded models whose `outputs_` contains
 `LAI`. For an output named `LAI`, it lists models whose `inputs_` contains
-`LAI`, as well as compatible applications already present in the Scene. This is
+`LAI`, as well as compatible applications already present in the CompositeModel. This is
 a composition aid, not a scientific compatibility inference.
 
-When the Scene is saved as Julia code, required package imports are emitted for
-the model types used by the Scene.
+When the CompositeModel is saved as Julia code, required package imports are emitted for
+the model types used by the CompositeModel.
 
-## Invalid And Cyclic Scenes
+## Invalid And Cyclic Composite Models
 
 Simulation compilation remains strict, but graph compilation preserves as much
 structure as possible and attaches diagnostics. This lets the editor display
@@ -174,9 +174,9 @@ the application input policy for every target selected by that application.
 ## Saving And Recovery
 
 The **Save** action writes readable Julia code whose final binding is
-`scene = Scene(...)`. Once a path is selected, every successful edit rewrites
+`model = CompositeModel(...)`. Once a path is selected, every successful edit rewrites
 that file. The editor also keeps a temporary recovery file and lists recent
-Scene scripts in **Open**.
+CompositeModel scripts in **Open**.
 
 Generated code is best effort for arbitrary Julia values and external runtime
 resources. Review the code and keep important scenario scripts under Git.

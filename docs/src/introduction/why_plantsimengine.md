@@ -82,7 +82,7 @@ PlantSimEngine's approach to plant modeling represents a paradigm shift in how s
 
 - **Automatic Dependency Resolution:** The system automatically determines the relationships between different models and processes, eliminating the need for manual coupling.
 
-- **Concrete Batched Execution:** The scene compiler groups compatible object
+- **Concrete Batched Execution:** The model compiler groups compatible object
   targets into concrete execution batches. A public parallel or distributed
   executor is not currently provided; parallel execution remains planned work
   that requires explicit correctness and independence guarantees.

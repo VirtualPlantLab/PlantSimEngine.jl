@@ -22,8 +22,8 @@ PlantSimEngine.meteo_outputs_(::ContractExplicitModel) = (T=0,)
     model = ContractDefaultsModel()
     @test process(model) == :contract_defaults
     @test application_name(ModelSpec(model)) === nothing
-    default_scene = Scene(model)
-    @test only(explain_scene_applications(Advanced.refresh_bindings!(default_scene))).application_id ==
+    default_scene = CompositeModel(model)
+    @test only(explain_applications(Advanced.refresh_bindings!(default_scene))).application_id ==
           :contract_defaults
     @test timespec(model) == ClockSpec(1.0, 0.0)
     @test output_policy(model) == NamedTuple()

@@ -1,11 +1,11 @@
 # Roadmap
 
-PlantSimEngine now has one scene/object runtime for single-object, multiscale,
+PlantSimEngine now has one composite-model/object runtime for single-object, multiscale,
 multi-plant, soil, microclimate, and multirate simulations.
 
 Current priorities are:
 
-- migrate downstream model packages to `Scene`, `ObjectTemplate`,
+- migrate downstream model packages to `CompositeModel`, `CompositeModelTemplate`,
   `ObjectInstance`, and `ModelSpec`;
 - strengthen type-stability and allocation tests for million-object workloads;
 - add broader lifecycle tests for object creation, removal, movement, and

@@ -80,21 +80,21 @@ end
 """
     application_name(spec::ModelSpec)
 
-Optional stable name for one model application in the unified scene/object API.
+Optional stable name for one model application in the unified composite-model/object API.
 """
 application_name(spec::ModelSpec) = spec.name
 
 """
     applies_to(spec::ModelSpec)
 
-Object selector where a model application runs in the unified scene/object API.
+Object selector where a model application runs in the unified composite-model/object API.
 """
 applies_to(spec::ModelSpec) = spec.applies_to
 
 """
     value_inputs(spec::ModelSpec)
 
-Unified scene/object value-input bindings declared with `Inputs(...)`.
+Unified composite-model/object value-input bindings declared with `Inputs(...)`.
 """
 value_inputs(spec::ModelSpec) = spec.inputs
 input_origins(spec::ModelSpec) = spec.input_origins
@@ -102,7 +102,7 @@ input_origins(spec::ModelSpec) = spec.input_origins
 """
     model_calls(spec::ModelSpec)
 
-Unified scene/object manual call bindings declared with `Calls(...)`.
+Unified composite-model/object manual call bindings declared with `Calls(...)`.
 """
 model_calls(spec::ModelSpec) = spec.calls
 call_origins(spec::ModelSpec) = spec.call_origins
@@ -110,7 +110,7 @@ call_origins(spec::ModelSpec) = spec.call_origins
 """
     environment_config(spec::ModelSpec)
 
-Optional scene/object environment configuration declared with `Environment(...)`.
+Optional composite-model/object environment configuration declared with `Environment(...)`.
 """
 environment_config(spec::ModelSpec) = spec.environment
 
@@ -135,7 +135,7 @@ updates(spec::ModelSpec) = spec.updates
 """
     meteo_bindings(spec::ModelSpec)
 
-Optional explicit weather aggregation bindings used by the scene runtime.
+Optional explicit weather aggregation bindings used by the model runtime.
 Each key is the target meteo variable exposed to the model at execution time.
 Each value can be:
 - PlantMeteo reducer instance/type (e.g. `MeanWeighted()`, `MaxReducer`)
@@ -147,7 +147,7 @@ meteo_bindings(spec::ModelSpec) = spec.meteo_bindings
 """
     meteo_window(spec::ModelSpec)
 
-Optional weather window-selection strategy used by the scene runtime.
+Optional weather window-selection strategy used by the model runtime.
 Defaults to `nothing` (runtime falls back to `PlantMeteo.RollingWindow()` behavior).
 """
 meteo_window(spec::ModelSpec) = spec.meteo_window

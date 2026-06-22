@@ -2,7 +2,7 @@ import { expect, test, type APIRequestContext, type Locator, type Page } from "@
 import type { ApplicationGraphNode, EditorState } from "../src/types";
 import { startGraphEditorServer, type GraphEditorServer } from "./graphEditorServer";
 
-test.describe.serial("PlantSimEngine Scene graph editor", () => {
+test.describe.serial("PlantSimEngine model graph editor", () => {
   let server: GraphEditorServer;
 
   test.beforeAll(async () => {
@@ -15,7 +15,7 @@ test.describe.serial("PlantSimEngine Scene graph editor", () => {
 
   test("starts empty and adds an object", async ({ page, request }) => {
     await page.goto(server.url);
-    await expect(page.getByText("Scene Graph")).toBeVisible();
+    await expect(page.getByText("Model Graph")).toBeVisible();
 
     let state = await getState(request, server.url);
     expect(state.ok).toBe(true);
@@ -64,7 +64,7 @@ test.describe.serial("PlantSimEngine Scene graph editor", () => {
     await page.goto(url.toString());
     await expect(page.getByTestId("application-node-light")).toBeVisible();
     await page.getByTestId("application-node-light").click();
-    await expect(page.locator(".scene-inspector")).toContainText("light");
+    await expect(page.locator(".model-inspector")).toContainText("light");
     await expect(page.getByText("Edit application")).toHaveCount(0);
   });
 
@@ -91,7 +91,7 @@ test.describe.serial("PlantSimEngine Scene graph editor", () => {
 
     state = await waitForState(request, server.url, (value) => value.graph.metadata.cyclic === false);
     expect(state.graph.edges.some((edge) => edge.kind === "previous_timestep")).toBe(true);
-    expect(state.sceneCode).toContain("PreviousTimeStep");
+    expect(state.modelCode).toContain("PreviousTimeStep");
   });
 
   test("connects another consumer and supports undo, redo, remove, and save", async ({ page, request }, testInfo) => {
@@ -107,9 +107,9 @@ test.describe.serial("PlantSimEngine Scene graph editor", () => {
     await page.getByTestId("call-target").selectOption("consumer");
     await page.getByTestId("add-call-binding").click();
     await waitForState(request, server.url, (value) => value.graph.metadata.callCount === 1);
-    await page.getByTestId("environment-provider").fill("scene");
+    await page.getByTestId("environment-provider").fill("model");
     await page.getByTestId("apply-environment-provider").click();
-    let state = await waitForState(request, server.url, (value) => findApplication(value, "light").environment?.provider === "scene");
+    let state = await waitForState(request, server.url, (value) => findApplication(value, "light").environment?.provider === "model");
     expect(state.graph.edges.some((edge) => edge.kind === "manual_call" && edge.call === "consumer_call")).toBe(true);
     await page.getByRole("button", { name: "Done" }).click();
 
@@ -136,9 +136,9 @@ test.describe.serial("PlantSimEngine Scene graph editor", () => {
     await page.getByRole("button", { name: "Redo" }).click();
     await waitForState(request, server.url, (value) => !value.graph.applications.some((application) => application.applicationId === "consumer"));
 
-    const savePath = testInfo.outputPath("scene.jl");
-    await page.getByTestId("save-scene").click();
-    await page.getByPlaceholder("/absolute/path/to/scene.jl").fill(savePath);
+    const savePath = testInfo.outputPath("model.jl");
+    await page.getByTestId("save-model").click();
+    await page.getByPlaceholder("/absolute/path/to/model.jl").fill(savePath);
     await page.getByRole("button", { name: "Save", exact: true }).click();
     state = await waitForState(request, server.url, (value) => value.savePath === savePath);
     expect(state.recentPaths).toContain(savePath);

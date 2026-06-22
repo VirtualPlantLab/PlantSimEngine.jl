@@ -12,15 +12,15 @@ using Dates
         Ri_PAR_f=300.0,
         duration=Dates.Hour(1),
     )
-    scene = Scene(
+    model = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
         applications=(
             ModelSpec(Beer(k)) |> AppliesTo(One(scale=:Leaf)),
         ),
         environment=meteo,
     )
-    run!(scene)
-    leaf = only(scene_objects(scene; scale=:Leaf))
+    run!(model)
+    leaf = only(model_objects(model; scale=:Leaf))
     df = DataFrame(
         aPPFD=[leaf.status.aPPFD],
         LAI=[leaf.status.LAI],

@@ -30,7 +30,7 @@ meteo = Atmosphere(
     duration=Hour(1),
 )
 
-scene = Scene(
+model = CompositeModel(
     Beer(0.5);
     status=(LAI=2.0,),
     id=:leaf,
@@ -38,8 +38,8 @@ scene = Scene(
     environment=meteo,
 )
 
-run!(scene)
-only(scene_objects(scene; scale=:Leaf)).status.aPPFD
+run!(model)
+only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 
 Example models are provided by the `PlantSimEngine.Examples` submodule. They

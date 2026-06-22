@@ -41,7 +41,7 @@ include(joinpath(@__DIR__, "../examples/ToyLightPartitioningModel.jl"))
 """
     import_mtg_example()
 
-Returns an example multiscale tree graph (MTG) with a scene, a soil, and a plant with two internodes and two leaves.
+Returns an example multiscale tree graph (MTG) with a model, a soil, and a plant with two internodes and two leaves.
 
 # Examples
 

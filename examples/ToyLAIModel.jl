@@ -58,15 +58,15 @@ end
 # ToyLAIModel is independent of previous values and other objects. The current
 # public runtime remains sequential and owns execution policy.
 
-# A second model at scene scale:
+# A second model at model scale:
 """
     ToyLAIfromLeafAreaModel()
 
-Computes the Leaf Area Index (LAI) of the scene based on the plants leaf area.
+Computes the Leaf Area Index (LAI) of the model based on the plants leaf area.
 
 # Arguments
 
-- `scene_area`: the area of the scene, usually in m²
+- `scene_area`: the area of the model, usually in m²
 
 # Inputs
 
@@ -74,7 +74,7 @@ Computes the Leaf Area Index (LAI) of the scene based on the plants leaf area.
 
 # Outputs
 
-- `LAI`: the Leaf Area Index of the scene, usually in m² m⁻²
+- `LAI`: the Leaf Area Index of the model, usually in m² m⁻²
 - `total_surface`: the total surface of the plants, usually in m²
 """
 struct ToyLAIfromLeafAreaModel{T} <: AbstractLai_DynamicModel

@@ -7,10 +7,10 @@ using Documenter
 using CairoMakie
 using PlantSimEngine.Examples
 
-function build_scene_graph_example()
+function build_model_graph_example()
     output_dir = joinpath(@__DIR__, "src", "assets")
     mkpath(output_dir)
-    scene = Scene(
+    model = PlantSimEngine.CompositeModel(
         ToyDegreeDaysCumulModel(),
         ToyLAIModel(),
         Beer(0.6);
@@ -19,13 +19,13 @@ function build_scene_graph_example()
         scale=:Plant,
         kind=:plant,
     )
-    write_scene_graph_view(
-        joinpath(output_dir, "scene_graph_example.html"),
-        scene,
+    write_model_graph_view(
+        joinpath(output_dir, "model_graph_example.html"),
+        model,
     )
 end
 
-build_scene_graph_example()
+build_model_graph_example()
 
 DocMeta.setdocmeta!(PlantSimEngine, :DocTestSetup, :(using PlantSimEngine, PlantMeteo, DataFrames, CSV, CairoMakie); recursive=true)
 
@@ -52,22 +52,22 @@ makedocs(;
             "Julia language basics" => "./prerequisites/julia_basics.md",
         ],
         "Getting Started" => [
-            "Quickstart" => "./scene_object/quickstart.md",
+            "Quickstart" => "./composite_model/quickstart.md",
             "Detailed first simulation" => "./step_by_step/detailed_first_example.md",
             "Port an existing model" => "./guides/modelers/port_existing_model.md",
-            "Migrating from mappings" => "migration_scene_object.md",
+            "Migrating from mappings" => "migration_composite_model.md",
         ],
         "Building Scenarios" => [
             "Coupling models" => "./guides/coupling.md",
-            "Visualize and edit a Scene" => "./guides/graph_visualizer_editor.md",
+            "Visualize and edit a composite model" => "./guides/graph_visualizer_editor.md",
             "Model Switching" => "./step_by_step/model_switching.md",
             "Implementing a process" => "./step_by_step/implement_a_process.md",
             "Implementing a model" => "./step_by_step/implement_a_model.md",
             "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
             "Implementing a model : additional notes" => "./step_by_step/implement_a_model_additional.md",
         ],
-        "Multiscale Scenes" => [
-            "How scenes execute" => "./guides/multiscale/concepts.md",
+        "Multiscale Composite Models" => [
+            "How composite models execute" => "./guides/multiscale/concepts.md",
             "From one object" => "./guides/multiscale/from_one_object.md",
             "Value coupling" => "./guides/multiscale/value_coupling.md",
             "Importing an MTG" => "./guides/multiscale/import_mtg.md",
@@ -109,10 +109,10 @@ makedocs(;
         "Development designs" => [
             "Public API refinement decisions" => "./dev/public_api_refinement_decisions.md",
             "Public API refinement completion audit" => "./dev/public_api_refinement_completion_audit.md",
-            "Unified scene/object design" => "./dev/unified_scene_object_design.md",
-            "Unified scene/object implementation plan" => "./dev/unified_scene_object_implementation_plan.md",
-            "Unified scene/object completion audit" => "./dev/unified_scene_object_completion_audit.md",
-            "MAESPA-style scene example handoff" => "./dev/maespa_scene_handoff.md",
+            "Composite model/object design" => "./dev/composite_model_design.md",
+            "Composite model/object implementation plan" => "./dev/composite_model_implementation_plan.md",
+            "Composite model/object completion audit" => "./dev/composite_model_completion_audit.md",
+            "MAESPA-style composite-model example handoff" => "./dev/maespa_model_handoff.md",
             "Code cleanup audit" => "./dev/code_cleanup_audit.md",
             "Release notes handoff" => "./dev/release_notes_handoff.md",
         ],

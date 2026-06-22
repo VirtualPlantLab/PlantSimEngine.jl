@@ -12,7 +12,7 @@ Nested calls inherit publication suppression, so a descendant cannot publish
 inside an unpublished ancestor trial. `explain_calls` and `explain_schedule`
 show call-only targets and ordering.
 
-`explain_initialization(scene)` classifies values as supplied, generated,
+`explain_initialization(model)` classifies values as supplied, generated,
 producer-bound, environment-bound, or unresolved before execution.
 
 ## Value coupling

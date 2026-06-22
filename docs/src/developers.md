@@ -37,7 +37,7 @@ julia --project=test test/runtests.jl
 ```
 
 The current public runtime is sequential. Running with multiple Julia threads
-does not enable a parallel Scene executor; parallel execution remains roadmap
+does not enable a parallel Composite model executor; parallel execution remains roadmap
 work and requires dedicated correctness tests before it becomes public.
 
 ### Documentation
@@ -118,8 +118,8 @@ stable `data-testid` attributes for commands and confirm mutations through the
 Julia `/state` endpoint. Avoid assertions against generated CSS classes or
 implementing PlantSimEngine selector semantics in TypeScript.
 
-Core graph DTO and edit tests live in `test/test-scene-graph-view.jl`.
-HTTP-extension tests live in `test/test-scene-graph-editor-extension.jl`.
+Core graph DTO and edit tests live in `test/test-model-graph-view.jl`.
+HTTP-extension tests live in `test/test-model-graph-editor-extension.jl`.
 When changing the graph schema, update those Julia tests, frontend types, unit
 tests, Playwright scenarios, and the committed production bundle in the same
 change.

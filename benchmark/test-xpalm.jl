@@ -5,8 +5,8 @@ using Dates
 using PlantSimEngine
 using XPalm
 
-function _xpalm_output_requests(scene, vars)
-    applications = explain_scene_applications(scene)
+function _xpalm_output_requests(model, vars)
+    applications = explain_applications(model)
     requests = OutputRequest[]
     for (scale, variables) in pairs(vars)
         for variable in variables
@@ -60,13 +60,13 @@ function xpalm_default_param_create()
         initiation_age=0,
         parameters=XPalm.default_parameters(),
     )
-    scene = XPalm.xpalm_scene(palm; environment=meteo)
-    return scene, _xpalm_output_requests(scene, vars), nrow(meteo)
+    model = XPalm.xpalm_scene(palm; environment=meteo)
+    return model, _xpalm_output_requests(model, vars), nrow(meteo)
 end
 
-function xpalm_default_param_run(scene, requests, nsteps)
+function xpalm_default_param_run(model, requests, nsteps)
     return PlantSimEngine.run!(
-        scene;
+        model;
         steps=nsteps,
         outputs=requests,
     )

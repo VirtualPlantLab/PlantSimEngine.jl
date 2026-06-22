@@ -4,7 +4,7 @@
               meteo_bindings=NamedTuple(), meteo_window=nothing,
               output_routing=NamedTuple(), updates=())
 
-Configuration for one model application in a `Scene`.
+Configuration for one model application in a `CompositeModel`.
 
 `ModelSpec` keeps model implementation and scenario-specific usage metadata in one place.
 This allows modelers to publish reusable models while users decide how models are coupled in
@@ -183,7 +183,7 @@ end
 """
     with_inputs(model_or_spec, bindings)
 
-Return a `ModelSpec` with unified scene/object value-input bindings.
+Return a `ModelSpec` with unified composite-model/object value-input bindings.
 """
 function with_inputs(model_or_spec, bindings)
     spec, explicit, origins =
@@ -194,7 +194,7 @@ end
 """
     with_calls(model_or_spec, bindings)
 
-Return a `ModelSpec` with unified scene/object manual model-call bindings.
+Return a `ModelSpec` with unified composite-model/object manual model-call bindings.
 """
 function with_calls(model_or_spec, bindings)
     spec, explicit, origins =
@@ -205,7 +205,7 @@ end
 """
     with_environment(model_or_spec, environment)
 
-Return a `ModelSpec` with scene/object environment configuration metadata.
+Return a `ModelSpec` with composite-model/object environment configuration metadata.
 """
 function with_environment(model_or_spec, environment)
     return _with_spec(model_or_spec; environment=environment)
@@ -328,7 +328,7 @@ end
     AppliesTo(selector)
 
 Pipe-style transform that sets the object selector where a model application
-runs in the unified scene/object API.
+runs in the unified composite-model/object API.
 """
 AppliesTo(selector) = x -> with_applies_to(x, selector)
 
@@ -337,7 +337,7 @@ AppliesTo(selector) = x -> with_applies_to(x, selector)
     Inputs(; kwargs...)
 
 Pipe-style transform that sets value-input bindings in the unified
-scene/object API.
+composite-model/object API.
 """
 Inputs(bindings::Pair...) = x -> with_inputs(x, bindings)
 Inputs(bindings::NamedTuple) = x -> with_inputs(x, bindings)
@@ -348,7 +348,7 @@ Inputs(; kwargs...) = Inputs((; kwargs...))
     Calls(; kwargs...)
 
 Pipe-style transform that sets manual model-call bindings in the unified
-scene/object API.
+composite-model/object API.
 """
 Calls(bindings::Pair...) = x -> with_calls(x, bindings)
 Calls(bindings::NamedTuple) = x -> with_calls(x, bindings)
@@ -366,7 +366,7 @@ TimeStep(timestep) = x -> with_timestep(x, timestep)
     Environment(config)
     Environment(; kwargs...)
 
-Pipe-style transform that stores scene/object environment configuration
+Pipe-style transform that stores composite-model/object environment configuration
 metadata on a `ModelSpec`.
 """
 Environment(config) = x -> with_environment(x, config isa EnvironmentConfig ? config : EnvironmentConfig(config))

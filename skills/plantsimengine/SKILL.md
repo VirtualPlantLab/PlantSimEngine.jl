@@ -1,26 +1,26 @@
 ---
 name: plantsimengine
-description: Use PlantSimEngine.jl to compose models with the unified Scene/Object API, AppliesTo, Inputs, Calls, TimeStep, Environment, and to implement or wrap generic model kernels with inputs_, outputs_, dep, meteo traits, and run!.
+description: Use PlantSimEngine.jl to compose models with the unified Composite Model/Object API, AppliesTo, Inputs, Calls, TimeStep, Environment, and to implement or wrap generic model kernels with inputs_, outputs_, dep, meteo traits, and run!.
 ---
 
 # PlantSimEngine Skill
 
-Use this skill when helping with PlantSimEngine.jl scene/object simulations,
+Use this skill when helping with PlantSimEngine.jl model/object simulations,
 multiscale or multi-plant coupling, multirate execution, microclimate binding,
 or implementing and wrapping models.
 
 PlantSimEngine has two main user roles:
 
-- **Users** compose existing models. They mostly need `Scene`, `Object`,
+- **Users** compose existing models. They mostly need `CompositeModel`, `Object`,
   `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`, and
   `Environment`.
 - **Modelers** implement or wrap generic kernels. They need process identity,
   `inputs_`, `outputs_`, `dep`, `meteo_inputs_`, `meteo_outputs_`, `run!`,
   model traits, and focused tests.
 
-Use the unified scene/object API for multiscale, multi-plant, soil, scene, and
+Use the unified model/object API for multiscale, multi-plant, soil, model, and
 microclimate work. Translate released mapping-era code using
-`docs/src/migration_scene_object.md`.
+`docs/src/migration_composite_model.md`.
 
 ## First Steps
 
@@ -30,10 +30,10 @@ microclimate work. Translate released mapping-era code using
    - Search for process definitions with `rg "@process|abstract type Abstract.*Model" src examples docs test`.
    - Search for model APIs with `rg "inputs_\\(|outputs_\\(|PlantSimEngine.run!|dep\\(" src examples test`.
 3. Check model IO with `inputs(model)`, `outputs(model)`, `variables(model)`, and process identity with `process(model)` when available.
-4. Validate scenarios early with `explain_initialization(scene)` and inspect
-   `explain_scene_applications`, `explain_bindings`, `explain_calls`,
+4. Validate scenarios early with `explain_initialization(model)` and inspect
+   `explain_applications`, `explain_bindings`, `explain_calls`,
    `explain_schedule`, `explain_writers`, and environment bindings.
-5. Use `explain_initialization(scene)` before running to distinguish supplied,
+5. Use `explain_initialization(model)` before running to distinguish supplied,
    generated, producer-bound, environment-bound, and unresolved variables.
 
 ## User Workflow: Existing Models
@@ -41,10 +41,10 @@ microclimate work. Translate released mapping-era code using
 ### Build the object graph
 
 For one object with ordinary same-object inference, use the thin constructor
-that lowers directly to the same Scene/Object runtime:
+that lowers directly to the same Composite Model/Object runtime:
 
 ```julia
-scene = Scene(
+model = CompositeModel(
     ModelA(),
     ModelB();
     status=(initial_value=1.0,),
@@ -59,7 +59,7 @@ Represent every runtime entity as an `Object` with stable identity and useful
 labels. Plant topology remains scenario-defined.
 
 ```julia
-scene = Scene(
+model = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene),
     Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
     Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1),
@@ -75,10 +75,10 @@ Rules:
 - Use any hierarchy required by the simulated object.
 - `Status` is reference-backed. Same-rate coupling should preserve those
   references instead of copying values.
-- Use `ObjectTemplate` and `ObjectInstance` for repeated plants with shared
+- Use `CompositeModelTemplate` and `ObjectInstance` for repeated plants with shared
   model objects and parameters.
-- Adapt an existing MTG with `Scene(mtg; applications=..., environment=...)`,
-  or inspect `objects_from_mtg(mtg; ...)` before constructing the scene.
+- Adapt an existing MTG with `CompositeModel(mtg; applications=..., environment=...)`,
+  or inspect `objects_from_mtg(mtg; ...)` before constructing the model.
   Accessors can translate MTG attributes into ids, labels, status, and
   geometry.
 
@@ -96,7 +96,7 @@ applications = (
     AppliesTo(One(scale=:Soil)),
 )
 
-scene = Scene(scene_objects...; applications=applications, environment=backend)
+model = CompositeModel(model_objects...; applications=applications, environment=backend)
 ```
 
 Use explicit application names when a process is applied more than once to the
@@ -126,7 +126,7 @@ Semantics:
 - `One(...)`, `OptionalOne(...)`, and `Many(...)` make multiplicity explicit.
 - `Self()` is only the consumer object. `Subtree()` is that object plus its
   descendants. `SelfPlant()` is the nearest containing plant and its subtree.
-  `SceneScope()` selects across the scene.
+  `SceneScope()` selects across the model.
 - Same-rate scalar and many-object inputs use shared `Ref`s or reference
   vectors where possible.
 - Cross-rate values use typed temporal streams.
@@ -183,14 +183,14 @@ Environment variables come from `meteo_inputs_` and `meteo_outputs_`.
 `meteo_hint(...).bindings` can provide model-author default source remaps, and
 `Environment(; sources=...)` is the scenario-level override. Use
 `Environment(provider=:grid)` only when overriding automatic binding.
-For global `Weather` tables, scene applications sample meteorology at their
+For global `Weather` tables, model applications sample meteorology at their
 compiled clock using the `meteo_hint` reducer/window. An
 `Environment(; sources=...)` override changes the source but preserves that
 reducer, and all objects in one application reuse the same sampled row for a
 given timestep. Spatial backends define their own temporal sampling semantics.
-When no `TimeStep(...)` is provided, the scene scheduler honors
+When no `TimeStep(...)` is provided, the model scheduler honors
 `timespec(::Type{<:Model})`; an explicit `TimeStep(...)` remains the
-scenario-level override. If the clock falls back to the scene base step,
+scenario-level override. If the clock falls back to the model base step,
 `timestep_hint(::Type{<:Model})` required bounds are validated as compatibility
 constraints.
 
@@ -204,21 +204,21 @@ the affected environment bindings.
 ### Validate the compiled scenario
 
 ```julia
-explain_scene_applications(scene)
-explain_bindings(scene)
-explain_calls(scene)
-explain_schedule(scene)
-explain_writers(scene)
-explain_model_bundles(scene)
+explain_applications(model)
+explain_bindings(model)
+explain_calls(model)
+explain_schedule(model)
+explain_writers(model)
+explain_model_bundles(model)
 ```
 
-Run with `simulation = run!(scene; steps=n, outputs=:none)`. Use
+Run with `simulation = run!(model; steps=n, outputs=:none)`. Use
 `outputs=:all` or `outputs=OutputRequest(...)` when the user needs retained or
 resampled outputs. Requests are materialized from retained typed streams after
 the run, and dynamic objects are exported only across their own sample
 interval. Continue the same time/environment/multirate state with
 `continue!(simulation; steps=n)` or `step!(simulation)`. Use
-`explain_output_retention(scene; outputs=...)` before a long run and
+`explain_output_retention(model; outputs=...)` before a long run and
 `explain_output_retention(simulation)` afterward.
 
 ## Modeler Workflow: New Or Wrapped Models
@@ -257,9 +257,9 @@ Rules:
 - Use `NamedTuple()` for no inputs or no outputs.
 - Read and write model state through `status`. Do not store timestep-varying state in the model object.
 - Read weather through `meteo` and physical constants through `constants`.
-- In scene runs, `extra` is a `SceneRunContext`. Use its public hard-call and
+- In model runs, `extra` is a `RunContext`. Use its public hard-call and
   lifecycle APIs rather than attaching unrelated user data. Obtain the live
-  scene with `runtime_scene(extra)`; do not inspect `extra.compiled.scene`.
+  model with `runtime_model(extra)`; do not inspect `extra.compiled.model`.
 - If a variable appears in both `inputs_` and `outputs_` with the same name, remember that `variables(model)` merges declarations and later output declarations win.
 
 ### Wrapping existing code
@@ -328,19 +328,19 @@ future parallel implementation.
 
 ### Source ownership
 
-- `src/scene_object_api.jl` is only the dependency-ordered include boundary.
-- `src/scene_object/registry_topology.jl` owns objects, instances, and lifecycle.
-- `src/scene_object/selectors.jl` owns selector resolution.
-- `src/scene_object/compilation.jl` owns bindings, calls, writers, and schedules.
-- `src/scene_object/environment_bindings.jl` owns environment coupling.
-- `src/scene_object/runtime_outputs.jl` owns execution and output streams.
+- `src/composite_model_api.jl` is only the dependency-ordered include boundary.
+- `src/composite_model/registry_topology.jl` owns objects, instances, and lifecycle.
+- `src/composite_model/selectors.jl` owns selector resolution.
+- `src/composite_model/compilation.jl` owns bindings, calls, writers, and schedules.
+- `src/composite_model/environment_bindings.jl` owns environment coupling.
+- `src/composite_model/runtime_outputs.jl` owns execution and output streams.
 
 ## Validation Checklist
 
 For user scenarios:
 
-- `explain_initialization(scene)` contains no unresolved required values.
-- `explain_scene_applications` shows the expected application/object pairs.
+- `explain_initialization(model)` contains no unresolved required values.
+- `explain_applications` shows the expected application/object pairs.
 - `explain_bindings` shows the intended source ids, source applications,
   temporal policies, and carrier semantics.
 - `explain_calls`, `explain_schedule`, and `explain_writers` match the intended
@@ -356,7 +356,7 @@ For user scenarios:
 For model implementations:
 
 - Unit-test `inputs_`, `outputs_`, and a direct `run!` call with a minimal `Status`.
-- Test scene composition when the model is meant to couple by variable name.
+- Test model composition when the model is meant to couple by variable name.
 - Test `Inputs(...)` when the model expects scalar refs, `RefVector` inputs, or
   renamed variables.
 - Test multirate behavior when `TimeStep`, temporal policies, windows, or

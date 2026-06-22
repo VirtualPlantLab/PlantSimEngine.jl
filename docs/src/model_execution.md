@@ -1,13 +1,13 @@
 # Model Execution
 
-This page describes how the native scene/object runtime executes model
+This page describes how the native composite-model/object runtime executes model
 applications. Use this path for new multi-object, multi-plant, soil,
 microclimate, and multirate simulations.
 
 The public configuration surface is:
 
 ```julia
-Scene
+CompositeModel
 Object
 ModelSpec
 AppliesTo
@@ -18,7 +18,7 @@ TimeStep
 Environment
 ```
 
-Scenarios start from `Scene` and model applications.
+Scenarios start from `CompositeModel` and model applications.
 
 ## Model Kernels And Applications
 
@@ -32,7 +32,7 @@ A model kernel is still an ordinary PlantSimEngine model:
 - `run!(model, models, status, meteo, constants, extra)` contains the model
   equations.
 
-The scene/object layer does not change that kernel contract. It adds a
+The composite-model/object layer does not change that kernel contract. It adds a
 scenario-specific application around the kernel:
 
 ```julia
@@ -50,7 +50,7 @@ provider is bound to it. The model implementation stays reusable.
 
 ## Compilation Before Runtime
 
-Before the timestep loop, PlantSimEngine compiles the scene into concrete
+Before the timestep loop, PlantSimEngine compiles the model into concrete
 runtime carriers:
 
 1. `AppliesTo(...)` selectors are resolved to stable object ids.
@@ -73,13 +73,13 @@ compiled indexes and carriers.
 Useful inspection helpers:
 
 ```julia
-explain_scene_applications(scene)
-explain_bindings(scene)
-explain_calls(scene)
-explain_environment_bindings(scene)
-explain_schedule(scene)
-explain_execution_plan(scene)
-explain_writers(scene)
+explain_applications(model)
+explain_bindings(model)
+explain_calls(model)
+explain_environment_bindings(model)
+explain_schedule(model)
+explain_execution_plan(model)
+explain_writers(model)
 ```
 
 These explanations are intended for both users and agents. They report the
@@ -106,7 +106,7 @@ ModelSpec(SceneLAI(ground_area); name=:scene_lai) |>
 ```
 
 For same-rate inputs, the runtime installs a reference carrier into the
-consumer status during compilation. A scene-scale model reading all leaf areas
+consumer status during compilation. A model-scale model reading all leaf areas
 therefore sees a `RefVector`-like object: reading pulls current values from
 source leaf statuses, and writing through the carrier mutates source refs when
 the carrier supports it.
@@ -167,7 +167,7 @@ do not publish temporal samples or scatter mutable environment outputs. Call
 `run_call!(target; publish=true)` once for the accepted state.
 
 Applications selected only by `Calls(...)` are marked manual-call-only in
-`explain_schedule(scene)` and are skipped by the root `run!(scene)` loop.
+`explain_schedule(model)` and are skipped by the root `run!(model)` loop.
 
 ## Duplicate Writers With Updates
 
@@ -185,10 +185,10 @@ ModelSpec(LeafPruning(); name=:leaf_pruning) |>
 ```
 
 This keeps ordinary duplicate outputs as errors while allowing cases such as
-allocation followed by pruning. `explain_writers(scene)` reports writer
+allocation followed by pruning. `explain_writers(model)` reports writer
 groups and the `Updates(...)` declarations that validate them.
 The `after` value is the canonical application identifier shown by
-`explain_scene_applications(scene)`, not the process name.
+`explain_applications(model)`, not the process name.
 
 ## Multirate Execution
 
@@ -218,11 +218,11 @@ Clock precedence is:
 
 1. explicit `TimeStep(...)` on the `ModelSpec`;
 2. non-default `timespec(model)` trait;
-3. the scene environment base step.
+3. the model environment base step.
 
 `timestep_hint(model)` is a compatibility constraint and explanation hint. It
 does not silently choose a clock. If a model uses the environment base step and
-that step violates `timestep_hint.required`, scene compilation errors.
+that step violates `timestep_hint.required`, model compilation errors.
 
 Temporal input policy precedence is:
 
@@ -275,16 +275,16 @@ model-to-model temporal values.
 
 ## Running And Outputs
 
-Run a scene with:
+Run a model with:
 
 ```julia
-sim = run!(scene; steps=30)
+sim = run!(model; steps=30)
 ```
 
-The returned `SceneSimulation` contains the mutated scene, compiled bindings,
+The returned `Simulation` contains the mutated model, compiled bindings,
 environment bindings, execution plan, and retained temporal output streams.
 
-By default, scene runs retain no user output streams. Pass `outputs=:all` to
+By default, model runs retain no user output streams. Pass `outputs=:all` to
 retain every published stream, or pass `OutputRequest` values to retain only
 selected outputs and required temporal dependency streams:
 
@@ -298,7 +298,7 @@ request = OutputRequest(
     clock=Dates.Day(1),
 )
 
-sim = run!(scene; steps=72, outputs=request)
+sim = run!(model; steps=72, outputs=request)
 collect_outputs(sim, :leaf_assimilation_daily; sink=nothing)
 explain_output_retention(sim)
 ```
@@ -311,7 +311,7 @@ application directly and can also request an explicitly named
 `outputs=:none` retains no user output streams. Histories required by temporal
 dependencies are still maintained with bounded retention.
 
-`run!(scene; ...)` always starts a fresh result timeline. Continue an existing
+`run!(model; ...)` always starts a fresh result timeline. Continue an existing
 simulation without resetting its step index, environment position, multirate
 phase, or temporal histories with:
 
@@ -331,14 +331,14 @@ for full-history streams.
 
 ## Lifecycle Changes
 
-Scene objects may be added, removed, reparented, moved, or have their geometry
+CompositeModel objects may be added, removed, reparented, moved, or have their geometry
 updated between or during timesteps:
 
 ```julia
-register_object!(scene, Object(:new_leaf; scale=:Leaf); parent=:plant_1)
+register_object!(model, Object(:new_leaf; scale=:Leaf); parent=:plant_1)
 leaf_status = add_organ!(
     parent_node,
-    scene,
+    model,
     :+,
     :Leaf,
     3;
@@ -346,14 +346,14 @@ leaf_status = add_organ!(
     attributes=(area=0.01,),
     initial_status=(biomass=0.0,),
 )
-remove_object!(scene, :old_leaf)
-reparent_object!(scene, :leaf_3, :plant_2)
-move_object!(scene, :leaf_4, new_geometry)
-update_geometry!(scene, :leaf_5, new_geometry)
+remove_object!(model, :old_leaf)
+reparent_object!(model, :leaf_3, :plant_2)
+move_object!(model, :leaf_4, new_geometry)
+update_geometry!(model, :leaf_5, new_geometry)
 ```
 
-Use `add_organ!` for an MTG-backed scene. It creates the MTG node, initializes
-and attaches its `Status` with the scene's MTG policy, registers the scene
+Use `add_organ!` for an MTG-backed model. It creates the MTG node, initializes
+and attaches its `Status` with the model's MTG policy, registers the model
 object, and invalidates the affected bindings. `register_object!` is the
 low-level operation for callers that already own a complete `Object`.
 
@@ -371,8 +371,8 @@ immutable lifecycle anchors: removing or reparenting a root, or an ancestor
 whose subtree contains one, is rejected atomically. Ordinary descendants may
 still be added, removed, or reparented.
 
-Inside a lifecycle-capable model kernel, use `runtime_scene(extra)` to obtain
-the live scene. Objects created during a kernel call do not recursively execute
+Inside a lifecycle-capable model kernel, use `runtime_model(extra)` to obtain
+the live model. Objects created during a kernel call do not recursively execute
 inside that call. Structural targets, value carriers, call targets, writer
 validation, schedules, and output-request matches are refreshed at the next
 timestep boundary. Geometry-only mutations refresh affected environment
@@ -383,7 +383,7 @@ removed objects.
 
 The historical mapping runtime has been removed. Translate old code as follows:
 
-- `ModelMapping(...)` -> `Scene(...)` plus object-local `ModelSpec(...)`
+- `ModelMapping(...)` -> `CompositeModel(...)` plus object-local `ModelSpec(...)`
   applications;
 - `MultiScaleModel(...)` -> `Inputs(...)`;
 - `InputBindings(...)` -> selector fields inside `Inputs(...)`;
@@ -391,5 +391,5 @@ The historical mapping runtime has been removed. Translate old code as follows:
   `meteo_hint(...)`, and model/application clocks;
 - `TimeStepModel(...)` -> `TimeStep(...)`.
 
-See [Migrating To The Scene/Object API](migration_scene_object.md) for worked
+See [Migrating To The CompositeModel/Object API](migration_composite_model.md) for worked
 translation patterns.

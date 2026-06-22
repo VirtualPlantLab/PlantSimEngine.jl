@@ -2,7 +2,7 @@
 
 Declare parent-owned execution with `Calls(:name => One(...))` or
 `Calls(:name => Many(...))`. In the kernel, obtain the resolved target from the
-`SceneRunContext` and invoke `run_call!`. A target used only by calls is absent
+`RunContext` and invoke `run_call!`. A target used only by calls is absent
 from root scheduling.
 
 Explicit target cadence must match the caller. A target without an explicit

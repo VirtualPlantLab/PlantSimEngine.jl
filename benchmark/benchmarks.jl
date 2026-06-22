@@ -22,21 +22,21 @@ SUITE[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
 # "PSE benchmark"
 include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
 SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
-    scene,
+    model,
     requests,
     nsteps,
-) setup = ((scene, requests, nsteps) = setup_heavier_scene_benchmark())
+) setup = ((model, requests, nsteps) = setup_heavier_model_benchmark())
 
 include(joinpath(@__DIR__, "test-multirate-buffer-benchmark.jl"))
 SUITE[suite_name]["PSE_multirate_retain_all_run"] = @benchmarkable benchmark_multirate_retain_all_run(
-    scene,
+    model,
     nsteps,
-) setup = ((scene, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
+) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
 SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run(
-    scene,
+    model,
     requests,
     nsteps,
-) setup = ((scene, requests, nsteps) = setup_multirate_buffer_benchmark())
+) setup = ((model, requests, nsteps) = setup_multirate_buffer_benchmark())
 
 # "PBP benchmark"
 include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
@@ -50,10 +50,10 @@ include(joinpath(@__DIR__, "test-xpalm.jl"))
 SUITE[suite_name]["XPalm_setup"] = @benchmarkable xpalm_default_param_create() seconds = 120
 
 SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run(
-    scene,
+    model,
     requests,
     nsteps,
-) setup = ((scene, requests, nsteps) = xpalm_default_param_create())
+) setup = ((model, requests, nsteps) = xpalm_default_param_create())
 
 #tune!(SUITE)
 #results = run(SUITE, verbose=true)

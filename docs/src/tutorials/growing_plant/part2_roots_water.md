@@ -6,12 +6,12 @@ remains object-local. Environment precipitation is an environment input; root
 creation is an explicit `register_object!` operation with initialized status.
 
 When several plants share one soil object, select it explicitly with a
-scene-wide `One` selector rather than relying on traversal order.
+model-wide `One` selector rather than relying on traversal order.
 
 Keep stocks at the scale that owns conservation. A root model may publish an
 absorption rate per root, while the plant model integrates all root rates and
 updates one plant water stock. A soil model owns soil water; plants read it
-through an explicit scene-wide selector. This avoids copying one stock into
+through an explicit model-wide selector. This avoids copying one stock into
 every organ and makes duplicate writers visible.
 
 ```julia

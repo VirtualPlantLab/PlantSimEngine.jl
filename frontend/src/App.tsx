@@ -37,7 +37,7 @@ import { OverrideForm, type OverrideFormValue } from "./OverrideForm";
 import { ApplicationNode, EntityNode } from "./ModelNode";
 import { DependencyEdge } from "./DependencyEdge";
 import { layoutGraph, type LayoutMode } from "./layout";
-import { sampleGraph } from "./sampleGraph";
+import { sampleModelGraph } from "./sampleModelGraph";
 import type {
   ApplicationGraphNode,
   DetailMode,
@@ -51,19 +51,19 @@ import type {
   ObjectGraphNode,
   RuntimeApplicationNode,
   RuntimeEntityNode,
-  SceneGraphEdge,
-  SceneGraphView,
-  SceneRootDescriptor,
+  ModelGraphEdge,
+  ModelGraphView,
+  ModelRootDescriptor,
   SelectorPreview,
   TargetPreview,
 } from "./types";
 import "./styles.css";
 
 type FlowNode = Node<RuntimeApplicationNode | RuntimeEntityNode>;
-type FlowEdge = Edge<SceneGraphEdge>;
+type FlowEdge = Edge<ModelGraphEdge>;
 type CandidatePopover = { port: GraphPort; application: ApplicationGraphNode; x: number; y: number };
 type CycleBreakSelection = { application: ApplicationGraphNode; port: GraphPort };
-type InspectorSelection = ApplicationGraphNode | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode | SceneRootDescriptor | SceneGraphEdge | null;
+type InspectorSelection = ApplicationGraphNode | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode | ModelRootDescriptor | ModelGraphEdge | null;
 type GraphScopeFilter = { label: string; objectIds: unknown[] };
 type ApplicationFormState = {
   mode: "add" | "update";
@@ -76,10 +76,10 @@ type ApplicationFormState = {
 type ObjectFormState = { mode: "add" | "update"; object?: ObjectGraphNode };
 
 const nodeTypes = { application: ApplicationNode, entity: EntityNode };
-const edgeTypes = { sceneEdge: DependencyEdge };
+const edgeTypes = { modelEdge: DependencyEdge };
 
 export default function App() {
-  const [graph, setGraph] = useState<SceneGraphView>(loadInitialGraph);
+  const [graph, setGraph] = useState<ModelGraphView>(loadInitialGraph);
   const [view, setView] = useState<GraphViewMode>(() => loadInitialGraph().level);
   const [detailMode, setDetailMode] = useState<DetailMode>(() => loadInitialGraph().metadata.applicationCount > 24 ? "overview" : "detail");
   const [query, setQuery] = useState("");
@@ -89,10 +89,10 @@ export default function App() {
   const [candidate, setCandidate] = useState<CandidatePopover | null>(null);
   const [showDiagnostics, setShowDiagnostics] = useState(false);
   const [showInitialization, setShowInitialization] = useState(false);
-  const [showSceneCode, setShowSceneCode] = useState(false);
+  const [showModelCode, setShowModelCode] = useState(false);
   const [showOpen, setShowOpen] = useState(false);
   const [showSave, setShowSave] = useState(false);
-  const [sceneCode, setSceneCode] = useState("");
+  const [modelCode, setSceneCode] = useState("");
   const [autosavePath, setAutosavePath] = useState<string | null>(null);
   const [savePath, setSavePath] = useState<string | null>(null);
   const [recentPaths, setRecentPaths] = useState<string[]>([]);
@@ -153,7 +153,7 @@ export default function App() {
     nextSocket.addEventListener("message", (event) => {
       const payload = JSON.parse(event.data) as EditorState;
       if (payload.graph) setGraph(payload.graph);
-      if (typeof payload.sceneCode === "string") setSceneCode(payload.sceneCode);
+      if (typeof payload.modelCode === "string") setSceneCode(payload.modelCode);
       setAutosavePath(payload.autosavePath ?? null);
       setSavePath(payload.savePath ?? null);
       setRecentPaths(payload.recentPaths ?? []);
@@ -229,7 +229,7 @@ export default function App() {
       } else if (node.data.nodeKind === "instance") {
         const instance = node.data.detail as InstanceDescriptor;
         setScopeFilter({ label: `instance ${instance.name}`, objectIds: instance.objectIds });
-      } else if (node.data.nodeKind === "scene") {
+      } else if (node.data.nodeKind === "model") {
         setScopeFilter(null);
       }
     }
@@ -244,7 +244,7 @@ export default function App() {
       initialModelType: model.type,
       suggestedSelector: selectorSuggestion(candidate.application),
     });
-    if (!connected) setFeedback(`${model.name} matches ${candidate.port.name}. Start an interactive Julia editor session to add it to the Scene.`);
+    if (!connected) setFeedback(`${model.name} matches ${candidate.port.name}. Start an interactive Julia editor session to add it to the composite model.`);
     setCandidate(null);
   }, [candidate, connected]);
 
@@ -344,18 +344,18 @@ export default function App() {
   }, [graph.initialization, selected]);
 
   return (
-    <main className="scene-editor-shell" data-testid="scene-graph-viewer">
-      <header className="scene-toolbar">
-        <div className="scene-brand">
+    <main className="model-editor-shell" data-testid="model-graph-viewer">
+      <header className="model-toolbar">
+        <div className="model-brand">
           <span className="brand-mark" />
-          <div><small>PLANTSIMENGINE</small><strong>Scene Graph</strong></div>
+          <div><small>PLANTSIMENGINE</small><strong>Model Graph</strong></div>
         </div>
-        <div className="scene-search">
+        <div className="model-search">
           <Search size={17} />
           <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search application, object, or variable" />
           {query && <button aria-label="Clear search" onClick={() => setQuery("")}><X size={15} /></button>}
         </div>
-        <div className="scene-counts">
+        <div className="model-counts">
           <span>{graph.metadata.applicationCount} applications</span>
           <span>{graph.metadata.objectCount} objects</span>
           {graph.metadata.unresolvedInitializationCount > 0 && (
@@ -370,9 +370,9 @@ export default function App() {
           <button className={view === "topology" ? "active" : ""} onClick={() => setView("topology")}><GitBranch size={15} /> Objects</button>
           <button className={view === "resolved" ? "active" : ""} onClick={() => setView("resolved")}><Network size={15} /> Executions</button>
         </nav>
-        <div className="scene-actions">
-          {editorConfig && <button data-testid="open-scene" onClick={() => setShowOpen(true)}><FolderOpen size={15} /> Open</button>}
-          {editorConfig && <button data-testid="save-scene" onClick={() => setShowSave(true)}><Save size={15} /> {savePath ? "Saved" : "Save"}</button>}
+        <div className="model-actions">
+          {editorConfig && <button data-testid="open-model" onClick={() => setShowOpen(true)}><FolderOpen size={15} /> Open</button>}
+          {editorConfig && <button data-testid="save-model" onClick={() => setShowSave(true)}><Save size={15} /> {savePath ? "Saved" : "Save"}</button>}
           {view !== "topology" && (
             <button className={detailMode === "overview" ? "overview-cta" : ""} onClick={() => setDetailMode((current) => current === "overview" ? "detail" : "overview")}>
               {detailMode === "overview" ? "Overview Mode - Show Detailed View" : "Show Overview"}
@@ -382,7 +382,7 @@ export default function App() {
           {editorConfig && <button data-testid="add-object" onClick={() => setObjectForm({ mode: "add" })}><Plus size={15} /> Add object</button>}
           {editorConfig && <button disabled={!canUndo} onClick={() => sendCommand({ action: "undo" })} aria-label="Undo"><Undo2 size={15} /></button>}
           {editorConfig && <button disabled={!canRedo} onClick={() => sendCommand({ action: "redo" })} aria-label="Redo"><Redo2 size={15} /></button>}
-          <button onClick={() => setShowSceneCode(true)}><Code2 size={15} /> Scene code</button>
+          <button onClick={() => setShowModelCode(true)}><Code2 size={15} /> Model code</button>
         </div>
       </header>
 
@@ -412,7 +412,7 @@ export default function App() {
         </section>
       )}
 
-      <section className="scene-workspace">
+      <section className="model-workspace">
         <div className="flow-wrap">
           <ReactFlow
             nodes={nodes}
@@ -476,9 +476,9 @@ export default function App() {
       )}
       {showDiagnostics && <DiagnosticsPanel graph={graph} onClose={() => setShowDiagnostics(false)} sendCommand={sendCommand} interactive={connected} />}
       {showInitialization && <InitializationPanel graph={graph} onClose={() => setShowInitialization(false)} sendCommand={sendCommand} interactive={connected} />}
-      {showSceneCode && <SceneCodePanel code={sceneCode} onClose={() => setShowSceneCode(false)} />}
-      {showOpen && <SceneFileDialog mode="open" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "open_scene_code", path }); setShowOpen(false); }} onClose={() => setShowOpen(false)} />}
-      {showSave && <SceneFileDialog mode="save" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "save_scene_code", path }); setShowSave(false); }} onClose={() => setShowSave(false)} />}
+      {showModelCode && <SceneCodePanel code={modelCode} onClose={() => setShowModelCode(false)} />}
+      {showOpen && <SceneFileDialog mode="open" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "open_model_code", path }); setShowOpen(false); }} onClose={() => setShowOpen(false)} />}
+      {showSave && <SceneFileDialog mode="save" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "save_model_code", path }); setShowSave(false); }} onClose={() => setShowSave(false)} />}
       {applicationForm && (
         <ApplicationForm
           mode={applicationForm.mode}
@@ -551,7 +551,7 @@ function buildNodes({
   onPortClick,
   onCycleBreak,
 }: {
-  graph: SceneGraphView;
+  graph: ModelGraphView;
   view: GraphViewMode;
   detailMode: DetailMode;
   query: string;
@@ -568,22 +568,22 @@ function buildNodes({
 }): FlowNode[] {
   const matches = (value: unknown) => !query || JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
   if (view === "topology") {
-    const sceneDetail: SceneRootDescriptor = {
-      entity: "scene",
+    const modelDetail: ModelRootDescriptor = {
+      entity: "model",
       objectCount: graph.metadata.objectCount,
       instanceCount: graph.metadata.instanceCount,
       applicationCount: graph.metadata.applicationCount,
     };
-    const sceneNode: FlowNode = {
-      id: "scene:root",
+    const modelNode: FlowNode = {
+      id: "model:root",
       type: "entity",
       position: { x: 0, y: 0 },
       data: {
-        nodeKind: "scene",
-        title: graph.metadata.title || "Scene",
-        subtitle: "scene root",
+        nodeKind: "model",
+        title: graph.metadata.title || "Composite model",
+        subtitle: "model root",
         badges: [`${graph.metadata.instanceCount} instances`, `${graph.metadata.objectCount} objects`],
-        detail: sceneDetail,
+        detail: modelDetail,
       },
     };
     const instanceNodes: FlowNode[] = graph.instances.filter(matches).map((instance) => ({
@@ -610,7 +610,7 @@ function buildNodes({
         detail: object,
       },
     }));
-    return [sceneNode, ...instanceNodes, ...objectNodes];
+    return [modelNode, ...instanceNodes, ...objectNodes];
   }
   if (view === "resolved") {
     const applications = new Map(graph.applications.map((application) => [application.applicationId, application]));
@@ -659,7 +659,7 @@ function buildNodes({
   return [...applicationNodes, ...environmentNodes(graph, "applications")];
 }
 
-function environmentNodes(graph: SceneGraphView, projection: "applications" | "resolved"): FlowNode[] {
+function environmentNodes(graph: ModelGraphView, projection: "applications" | "resolved"): FlowNode[] {
   const relevant = graph.edges.filter((edge) => edge.kind === "environment_binding" && edge.projection === projection);
   const ids = new Set(relevant.flatMap((edge) => [edge.source, edge.target]).filter((id) => id.startsWith("environment:")));
   return [...ids].map((id) => {
@@ -685,7 +685,7 @@ function environmentNodes(graph: SceneGraphView, projection: "applications" | "r
 
 function uniqueStrings(values: string[]) { return [...new Set(values)]; }
 
-function buildEdges(graph: SceneGraphView, view: GraphViewMode): FlowEdge[] {
+function buildEdges(graph: ModelGraphView, view: GraphViewMode): FlowEdge[] {
   const sourceEdges = view === "topology" ? [...graph.edges, ...topologyContainerEdges(graph)] : graph.edges;
   return sourceEdges
     .filter((edge) => edgeProjectionMatches(edge, view))
@@ -695,7 +695,7 @@ function buildEdges(graph: SceneGraphView, view: GraphViewMode): FlowEdge[] {
       target: edge.target,
       sourceHandle: edge.sourcePort || undefined,
       targetHandle: edge.targetPort || undefined,
-      type: "sceneEdge",
+      type: "modelEdge",
       data: edge,
       markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(edge), width: 16, height: 16 },
       style: {
@@ -706,13 +706,13 @@ function buildEdges(graph: SceneGraphView, view: GraphViewMode): FlowEdge[] {
     }));
 }
 
-function topologyContainerEdges(graph: SceneGraphView): SceneGraphEdge[] {
-  const edges: SceneGraphEdge[] = [];
+function topologyContainerEdges(graph: ModelGraphView): ModelGraphEdge[] {
+  const edges: ModelGraphEdge[] = [];
   const instanceObjectIds = new Set(graph.instances.flatMap((instance) => instance.objectIds.map(objectKey)));
   for (const instance of graph.instances) {
     edges.push({
-      id: `topology:scene:${instance.id}`,
-      source: "scene:root",
+      id: `topology:model:${instance.id}`,
+      source: "model:root",
       target: instance.id,
       kind: "object_topology",
       projection: "topology",
@@ -730,8 +730,8 @@ function topologyContainerEdges(graph: SceneGraphView): SceneGraphEdge[] {
   for (const object of graph.objects) {
     if (object.parent === null && !instanceObjectIds.has(objectKey(object.objectId))) {
       edges.push({
-        id: `topology:scene:${object.id}`,
-        source: "scene:root",
+        id: `topology:model:${object.id}`,
+        source: "model:root",
         target: object.id,
         kind: "object_topology",
         projection: "topology",
@@ -765,14 +765,14 @@ export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): u
 
 function objectKey(value: unknown) { return String(value); }
 
-function edgeProjectionMatches(edge: SceneGraphEdge, view: GraphViewMode) {
-  const projection = (edge as SceneGraphEdge & { projection?: string }).projection;
+function edgeProjectionMatches(edge: ModelGraphEdge, view: GraphViewMode) {
+  const projection = (edge as ModelGraphEdge & { projection?: string }).projection;
   if (view === "topology") return edge.kind === "object_topology";
   if (view === "resolved") return projection === "resolved";
   return projection === "applications" || (!projection && !["object_topology", "application_target"].includes(edge.kind));
 }
 
-function edgeColor(edge: SceneGraphEdge) {
+function edgeColor(edge: ModelGraphEdge) {
   if (edge.cycle) return "#cf4937";
   if (edge.kind === "previous_timestep") return "#317b62";
   if (edge.kind === "manual_call") return "#be6a54";
@@ -781,7 +781,7 @@ function edgeColor(edge: SceneGraphEdge) {
   return "#a59687";
 }
 
-export function deriveCandidatePortIds(graph: SceneGraphView) {
+export function deriveCandidatePortIds(graph: ModelGraphView) {
   const result = new Set<string>();
   for (const application of graph.applications) {
     for (const input of application.inputs) {
@@ -871,11 +871,11 @@ export function endpointsForCandidate(candidate: CandidatePopover, application: 
   return { sourceApplication: candidate.application, sourcePort: candidate.port, targetApplication: application, targetPort };
 }
 
-function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: SceneGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
+function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: ModelGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
   const application = selection && "applicationId" in selection && "selector" in selection ? selection as ApplicationGraphNode : null;
   const object = selection && "objectId" in selection && !("applicationId" in selection) ? selection as ObjectGraphNode : null;
   return (
-    <aside className="scene-inspector">
+    <aside className="model-inspector">
       <header><strong>Inspector</strong>{selection && <span>{selectionLabel(selection)}</span>}</header>
       {!selection && <div className="empty-inspector"><Boxes size={28} /><p>Select an application, object, execution, or relationship.</p></div>}
       {selection && <pre>{JSON.stringify(selection, null, 2)}</pre>}
@@ -889,7 +889,7 @@ function Inspector({ selection, port, initialization, interactive, onEditApplica
   );
 }
 
-function DiagnosticsPanel({ graph, onClose, sendCommand, interactive }: { graph: SceneGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
+function DiagnosticsPanel({ graph, onClose, sendCommand, interactive }: { graph: ModelGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
   return <Overlay title="Diagnostics and cycles" onClose={onClose}>
     {graph.diagnostics.map((diagnostic) => <article className="diagnostic-card" key={`${diagnostic.code}:${diagnostic.message}`}><strong>{diagnostic.code}</strong><p>{diagnostic.message}</p>{diagnostic.suggestions.map((suggestion) => <small key={suggestion}>{suggestion}</small>)}</article>)}
     {graph.cycles.map((cycle) => <article className="cycle-card" key={cycle.id}><strong>{cycle.applicationIds.join(" → ")}</strong><p>Choose an input to read from the previous timestep.</p>{cycle.breakCandidates.map((candidate) => <button disabled={!interactive} key={`${candidate.applicationId}:${candidate.objectId}:${candidate.input}`} onClick={() => sendCommand({ action: "edit", kind: "mark_previous_timestep", applicationId: candidate.applicationId, input: candidate.input })}>{candidate.applicationId}.{candidate.input}</button>)}</article>)}
@@ -897,7 +897,7 @@ function DiagnosticsPanel({ graph, onClose, sendCommand, interactive }: { graph:
   </Overlay>;
 }
 
-function InitializationPanel({ graph, onClose, sendCommand, interactive }: { graph: SceneGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
+function InitializationPanel({ graph, onClose, sendCommand, interactive }: { graph: ModelGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
   const unresolved = graph.initialization.filter((row) => row.disposition === "unresolved");
   const groups = new Map<string, typeof unresolved>();
   for (const row of unresolved) {
@@ -910,7 +910,7 @@ function InitializationPanel({ graph, onClose, sendCommand, interactive }: { gra
   </Overlay>;
 }
 
-function InitializationGroup({ rows, interactive, sendCommand }: { rows: SceneGraphView["initialization"]; interactive: boolean; sendCommand: (command: Record<string, unknown>) => void }) {
+function InitializationGroup({ rows, interactive, sendCommand }: { rows: ModelGraphView["initialization"]; interactive: boolean; sendCommand: (command: Record<string, unknown>) => void }) {
   const [valueType, setValueType] = useState("float");
   const [value, setValue] = useState("");
   const first = rows[0];
@@ -924,18 +924,18 @@ function InitializationGroup({ rows, interactive, sendCommand }: { rows: SceneGr
 }
 
 function SceneCodePanel({ code, onClose }: { code: string; onClose: () => void }) {
-  return <Overlay title="Scene code" onClose={onClose}><pre className="scene-code">{code || "Scene code is available from an interactive editor session."}</pre></Overlay>;
+  return <Overlay title="Model code" onClose={onClose}><pre className="model-code">{code || "Model code is available from an interactive editor session."}</pre></Overlay>;
 }
 
 function SceneFileDialog({ mode, recentPaths, currentPath, autosavePath, onSubmit, onClose }: { mode: "open" | "save"; recentPaths: string[]; currentPath: string | null; autosavePath: string | null; onSubmit: (path: string) => void; onClose: () => void }) {
   const [path, setPath] = useState(currentPath || "");
-  return <Overlay title={mode === "open" ? "Open Scene" : "Save Scene"} onClose={onClose}>
-    <div className="scene-file-dialog">
-      <p>{mode === "open" ? "Open a Julia script whose final binding is `scene = Scene(...)`. Future edits will be saved back to that file." : "After the first save, every successful graph edit automatically rewrites this Julia script."}</p>
-      <label>Julia file path<div className="scene-path-input"><input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/absolute/path/to/scene.jl" autoFocus /><button className="primary" disabled={!path.trim()} onClick={() => onSubmit(path.trim())}>{mode === "open" ? "Open" : "Save"}</button></div></label>
-      {mode === "open" && recentPaths.length > 0 && <section><strong>Recent scenes</strong><div className="recent-scene-list">{recentPaths.map((recent) => <button key={recent} onClick={() => onSubmit(recent)}><span>{recent.split("/").at(-1)}</span><small>{recent}</small></button>)}</div></section>}
+  return <Overlay title={mode === "open" ? "Open Model" : "Save Model"} onClose={onClose}>
+    <div className="model-file-dialog">
+      <p>{mode === "open" ? "Open a Julia script whose final binding is `model = CompositeModel(...)`. Future edits will be saved back to that file." : "After the first save, every successful graph edit automatically rewrites this Julia script."}</p>
+      <label>Julia file path<div className="model-path-input"><input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/absolute/path/to/model.jl" autoFocus /><button className="primary" disabled={!path.trim()} onClick={() => onSubmit(path.trim())}>{mode === "open" ? "Open" : "Save"}</button></div></label>
+      {mode === "open" && recentPaths.length > 0 && <section><strong>Recent models</strong><div className="recent-model-list">{recentPaths.map((recent) => <button key={recent} onClick={() => onSubmit(recent)}><span>{recent.split("/").at(-1)}</span><small>{recent}</small></button>)}</div></section>}
       {mode === "open" && autosavePath && <section><strong>Recovery autosave</strong><button className="recovery-path" onClick={() => onSubmit(autosavePath)}>{autosavePath}</button></section>}
-      <small>Use Git to version saved Scene scripts and review scientific configuration changes.</small>
+      <small>Use Git to version saved composite-model scripts and review scientific configuration changes.</small>
     </div>
   </Overlay>;
 }
@@ -947,7 +947,7 @@ function CycleBreakDialog({
   onClose,
 }: {
   selection: CycleBreakSelection;
-  initialization: SceneGraphView["initialization"];
+  initialization: ModelGraphView["initialization"];
   onSubmit: (initializeMissing: boolean, initialValue: { type: string; value: string } | null) => void;
   onClose: () => void;
 }) {
@@ -979,7 +979,7 @@ function selectionLabel(selection: Exclude<InspectorSelection, null>) {
   if ("applicationId" in selection) return selection.applicationId;
   if ("objectId" in selection) return String(selection.objectId);
   if ("objectIds" in selection) return selection.name;
-  if ("entity" in selection) return "Scene";
+  if ("entity" in selection) return "Composite model";
   if ("provider" in selection) return selection.provider;
   return selection.kind.replaceAll("_", " ");
 }
@@ -1000,10 +1000,10 @@ export function applicationPortId(applicationId: string, role: "input" | "output
   return `application:${applicationId}:${role}:${variable}`;
 }
 
-function loadInitialGraph(): SceneGraphView {
-  const element = document.getElementById("pse-scene-graph-data");
-  if (!element?.textContent) return sampleGraph;
-  try { return JSON.parse(element.textContent) as SceneGraphView; } catch { return sampleGraph; }
+function loadInitialGraph(): ModelGraphView {
+  const element = document.getElementById("pse-model-graph-data");
+  if (!element?.textContent) return sampleModelGraph;
+  try { return JSON.parse(element.textContent) as ModelGraphView; } catch { return sampleModelGraph; }
 }
 
 function loadEditorConfig(): { websocketUrl: string } | null {

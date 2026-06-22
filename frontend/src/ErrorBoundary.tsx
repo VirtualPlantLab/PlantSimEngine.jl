@@ -9,7 +9,7 @@ export class ErrorBoundary extends Component<{ children: ReactNode }, { error: E
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
-    console.error("PlantSimEngine Scene graph frontend failed", error, info);
+    console.error("PlantSimEngine model graph frontend failed", error, info);
   }
 
   render() {

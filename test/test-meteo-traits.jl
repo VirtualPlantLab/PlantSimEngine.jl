@@ -41,12 +41,12 @@ end
         (T=20.0, Ca=410.0, duration=Dates.Hour(1))
     ) === nothing
 
-    scene = Scene(
+    model = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(meteo_seen=0.0));
         applications=(
             ModelSpec(MeteoTraitConsumerModel()) |> AppliesTo(One(scale=:Leaf)),
         ),
         environment=(T=20.0, CO2=410.0, duration=Dates.Hour(1)),
     )
-    @test validate_meteo_inputs(scene) === nothing
+    @test validate_meteo_inputs(model) === nothing
 end

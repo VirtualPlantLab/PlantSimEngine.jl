@@ -14,19 +14,19 @@ One main objective of PlantSimEngine is to let users switch between model
 implementations for a process without changing the engine or the other model
 kernels.
 
-In the scene/object API, the switch happens at the model-application layer:
+In the composite-model/object API, the switch happens at the model-application layer:
 replace the model inside a `ModelSpec`, keep the same `AppliesTo(...)`
 selector, and keep the same input contract when the replacement model needs the
 same variables.
 
 ## A first simulation
 
-This scene computes degree-days, LAI, absorbed PAR, and growth on one scene
+This model computes degree-days, LAI, absorbed PAR, and growth on one model
 object:
 
 ```@example scene_model_switching
-function plant_scene_with_growth(growth_model; growth_name=:growth)
-    Scene(
+function plant_model_with_growth(growth_model; growth_name=:growth)
+    CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene);
         applications=(
             ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
@@ -49,9 +49,9 @@ function plant_scene_with_growth(growth_model; growth_name=:growth)
     )
 end
 
-rue_scene = plant_scene_with_growth(ToyRUEGrowthModel(0.2))
+rue_scene = plant_model_with_growth(ToyRUEGrowthModel(0.2))
 rue_sim = run!(rue_scene; steps=10)
-rue_status = only(scene_objects(rue_scene; scale=:Scene)).status
+rue_status = only(model_objects(rue_scene; scale=:Scene)).status
 (growth_model=:ToyRUEGrowthModel, biomass=rue_status.biomass)
 ```
 
@@ -73,12 +73,12 @@ select(
 
 `ToyAssimGrowthModel` implements the same `:growth` process, reads the same
 `aPPFD` input, and computes additional outputs such as carbon assimilation and
-respiration. The rest of the scene does not need to change:
+respiration. The rest of the model does not need to change:
 
 ```@example scene_model_switching
-assim_scene = plant_scene_with_growth(ToyAssimGrowthModel())
+assim_scene = plant_model_with_growth(ToyAssimGrowthModel())
 assim_sim = run!(assim_scene; steps=10)
-assim_status = only(scene_objects(assim_scene; scale=:Scene)).status
+assim_status = only(model_objects(assim_scene; scale=:Scene)).status
 (
     growth_model=:ToyAssimGrowthModel,
     carbon_assimilation=assim_status.carbon_assimilation,
@@ -100,10 +100,10 @@ select(
 )
 ```
 
-This is the same principle used in larger scenes: switch one process
+This is the same principle used in larger composite models: switch one process
 implementation by replacing one `ModelSpec` or by using an
 `ObjectInstance(...; overrides=...)` when the change applies to one plant
 instance or one organ.
 
 The removed mapping runtime expressed the same idea differently. New scenario
-code expresses model switching through scene model applications.
+code expresses model switching through model model applications.

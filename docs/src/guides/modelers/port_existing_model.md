@@ -20,21 +20,21 @@ function PlantSimEngine.run!(m::DocsLAIGrowth, models, status, meteo, constants,
     status.lai_next = status.lai + m.rate * meteo.T
 end
 
-scene = Scene(
+model = CompositeModel(
     DocsLAIGrowth(0.02);
     status=(lai=1.0,),
     environment=(T=10.0, duration=Day(1)),
 )
-simulation = run!(scene)
-@assert only(scene_objects(scene)).status.lai_next == 1.2
+simulation = run!(model)
+@assert only(model_objects(model)).status.lai_next == 1.2
 ```
 
 Test the scientific function first, then the kernel directly with a `Status`,
-and finally the same model through a scene. These three levels separate a
+and finally the same model through a model. These three levels separate a
 scientific error from a model-contract error and a scenario-binding error.
-`explain_initialization(scene)` should show `lai` as supplied, `T` as
+`explain_initialization(model)` should show `lai` as supplied, `T` as
 environment-bound, and `lai_next` as generated.
 
-The concise constructor lowers to the ordinary Scene compiler; it is not a
+The concise constructor lowers to the ordinary CompositeModel compiler; it is not a
 separate runtime. Move to explicit `Object` and `ModelSpec` construction only
 when the scenario needs multiple objects, selectors, or named applications.

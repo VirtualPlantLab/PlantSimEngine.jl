@@ -31,7 +31,7 @@ PlantSimEngine.outputs_(::DocsDailyTotal) = (total=0.0,)
 PlantSimEngine.run!(::DocsDailyTotal, models, status, meteo, constants, extra) =
     (status.total = sum(status.fluxes))
 
-scene = Scene(
+model = CompositeModel(
     Object(:plant; scale=:Plant),
     Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(rate=1.0)),
     Object(:leaf_2; scale=:Leaf, parent=:plant, status=Status(rate=2.0));
@@ -47,8 +47,8 @@ scene = Scene(
     ),
     environment=[(duration=Hour(1),) for _ in 1:25],
 )
-simulation = run!(scene; steps=25)
-@assert only(object.status.total for object in scene_objects(scene)
+simulation = run!(model; steps=25)
+@assert only(object.status.total for object in model_objects(model)
              if object.id == ObjectId(:plant)) == 72.0
 ```
 

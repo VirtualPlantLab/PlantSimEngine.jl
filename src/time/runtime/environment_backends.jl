@@ -127,10 +127,10 @@ function validate_meteo_inputs(model_specs::Dict{Symbol,Dict{Symbol,ModelSpec}},
     )
 end
 
-function _scene_validation_scale(scene::Scene, application::CompiledSceneApplication)
+function _model_validation_scale(model::CompositeModel, application::CompiledModelApplication)
     scales = Set{Symbol}()
     for object_id in application.target_ids
-        object = _scene_object(scene, object_id)
+        object = _model_object(model, object_id)
         isnothing(object.scale) || push!(scales, object.scale)
     end
     isempty(scales) && return :Scene
@@ -138,10 +138,10 @@ function _scene_validation_scale(scene::Scene, application::CompiledSceneApplica
     return :Scene
 end
 
-function _scene_model_specs_by_application(compiled::CompiledScene)
+function _model_model_specs_by_application(compiled::CompiledCompositeModel)
     specs = Dict{Symbol,Dict{Symbol,ModelSpec}}()
     for application in compiled.applications
-        scale = _scene_validation_scale(compiled.scene, application)
+        scale = _model_validation_scale(compiled.model, application)
         specs_at_scale = get!(specs, scale, Dict{Symbol,ModelSpec}())
         specs_at_scale[application.id] = application.spec
     end
@@ -149,11 +149,11 @@ function _scene_model_specs_by_application(compiled::CompiledScene)
 end
 
 """
-    validate_meteo_inputs(scene::Scene)
-    validate_meteo_inputs(compiled::CompiledScene)
-    validate_meteo_inputs(compiled::CompiledScene, meteo_or_backend)
+    validate_meteo_inputs(model::CompositeModel)
+    validate_meteo_inputs(compiled::CompiledCompositeModel)
+    validate_meteo_inputs(compiled::CompiledCompositeModel, meteo_or_backend)
 
-Validate declared scene/object `meteo_inputs_`.
+Validate declared composite-model/object `meteo_inputs_`.
 
 The one-argument methods validate each application against its actual compiled
 environment backend, including application-level `Environment(...)` overrides.
@@ -162,23 +162,23 @@ explicit replacement meteorology/environment backend. Diagnostics report model
 application ids, so several applications for the same process can be diagnosed
 independently.
 """
-function validate_meteo_inputs(compiled::CompiledScene, meteo_or_backend)
+function validate_meteo_inputs(compiled::CompiledCompositeModel, meteo_or_backend)
     backend = environment_backend(meteo_or_backend)
-    return validate_meteo_inputs(_scene_model_specs_by_application(compiled), backend)
+    return validate_meteo_inputs(_model_model_specs_by_application(compiled), backend)
 end
 
-function validate_meteo_inputs(compiled::CompiledScene)
-    refresh_environment_bindings!(compiled.scene, compiled)
+function validate_meteo_inputs(compiled::CompiledCompositeModel)
+    refresh_environment_bindings!(compiled.model, compiled)
     return nothing
 end
 
-function validate_meteo_inputs(scene::Scene)
-    compiled = refresh_bindings!(scene)
+function validate_meteo_inputs(model::CompositeModel)
+    compiled = refresh_bindings!(model)
     return validate_meteo_inputs(compiled)
 end
 
-function validate_meteo_inputs(scene::Scene, meteo_or_backend)
-    compiled = refresh_bindings!(scene)
+function validate_meteo_inputs(model::CompositeModel, meteo_or_backend)
+    compiled = refresh_bindings!(model)
     return validate_meteo_inputs(compiled, meteo_or_backend)
 end
 
@@ -355,7 +355,7 @@ end
 """
     explain_environment(simulation)
 
-Return a compact description of the environment backend used by a scene
+Return a compact description of the environment backend used by a model
 simulation.
 """
 function explain_environment(simulation)

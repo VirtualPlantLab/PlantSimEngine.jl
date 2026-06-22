@@ -1,13 +1,13 @@
 import ELK from "elkjs/lib/elk.bundled.js";
 import type { Edge, Node } from "@xyflow/react";
-import type { RuntimeApplicationNode, RuntimeEntityNode, SceneGraphEdge } from "./types";
+import type { RuntimeApplicationNode, RuntimeEntityNode, ModelGraphEdge } from "./types";
 import { nodeWidth } from "./nodeSizing";
 
 const elk = new ELK();
 export type LayoutMode = "data_flow" | "compact" | "overview" | "topology";
 type RuntimeNode = RuntimeApplicationNode | RuntimeEntityNode;
 
-export async function layoutGraph(nodes: Node<RuntimeNode>[], edges: Edge<SceneGraphEdge>[], mode: LayoutMode) {
+export async function layoutGraph(nodes: Node<RuntimeNode>[], edges: Edge<ModelGraphEdge>[], mode: LayoutMode) {
   const graph = {
     id: "root",
     layoutOptions: options(mode),

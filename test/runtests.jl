@@ -26,64 +26,64 @@ else
     Aqua.test_all(PlantSimEngine, ambiguities=false)
     Aqua.test_ambiguities([PlantSimEngine])
 
-    @testset "Unified scene/object API" begin
-        include("test-unified-scene-object-api.jl")
+    @testset "Unified model/object API" begin
+        include("test-unified-model-object-api.jl")
     end
 
-    @testset "Scene/Object API stabilization" begin
-        include("test-scene-api-stabilization.jl")
+    @testset "Composite Model/Object API stabilization" begin
+        include("test-model-api-stabilization.jl")
     end
 
-    @testset "Scene hard calls" begin
-        include("test-scene-hard-calls.jl")
+    @testset "Composite model hard calls" begin
+        include("test-model-hard-calls.jl")
     end
 
-    @testset "Scene numerical parity" begin
-        include("test-scene-numerical-parity.jl")
+    @testset "Composite model numerical parity" begin
+        include("test-model-numerical-parity.jl")
     end
 
-    @testset "Scene status initialization" begin
-        include("test-scene-status-initialization.jl")
+    @testset "Composite model status initialization" begin
+        include("test-model-status-initialization.jl")
     end
 
-    @testset "Scene output boundaries" begin
-        include("test-scene-output-boundaries.jl")
+    @testset "Composite model output boundaries" begin
+        include("test-model-output-boundaries.jl")
     end
 
-    @testset "Scene time validation" begin
-        include("test-scene-time-validation.jl")
+    @testset "Composite model time validation" begin
+        include("test-model-time-validation.jl")
     end
 
-    @testset "Scene runtime matrix" begin
-        include("test-scene-runtime-matrix.jl")
+    @testset "Composite model runtime matrix" begin
+        include("test-model-runtime-matrix.jl")
     end
 
-    @testset "Scene meteorological sampling" begin
-        include("test-scene-meteo-sampling.jl")
+    @testset "Composite model meteorological sampling" begin
+        include("test-model-meteo-sampling.jl")
     end
 
-    @testset "Scene temporal reducers" begin
-        include("test-scene-temporal-reducers.jl")
+    @testset "Composite model temporal reducers" begin
+        include("test-model-temporal-reducers.jl")
     end
 
-    @testset "Scene binding inference" begin
-        include("test-scene-binding-inference.jl")
+    @testset "Composite model binding inference" begin
+        include("test-model-binding-inference.jl")
     end
 
-    @testset "Scene multirate integration" begin
-        include("test-scene-multirate-integration.jl")
+    @testset "Composite model multirate integration" begin
+        include("test-model-multirate-integration.jl")
     end
 
-    @testset "Scene configuration errors" begin
-        include("test-scene-configuration-errors.jl")
+    @testset "Composite model configuration errors" begin
+        include("test-model-configuration-errors.jl")
     end
 
-    @testset "Scene graph viewer" begin
-        include("test-scene-graph-view.jl")
+    @testset "Model graph viewer" begin
+        include("test-model-graph-view.jl")
     end
 
-    @testset "Scene graph editor extension" begin
-        include("test-scene-graph-editor-extension.jl")
+    @testset "Model graph editor extension" begin
+        include("test-model-graph-editor-extension.jl")
     end
 
     @testset "Model contract" begin
@@ -102,8 +102,8 @@ else
         include("test-environment-backends.jl")
     end
 
-    @testset "MAESPA-style scene example" begin
-        include("test-maespa-scene-example.jl")
+    @testset "MAESPA-style model example" begin
+        include("test-maespa-model-example.jl")
     end
 
     @testset "Status" begin
