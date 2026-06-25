@@ -339,8 +339,7 @@ function PlantSimEngine.run!(
 end
 
 function PlantSimEngine.run!(::ModelObjectSignalCallerModel, models, status, meteo, constants=nothing, extra=nothing)
-    target = call_target(extra, "signal")
-    run_call!(target; publish=true)
+    target = only(run_call!(extra, :signal; publish=true))
     status.called_signal = target.status.signal
     return nothing
 end
@@ -371,8 +370,14 @@ PlantSimEngine.inputs_(::ModelObjectMeteoCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallControllerModel) = (called_temperature=0.0,)
 
 function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, models, status, meteo, constants=nothing, extra=nothing)
-    target = call_target(extra, :source)
-    run_call!(target; meteo=(T=m.local_temperature,), publish=m.publish)
+    target = only(
+        run_call!(
+            extra,
+            :source;
+            meteo=(T=m.local_temperature,),
+            publish=m.publish,
+        ),
+    )
     status.called_temperature = target.status.temperature_seen
     return nothing
 end
@@ -397,7 +402,7 @@ function PlantSimEngine.run!(
     constants=nothing,
     extra=nothing,
 )
-    target = call_target(extra, :source)
+    target = only(call_targets(extra, :source))
     for temperature in m.trial_temperatures
         run_call!(target; meteo=(T=temperature,))
     end
@@ -479,7 +484,7 @@ function PlantSimEngine.run!(
     extra=nothing,
 )
     status.optional_call_count =
-        length(call_targets(extra, "optional_source"))
+        length(run_call!(extra, :optional_source; publish=true))
     return nothing
 end
 

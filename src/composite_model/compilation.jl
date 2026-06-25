@@ -28,7 +28,7 @@ struct CompiledModelInputBinding{SEL,P,W,C}
     carrier::C
 end
 
-struct CompiledModelCallBinding{SEL}
+struct CompiledModelCallBinding{NAME,SEL}
     application_id::Symbol
     consumer_id::ObjectId
     call::Symbol
@@ -40,6 +40,34 @@ struct CompiledModelCallBinding{SEL}
     application::Union{Nothing,Symbol}
     multiplicity::Symbol
 end
+
+function CompiledModelCallBinding(
+    application_id,
+    consumer_id,
+    call::Symbol,
+    selector,
+    origin,
+    callee_object_ids,
+    callee_application_ids,
+    process,
+    application,
+    multiplicity,
+)
+    return CompiledModelCallBinding{call,typeof(selector)}(
+        application_id,
+        consumer_id,
+        call,
+        selector,
+        origin,
+        callee_object_ids,
+        callee_application_ids,
+        process,
+        application,
+        multiplicity,
+    )
+end
+
+_compiled_call_name(::CompiledModelCallBinding{NAME}) where {NAME} = NAME
 
 struct CompiledEnvironmentBinding{B,C,S}
     application_id::Symbol
@@ -1687,7 +1715,7 @@ function _compile_model_call_bindings(
                     )
                 end
                 unique!(callee_application_ids)
-                if isempty(callee_application_ids) && !(selector isa OptionalOne)
+                if isempty(callee_application_ids) && selector isa One
                     error(
                         "Call `$(call_sym)` on application `$(application.id)` matched objects ",
                         "$([id.value for id in callee_object_ids]) but no model application",

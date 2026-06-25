@@ -144,8 +144,17 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     TimeStep(Dates.Hour(1))
 ```
 
-Inside `run!`, the parent retrieves executable targets and decides when to
-publish the accepted state:
+Inside `run!`, the parent can execute every resolved target directly. The
+return value is always vector-like: `One` returns one element, `OptionalOne`
+returns zero or one, and `Many` returns zero or more.
+
+```julia
+soil_targets = run_call!(extra, :soil; publish=true)
+soil_status = only(soil_targets).status
+```
+
+For finer-grained iterative control, retrieve targets without executing them
+and decide when to publish the accepted state:
 
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,

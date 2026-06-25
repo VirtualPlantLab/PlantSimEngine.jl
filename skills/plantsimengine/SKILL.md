@@ -152,9 +152,11 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     )
 ```
 
-Inside `run!`, retrieve targets with `call_target(s)(extra, :name)`.
-`run_call!` defaults to `publish=false` for trial iterations. Use
-`publish=true` once for the accepted state.
+Inside `run!`, execute all targets with `run_call!(extra, :name)`, which always
+returns a vector-like `CallTargets` collection. For selective or iterative
+control, retrieve the collection with `call_targets(extra, :name)` and execute
+individual targets. `run_call!` defaults to `publish=false` for trial
+iterations. Use `publish=true` once for the accepted state.
 
 ### Configure rates and environment
 
@@ -285,8 +287,7 @@ PlantSimEngine.dep(::ParentModel) = (
 )
 
 function PlantSimEngine.run!(m::ParentModel, models, status, meteo, constants, extra=nothing)
-    child = call_target(extra, :child)
-    run_call!(child)
+    child = only(run_call!(extra, :child; meteo=meteo, publish=true))
     status.parent_output = g(status.child_output)
 end
 ```

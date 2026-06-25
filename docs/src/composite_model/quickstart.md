@@ -227,7 +227,15 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     TimeStep(Hour(1))
 ```
 
-Inside the parent model:
+For a one-shot call, execute all targets directly:
+
+```julia
+targets = run_call!(extra, :leaf_energy; meteo=meteo, publish=true)
+```
+
+`targets` is always vector-like regardless of whether the declaration uses
+`One`, `OptionalOne`, or `Many`. For iterative control, retrieve the same
+compiled targets without executing them:
 
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,

@@ -34,8 +34,8 @@ and cache controls are intentionally listed separately under
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
-- Hard calls: `RunContext`, `CallTarget`, `call_target`,
-  `call_targets`, `run_call!`.
+- Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_targets`,
+  `run_call!`.
 
 ## Structured explanations
 

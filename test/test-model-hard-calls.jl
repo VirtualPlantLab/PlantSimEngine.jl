@@ -6,11 +6,22 @@ PlantSimEngine.@process "nested_call_leaf" verbose = false
 PlantSimEngine.@process "nested_call_middle" verbose = false
 PlantSimEngine.@process "nested_call_root" verbose = false
 PlantSimEngine.@process "many_call_controller" verbose = false
+PlantSimEngine.@process "call_return_shape" verbose = false
 
 struct NestedCallLeafModel <: AbstractNested_Call_LeafModel end
 struct NestedCallMiddleModel <: AbstractNested_Call_MiddleModel end
 struct NestedCallRootModel <: AbstractNested_Call_RootModel end
 struct ManyCallControllerModel <: AbstractMany_Call_ControllerModel end
+struct CallReturnShapeModel <: AbstractCall_Return_ShapeModel end
+
+const CALL_RETURN_CONTEXT = Ref{Any}()
+
+function call_lookup_allocations(context)
+    call_targets(context, :one)
+    return @allocated call_targets(context, :one)
+end
+
+literal_call_targets(context::T) where {T} = call_targets(context, :one)
 
 PlantSimEngine.inputs_(::NestedCallLeafModel) = NamedTuple()
 PlantSimEngine.outputs_(::NestedCallLeafModel) = (value=0.0, calls=0)
@@ -40,8 +51,7 @@ function PlantSimEngine.run!(
     extra,
 )
     status.calls += 1
-    leaf = call_target(extra, :leaf)
-    run_call!(leaf; publish=true)
+    leaf = only(run_call!(extra, :leaf; publish=true))
     status.value = leaf.status.value
     return nothing
 end
@@ -59,7 +69,7 @@ function PlantSimEngine.run!(
     extra,
 )
     status.calls += 1
-    middle = call_target(extra, :middle)
+    middle = only(call_targets(extra, :middle))
     run_call!(middle; publish=false)
     status.trial_value = middle.status.value
     run_call!(middle; publish=true)
@@ -78,12 +88,41 @@ function PlantSimEngine.run!(
     constants,
     extra,
 )
-    targets = call_targets(extra, :children)
+    targets = run_call!(extra, :children; publish=true)
     status.ncalls = length(targets)
-    for target in targets
-        run_call!(target; publish=true)
-    end
-    status.total = sum(target.status.value for target in targets)
+    status.total = sum((target.status.value for target in targets); init=0.0)
+    return nothing
+end
+
+PlantSimEngine.inputs_(::CallReturnShapeModel) = NamedTuple()
+PlantSimEngine.outputs_(::CallReturnShapeModel) = (
+    one_count=0,
+    optional_count=0,
+    many_count=0,
+    all_vector_like=false,
+    cached_view=false,
+)
+
+function PlantSimEngine.run!(
+    ::CallReturnShapeModel,
+    models,
+    status,
+    meteo,
+    constants,
+    extra,
+)
+    one_targets = run_call!(extra, :one; publish=false)
+    optional_targets = run_call!(extra, :optional; publish=false)
+    many_targets = run_call!(extra, :many; publish=false)
+    status.one_count = length(one_targets)
+    status.optional_count = length(optional_targets)
+    status.many_count = length(many_targets)
+    status.all_vector_like = all(
+        targets -> targets isa AbstractVector{CallTarget},
+        (one_targets, optional_targets, many_targets),
+    )
+    status.cached_view = call_targets(extra, :one) === call_targets(extra, :one)
+    CALL_RETURN_CONTEXT[] = extra
     return nothing
 end
 
@@ -128,6 +167,116 @@ end
     @test !schedule[:root].manual_call_only
 end
 
+
+@testset "hard-call return shape and errors" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:leaf_b; scale=:Leaf, name=:leaf_b, parent=:scene),
+        Object(:leaf_a; scale=:Leaf, name=:leaf_a, parent=:scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(name=:scene)) |>
+                Calls(
+                    :one => One(name=:leaf_a, application=:leaf_calls),
+                    :optional => OptionalOne(
+                        name=:missing,
+                        application=:leaf_calls,
+                    ),
+                    :many => Many(scale=:Leaf, application=:leaf_calls),
+                ),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
+                AppliesTo(Many(scale=:Leaf)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    run!(model)
+    controller = only(model_objects(model; scale=:Scene)).status
+    @test controller.one_count == 1
+    @test controller.optional_count == 0
+    @test controller.many_count == 2
+    @test controller.all_vector_like
+    @test controller.cached_view
+    context = CALL_RETURN_CONTEXT[]
+    @test (@inferred literal_call_targets(context)) === call_targets(context, :one)
+    call_lookup_allocations(context)
+    @test call_lookup_allocations(context) == 0
+    @test_throws ArgumentError run_call!(nothing, :one)
+
+    undeclared = CompositeModel(
+        Object(:scene; scale=:Scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    @test_throws "did not declare call `one`" run!(undeclared)
+
+    zero_one = CompositeModel(
+        Object(:scene; scale=:Scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)) |>
+                Calls(:one => One(scale=:Leaf, application=:leaf_calls)),
+        ),
+    )
+    @test_throws "Expected exactly one object" Advanced.refresh_bindings!(zero_one)
+
+    multiple_one = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf_a; scale=:Leaf, parent=:scene),
+        Object(:leaf_b; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)) |>
+                Calls(:one => One(scale=:Leaf, application=:leaf_calls)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
+                AppliesTo(Many(scale=:Leaf)),
+        ),
+    )
+    @test_throws "Expected exactly one object" Advanced.refresh_bindings!(multiple_one)
+
+    ambiguous_applications = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)) |>
+                Calls(:one => One(scale=:Leaf, process=:nested_call_leaf)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a) |>
+                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b) |>
+                AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    @test_throws "expected one callee application" Advanced.refresh_bindings!(
+        ambiguous_applications,
+    )
+
+    ambiguous_optional = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(CallReturnShapeModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)) |>
+                Calls(
+                    :optional => OptionalOne(
+                        scale=:Leaf,
+                        process=:nested_call_leaf,
+                    ),
+                ),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a) |>
+                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b) |>
+                AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    @test_throws "expected zero or one callee application" Advanced.refresh_bindings!(
+        ambiguous_optional,
+    )
+end
+
 @testset "Many call targets preserve object identity" begin
     model = CompositeModel(
         Object(:scene; scale=:Scene, name=:scene),
@@ -164,6 +313,56 @@ end
     )
     @test getproperty.(rows, :object_id) == [:leaf_a, :leaf_b]
     @test getproperty.(rows, :value) == [1.0, 1.0]
+
+    register_object!(
+        model,
+        Object(:leaf_c; scale=:Leaf, parent=:scene),
+    )
+    continue!(simulation; steps=1)
+    @test controller.ncalls == 3
+    @test controller.total == 5.0
+
+    remove_object!(model, :leaf_b)
+    continue!(simulation; steps=1)
+    @test controller.ncalls == 2
+    @test controller.total == 5.0
+end
+
+@testset "call targets refresh after reparenting" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
+        Object(:leaf; scale=:Leaf, parent=:plant_b);
+        applications=(
+            ModelSpec(ManyCallControllerModel(); name=:controller) |>
+                AppliesTo(One(name=:plant_a)) |>
+                Calls(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:leaf_calls,
+                    ),
+                ),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
+                AppliesTo(Many(scale=:Leaf)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model)
+    controller = only(model_objects(model; name=:plant_a)).status
+    @test controller.ncalls == 0
+
+    reparent_object!(model, :leaf, :plant_a)
+    continue!(simulation; steps=1)
+    @test controller.ncalls == 1
+    @test controller.total == 2.0
+
+    reparent_object!(model, :leaf, :plant_b)
+    continue!(simulation; steps=1)
+    @test controller.ncalls == 0
+    @test controller.total == 0.0
 end
 
 @testset "manual target cadence contract" begin

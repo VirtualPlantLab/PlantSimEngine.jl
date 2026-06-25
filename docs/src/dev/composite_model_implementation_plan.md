@@ -239,7 +239,7 @@ types should be selectors, model traits, or internal compiled carriers.
   time, and `explain_schedule` reports `execution_index`.
 - `Advanced.CompiledCompositeModel` now pre-indexes input and call bindings by
   `(application_id, object_id)`. Per-object input materialization and
-  `call_target(s)` lookup uses these indexes instead of scanning every
+  `call_targets` lookup uses these indexes instead of scanning every
   binding in the model at each model call.
 - `Advanced.CompiledCompositeModel` now also pre-indexes applications by application id.
   Hard-call target resolution and stable ordered-application materialization
@@ -249,7 +249,7 @@ types should be selectors, model traits, or internal compiled carriers.
   output scattering use direct lookup instead of scanning all environment
   bindings for every model invocation.
 - Added `RunContext` and `CallTarget`. Models can retrieve manual
-  `Calls(...)` targets with `call_target(s)(extra, :name)` and execute
+  `Calls(...)` targets with `call_targets(extra, :name)` and execute
   them with `run_call!`, preserving explicit call-stack control in the
   composite-model/object runtime. Manual calls execute immediately under the parent call
   stack; applications selected by `Calls(...)` are skipped by the root
@@ -276,7 +276,7 @@ types should be selectors, model traits, or internal compiled carriers.
   retained as user-authored API.
 - Removed the intermediate dependency resolver after `Calls(...)` became
   native composite-model/object metadata. Manual model execution now goes through
-  `call_target`, `call_targets`, and `run_call!`.
+  `CallTargets`, `call_targets`, and `run_call!`.
 - Added model-level `Call(...)` defaults from `dep(model)` into
   `ModelSpec` manual-call metadata. Scenario-level
   `ModelSpec(...) |> Calls(...)` overrides those defaults, and
@@ -973,10 +973,9 @@ Current removal audit:
 - The unreleased intermediate scenario and runtime subsystem has been deleted,
   including its carriers, dependency selectors, target helpers, tests,
   examples, and documentation.
-- Public manual-call control now uses `call_target`, `call_targets`, and
-  `run_call!`.
-- `RunContext` defines `call_target(s)` directly, including string-name
-  support.
+- Public manual-call control now uses vector-like `CallTargets`,
+  `run_call!(context, name)`, `call_targets`, and `run_call!(target)`.
+- `RunContext` defines Symbol-named `run_call!` and `call_targets` directly.
 - The legacy mapping transforms are removed:
   `MultiScaleModel`, `SameScale`, `TimeStepModel`, `InputBindings`,
   `MeteoBindings`, `MeteoWindow`, and `ScopeModel` are not retained as
@@ -1022,7 +1021,7 @@ Current removal audit:
   modifiers. Legacy transform tests were removed with the old compatibility
   constructors.
 - The unified MAESPA path is implemented and tested through `AppliesTo`,
-  `Inputs`, `Calls`, `call_target(s)`, and `run_call!`.
+  `Inputs`, `Calls`, `call_targets`, and `run_call!`.
 
 ## Resolved API Decisions
 

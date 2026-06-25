@@ -1,5 +1,27 @@
 # Changelog
 
+## v0.15.0
+
+### Breaking changes
+
+- Hard dependencies now execute through
+  `run_call!(context::RunContext, name::Symbol; ...)`, which executes every
+  selector-resolved target and always returns a vector-like `CallTargets`
+  collection.
+- The singular hard-call accessor and string-name hard-call methods were
+  removed. Use `only(call_targets(context, :name))` for fine-grained access to
+  a `One` dependency.
+- Direct recursive dependency execution is no longer supported. Model kernels
+  must run inside a compiled `CompositeModel` and receive a `RunContext`.
+
+### Added
+
+- `CallTargets`, a cached `AbstractVector` view over compiled hard-call targets
+  that is allocation-free to retrieve.
+- `run_call!(context, name)` for the common execute-all operation while
+  retaining `run_call!(target::CallTarget)` for selective, per-target, and
+  iterative control.
+
 ## v0.14.0
 
 Changes in this section are based on the git history since [`v0.13.2`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/releases/tag/v0.13.2), corresponding to the GitHub compare view for [`v0.14.0`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/compare/v0.13.2...v0.14.0).

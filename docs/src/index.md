@@ -232,10 +232,12 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     TimeStep(Hour(1))
 ```
 
-Inside `run!`, the parent model uses `call_targets(extra, :leaf_energy)` and
-`run_call!(target; publish=false)` for trial iterations. The accepted state
-uses `run_call!(target; publish=true)` once, so temporal outputs and mutable
-environment writes are published exactly once.
+Inside `run!`, use `run_call!(extra, :leaf_energy)` to execute every target and
+receive a vector-like collection. Iterative parents use
+`call_targets(extra, :leaf_energy)` and `run_call!(target; publish=false)` for
+trial iterations. The accepted state uses `run_call!(target; publish=true)`
+once, so temporal outputs and mutable environment writes are published exactly
+once.
 
 ## Where To Go Next
 

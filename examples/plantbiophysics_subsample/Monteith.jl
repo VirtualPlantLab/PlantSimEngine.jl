@@ -466,7 +466,11 @@ PlantSimEngine.output_policy(::Type{<:Monteith}) = (
     iter=PlantSimEngine.Integrate(PlantMeteo.MeanReducer())
 )
 
-PlantSimEngine.dep(::Monteith) = (photosynthesis=AbstractPhotosynthesisModel,)
+PlantSimEngine.dep(::Monteith) = (
+    photosynthesis=PlantSimEngine.Call(
+        PlantSimEngine.One(scale=:Leaf, process=:photosynthesis),
+    ),
+)
 
 """
     run!(::Monteith, models, status, meteo, constants=Constants())
@@ -539,7 +543,12 @@ function PlantSimEngine.run!(::Monteith, models, status, meteo, constants=PlantM
     for i in 1:models.energy_balance.maxiter
 
         # Update A, Gₛ, Cᵢ from models.status:
-        PlantSimEngine.run!(models.photosynthesis, models, status, meteo, constants, extra)
+        PlantSimEngine.run_call!(
+            extra,
+            :photosynthesis;
+            meteo=meteo,
+            publish=false,
+        )
 
         # Stomatal resistance to water vapor
         Rsᵥ = 1.0 / (gsc_to_gsw(mol_to_ms(status.Gₛ, meteo.T, meteo.P, constants.R, constants.K₀),

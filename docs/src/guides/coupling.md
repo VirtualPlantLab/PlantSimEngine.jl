@@ -6,8 +6,10 @@ explicit `One`, `OptionalOne`, or `Many` selector. Inspect the resolved
 references with `explain_bindings`.
 
 Use `Calls` only when a parent algorithm owns child execution or iteration.
-Resolve targets through `call_target`/`call_targets` and execute them with
-`run_call!`. Trial calls use `publish=false`; accepted state is published once.
+Use `run_call!(extra, :name)` to execute every resolved target. For selective
+or iterative execution, retrieve the vector-like collection with
+`call_targets(extra, :name)` and execute individual targets. Trial calls use
+`publish=false`; accepted state is published once.
 Nested calls inherit publication suppression, so a descendant cannot publish
 inside an unpublished ancestor trial. `explain_calls` and `explain_schedule`
 show call-only targets and ordering.

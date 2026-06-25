@@ -46,7 +46,11 @@ end
 
 Base.eltype(x::Fvcb) = typeof(x).parameters[1]
 
-PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceModel,)
+PlantSimEngine.dep(::Fvcb) = (
+    stomatal_conductance=PlantSimEngine.Call(
+        PlantSimEngine.One(scale=:Leaf, process=:stomatal_conductance),
+    ),
+)
 PlantSimEngine.timestep_hint(::Type{<:Fvcb}) = (
     required=(Dates.Minute(1), Dates.Hour(6)),
     preferred=Dates.Hour(1)
@@ -133,7 +137,12 @@ function PlantSimEngine.run!(m::Fvcb, models, status, meteo, constants=PlantMete
     status.A = min(Wᵥ, Wⱼ, 3 * m.TPURef) - Rd
 
     # Stomatal conductance (mol[CO₂] m-2 s-1)
-    PlantSimEngine.run!(models.stomatal_conductance, models, status, st_closure, extra)
+    PlantSimEngine.run_call!(
+        extra,
+        :stomatal_conductance;
+        meteo=st_closure,
+        publish=false,
+    )
 
     # Intercellular CO₂ concentration (Cᵢ, μmol mol)
     status.Cᵢ = min(status.Cₛ, status.Cₛ - status.A / status.Gₛ)

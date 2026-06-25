@@ -62,7 +62,7 @@ struct LAIModel{T} <: AbstractLai_DynamicModel
 end
 
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
-PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=-Inf)
+PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=(-Inf))
 
 function PlantSimEngine.run!(m::LAIModel, models, status, meteo, constants, extra=nothing)
     status.leaf_area = sum(status.leaf_areas)
@@ -310,7 +310,7 @@ end
 
 function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
     leaf_targets = call_targets(extra, :energy_balance)
-    soil_target = call_target(extra, :soil)
+    soil_target = only(call_targets(extra, :soil))
     solution = _solve_model_energy_balance!(m, leaf_targets, soil_target, status, meteo, constants)
     fluxes = _publish_model_leaf_solution!(leaf_targets, solution, meteo, m.ground_area)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
@@ -450,7 +450,7 @@ function _maespa_plant_instance(name, template; nleaves, leaf_area, sky_fraction
         template;
         root=Object(plant_id; scale=:Plant, parent=:model, status=_maespa_plant_status()),
         objects=(
-            Object(axis_id; scale=:Internode, parent=plant_id),
+            Object(Symbol(name, "_axis"); scale=:Internode, parent=plant_id),
             leaves...,
         ),
     )

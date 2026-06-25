@@ -120,8 +120,15 @@ complex_status = only(model_objects(complex_scene; scale=:Scene)).status
 
 ## Writing new hard-coupled models
 
-For new composite-model/object models, retrieve manual-call targets from the runtime
-context and execute them explicitly:
+For new composite-model/object models, execute all targets directly when they
+share meteorology and publication policy:
+
+```julia
+targets = run_call!(extra, :leaf_energy; meteo=meteo, publish=true)
+```
+
+The result is always vector-like. Retrieve targets without executing them when
+an iterative algorithm needs finer control:
 
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,

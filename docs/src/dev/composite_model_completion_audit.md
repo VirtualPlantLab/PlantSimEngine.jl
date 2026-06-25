@@ -47,7 +47,7 @@ Evidence:
 | One model object registry without prescribing plant topology | `CompositeModel`, `Object`, selectors, relations, scopes, and `objects_from_mtg` in `src/composite_model_api.jl`; selector and MTG adapter tests in `test/test-unified-model-object-api.jl` |
 | Reusable species models and repeated plant instances | `CompositeModelTemplate`, `ObjectInstance`, `Override`, shared model ownership, and homogeneous/heterogeneous batches; four-instance and override tests |
 | Soft/value dependencies | Compiled `Inputs(...)` bindings, same-object inference, scalar references, `RefVector`, `Advanced.ObjectRefVector`, temporal carriers, renaming, and optional inputs |
-| Manual hard dependencies | Compiled `Calls(...)`, `CallTarget`, `call_target(s)`, and `run_call!`; trial calls default to `publish=false` and accepted calls publish explicitly |
+| Manual hard dependencies | Compiled `Calls(...)`, vector-like `CallTargets`, `run_call!(context, name)`, and fine-grained `run_call!(target)`; trial calls default to `publish=false` and accepted calls publish explicitly |
 | Model-author dependency defaults | `Input(...)` and `Call(...)` entries from `dep(model)`, with `ModelSpec` overrides and binding provenance in explanations |
 | Multirate execution | `TimeStep(Dates.Period)`, model `timespec`, input policies, explicit windows, `PreviousTimeStep`, and stable compiled scheduling |
 | Generic value types | Reference and temporal tests using `ModelObjectDualLike{BigFloat}` and `BigFloat` interpolation/integration without `Float64` conversion |

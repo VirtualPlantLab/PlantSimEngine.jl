@@ -21,8 +21,7 @@ PlantSimEngine.run!(model, models, status, meteo, constants, extra)
 ```
 
 `models` is a process-keyed bundle compiled from `Calls(...)`. `extra` is a
-`RunContext` and provides `call_target`, `call_targets`, and lifecycle
-access.
+`RunContext` and provides `run_call!`, `call_targets`, and lifecycle access.
 
 ## CompositeModel Structure
 
@@ -99,9 +98,10 @@ coupling should be explicit with `Inputs(...)`.
 Hard dependencies are parent-controlled:
 
 1. Declare them with model-level `Call(...)` or scenario-level `Calls(...)`.
-2. Resolve a compiled target with `call_target(extra, name)` or
-   `call_targets(extra, name)`.
-3. Execute it with `run_call!`.
+2. Execute all resolved targets with `run_call!(extra, name)`. It always
+   returns a vector-like `CallTargets` collection.
+3. For selective or iterative execution, inspect `call_targets(extra, name)`
+   and execute individual `CallTarget`s with `run_call!`.
 
 `run_call!` defaults to `publish=false`, which is appropriate for iterative
 trial states. Publish only the accepted state with `publish=true`.
@@ -205,3 +205,17 @@ When changing compilation or runtime behavior, verify:
 8. object creation, removal, reparenting, and movement;
 9. templates, instances, and overrides;
 10. generic numeric types and allocation-sensitive execution.
+
+## API evolution policy
+
+This project is in active development and has no stable public API yet.
+
+When implementing API changes:
+
+- Do not preserve backward compatibility unless explicitly requested.
+- Do not add deprecated aliases, compatibility wrappers, fallback methods, old keyword support, migration layers, or dual APIs.
+- Prefer a clean breaking change over supporting both old and new APIs.
+- Update all internal call sites, tests, and documentation to the new API.
+- Remove obsolete code instead of keeping it.
+- If existing tests fail because they expect the old API, update the tests to match the new API.
+- Before adding compatibility code, stop and ask for confirmation.

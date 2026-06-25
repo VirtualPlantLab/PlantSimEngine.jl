@@ -18,7 +18,10 @@
 - `Calls(...)` declares manually executable child models.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
-- `run_call!(target; publish=false)` executes a trial hard call.
+- `run_call!(extra, :name; publish=false)` executes every resolved hard-call
+  target and always returns a vector-like `CallTargets` collection.
+- `call_targets(extra, :name)` returns the same non-executing collection for
+  fine-grained execution with `run_call!(target; ...)`.
 
 ### Selectors
 

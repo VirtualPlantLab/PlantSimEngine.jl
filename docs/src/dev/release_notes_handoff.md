@@ -234,7 +234,7 @@ for multi-plant model coupling.
   application and object id, removing the model-wide binding scan from
   environment sampling and output scattering.
 - Adds `RunContext` and `CallTarget`; composite-model/object models can use
-  `call_target(s)(extra, :name)` plus `run_call!` for manual `Calls(...)`
+  `run_call!(extra, :name)` plus `call_targets(extra, :name)` for fine-grained manual `Calls(...)`
   execution.
 - Applications selected by `Calls(...)` are skipped by the root
   `run!(model)` loop and execute only through explicit `run_call!`, preserving
@@ -389,8 +389,8 @@ for multi-plant model coupling.
 - Adds `explain_execution_plan(scene_or_simulation)` and a zero-allocation
   warmed 128-leaf inner-loop regression gate.
 - Manual `Calls(...)` handles now use the public
-  `call_target(extra, name)`/`call_targets(extra, name)` lookup API followed by
-  `run_call!`.
+  vector-like `run_call!(extra, name)` execute-all API, with
+  `call_targets(extra, name)` followed by `run_call!(target)` for fine-grained control.
 - Removed the unreleased intermediate authoring and runtime subsystem after
   composite-model/object feature parity was established.
 - Adds `objects_from_mtg(root; ...)` and `CompositeModel(mtg; ...)` so existing MTG

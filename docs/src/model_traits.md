@@ -27,8 +27,10 @@ PlantSimEngine.dep(::EnergyBalance) = (
 )
 ```
 
-The scenario binds the dependency with `Calls(...)`. The parent controls trial
-iterations and accepted publication through `run_call!`.
+The scenario binds the dependency with `Calls(...)`. The parent executes all
+resolved targets with `run_call!(extra, :photosynthesis)`, which always returns
+a vector-like collection. Use `call_targets` plus `run_call!(target)` when the
+parent needs selective trials and accepted publication.
 
 ## Timing
 

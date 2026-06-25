@@ -124,7 +124,9 @@ macro process(f, args...)
         inside your process implementation:
 
         ```julia
-            PlantSimEngine.dep(::$(dummy_type_name)) = (other_process_name=AbstractOtherProcessModel,)
+            PlantSimEngine.dep(::$(dummy_type_name)) = (
+                other_process_name=Call(process=:other_process_name),
+            )
         ```
 
         And finally, we can define the model implementation by adding a method to `run!`:
@@ -138,8 +140,8 @@ macro process(f, args...)
             constants,
             extra
         )
-            status.Y = model.$(process_name).a * meteo.CO2 + status.X
-            run!(model.other_process_name, models, status, meteo, constants, extra)
+            status.Y = models.$(process_name).a * meteo.CO2 + status.X
+            run_call!(extra, :other_process_name; meteo=meteo, publish=true)
         end
         ```
 
@@ -149,8 +151,10 @@ macro process(f, args...)
         Then we can use variables from the status as inputs or outputs, and model parameters from the called-model bundle (indexing by process, here
         using "$(process_name)" as the process name), and meteorology variables.
 
-        Note that our example model has an hard-dependency on another process called `other_process_name` that is called using the {#8abeff}run!(){/#8abeff} function with 
-        the process as the first argument: `run!(model.other_process_name, models, status, meteo, constants, extra)`.
+        Our example model has a hard dependency on `other_process_name`. The
+        compiled runtime resolves its declared targets, executes them with
+        `run_call!(extra, :other_process_name; meteo=meteo, publish=true)`, and
+        returns a vector-like `CallTargets` collection.
 
         !!! tip "Variables and parameters usage"
             Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used

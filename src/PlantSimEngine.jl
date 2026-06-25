@@ -130,7 +130,7 @@ export objects_from_mtg, object_ids, model_objects, resolve_object_ids, resolve_
 export geometry, position, bounds
 export explain_applications, explain_bindings, explain_calls, explain_model_bundles, explain_writers
 export input_carrier, input_value, has_reference_carrier
-export RunContext, CallTarget, Simulation, runtime_model, current_step, outputs, explain_outputs
+export RunContext, CallTarget, CallTargets, Simulation, runtime_model, current_step, outputs, explain_outputs
 export explain_initialization
 export explain_execution_plan, explain_output_retention
 export explain_environment_bindings
@@ -139,7 +139,7 @@ export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates, OutputRouting
-export call_target, call_targets, run_call!, explain_schedule
+export call_targets, run_call!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status
 export @process, process

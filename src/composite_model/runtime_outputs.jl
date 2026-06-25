@@ -10,15 +10,15 @@ end
 """
     RunContext
 
-Runtime context passed as the final argument to model model kernels. Use
-`runtime_model`, `call_target`, and `call_targets` instead of inspecting its
+Runtime context passed as the final argument to model kernels. Use
+`runtime_model`, `call_targets`, and `run_call!` instead of inspecting its
 fields.
 """
-struct RunContext{CS,EB,A,TS,OR,C}
+struct RunContext{CS,A,CT,TS,OR,C}
     compiled::CS
-    environment_bindings::EB
     application::A
     object_id::ObjectId
+    calls::CT
     temporal_streams::TS
     output_retention::OR
     time::Float64
@@ -26,18 +26,77 @@ struct RunContext{CS,EB,A,TS,OR,C}
     publication_allowed::Bool
 end
 
-struct CallTarget{CS,EB,A,S,TS,OR,C}
+struct CallTarget{CS,EB,A,M,S,TS,OR,C}
     compiled::CS
     environment_bindings::EB
     application::A
     object_id::ObjectId
-    model
+    model::M
     status::S
     temporal_streams::TS
     output_retention::OR
     time::Float64
     constants::C
     publication_allowed::Bool
+end
+
+"""
+    CallTargets <: AbstractVector{CallTarget}
+
+A cached vector-like view of the compiled targets for one declared hard call.
+Retrieving it does not allocate a replacement collection. Obtain it with
+[`call_targets`](@ref) or as the result of
+[`run_call!(::RunContext, ::Symbol)`](@ref).
+"""
+mutable struct CallTargets{CS,EB,B,TS,OR,C} <: AbstractVector{CallTarget}
+    compiled::CS
+    environment_bindings::EB
+    binding::B
+    temporal_streams::TS
+    output_retention::OR
+    time::Float64
+    constants::C
+    publication_allowed::Bool
+end
+
+Base.IndexStyle(::Type{<:CallTargets}) = IndexLinear()
+Base.eltype(::Type{<:CallTargets}) = CallTarget
+
+_runtime_call_targets(compiled, environment_bindings, ::Tuple{}, args...) = ()
+
+function _runtime_call_targets(
+    compiled,
+    environment_bindings,
+    bindings::Tuple,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+)
+    target = CallTargets(
+        compiled,
+        environment_bindings,
+        first(bindings),
+        temporal_streams,
+        output_retention,
+        float(time),
+        constants,
+        publication_allowed,
+    )
+    return (
+        target,
+        _runtime_call_targets(
+            compiled,
+            environment_bindings,
+            Base.tail(bindings),
+            temporal_streams,
+            output_retention,
+            time,
+            constants,
+            publication_allowed,
+        )...,
+    )
 end
 
 abstract type AbstractExecutionBatch end
@@ -812,25 +871,25 @@ function _model_models_for_application(
     return models
 end
 
-function _run_model_application!(
+@inline function _run_model_application_with_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    object_id::ObjectId;
-    time::Real=1,
-    constants=nothing,
-    temporal_streams=nothing,
-    output_retention=nothing,
-    publish::Bool=true,
-    meteo=nothing,
+    object_id::ObjectId,
+    status,
+    meteo_value,
+    calls,
+    time,
+    constants,
+    temporal_streams,
+    output_retention,
+    publish::Bool,
 )
-    status = _materialize_model_inputs!(compiled, application, object_id, temporal_streams, time)
-    meteo_value = isnothing(meteo) ? _model_meteo_for_model(env_bindings, application, object_id, time) : meteo
     context = RunContext(
         compiled,
-        env_bindings,
         application,
         object_id,
+        calls,
         temporal_streams,
         output_retention,
         float(time),
@@ -854,7 +913,68 @@ function _run_model_application!(
     return status
 end
 
-function _run_model_execution_target!(
+function _run_model_application!(
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+    object_id::ObjectId;
+    time::Real=1,
+    constants=nothing,
+    temporal_streams=nothing,
+    output_retention=nothing,
+    publish::Bool=true,
+    meteo=nothing,
+)
+    status = _materialize_model_inputs!(compiled, application, object_id, temporal_streams, time)
+    meteo_value = isnothing(meteo) ? _model_meteo_for_model(env_bindings, application, object_id, time) : meteo
+    if isempty(compiled.call_bindings)
+        return _run_model_application_with_calls!(
+            compiled,
+            env_bindings,
+            application,
+            object_id,
+            status,
+            meteo_value,
+            (),
+            time,
+            constants,
+            temporal_streams,
+            output_retention,
+            publish,
+        )
+    end
+    call_bindings = get(
+        compiled.call_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
+    calls = _runtime_call_targets(
+        compiled,
+        env_bindings,
+        call_bindings,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publish,
+    )
+    return _run_model_application_with_calls!(
+        compiled,
+        env_bindings,
+        application,
+        object_id,
+        status,
+        meteo_value,
+        calls,
+        time,
+        constants,
+        temporal_streams,
+        output_retention,
+        publish,
+    )
+end
+
+function _run_model_execution_target_without_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
@@ -887,9 +1007,99 @@ function _run_model_execution_target!(
     ) : meteo
     context = RunContext(
         compiled,
-        env_bindings,
         application,
         target.object_id,
+        (),
+        temporal_streams,
+        output_retention,
+        float(time),
+        constants,
+        true,
+    )
+    run!(target.model, target.models, status, meteo_value, constants, context)
+    scatter_outputs && _scatter_model_environment_outputs!(
+        application,
+        target.environment_binding,
+        status,
+        time,
+    )
+    publish_outputs && _model_publish_outputs!(
+        temporal_streams,
+        application,
+        target.object_id,
+        status,
+        time,
+        output_retention,
+        retained_outputs,
+    )
+    return status
+end
+
+function _run_model_execution_target!(
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+    target::CompiledExecutionTarget;
+    time::Real=1,
+    constants=nothing,
+    temporal_streams=nothing,
+    output_retention=nothing,
+    meteo=_UNSPECIFIED_SCENE_METEO,
+    publish_outputs::Bool=true,
+    scatter_outputs::Bool=true,
+    retained_outputs=nothing,
+)
+    isempty(compiled.call_bindings) && return _run_model_execution_target_without_calls!(
+        compiled,
+        env_bindings,
+        application,
+        target;
+        time=time,
+        constants=constants,
+        temporal_streams=temporal_streams,
+        output_retention=output_retention,
+        meteo=meteo,
+        publish_outputs=publish_outputs,
+        scatter_outputs=scatter_outputs,
+        retained_outputs=retained_outputs,
+    )
+    status = isempty(target.input_bindings) ?
+             target.status :
+             _materialize_model_inputs!(
+        target.status,
+        target.input_bindings,
+        compiled,
+        application,
+        temporal_streams,
+        time,
+    )
+    meteo_value = meteo isa UnspecifiedModelMeteo ?
+                  _model_meteo_for_binding(
+        env_bindings,
+        application,
+        target.environment_binding,
+        time,
+    ) : meteo
+    call_bindings = get(
+        compiled.call_bindings_by_target,
+        (application.id, target.object_id),
+        (),
+    )
+    calls = _runtime_call_targets(
+        compiled,
+        env_bindings,
+        call_bindings,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        true,
+    )
+    context = RunContext(
+        compiled,
+        application,
+        target.object_id,
+        calls,
         temporal_streams,
         output_retention,
         float(time),
@@ -945,6 +1155,25 @@ function _run_model_execution_batch!(
         batch.application.id,
         (),
     ) : nothing
+    if isempty(compiled.call_bindings)
+        for target in batch.targets
+            _run_model_execution_target_without_calls!(
+                compiled,
+                env_bindings,
+                batch.application,
+                target;
+                time=time,
+                constants=constants,
+                temporal_streams=temporal_streams,
+                output_retention=output_retention,
+                meteo=shared_meteo,
+                publish_outputs=publish_outputs,
+                scatter_outputs=scatter_outputs,
+                retained_outputs=retained_outputs,
+            )
+        end
+        return nothing
+    end
     for target in batch.targets
         _run_model_execution_target!(
             compiled,
@@ -1286,70 +1515,149 @@ function explain_output_retention(model::CompositeModel; outputs=:none)
     return _explain_output_retention(compiled, plan)
 end
 
-function _model_call_targets(context::RunContext, name::Symbol)
-    targets = CallTarget[]
-    bindings = get(
-        context.compiled.call_bindings_by_target,
-        (context.application.id, context.object_id),
-        (),
-    )
-    for binding in bindings
-        binding.call == name || continue
-        single_callee_application = binding.multiplicity != :many &&
-                                    length(binding.callee_application_ids) == 1
-        for application_id in binding.callee_application_ids
-            callee_application = _compiled_application_by_id(context.compiled, application_id)
-            for object_id in binding.callee_object_ids
-                single_callee_application ||
-                    object_id in callee_application.target_ids || continue
-                status = _model_object_status(context.compiled.model, object_id)
-                push!(
-                    targets,
-                    CallTarget(
-                        context.compiled,
-                        context.environment_bindings,
-                        callee_application,
-                        object_id,
-                        _application_model(callee_application, object_id),
-                        status,
-                        context.temporal_streams,
-                        context.output_retention,
-                        context.time,
-                        context.constants,
-                        context.publication_allowed,
-                    ),
-                )
-            end
+@inline _find_call_targets(::Tuple{}, ::Val) = nothing
+
+@inline function _find_call_targets(calls::Tuple, ::Val{name}) where {name}
+    targets = first(calls)
+    _compiled_call_name(targets.binding) === name && return targets
+    return _find_call_targets(Base.tail(calls), Val(name))
+end
+
+Base.@constprop :aggressive function _model_call_targets(
+    context::RunContext,
+    name::Symbol,
+)
+    found = _find_call_targets(context.calls, Val(name))
+    if isnothing(found)
+        available = Symbol[targets.binding.call for targets in context.calls]
+        error(
+            "Application `$(context.application.id)` on object ",
+            "`$(context.object_id.value)` did not declare call `$(name)`. ",
+            "Declared calls: $(available).",
+        )
+    end
+    return found
+end
+
+function _call_target_matches(targets::CallTargets, application, object_id::ObjectId)
+    binding = targets.binding
+    return (binding.multiplicity != :many &&
+            length(binding.callee_application_ids) == 1) ||
+           object_id in application.target_ids
+end
+
+function Base.length(targets::CallTargets)
+    count = 0
+    for application_id in targets.binding.callee_application_ids
+        application = _compiled_application_by_id(targets.compiled, application_id)
+        for object_id in targets.binding.callee_object_ids
+            _call_target_matches(targets, application, object_id) && (count += 1)
         end
     end
-    return targets
+    return count
+end
+
+Base.size(targets::CallTargets) = (length(targets),)
+
+function _materialize_call(targets::CallTargets, application, object_id::ObjectId)
+    status = _model_object_status(targets.compiled.model, object_id)
+    return CallTarget(
+        targets.compiled,
+        targets.environment_bindings,
+        application,
+        object_id,
+        _application_model(application, object_id),
+        status,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.time,
+        targets.constants,
+        targets.publication_allowed,
+    )
+end
+
+function Base.getindex(targets::CallTargets, requested::Int)
+    checkbounds(targets, requested)
+    current = 0
+    for application_id in targets.binding.callee_application_ids
+        application = _compiled_application_by_id(targets.compiled, application_id)
+        for object_id in targets.binding.callee_object_ids
+            _call_target_matches(targets, application, object_id) || continue
+            current += 1
+            current == requested && return _materialize_call(targets, application, object_id)
+        end
+    end
+    throw(BoundsError(targets, requested))
+end
+
+function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
+    application_index, object_index = state
+    application_ids = targets.binding.callee_application_ids
+    object_ids = targets.binding.callee_object_ids
+    while application_index <= length(application_ids)
+        application = _compiled_application_by_id(
+            targets.compiled,
+            application_ids[application_index],
+        )
+        while object_index <= length(object_ids)
+            object_id = object_ids[object_index]
+            object_index += 1
+            _call_target_matches(targets, application, object_id) || continue
+            return (
+                _materialize_call(targets, application, object_id),
+                (application_index, object_index),
+            )
+        end
+        application_index += 1
+        object_index = 1
+    end
+    return nothing
 end
 
 """
-    call_targets(context::RunContext, name)
-    call_target(context::RunContext, name)
+    call_targets(context::RunContext, name::Symbol)
 
-Return manually executable targets declared with `Calls(...)` for the current
-composite-model/object model call. `call_target` requires exactly one matching target.
-Execute returned targets with [`run_call!`](@ref).
+Return a cached, non-executing vector-like view of the targets declared for
+`name` with `Calls(...)`. The collection is empty for an unresolved
+`OptionalOne`, has one element for `One`, and contains every resolved target
+for `Many`.
+
+Use this accessor with [`run_call!(::CallTarget)`](@ref) when targets need
+different meteorology, selective execution, a controlled order, or separate
+trial and accepted publication.
 """
-call_targets(context::RunContext, name::Symbol) = _model_call_targets(context, name)
-call_targets(context::RunContext, name::AbstractString) =
-    call_targets(context, Symbol(name))
-call_target(context::RunContext, name::Symbol) = only(call_targets(context, name))
-call_target(context::RunContext, name::AbstractString) =
-    call_target(context, Symbol(name))
+Base.@constprop :aggressive function call_targets(
+    context::RunContext,
+    name::Symbol,
+)
+    return _model_call_targets(context, name)
+end
 
 """
     run_call!(target::CallTarget; publish=false, meteo=nothing)
 
-Run a manually selected model call. By default, the call mutates its target
+Run one manually selected model call. By default, the call mutates its target
 status without publishing outputs or environment updates, which is suitable
-for trial iterations. Pass `publish=true` once for the accepted state.
+for trial iterations. Pass `publish=true` once for the accepted state. When
+`meteo` is provided, it is forwarded directly to this target instead of using
+its compiled environment binding. The method returns the same `CallTarget`.
 
 Publication permission is inherited through the call stack. A descendant
 cannot publish outputs or environment writes while any ancestor is running as
 a trial.
+
+For fine-grained control, obtain a collection with [`call_targets`](@ref), then
+select or iterate its targets:
+
+```julia
+targets = call_targets(extra, :leaf_energy)
+for (target, meteo) in zip(targets, trial_meteo)
+    run_call!(target; meteo=meteo, publish=false)
+end
+for (target, meteo) in zip(targets, accepted_meteo)
+    run_call!(target; meteo=meteo, publish=true)
+end
+```
 """
 function run_call!(target::CallTarget; publish::Bool=false, meteo=nothing)
     _run_model_application!(
@@ -1365,6 +1673,39 @@ function run_call!(target::CallTarget; publish::Bool=false, meteo=nothing)
         meteo=meteo,
     )
     return target
+end
+
+"""
+    run_call!(context::RunContext, name::Symbol; meteo=nothing, publish=false)
+
+Execute every target of the hard call declared as `name` and return its
+[`CallTargets`](@ref) collection. The return shape is always vector-like:
+`One` produces one element, `OptionalOne` zero or one, and `Many` zero or more.
+
+This is the convenient execute-all API. For finer-grained control over target
+selection, order, per-target meteorology, iterative trial calls, or publication
+of only an accepted result, use [`call_targets`](@ref) and execute individual
+targets with [`run_call!(::CallTarget)`](@ref).
+"""
+function run_call!(
+    context::RunContext,
+    name::Symbol;
+    meteo=nothing,
+    publish::Bool=false,
+)
+    targets = call_targets(context, name)
+    for target in targets
+        run_call!(target; meteo=meteo, publish=publish)
+    end
+    return targets
+end
+
+function run_call!(context, name::Symbol; meteo=nothing, publish::Bool=false)
+    throw(
+        ArgumentError(
+            "Hard call `$(name)` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
+        ),
+    )
 end
 
 struct _UnspecifiedModelOutputs end

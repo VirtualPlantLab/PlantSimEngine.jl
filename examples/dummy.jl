@@ -32,10 +32,12 @@ A dummy model implementing a "process2" process for testing purposes.
 struct Process2Model <: AbstractProcess2Model end
 PlantSimEngine.inputs_(::Process2Model) = (var1=-Inf, var3=-Inf)
 PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
-PlantSimEngine.dep(::Process2Model) = (process1=AbstractProcess1Model,)
+PlantSimEngine.dep(::Process2Model) = (
+    process1=PlantSimEngine.Call(PlantSimEngine.One(process=:process1)),
+)
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    PlantSimEngine.run!(models.process1, models, status, meteo, constants, extra)
+    PlantSimEngine.run_call!(extra, :process1; meteo=meteo, publish=true)
     # computing var4 and var5:
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
@@ -56,10 +58,12 @@ PlantSimEngine.inputs_(::Process3Model) = (var5=-Inf,)
 PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf,)
 # NB: var4 is computed by process2, so it is not in the inputs, it is also recomputed by this model, 
 # so we need a hard dependency on process2:
-PlantSimEngine.dep(::Process3Model) = (process2=Process2Model,)
+PlantSimEngine.dep(::Process3Model) = (
+    process2=PlantSimEngine.Call(PlantSimEngine.One(process=:process2)),
+)
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
-    # computing var3 using process1:
-    PlantSimEngine.run!(models.process2, models, status, meteo, constants, extra)
+    # computing var3, var4 and var5 using process2 (which calls process1):
+    PlantSimEngine.run_call!(extra, :process2; meteo=meteo, publish=true)
     # re-computing var4:
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4

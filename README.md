@@ -155,9 +155,11 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     TimeStep(Hour(1))
 ```
 
-Inside the parent model, `call_targets(extra, :leaf_energy)` returns executable
-targets. `run_call!(target; publish=false)` is the default for trial
-iterations, and `run_call!(target; publish=true)` publishes the accepted state.
+Inside the parent model, `run_call!(extra, :leaf_energy)` executes every target
+and returns a vector-like collection. For iterative control,
+`call_targets(extra, :leaf_energy)` returns the collection without executing
+it. `run_call!(target; publish=false)` is the default for trial iterations, and
+`run_call!(target; publish=true)` publishes the accepted state.
 
 ## What PlantSimEngine Handles
 
