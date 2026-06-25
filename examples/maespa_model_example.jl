@@ -115,7 +115,20 @@ function SceneEB(
     )
 end
 
-PlantSimEngine.inputs_(::SceneEB) = (lai=0.0, leaf_area=0.0, psi_soil=-0.1)
+PlantSimEngine.inputs_(::SceneEB) = (
+    lai=0.0,
+    leaf_area=0.0,
+    leaf_areas=[0.0],
+    leaf_carbon=[0.0],
+    leaf_Ra_SW_f=[0.0],
+    leaf_aPPFD=[0.0],
+    Ψₗ=[0.0],
+    leaf_rn=[0.0],
+    leaf_lambda_e=[0.0],
+    leaf_h=[0.0],
+    leaf_a=[0.0],
+    psi_soil=-0.1,
+)
 PlantSimEngine.outputs_(::SceneEB) = (
     canopy_tair=20.0,
     canopy_vpd=1.0,
@@ -153,27 +166,27 @@ function _model_leaf_meteo(meteo, tair_canopy, vpd_canopy)
     )
 end
 
-function _prepare_model_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
-    target.status.Ra_SW_f = meteo.Ri_SW_f
-    target.status.aPPFD = meteo.Ri_PAR_f
-    target.status.Ψₗ = psi_soil
-    return nothing
+function _check_leaf_vector_lengths(status, variables)
+    n = length(status.leaf_areas)
+    for variable in variables
+        length(getproperty(status, variable)) == n ||
+            throw(DimensionMismatch("`$(variable)` must have the same length as `leaf_areas`."))
+    end
+    return n
 end
 
-function _run_model_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, psi_soil, ground_area; publish=false)
+function _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
+    n = _check_leaf_vector_lengths(status, (:leaf_rn, :leaf_lambda_e, :leaf_h, :leaf_a))
     total_rn = 0.0
     total_lambda_e = 0.0
     total_h = 0.0
     total_a = 0.0
-    local_meteo = _model_leaf_meteo(meteo, tair_canopy, vpd_canopy)
-    for target in leaf_targets
-        _prepare_model_leaf_target!(target, meteo, tair_canopy, vpd_canopy, psi_soil)
-        run_call!(target; meteo=local_meteo, publish=publish)
-        leaf_area = target.status.leaf_area
-        total_rn += target.status.Rn * leaf_area
-        total_lambda_e += target.status.λE * leaf_area
-        total_h += target.status.H * leaf_area
-        total_a += target.status.A * leaf_area
+    for i in 1:n
+        leaf_area = status.leaf_areas[i]
+        total_rn += status.leaf_rn[i] * leaf_area
+        total_lambda_e += status.leaf_lambda_e[i] * leaf_area
+        total_h += status.leaf_h[i] * leaf_area
+        total_a += status.leaf_a[i] * leaf_area
     end
     return (
         rn=total_rn / ground_area,
@@ -182,6 +195,18 @@ function _run_model_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, 
         a=total_a / ground_area,
         meteo=local_meteo,
     )
+end
+
+function _run_model_leaf_targets!(leaf_targets, status, meteo, tair_canopy, vpd_canopy, psi_soil, ground_area; publish=false)
+    local_meteo = _model_leaf_meteo(meteo, tair_canopy, vpd_canopy)
+    # Prepare the leaf status for each leaf target, and run the energy balance for each leaf:
+    status.leaf_Ra_SW_f .= meteo.Ri_SW_f
+    status.leaf_aPPFD .= meteo.Ri_PAR_f
+    status.Ψₗ .= psi_soil
+    for target in leaf_targets
+        run_call!(target; meteo=local_meteo, publish=publish)
+    end
+    return _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
 end
 
 function gbcanms(wind, zht, tree_height; gbcan_min=0.0123, von_karman=0.41)
@@ -259,7 +284,7 @@ function _solve_model_energy_balance!(
 
     for iter in 1:m.maxiter
         # Run the energy balance of each leaf, and aggregate the fluxes at the canopy scale:
-        fluxes = _run_model_leaf_targets!(leaf_targets, meteo, tair_canopy, vpd_canopy, psi_soil, m.ground_area)
+        fluxes = _run_model_leaf_targets!(leaf_targets, status, meteo, tair_canopy, vpd_canopy, psi_soil, m.ground_area)
         fluxes = merge(fluxes, (lai=status.lai, rad_interc=0.0))
         # Update the canopy-scale meteo based on the leaf fluxes, and check for convergence:
         final_meteo = fluxes.meteo
@@ -291,9 +316,10 @@ function _solve_model_energy_balance!(
     )
 end
 
-function _publish_model_leaf_solution!(leaf_targets, solution::SceneEBSolverResult, meteo, ground_area)
+function _publish_model_leaf_solution!(leaf_targets, status, solution::SceneEBSolverResult, meteo, ground_area)
     fluxes = _run_model_leaf_targets!(
         leaf_targets,
+        status,
         meteo,
         solution.tair,
         solution.vpd,
@@ -301,8 +327,9 @@ function _publish_model_leaf_solution!(leaf_targets, solution::SceneEBSolverResu
         ground_area;
         publish=true,
     )
-    for target in leaf_targets
-        target.status.leaf_carbon += target.status.A * target.status.leaf_area * duration_seconds(meteo) * 12.0e-6
+    n = _check_leaf_vector_lengths(status, (:leaf_carbon, :leaf_a))
+    for i in 1:n
+        status.leaf_carbon[i] += status.leaf_a[i] * status.leaf_areas[i] * duration_seconds(meteo) * 12.0e-6
     end
     return fluxes
 end
@@ -310,7 +337,7 @@ end
 function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
     leaf_targets = call_targets(extra, :energy_balance)
     solution = _solve_model_energy_balance!(m, leaf_targets, status, meteo, constants)
-    fluxes = _publish_model_leaf_solution!(leaf_targets, solution, meteo, m.ground_area)
+    fluxes = _publish_model_leaf_solution!(leaf_targets, status, solution, meteo, m.ground_area)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
 
     status.canopy_tair = solution.tair
@@ -387,6 +414,14 @@ _maespa_plant_status() = Status(leaf_carbon=[0.0], daily_growth=0.0, leaf_pool=0
 function _maespa_model_status()
     return Status(
         leaf_areas=[0.0],
+        leaf_carbon=[0.0],
+        leaf_Ra_SW_f=[0.0],
+        leaf_aPPFD=[0.0],
+        Ψₗ=[-0.1],
+        leaf_rn=[0.0],
+        leaf_lambda_e=[0.0],
+        leaf_h=[0.0],
+        leaf_a=[0.0],
         leaf_area=0.0,
         lai=0.0,
         canopy_tair=20.0,
@@ -506,6 +541,66 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa
             ModelSpec(scene_model; name=:scene_eb) |>
             AppliesTo(One(scale=:Scene)) |>
             Inputs(
+                :leaf_areas => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    process=:leaf_state,
+                    var=:leaf_area,
+                ),
+                :leaf_carbon => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    process=:leaf_state,
+                    var=:leaf_carbon,
+                ),
+                :leaf_Ra_SW_f => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    var=:Ra_SW_f,
+                ),
+                :leaf_aPPFD => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    var=:aPPFD,
+                ),
+                :Ψₗ => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    var=:Ψₗ,
+                ),
+                :leaf_rn => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    policy=HoldLast(),
+                    var=:Rn,
+                ),
+                :leaf_lambda_e => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    policy=HoldLast(),
+                    var=:λE,
+                ),
+                :leaf_h => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    policy=HoldLast(),
+                    var=:H,
+                ),
+                :leaf_a => Many(
+                    kind=:plant,
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    policy=HoldLast(),
+                    var=:A,
+                ),
                 :psi_soil => One(
                     kind=:soil,
                     scale=:Soil,

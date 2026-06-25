@@ -60,6 +60,27 @@ include("../examples/maespa_model_example.jl")
     plant_b_allocation_binding = only(row for row in bindings if row.application_id == :plant_B__allocation)
     @test plant_a_allocation_binding.source_ids == [:plant_A_leaf_1, :plant_A_leaf_2]
     @test plant_b_allocation_binding.source_ids == [:plant_B_leaf_1, :plant_B_leaf_2, :plant_B_leaf_3]
+    expected_scene_leaf_inputs = (
+        leaf_areas=:leaf_area,
+        leaf_carbon=:leaf_carbon,
+        leaf_Ra_SW_f=:Ra_SW_f,
+        leaf_aPPFD=:aPPFD,
+        Ψₗ=:Ψₗ,
+        leaf_rn=:Rn,
+        leaf_lambda_e=:λE,
+        leaf_h=:H,
+        leaf_a=:A,
+    )
+    for (input, source_var) in pairs(expected_scene_leaf_inputs)
+        binding = only(
+            row for row in bindings
+            if row.application_id == :scene_eb && row.input == input
+        )
+        @test binding.source_ids == scene_energy_call.callee_object_ids
+        @test binding.source_var == source_var
+        @test binding.carrier_kind == :ref_vector
+        @test binding.copy_semantics == :live_references
+    end
     scene_psi_binding = only(
         row for row in bindings
         if row.application_id == :scene_eb && row.input == :psi_soil
@@ -90,6 +111,13 @@ include("../examples/maespa_model_example.jl")
 
     scene_object = only(model_objects(model; scale=:Scene))
     soil_object = only(model_objects(model; kind=:soil))
+    for input in keys(expected_scene_leaf_inputs)
+        compiled_binding = only(
+            binding for binding in compiled.input_bindings
+            if binding.application_id == :scene_eb && binding.input == input
+        )
+        @test getproperty(scene_object.status, input) === input_carrier(compiled_binding)
+    end
     compiled_scene_psi_binding = only(
         binding for binding in compiled.input_bindings
         if binding.application_id == :scene_eb && binding.input == :psi_soil
@@ -152,6 +180,14 @@ include("../examples/maespa_model_example.jl")
     @test scene_status.leaf_area ≈ sum(st.leaf_area for st in leaf_statuses)
     @test scene_status.lai ≈ scene_status.leaf_area
     @test collect(scene_status.leaf_areas) ≈ getproperty.(leaf_statuses, :leaf_area)
+    @test collect(scene_status.leaf_carbon) ≈ getproperty.(leaf_statuses, :leaf_carbon)
+    @test collect(scene_status.leaf_Ra_SW_f) ≈ getproperty.(leaf_statuses, :Ra_SW_f)
+    @test collect(scene_status.leaf_aPPFD) ≈ getproperty.(leaf_statuses, :aPPFD)
+    @test collect(scene_status.Ψₗ) ≈ getproperty.(leaf_statuses, :Ψₗ)
+    @test collect(scene_status.leaf_rn) ≈ getproperty.(leaf_statuses, :Rn)
+    @test collect(scene_status.leaf_lambda_e) ≈ getproperty.(leaf_statuses, :λE)
+    @test collect(scene_status.leaf_h) ≈ getproperty.(leaf_statuses, :H)
+    @test collect(scene_status.leaf_a) ≈ getproperty.(leaf_statuses, :A)
     @test all(st -> isfinite(st.Tₗ), leaf_statuses)
     @test all(st -> isfinite(st.A), leaf_statuses)
     @test all(st -> isfinite(st.λE), leaf_statuses)

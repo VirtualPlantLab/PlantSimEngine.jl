@@ -96,6 +96,33 @@ ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
     TimeStep(Dates.Day(1))
 ```
 
+The scene energy-balance model uses the same mapping mechanism for leaf-scale
+values needed during the hard-call solve. It maps leaf area, leaf carbon, trial
+leaf inputs (`Ra_SW_f`, `aPPFD`, `Ψₗ`), and accepted leaf fluxes (`Rn`, `λE`,
+`H`, `A`) into scene-level vector inputs. The scene model then writes or reads
+those vectors, while the referenced leaf statuses remain the single source of
+truth.
+
+```julia
+ModelSpec(scene_model; name=:scene_eb) |>
+    AppliesTo(One(scale=:Scene)) |>
+    Inputs(
+        :leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
+        :leaf_carbon => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_carbon),
+        :leaf_Ra_SW_f => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:Ra_SW_f),
+        :leaf_aPPFD => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:aPPFD),
+        :Ψₗ => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:Ψₗ),
+        :leaf_rn => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:Rn),
+        :leaf_lambda_e => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:λE),
+        :leaf_h => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:H),
+        :leaf_a => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:A),
+    )
+```
+
+`HoldLast()` is intentional for the leaf flux vectors: it asks the compiler for
+live references to the current held status values, so the parent scene solve can
+iterate hard-call trial states without materializing temporal streams.
+
 Allocation is plant-local because its leaf selector uses `within=Subtree()`:
 
 ```julia
