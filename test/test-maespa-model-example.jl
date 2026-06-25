@@ -60,6 +60,60 @@ include("../examples/maespa_model_example.jl")
     plant_b_allocation_binding = only(row for row in bindings if row.application_id == :plant_B__allocation)
     @test plant_a_allocation_binding.source_ids == [:plant_A_leaf_1, :plant_A_leaf_2]
     @test plant_b_allocation_binding.source_ids == [:plant_B_leaf_1, :plant_B_leaf_2, :plant_B_leaf_3]
+    scene_psi_binding = only(
+        row for row in bindings
+        if row.application_id == :scene_eb && row.input == :psi_soil
+    )
+    @test scene_psi_binding.source_ids == [:soil]
+    @test scene_psi_binding.source_application_ids == [:soil_water]
+    @test scene_psi_binding.source_var == :psi_soil
+    @test scene_psi_binding.carrier_kind == :ref
+    @test scene_psi_binding.copy_semantics == :live_references
+    soil_transpiration_binding = only(
+        row for row in bindings
+        if row.application_id == :soil_water && row.input == :transpiration
+    )
+    @test soil_transpiration_binding.source_ids == [:model]
+    @test soil_transpiration_binding.source_application_ids == [:scene_eb]
+    @test soil_transpiration_binding.source_var == :scene_transpiration
+    @test soil_transpiration_binding.carrier_kind == :ref
+    @test soil_transpiration_binding.copy_semantics == :live_references
+    soil_infiltration_binding = only(
+        row for row in bindings
+        if row.application_id == :soil_water && row.input == :infiltration
+    )
+    @test soil_infiltration_binding.source_ids == [:model]
+    @test soil_infiltration_binding.source_application_ids == [:scene_eb]
+    @test soil_infiltration_binding.source_var == :scene_infiltration
+    @test soil_infiltration_binding.carrier_kind == :ref
+    @test soil_infiltration_binding.copy_semantics == :live_references
+
+    scene_object = only(model_objects(model; scale=:Scene))
+    soil_object = only(model_objects(model; kind=:soil))
+    compiled_scene_psi_binding = only(
+        binding for binding in compiled.input_bindings
+        if binding.application_id == :scene_eb && binding.input == :psi_soil
+    )
+    @test PlantSimEngine.refvalue(scene_object.status, :psi_soil) ===
+          input_carrier(compiled_scene_psi_binding)
+    @test input_carrier(compiled_scene_psi_binding) ===
+          PlantSimEngine.refvalue(soil_object.status, :psi_soil)
+    compiled_soil_transpiration_binding = only(
+        binding for binding in compiled.input_bindings
+        if binding.application_id == :soil_water && binding.input == :transpiration
+    )
+    @test PlantSimEngine.refvalue(soil_object.status, :transpiration) ===
+          input_carrier(compiled_soil_transpiration_binding)
+    @test input_carrier(compiled_soil_transpiration_binding) ===
+          PlantSimEngine.refvalue(scene_object.status, :scene_transpiration)
+    compiled_soil_infiltration_binding = only(
+        binding for binding in compiled.input_bindings
+        if binding.application_id == :soil_water && binding.input == :infiltration
+    )
+    @test PlantSimEngine.refvalue(soil_object.status, :infiltration) ===
+          input_carrier(compiled_soil_infiltration_binding)
+    @test input_carrier(compiled_soil_infiltration_binding) ===
+          PlantSimEngine.refvalue(scene_object.status, :scene_infiltration)
 
     schedule = explain_schedule(compiled)
     @test only(row for row in schedule if row.application_id == :scene_eb).root_scheduled
@@ -74,6 +128,7 @@ include("../examples/maespa_model_example.jl")
     @test count(row -> row.variable == :λE, output_rows) == 5 * 25
     @test count(row -> row.object_id == :soil && row.variable == :psi_soil, output_rows) == 25
     @test count(row -> row.object_id == :model && row.variable == :scene_transpiration, output_rows) == 25
+    @test count(row -> row.object_id == :model && row.variable == :scene_infiltration, output_rows) == 25
     @test count(row -> row.object_id == :model && row.variable == :lai, output_rows) == 2
     @test count(row -> row.variable == :daily_growth, output_rows) == 2 * 2
     output_summary = explain_outputs(scene_simulation)
@@ -111,18 +166,17 @@ include("../examples/maespa_model_example.jl")
 
     soil_status = only(model_objects(model; kind=:soil)).status
     @test soil_status.transpiration ≈ scene_status.scene_transpiration
+    @test soil_status.infiltration ≈ scene_status.scene_infiltration
     @test soil_status.psi_soil ≈ scene_status.psi_soil
 end
 
 @testset "MAESPA-style model example validation" begin
     meteo = maespa_meteo(; nhours=1)
 
-    soil_target = (status=Status(psi_soil=-0.1),)
-    scene_status = Status(lai=0.0, leaf_area=0.0)
+    scene_status = Status(lai=0.0, leaf_area=0.0, psi_soil=-0.1)
     @test_throws "SceneEB did not converge after 0 iterations" _solve_model_energy_balance!(
         SceneEB(0, 0.03, 0.005),
         CallTarget[],
-        soil_target,
         scene_status,
         first(meteo),
     )

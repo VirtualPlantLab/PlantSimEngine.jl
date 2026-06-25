@@ -21,16 +21,22 @@ Leaf applications use the copied PlantBiophysics subsample models:
 
 ## Coupling
 
-The model energy-balance application controls iterative leaf and soil calls:
+The model energy-balance application controls iterative leaf and soil calls.
+`Calls(...)` expresses execution ownership only: the scene model decides when
+leaf and soil subprocesses run.
 
 ```julia
 ModelSpec(scene_model; name=:scene_eb) |>
     AppliesTo(One(scale=:Scene)) |>
+    Inputs(
+        :psi_soil =>
+            One(kind=:soil, scale=:Soil, application=:soil_water, var=:psi_soil),
+    ) |>
     Calls(
         :energy_balance =>
             Many(kind=:plant, scale=:Leaf, process=:energy_balance),
         :soil =>
-            One(kind=:soil, scale=:Soil, process=:soil_water),
+            One(kind=:soil, scale=:Soil, application=:soil_water),
     ) |>
     TimeStep(Dates.Hour(1))
 ```
@@ -38,6 +44,40 @@ ModelSpec(scene_model; name=:scene_eb) |>
 Trial leaf calls use `run_call!(target)` and do not publish. The accepted
 solution uses `run_call!(target; publish=true)`, so temporal outputs and
 environment writes are emitted exactly once.
+
+Scene/soil values are wired declaratively with `Inputs(...)`, not by manually
+writing another object's status. The soil model receives accepted scene fluxes
+through live references:
+
+```julia
+ModelSpec(SoilWater(...); name=:soil_water) |>
+    AppliesTo(One(kind=:soil, scale=:Soil)) |>
+    Inputs(
+        :transpiration =>
+            One(
+                scale=:Scene,
+                within=SceneScope(),
+                application=:scene_eb,
+                var=:scene_transpiration,
+            ),
+        :infiltration =>
+            One(
+                scale=:Scene,
+                within=SceneScope(),
+                application=:scene_eb,
+                var=:scene_infiltration,
+            ),
+    ) |>
+    TimeStep(Dates.Hour(1))
+```
+
+This creates a parent-controlled feedback loop: the scene reads mapped
+`psi_soil` when it starts its energy-balance solve, computes accepted scene
+water fluxes, writes `scene_transpiration` and `scene_infiltration`, then calls
+the soil model. The soil call sees those scene values through input carriers
+and publishes the updated soil state. If the intended science is an explicit
+lag rather than same-step parent control, use `PreviousTimeStep(:psi_soil)` on
+the scene input.
 
 CompositeModel LAI receives live references to every leaf area:
 

@@ -143,17 +143,22 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
-            process=:energy_balance,
+            application=:energy_balance,
         ),
         :soil => One(
             kind=:soil,
             scale=:Soil,
             within=SceneScope(),
-            process=:soil_water,
+            application=:soil_water,
         ),
     ) |>
     TimeStep(Hour(1))
 ```
+
+Scenario-level `Inputs(...)` and `Calls(...)` should usually name the concrete
+producer or callee with `application=...`. Use process identities in model-level
+contracts such as `dep(model)`, where the model author cannot know the
+application names chosen by future scenarios.
 
 Inside the parent model, `run_call!(extra, :leaf_energy)` executes every target
 and returns a vector-like collection. For iterative control,

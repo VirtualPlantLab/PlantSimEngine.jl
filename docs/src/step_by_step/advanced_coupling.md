@@ -38,6 +38,17 @@ The example process models in `examples/dummy.jl` contain both patterns:
 `Calls(...)` is scenario-level wiring. The model kernel remains generic; the
 scenario decides which concrete application is called.
 
+Use `application=...` in scenario-level `Calls(...)` and `Inputs(...)` when you
+know which mounted model application should provide the value or be called. Use
+process identities in model-level contracts such as `dep(model)`, where the
+model author only declares that a compatible process is required and cannot know
+the names chosen by future scenarios.
+
+This split avoids ambiguity when several applications implement the same
+process. For example, two soil-water applications can share the same process but
+represent different layers, parameter sets, objects, or time steps. A scenario
+selector should name the application that has the intended role.
+
 ```@example scene_advanced_coupling
 complex_scene = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene, status=Status(var0=2.0));

@@ -115,7 +115,7 @@ function SceneEB(
     )
 end
 
-PlantSimEngine.inputs_(::SceneEB) = (lai=0.0, leaf_area=0.0)
+PlantSimEngine.inputs_(::SceneEB) = (lai=0.0, leaf_area=0.0, psi_soil=-0.1)
 PlantSimEngine.outputs_(::SceneEB) = (
     canopy_tair=20.0,
     canopy_vpd=1.0,
@@ -123,8 +123,8 @@ PlantSimEngine.outputs_(::SceneEB) = (
     canopy_htot=0.0,
     canopy_gcanop=0.0,
     scene_transpiration=0.0,
+    scene_infiltration=0.0,
     scene_assimilation=0.0,
-    psi_soil=-0.1,
     iterations=0,
 )
 
@@ -242,12 +242,18 @@ function tvpdcanopcalc(m::SceneEB, fluxes, meteo_above, canopy_meteo, constants)
     return (tair=tair_new, vpd=vpd_new, rh=rh_new, htot=htot, gcanop=gbcan_ms)
 end
 
-function _solve_model_energy_balance!(m::SceneEB, leaf_targets, soil_target, status, meteo, constants=PlantMeteo.Constants())
+function _solve_model_energy_balance!(
+    m::SceneEB,
+    leaf_targets,
+    status,
+    meteo,
+    constants=PlantMeteo.Constants(),
+)
     tair_above = meteo.T
     vpd_above = max(0.01, meteo.VPD)
     tair_canopy = tair_above
     vpd_canopy = vpd_above
-    psi_soil = soil_target.status.psi_soil
+    psi_soil = status.psi_soil
     final_meteo = meteo
     last_update = (tair=tair_canopy, vpd=vpd_canopy, rh=meteo.Rh, htot=0.0, gcanop=0.0)
 
@@ -301,20 +307,11 @@ function _publish_model_leaf_solution!(leaf_targets, solution::SceneEBSolverResu
     return fluxes
 end
 
-function _run_model_soil_feedback!(soil_target, transpiration_mm)
-    soil_target.status.transpiration = transpiration_mm
-    soil_target.status.infiltration = 0.0
-    run_call!(soil_target; publish=true)
-    return soil_target.status.psi_soil
-end
-
 function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
     leaf_targets = call_targets(extra, :energy_balance)
-    soil_target = only(call_targets(extra, :soil))
-    solution = _solve_model_energy_balance!(m, leaf_targets, soil_target, status, meteo, constants)
+    solution = _solve_model_energy_balance!(m, leaf_targets, status, meteo, constants)
     fluxes = _publish_model_leaf_solution!(leaf_targets, solution, meteo, m.ground_area)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
-    psi_soil = _run_model_soil_feedback!(soil_target, transpiration_mm)
 
     status.canopy_tair = solution.tair
     status.canopy_vpd = solution.vpd
@@ -322,9 +319,10 @@ function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra
     status.canopy_htot = solution.htot
     status.canopy_gcanop = solution.gcanop
     status.scene_transpiration = transpiration_mm
+    status.scene_infiltration = 0.0
     status.scene_assimilation = fluxes.a
-    status.psi_soil = psi_soil
     status.iterations = solution.iterations
+    run_call!(extra, :soil; publish=true)
     return nothing
 end
 
@@ -397,6 +395,7 @@ function _maespa_model_status()
         canopy_htot=0.0,
         canopy_gcanop=0.0,
         scene_transpiration=0.0,
+        scene_infiltration=0.0,
         scene_assimilation=0.0,
         psi_soil=-0.1,
         iterations=0,
@@ -506,6 +505,14 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa
             TimeStep(Dates.Day(1)),
             ModelSpec(scene_model; name=:scene_eb) |>
             AppliesTo(One(scale=:Scene)) |>
+            Inputs(
+                :psi_soil => One(
+                    kind=:soil,
+                    scale=:Soil,
+                    application=:soil_water,
+                    var=:psi_soil,
+                ),
+            ) |>
             Calls(
                 :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
                 :soil => One(kind=:soil, scale=:Soil, application=:soil_water),
@@ -513,6 +520,20 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa
             TimeStep(Dates.Hour(1)),
             ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water) |>
             AppliesTo(One(kind=:soil, scale=:Soil)) |>
+            Inputs(
+                :transpiration => One(
+                    scale=:Scene,
+                    within=SceneScope(),
+                    application=:scene_eb,
+                    var=:scene_transpiration,
+                ),
+                :infiltration => One(
+                    scale=:Scene,
+                    within=SceneScope(),
+                    application=:scene_eb,
+                    var=:scene_infiltration,
+                ),
+            ) |>
             TimeStep(Dates.Hour(1)),
         ),
         environment=meteo,

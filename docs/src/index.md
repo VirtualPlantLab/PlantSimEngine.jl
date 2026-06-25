@@ -206,6 +206,12 @@ allocation models that sum their own leaves, model models that aggregate all
 plants, and microclimate solvers that select objects inside one environment
 cell.
 
+When a selector reads a value produced by another model application, prefer
+`application=...` to identify the concrete producer. A process name describes
+the reusable scientific contract; an application name identifies the mounted
+producer in this scenario. This matters as soon as several applications
+implement the same process or publish the same variable on different objects.
+
 ## Manual Calls For Iterative Solvers
 
 Use `Calls(...)` when a parent model must directly run another model, for
@@ -231,6 +237,11 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     ) |>
     TimeStep(Hour(1))
 ```
+
+The same rule applies to manual calls: scenario wiring should select the
+concrete callee application with `application=...`. Model authors use process
+requirements in `dep(model)` when they declare generic dependencies, because
+they cannot know the application names that a user will choose later.
 
 Inside `run!`, use `run_call!(extra, :leaf_energy)` to execute every target and
 receive a vector-like collection. Iterative parents use

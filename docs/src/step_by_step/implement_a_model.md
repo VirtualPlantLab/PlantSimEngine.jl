@@ -232,4 +232,15 @@ PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceM
 
 Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
 
+This is intentionally process-based because `dep(model)` is a model-author
+contract. The model author cannot know which application name a future scenario
+will choose for stomatal conductance. In a concrete scenario, users should wire
+the selected producer or callee with `application=...` in `Inputs(...)` or
+`Calls(...)` when that application is known:
+
+```julia
+ModelSpec(ParentModel(); name=:parent) |>
+    Calls(:stomata => One(scale=:Leaf, application=:stomatal_conductance))
+```
+
 You can read more about hard dependencies in [Coupling more complex models](@ref).
