@@ -19,9 +19,9 @@ function _environment_provider_from_config(config, backend)
     return :model
 end
 
-function _object_environment_support(application::CompiledModelApplication, object::Object)
+function _object_environment_support(application::CompiledModelApplication, object::Object, cell=nothing)
     scale = isnothing(object.scale) ? :Default : object.scale
-    return EnvironmentSupport(application.id, scale, application.process, object.status)
+    return EnvironmentSupport(application.id, scale, application.process, object.status, cell)
 end
 
 bind_environment(backend, object::Object, support, config=nothing) = :global
@@ -120,6 +120,7 @@ function _compile_environment_bindings_for_applications(model::CompositeModel, a
                 support,
                 _environment_config_payload(config),
             )
+            support = _object_environment_support(application, object, cell)
             push!(
                 bindings,
                 CompiledEnvironmentBinding(
@@ -215,6 +216,7 @@ function _compiled_environment_bindings(
     by_target,
     samplers_by_application=_model_environment_samplers(bindings),
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
+    environment_overrides=Any[],
 )
     return CompiledEnvironmentBindings(
         model,
@@ -222,6 +224,7 @@ function _compiled_environment_bindings(
         by_target,
         samplers_by_application,
         sample_cache,
+        environment_overrides,
         model.revision,
         model.environment_revision,
     )
@@ -253,7 +256,8 @@ function _same_environment_support(a, b)
     return a.application == b.application &&
            a.scale == b.scale &&
            a.process == b.process &&
-           a.status === b.status
+           a.status === b.status &&
+           isequal(a.cell, b.cell)
 end
 
 function _reconcile_environment_binding_metadata(
@@ -278,7 +282,7 @@ function _reconcile_environment_binding_metadata(
             old = get(cached.by_target, key, nothing)
             isnothing(old) && return nothing
             object = _model_object(model, object_id)
-            support = _object_environment_support(application, object)
+            support = _object_environment_support(application, object, old.cell)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
             _same_environment_backend(old.backend, backend) || return nothing
@@ -384,6 +388,7 @@ function _refresh_environment_bindings_for_objects(
             cached.by_target,
             cached.samplers_by_application,
             cached.sample_cache,
+            cached.environment_overrides,
         )
     end
     bindings = CompiledEnvironmentBinding[
@@ -408,6 +413,7 @@ function _refresh_environment_bindings_for_objects(
         by_target,
         cached.samplers_by_application,
         cached.sample_cache,
+        cached.environment_overrides,
     )
 end
 

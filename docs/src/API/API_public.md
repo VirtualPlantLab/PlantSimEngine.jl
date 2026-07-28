@@ -37,8 +37,9 @@
 - `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` define temporal
   input policies.
 - `Environment(...)` configures environment providers and source remapping.
-- Models declare environment variables with `meteo_inputs_` and
-  `meteo_outputs_`.
+- Models declare sampled environment variables with `meteo_inputs_`.
+- Mutable environment controllers use `with_environment!` for trial sampling
+  and `update_environment!` to commit accepted meteorology.
 - `OutputRequest(selector, variable; ...)` selects retained and optionally
   resampled streams using the same object selector grammar.
 

@@ -230,7 +230,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
 For a one-shot call, execute all targets directly:
 
 ```julia
-targets = run_call!(extra, :leaf_energy; meteo=meteo, publish=true)
+targets = run_call!(extra, :leaf_energy; publish=true)
 ```
 
 `targets` is always vector-like regardless of whether the declaration uses
@@ -240,21 +240,22 @@ compiled targets without executing them:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=trial_meteo(model, status))
+    with_environment!(extra, trial_meteo(model, status)) do
+        run_call!(extra, :leaf_energy; publish=false)
     end
 
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
-    end
+    accepted = accepted_meteo(model, status)
+    update_environment!(extra, accepted)
+    run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
 end
 ```
 
 `run_call!` defaults to `publish=false`, so trial calls mutate target statuses
-without publishing temporal streams or mutable environment outputs. The
-accepted state should use `publish=true`.
+without publishing temporal streams or committing mutable environment updates.
+Use `with_environment!` for non-committing trial meteorology and
+`update_environment!` before publishing the accepted state.
 
 ## Next Steps
 
@@ -263,6 +264,6 @@ accepted state should use `publish=true`.
 - [Public API](../API/API_public.md) lists constructors, selectors, lifecycle
   helpers, environment helpers, and explanation helpers.
 - [Model traits](../model_traits.md) documents `inputs_`, `outputs_`, `dep`,
-  `timespec`, `output_policy`, `meteo_inputs_`, and `meteo_outputs_`.
+  `timespec`, `output_policy`, and `meteo_inputs_`.
 - [MAESPA-style model example handoff](../dev/maespa_model_handoff.md)
   records the current multi-plant model energy-balance acceptance example.

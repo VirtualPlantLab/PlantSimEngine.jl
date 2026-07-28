@@ -37,7 +37,7 @@ PlantSimEngine.dep(::Process2Model) = (
 )
 function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
-    PlantSimEngine.run_call!(extra, :process1; meteo=meteo, publish=true)
+    PlantSimEngine.run_call!(extra, :process1; publish=true)
     # computing var4 and var5:
     status.var4 = status.var3 * 2.0
     status.var5 = status.var4 + 1.0 * meteo.T + 2.0 * meteo.Wind + 3.0 * meteo.Rh
@@ -63,7 +63,7 @@ PlantSimEngine.dep(::Process3Model) = (
 )
 function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
     # computing var3, var4 and var5 using process2 (which calls process1):
-    PlantSimEngine.run_call!(extra, :process2; meteo=meteo, publish=true)
+    PlantSimEngine.run_call!(extra, :process2; publish=true)
     # re-computing var4:
     status.var4 = status.var4 * 2.0
     status.var6 = status.var5 + status.var4

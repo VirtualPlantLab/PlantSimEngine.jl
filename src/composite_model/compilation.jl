@@ -84,12 +84,13 @@ struct CompiledEnvironmentBinding{B,C,S}
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I,S,C}
+struct CompiledEnvironmentBindings{SC,B,I,S,C,O}
     model::SC
     bindings::B
     by_target::I
     samplers_by_application::S
     sample_cache::C
+    environment_overrides::O
     model_revision::Int
     environment_revision::Int
 end

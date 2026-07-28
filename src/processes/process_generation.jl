@@ -141,7 +141,7 @@ macro process(f, args...)
             extra
         )
             status.Y = models.$(process_name).a * meteo.CO2 + status.X
-            run_call!(extra, :other_process_name; meteo=meteo, publish=true)
+            run_call!(extra, :other_process_name; publish=true)
         end
         ```
 
@@ -153,7 +153,7 @@ macro process(f, args...)
 
         Our example model has a hard dependency on `other_process_name`. The
         compiled runtime resolves its declared targets, executes them with
-        `run_call!(extra, :other_process_name; meteo=meteo, publish=true)`, and
+        `run_call!(extra, :other_process_name; publish=true)`, and
         returns a vector-like `CallTargets` collection.
 
         !!! tip "Variables and parameters usage"

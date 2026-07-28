@@ -139,7 +139,7 @@ export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates, OutputRouting
-export call_targets, run_call!, explain_schedule
+export call_targets, run_call!, with_environment!, update_environment!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status
 export @process, process

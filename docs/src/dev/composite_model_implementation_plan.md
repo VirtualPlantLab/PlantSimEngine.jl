@@ -96,10 +96,10 @@ types should be selectors, model traits, or internal compiled carriers.
   Each required input must either have a compiled binding or already exist on
   the target object `Status`; otherwise compilation errors with the concrete
   application id, object id, and input variable.
-- CompositeModel compilation creates an empty `Status` for model-targeted objects when
-  status is omitted, inserts missing `outputs_` and `meteo_outputs_` fields
-  from model defaults, and inserts explicitly or implicitly bound input fields
-  from `inputs_` defaults. Unbound external inputs remain compilation errors.
+- CompositeModel compilation creates an empty `Status` for model-targeted
+  objects when status is omitted, inserts missing `outputs_` fields from model
+  defaults, and inserts explicitly or implicitly bound input fields from
+  `inputs_` defaults. Unbound external inputs remain compilation errors.
 - `Advanced.compile_composite_model` now rejects `Inputs(...)` declarations whose left-hand
   variable is not declared by the target model's `inputs_`. This catches
   misspelled or stale scenario bindings before they create silent unused
@@ -138,8 +138,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `Advanced.compiled_environment_bindings`, `Advanced.environment_revision`, and
   `explain_environment_bindings`. The compiler resolves each
   application/object environment provider, backend, required
-  `meteo_inputs_`, produced `meteo_outputs_`, support descriptor, and backend
-  cell before runtime.
+  `meteo_inputs_`, support descriptor, and backend cell before runtime.
 - Added the minimal model geometry contract: `geometry(object_or_status)`,
   `position(object_or_status)`, and `bounds(object_or_status)`. Environment
   binding refreshes now call `update_index!(backend, entities)` once per
@@ -154,10 +153,10 @@ types should be selectors, model traits, or internal compiled carriers.
   inherit its geometry, stopping at descendants with their own geometry. This
   preserves unaffected cached bindings.
 - Environment refresh now reconciles model environment contracts against
-  cached spatial bindings. If only `meteo_inputs_` or `meteo_outputs_` changes
-  while application id, object, process, provider, backend, status, and geometry
-  provenance remain unchanged, required/output metadata is updated while the
-  cached cell is reused without `update_index!` or `Advanced.bind_environment`.
+  cached spatial bindings. If only `meteo_inputs_` changes while application
+  id, object, process, provider, backend, status, and geometry provenance remain
+  unchanged, required metadata is updated while the cached cell is reused
+  without `update_index!` or `Advanced.bind_environment`.
 - `validate_meteo_inputs(model)` and
   `validate_meteo_inputs(compiled_scene, meteo_or_backend)` now validate
   composite-model/object model application `meteo_inputs_` against the active
@@ -215,11 +214,11 @@ types should be selectors, model traits, or internal compiled carriers.
   status value until history exists, and do not add a same-timestep scheduling
   edge. This allows feedback cycles to compile without changing generic model
   kernels.
-- CompositeModel/object execution now scatters mutable environment outputs declared by
-  `meteo_outputs_(model)` back to the bound backend after each model call.
-  This reuses `scatter_environment_outputs!`, so environment writers keep the
-  existing generic model contract: compute a same-named status value, and let
-  the runtime push it to the active microclimate backend.
+- CompositeModel/object execution now exposes explicit mutable environment
+  commits through `update_environment!(extra, accepted_meteo)` and
+  non-committing trial scopes through `with_environment!(extra, trial_meteo)`.
+  Meteorological state stays in the environment backend instead of being staged
+  through same-named status values.
 - Added root application scheduling from `TimeStep(...)` using `Dates.Period`
   values and the model environment base step. `explain_schedule` on a
   `Advanced.CompiledCompositeModel` now reports each application clock, phase, timestep in base
@@ -330,12 +329,11 @@ types should be selectors, model traits, or internal compiled carriers.
   template `kind` and `species` labels. Instance explanations derive membership
   from the current topology, so growth, pruning, and reparenting do not leave a
   separate stale membership list.
-- CompositeModel hard calls now accept explicit local meteorology:
-  `run_call!(target; meteo=local_meteo, publish=false)`. The callee receives
-  the supplied meteo object instead of resampling the bound environment, while
-  `publish=false` still suppresses output publication and environment
-  scattering. This supports iterative microclimate solvers such as the MAESPA
-  model energy-balance loop.
+- CompositeModel hard calls can run under temporary local meteorology with
+  `with_environment!(extra, local_meteo) do ... end`. Descendants sample the
+  temporary state through normal environment bindings, while `publish=false`
+  suppresses output publication and environment commits. This supports
+  iterative microclimate solvers such as the MAESPA model energy-balance loop.
 - CompositeModel runtime now builds a small process-keyed `models` bundle from compiled
   `Calls(...)` edges before invoking a model kernel. This lets existing generic
   hard-dependency kernels such as `Monteith` continue to call
@@ -470,7 +468,7 @@ Define:
 Rules:
 
 - a model kernel remains generic and declares `inputs_`, `outputs_`, optional
-  `dep`, optional `meteo_inputs_`/`meteo_outputs_`, and `run!`;
+  `dep`, optional `meteo_inputs_`, and `run!`;
 - a model application decides where the kernel runs, at what rate, and how its
   inputs, calls, updates, outputs, and environment are bound;
 - application ids are stable and can be generated from explicit `name`,
@@ -868,8 +866,8 @@ Acceptance tests:
   the next timestep;
 - model `meteo_inputs_` changes update required variables without recomputing
   spatial links unless necessary.
-- `meteo_outputs_` can write mutable microclimate variables back to the active
-  backend through `scatter_environment!`.
+- `update_environment!(extra, accepted_meteo)` commits mutable microclimate
+  state back to the active backend.
 
 ## Phase 7: Compiler, Scheduler, And Explanation Cleanup
 

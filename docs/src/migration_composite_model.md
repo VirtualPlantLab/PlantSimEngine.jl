@@ -63,7 +63,6 @@ inputs_(model)
 outputs_(model)
 dep(model)
 meteo_inputs_(model)
-meteo_outputs_(model)
 run!(model, models, status, meteo, constants, extra)
 ```
 
@@ -216,23 +215,22 @@ The parent model controls execution:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    leaf_targets = call_targets(extra, :leaf_energy)
-
     for iteration in 1:model.max_iterations
-        for target in leaf_targets
-            run_call!(target; meteo=trial_meteo(model, status))
+        with_environment!(extra, trial_meteo(model, status)) do
+            run_call!(extra, :leaf_energy; publish=false)
         end
-        converged(model, status, leaf_targets) && break
+        converged(model, status) && break
     end
 
-    for target in leaf_targets
-        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
-    end
+    accepted = accepted_meteo(model, status)
+    update_environment!(extra, accepted)
+    run_call!(extra, :leaf_energy; publish=true)
     return nothing
 end
 ```
 
 `run_call!` defaults to `publish=false`. Trial calls mutate target status but
+do not publish temporal samples or commit mutable environment updates.
 do not append temporal samples or write environment outputs. The accepted
 state must use `publish=true`.
 
@@ -345,9 +343,8 @@ the writer order.
 
 ## Environment And Microclimate
 
-Models declare environment variables with `meteo_inputs_` and
-`meteo_outputs_`. The model binds each object to the active environment
-backend:
+Models declare sampled environment variables with `meteo_inputs_`. The scenario
+binds each object/application to the active environment backend:
 
 ```julia
 ModelSpec(LeafEnergy(); name=:leaf_energy) |>

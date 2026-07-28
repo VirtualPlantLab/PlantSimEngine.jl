@@ -10,17 +10,22 @@ packages can subtype this and implement `sample`, `scatter!`, `update_index!`,
 abstract type AbstractEnvironmentBackend end
 
 """
-    EnvironmentSupport(application, scale, process, status)
+    EnvironmentSupport(application, scale, process, status[, cell])
 
 Minimal support descriptor passed to environment backends when a model samples
-or scatters environmental variables.
+or mutates environmental variables. `cell` is the compiled backend binding
+value returned by `bind_environment`.
 """
-struct EnvironmentSupport{S}
+struct EnvironmentSupport{S,C}
     application::Symbol
     scale::Symbol
     process::Symbol
     status::S
+    cell::C
 end
+
+EnvironmentSupport(application::Symbol, scale::Symbol, process::Symbol, status) =
+    EnvironmentSupport(application, scale, process, status, nothing)
 
 """
     GlobalConstant(meteo)
@@ -217,6 +222,26 @@ end
 
 scatter!(backend::GlobalConstant, variable::Symbol, support::EnvironmentSupport, value, time) = error(
     "GlobalConstant is immutable and cannot receive environment output `$(variable)` from ",
+    "`$(support.application)/$(support.scale)/$(support.process)`."
+)
+
+"""
+    update_environment!(backend, support, meteo, time)
+
+Commit an accepted meteorological state to a mutable environment backend.
+Model kernels normally call `update_environment!(extra, meteo)` on their
+`RunContext`; backend authors implement this method for their concrete
+environment.
+"""
+function update_environment!(backend::AbstractEnvironmentBackend, support::EnvironmentSupport, meteo, time)
+    error(
+        "Environment backend `$(typeof(backend))` does not implement ",
+        "`PlantSimEngine.update_environment!(backend, support, meteo, time)`."
+    )
+end
+
+update_environment!(backend::GlobalConstant, support::EnvironmentSupport, meteo, time) = error(
+    "GlobalConstant is immutable and cannot receive an accepted environment update from ",
     "`$(support.application)/$(support.scale)/$(support.process)`."
 )
 

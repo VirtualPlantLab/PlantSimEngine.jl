@@ -54,12 +54,12 @@ and cache controls are intentionally listed separately under
 - Model identity: `AbstractModel`, `@process`, `process`.
 - State: `Status`, `init_variables`, `dep`.
 - Model IO: `inputs`, `outputs`, `variables`, `meteo_inputs`, `meteo_inputs_`,
-  `meteo_outputs`, `meteo_outputs_`, `validate_meteo_inputs`.
+  `validate_meteo_inputs`.
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
   `meteo_hint`, `meteo_bindings`, `meteo_window`.
 
-The underscore declarations `inputs_`, `outputs_`, `meteo_inputs_`, and
-`meteo_outputs_` are extension functions model authors implement with qualified
+The underscore declarations `inputs_`, `outputs_`, and `meteo_inputs_` are
+extension functions model authors implement with qualified
 definitions such as `PlantSimEngine.inputs_(model) = ...`. `inputs_` and
 `outputs_` remain intentionally unexported to avoid collisions with common
 user functions.
@@ -77,8 +77,8 @@ user functions.
 - Backend contract: `AbstractEnvironmentBackend`, `EnvironmentSupport`,
   `GlobalConstant`, `environment_backend`, `environment_variables`,
   `base_step_seconds`.
-- Sampling and mutation: `sample`, `sample_environment`, `scatter!`,
-  `scatter_environment_outputs!`, `update_index!`.
+- Sampling and mutation: `sample`, `sample_environment`, `with_environment!`,
+  `update_environment!`, `update_index!`.
 - PlantMeteo conveniences: `Atmosphere`, `Constants`, `Weather`.
 
 ## Evaluation

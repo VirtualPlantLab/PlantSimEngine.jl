@@ -16,6 +16,7 @@ fields.
 """
 struct RunContext{CS,A,CT,TS,OR,C}
     compiled::CS
+    environment_bindings::CompiledEnvironmentBindings
     application::A
     object_id::ObjectId
     calls::CT
@@ -697,6 +698,8 @@ function _model_meteo_for_binding(
     binding,
     time::Real,
 )
+    isempty(env_bindings.environment_overrides) ||
+        return last(env_bindings.environment_overrides)
     isnothing(binding) && return nothing
     isnothing(binding.backend) && return nothing
     if binding.backend isa GlobalConstant
@@ -737,35 +740,6 @@ function _model_meteo_for_binding(
         return sampled
     end
     return sample_environment(binding.backend, binding.support, time, application.spec)
-end
-
-function _scatter_model_environment_outputs!(
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    status,
-    time::Real,
-)
-    isempty(keys(meteo_outputs_(application.spec))) && return nothing
-    binding = _environment_binding_for(env_bindings, application.id, object_id)
-    return _scatter_model_environment_outputs!(
-        application,
-        binding,
-        status,
-        time,
-    )
-end
-
-function _scatter_model_environment_outputs!(
-    application::CompiledModelApplication,
-    binding,
-    status,
-    time::Real,
-)
-    isempty(keys(meteo_outputs_(application.spec))) && return nothing
-    isnothing(binding) && return nothing
-    isnothing(binding.backend) && return nothing
-    return scatter_environment_outputs!(binding.backend, binding.support, time, application.spec, status)
 end
 
 function _push_model_model_entry!(pairs, names::Set{Symbol}, name::Symbol, model)
@@ -887,6 +861,7 @@ end
 )
     context = RunContext(
         compiled,
+        env_bindings,
         application,
         object_id,
         calls,
@@ -900,7 +875,6 @@ end
     models = _model_models_for_application(compiled, application, object_id)
     run!(model, models, status, meteo_value, constants, context)
     if publish
-        _scatter_model_environment_outputs!(env_bindings, application, object_id, status, time)
         _model_publish_outputs!(
             temporal_streams,
             application,
@@ -985,7 +959,6 @@ function _run_model_execution_target_without_calls!(
     output_retention=nothing,
     meteo=_UNSPECIFIED_SCENE_METEO,
     publish_outputs::Bool=true,
-    scatter_outputs::Bool=true,
     retained_outputs=nothing,
 )
     status = isempty(target.input_bindings) ?
@@ -1007,6 +980,7 @@ function _run_model_execution_target_without_calls!(
     ) : meteo
     context = RunContext(
         compiled,
+        env_bindings,
         application,
         target.object_id,
         (),
@@ -1017,12 +991,6 @@ function _run_model_execution_target_without_calls!(
         true,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
-    scatter_outputs && _scatter_model_environment_outputs!(
-        application,
-        target.environment_binding,
-        status,
-        time,
-    )
     publish_outputs && _model_publish_outputs!(
         temporal_streams,
         application,
@@ -1046,7 +1014,6 @@ function _run_model_execution_target!(
     output_retention=nothing,
     meteo=_UNSPECIFIED_SCENE_METEO,
     publish_outputs::Bool=true,
-    scatter_outputs::Bool=true,
     retained_outputs=nothing,
 )
     isempty(compiled.call_bindings) && return _run_model_execution_target_without_calls!(
@@ -1060,7 +1027,6 @@ function _run_model_execution_target!(
         output_retention=output_retention,
         meteo=meteo,
         publish_outputs=publish_outputs,
-        scatter_outputs=scatter_outputs,
         retained_outputs=retained_outputs,
     )
     status = isempty(target.input_bindings) ?
@@ -1097,6 +1063,7 @@ function _run_model_execution_target!(
     )
     context = RunContext(
         compiled,
+        env_bindings,
         application,
         target.object_id,
         calls,
@@ -1107,12 +1074,6 @@ function _run_model_execution_target!(
         true,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
-    scatter_outputs && _scatter_model_environment_outputs!(
-        application,
-        target.environment_binding,
-        status,
-        time,
-    )
     publish_outputs && _model_publish_outputs!(
         temporal_streams,
         application,
@@ -1148,7 +1109,6 @@ function _run_model_execution_batch!(
         _UNSPECIFIED_SCENE_METEO
     end
     publish_outputs = _model_retain_application(output_retention, batch.application.id)
-    scatter_outputs = !isempty(keys(meteo_outputs_(batch.application.spec)))
     retained_outputs = output_retention isa OutputRetentionPlan ?
                        get(
         output_retention.retained_outputs_by_application,
@@ -1168,7 +1128,6 @@ function _run_model_execution_batch!(
                 output_retention=output_retention,
                 meteo=shared_meteo,
                 publish_outputs=publish_outputs,
-                scatter_outputs=scatter_outputs,
                 retained_outputs=retained_outputs,
             )
         end
@@ -1186,7 +1145,6 @@ function _run_model_execution_batch!(
             output_retention=output_retention,
             meteo=shared_meteo,
             publish_outputs=publish_outputs,
-            scatter_outputs=scatter_outputs,
             retained_outputs=retained_outputs,
         )
     end
@@ -1633,6 +1591,87 @@ Base.@constprop :aggressive function call_targets(
     return _model_call_targets(context, name)
 end
 
+function _environment_binding_for_current_context(context::RunContext)
+    binding = _environment_binding_for(
+        context.environment_bindings,
+        context.application.id,
+        context.object_id,
+    )
+    if isnothing(binding) || isnothing(binding.backend)
+        error(
+            "Cannot update environment for `$(context.application.id)` on object ",
+            "`$(context.object_id.value)`: no mutable/updatable environment binding is configured. ",
+            "Attach an environment with `CompositeModel(...; environment=...)` and ",
+            "`ModelSpec(model) |> Environment(...)`."
+        )
+    end
+    return binding
+end
+
+"""
+    update_environment!(context::RunContext, meteo)
+
+Commit an accepted meteorological state to the mutable environment bound to the
+currently running model application/object. This is the model-facing API for
+controllers that intentionally update microclimate state.
+
+The commit is ignored while the current model is executing as a non-publishing
+trial hard call. That keeps trial microclimates local to the call stack; only
+accepted/publishing contexts can mutate the backend.
+
+Backend-specific support metadata stays inside PlantSimEngine; model kernels
+only pass the accepted meteo object they computed.
+"""
+function update_environment!(context::RunContext, meteo)
+    context.publication_allowed || return nothing
+    binding = _environment_binding_for_current_context(context)
+    return update_environment!(
+        binding.backend,
+        binding.support,
+        meteo,
+        context.time,
+    )
+end
+
+function update_environment!(context, meteo)
+    throw(
+        ArgumentError(
+            "`update_environment!` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
+        ),
+    )
+end
+
+"""
+    with_environment!(f, context::RunContext, meteo)
+
+Temporarily override the sampled environment for hard calls executed inside
+`f`. The override is restored even if `f` throws. This is intended for
+iterative solvers that need non-committing trial microclimates:
+
+```julia
+with_environment!(extra, trial_meteo) do
+    run_call!(extra, :energy_balance; publish=false)
+end
+```
+"""
+function with_environment!(f::Function, context::RunContext, meteo)
+    overrides = context.environment_bindings.environment_overrides
+    push!(overrides, meteo)
+    try
+        return f()
+    finally
+        pop!(overrides)
+    end
+end
+
+function with_environment!(f::Function, context, meteo)
+    throw(
+        ArgumentError(
+            "`with_environment!` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
+        ),
+    )
+end
+
 """
     run_call!(target::CallTarget; publish=false, meteo=nothing)
 
@@ -1640,7 +1679,16 @@ Run one manually selected model call. By default, the call mutates its target
 status without publishing outputs or environment updates, which is suitable
 for trial iterations. Pass `publish=true` once for the accepted state. When
 `meteo` is provided, it is forwarded directly to this target instead of using
-its compiled environment binding. The method returns the same `CallTarget`.
+its compiled environment binding. For a scoped trial environment shared by all
+hard-called descendants, prefer [`with_environment!`](@ref):
+
+```julia
+with_environment!(extra, trial_meteo) do
+    run_call!(target; publish=false)
+end
+```
+
+The method returns the same `CallTarget`.
 
 Publication permission is inherited through the call stack. A descendant
 cannot publish outputs or environment writes while any ancestor is running as
@@ -1651,11 +1699,16 @@ select or iterate its targets:
 
 ```julia
 targets = call_targets(extra, :leaf_energy)
-for (target, meteo) in zip(targets, trial_meteo)
-    run_call!(target; meteo=meteo, publish=false)
+with_environment!(extra, trial_meteo) do
+    for target in targets
+        run_call!(target; publish=false)
+    end
 end
-for (target, meteo) in zip(targets, accepted_meteo)
-    run_call!(target; meteo=meteo, publish=true)
+
+accepted = accepted_meteo(model, status)
+update_environment!(extra, accepted)
+for target in targets
+    run_call!(target; publish=true)
 end
 ```
 """
@@ -1685,7 +1738,10 @@ Execute every target of the hard call declared as `name` and return its
 This is the convenient execute-all API. For finer-grained control over target
 selection, order, per-target meteorology, iterative trial calls, or publication
 of only an accepted result, use [`call_targets`](@ref) and execute individual
-targets with [`run_call!(::CallTarget)`](@ref).
+targets with [`run_call!(::CallTarget)`](@ref). For trial microclimate scopes,
+wrap the hard calls with [`with_environment!`](@ref); for accepted mutable
+environment updates, call [`update_environment!`](@ref) before publishing the
+accepted descendants.
 """
 function run_call!(
     context::RunContext,

@@ -27,7 +27,8 @@ A model kernel is still an ordinary PlantSimEngine model:
 - `inputs_(model)` declares required status variables;
 - `outputs_(model)` declares variables the model computes;
 - `meteo_inputs_(model)` declares environment variables it reads;
-- `meteo_outputs_(model)` declares mutable environment variables it writes;
+- `update_environment!(extra, meteo)` commits accepted mutable environment
+  state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
 - `run!(model, models, status, meteo, constants, extra)` contains the model
   equations.
@@ -159,21 +160,23 @@ and decide when to publish the accepted state:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=trial_meteo(model, status))
+    with_environment!(extra, trial_meteo(model, status)) do
+        run_call!(extra, :leaf_energy; publish=false)
     end
 
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
-    end
+    accepted = accepted_meteo(model, status)
+    update_environment!(extra, accepted)
+    run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
 end
 ```
 
 `run_call!` defaults to `publish=false`. Trial calls mutate target statuses but
-do not publish temporal samples or scatter mutable environment outputs. Call
-`run_call!(target; publish=true)` once for the accepted state.
+do not publish temporal samples or commit mutable environment updates. Use
+`with_environment!` when hard-called descendants should sample a temporary trial
+environment through the normal environment path. Call `update_environment!` and
+`run_call!(...; publish=true)` once for the accepted state.
 
 Applications selected only by `Calls(...)` are marked manual-call-only in
 `explain_schedule(model)` and are skipped by the root `run!(model)` loop.
@@ -272,7 +275,10 @@ runtime. Constant weather, global tabular meteorology, grid, layer, voxel, or
 octree-style microclimate backends all use the same contract:
 
 - `meteo_inputs_(model)` says what the model reads;
-- `meteo_outputs_(model)` says what the model writes back;
+- `update_environment!(extra, accepted_meteo)` commits accepted mutable
+  meteorology from a controller model;
+- `with_environment!(extra, trial_meteo) do ... end` exposes a non-committing
+  trial environment to hard-called descendants;
 - `Environment(; sources=...)` maps model-facing names to backend names;
 - geometry and position are used by spatial backends when available;
 - object-to-environment links are cached and refreshed when objects move.

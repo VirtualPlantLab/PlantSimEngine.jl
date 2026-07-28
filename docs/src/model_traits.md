@@ -71,9 +71,25 @@ PlantSimEngine.meteo_inputs_(::LeafEnergyBalance) = (
 )
 ```
 
-Use `meteo_outputs_(model)` for variables scattered back into a mutable
-microclimate backend. Such variables are normally also declared in
-`outputs_(model)` because the current runtime reads their values from status.
+Mutable microclimate updates should be committed explicitly by controller
+models:
+
+```julia
+update_environment!(extra, accepted_meteo)
+```
+
+For trial solves, wrap descendant calls in `with_environment!` so hard-called
+models sample a temporary atmosphere without committing it:
+
+```julia
+with_environment!(extra, trial_meteo) do
+    run_call!(extra, :leaf_energy; publish=false)
+end
+```
+
+Diagnostic variables such as canopy temperature or vapor-pressure deficit can
+still be regular `outputs_`, but status fields are not the transport mechanism
+for mutable environment state.
 
 ## Precedence
 

@@ -150,6 +150,20 @@ include("../examples/maespa_model_example.jl")
     @test only(row for row in schedule if row.application_id == :plant_A__allocation).dt_steps == 24.0
     @test only(row for row in schedule if row.application_id == :lai_dynamic).dt_steps == 24.0
 
+    environment_rows = explain_environment_bindings(result.environment)
+    scene_environment = only(row for row in environment_rows if row.application_id == :scene_eb)
+    @test scene_environment.provider == :forcing
+    @test scene_environment.cell == :forcing
+    @test isempty(scene_environment.produced_outputs)
+    leaf_environment = only(
+        row for row in environment_rows
+        if row.application_id == :plant_A__energy_balance && row.object_id == :plant_A_leaf_1
+    )
+    @test leaf_environment.provider == :canopy
+    @test leaf_environment.cell == :canopy
+    @test :T in leaf_environment.required_inputs
+    @test :Rh in leaf_environment.required_inputs
+
     scene_simulation = result.simulation
     @test scene_simulation isa Simulation
     output_rows = collect_outputs(scene_simulation; sink=nothing)
@@ -175,6 +189,18 @@ include("../examples/maespa_model_example.jl")
     @test scene_status.canopy_vpd <= vpd_above + 1.5
     @test scene_status.scene_transpiration > 0.0
     @test scene_status.iterations > 0
+    @test model.environment isa MaespaSingleLayerEnvironment
+    @test model.environment.canopy.T ≈ scene_status.canopy_tair
+    @test model.environment.canopy.Rh ≈ scene_status.canopy_rh
+    @test !(model.environment.canopy === model.environment.forcing)
+
+    source = read(joinpath(@__DIR__, "..", "examples", "maespa_model_example.jl"), String)
+    @test !occursin("support.process", source)
+    @test !occursin("providers_by_application", source)
+    @test !occursin("MaespaEnvironmentWrite", source)
+    @test !occursin("cells_by_status", source)
+    @test !occursin("geometry(object)", source)
+    @test !occursin("PlantSimEngine.meteo_outputs_(::CanopyAir)", source)
 
     leaf_statuses = [object.status for object in model_objects(model; scale=:Leaf)]
     @test scene_status.leaf_area ≈ sum(st.leaf_area for st in leaf_statuses)
@@ -209,10 +235,10 @@ end
 @testset "MAESPA-style model example validation" begin
     meteo = maespa_meteo(; nhours=1)
 
-    scene_status = Status(lai=0.0, leaf_area=0.0, psi_soil=-0.1)
+    scene_status = _maespa_model_status()
     @test_throws "SceneEB did not converge after 0 iterations" _solve_model_energy_balance!(
         SceneEB(0, 0.03, 0.005),
-        CallTarget[],
+        nothing,
         scene_status,
         first(meteo),
     )
@@ -234,12 +260,12 @@ end
     meteo_above = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, Ri_PAR_f=800.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
     canopy_meteo = Atmosphere(T=25.0, Rh=0.50, Wind=1.2, P=meteo_above.P, Ri_PAR_f=800.0, Ri_SW_f=400.0, duration=Dates.Hour(1))
     hot_fluxes = (rn=5000.0, lambda_e=-5000.0, a=0.0, lai=0.75, rad_interc=0.0)
-    hot = tvpdcanopcalc(m, hot_fluxes, meteo_above, canopy_meteo, PlantMeteo.Constants())
+    hot = canopy_air_update(m, hot_fluxes, meteo_above, canopy_meteo, PlantMeteo.Constants())
     @test hot.tair <= meteo_above.T + 10.0
     @test hot.vpd <= max(0.01, meteo_above.VPD) + 1.5
 
     wet_fluxes = (rn=-5000.0, lambda_e=5000.0, a=0.0, lai=0.75, rad_interc=0.0)
-    wet = tvpdcanopcalc(m, wet_fluxes, meteo_above, canopy_meteo, PlantMeteo.Constants())
+    wet = canopy_air_update(m, wet_fluxes, meteo_above, canopy_meteo, PlantMeteo.Constants())
     @test wet.tair >= meteo_above.T - 10.0
     @test wet.vpd >= max(0.01, meteo_above.VPD - 1.5)
     @test wet.vpd >= 0.01

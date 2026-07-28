@@ -77,10 +77,12 @@ for multi-plant model coupling.
 - Uses a shared soil model.
 - Uses `SceneEB` with `ModelSpec(...) |> Calls(...)` to manually run leaf
   `:energy_balance` and soil `:soil_water` targets.
-- Ports MAESPA-style canopy air temperature and VPD update through
-  `tvpdcanopcalc` and `gbcanms`.
-- Treats input meteorology as above-canopy forcing and writes below-canopy
-  microclimate to model status fields:
+- Ports MAESPA-style canopy air temperature and VPD update through the
+  `canopy_air_update(...)` helper and `gbcanms`.
+- Treats input meteorology as above-canopy forcing, runs trial leaves with
+  `with_environment!`, commits accepted canopy meteorology with
+  `update_environment!`, and writes
+  below-canopy microclimate diagnostics to model status fields:
   `canopy_tair`, `canopy_vpd`, `canopy_rh`, `canopy_htot`, and
   `canopy_gcanop`.
 - Adds `LAIModel` and declares plant leaf-area materialization with
@@ -153,10 +155,9 @@ for multi-plant model coupling.
   for objects without their own geometry. Binding explanations expose the
   geometry provenance, and moving an ancestor refreshes only descendants that
   inherit its geometry.
-- Environment binding refresh can now update changed `meteo_inputs_` and
-  `meteo_outputs_` metadata without repeating spatial indexing or cell lookup
-  when the application/object/provider/geometry contract is otherwise
-  unchanged.
+- Environment binding refresh can now update changed `meteo_inputs_` metadata
+  without repeating spatial indexing or cell lookup when the
+  application/object/provider/geometry contract is otherwise unchanged.
 - `Environment(; sources=(CO2=:Ca,))` now remaps model-facing environment
   variables to backend source variables. CompositeModel environment binding refresh
   validates missing source variables for enumerable backends such as
@@ -207,9 +208,9 @@ for multi-plant model coupling.
 - CompositeModel applications now infer model-author default environment source remaps
   from `meteo_hint(...).bindings` when the scenario does not provide explicit
   meteo bindings. Scenario `Environment(; sources=...)` remains the override.
-- CompositeModel/object runtime now scatters values declared by `meteo_outputs_(model)`
-  back to the bound environment backend after each model call, using the
-  existing `scatter_environment_outputs!` backend protocol.
+- CompositeModel/object runtime exposes `with_environment!` for non-committing
+  trial meteorology and `update_environment!` for accepted mutable environment
+  commits from model kernels.
 - CompositeModel/object root applications now honor `TimeStep(...)` values backed by
   `Dates.Period` scheduling. `explain_schedule` reports normalized clocks and
   whether an application is root-scheduled or manual-call-only.
@@ -272,10 +273,10 @@ for multi-plant model coupling.
 - Objects created below a mounted instance inherit missing template `kind` and
   `species` labels. Membership explanations use the current topology rather
   than a copied instance object list.
-- CompositeModel hard calls now accept explicit local meteorology:
-  `run_call!(target; meteo=local_meteo, publish=false)`. This lets iterative
-  parent models pass trial microclimate to manually called child models without
-  resampling the model environment.
+- CompositeModel hard calls now support trial microclimate through
+  `with_environment!(extra, local_meteo) do ... end`, so hard-called
+  descendants resample the temporary environment through their normal
+  environment bindings.
 - CompositeModel hard calls now default to `publish=false`. Trial calls mutate target
   status without publishing temporal samples or environment writes; accepted
   states must use `run_call!(target; publish=true)`. Iterative-call tests verify

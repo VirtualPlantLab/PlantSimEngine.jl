@@ -169,11 +169,23 @@ struct ModelObjectEnvironmentUpdateModel <: AbstractModel_Object_Environment_Upd
 PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateModel) = (temperature_update=0.0,)
 PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
-PlantSimEngine.meteo_outputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, models, status, meteo, constants=nothing, extra=nothing)
     status.temperature_update = meteo.T + 1.0
-    status.T = status.temperature_update
+    update_environment!(extra, (T=status.temperature_update, CO2=410.0))
+    return nothing
+end
+
+PlantSimEngine.@process "model_object_environment_update_caller" verbose = false
+
+struct ModelObjectEnvironmentUpdateCallerModel <: AbstractModel_Object_Environment_Update_CallerModel end
+
+PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateCallerModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateCallerModel) = (called_temperature=0.0,)
+
+function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateCallerModel, models, status, meteo, constants=nothing, extra=nothing)
+    target = only(run_call!(extra, :updater; publish=false))
+    status.called_temperature = target.status.temperature_update
     return nothing
 end
 
@@ -351,11 +363,9 @@ struct ModelObjectMeteoCallSourceModel <: AbstractModel_Object_Meteo_Call_Source
 PlantSimEngine.inputs_(::ModelObjectMeteoCallSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallSourceModel) = (temperature_seen=0.0,)
 PlantSimEngine.meteo_inputs_(::ModelObjectMeteoCallSourceModel) = (T=0.0,)
-PlantSimEngine.meteo_outputs_(::ModelObjectMeteoCallSourceModel) = (T=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectMeteoCallSourceModel, models, status, meteo, constants=nothing, extra=nothing)
     status.temperature_seen = meteo.T
-    status.T = meteo.T + 1.0
     return nothing
 end
 
@@ -370,14 +380,17 @@ PlantSimEngine.inputs_(::ModelObjectMeteoCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallControllerModel) = (called_temperature=0.0,)
 
 function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, models, status, meteo, constants=nothing, extra=nothing)
-    target = only(
-        run_call!(
-            extra,
-            :source;
-            meteo=(T=m.local_temperature,),
-            publish=m.publish,
-        ),
-    )
+    local_meteo = (T=m.local_temperature, CO2=410.0)
+    if m.publish
+        update_environment!(extra, local_meteo)
+        target = only(run_call!(extra, :source; publish=true))
+    else
+        target = only(
+            with_environment!(extra, local_meteo) do
+                run_call!(extra, :source; publish=false)
+            end,
+        )
+    end
     status.called_temperature = target.status.temperature_seen
     return nothing
 end
@@ -404,9 +417,12 @@ function PlantSimEngine.run!(
 )
     target = only(call_targets(extra, :source))
     for temperature in m.trial_temperatures
-        run_call!(target; meteo=(T=temperature,))
+        with_environment!(extra, (T=temperature, CO2=410.0)) do
+            run_call!(target; publish=false)
+        end
     end
-    run_call!(target; meteo=(T=m.accepted_temperature,), publish=true)
+    update_environment!(extra, (T=m.accepted_temperature, CO2=410.0))
+    run_call!(target; publish=true)
     status.called_temperature = target.status.temperature_seen
     return nothing
 end
@@ -738,6 +754,28 @@ function PlantSimEngine.scatter!(
             cell=cell,
             variable=variable,
             value=value,
+            time=time,
+        ),
+    )
+    return nothing
+end
+
+function PlantSimEngine.update_environment!(
+    backend::ModelObjectMutableEnvironmentBackend,
+    support::EnvironmentSupport,
+    meteo,
+    time,
+)
+    hasproperty(meteo, :T) || error("Updated test meteo must provide `T`.")
+    cell = backend.cells_by_status[objectid(support.status)]
+    backend.values[cell] = meteo.T
+    push!(
+        backend.writes,
+        (
+            application=support.application,
+            process=support.process,
+            cell=cell,
+            meteo=meteo,
             time=time,
         ),
     )
@@ -2277,7 +2315,7 @@ end
     @test leaf_2_update.cell == :cell_b
     @test leaf_2_update.required_inputs == [:T]
     @test leaf_2_update.source_inputs == [:T]
-    @test leaf_2_update.produced_outputs == [:T]
+    @test leaf_2_update.produced_outputs == Symbol[]
 
     missing_global_meteo_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2655,12 +2693,41 @@ end
     run!(mutable_environment_scene)
     @test mutable_environment_backend.values == Dict(:cell_a => 21.0, :cell_b => 31.0)
     @test mutable_environment_backend.writes == [
-        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_a, variable=:T, value=21.0, time=1),
-        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_b, variable=:T, value=31.0, time=1),
+        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_a, meteo=(T=21.0, CO2=410.0), time=1),
+        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_b, meteo=(T=31.0, CO2=410.0), time=1),
     ]
     mutable_environment_statuses = Dict(object.id.value => object.status for object in model_objects(mutable_environment_scene; scale=:Leaf))
     @test mutable_environment_statuses[:leaf_1].temperature_seen == 21.0
     @test mutable_environment_statuses[:leaf_2].temperature_seen == 31.0
+
+    trial_update_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
+    trial_update_scene = CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            parent=:scene,
+            geometry=(cell=:cell_a,),
+            status=Status(temperature_update=0.0, called_temperature=0.0),
+        );
+        applications=(
+            ModelSpec(ModelObjectEnvironmentUpdateModel(); name=:temperature_update_runtime) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Environment(provider=:grid),
+            ModelSpec(ModelObjectEnvironmentUpdateCallerModel(); name=:temperature_update_caller) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Environment(provider=:grid) |>
+            Calls(:updater => One(scale=:Leaf, process=:model_object_environment_update)),
+        ),
+        environment=trial_update_backend,
+    )
+    run!(trial_update_scene)
+    trial_update_status = only(model_objects(trial_update_scene; scale=:Leaf)).status
+    @test trial_update_status.temperature_update == 21.0
+    @test trial_update_status.called_temperature == 21.0
+    @test trial_update_backend.values[:cell_a] == 20.0
+    @test isempty(trial_update_backend.writes)
 
     runtime_model = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2748,6 +2815,7 @@ end
             Environment(provider=:grid),
             ModelSpec(ModelObjectMeteoCallControllerModel(31.5, false); name=:meteo_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
+            Environment(provider=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=hard_call_meteo_backend,
@@ -2776,6 +2844,7 @@ end
             Environment(provider=:grid),
             ModelSpec(ModelObjectMeteoCallControllerModel(32.5, true); name=:meteo_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
+            Environment(provider=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=publish_hard_call_meteo_backend,
@@ -2784,9 +2853,9 @@ end
     publish_hard_call_meteo_status = only(model_objects(publish_hard_call_meteo_scene; scale=:Leaf)).status
     @test publish_hard_call_meteo_status.temperature_seen == 32.5
     @test publish_hard_call_meteo_status.called_temperature == 32.5
-    @test publish_hard_call_meteo_backend.values[:cell_a] == 33.5
+    @test publish_hard_call_meteo_backend.values[:cell_a] == 32.5
     @test publish_hard_call_meteo_backend.writes == [
-        (application=:meteo_source, process=:model_object_meteo_call_source, cell=:cell_a, variable=:T, value=33.5, time=1),
+        (application=:meteo_controller, process=:model_object_meteo_call_controller, cell=:cell_a, meteo=(T=32.5, CO2=410.0), time=1),
     ]
 
     iterative_hard_call_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
@@ -2805,10 +2874,11 @@ end
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid),
             ModelSpec(
-                ModelObjectIterativeMeteoCallControllerModel((30.0, 31.0), 32.0);
+            ModelObjectIterativeMeteoCallControllerModel((30.0, 31.0), 32.0);
                 name=:meteo_controller,
             ) |>
             AppliesTo(One(scale=:Leaf)) |>
+            Environment(provider=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=iterative_hard_call_backend,
@@ -2818,14 +2888,13 @@ end
         only(model_objects(iterative_hard_call_scene; scale=:Leaf)).status
     @test iterative_hard_call_status.temperature_seen == 32.0
     @test iterative_hard_call_status.called_temperature == 32.0
-    @test iterative_hard_call_backend.values[:cell_a] == 33.0
+    @test iterative_hard_call_backend.values[:cell_a] == 32.0
     @test iterative_hard_call_backend.writes == [
         (
-            application=:meteo_source,
-            process=:model_object_meteo_call_source,
+            application=:meteo_controller,
+            process=:model_object_iterative_meteo_call_controller,
             cell=:cell_a,
-            variable=:T,
-            value=33.0,
+            meteo=(T=32.0, CO2=410.0),
             time=1,
         ),
     ]

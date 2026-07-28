@@ -80,8 +80,8 @@ without changing the model implementation.
   `TimeStep(Dates.Day(1))`, and temporal policies such as `Integrate()` or
   `HoldLast()` in the same model.
 - **Automatic environment binding**: global weather and spatial microclimate
-  backends are bound through `Environment(...)` and model `meteo_inputs_` /
-  `meteo_outputs_` traits.
+  backends are bound through `Environment(...)`, model `meteo_inputs_`, and
+  explicit mutable updates with `update_environment!`.
 - **Performance-oriented internals**: selectors and bindings are compiled
   before the timestep loop, same-rate inputs use references when possible, and
   homogeneous object batches are specialized.
@@ -259,7 +259,7 @@ once.
 - [Public API](API/API_public.md) lists the composite-model/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
-  `timespec`, `output_policy`, `meteo_inputs_`, and `meteo_outputs_`.
+  `timespec`, `output_policy`, and `meteo_inputs_`.
 
 ## Performance
 

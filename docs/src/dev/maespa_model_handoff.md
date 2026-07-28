@@ -21,9 +21,9 @@ Leaf applications use the copied PlantBiophysics subsample models:
 
 ## Coupling
 
-The model energy-balance application controls iterative leaf and soil calls.
-`Calls(...)` expresses execution ownership only: the scene model decides when
-leaf and soil subprocesses run.
+The model energy-balance application controls iterative canopy-air, leaf, and
+soil calls. `Calls(...)` expresses execution ownership only: the scene model
+decides when subprocesses run.
 
 ```julia
 ModelSpec(scene_model; name=:scene_eb) |>
@@ -38,12 +38,16 @@ ModelSpec(scene_model; name=:scene_eb) |>
         :soil =>
             One(kind=:soil, scale=:Soil, application=:soil_water),
     ) |>
+    Environment(provider=:forcing) |>
     TimeStep(Dates.Hour(1))
 ```
 
-Trial leaf calls use `run_call!(target)` and do not publish. The accepted
-solution uses `run_call!(target; publish=true)`, so temporal outputs and
-environment writes are emitted exactly once.
+The scene receives above-canopy forcing from the `:forcing` provider. Trial leaf
+calls run inside `with_environment!(extra, trial_meteo) do ... end`, so all
+hard-called leaves sample the same trial canopy atmosphere without committing it
+to the backend. After convergence, the scene commits the accepted canopy
+atmosphere with `update_environment!(extra, accepted_meteo)` and publishes one
+accepted leaf call against that committed environment.
 
 Scene/soil values are wired declaratively with `Inputs(...)`, not by manually
 writing another object's status. The soil model receives accepted scene fluxes
@@ -134,8 +138,28 @@ ModelSpec(allocation; name=:allocation) |>
 
 ## Meteorology
 
-Input meteorology is above-canopy forcing. CompositeModel status stores the resulting
-below-canopy microclimate:
+Input meteorology is above-canopy forcing wrapped in a
+`MaespaSingleLayerEnvironment`. The backend stores two meteorological states:
+
+- `forcing`: the above-canopy `Weather`/time series sampled by the scene;
+- `canopy`: the mutable canopy `Atmosphere` sampled by every leaf.
+
+The scene application uses `Environment(provider=:forcing)`. Leaf energy-balance
+applications use `Environment(provider=:canopy)`. The one-layer backend does not
+look at process names, geometry, or cells; all leaves intentionally sample the
+same current canopy atmosphere.
+
+`canopy_air_update(...)` is a plain helper, not a model application. It reads
+canopy-scale leaf fluxes aggregated in the scene, computes the MAESPA-style
+canopy air update, and returns a new `Atmosphere`. The accepted solution is
+committed directly with:
+
+```julia
+update_environment!(extra, accepted_meteo)
+```
+
+CompositeModel status also stores diagnostics for the resulting below-canopy
+microclimate:
 
 - `canopy_tair`;
 - `canopy_vpd`;
@@ -143,8 +167,9 @@ below-canopy microclimate:
 - `canopy_htot`;
 - `canopy_gcanop`.
 
-`tvpdcanopcalc(...)` and `gbcanms(...)` implement the MAESPA-style canopy
-temperature, humidity, and aerodynamic-conductance update.
+Trial iterations use `with_environment!` so the trial atmosphere is visible
+through the normal environment sampling path but is restored afterwards. The
+accepted state is the only state committed to the mutable environment backend.
 
 ## Acceptance Checks
 

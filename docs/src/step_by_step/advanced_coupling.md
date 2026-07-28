@@ -135,7 +135,7 @@ For new composite-model/object models, execute all targets directly when they
 share meteorology and publication policy:
 
 ```julia
-targets = run_call!(extra, :leaf_energy; meteo=meteo, publish=true)
+targets = run_call!(extra, :leaf_energy; publish=true)
 ```
 
 The result is always vector-like. Retrieve targets without executing them when
@@ -144,21 +144,22 @@ an iterative algorithm needs finer control:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=trial_meteo(model, status))
+    with_environment!(extra, trial_meteo(model, status)) do
+        run_call!(extra, :leaf_energy; publish=false)
     end
 
-    for target in call_targets(extra, :leaf_energy)
-        run_call!(target; meteo=accepted_meteo(model, status), publish=true)
-    end
+    accepted = accepted_meteo(model, status)
+    update_environment!(extra, accepted)
+    run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
 end
 ```
 
 `run_call!` defaults to `publish=false`, which is useful for trial iterations.
-Use `publish=true` for the accepted state so temporal streams and mutable
-environment outputs are published once.
+Use `with_environment!` for non-committing trial meteorology. Use
+`update_environment!` and `publish=true` for the accepted state so temporal
+streams and mutable environment updates are published once.
 
 The MAESPA-style example uses the same mechanism: a model energy-balance model
 calls all selected leaf energy-balance models and the shared soil model while

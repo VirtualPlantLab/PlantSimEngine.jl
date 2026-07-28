@@ -574,9 +574,10 @@ refresh_environment!(backend, model)
 ```
 
 `meteo_inputs_(model)` declares what a model reads from the active environment
-provider. `meteo_outputs_(model)` declares what a model can write back to a
-mutable microclimate provider. Simple global meteorology remains the default
-provider.
+provider. Controllers commit accepted mutable microclimate state with
+`update_environment!(extra, accepted_meteo)` and run trial descendants with
+`with_environment!(extra, trial_meteo)`. Simple global meteorology remains the
+default provider.
 
 Scenario-level environment source remapping belongs on `Environment(...)`, for
 example:
