@@ -351,32 +351,6 @@ end
     return nothing
 end
 
-@inline _advance_runtime_call_targets!(
-    ::Tuple{},
-    time,
-    publication_allowed,
-    environment,
-) = nothing
-
-@inline function _advance_runtime_call_targets!(
-    calls::Tuple,
-    time,
-    publication_allowed,
-    environment,
-)
-    targets = first(calls)
-    targets.time = float(time)
-    targets.publication_allowed = publication_allowed
-    targets.environment = environment
-    _advance_runtime_call_targets!(
-        Base.tail(calls),
-        time,
-        publication_allowed,
-        environment,
-    )
-    return nothing
-end
-
 abstract type AbstractExecutionBatch end
 struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
@@ -1419,13 +1393,6 @@ end
             output_retention,
             time,
             constants,
-            publication_allowed,
-            environment,
-        )
-    else
-        _advance_runtime_call_targets!(
-            context.calls,
-            time,
             publication_allowed,
             environment,
         )
@@ -2929,19 +2896,39 @@ function explain_output_retention(model::CompositeModel; outputs=:none)
     return _explain_output_retention(compiled, plan)
 end
 
-@inline _find_call_targets(::Tuple{}, ::Val) = nothing
+@noinline function _synchronize_call_targets_slow!(
+    targets::CallTargets,
+    context::RunContext,
+)
+    targets.time = context.time
+    targets.publication_allowed = context.publication_allowed
+    targets.environment = context.environment
+    return targets
+end
 
-@inline function _find_call_targets(calls::Tuple, ::Val{name}) where {name}
+@inline _find_call_targets(::Tuple{}, ::Val, ::RunContext) = nothing
+
+@inline function _find_call_targets(
+    calls::Tuple,
+    ::Val{name},
+    context::RunContext,
+) where {name}
     targets = first(calls)
-    _compiled_call_name(targets.binding) === name && return targets
-    return _find_call_targets(Base.tail(calls), Val(name))
+    if _compiled_call_name(targets.binding) === name
+        targets.time == context.time &&
+            targets.publication_allowed == context.publication_allowed &&
+            targets.environment === context.environment &&
+            return targets
+        return _synchronize_call_targets_slow!(targets, context)
+    end
+    return _find_call_targets(Base.tail(calls), Val(name), context)
 end
 
 Base.@constprop :aggressive function _model_call_targets(
     context::RunContext,
     name::Symbol,
 )
-    found = _find_call_targets(context.calls, Val(name))
+    found = _find_call_targets(context.calls, Val(name), context)
     if isnothing(found)
         available = Symbol[targets.binding.call for targets in context.calls]
         error(
