@@ -332,10 +332,12 @@ committed XPalm v0.6.1 fixture:
 - [x] Reproduce the current timing again from a healthy Kaimon session before
       changing runtime code, recording warm-up policy, source revisions,
       machine information, wall time, allocations, and output mode.
-- [x] Capture a sampling and allocation profile before optimization. The code
-      paths below are confirmed work amplification, but their exact shares of
-      elapsed time have not yet been measured because the profiling Kaimon
-      session failed to start.
+- [x] Capture sampling and allocation profiles before and during optimization.
+      The post-ancestor-index CPU profile at `08b71321` attributes
+      approximately 31% of samples to lifecycle binding refresh, 15% to
+      current-topology hard-call target materialization, and 13% to temporal
+      input materialization. Treat these sampling shares as routing evidence,
+      not additive wall-time guarantees.
 
 Use XPalm v0.6.1 with PlantSimEngine v0.14.1 as the exact historical performance
 reference. A v0.5.1 comparison may be retained as additional historical
@@ -384,6 +386,19 @@ Current restoration checkpoints on the same staged XPalm fixture:
       takes `13.463214` seconds and allocates `7.756 GB`, down from `9.267 GB`;
       all 49 focused hard-call checks and all 68 XPalm reference-regression
       checks pass.
+- [x] In-place subtree enumeration (`57760444`), right-sized lifecycle input
+      binding construction (`43f08bdb`), and cached ancestor paths in the
+      object registry (`08b71321`) remove repeated topology traversal and
+      intermediate-vector growth from lifecycle refresh.
+- [x] At committed revision `d60bac4d`, hard-call views synchronize their
+      timestep, publication, and transient-environment state only when the
+      declared call is requested. Combined with the lifecycle changes above,
+      the exact warmed 4,160-day run takes `11.637499` seconds and allocates
+      `6.994 GB`. The final state remains exactly `current_step=4160`,
+      `phytomer_count=344`, `lai=5.0587602356164405`, and
+      `ftsw=0.7991179101191216`; all 49 focused hard-call checks, all 622
+      unified runtime checks, and all 68 XPalm reference-regression checks
+      pass.
 
 ### Performance invariants
 
@@ -992,26 +1007,26 @@ No breaking PlantSimEngine milestone is complete until:
 3. [x] Make lifecycle extension delta-based and verify that new-organ hard
        calls no longer rebuild the whole scene.
 4. [x] Replace repeated scheduler scanning with linear application groups.
-5. [ ] Compile temporal policies into bounded typed state.
-6. [ ] Restore per-batch no-hard-call specialization and separate/preallocate
-       requested outputs.
+5. [x] Compile temporal policies into bounded typed state.
+6. [x] Restore per-batch no-hard-call specialization.
 7. [x] Reach and persist the first XPalm restoration milestone before layering
        further breaking API work onto the runtime.
-8. [ ] Finalize the model kernel, environment vocabulary, and required/default
+8. [ ] Finish separating and preallocating requested outputs.
+9. [ ] Finalize the model kernel, environment vocabulary, and required/default
        declarations.
-9. [ ] Migrate PlantSimEngine models and focused contract tests.
-10. [ ] Finalize `ModelSpec`, selectors, namespaces, and result ergonomics.
-11. [ ] Migrate XPalm early enough that it influences scenario API decisions
+10. [ ] Migrate PlantSimEngine models and focused contract tests.
+11. [ ] Finalize `ModelSpec`, selectors, namespaces, and result ergonomics.
+12. [ ] Migrate XPalm early enough that it influences scenario API decisions
         and continuously rerun its correctness and performance suites.
-12. [ ] Migrate PlantBiophysics early enough that it influences model API
-       decisions.
-13. [ ] Rebuild the progressive simulation-user journey using existing models.
-14. [ ] Rebuild the parallel model-developer journey.
-15. [ ] Move migration and maintainer material out of onboarding.
-16. [ ] Run the complete three-repository correctness and performance
+13. [ ] Migrate PlantBiophysics early enough that it influences model API
+        decisions.
+14. [ ] Rebuild the progressive simulation-user journey using existing models.
+15. [ ] Rebuild the parallel model-developer journey.
+16. [ ] Move migration and maintainer material out of onboarding.
+17. [ ] Run the complete three-repository correctness and performance
         validation matrix.
-17. [ ] Make coherent milestone commits whenever possible.
-18. [ ] Delete this temporary goal after durable documentation and final
+18. [ ] Make coherent milestone commits whenever possible.
+19. [ ] Delete this temporary goal after durable documentation and final
         validation evidence replace it.
 
 ## Definition of Done
