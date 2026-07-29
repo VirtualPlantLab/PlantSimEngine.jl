@@ -3121,12 +3121,27 @@ function _partial_model_application(
     )
 end
 
+struct _ApplicationsByObjectOverlay{B,O}
+    base::B
+    overlay::O
+end
+
+@inline function Base.get(
+    applications::_ApplicationsByObjectOverlay,
+    object_id,
+    default,
+)
+    overlay = get(applications.overlay, object_id, nothing)
+    isnothing(overlay) || return overlay
+    return get(applications.base, object_id, default)
+end
+
 function _new_object_applications(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
     requested_ids,
 )
-    by_object = copy(compiled.applications_by_object)
+    by_object = Dict{ObjectId,Vector{Any}}()
     partial_applications = CompiledModelApplication[]
     for application in compiled.applications
         target_ids = ObjectId[
@@ -3150,12 +3165,26 @@ function _new_object_applications(
         partial = _partial_model_application(application, target_ids)
         push!(partial_applications, partial)
         for object_id in target_ids
-            applications = get!(by_object, object_id, Any[])
+            applications = get!(by_object, object_id) do
+                copy(
+                    get(
+                        compiled.applications_by_object,
+                        object_id,
+                        Any[],
+                    ),
+                )
+            end
             any(candidate -> candidate.id == application.id, applications) ||
                 push!(applications, partial)
         end
     end
-    return partial_applications, by_object
+    return (
+        partial_applications,
+        _ApplicationsByObjectOverlay(
+            compiled.applications_by_object,
+            by_object,
+        ),
+    )
 end
 
 function _targeted_callee_applications(

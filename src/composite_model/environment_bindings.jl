@@ -86,8 +86,11 @@ function _model_environment_backends(model::CompositeModel, compiled::CompiledCo
 end
 
 function _update_model_environment_indices!(model::CompositeModel, compiled::CompiledCompositeModel)
+    backends = _model_environment_backends(model, compiled)
+    filter!(backend -> !(backend isa GlobalConstant), backends)
+    isempty(backends) && return nothing
     entities = _model_environment_entities(model)
-    for backend in _model_environment_backends(model, compiled)
+    for backend in backends
         update_index!(backend, entities)
     end
     return nothing
