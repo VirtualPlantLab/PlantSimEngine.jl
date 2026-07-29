@@ -331,13 +331,21 @@ function _object_id_from_context(context)
     return ObjectId(context)
 end
 
-function _descendant_ids(model::CompositeModel, root_id::ObjectId)
-    ids = ObjectId[root_id]
+function _append_descendant_ids!(
+    ids::Vector{ObjectId},
+    model::CompositeModel,
+    root_id::ObjectId,
+)
+    push!(ids, root_id)
     object = _model_object(model, root_id)
     for child_id in object.children
-        append!(ids, _descendant_ids(model, child_id))
+        _append_descendant_ids!(ids, model, child_id)
     end
     return ids
+end
+
+function _descendant_ids(model::CompositeModel, root_id::ObjectId)
+    return _append_descendant_ids!(ObjectId[], model, root_id)
 end
 
 function _ancestor_id(
