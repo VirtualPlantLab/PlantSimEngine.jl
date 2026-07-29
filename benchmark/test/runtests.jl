@@ -75,3 +75,26 @@ if benchmark_test_enabled("XPalm staged performance profile smoke")
         )
     end
 end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm staged performance profile short")
+    @testset "XPalm staged performance profile short" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-short-latest.csv",
+        )
+        result = write_xpalm_performance_profile(output_path; profile=:short)
+        @test result.no_output_state == result.reference_state
+        @test result.reference_state.current_step == PERFORMANCE_SHORT_STEPS
+        @test isfile(output_path)
+        @test any(
+            row ->
+                row.stage == "simulation_no_outputs" &&
+                    row.metric == "execution_targets_visited",
+            result.records,
+        )
+    end
+end

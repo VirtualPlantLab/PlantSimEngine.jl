@@ -19,7 +19,7 @@ function _performance_git_revision(path)
     end
 end
 
-function _performance_metadata()
+function _performance_metadata(; warmup_policy)
     pse_root = dirname(@__DIR__)
     xpalm_root = dirname(dirname(pathof(XPalm)))
     return (
@@ -30,6 +30,7 @@ function _performance_metadata()
         threads=Threads.nthreads(),
         plantsimengine_revision=_performance_git_revision(pse_root),
         xpalm_revision=_performance_git_revision(xpalm_root),
+        warmup_policy=warmup_policy,
     )
 end
 
@@ -143,10 +144,36 @@ function _performance_steps(profile)
     )
 end
 
+function _warmup_xpalm_performance!(profile_steps)
+    lifecycle_steps = min(profile_steps, PERFORMANCE_SHORT_STEPS)
+    no_output_model, no_output_steps =
+        xpalm_reference_model_create(; nsteps=lifecycle_steps)
+    xpalm_reference_param_run(
+        no_output_model,
+        OutputRequest[],
+        no_output_steps;
+        outputs=:none,
+    )
+
+    reference_model, reference_requests, reference_steps =
+        xpalm_reference_param_create(; nsteps=PERFORMANCE_SMOKE_STEPS)
+    reference_simulation = xpalm_reference_param_run(
+        reference_model,
+        reference_requests,
+        reference_steps,
+    )
+    xpalm_default_param_collect_outputs(reference_simulation)
+    return nothing
+end
+
 function run_xpalm_performance_profile(; profile=:short)
     normalized_profile = Symbol(profile)
     nsteps = _performance_steps(normalized_profile)
-    metadata = _performance_metadata()
+    warmup_policy =
+        "unmeasured outputs=:none prefix ($(min(nsteps, PERFORMANCE_SHORT_STEPS)) steps) " *
+        "plus requested-output smoke ($(PERFORMANCE_SMOKE_STEPS) steps)"
+    _warmup_xpalm_performance!(nsteps)
+    metadata = _performance_metadata(; warmup_policy=warmup_policy)
     records = NamedTuple[]
 
     no_output_setup = _measure_performance_stage!(
