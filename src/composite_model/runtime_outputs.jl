@@ -165,7 +165,7 @@ fields.
 struct NoEnvironmentOverride end
 const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
 
-struct RunContext{CS,A,CT,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
@@ -257,12 +257,58 @@ function _runtime_call_targets(
     )
 end
 
+@inline _prepare_runtime_call_targets!(
+    ::Tuple{},
+    compiled,
+    environment_bindings,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+) = nothing
+
+@inline function _prepare_runtime_call_targets!(
+    calls::Tuple,
+    compiled,
+    environment_bindings,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+)
+    targets = first(calls)
+    targets.compiled = compiled
+    targets.environment_bindings = environment_bindings
+    targets.temporal_streams = temporal_streams
+    targets.output_retention = output_retention
+    targets.time = float(time)
+    targets.constants = constants
+    targets.publication_allowed = publication_allowed
+    targets.environment = environment
+    _prepare_runtime_call_targets!(
+        Base.tail(calls),
+        compiled,
+        environment_bindings,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publication_allowed,
+        environment,
+    )
+    return nothing
+end
+
 abstract type AbstractExecutionBatch end
 struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
 const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
 
-struct CompiledExecutionTarget{M,S,CS,MB,IB,CB,EB}
+struct CompiledExecutionTarget{M,S,CS,MB,IB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
@@ -271,6 +317,7 @@ struct CompiledExecutionTarget{M,S,CS,MB,IB,CB,EB}
     input_bindings::IB
     call_bindings::CB
     environment_binding::EB
+    context::RC
 end
 
 struct CompiledExecutionBatch{A,T<:AbstractVector} <: AbstractExecutionBatch
@@ -1205,6 +1252,83 @@ function _model_models_for_application(
     return models
 end
 
+@inline function _prepare_model_execution_context!(
+    context::RunContext,
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+)
+    context.compiled = compiled
+    context.environment_bindings = environment_bindings
+    context.application = application
+    context.object_id = object_id
+    context.temporal_streams = temporal_streams
+    context.output_retention = output_retention
+    context.time = float(time)
+    context.constants = constants
+    context.publication_allowed = true
+    context.environment = _NO_ENVIRONMENT_OVERRIDE
+    _prepare_runtime_call_targets!(
+        context.calls,
+        compiled,
+        environment_bindings,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
+    )
+    return context
+end
+
+@inline function _prepare_model_execution_context!(
+    ::Nothing,
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+)
+    call_bindings = get(
+        compiled.call_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
+    calls = _runtime_call_targets(
+        compiled,
+        environment_bindings,
+        call_bindings,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
+    )
+    return RunContext(
+        compiled,
+        environment_bindings,
+        application,
+        object_id,
+        calls,
+        temporal_streams,
+        output_retention,
+        float(time),
+        constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
+    )
+end
+
 @inline function _run_model_application_with_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -1366,19 +1490,33 @@ end
         target.environment_binding,
         time,
     ) : meteo
-    context = RunContext(
-        compiled,
-        env_bindings,
-        application,
-        target.object_id,
-        (),
-        temporal_streams,
-        output_retention,
-        float(time),
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
+    context = if target.context isa RunContext
+        _prepare_model_execution_context!(
+            target.context,
+            compiled,
+            env_bindings,
+            application,
+            target.object_id,
+            temporal_streams,
+            output_retention,
+            time,
+            constants,
+        )
+    else
+        RunContext(
+            compiled,
+            env_bindings,
+            application,
+            target.object_id,
+            (),
+            temporal_streams,
+            output_retention,
+            float(time),
+            constants,
+            true,
+            _NO_ENVIRONMENT_OVERRIDE,
+        )
+    end
     run!(target.model, target.models, status, meteo_value, constants, context)
     publish_outputs && _model_publish_outputs!(
         temporal_streams,
@@ -1435,29 +1573,16 @@ end
         target.environment_binding,
         time,
     ) : meteo
-    calls = _runtime_call_targets(
-        compiled,
-        env_bindings,
-        target.call_bindings,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
-    )
-    context = RunContext(
+    context = _prepare_model_execution_context!(
+        target.context,
         compiled,
         env_bindings,
         application,
         target.object_id,
-        calls,
         temporal_streams,
         output_retention,
-        float(time),
+        time,
         constants,
-        true,
-        _NO_ENVIRONMENT_OVERRIDE,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
     publish_outputs && _model_publish_outputs!(
@@ -1502,18 +1627,82 @@ end
         (),
     ) : nothing
     if isempty(first(batch.targets).call_bindings)
+        if isnothing(temporal_streams)
+            for target in batch.targets
+                _run_model_execution_target_without_calls!(
+                    compiled,
+                    env_bindings,
+                    batch.application,
+                    target,
+                    time,
+                    constants,
+                    temporal_streams,
+                    output_retention,
+                    shared_meteo,
+                    publish_outputs,
+                    retained_outputs,
+                )
+            end
+            return nothing
+        end
         for target in batch.targets
-            _run_model_execution_target_without_calls!(
+            status = isempty(target.input_bindings) ?
+                     target.status :
+                     _materialize_model_inputs!(
+                target.status,
+                target.input_bindings,
                 compiled,
+                batch.application,
+                temporal_streams,
+                time,
+            )
+            meteo_value = shared_meteo isa UnspecifiedModelMeteo ?
+                          _model_meteo_for_binding(
                 env_bindings,
                 batch.application,
-                target,
+                target.environment_binding,
                 time,
+            ) : shared_meteo
+            context = target.context
+            if context isa RunContext
+                context.compiled = compiled
+                context.environment_bindings = env_bindings
+                context.application = batch.application
+                context.object_id = target.object_id
+                context.temporal_streams = temporal_streams
+                context.output_retention = output_retention
+                context.time = float(time)
+                context.constants = constants
+                context.publication_allowed = true
+                context.environment = _NO_ENVIRONMENT_OVERRIDE
+            else
+                context = _prepare_model_execution_context!(
+                    context,
+                    compiled,
+                    env_bindings,
+                    batch.application,
+                    target.object_id,
+                    temporal_streams,
+                    output_retention,
+                    time,
+                    constants,
+                )
+            end
+            run!(
+                target.model,
+                target.models,
+                status,
+                meteo_value,
                 constants,
+                context,
+            )
+            publish_outputs && _model_publish_outputs!(
                 temporal_streams,
+                batch.application,
+                target.object_id,
+                target.canonical_status,
+                time,
                 output_retention,
-                shared_meteo,
-                publish_outputs,
                 retained_outputs,
             )
         end
@@ -1632,12 +1821,51 @@ function _runtime_model_temporal_inputs(temporal_inputs::Tuple, streams)
     )
 end
 
+function _compiled_model_execution_context(
+    compiled,
+    env_bindings,
+    application,
+    object_id,
+    call_bindings,
+    temporal_streams,
+    output_retention,
+    constants,
+)
+    isnothing(temporal_streams) && return nothing
+    calls = _runtime_call_targets(
+        compiled,
+        env_bindings,
+        call_bindings,
+        temporal_streams,
+        output_retention,
+        0.0,
+        constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
+    )
+    return RunContext(
+        compiled,
+        env_bindings,
+        application,
+        object_id,
+        calls,
+        temporal_streams,
+        output_retention,
+        0.0,
+        constants,
+        true,
+        _NO_ENVIRONMENT_OVERRIDE,
+    )
+end
+
 function _compiled_model_execution_target(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     object_id::ObjectId,
     temporal_streams=nothing,
+    output_retention=nothing,
+    constants=nothing,
 )
     status_view = _model_status_view_for_application(
         compiled,
@@ -1656,6 +1884,16 @@ function _compiled_model_execution_target(
         application.id,
         object_id,
     )
+    context = _compiled_model_execution_context(
+        compiled,
+        env_bindings,
+        application,
+        object_id,
+        call_bindings,
+        temporal_streams,
+        output_retention,
+        constants,
+    )
     return CompiledExecutionTarget(
         object_id,
         model,
@@ -1668,6 +1906,7 @@ function _compiled_model_execution_target(
         ),
         call_bindings,
         environment_binding,
+        context,
     )
 end
 
@@ -1714,6 +1953,8 @@ function compile_model_execution_plan(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     temporal_streams=nothing,
+    output_retention=nothing,
+    constants=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
     groups = CompiledApplicationExecutionGroup[]
@@ -1728,6 +1969,8 @@ function compile_model_execution_plan(
                 application,
                 object_id,
                 temporal_streams,
+                output_retention,
+                constants,
             )
             for object_id in application.target_ids
         ]
@@ -1862,6 +2105,8 @@ function _refresh_model_execution_plan(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     temporal_streams=nothing,
+    output_retention=nothing,
+    constants=nothing,
     performance=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
@@ -1935,6 +2180,8 @@ function _refresh_model_execution_plan(
                         application,
                         object_id,
                         temporal_streams,
+                        output_retention,
+                        constants,
                     ),
                 )
                 _count_model_execution_target_rebuild!(
@@ -2753,6 +3000,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.compiled,
             simulation.environment_bindings,
             simulation.temporal_streams,
+            simulation.output_retention,
+            simulation.constants,
             simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
@@ -2803,6 +3052,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.compiled,
             simulation.environment_bindings,
             simulation.temporal_streams,
+            simulation.output_retention,
+            simulation.constants,
             simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
@@ -3082,6 +3333,8 @@ function run!(
         compiled,
         env_bindings,
         temporal_streams,
+        output_retention,
+        constants,
     )
     _runtime_performance_finish!(
         performance_counters,
