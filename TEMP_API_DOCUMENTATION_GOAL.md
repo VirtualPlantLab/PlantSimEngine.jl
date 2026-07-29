@@ -326,7 +326,8 @@ committed XPalm v0.6.1 fixture:
       `7.501459958` seconds.
 - [x] The current `CompositeModel` runtime completed in `439.521899917`
       seconds; two earlier repetitions took approximately 505 and 512 seconds.
-- [x] The best current result is therefore `58.59×` slower: approximately
+- [x] The initial measured regression was therefore `58.59×` slower:
+      approximately
       `105.654 ms` instead of `1.803 ms` per simulated day.
 - [x] The reference run finishes with 344 phytomers.
 - [x] Reproduce the current timing again from a healthy Kaimon session before
@@ -399,6 +400,18 @@ Current restoration checkpoints on the same staged XPalm fixture:
       `ftsw=0.7991179101191216`; all 49 focused hard-call checks, all 622
       unified runtime checks, and all 68 XPalm reference-regression checks
       pass.
+- [x] At committed revision `64ef6a6d`, addition-only lifecycle refresh
+      updates binding and status-view indexes in place, skips scene-wide
+      environment indexing for global weather, caches dirty-topology call
+      compilation, and indexes legacy model-bundle propagation by callee
+      application. The committed exact warmed 4,160-day run takes
+      `9.845081` seconds and allocates `5.879 GB`.
+- [x] The final checkpoint is `44.64×` faster than the initial
+      `439.521900`-second regression and only `1.31×` slower than the
+      historical PlantSimEngine v0.14.1 result. It completes at approximately
+      `2.367 ms` per simulated day, preserves the exact final state, and passes
+      all 622 unified runtime checks and all 68 XPalm reference-regression
+      checks.
 
 ### Performance invariants
 
@@ -603,9 +616,9 @@ execution path.
       reference in at most 15 seconds on the baseline machine after warm-up.
       Committed revision `52ab05c7` passes at `14.995239` seconds with the
       exact historical trajectory and final state.
-- [ ] Final target: complete it in at most 10 seconds, or document and obtain
+- [x] Final target: complete it in at most 10 seconds, or document and obtain
       explicit approval for any remaining measured cost required by the new
-      semantics.
+      semantics. Committed revision `64ef6a6d` passes at `9.845081` seconds.
 - [x] Demonstrate that a clean steady-state step allocates no memory in the
       homogeneous target loops and stays within an explicitly recorded total
       scheduler allocation budget.
