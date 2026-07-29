@@ -922,7 +922,17 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     _prepare_model_output_statuses!(model, added_applications)
 
     manual_application_ids = _manual_call_application_ids(call_bindings)
-    input_bindings = copy(compiled.input_bindings)
+    added_input_binding_capacity = sum(
+        length(_model_input_names(application)) *
+        length(get(new_targets, application.id, ObjectId[]))
+        for application in applications
+    )
+    input_bindings = empty(compiled.input_bindings)
+    sizehint!(
+        input_bindings,
+        length(compiled.input_bindings) + added_input_binding_capacity,
+    )
+    append!(input_bindings, compiled.input_bindings)
     # A `Many(...)` binding that starts empty is compiled with an untyped
     # `RefVector{Any}` carrier. Once matching objects are registered, the
     # refreshed carrier becomes concrete (for example `RefVector{Float64}`).
