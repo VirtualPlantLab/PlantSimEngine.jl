@@ -242,6 +242,19 @@ end
     @test runtime_temporal_input isa PlantSimEngine.RuntimeTemporalInput
     @test runtime_temporal_input.compiled === only(status_view.temporal_inputs)
     @test runtime_temporal_input.source_streams === dependency_stream
+    @test isempty(execution_target.output_bindings)
+    source_execution_target = only(
+        only(
+            batch.targets for batch in simulation.execution_plan.batches
+            if batch.application.id == :signal_source
+        ),
+    )
+    runtime_output = only(source_execution_target.output_bindings)
+    @test PlantSimEngine._runtime_output_variable(runtime_output) ==
+          :signal
+    @test runtime_output.stream === dependency_stream
+    @test runtime_output.reference ===
+          PlantSimEngine.refvalue(canonical_status, :signal)
     materialized_status = PlantSimEngine._materialize_model_inputs!(
         simulation.compiled,
         simulation.compiled.applications_by_id[:lagged_consumer],

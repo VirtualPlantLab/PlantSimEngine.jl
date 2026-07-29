@@ -5,6 +5,8 @@ struct OutputRetentionPlan
     dependency_horizons::Dict{Tuple{Symbol,Symbol},Float64}
     retained_application_ids::Set{Symbol}
     retained_outputs_by_application::Dict{Symbol,Vector{Symbol}}
+    dependency_outputs_by_application::Dict{Symbol,Vector{Symbol}}
+    historical_outputs_by_application::Dict{Symbol,Vector{Symbol}}
 end
 
 """
@@ -108,6 +110,14 @@ struct RuntimeTemporalInput{C,S}
     compiled::C
     source_streams::S
 end
+
+struct RuntimeOutputStream{V,S,R}
+    stream::S
+    reference::R
+    dependency_horizon::Float64
+end
+
+_runtime_output_variable(::RuntimeOutputStream{V}) where {V} = V
 
 """
     RuntimePerformanceCounters
@@ -308,13 +318,14 @@ struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
 const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
 
-struct CompiledExecutionTarget{M,S,CS,MB,IB,CB,EB,RC}
+struct CompiledExecutionTarget{M,S,CS,MB,IB,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
     models::MB
     input_bindings::IB
+    output_bindings::OB
     call_bindings::CB
     environment_binding::EB
     context::RC
@@ -506,32 +517,49 @@ function _model_new_output_stream(
     return Tuple{Float64,typeof(value)}[]
 end
 
-function _initialize_model_temporal_streams!(
+function _initialize_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
     retention::OutputRetentionPlan,
+    sizehint_steps::Integer=0,
 )
-    for (application_id, variable) in retention.temporal_dependencies
+    for (application_id, variables) in retention.retained_outputs_by_application
         application = _compiled_application_by_id(compiled, application_id)
         for object_id in application.target_ids
-            key = _model_stream_key(application_id, object_id, variable)
-            haskey(streams, key) && continue
             status = _model_status_view_for_application(
                 compiled,
                 application,
                 object_id,
             ).canonical_status
-            hasproperty(status, variable) || error(
-                "Application `$(application_id)` declares temporal output ",
-                "`$(variable)`, but object `$(object_id.value)` status has no ",
-                "such variable.",
-            )
-            streams[key] = _model_new_output_stream(
-                getproperty(status, variable),
-                retention,
-                application_id,
-                variable,
-            )
+            for variable in variables
+                key = _model_stream_key(application_id, object_id, variable)
+                haskey(streams, key) && continue
+                hasproperty(status, variable) || error(
+                    "Application `$(application_id)` declares retained output ",
+                    "`$(variable)`, but object `$(object_id.value)` status has no ",
+                    "such variable.",
+                )
+                stream = _model_new_output_stream(
+                    getproperty(status, variable),
+                    retention,
+                    application_id,
+                    variable,
+                )
+                if stream isa Vector && sizehint_steps > 0
+                    sizehint!(
+                        stream,
+                        max(
+                            1,
+                            ceil(
+                                Int,
+                                float(sizehint_steps) /
+                                float(application.clock.dt),
+                            ),
+                        ),
+                    )
+                end
+                streams[key] = stream
+            end
         end
     end
     return streams
@@ -601,6 +629,17 @@ function _model_remove_sample_time!(samples, sample_time::Float64)
     return samples
 end
 
+@inline function _model_publish_sample!(samples, sample_time::Float64, value)
+    if !isempty(samples) &&
+       isapprox(last(samples)[1], sample_time; atol=1.0e-8, rtol=0.0)
+        pop!(samples)
+    elseif !isempty(samples) && last(samples)[1] > sample_time
+        _model_remove_sample_time!(samples, sample_time)
+    end
+    push!(samples, (sample_time, value))
+    return samples
+end
+
 function _model_publish_outputs!(
     streams,
     application::CompiledModelApplication,
@@ -639,14 +678,7 @@ function _model_publish_outputs!(
                 "CompositeModel temporal streams require a stable output type."
             )
         end
-        sample_time = float(time)
-        if !isempty(samples) &&
-           isapprox(last(samples)[1], sample_time; atol=1.0e-8, rtol=0.0)
-            pop!(samples)
-        elseif !isempty(samples) && last(samples)[1] > sample_time
-            _model_remove_sample_time!(samples, sample_time)
-        end
-        push!(samples, (sample_time, value))
+        _model_publish_sample!(samples, float(time), value)
         _model_prune_dependency_stream!(
             samples,
             retention,
@@ -655,6 +687,31 @@ function _model_publish_outputs!(
             time,
         )
     end
+    return nothing
+end
+
+@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
+
+@inline function _model_publish_runtime_outputs!(
+    outputs::Tuple,
+    time::Real,
+)
+    output = first(outputs)
+    _model_publish_sample!(
+        output.stream,
+        float(time),
+        output.reference[],
+    )
+    if output.stream isa TemporalDependencyBuffer
+        cutoff = output.dependency_horizon <= 0.0 ?
+                 float(time) :
+                 float(time) - output.dependency_horizon + 1.0
+        while !isempty(output.stream) &&
+              first(output.stream)[1] < cutoff - 1.0e-8
+            _temporal_dependency_popfirst!(output.stream)
+        end
+    end
+    _model_publish_runtime_outputs!(Base.tail(outputs), time)
     return nothing
 end
 
@@ -1518,15 +1575,21 @@ end
         )
     end
     run!(target.model, target.models, status, meteo_value, constants, context)
-    publish_outputs && _model_publish_outputs!(
-        temporal_streams,
-        application,
-        target.object_id,
-        target.canonical_status,
-        time,
-        output_retention,
-        retained_outputs,
-    )
+    if publish_outputs
+        isempty(target.output_bindings) ||
+            _model_publish_runtime_outputs!(target.output_bindings, time)
+        if isnothing(retained_outputs) || !isempty(retained_outputs)
+            _model_publish_outputs!(
+                temporal_streams,
+                application,
+                target.object_id,
+                target.canonical_status,
+                time,
+                output_retention,
+                retained_outputs,
+            )
+        end
+    end
     return status
 end
 
@@ -1585,15 +1648,21 @@ end
         constants,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
-    publish_outputs && _model_publish_outputs!(
-        temporal_streams,
-        application,
-        target.object_id,
-        target.canonical_status,
-        time,
-        output_retention,
-        retained_outputs,
-    )
+    if publish_outputs
+        isempty(target.output_bindings) ||
+            _model_publish_runtime_outputs!(target.output_bindings, time)
+        if isnothing(retained_outputs) || !isempty(retained_outputs)
+            _model_publish_outputs!(
+                temporal_streams,
+                application,
+                target.object_id,
+                target.canonical_status,
+                time,
+                output_retention,
+                retained_outputs,
+            )
+        end
+    end
     return status
 end
 
@@ -1622,7 +1691,7 @@ end
     publish_outputs = _model_retain_application(output_retention, batch.application.id)
     retained_outputs = output_retention isa OutputRetentionPlan ?
                        get(
-        output_retention.retained_outputs_by_application,
+        output_retention.historical_outputs_by_application,
         batch.application.id,
         (),
     ) : nothing
@@ -1696,15 +1765,24 @@ end
                 constants,
                 context,
             )
-            publish_outputs && _model_publish_outputs!(
-                temporal_streams,
-                batch.application,
-                target.object_id,
-                target.canonical_status,
-                time,
-                output_retention,
-                retained_outputs,
-            )
+            if publish_outputs
+                isempty(target.output_bindings) ||
+                    _model_publish_runtime_outputs!(
+                        target.output_bindings,
+                        time,
+                    )
+                if isnothing(retained_outputs) || !isempty(retained_outputs)
+                    _model_publish_outputs!(
+                        temporal_streams,
+                        batch.application,
+                        target.object_id,
+                        target.canonical_status,
+                        time,
+                        output_retention,
+                        retained_outputs,
+                    )
+                end
+            end
         end
         return nothing
     end
@@ -1821,6 +1899,69 @@ function _runtime_model_temporal_inputs(temporal_inputs::Tuple, streams)
     )
 end
 
+_runtime_model_output_streams(
+    canonical_status,
+    application,
+    object_id,
+    ::Nothing,
+    ::Nothing,
+) = ()
+
+_runtime_model_output_streams(
+    canonical_status,
+    application,
+    object_id,
+    ::Nothing,
+    output_retention,
+) = ()
+
+function _runtime_model_output_streams(
+    canonical_status,
+    application,
+    object_id,
+    streams,
+    output_retention::OutputRetentionPlan,
+)
+    variables = get(
+        output_retention.dependency_outputs_by_application,
+        application.id,
+        (),
+    )
+    return Tuple(begin
+        key = _model_stream_key(application.id, object_id, variable)
+        stream = get(streams, key, nothing)
+        isnothing(stream) && error(
+            "No initialized retained output stream for application ",
+            "`$(application.id)` on object `$(object_id.value)` and variable ",
+            "`$(variable)`.",
+        )
+        reference = refvalue(canonical_status, variable)
+        RuntimeOutputStream{
+            variable,
+            typeof(stream),
+            typeof(reference),
+        }(
+            stream,
+            reference,
+            get(
+                output_retention.dependency_horizons,
+                (application.id, variable),
+                0.0,
+            ),
+        )
+    end for variable in variables)
+end
+
+function _runtime_model_output_streams(
+    canonical_status,
+    application,
+    object_id,
+    streams,
+    ::Nothing,
+)
+    return ()
+end
+
 function _compiled_model_execution_context(
     compiled,
     env_bindings,
@@ -1894,6 +2035,13 @@ function _compiled_model_execution_target(
         output_retention,
         constants,
     )
+    output_bindings = _runtime_model_output_streams(
+        status_view.canonical_status,
+        application,
+        object_id,
+        temporal_streams,
+        output_retention,
+    )
     return CompiledExecutionTarget(
         object_id,
         model,
@@ -1904,6 +2052,7 @@ function _compiled_model_execution_target(
             status_view.temporal_inputs,
             temporal_streams,
         ),
+        output_bindings,
         call_bindings,
         environment_binding,
         context,
@@ -2009,11 +2158,31 @@ function _model_execution_inputs_match(
     return true
 end
 
+function _model_execution_outputs_match(
+    runtime_outputs::Tuple,
+    application::CompiledModelApplication,
+    output_retention,
+)
+    variables = output_retention isa OutputRetentionPlan ?
+                get(
+        output_retention.dependency_outputs_by_application,
+        application.id,
+        (),
+    ) : ()
+    length(runtime_outputs) == length(variables) || return false
+    for index in eachindex(runtime_outputs)
+        _runtime_output_variable(runtime_outputs[index]) == variables[index] ||
+            return false
+    end
+    return true
+end
+
 function _model_execution_target_change_reason(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
+    output_retention=nothing,
 )
     object_id = target.object_id
     key = (application.id, object_id)
@@ -2032,6 +2201,11 @@ function _model_execution_target_change_reason(
         status_view.temporal_inputs,
     ) ||
         return :temporal_inputs
+    _model_execution_outputs_match(
+        target.output_bindings,
+        application,
+        output_retention,
+    ) || return :output_bindings
     target.call_bindings ===
     get(compiled.call_bindings_by_target, key, ()) ||
         return :call_bindings
@@ -2065,6 +2239,8 @@ function _count_model_execution_target_rebuild!(
         :execution_target_rebuild_model_bundle
     elseif reason === :temporal_inputs
         :execution_target_rebuild_temporal_inputs
+    elseif reason === :output_bindings
+        :execution_target_rebuild_output_bindings
     elseif reason === :call_bindings
         :execution_target_rebuild_call_bindings
     elseif reason === :environment_binding
@@ -2080,6 +2256,7 @@ function _model_execution_group_reusable(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
+    output_retention=nothing,
 )
     group.application === application || return false
     target_index = 0
@@ -2094,6 +2271,7 @@ function _model_execution_group_reusable(
                 compiled,
                 env_bindings,
                 application,
+                output_retention,
             )) || return false
         end
     end
@@ -2128,6 +2306,7 @@ function _refresh_model_execution_plan(
             compiled,
             env_bindings,
             application,
+            output_retention,
         )
             push!(groups, previous_group)
             append!(batches, previous_group.batches)
@@ -2161,14 +2340,17 @@ function _refresh_model_execution_plan(
                 end
                 break
             end
-            change_reason = isnothing(previous_target) ?
-                            :new_target :
-                            _model_execution_target_change_reason(
-                previous_target,
-                compiled,
-                env_bindings,
-                application,
-            )
+            change_reason = if isnothing(previous_target)
+                :new_target
+            else
+                _model_execution_target_change_reason(
+                    previous_target,
+                    compiled,
+                    env_bindings,
+                    application,
+                    output_retention,
+                )
+            end
             if isnothing(change_reason)
                 push!(targets, previous_target)
             else
@@ -2383,6 +2565,8 @@ function compile_model_output_retention(
         push!(requested_outputs, (application.id, request.var))
     end
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
+    dependency_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
+    historical_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
         Set(
             (application.id, Symbol(variable))
@@ -2397,9 +2581,22 @@ function compile_model_output_retention(
             get!(retained_outputs_by_application, application_id, Symbol[]),
             variable,
         )
+        key = (application_id, variable)
+        destination = !retain_all &&
+                      key in temporal_dependencies &&
+                      !(key in requested_outputs) ?
+                      dependency_outputs_by_application :
+                      historical_outputs_by_application
+        push!(get!(destination, application_id, Symbol[]), variable)
     end
-    for variables in values(retained_outputs_by_application)
-        sort!(variables; by=string)
+    for outputs_by_application in (
+        retained_outputs_by_application,
+        dependency_outputs_by_application,
+        historical_outputs_by_application,
+    )
+        for variables in values(outputs_by_application)
+            sort!(variables; by=string)
+        end
     end
     return OutputRetentionPlan(
         retain_all,
@@ -2414,6 +2611,8 @@ function compile_model_output_retention(
             )
         ),
         retained_outputs_by_application,
+        dependency_outputs_by_application,
+        historical_outputs_by_application,
     )
 end
 
@@ -2975,7 +3174,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 :output_retention_compiles,
             )
         end
-        _initialize_model_temporal_streams!(
+        _initialize_model_output_streams!(
             simulation.temporal_streams,
             simulation.compiled,
             simulation.output_retention,
@@ -3323,10 +3522,11 @@ function run!(
         started_at,
     )
     temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
-    _initialize_model_temporal_streams!(
+    _initialize_model_output_streams!(
         temporal_streams,
         compiled,
         output_retention,
+        steps,
     )
     started_at = _runtime_performance_start(performance_counters)
     execution_plan = compile_model_execution_plan(
