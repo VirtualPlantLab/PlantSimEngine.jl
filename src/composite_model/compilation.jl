@@ -596,7 +596,7 @@ function _extend_model_status_views(
     affected_temporal_keys,
     previous_temporal_sources,
 )
-    views = copy(compiled.status_views_by_target)
+    views = compiled.status_views_by_target
     affected_keys = Set{Tuple{Symbol,ObjectId}}(affected_temporal_keys)
     for application in applications
         for object_id in get(new_targets, application.id, ObjectId[])

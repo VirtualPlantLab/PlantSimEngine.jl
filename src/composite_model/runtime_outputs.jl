@@ -2744,13 +2744,11 @@ end
 
 function _model_output_retention_covers_addition(
     plan::OutputRetentionPlan,
-    previous_status_views,
     compiled::CompiledCompositeModel,
 )
     for key in compiled.changed_execution_target_ids
         view = get(compiled.status_views_by_target, key, nothing)
         isnothing(view) && continue
-        get(previous_status_views, key, nothing) === view && continue
         for temporal_input in view.temporal_inputs
             _model_output_retention_covers_binding(
                 plan,
@@ -3964,7 +3962,11 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         dirty_object_count = isnothing(model.binding_dirty_objects) ?
                              length(model.registry.objects) :
                              length(model.binding_dirty_objects)
-        previous_status_views = simulation.compiled.status_views_by_target
+        previous_status_views = isnothing(simulation.performance) ?
+                                nothing :
+                                copy(
+            simulation.compiled.status_views_by_target,
+        )
         started_at = _runtime_performance_start(simulation.performance)
         simulation.compiled = refresh_bindings!(model)
         _runtime_performance_finish!(
@@ -4001,7 +4003,6 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         output_retention_reused = pure_object_addition &&
                                   _model_output_retention_covers_addition(
             simulation.output_retention,
-            previous_status_views,
             simulation.compiled,
         )
         if output_retention_reused
