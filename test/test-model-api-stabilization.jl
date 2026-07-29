@@ -79,6 +79,26 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.@process "stabilization_lagged_sum" verbose = false
+
+struct StabilizationLaggedSumModel <: AbstractStabilization_Lagged_SumModel end
+
+PlantSimEngine.inputs_(::StabilizationLaggedSumModel) =
+    (previous_signals=[0.0],)
+PlantSimEngine.outputs_(::StabilizationLaggedSumModel) = (lagged_total=0.0,)
+
+function PlantSimEngine.run!(
+    ::StabilizationLaggedSumModel,
+    models,
+    status,
+    meteo,
+    constants,
+    extra,
+)
+    status.lagged_total = sum(status.previous_signals)
+    return nothing
+end
+
 @testset "one-object lowering and initialization report" begin
     model = CompositeModel(
         StabilizationSourceModel(),
@@ -187,6 +207,8 @@ end
         :compile_composite_model,
         :refresh_bindings!,
         :bindings_dirty,
+        :RuntimePerformanceCounters,
+        :runtime_performance,
     )
         @test internal_name ∉ public_names
         @test internal_name ∈ advanced_names
@@ -458,4 +480,110 @@ end
     none_allocations = @allocated run!(model; steps=10, outputs=:none)
     all_allocations = @allocated run!(model; steps=10, outputs=:all)
     @test none_allocations < all_allocations
+end
+
+@testset "opt-in runtime performance counters" begin
+    disabled_model = CompositeModel(StabilizationSourceModel())
+    disabled_simulation = run!(disabled_model; steps=2)
+    @test isnothing(Advanced.runtime_performance(disabled_simulation))
+
+    model = CompositeModel(
+        Object(:leaf_1; scale=:Leaf);
+        applications=(
+            ModelSpec(StabilizationSourceModel(); name=:source) |>
+                AppliesTo(Many(scale=:Leaf)),
+        ),
+    )
+    simulation = run!(
+        model;
+        steps=3,
+        outputs=:all,
+        performance=true,
+    )
+    performance = Advanced.runtime_performance(simulation)
+
+    @test performance.counts[:steps_executed] == 3
+    @test performance.counts[:application_groups_visited] == 3
+    @test performance.counts[:execution_batches_visited] == 3
+    @test performance.counts[:execution_targets_visited] == 3
+    @test performance.counts[:initial_status_views_constructed] == 1
+    @test performance.counts[:initial_execution_targets_constructed] == 1
+    @test performance.counts[:initial_execution_batches_constructed] == 1
+    @test performance.elapsed_seconds[:step_execution] >= 0.0
+    @test performance.elapsed_seconds[:initial_binding_compile] >= 0.0
+    @test performance.elapsed_seconds[:initial_execution_plan_compile] >= 0.0
+
+    original_view =
+        simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
+    register_object!(model, Object(:leaf_2; scale=:Leaf))
+    continue!(simulation)
+    refreshed = Advanced.runtime_performance(simulation)
+    @test refreshed.counts[:steps_executed] == 4
+    @test refreshed.counts[:binding_refreshes] == 1
+    @test refreshed.counts[:dirty_binding_objects] == 1
+    @test refreshed.counts[:status_views_constructed] == 1
+    @test refreshed.counts[:execution_plan_compiles] == 1
+    @test refreshed.counts[:execution_targets_constructed] == 2
+    @test refreshed.counts[:execution_batches_constructed] == 1
+    @test simulation.compiled.status_views_by_target[
+        (:source, ObjectId(:leaf_1))
+    ] === original_view
+
+    collect_outputs(simulation; sink=nothing)
+    collected = Advanced.runtime_performance(simulation)
+    @test collected.counts[:output_collections] == 1
+    @test collected.elapsed_seconds[:output_collection] >= 0.0
+end
+
+@testset "incremental lifecycle preserves temporal state" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant),
+        Object(:leaf_1; scale=:Leaf, parent=:plant);
+        applications=(
+            ModelSpec(StabilizationSourceModel(); name=:source) |>
+                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(StabilizationLaggedSumModel(); name=:lagged_sum) |>
+                AppliesTo(One(scale=:Plant)) |>
+                Inputs(
+                    PreviousTimeStep(:previous_signals) => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:source,
+                        var=:signal,
+                    ),
+                ),
+        ),
+    )
+    simulation = run!(model; performance=true)
+    plant_status = only(model_objects(model; scale=:Plant)).status
+    @test plant_status.lagged_total == 0.0
+
+    original_leaf_view =
+        simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
+    original_plant_view =
+        simulation.compiled.status_views_by_target[(:lagged_sum, ObjectId(:plant))]
+    original_temporal_input = only(original_plant_view.temporal_inputs)
+    @test collect(original_temporal_input.reference[]) == [0.0]
+
+    register_object!(
+        model,
+        Object(:leaf_2; scale=:Leaf, parent=:plant),
+    )
+    continue!(simulation)
+
+    refreshed_leaf_view =
+        simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
+    refreshed_plant_view =
+        simulation.compiled.status_views_by_target[(:lagged_sum, ObjectId(:plant))]
+    refreshed_temporal_input = only(refreshed_plant_view.temporal_inputs)
+    @test refreshed_leaf_view === original_leaf_view
+    @test refreshed_plant_view !== original_plant_view
+    @test refreshed_temporal_input.binding.source_ids ==
+          ObjectId.([:leaf_1, :leaf_2])
+    @test plant_status.lagged_total == 1.0
+
+    continue!(simulation)
+    @test plant_status.lagged_total == 3.0
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:status_views_constructed] == 2
 end

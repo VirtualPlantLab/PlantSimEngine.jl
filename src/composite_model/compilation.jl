@@ -460,6 +460,162 @@ function _append_added_many_sources!(
     return true
 end
 
+function _preserve_temporal_input_state!(
+    current::CompiledTemporalInput,
+    previous::CompiledTemporalInput,
+    previous_source_ids,
+)
+    if current.binding.multiplicity != :many ||
+       previous.binding.multiplicity != :many
+        current.reference[] = _private_temporal_value(previous.reference[])
+        return CompiledTemporalInput(
+            current.binding,
+            current.source_applications,
+            previous.initial,
+            current.reference,
+        )
+    end
+
+    current_initial = current.initial
+    current_storage = current.reference[]
+    previous_initial = previous.initial
+    previous_storage = previous.reference[]
+    previous_indices = Dict(
+        object_id => index
+        for (index, object_id) in pairs(previous_source_ids)
+    )
+    for (current_index, object_id) in pairs(current.binding.source_ids)
+        previous_index = get(previous_indices, object_id, nothing)
+        isnothing(previous_index) && continue
+        current_initial[current_index] =
+            _private_temporal_value(previous_initial[previous_index])
+        current_storage[current_index] =
+            _private_temporal_value(previous_storage[previous_index])
+    end
+    return CompiledTemporalInput(
+        current.binding,
+        current.source_applications,
+        current_initial,
+        current.reference,
+    )
+end
+
+function _preserve_model_status_view_temporal_state!(
+    current::CompiledModelStatusView,
+    previous::CompiledModelStatusView,
+    previous_temporal_sources,
+    key,
+)
+    isempty(previous.temporal_inputs) && return current
+    previous_by_input = Dict(
+        temporal_input.binding.input => temporal_input
+        for temporal_input in previous.temporal_inputs
+    )
+    temporal_inputs = Tuple(begin
+        previous_input = get(
+            previous_by_input,
+            temporal_input.binding.input,
+            nothing,
+        )
+        if isnothing(previous_input)
+            temporal_input
+        else
+            previous_source_ids = get(
+                previous_temporal_sources,
+                (key..., temporal_input.binding.input),
+                previous_input.binding.source_ids,
+            )
+            _preserve_temporal_input_state!(
+                temporal_input,
+                previous_input,
+                previous_source_ids,
+            )
+        end
+    end for temporal_input in current.temporal_inputs)
+    temporal_by_name = Dict(
+        temporal_input.binding.input => temporal_input
+        for temporal_input in temporal_inputs
+    )
+    names = propertynames(current.canonical_status)
+    references = ntuple(length(names)) do index
+        name = names[index]
+        temporal_input = get(temporal_by_name, name, nothing)
+        isnothing(temporal_input) &&
+            return refvalue(current.canonical_status, name)
+        return temporal_input.reference
+    end
+    status = Status(NamedTuple{names}(references))
+    return CompiledModelStatusView(
+        status,
+        current.canonical_status,
+        temporal_inputs,
+    )
+end
+
+function _extend_model_status_views(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    applications,
+    applications_by_id,
+    applications_by_object,
+    input_bindings_by_target,
+    application_order,
+    new_targets,
+    rewired_consumer_ids,
+    affected_temporal_keys,
+    previous_temporal_sources,
+)
+    views = copy(compiled.status_views_by_target)
+    affected_keys = Set{Tuple{Symbol,ObjectId}}(affected_temporal_keys)
+    for application in applications
+        for object_id in get(new_targets, application.id, ObjectId[])
+            push!(affected_keys, (application.id, object_id))
+        end
+    end
+    for object_id in rewired_consumer_ids
+        for application in get(applications_by_object, object_id, ())
+            push!(affected_keys, (application.id, object_id))
+        end
+    end
+
+    positions = Dict(
+        application_id => index
+        for (index, application_id) in pairs(application_order)
+    )
+    for key in affected_keys
+        application_id, object_id = key
+        application = applications_by_id[application_id]
+        previous_view = get(compiled.status_views_by_target, key, nothing)
+        if !isnothing(previous_view)
+            for temporal_input in previous_view.temporal_inputs
+                get!(
+                    previous_temporal_sources,
+                    (key..., temporal_input.binding.input),
+                ) do
+                    copy(temporal_input.binding.source_ids)
+                end
+            end
+        end
+        current_view = _compile_model_status_view(
+            model,
+            application,
+            object_id,
+            get(input_bindings_by_target, key, ()),
+            applications_by_id,
+            positions,
+        )
+        views[key] = isnothing(previous_view) ?
+                     current_view :
+                     _preserve_model_status_view_temporal_state!(
+            current_view,
+            previous_view,
+            previous_temporal_sources,
+            key,
+        )
+    end
+    return views
+end
+
 function _extend_compiled_scene(model::CompositeModel, compiled::CompiledCompositeModel, added_objects)
     added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
     isempty(added_ids) && return compile_composite_model(model, model.applications)
@@ -548,7 +704,12 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     # replace an initially empty binding without rebuilding the whole scene.
     input_bindings_by_target = Dict{Any,Any}(compiled.input_bindings_by_target)
     changed_bindings = CompiledModelInputBinding[]
+    rewired_consumer_ids = Set{ObjectId}()
+    affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
+    previous_temporal_sources =
+        Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
     processed_many_sources = IdDict{Any,Nothing}()
+    previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
     candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
     for object_id in added_ids
         object_scale = _model_object(model, object_id).scale
@@ -560,8 +721,21 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     for index in candidate_binding_indices
         binding = input_bindings[index]
         if binding.multiplicity == :many && haskey(processed_many_sources, binding.source_ids)
+            if binding.carrier_hint == :temporal_stream
+                key = (binding.application_id, binding.consumer_id)
+                push!(affected_temporal_keys, key)
+                previous_temporal_sources[(
+                    key...,
+                    binding.input,
+                )] = previous_shared_many_sources[binding.source_ids]
+            end
             continue
         end
+        previous_source_ids = binding.carrier_hint == :temporal_stream ?
+                              copy(binding.source_ids) :
+                              ObjectId[]
+        binding.multiplicity == :many &&
+            (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
         _selector_matches_any_object_id(
             model,
@@ -571,12 +745,22 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             default_to_context=true,
             default_scope=default_scope,
         ) || continue
-        _append_added_many_sources!(
+        appended_sources = _append_added_many_sources!(
             model,
             binding,
             added_ids,
             applications_by_object,
-        ) && begin
+        )
+        if appended_sources
+            if binding.carrier_hint == :temporal_stream &&
+               previous_source_ids != binding.source_ids
+                key = (binding.application_id, binding.consumer_id)
+                push!(affected_temporal_keys, key)
+                previous_temporal_sources[(
+                    key...,
+                    binding.input,
+                )] = previous_source_ids
+            end
             processed_many_sources[binding.source_ids] = nothing
             continue
         end
@@ -596,6 +780,15 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         replacement_binding = only(replacement)
         input_bindings[index] = replacement_binding
         push!(changed_bindings, replacement_binding)
+        push!(rewired_consumer_ids, binding.consumer_id)
+        if binding.carrier_hint == :temporal_stream
+            key = (binding.application_id, binding.consumer_id)
+            push!(affected_temporal_keys, key)
+            previous_temporal_sources[(
+                key...,
+                binding.input,
+            )] = previous_source_ids
+        end
         target = (binding.application_id, binding.consumer_id)
         input_bindings_by_target[target] = Tuple(
             existing === binding ? replacement_binding : existing
@@ -663,6 +856,20 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     # targets observe the same dependency contract as initial targets.
     application_order =
         _compile_model_application_order(applications, input_bindings, call_bindings)
+    if application_order != compiled.application_order
+        for (key, view) in compiled.status_views_by_target
+            isempty(view.temporal_inputs) && continue
+            push!(affected_temporal_keys, key)
+            for temporal_input in view.temporal_inputs
+                get!(
+                    previous_temporal_sources,
+                    (key..., temporal_input.binding.input),
+                ) do
+                    copy(temporal_input.binding.source_ids)
+                end
+            end
+        end
+    end
     model_bundles_by_target = if existing_calls_affected
         _compile_model_model_bundles(
             applications,
@@ -683,12 +890,18 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
         bundles
     end
-    status_views_by_target = _compile_model_status_views(
+    status_views_by_target = _extend_model_status_views(
         model,
+        compiled,
         applications,
         applications_by_id,
+        applications_by_object,
         input_bindings_by_target,
         application_order,
+        new_targets,
+        rewired_consumer_ids,
+        affected_temporal_keys,
+        previous_temporal_sources,
     )
     return CompiledCompositeModel(
         model,

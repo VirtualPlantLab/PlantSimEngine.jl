@@ -37,3 +37,23 @@ end
     @test current_step(simulation) == 1
     @test !isempty(xpalm_default_param_collect_outputs(simulation))
 end
+
+@testset "XPalm staged performance profile smoke" begin
+    include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+    result = run_xpalm_performance_profile(; profile=:smoke)
+    @test result.no_output_state == result.reference_state
+    @test result.reference_state.current_step == PERFORMANCE_SMOKE_STEPS
+    @test any(
+        row ->
+            row.stage == "simulation_reference_outputs" &&
+                row.metric == "steps_executed" &&
+                row.value == PERFORMANCE_SMOKE_STEPS,
+        result.records,
+    )
+    @test any(
+        row ->
+            row.stage == "collect_reference_outputs" &&
+                row.metric == "wall_time",
+        result.records,
+    )
+end

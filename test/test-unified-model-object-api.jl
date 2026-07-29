@@ -1649,6 +1649,7 @@ end
     @test only(execution_rows).object_ids == [:leaf_1, :leaf_2, :leaf_3]
     @test only(execution_rows).batch_size == 3
     @test only(execution_rows).inner_loop_dispatch == :concrete_homogeneous_batch
+    @test only(execution_rows).call_capability == :compiled_calls
     @test isconcretetype(only(execution_rows).target_type)
 
     batch_counter = Ref(0)
@@ -1677,6 +1678,10 @@ end
     batch_plan =
         PlantSimEngine.compile_model_execution_plan(batch_compiled, batch_environment)
     @test length(batch_plan.batches) == 1
+    @test length(batch_plan.groups) == 1
+    @test only(batch_plan.groups).application.id == :batch_counter
+    @test only(batch_plan.groups).batches == batch_plan.batches
+    @test only(explain_execution_plan(batch_plan)).call_capability == :no_calls
     homogeneous_batch = only(batch_plan.batches)
     @test isconcretetype(eltype(homogeneous_batch.targets))
     PlantSimEngine._run_model_execution_batch!(
@@ -2915,6 +2920,7 @@ end
         )
     ) == 0
 
+    unrelated_call_counter = Ref(0)
     call_runtime_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, called_signal=0.0));
@@ -2923,16 +2929,31 @@ end
             AppliesTo(One(scale=:Leaf)),
             ModelSpec(ModelObjectSignalCallerModel(); name=:signal_caller) |>
             AppliesTo(One(scale=:Leaf)),
+            ModelSpec(
+                ModelObjectBatchCounterModel(unrelated_call_counter);
+                name=:unrelated_no_call,
+            ) |>
+            AppliesTo(One(scale=:Leaf)),
         ),
     )
     run!(call_runtime_scene)
     call_status = only(model_objects(call_runtime_scene; scale=:Leaf)).status
     @test call_status.signal == 1.0
     @test call_status.called_signal == 1.0
+    @test unrelated_call_counter[] == 1
     call_schedule = explain_schedule(Advanced.refresh_bindings!(call_runtime_scene))
     @test only(row for row in call_schedule if row.application_id == :signal_source).manual_call_only
     @test !only(row for row in call_schedule if row.application_id == :signal_source).root_scheduled
     @test only(row for row in call_schedule if row.application_id == :signal_caller).root_scheduled
+    call_execution = explain_execution_plan(call_runtime_scene)
+    @test only(
+        row for row in call_execution
+        if row.application_id == :signal_caller
+    ).call_capability == :compiled_calls
+    @test only(
+        row for row in call_execution
+        if row.application_id == :unrelated_no_call
+    ).call_capability == :no_calls
 
     hard_call_meteo_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
     hard_call_meteo_scene = CompositeModel(

@@ -8,6 +8,52 @@ struct OutputRetentionPlan
 end
 
 """
+    RuntimePerformanceCounters
+
+Opt-in coarse runtime instrumentation used by the performance regression
+suite. Pass `performance=true` to [`run!`](@ref), then inspect a copy of the
+recorded counters with [`runtime_performance`](@ref).
+
+The disabled path stores `nothing` in the simulation and does not call
+`time_ns()`. Counters deliberately cover compiler/runtime boundaries rather
+than individual scientific kernels so instrumentation does not change kernel
+dispatch or allocation behavior.
+"""
+mutable struct RuntimePerformanceCounters
+    counts::Dict{Symbol,Int}
+    elapsed_ns::Dict{Symbol,UInt64}
+end
+
+RuntimePerformanceCounters() =
+    RuntimePerformanceCounters(Dict{Symbol,Int}(), Dict{Symbol,UInt64}())
+
+@inline _runtime_performance_start(::Nothing) = UInt64(0)
+@inline _runtime_performance_start(::RuntimePerformanceCounters) = time_ns()
+
+@inline _runtime_performance_finish!(::Nothing, ::Symbol, ::UInt64) = nothing
+
+@inline function _runtime_performance_finish!(
+    counters::RuntimePerformanceCounters,
+    name::Symbol,
+    started_at::UInt64,
+)
+    elapsed = time_ns() - started_at
+    counters.elapsed_ns[name] = get(counters.elapsed_ns, name, UInt64(0)) + elapsed
+    return nothing
+end
+
+@inline _runtime_performance_count!(::Nothing, ::Symbol, amount::Int=1) = nothing
+
+@inline function _runtime_performance_count!(
+    counters::RuntimePerformanceCounters,
+    name::Symbol,
+    amount::Int=1,
+)
+    counters.counts[name] = get(counters.counts, name, 0) + amount
+    return nothing
+end
+
+"""
     RunContext
 
 Runtime context passed as the final argument to model kernels. Use
@@ -114,13 +160,14 @@ struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
 const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
 
-struct CompiledExecutionTarget{M,S,CS,MB,IB,EB}
+struct CompiledExecutionTarget{M,S,CS,MB,IB,CB,EB}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
     models::MB
     input_bindings::IB
+    call_bindings::CB
     environment_binding::EB
 end
 
@@ -129,7 +176,13 @@ struct CompiledExecutionBatch{A,T<:AbstractVector} <: AbstractExecutionBatch
     targets::T
 end
 
-struct CompiledExecutionPlan{B}
+struct CompiledApplicationExecutionGroup{A,B}
+    application::A
+    batches::B
+end
+
+struct CompiledExecutionPlan{G,B}
+    groups::G
     batches::B
     model_revision::Int
     environment_revision::Int
@@ -141,7 +194,7 @@ end
 Result of running a [`CompositeModel`](@ref). Use `outputs`, `collect_outputs`,
 and the explanation helpers to inspect it.
 """
-mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C}
+mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     model::S
     compiled::CS
     environment_bindings::EB
@@ -152,6 +205,7 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C}
     output_request_targets::RT
     current_step::Int
     constants::C
+    performance::P
 end
 
 """
@@ -167,6 +221,25 @@ runtime_model(simulation::Simulation) = simulation.model
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
+
+"""
+    runtime_performance(simulation)
+
+Return a stable snapshot of opt-in runtime performance counters, or `nothing`
+when the simulation was not started with `performance=true`. Elapsed values are
+reported in seconds while the internal counters retain nanosecond resolution.
+"""
+function runtime_performance(simulation::Simulation)
+    counters = simulation.performance
+    isnothing(counters) && return nothing
+    return (
+        counts=copy(counters.counts),
+        elapsed_seconds=Dict(
+            name => Float64(elapsed) / 1.0e9
+            for (name, elapsed) in counters.elapsed_ns
+        ),
+    )
+end
 
 # Diagnostics accept the live simulation handle without exposing its compiled
 # representation. Views concerning topology and initialization use the current
@@ -920,7 +993,12 @@ function _run_model_application!(
         time,
         environment,
     ) : meteo
-    if isempty(compiled.call_bindings)
+    call_bindings = get(
+        compiled.call_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
+    if isempty(call_bindings)
         return _run_model_application_with_calls!(
             compiled,
             env_bindings,
@@ -938,11 +1016,6 @@ function _run_model_application!(
             environment,
         )
     end
-    call_bindings = get(
-        compiled.call_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
     calls = _runtime_call_targets(
         compiled,
         env_bindings,
@@ -1041,7 +1114,7 @@ function _run_model_execution_target!(
     publish_outputs::Bool=true,
     retained_outputs=nothing,
 )
-    isempty(compiled.call_bindings) && return _run_model_execution_target_without_calls!(
+    isempty(target.call_bindings) && return _run_model_execution_target_without_calls!(
         compiled,
         env_bindings,
         application,
@@ -1071,15 +1144,10 @@ function _run_model_execution_target!(
         target.environment_binding,
         time,
     ) : meteo
-    call_bindings = get(
-        compiled.call_bindings_by_target,
-        (application.id, target.object_id),
-        (),
-    )
     calls = _runtime_call_targets(
         compiled,
         env_bindings,
-        call_bindings,
+        target.call_bindings,
         temporal_streams,
         output_retention,
         time,
@@ -1142,7 +1210,7 @@ function _run_model_execution_batch!(
         batch.application.id,
         (),
     ) : nothing
-    if isempty(compiled.call_bindings)
+    if isempty(first(batch.targets).call_bindings)
         for target in batch.targets
             _run_model_execution_target_without_calls!(
                 compiled,
@@ -1203,6 +1271,11 @@ function _compiled_model_execution_target(
     )
     model = _application_model(application, object_id)
     models = _model_models_for_application(compiled, application, object_id)
+    call_bindings = get(
+        compiled.call_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
     environment_binding = _environment_binding_for(
         env_bindings,
         application.id,
@@ -1215,6 +1288,7 @@ function _compiled_model_execution_target(
         status_view.canonical_status,
         models,
         status_view.temporal_inputs,
+        call_bindings,
         environment_binding,
     )
 end
@@ -1263,9 +1337,11 @@ function compile_model_execution_plan(
     env_bindings::CompiledEnvironmentBindings,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
+    groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
     for application in _ordered_model_applications(compiled)
         application.id in manual_application_ids && continue
+        first_batch = length(batches) + 1
         targets = Any[
             _compiled_model_execution_target(
                 compiled,
@@ -1276,8 +1352,17 @@ function compile_model_execution_plan(
             for object_id in application.target_ids
         ]
         _append_model_execution_batches!(batches, application, targets)
+        first_batch > length(batches) && continue
+        push!(
+            groups,
+            CompiledApplicationExecutionGroup(
+                application,
+                batches[first_batch:end],
+            ),
+        )
     end
     return CompiledExecutionPlan(
+        groups,
         batches,
         compiled.revision,
         env_bindings.environment_revision,
@@ -1297,6 +1382,10 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
             status_type=fieldtype(eltype(batch.targets), :status),
             model_bundle_type=fieldtype(eltype(batch.targets), :models),
             input_bindings_type=fieldtype(eltype(batch.targets), :input_bindings),
+            call_bindings_type=fieldtype(eltype(batch.targets), :call_bindings),
+            call_capability=isempty(first(batch.targets).call_bindings) ?
+                            :no_calls :
+                            :compiled_calls,
             environment_binding_type=fieldtype(
                 eltype(batch.targets),
                 :environment_binding,
@@ -1894,30 +1983,138 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     model = simulation.model
     if bindings_dirty(model) ||
        simulation.compiled.revision != model_revision(model)
+        dirty_object_count = isnothing(model.binding_dirty_objects) ?
+                             length(model.registry.objects) :
+                             length(model.binding_dirty_objects)
+        previous_status_views = simulation.compiled.status_views_by_target
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.compiled = refresh_bindings!(model)
+        _runtime_performance_finish!(
+            simulation.performance,
+            :binding_refresh,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :binding_refreshes,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :dirty_binding_objects,
+            dirty_object_count,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :status_views_constructed,
+            count(
+                key_and_view ->
+                    get(
+                        previous_status_views,
+                        first(key_and_view),
+                        nothing,
+                    ) !== last(key_and_view),
+                simulation.compiled.status_views_by_target,
+            ),
+        )
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.output_retention = compile_model_output_retention(
             simulation.compiled,
             simulation.output_requests;
             retain_all=simulation.output_retention.retain_all,
         )
+        _runtime_performance_finish!(
+            simulation.performance,
+            :output_retention_compile,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :output_retention_compiles,
+        )
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
             simulation.compiled,
         )
+        _runtime_performance_finish!(
+            simulation.performance,
+            :environment_refresh,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :environment_refreshes,
+        )
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.execution_plan = compile_model_execution_plan(
             simulation.compiled,
             simulation.environment_bindings,
+        )
+        _runtime_performance_finish!(
+            simulation.performance,
+            :execution_plan_compile,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_plan_compiles,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_targets_constructed,
+            sum(
+                length(batch.targets)
+                for batch in simulation.execution_plan.batches
+            ),
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_batches_constructed,
+            length(simulation.execution_plan.batches),
         )
     elseif environment_bindings_dirty(model) ||
            simulation.environment_bindings.environment_revision !=
            environment_revision(model)
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
             simulation.compiled,
         )
+        _runtime_performance_finish!(
+            simulation.performance,
+            :environment_refresh,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :environment_refreshes,
+        )
+        started_at = _runtime_performance_start(simulation.performance)
         simulation.execution_plan = compile_model_execution_plan(
             simulation.compiled,
             simulation.environment_bindings,
+        )
+        _runtime_performance_finish!(
+            simulation.performance,
+            :execution_plan_compile,
+            started_at,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_plan_compiles,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_targets_constructed,
+            sum(
+                length(batch.targets)
+                for batch in simulation.execution_plan.batches
+            ),
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_batches_constructed,
+            length(simulation.execution_plan.batches),
         )
     end
     return simulation
@@ -1933,22 +2130,16 @@ function _simulation_runtime_dirty(simulation::Simulation)
 end
 
 function _run_model_execution_step!(simulation::Simulation, step::Integer)
-    completed_applications = Set{Symbol}()
+    started_at = _runtime_performance_start(simulation.performance)
     empty!(simulation.environment_bindings.sample_cache)
-    while true
-        batches = simulation.execution_plan.batches
-        first_batch = findfirst(
-            batch -> !(batch.application.id in completed_applications),
-            batches,
-        )
-        isnothing(first_batch) && return simulation
-
-        application_id = batches[first_batch].application.id
-        batch_index = first_batch
-        while batch_index <= length(batches) &&
-              batches[batch_index].application.id == application_id
+    groups = simulation.execution_plan.groups
+    group_index = firstindex(groups)
+    completed_applications = nothing
+    while group_index <= length(groups)
+        group = groups[group_index]
+        for batch in group.batches
             _run_model_execution_batch!(
-                batches[batch_index],
+                batch,
                 simulation.compiled,
                 simulation.environment_bindings;
                 time=step,
@@ -1956,18 +2147,58 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
                 temporal_streams=simulation.temporal_streams,
                 output_retention=simulation.output_retention,
             )
-            batch_index += 1
+            _runtime_performance_count!(
+                simulation.performance,
+                :execution_batches_visited,
+            )
+            _runtime_performance_count!(
+                simulation.performance,
+                :execution_targets_visited,
+                length(batch.targets),
+            )
         end
-        push!(completed_applications, application_id)
+        _runtime_performance_count!(
+            simulation.performance,
+            :application_groups_visited,
+        )
 
-        _simulation_runtime_dirty(simulation) || continue
+        if !_simulation_runtime_dirty(simulation)
+            group_index += 1
+            continue
+        end
+        if isnothing(completed_applications)
+            completed_applications = Set(
+                groups[index].application.id
+                for index in firstindex(groups):group_index
+            )
+        else
+            push!(completed_applications, group.application.id)
+        end
         added_object_ids = bindings_dirty(simulation.model) &&
                            !isnothing(simulation.model.binding_dirty_objects) ?
                            copy(simulation.model.binding_dirty_objects) : nothing
         _refresh_simulation_runtime!(simulation)
         _refresh_output_request_targets!(simulation, added_object_ids)
         empty!(simulation.environment_bindings.sample_cache)
+        groups = simulation.execution_plan.groups
+        next_group = findfirst(
+            candidate ->
+                !(candidate.application.id in completed_applications),
+            groups,
+        )
+        isnothing(next_group) && break
+        group_index = next_group
     end
+    _runtime_performance_finish!(
+        simulation.performance,
+        :step_execution,
+        started_at,
+    )
+    _runtime_performance_count!(
+        simulation.performance,
+        :steps_executed,
+    )
+    return simulation
 end
 
 function _continue_scene!(simulation::Simulation, steps::Integer)
@@ -2076,12 +2307,14 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
 end
 
 """
-    run!(model; steps=1, constants=Constants(), outputs=:none)
+    run!(model; steps=1, constants=Constants(), outputs=:none, performance=false)
 
 Run a fresh simulation timeline while mutating object status in `model`.
 Choose `outputs=:none`, `outputs=:all`, one [`OutputRequest`](@ref), or a
 vector of requests. Use [`continue!`](@ref) on the returned
-[`Simulation`](@ref) to advance without resetting time.
+[`Simulation`](@ref) to advance without resetting time. Set
+`performance=true` to record coarse compiler/runtime timing and work counters
+for diagnostics and performance regression tests.
 """
 function run!(
     model::CompositeModel;
@@ -2089,22 +2322,69 @@ function run!(
     constants=PlantMeteo.Constants(),
     outputs=_UNSPECIFIED_SCENE_OUTPUTS,
     tracked_outputs=_UNSPECIFIED_SCENE_OUTPUTS,
+    performance::Bool=false,
 )
+    performance_counters = performance ? RuntimePerformanceCounters() : nothing
+    started_at = _runtime_performance_start(performance_counters)
     compiled = refresh_bindings!(model)
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_binding_compile,
+        started_at,
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_status_views_constructed,
+        length(compiled.status_views_by_target),
+    )
+    started_at = _runtime_performance_start(performance_counters)
     env_bindings = refresh_environment_bindings!(model, compiled)
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_environment_compile,
+        started_at,
+    )
     empty!(env_bindings.sample_cache)
+    started_at = _runtime_performance_start(performance_counters)
     execution_plan = compile_model_execution_plan(compiled, env_bindings)
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_execution_plan_compile,
+        started_at,
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_execution_targets_constructed,
+        sum(length(batch.targets) for batch in execution_plan.batches),
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_execution_batches_constructed,
+        length(execution_plan.batches),
+    )
     output_requests, retain_all = _model_output_selection(outputs, tracked_outputs)
+    started_at = _runtime_performance_start(performance_counters)
     output_retention = compile_model_output_retention(
         compiled,
         output_requests;
         retain_all=retain_all,
     )
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_output_retention_compile,
+        started_at,
+    )
     temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+    started_at = _runtime_performance_start(performance_counters)
     output_request_targets = _initial_output_request_targets(
         model,
         compiled,
         output_requests,
+    )
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_output_target_compile,
+        started_at,
     )
     simulation = Simulation(
         model,
@@ -2117,6 +2397,7 @@ function run!(
         output_request_targets,
         0,
         constants,
+        performance_counters,
     )
     return _continue_scene!(simulation, steps)
 end
@@ -2360,11 +2641,21 @@ function _collect_model_requested_outputs(sim::Simulation, sink)
 end
 
 function collect_outputs(sim::Simulation; sink=DataFrames.DataFrame)
-    isempty(sim.output_requests) || return _collect_model_requested_outputs(sim, sink)
-    return _materialize_model_output_rows(_model_output_rows(sim), sink)
+    started_at = _runtime_performance_start(sim.performance)
+    collected = isempty(sim.output_requests) ?
+                _materialize_model_output_rows(_model_output_rows(sim), sink) :
+                _collect_model_requested_outputs(sim, sink)
+    _runtime_performance_finish!(
+        sim.performance,
+        :output_collection,
+        started_at,
+    )
+    _runtime_performance_count!(sim.performance, :output_collections)
+    return collected
 end
 
 function collect_outputs(sim::Simulation, name::Symbol; sink=DataFrames.DataFrame)
+    started_at = _runtime_performance_start(sim.performance)
     matches = [request for request in sim.output_requests if request.name == name]
     isempty(matches) && error(
         "No model output request named `$(name)`. Available request names are ",
@@ -2374,14 +2665,32 @@ function collect_outputs(sim::Simulation, name::Symbol; sink=DataFrames.DataFram
         "Duplicate model output request name `$(name)`. Request names must be unique."
     )
     request = only(matches)
-    return _materialize_model_output_rows(
+    collected = _materialize_model_output_rows(
         _model_requested_output_rows(sim, request),
         sink,
     )
+    _runtime_performance_finish!(
+        sim.performance,
+        :output_collection,
+        started_at,
+    )
+    _runtime_performance_count!(sim.performance, :output_collections)
+    return collected
 end
 
 function collect_outputs(sim::Simulation, object_id, variable::Symbol; sink=DataFrames.DataFrame)
-    return _materialize_model_output_rows(_model_output_rows(sim, object_id, variable), sink)
+    started_at = _runtime_performance_start(sim.performance)
+    collected = _materialize_model_output_rows(
+        _model_output_rows(sim, object_id, variable),
+        sink,
+    )
+    _runtime_performance_finish!(
+        sim.performance,
+        :output_collection,
+        started_at,
+    )
+    _runtime_performance_count!(sim.performance, :output_collections)
+    return collected
 end
 
 function explain_outputs(sim::Simulation)

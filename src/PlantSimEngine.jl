@@ -103,7 +103,9 @@ import ..PlantSimEngine:
     model_revision,
     environment_revision,
     compiled_bindings,
-    compiled_environment_bindings
+    compiled_environment_bindings,
+    RuntimePerformanceCounters,
+    runtime_performance
 
 export ObjectRegistry
 export CompiledCompositeModel, CompiledModelApplication
@@ -115,6 +117,7 @@ export compile_environment_bindings, bind_environment
 export bindings_dirty, environment_bindings_dirty
 export model_revision, environment_revision
 export compiled_bindings, compiled_environment_bindings
+export RuntimePerformanceCounters, runtime_performance
 end
 
 export PreviousTimeStep

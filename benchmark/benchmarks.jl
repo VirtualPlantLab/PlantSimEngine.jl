@@ -47,14 +47,47 @@ SUITE[suite_name]["PBP_batch_run"] = @benchmarkable benchmark_plantbiophysics_ba
 
 # "XPalm benchmark" 
 include(joinpath(@__DIR__, "test-xpalm.jl"))
-SUITE[suite_name]["XPalm_setup"] = @benchmarkable xpalm_default_param_create() seconds = 120
+const XPALM_PR_BENCHMARK_STEPS = 100
+SUITE[suite_name]["XPalm_setup_100"] = @benchmarkable xpalm_default_param_create(
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+) seconds = 30
 
-SUITE[suite_name]["XPalm_run"] = @benchmarkable xpalm_default_param_run(
+SUITE[suite_name]["XPalm_run_100"] = @benchmarkable xpalm_default_param_run(
     model,
     requests,
     nsteps,
-) setup = ((model, requests, nsteps) = xpalm_default_param_create())
+) setup = ((model, requests, nsteps) = xpalm_default_param_create(;
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+))
 
-#tune!(SUITE)
-#results = run(SUITE, verbose=true)
-#BenchmarkTools.save(dirname(@__FILE__) * "/output.json", median(results))
+SUITE[suite_name]["XPalm_reference_outputs_100"] = @benchmarkable xpalm_reference_param_run(
+    model,
+    requests,
+    nsteps,
+) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+))
+
+SUITE[suite_name]["XPalm_no_outputs_100"] = @benchmarkable xpalm_reference_param_run(
+    model,
+    requests,
+    nsteps;
+    outputs=:none,
+) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+))
+
+if abspath(PROGRAM_FILE) == @__FILE__
+    tune!(SUITE)
+    results = run(SUITE; verbose=true)
+    default_name =
+        "benchmark-$(Dates.format(Dates.now(), dateformat"yyyymmdd-HHMMSS")).json"
+    output_path = get(
+        ENV,
+        "PSE_BENCHMARK_OUTPUT",
+        joinpath(@__DIR__, "results", default_name),
+    )
+    mkpath(dirname(output_path))
+    BenchmarkTools.save(output_path, median(results))
+    @info "PlantSimEngine benchmark suite complete" output_path
+end
