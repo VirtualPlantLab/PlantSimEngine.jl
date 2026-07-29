@@ -41,7 +41,7 @@ and cache controls are intentionally listed separately under
 
 - Structure: `explain_objects`, `explain_instances`, `explain_scopes`.
 - Compilation: `explain_applications`, `explain_bindings`,
-  `explain_calls`, `explain_model_bundles`, `explain_writers`,
+  `explain_calls`, `explain_writers`,
   `explain_schedule`, `explain_execution_plan`.
 - Initialization, environment, and outputs: `explain_initialization`,
   `explain_environment`, `explain_environment_bindings`,

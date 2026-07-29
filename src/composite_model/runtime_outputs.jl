@@ -219,7 +219,7 @@ function RunContext(
     )
 end
 
-struct CallTarget{CS,EB,A,M,S,VS,TI,MB,CT,ENV,TS,OR,C,E}
+struct CallTarget{CS,EB,A,M,S,VS,TI,CT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -228,7 +228,6 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,MB,CT,ENV,TS,OR,C,E}
     status::S
     canonical_status::VS
     temporal_inputs::TI
-    models::MB
     calls::CT
     environment_binding::ENV
     temporal_streams::TS
@@ -394,12 +393,11 @@ struct CachedGlobalModelMeteo{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,MB,IB,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,CS,IB,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
-    models::MB
     input_bindings::IB
     output_bindings::OB
     call_bindings::CB
@@ -490,7 +488,6 @@ explain_applications(sim::Simulation) = explain_applications(sim.compiled)
 explain_schedule(sim::Simulation) = explain_schedule(sim.compiled)
 explain_bindings(sim::Simulation) = explain_bindings(sim.compiled)
 explain_calls(sim::Simulation) = explain_calls(sim.compiled)
-explain_model_bundles(sim::Simulation) = explain_model_bundles(sim.compiled)
 explain_writers(sim::Simulation) = explain_writers(sim.compiled)
 explain_environment_bindings(sim::Simulation) =
     explain_environment_bindings(sim.environment_bindings)
@@ -1297,109 +1294,6 @@ function _model_meteo_for_binding(
         time,
         application.spec,
     )
-end
-
-function _push_model_model_entry!(pairs, names::Set{Symbol}, name::Symbol, model)
-    name in names && return nothing
-    push!(pairs, name => model)
-    push!(names, name)
-    return nothing
-end
-
-function _append_model_model_dependencies!(
-    pairs,
-    names::Set{Symbol},
-    applications_by_id,
-    call_bindings_by_target,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    seen::Set{Tuple{Symbol,ObjectId}},
-)
-    key = (application.id, object_id)
-    key in seen && return nothing
-    push!(seen, key)
-    _push_model_model_entry!(
-        pairs,
-        names,
-        application.process,
-        _application_model(application, object_id),
-    )
-    bindings = get(call_bindings_by_target, key, ())
-    for binding in bindings
-        for application_id in binding.callee_application_ids
-            callee_application = get(applications_by_id, application_id, nothing)
-            isnothing(callee_application) && error(
-                "No compiled model application with id `$(application_id)`."
-            )
-            matching_object_ids = ObjectId[
-                callee_object_id for callee_object_id in binding.callee_object_ids
-                if callee_object_id in callee_application.target_ids
-            ]
-            # Old-style hard-dependency kernels expect one model object per
-            # process field. Multi-object model calls are exposed through
-            # `call_targets(extra, name)` instead.
-            length(matching_object_ids) == 1 || continue
-            _append_model_model_dependencies!(
-                pairs,
-                names,
-                applications_by_id,
-                call_bindings_by_target,
-                callee_application,
-                only(matching_object_ids),
-                seen,
-            )
-        end
-    end
-    return nothing
-end
-
-function _compile_model_model_bundle(
-    applications_by_id,
-    call_bindings_by_target,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-)
-    pairs = Pair{Symbol,Any}[]
-    names = Set{Symbol}()
-    seen = Set{Tuple{Symbol,ObjectId}}()
-    _append_model_model_dependencies!(
-        pairs,
-        names,
-        applications_by_id,
-        call_bindings_by_target,
-        application,
-        object_id,
-        seen,
-    )
-    return NamedTuple{Tuple(first(pair) for pair in pairs)}(Tuple(last(pair) for pair in pairs))
-end
-
-function _compile_model_model_bundles(applications, applications_by_id, call_bindings_by_target)
-    bundles = Dict{Tuple{Symbol,ObjectId},Any}()
-    for application in applications
-        for object_id in application.target_ids
-            bundles[(application.id, object_id)] = _compile_model_model_bundle(
-                applications_by_id,
-                call_bindings_by_target,
-                application,
-                object_id,
-            )
-        end
-    end
-    return bundles
-end
-
-function _model_models_for_application(
-    compiled::CompiledCompositeModel,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-)
-    key = (application.id, object_id)
-    models = get(compiled.model_bundles_by_target, key, nothing)
-    isnothing(models) && error(
-        "No compiled model bundle for application `$(application.id)` on object `$(object_id.value)`."
-    )
-    return models
 end
 
 @inline function _prepare_model_execution_context!(
@@ -2210,7 +2104,6 @@ function _compiled_model_execution_target(
         object_id,
     )
     model = _application_model(application, object_id)
-    models = _model_models_for_application(compiled, application, object_id)
     call_bindings = get(
         compiled.call_bindings_by_target,
         (application.id, object_id),
@@ -2243,7 +2136,6 @@ function _compiled_model_execution_target(
         model,
         status_view.status,
         status_view.canonical_status,
-        models,
         _runtime_model_temporal_inputs(
             status_view.temporal_inputs,
             temporal_streams,
@@ -2438,9 +2330,6 @@ function _model_execution_target_change_reason(
     target.status === status_view.status || return :status_view
     target.canonical_status === status_view.canonical_status ||
         return :canonical_status
-    target.models ===
-    _model_models_for_application(compiled, application, object_id) ||
-        return :model_bundle
     _model_execution_inputs_match(
         target.input_bindings,
         status_view.temporal_inputs,
@@ -2677,7 +2566,6 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
             target_type=eltype(batch.targets),
             model_type=fieldtype(eltype(batch.targets), :model),
             status_type=fieldtype(eltype(batch.targets), :status),
-            model_bundle_type=fieldtype(eltype(batch.targets), :models),
             input_bindings_type=fieldtype(eltype(batch.targets), :input_bindings),
             call_bindings_type=fieldtype(eltype(batch.targets), :call_bindings),
             call_capability=isempty(first(batch.targets).call_bindings) ?
@@ -3036,11 +2924,6 @@ function _materialize_call(targets::CallTargets, application, object_id::ObjectI
         status_view.status,
         status_view.canonical_status,
         status_view.temporal_inputs,
-        _model_models_for_application(
-            targets.compiled,
-            application,
-            object_id,
-        ),
         calls,
         _environment_binding_for(
             targets.environment_bindings,
@@ -3492,12 +3375,6 @@ function _targeted_new_object_call_targets(
                     status_view.status,
                     status_view.canonical_status,
                     status_view.temporal_inputs,
-                    _compile_model_model_bundle(
-                        compiled.applications_by_id,
-                        compiled.call_bindings_by_target,
-                        partial_application,
-                        object_id,
-                    ),
                     (),
                     _environment_binding_for(
                         environment_bindings,

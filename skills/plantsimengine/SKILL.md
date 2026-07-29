@@ -211,7 +211,6 @@ explain_bindings(model)
 explain_calls(model)
 explain_schedule(model)
 explain_writers(model)
-explain_model_bundles(model)
 ```
 
 Run with `simulation = run!(model; steps=n, outputs=:none)`. Use

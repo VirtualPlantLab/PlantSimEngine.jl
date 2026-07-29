@@ -167,7 +167,7 @@ not overwrite each other.
 - Preserve concrete model, status, carrier, and stream types.
 - Do not copy values when a reference carrier is sufficient.
 - Keep dynamic dispatch at compiled batch boundaries, not per object.
-- Preserve cached model bundles and homogeneous execution batches.
+- Preserve cached hard-call targets and homogeneous execution batches.
 - Test allocations for hot loops that run over many organs.
 
 ## High-Signal Files

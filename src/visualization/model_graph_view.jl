@@ -160,11 +160,6 @@ function _model_graph_compiled(
     applications_by_id = Dict(application.id => application for application in applications)
     input_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
     call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
-    model_bundles = _compile_model_model_bundles(
-        applications,
-        applications_by_id,
-        call_by_target,
-    )
     status_views = _compile_model_status_views(
         model,
         applications,
@@ -192,7 +187,6 @@ function _model_graph_compiled(
         _many_input_binding_cache(model, input_bindings),
         call_owners,
         application_children,
-        model_bundles,
         status_views,
         Set(application.id for application in applications),
         Set(keys(status_views)),

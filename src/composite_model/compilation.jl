@@ -109,7 +109,7 @@ struct CompiledEnvironmentBindings{SC,B,I,S,P,C}
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,MBI,SVI,CE,CET,PA,AO,TL}
+struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO,TL}
     model::SC
     applications::AP
     applications_by_id::AI
@@ -123,7 +123,6 @@ struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,MBI,
     many_input_binding_cache::MBC
     call_owners::CO
     application_children::AC
-    model_bundles_by_target::MBI
     status_views_by_target::SVI
     changed_execution_application_ids::CE
     changed_execution_target_ids::CET
@@ -242,11 +241,6 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         application_children,
     )
     applications_by_id = Dict(application.id => application for application in applications)
-    model_bundles_by_target = _compile_model_model_bundles(
-        applications,
-        applications_by_id,
-        call_bindings_by_target,
-    )
     status_views_by_target = _compile_model_status_views(
         model,
         applications,
@@ -268,7 +262,6 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         many_input_binding_cache,
         call_owners,
         application_children,
-        model_bundles_by_target,
         status_views_by_target,
         Set(application.id for application in applications),
         Set(keys(status_views_by_target)),
@@ -647,34 +640,13 @@ function _extend_model_status_views(
     return views
 end
 
-function _call_binding_model_bundle_signature(
-    binding::CompiledModelCallBinding,
-    applications_by_id,
-)
-    signature = Tuple{Symbol,ObjectId}[]
-    for application_id in binding.callee_application_ids
-        application = applications_by_id[application_id]
-        only_id = nothing
-        count = 0
-        for object_id in binding.callee_object_ids
-            object_id in application.target_ids || continue
-            only_id = object_id
-            count += 1
-            count > 1 && break
-        end
-        count == 1 && push!(signature, (application_id, only_id))
-    end
-    return signature
-end
-
 function _append_added_many_call_targets!(
     model::CompositeModel,
     binding::CompiledModelCallBinding,
     added_ids,
     applications_by_object,
-    applications_by_id,
 )
-    binding.multiplicity == :many || return false, true
+    binding.multiplicity == :many || return false
     default_scope = _default_dependency_scope(model, binding.consumer_id)
     new_target_ids = ObjectId[
         object_id for object_id in added_ids
@@ -687,7 +659,7 @@ function _append_added_many_call_targets!(
             default_scope=default_scope,
         ) && !(object_id in binding.callee_object_ids)
     ]
-    isempty(new_target_ids) && return true, false
+    isempty(new_target_ids) && return true
     _sort_object_ids!(new_target_ids)
 
     # Monotonically increasing lifecycle IDs preserve the selector's compiled
@@ -697,13 +669,9 @@ function _append_added_many_call_targets!(
         last(binding.callee_object_ids),
         first(new_target_ids),
     )
-        return false, true
+        return false
     end
 
-    previous_bundle_signature = _call_binding_model_bundle_signature(
-        binding,
-        applications_by_id,
-    )
     append!(binding.callee_object_ids, new_target_ids)
     for object_id in new_target_ids
         for application_id in _matching_callee_applications(
@@ -716,29 +684,7 @@ function _append_added_many_call_targets!(
                 push!(binding.callee_application_ids, application_id)
         end
     end
-    current_bundle_signature = _call_binding_model_bundle_signature(
-        binding,
-        applications_by_id,
-    )
-    return true, previous_bundle_signature != current_bundle_signature
-end
-
-function _call_binding_uniquely_targets(
-    binding::CompiledModelCallBinding,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-)
-    application.id in binding.callee_application_ids || return false
-    object_id in binding.callee_object_ids || return false
-    count = 0
-    only_id = nothing
-    for candidate_id in binding.callee_object_ids
-        candidate_id in application.target_ids || continue
-        only_id = candidate_id
-        count += 1
-        count > 1 && return false
-    end
-    return count == 1 && only_id == object_id
+    return true
 end
 
 function _extend_compiled_scene(model::CompositeModel, compiled::CompiledCompositeModel, added_objects)
@@ -784,8 +730,6 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             ),
         )
     end
-    changed_existing_call_bundle_targets =
-        Set{Tuple{Symbol,ObjectId}}()
     rebuilt_existing_call_targets = Set{Tuple{Symbol,ObjectId}}()
     if has_calls
         candidate_call_binding_indices =
@@ -812,16 +756,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
                 default_scope=_default_dependency_scope(model, binding.consumer_id),
             ) || continue
             key = (binding.application_id, binding.consumer_id)
-            appended, model_bundle_changed = _append_added_many_call_targets!(
+            appended = _append_added_many_call_targets!(
                 model,
                 binding,
                 added_ids,
                 applications_by_object,
-                applications_by_id,
             )
             appended || push!(rebuilt_existing_call_targets, key)
-            model_bundle_changed &&
-                push!(changed_existing_call_bundle_targets, key)
         end
     end
     new_call_bindings = has_calls ?
@@ -1149,70 +1090,6 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             end
         end
     end
-    affected_model_bundle_targets = copy(
-        changed_existing_call_bundle_targets,
-    )
-    pending_bundle_targets = collect(affected_model_bundle_targets)
-    call_bindings_by_callee_application =
-        Dict{Symbol,Vector{CompiledModelCallBinding}}()
-    if !isempty(pending_bundle_targets)
-        for binding in call_bindings
-            for callee_application_id in binding.callee_application_ids
-                push!(
-                    get!(
-                        call_bindings_by_callee_application,
-                        callee_application_id,
-                    ) do
-                        CompiledModelCallBinding[]
-                    end,
-                    binding,
-                )
-            end
-        end
-    end
-    while !isempty(pending_bundle_targets)
-        callee_application_id, callee_object_id =
-            pop!(pending_bundle_targets)
-        callee_application = applications_by_id[callee_application_id]
-        for binding in get(
-            call_bindings_by_callee_application,
-            callee_application_id,
-            (),
-        )
-            _call_binding_uniquely_targets(
-                binding,
-                callee_application,
-                callee_object_id,
-            ) || continue
-            key = (binding.application_id, binding.consumer_id)
-            key in affected_model_bundle_targets && continue
-            push!(affected_model_bundle_targets, key)
-            push!(pending_bundle_targets, key)
-        end
-    end
-    model_bundles_by_target = compiled.model_bundles_by_target
-    for application in added_applications
-        for object_id in application.target_ids
-            model_bundles_by_target[(application.id, object_id)] =
-                _compile_model_model_bundle(
-                applications_by_id,
-                call_bindings_by_target,
-                application,
-                object_id,
-            )
-        end
-    end
-    for (application_id, object_id) in affected_model_bundle_targets
-        application = applications_by_id[application_id]
-        object_id in application.target_ids || continue
-        model_bundles_by_target[(application_id, object_id)] =
-            _compile_model_model_bundle(
-                applications_by_id,
-                call_bindings_by_target,
-                application,
-                object_id,
-            )
-    end
     status_views_by_target = _extend_model_status_views(
         model,
         compiled,
@@ -1230,10 +1107,6 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         (application_id, object_id)
         for (application_id, object_ids) in new_targets
         for object_id in object_ids
-    )
-    union!(
-        changed_execution_target_ids,
-        affected_model_bundle_targets,
     )
     union!(
         changed_execution_target_ids,
@@ -1266,7 +1139,6 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         many_binding_cache,
         call_owners,
         application_children,
-        model_bundles_by_target,
         status_views_by_target,
         changed_execution_application_ids,
         changed_execution_target_ids,
@@ -2921,24 +2793,6 @@ function explain_calls(compiled::CompiledCompositeModel)
 end
 
 explain_calls(model::CompositeModel) = explain_calls(refresh_bindings!(model))
-
-function explain_model_bundles(compiled::CompiledCompositeModel)
-    return [
-        (
-            application_id=application_id,
-            object_id=object_id.value,
-            processes=collect(keys(models)),
-            model_types=[typeof(model) for model in values(models)],
-        )
-        for ((application_id, object_id), models) in sort!(
-            collect(compiled.model_bundles_by_target);
-            by=pair -> (string(first(pair)[1]), string(first(pair)[2].value)),
-        )
-    ]
-end
-
-explain_model_bundles(model::CompositeModel) =
-    explain_model_bundles(refresh_bindings!(model))
 
 function explain_writers(compiled::CompiledCompositeModel)
     groups = _model_writer_groups(compiled.applications, _manual_call_application_ids(compiled))

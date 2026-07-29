@@ -131,7 +131,7 @@ export add_organ!, register_object!, remove_object!, reparent_object!, move_obje
 export mark_environment_binding_dirty!
 export objects_from_mtg, object_ids, model_objects, resolve_object_ids, resolve_objects, explain_objects, explain_instances, explain_scopes
 export geometry, position, bounds
-export explain_applications, explain_bindings, explain_calls, explain_model_bundles, explain_writers
+export explain_applications, explain_bindings, explain_calls, explain_writers
 export input_carrier, input_value, has_reference_carrier
 export RunContext, CallTarget, CallTargets, Simulation, runtime_model, current_step, outputs, explain_outputs
 export explain_initialization

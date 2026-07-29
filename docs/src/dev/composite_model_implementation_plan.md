@@ -417,18 +417,9 @@ types should be selectors, model traits, or internal compiled carriers.
 - Runtime lifecycle tests cover a model-created leaf joining a leaf
   application and plant-local `RefVector`, a pruned leaf leaving both before
   the next step, and a moved leaf switching mock microclimate cells.
-- `Advanced.CompiledCompositeModel` now precompiles a process-keyed model bundle for every
-  `(application_id, object_id)` target. Generic hard-dependency kernels receive
-  this cached bundle through their existing `models` argument without
-  traversing `Calls(...)` or allocating temporary collections in the timestep
-  hot loop.
-- Added `explain_model_bundles(compiled)` to report the process names and model
-  types available to every application/object kernel call. Tests verify
-  zero-allocation repeated bundle lookup and the MAESPA leaf bundle
-  `energy_balance -> photosynthesis -> stomatal_conductance`.
 - Root model execution now compiles contiguous homogeneous target batches.
-  Each target prebinds its concrete model, `Status`, process-keyed model bundle,
-  input-binding tuple, and environment binding. Runtime dispatch occurs once
+  Each target prebinds its concrete model, `Status`, input-binding tuple, and
+  environment binding. Runtime dispatch occurs once
   at the batch function barrier; the inner object loop is specialized on a
   concrete target type.
 - Exceptional object overrides with another concrete model implementation

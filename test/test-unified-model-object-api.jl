@@ -1648,33 +1648,6 @@ end
     @test !leaf_2_call.default_publish
     @test leaf_2_call.accepted_publish
 
-    leaf_2_application = compiled.applications_by_id[:leaf_energy]
-    leaf_2_models = compiled.model_bundles_by_target[(:leaf_energy, ObjectId(:leaf_2))]
-    @test keys(leaf_2_models) == (:model_object_leaf_energy, :model_object_stomata)
-    @test leaf_2_models.model_object_leaf_energy ===
-          PlantSimEngine._application_model(leaf_2_application, ObjectId(:leaf_2))
-    @test leaf_2_models.model_object_stomata ===
-          PlantSimEngine._application_model(compiled.applications_by_id[:stomata], ObjectId(:leaf_2))
-    @test PlantSimEngine._model_models_for_application(
-        compiled,
-        leaf_2_application,
-        ObjectId(:leaf_2),
-    ) === leaf_2_models
-    PlantSimEngine._model_models_for_application(compiled, leaf_2_application, ObjectId(:leaf_2))
-    @test @allocated(
-        PlantSimEngine._model_models_for_application(
-            compiled,
-            leaf_2_application,
-            ObjectId(:leaf_2),
-        )
-    ) == 0
-    bundle_row = only(
-        row for row in explain_model_bundles(compiled)
-        if row.application_id == :leaf_energy && row.object_id == :leaf_2
-    )
-    @test bundle_row.processes == [:model_object_leaf_energy, :model_object_stomata]
-    @test bundle_row.model_types == [ModelObjectLeafEnergyModel, ModelObjectStomataModel]
-
     compiled_environment = Advanced.compile_environment_bindings(selector_scene, compiled)
     execution_plan =
         PlantSimEngine.compile_model_execution_plan(compiled, compiled_environment)
@@ -4057,10 +4030,6 @@ end
     @test lifecycle_execution_row.object_ids == [:grown_leaf, :leaf_1]
     @test lifecycle_simulation.execution_plan.model_revision ==
           Advanced.model_revision(lifecycle_scene)
-    @test haskey(
-        lifecycle_simulation.compiled.model_bundles_by_target,
-        (:leaf_signal, ObjectId(:grown_leaf)),
-    )
     lifecycle_binding = only(
         row for row in explain_bindings(lifecycle_simulation.compiled)
         if row.application_id == :plant_signal_total

@@ -39,18 +39,6 @@ include("../examples/maespa_model_example.jl")
     @test count(row -> row.call == :photosynthesis, calls) == 5
     @test count(row -> row.call == :stomatal_conductance, calls) == 5
 
-    leaf_energy_bundle = only(
-        row for row in explain_model_bundles(compiled)
-        if row.application_id == :plant_A__energy_balance &&
-           row.object_id == :plant_A_leaf_1
-    )
-    @test leaf_energy_bundle.processes == [
-        :energy_balance,
-        :photosynthesis,
-        :stomatal_conductance,
-    ]
-    @test leaf_energy_bundle.model_types == [Monteith{Float64,Int64}, Fvcb{Float64}, Tuzet{Float64}]
-
     bindings = explain_bindings(compiled)
     lai_binding = only(row for row in bindings if row.application_id == :lai_dynamic && row.input == :leaf_areas)
     @test lai_binding.carrier_kind == :ref_vector

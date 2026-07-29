@@ -376,15 +376,8 @@ for multi-plant model coupling.
 - Added runtime lifecycle coverage for organ creation, pruning, plant-local
   `RefVector` refresh, historical output retention for removed objects, and
   movement between mock microclimate cells.
-- `Advanced.CompiledCompositeModel` now precompiles one process-keyed model bundle per
-  application/object target. Generic hard-dependency kernels receive this
-  cached bundle through the existing `models` argument, avoiding recursive
-  `Calls(...)` traversal and temporary collection allocation in the timestep
-  hot loop.
-- Adds `explain_model_bundles(compiled)` for structured inspection of the
-  process names and model types passed to each application/object kernel.
 - CompositeModel root execution now uses compiled homogeneous target batches. Models,
-  statuses, model bundles, input bindings, and environment bindings are
+  statuses, input bindings, and environment bindings are
   prebound, so dynamic dispatch happens once per batch instead of once per
   object. Heterogeneous object overrides split into ordered concrete batches.
 - Adds `explain_execution_plan(scene_or_simulation)` and a zero-allocation

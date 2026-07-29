@@ -333,7 +333,6 @@ end
     @test explain_schedule(named_scene) isa Vector
     @test explain_bindings(named_scene) isa Vector
     @test explain_calls(named_scene) isa Vector
-    @test explain_model_bundles(named_scene) isa Vector
     @test explain_writers(named_scene) isa Vector
 
     ambiguous_process_scene = CompositeModel(

@@ -76,7 +76,6 @@ Use structured explanation helpers instead of inspecting internals:
 - `explain_environment_bindings`
 - `explain_schedule`
 - `explain_writers`
-- `explain_model_bundles`
 - `explain_execution_plan`
 - `explain_output_retention`
 - `explain_outputs`

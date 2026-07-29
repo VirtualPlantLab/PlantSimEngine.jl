@@ -477,7 +477,6 @@ explain_calls(model)
 explain_environment_bindings(model)
 explain_schedule(model)
 explain_writers(model)
-explain_model_bundles(model)
 ```
 
 These functions return structured rows with concrete object ids, application
