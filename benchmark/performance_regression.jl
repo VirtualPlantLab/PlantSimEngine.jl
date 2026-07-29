@@ -60,15 +60,47 @@ function _performance_record!(
     return records
 end
 
+function _checkpoint_performance_records(path, records)
+    isnothing(path) && return records
+    mkpath(dirname(path))
+    CSV.write(path, DataFrame(records))
+    return records
+end
+
 function _measure_performance_stage!(
     operation,
     records,
     metadata,
     profile,
     stage,
+    checkpoint_path=nothing,
 )
     GC.gc()
-    measurement = @timed operation()
+    started_at = time_ns()
+    measurement = try
+        @timed operation()
+    catch
+        _performance_record!(
+            records,
+            metadata,
+            profile,
+            stage,
+            :failed,
+            1,
+            :count,
+        )
+        _performance_record!(
+            records,
+            metadata,
+            profile,
+            stage,
+            :wall_time_before_failure,
+            (time_ns() - started_at) / 1.0e9,
+            :seconds,
+        )
+        _checkpoint_performance_records(checkpoint_path, records)
+        rethrow()
+    end
     _performance_record!(
         records,
         metadata,
@@ -96,6 +128,7 @@ function _measure_performance_stage!(
         measurement.gctime,
         :seconds,
     )
+    _checkpoint_performance_records(checkpoint_path, records)
     return measurement.value
 end
 
@@ -136,6 +169,27 @@ function _record_runtime_performance!(
     return records
 end
 
+function _record_xpalm_state!(
+    records,
+    metadata,
+    profile,
+    stage,
+    state,
+)
+    for metric in (:current_step, :phytomer_count, :lai, :ftsw)
+        _performance_record!(
+            records,
+            metadata,
+            profile,
+            stage,
+            metric,
+            getproperty(state, metric),
+            :value,
+        )
+    end
+    return records
+end
+
 function _performance_steps(profile)
     profile == :smoke && return PERFORMANCE_SMOKE_STEPS
     profile == :short && return PERFORMANCE_SHORT_STEPS
@@ -169,7 +223,10 @@ function _warmup_xpalm_performance!(profile_steps)
     return nothing
 end
 
-function run_xpalm_performance_profile(; profile=:short)
+function run_xpalm_performance_profile(;
+    profile=:short,
+    checkpoint_path=nothing,
+)
     normalized_profile = Symbol(profile)
     nsteps = _performance_steps(normalized_profile)
     warmup_policy =
@@ -184,6 +241,7 @@ function run_xpalm_performance_profile(; profile=:short)
         metadata,
         normalized_profile,
         :scene_construction_no_outputs,
+        checkpoint_path,
     ) do
         xpalm_reference_model_create(; nsteps=nsteps)
     end
@@ -193,6 +251,7 @@ function run_xpalm_performance_profile(; profile=:short)
         metadata,
         normalized_profile,
         :simulation_no_outputs,
+        checkpoint_path,
     ) do
         xpalm_reference_param_run(
             no_output_model,
@@ -209,12 +268,14 @@ function run_xpalm_performance_profile(; profile=:short)
         :simulation_no_outputs,
         no_output_simulation,
     )
+    _checkpoint_performance_records(checkpoint_path, records)
 
     reference_setup = _measure_performance_stage!(
         records,
         metadata,
         normalized_profile,
         :scene_and_request_compile_reference_outputs,
+        checkpoint_path,
     ) do
         xpalm_reference_param_create(; nsteps=nsteps)
     end
@@ -224,6 +285,7 @@ function run_xpalm_performance_profile(; profile=:short)
         metadata,
         normalized_profile,
         :simulation_reference_outputs,
+        checkpoint_path,
     ) do
         xpalm_reference_param_run(
             reference_model,
@@ -237,6 +299,7 @@ function run_xpalm_performance_profile(; profile=:short)
         metadata,
         normalized_profile,
         :collect_reference_outputs,
+        checkpoint_path,
     ) do
         xpalm_default_param_collect_outputs(reference_simulation)
     end
@@ -250,6 +313,21 @@ function run_xpalm_performance_profile(; profile=:short)
 
     no_output_state = xpalm_reference_final_state(no_output_simulation)
     reference_state = xpalm_reference_final_state(reference_simulation)
+    _record_xpalm_state!(
+        records,
+        metadata,
+        normalized_profile,
+        :final_state_no_outputs,
+        no_output_state,
+    )
+    _record_xpalm_state!(
+        records,
+        metadata,
+        normalized_profile,
+        :final_state_reference_outputs,
+        reference_state,
+    )
+    _checkpoint_performance_records(checkpoint_path, records)
     no_output_state == reference_state || error(
         "XPalm performance fixtures diverged between `outputs=:none` and reference outputs: ",
         "$(no_output_state) != $(reference_state).",
@@ -268,6 +346,7 @@ function run_xpalm_performance_profile(; profile=:short)
             metadata,
             normalized_profile,
             :historical_end_to_end_reference,
+            checkpoint_path,
         ) do
             xpalm_reference_end_to_end(; nsteps=nsteps)
         end
@@ -285,9 +364,11 @@ function run_xpalm_performance_profile(; profile=:short)
 end
 
 function write_xpalm_performance_profile(path; profile=:short)
-    result = run_xpalm_performance_profile(; profile=profile)
-    mkpath(dirname(path))
-    CSV.write(path, DataFrame(result.records))
+    result = run_xpalm_performance_profile(;
+        profile=profile,
+        checkpoint_path=path,
+    )
+    _checkpoint_performance_records(path, result.records)
     return result
 end
 

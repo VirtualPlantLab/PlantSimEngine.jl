@@ -83,7 +83,9 @@ _timeline_context(backend::GlobalConstant) = _timeline_context(environment_meteo
 function _meteo_row_at_step(meteo, i::Int)
     isnothing(meteo) && return nothing
     if meteo isa TimeStepTable || DataFormat(meteo) == TableAlike()
-        return first(Iterators.drop(Tables.rows(meteo), i - 1))
+        rows = Tables.rows(meteo)
+        applicable(getindex, rows, i) && return rows[i]
+        return first(Iterators.drop(rows, i - 1))
     end
     return meteo
 end

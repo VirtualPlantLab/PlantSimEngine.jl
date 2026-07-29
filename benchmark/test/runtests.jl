@@ -124,6 +124,29 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
 end
 
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm staged performance profile full")
+    @testset "XPalm staged performance profile full" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-full-latest.csv",
+        )
+        result = write_xpalm_performance_profile(output_path; profile=:full)
+        @test result.no_output_state == result.reference_state
+        @test xpalm_reference_state_matches(result.reference_state)
+        @test isfile(output_path)
+        @test any(
+            row ->
+                row.stage == "historical_end_to_end_reference" &&
+                    row.metric == "wall_time",
+            result.records,
+        )
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
    benchmark_test_enabled("XPalm allocation profile short")
     @testset "XPalm allocation profile short" begin
         include(joinpath(@__DIR__, "..", "performance_regression.jl"))
