@@ -378,6 +378,12 @@ Current restoration checkpoints on the same staged XPalm fixture:
       run takes `14.995239` seconds and allocates `9.267 GB`. Two preceding
       repetitions took `14.864538` and `15.007203` seconds with the same exact
       final state.
+- [x] At committed revision `274666b2`, cached hard-call execution targets
+      preserve their compiled temporal adapters, nested call collections, and
+      `RunContext` between lifecycle revisions. The exact warmed 4,160-day run
+      takes `13.463214` seconds and allocates `7.756 GB`, down from `9.267 GB`;
+      all 49 focused hard-call checks and all 68 XPalm reference-regression
+      checks pass.
 
 ### Performance invariants
 
@@ -525,6 +531,9 @@ execution path.
       representation.
 - [x] Avoid a per-target lookup in `call_bindings_by_target` when call bindings
       are already known during compilation.
+- [x] Cache compiled hard-call execution targets between lifecycle revisions
+      and invalidate them when compiled bindings, environment bindings,
+      streams, retention, or constants change.
 - [x] Preserve nested calls, selective targets, transient environments,
       `publish=false`, accepted publication, and lifecycle-created call targets.
 - [ ] Benchmark a large scene with zero, sparse, and dense hard-call usage.
