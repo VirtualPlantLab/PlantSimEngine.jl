@@ -59,11 +59,11 @@ function _performance_record!(
 end
 
 function _measure_performance_stage!(
+    operation,
     records,
     metadata,
     profile,
     stage,
-    operation,
 )
     GC.gc()
     measurement = @timed operation()
