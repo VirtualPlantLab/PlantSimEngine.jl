@@ -752,7 +752,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         _sort_object_ids!(application.target_ids)
     end
     applications = compiled.applications
-    applications_by_id = Dict(application.id => application for application in applications)
+    applications_by_id = compiled.applications_by_id
     applications_by_object = compiled.applications_by_object
     for application in applications
         for object_id in get(new_targets, application.id, ObjectId[])
@@ -898,11 +898,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
     end
     append!(call_bindings, new_call_bindings)
-    dynamic_call_binding_indices =
-        Dict{Union{Nothing,Symbol},Vector{Int}}(
-            scale => copy(indices)
-            for (scale, indices) in compiled.dynamic_call_binding_indices
-        )
+    dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
     first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
     for binding_index in first_new_call_binding:length(call_bindings)
         binding = call_bindings[binding_index]
@@ -927,19 +923,18 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         length(get(new_targets, application.id, ObjectId[]))
         for application in applications
     )
-    input_bindings = empty(compiled.input_bindings)
+    input_bindings = compiled.input_bindings
     sizehint!(
         input_bindings,
         length(compiled.input_bindings) + added_input_binding_capacity,
     )
-    append!(input_bindings, compiled.input_bindings)
     # A `Many(...)` binding that starts empty is compiled with an untyped
     # `RefVector{Any}` carrier. Once matching objects are registered, the
     # refreshed carrier becomes concrete (for example `RefVector{Float64}`).
     # Keep this incremental index value-widened so that lifecycle refresh can
     # replace an initially empty binding without rebuilding the whole scene.
-    input_bindings_by_target = Dict{Any,Any}(compiled.input_bindings_by_target)
-    many_binding_cache = copy(compiled.many_input_binding_cache)
+    input_bindings_by_target = compiled.input_bindings_by_target
+    many_binding_cache = compiled.many_input_binding_cache
     changed_bindings = CompiledModelInputBinding[]
     order_changed_bindings = CompiledModelInputBinding[]
     rewired_consumer_ids = Set{ObjectId}()
@@ -1082,10 +1077,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             end
         end
     end
-    dynamic_input_binding_indices = Dict{Union{Nothing,Symbol},Vector{Int}}(
-        scale => copy(indices)
-        for (scale, indices) in compiled.dynamic_input_binding_indices
-    )
+    dynamic_input_binding_indices = compiled.dynamic_input_binding_indices
     for binding_index in (previous_binding_count + 1):length(input_bindings)
         binding = input_bindings[binding_index]
         for scale in _dynamic_binding_scale_keys(model, binding)
