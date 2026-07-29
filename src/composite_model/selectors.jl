@@ -551,13 +551,7 @@ function _indexed_object_ids(model::CompositeModel; scale=nothing, kind=nothing,
 end
 
 function _object_is_in_subtree(model::CompositeModel, object_id::ObjectId, root_id::ObjectId)
-    current_id = object_id
-    while true
-        current_id == root_id && return true
-        parent_id = _model_object(model, current_id).parent
-        isnothing(parent_id) && return false
-        current_id = parent_id
-    end
+    return root_id in _object_ancestor_ids(model.registry, object_id)
 end
 
 function _scope_contains_object(model::CompositeModel, scope, context, object_id::ObjectId)

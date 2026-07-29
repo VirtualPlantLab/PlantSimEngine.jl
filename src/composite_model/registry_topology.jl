@@ -198,6 +198,7 @@ mutable struct ObjectRegistry
     by_kind::Dict{Symbol,Set{ObjectId}}
     by_species::Dict{Symbol,Set{ObjectId}}
     by_name::Dict{Symbol,ObjectId}
+    ancestor_ids_by_object::Dict{ObjectId,Vector{ObjectId}}
 end
 
 ObjectRegistry() = ObjectRegistry(
@@ -206,6 +207,7 @@ ObjectRegistry() = ObjectRegistry(
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,ObjectId}(),
+    Dict{ObjectId,Vector{ObjectId}}(),
 )
 
 struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
@@ -673,6 +675,36 @@ function _model_object(model::CompositeModel, id)
     return model.registry.objects[oid]
 end
 
+function _object_ancestor_ids(
+    registry::ObjectRegistry,
+    object_id::ObjectId,
+)
+    ancestors = get(registry.ancestor_ids_by_object, object_id, nothing)
+    isnothing(ancestors) && error(
+        "No cached topology path for model object `$(object_id.value)`.",
+    )
+    return ancestors
+end
+
+function _refresh_object_ancestor_ids!(
+    model::CompositeModel,
+    object_id::ObjectId,
+    parent_ancestors::Vector{ObjectId},
+)
+    ancestors = copy(parent_ancestors)
+    push!(ancestors, object_id)
+    model.registry.ancestor_ids_by_object[object_id] = ancestors
+    object = _model_object(model, object_id)
+    for child_id in object.children
+        _refresh_object_ancestor_ids!(
+            model,
+            child_id,
+            ancestors,
+        )
+    end
+    return nothing
+end
+
 function _instance_for_object(model::CompositeModel, id)
     current_id = ObjectId(id)
     while haskey(model.registry.objects, current_id)
@@ -718,6 +750,12 @@ function register_object!(model::CompositeModel, object::Object; parent=object.p
     object.parent = parent_id
     registry.objects[object.id] = object
     _index_object!(registry, object)
+    parent_ancestors = isnothing(parent_id) ?
+                       ObjectId[] :
+                       _object_ancestor_ids(registry, parent_id)
+    ancestors = copy(parent_ancestors)
+    push!(ancestors, object.id)
+    registry.ancestor_ids_by_object[object.id] = ancestors
     if !isnothing(object.parent)
         parent_object = registry.objects[object.parent]
         object.id in parent_object.children || push!(parent_object.children, object.id)
@@ -867,6 +905,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
     _remove_child_link!(model, object.parent, object.id)
     _deindex_object!(model.registry, object)
     delete!(model.registry.objects, object.id)
+    delete!(model.registry.ancestor_ids_by_object, object.id)
     _mark_bindings_dirty!(model)
     return object
 end
@@ -890,6 +929,14 @@ function reparent_object!(model::CompositeModel, id, new_parent)
         parent_object = _model_object(model, new_parent_id)
         object.id in parent_object.children || push!(parent_object.children, object.id)
     end
+    parent_ancestors = isnothing(new_parent_id) ?
+                       ObjectId[] :
+                       _object_ancestor_ids(model.registry, new_parent_id)
+    _refresh_object_ancestor_ids!(
+        model,
+        object.id,
+        parent_ancestors,
+    )
     _mark_bindings_dirty!(model)
     return object
 end
