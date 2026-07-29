@@ -11,6 +11,39 @@ function PlantSimEngine.run!(::BoundaryCounterModel, models, status, meteo, cons
     status.ignored += 10
 end
 
+PlantSimEngine.@process "boundary_manual_counter" verbose = false
+PlantSimEngine.@process "boundary_manual_controller" verbose = false
+
+struct BoundaryManualCounterModel <: AbstractBoundary_Manual_CounterModel end
+struct BoundaryManualControllerModel <: AbstractBoundary_Manual_ControllerModel end
+
+PlantSimEngine.inputs_(::BoundaryManualCounterModel) = NamedTuple()
+PlantSimEngine.outputs_(::BoundaryManualCounterModel) = (count=0,)
+function PlantSimEngine.run!(
+    ::BoundaryManualCounterModel,
+    models,
+    status,
+    meteo,
+    constants,
+    extra,
+)
+    status.count += 1
+end
+
+PlantSimEngine.inputs_(::BoundaryManualControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::BoundaryManualControllerModel) = (step=0,)
+function PlantSimEngine.run!(
+    ::BoundaryManualControllerModel,
+    models,
+    status,
+    meteo,
+    constants,
+    extra,
+)
+    status.step += 1
+    status.step == 2 && run_call!(extra, :counter; publish=true)
+end
+
 @testset "one step over several objects" begin
     model = CompositeModel(
         Object(:leaf_b; scale=:Leaf),
@@ -38,6 +71,47 @@ end
         (:leaf_counter, ObjectId(:leaf_a), :count),
         (:leaf_counter, ObjectId(:leaf_b), :count),
     ])
+end
+
+@testset "held manual output spans the requested timeline" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(BoundaryManualControllerModel(); name=:controller) |>
+                AppliesTo(One(scale=:Scene)) |>
+                Calls(
+                    :counter => One(
+                        scale=:Leaf,
+                        application=:manual_counter,
+                    ),
+                ),
+            ModelSpec(BoundaryManualCounterModel(); name=:manual_counter) |>
+                AppliesTo(One(scale=:Leaf)),
+        ),
+        environment=[(duration=Hour(1),) for _ in 1:4],
+    )
+    simulation = run!(
+        model;
+        steps=4,
+        outputs=OutputRequest(
+            :Leaf,
+            :count;
+            name=:held_manual_count,
+            application=:manual_counter,
+            policy=HoldLast(),
+        ),
+    )
+    requested = collect_outputs(
+        simulation,
+        :held_manual_count;
+        sink=nothing,
+    )
+    @test getproperty.(requested, :timestep) == [1, 2, 3, 4]
+    @test getproperty.(requested, :value) == [0, 1, 1, 1]
+    @test outputs(simulation)[
+        (:manual_counter, ObjectId(:leaf), :count)
+    ] == [(2.0, 1)]
 end
 
 @testset "object count multiplied by cadence" begin

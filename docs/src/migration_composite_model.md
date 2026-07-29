@@ -216,14 +216,13 @@ The parent model controls execution:
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
     for iteration in 1:model.max_iterations
-        with_environment!(extra, trial_meteo(model, status)) do
-            run_call!(extra, :leaf_energy; publish=false)
-        end
+        trial = trial_meteo(model, status)
+        run_call!(extra, :leaf_energy; environment=trial, publish=false)
         converged(model, status) && break
     end
 
     accepted = accepted_meteo(model, status)
-    update_environment!(extra, accepted)
+    commit_environment!(extra, accepted)
     run_call!(extra, :leaf_energy; publish=true)
     return nothing
 end
@@ -420,9 +419,10 @@ model object together and reuses the status initialization policy from
 backend or when a complete `Object` already exists.
 
 Structural changes refresh application targets, input carriers, call targets,
-writer validation, and schedules before the next timestep. Geometry-only
-changes refresh environment bindings without rebuilding unrelated structural
-bindings.
+writer validation, and schedules after the application that made the change.
+New objects can therefore run applications that remain later in the current
+timestep, but never applications that already ran. Geometry-only changes
+refresh environment bindings without rebuilding unrelated structural bindings.
 
 The refreshed runtime also rebuilds homogeneous execution batches. Use
 `explain_execution_plan(scene_or_simulation)` to inspect the concrete

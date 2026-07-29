@@ -30,26 +30,24 @@ accepting a timestep. A canopy energy-balance model, for example, may need to:
 5. commit only the accepted canopy or voxel air state to the mutable environment
    backend.
 
-Use `with_environment!` for non-committing trial scopes:
+Pass non-committing trial state through `run_call!`:
 
 ```julia
-with_environment!(extra, trial_meteo) do
-    run_call!(extra, :leaf_energy; publish=false)
-end
+run_call!(extra, :leaf_energy; environment=trial_meteo, publish=false)
 ```
 
 Then commit the accepted state through the model-facing environment API:
 
 ```julia
-update_environment!(extra, accepted_meteo)
+commit_environment!(extra, accepted_meteo)
 run_call!(extra, :leaf_energy; publish=true)
 ```
 
-`with_environment!` makes hard-called descendants sample the temporary state
-through the normal environment path and restores the previous state afterwards.
-`update_environment!` commits only the accepted meteorological object to a
-mutable backend. Future work is to validate richer mutable voxel, layer, and
-octree backends on this same model-side API.
+The transient state is interpreted by each target backend through its opaque
+compiled handle, so one call can sample different cells for different leaves.
+`commit_environment!` commits only the accepted state to a mutable backend.
+Future work is to validate full voxel, layer, and octree implementations on
+this same model-side API.
 
 The full issue list is available on
 [GitHub](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues).

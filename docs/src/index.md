@@ -81,7 +81,7 @@ without changing the model implementation.
   `HoldLast()` in the same model.
 - **Automatic environment binding**: global weather and spatial microclimate
   backends are bound through `Environment(...)`, model `meteo_inputs_`, and
-  explicit mutable updates with `update_environment!`.
+  explicit accepted-state commits with `commit_environment!`.
 - **Performance-oriented internals**: selectors and bindings are compiled
   before the timestep loop, same-rate inputs use references when possible, and
   homogeneous object batches are specialized.

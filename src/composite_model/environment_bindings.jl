@@ -11,20 +11,22 @@ function _environment_backend_from_config(model::CompositeModel, config)
     return environment_backend(model.environment)
 end
 
-function _environment_provider_from_config(config, backend)
-    payload = _environment_config_payload(config)
-    payload isa NamedTuple && haskey(payload, :provider) && return Symbol(payload.provider)
-    payload isa Symbol && return payload
-    isnothing(backend) && return :none
-    return :model
-end
-
-function _object_environment_support(application::CompiledModelApplication, object::Object, cell=nothing)
+function _object_environment_context(application::CompiledModelApplication, object::Object)
     scale = isnothing(object.scale) ? :Default : object.scale
-    return EnvironmentSupport(application.id, scale, application.process, object.status, cell)
+    return EnvironmentContext(application.id, object.id, scale, application.process)
 end
 
-bind_environment(backend, object::Object, support, config=nothing) = :global
+"""
+    bind_environment(backend, object, context, config=nothing)
+
+Compile and return an opaque backend-specific handle for one model target.
+`context` contains immutable application/object metadata and `config` is the
+payload declared with `Environment(...)`. Spatial backends should resolve the
+object's geometry here and store the resulting cell, voxel, layer, provider, or
+commit sink in a concrete handle. Runtime sampling and commits receive that
+handle directly.
+"""
+bind_environment(backend, object::Object, context, config=nothing) = nothing
 
 function _environment_binding_object(model::CompositeModel, object::Object)
     !isnothing(geometry(object)) && return object, object.id, :self
@@ -64,7 +66,6 @@ function _model_environment_entities(model::CompositeModel)
             geometry=geometry(object),
             position=position(object),
             bounds=bounds(object),
-            status=object.status,
         )
         for object in model_objects(model)
     ]
@@ -105,34 +106,31 @@ function _compile_environment_bindings_for_applications(model::CompositeModel, a
     for application in applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(model, config)
-        provider = _environment_provider_from_config(config, backend)
         required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
         source_inputs = _environment_source_variable_names(application.spec)
         produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
         for object_id in application.target_ids
             object = _model_object(model, object_id)
-            support = _object_environment_support(application, object)
+            context = _object_environment_context(application, object)
             binding_object, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
-            cell = bind_environment(
+            handle = bind_environment(
                 backend,
                 binding_object,
-                support,
+                context,
                 _environment_config_payload(config),
             )
-            support = _object_environment_support(application, object, cell)
             push!(
                 bindings,
                 CompiledEnvironmentBinding(
                     application.id,
                     object_id,
-                    provider,
                     backend,
-                    cell,
+                    handle,
                     required_inputs,
                     source_inputs,
                     produced_outputs,
-                    support,
+                    context,
                     geometry_source_object_id,
                     geometry_source,
                     config,
@@ -216,7 +214,6 @@ function _compiled_environment_bindings(
     by_target,
     samplers_by_application=_model_environment_samplers(bindings),
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
-    environment_overrides=Any[],
 )
     return CompiledEnvironmentBindings(
         model,
@@ -224,7 +221,6 @@ function _compiled_environment_bindings(
         by_target,
         samplers_by_application,
         sample_cache,
-        environment_overrides,
         model.revision,
         model.environment_revision,
     )
@@ -252,12 +248,11 @@ function _same_environment_backend(a, b)
     return false
 end
 
-function _same_environment_support(a, b)
+function _same_environment_context(a, b)
     return a.application == b.application &&
+           a.object_id == b.object_id &&
            a.scale == b.scale &&
-           a.process == b.process &&
-           a.status === b.status &&
-           isequal(a.cell, b.cell)
+           a.process == b.process
 end
 
 function _reconcile_environment_binding_metadata(
@@ -273,7 +268,6 @@ function _reconcile_environment_binding_metadata(
     for application in compiled.applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(model, config)
-        provider = _environment_provider_from_config(config, backend)
         required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
         source_inputs = _environment_source_variable_names(application.spec)
         produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
@@ -282,16 +276,15 @@ function _reconcile_environment_binding_metadata(
             old = get(cached.by_target, key, nothing)
             isnothing(old) && return nothing
             object = _model_object(model, object_id)
-            support = _object_environment_support(application, object, old.cell)
+            context = _object_environment_context(application, object)
             _, geometry_source_object_id, geometry_source =
                 _environment_binding_object(model, object)
             _same_environment_backend(old.backend, backend) || return nothing
-            old.provider == provider || return nothing
             isequal(old.config, config) || return nothing
             old.geometry_source_object_id == geometry_source_object_id ||
                 return nothing
             old.geometry_source == geometry_source || return nothing
-            _same_environment_support(old.support, support) || return nothing
+            _same_environment_context(old.context, context) || return nothing
 
             if old.required_inputs == required_inputs &&
                old.source_inputs == source_inputs &&
@@ -304,13 +297,12 @@ function _reconcile_environment_binding_metadata(
                     CompiledEnvironmentBinding(
                         application.id,
                         object_id,
-                        provider,
                         backend,
-                        old.cell,
+                        old.handle,
                         required_inputs,
                         source_inputs,
                         produced_outputs,
-                        support,
+                        context,
                         geometry_source_object_id,
                         geometry_source,
                         config,
@@ -388,7 +380,6 @@ function _refresh_environment_bindings_for_objects(
             cached.by_target,
             cached.samplers_by_application,
             cached.sample_cache,
-            cached.environment_overrides,
         )
     end
     bindings = CompiledEnvironmentBinding[
@@ -413,7 +404,6 @@ function _refresh_environment_bindings_for_objects(
         by_target,
         cached.samplers_by_application,
         cached.sample_cache,
-        cached.environment_overrides,
     )
 end
 
@@ -422,9 +412,8 @@ function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
         (
             application_id=binding.application_id,
             object_id=binding.object_id.value,
-            provider=binding.provider,
             backend_type=isnothing(binding.backend) ? nothing : typeof(binding.backend),
-            cell=binding.cell,
+            handle=binding.handle,
             required_inputs=binding.required_inputs,
             source_inputs=binding.source_inputs,
             produced_outputs=binding.produced_outputs,
@@ -434,7 +423,7 @@ function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
             geometry_source_object_id=isnothing(binding.geometry_source_object_id) ?
                                       nothing : binding.geometry_source_object_id.value,
             geometry_source=binding.geometry_source,
-            support=binding.support,
+            context=binding.context,
             config=binding.config,
         )
         for binding in compiled.bindings

@@ -4,6 +4,11 @@
 
 ### Breaking changes
 
+- Environment backends now compile an opaque per-target handle with
+  `bind_environment`. Accepted state is committed explicitly with
+  `commit_environment!`, while provider-aware trial state is passed with
+  `run_call!(context, name; environment=state)`. The former support/scatter,
+  scoped override, and context-level meteorology APIs were removed.
 - Hard dependencies now execute through
   `run_call!(context::RunContext, name::Symbol; ...)`, which executes every
   selector-resolved target and always returns a vector-like `CallTargets`

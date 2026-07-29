@@ -74,11 +74,11 @@ user functions.
 
 ## Environment extension interface
 
-- Backend contract: `AbstractEnvironmentBackend`, `EnvironmentSupport`,
+- Backend contract: `AbstractEnvironmentBackend`, `EnvironmentContext`,
   `GlobalConstant`, `environment_backend`, `environment_variables`,
   `base_step_seconds`.
-- Sampling and mutation: `sample`, `sample_environment`, `with_environment!`,
-  `update_environment!`, `update_index!`.
+- Sampling and mutation: `sample`, `sample_environment`,
+  `commit_environment!`, `update_index!`.
 - PlantMeteo conveniences: `Atmosphere`, `Constants`, `Weather`.
 
 ## Evaluation

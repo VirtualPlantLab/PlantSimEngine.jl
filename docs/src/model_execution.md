@@ -27,7 +27,7 @@ A model kernel is still an ordinary PlantSimEngine model:
 - `inputs_(model)` declares required status variables;
 - `outputs_(model)` declares variables the model computes;
 - `meteo_inputs_(model)` declares environment variables it reads;
-- `update_environment!(extra, meteo)` commits accepted mutable environment
+- `commit_environment!(extra, state)` commits accepted mutable environment
   state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
 - `run!(model, models, status, meteo, constants, extra)` contains the model
@@ -160,12 +160,11 @@ and decide when to publish the accepted state:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    with_environment!(extra, trial_meteo(model, status)) do
-        run_call!(extra, :leaf_energy; publish=false)
-    end
+    trial = trial_meteo(model, status)
+    run_call!(extra, :leaf_energy; environment=trial, publish=false)
 
     accepted = accepted_meteo(model, status)
-    update_environment!(extra, accepted)
+    commit_environment!(extra, accepted)
     run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
@@ -174,8 +173,8 @@ end
 
 `run_call!` defaults to `publish=false`. Trial calls mutate target statuses but
 do not publish temporal samples or commit mutable environment updates. Use
-`with_environment!` when hard-called descendants should sample a temporary trial
-environment through the normal environment path. Call `update_environment!` and
+`environment=trial_state` when hard-called descendants should sample temporary
+state through their compiled environment handles. Call `commit_environment!` and
 `run_call!(...; publish=true)` once for the accepted state.
 
 Applications selected only by `Calls(...)` are marked manual-call-only in
@@ -275,13 +274,32 @@ runtime. Constant weather, global tabular meteorology, grid, layer, voxel, or
 octree-style microclimate backends all use the same contract:
 
 - `meteo_inputs_(model)` says what the model reads;
-- `update_environment!(extra, accepted_meteo)` commits accepted mutable
+- `meteo_outputs_(model)` says what the model may commit;
+- `commit_environment!(extra, accepted_meteo)` commits accepted mutable
   meteorology from a controller model;
-- `with_environment!(extra, trial_meteo) do ... end` exposes a non-committing
-  trial environment to hard-called descendants;
+- `run_call!(extra, name; environment=trial_state)` exposes non-committing
+  trial state while preserving every target's compiled backend handle;
 - `Environment(; sources=...)` maps model-facing names to backend names;
 - geometry and position are used by spatial backends when available;
 - object-to-environment links are cached and refreshed when objects move.
+
+Backend authors implement an opaque-handle protocol:
+
+```julia
+handle = bind_environment(backend, object, context, config)
+
+sample(backend, handle, variable, time)               # committed state
+sample(backend, handle, trial_state, variable, time)  # transient state
+commit_environment!(backend, handle, accepted_state, time)
+```
+
+`EnvironmentContext` identifies the application, object, scale, and process
+while the handle is compiled. Runtime status and geometry are not passed to
+sampling: a spatial backend resolves them once in `bind_environment` and stores
+the resulting provider, layer, voxel, or other routing data in its concrete
+handle. A controller that reads from one provider and commits to another should
+encode both routes in the handle, for example
+`Environment(provider=:forcing, sink=:canopy)`.
 
 Model-level `meteo_hint(...)` can provide default source bindings and
 aggregation rules. Scenario-level `Environment(...)` keeps precedence for

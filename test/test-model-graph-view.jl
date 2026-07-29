@@ -340,7 +340,8 @@ end
         Object(:leaf; name=:leaf, scale=:Leaf);
         applications=(
             ModelSpec(ModelGraphEnvironmentModel(); name=:environment_user) |>
-                AppliesTo(One(name=:leaf)),
+                AppliesTo(One(name=:leaf)) |>
+                Environment(provider=:forcing, sink=:canopy),
         ),
     )
     environment_edges = [
@@ -351,6 +352,15 @@ end
     @test Set(edge["sourceVariable"] for edge in environment_edges) ==
           Set(["T", "leaf_temperature"])
     @test all(haskey(edge, "provider") for edge in environment_edges)
+    environment_input_edge = only(
+        edge for edge in environment_edges if edge["sourceVariable"] == "T"
+    )
+    environment_output_edge = only(
+        edge for edge in environment_edges if edge["sourceVariable"] == "leaf_temperature"
+    )
+    @test environment_input_edge["provider"] == "forcing"
+    @test environment_output_edge["provider"] == "canopy"
+    @test environment_output_edge["sink"] == "canopy"
 
     metadata = apply_model_graph_edit(
         configured,

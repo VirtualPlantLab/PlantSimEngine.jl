@@ -169,10 +169,11 @@ struct ModelObjectEnvironmentUpdateModel <: AbstractModel_Object_Environment_Upd
 PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateModel) = (temperature_update=0.0,)
 PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
+PlantSimEngine.meteo_outputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, models, status, meteo, constants=nothing, extra=nothing)
     status.temperature_update = meteo.T + 1.0
-    update_environment!(extra, (T=status.temperature_update, CO2=410.0))
+    commit_environment!(extra, (T=status.temperature_update, CO2=410.0))
     return nothing
 end
 
@@ -378,18 +379,20 @@ end
 
 PlantSimEngine.inputs_(::ModelObjectMeteoCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallControllerModel) = (called_temperature=0.0,)
+PlantSimEngine.meteo_outputs_(::ModelObjectMeteoCallControllerModel) = (T=0.0,)
 
 function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, models, status, meteo, constants=nothing, extra=nothing)
     local_meteo = (T=m.local_temperature, CO2=410.0)
     if m.publish
-        update_environment!(extra, local_meteo)
+        commit_environment!(extra, local_meteo)
         target = only(run_call!(extra, :source; publish=true))
     else
-        target = only(
-            with_environment!(extra, local_meteo) do
-                run_call!(extra, :source; publish=false)
-            end,
-        )
+        target = only(run_call!(
+            extra,
+            :source;
+            environment=local_meteo,
+            publish=false,
+        ))
     end
     status.called_temperature = target.status.temperature_seen
     return nothing
@@ -406,6 +409,8 @@ end
 PlantSimEngine.inputs_(::ModelObjectIterativeMeteoCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectIterativeMeteoCallControllerModel) =
     (called_temperature=0.0,)
+PlantSimEngine.meteo_outputs_(::ModelObjectIterativeMeteoCallControllerModel) =
+    (T=0.0,)
 
 function PlantSimEngine.run!(
     m::ModelObjectIterativeMeteoCallControllerModel,
@@ -417,13 +422,45 @@ function PlantSimEngine.run!(
 )
     target = only(call_targets(extra, :source))
     for temperature in m.trial_temperatures
-        with_environment!(extra, (T=temperature, CO2=410.0)) do
-            run_call!(target; publish=false)
-        end
+        run_call!(
+            extra,
+            :source;
+            environment=(T=temperature, CO2=410.0),
+            publish=false,
+        )
     end
-    update_environment!(extra, (T=m.accepted_temperature, CO2=410.0))
+    commit_environment!(extra, (T=m.accepted_temperature, CO2=410.0))
     run_call!(target; publish=true)
     status.called_temperature = target.status.temperature_seen
+    return nothing
+end
+
+PlantSimEngine.@process "model_object_spatial_meteo_call_controller" verbose = false
+
+struct ModelObjectSpatialMeteoCallControllerModel{E} <:
+       AbstractModel_Object_Spatial_Meteo_Call_ControllerModel
+    environment::E
+end
+
+PlantSimEngine.inputs_(::ModelObjectSpatialMeteoCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectSpatialMeteoCallControllerModel) =
+    (called_targets=0,)
+
+function PlantSimEngine.run!(
+    m::ModelObjectSpatialMeteoCallControllerModel,
+    models,
+    status,
+    meteo,
+    constants=nothing,
+    extra=nothing,
+)
+    targets = run_call!(
+        extra,
+        :source;
+        environment=m.environment,
+        publish=false,
+    )
+    status.called_targets = length(targets)
     return nothing
 end
 
@@ -583,6 +620,47 @@ function PlantSimEngine.run!(::ModelObjectGrowthModel, models, status, meteo, co
     return nothing
 end
 
+PlantSimEngine.@process "model_object_initializing_growth" verbose = false
+
+struct ModelObjectInitializingGrowthModel <:
+       AbstractModel_Object_Initializing_GrowthModel end
+
+PlantSimEngine.inputs_(::ModelObjectInitializingGrowthModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectInitializingGrowthModel) =
+    (initialized_signal=0.0,)
+
+function PlantSimEngine.run!(
+    ::ModelObjectInitializingGrowthModel,
+    models,
+    status,
+    meteo,
+    constants=nothing,
+    extra=nothing,
+)
+    model = runtime_model(extra)
+    ObjectId(:initialized_leaf) in object_ids(model; scale=:Leaf) &&
+        return nothing
+    leaf = register_object!(
+        model,
+        Object(
+            :initialized_leaf;
+            scale=:Leaf,
+            parent=:plant_1,
+            status=Status(signal=0.0),
+        ),
+    )
+    target = only(
+        run_call!(
+            extra,
+            :initializer;
+            objects=leaf,
+            publish=false,
+        ),
+    )
+    status.initialized_signal = target.status.signal
+    return nothing
+end
+
 PlantSimEngine.@process "model_object_pruning" verbose = false
 
 struct ModelObjectPruningModel <: AbstractModel_Object_PruningModel end
@@ -620,6 +698,19 @@ mutable struct ModelObjectGridBackend <: PlantSimEngine.AbstractEnvironmentBacke
 end
 
 ModelObjectGridBackend(binds::Vector{Any}=Any[]) = ModelObjectGridBackend(binds, Any[])
+
+struct ModelObjectEnvironmentHandle
+    provider::Symbol
+    sink::Union{Nothing,Symbol}
+    cell::Symbol
+    application::Symbol
+    process::Symbol
+end
+
+struct ModelObjectEnvironmentField{V,T}
+    values::V
+    co2::T
+end
 
 struct ModelObjectTaggedValue
     value::Int
@@ -665,21 +756,30 @@ PlantSimEngine.environment_variables(::ModelObjectGridBackend) = Set([:T, :CO2])
 function PlantSimEngine.bind_environment(
     backend::ModelObjectGridBackend,
     object::Object,
-    support,
+    context::EnvironmentContext,
     config,
 )
     object_geometry = geometry(object)
     cell = isnothing(object_geometry) ? :global : object_geometry.cell
+    provider = isnothing(config) ? :model : Symbol(get(config, :provider, :model))
+    sink = isnothing(config) || !haskey(config, :sink) ? nothing : Symbol(config.sink)
+    handle = ModelObjectEnvironmentHandle(
+        provider,
+        sink,
+        cell,
+        context.application,
+        context.process,
+    )
     push!(
         backend.binds,
         (
             object=object.id.value,
-            application=support.application,
+            application=context.application,
             cell=cell,
             config=config,
         ),
     )
-    return cell
+    return handle
 end
 
 function PlantSimEngine.update_index!(backend::ModelObjectGridBackend, entities)
@@ -702,12 +802,11 @@ end
 
 mutable struct ModelObjectMutableEnvironmentBackend <: PlantSimEngine.AbstractEnvironmentBackend
     values::Dict{Symbol,Float64}
-    cells_by_status::Dict{UInt,Symbol}
     writes::Vector{Any}
 end
 
 ModelObjectMutableEnvironmentBackend(values::Pair...) =
-    ModelObjectMutableEnvironmentBackend(Dict{Symbol,Float64}(values), Dict{UInt,Symbol}(), Any[])
+    ModelObjectMutableEnvironmentBackend(Dict{Symbol,Float64}(values), Any[])
 
 PlantSimEngine.base_step_seconds(::ModelObjectMutableEnvironmentBackend) = 3600.0
 PlantSimEngine.get_nsteps(::ModelObjectMutableEnvironmentBackend) = 1
@@ -716,66 +815,72 @@ PlantSimEngine.environment_variables(::ModelObjectMutableEnvironmentBackend) = S
 function PlantSimEngine.bind_environment(
     backend::ModelObjectMutableEnvironmentBackend,
     object::Object,
-    support,
+    context::EnvironmentContext,
     config,
 )
-    cell = object.geometry.cell
-    backend.cells_by_status[objectid(object.status)] = cell
-    return cell
+    object_geometry = geometry(object)
+    cell = isnothing(object_geometry) ? :global : object_geometry.cell
+    provider = isnothing(config) ? :model : Symbol(get(config, :provider, :model))
+    sink = isnothing(config) || !haskey(config, :sink) ? nothing : Symbol(config.sink)
+    return ModelObjectEnvironmentHandle(
+        provider,
+        sink,
+        cell,
+        context.application,
+        context.process,
+    )
 end
 
 function PlantSimEngine.sample(
     backend::ModelObjectMutableEnvironmentBackend,
+    handle::ModelObjectEnvironmentHandle,
     variable::Symbol,
-    support::EnvironmentSupport,
     time,
 )
     variable == :CO2 && return 410.0
     variable == :T || error("Unexpected variable `$(variable)`.")
-    cell = backend.cells_by_status[objectid(support.status)]
-    return backend.values[cell]
+    return backend.values[handle.cell]
 end
 
-function PlantSimEngine.scatter!(
+function PlantSimEngine.sample(
     backend::ModelObjectMutableEnvironmentBackend,
+    handle::ModelObjectEnvironmentHandle,
+    state::NamedTuple,
     variable::Symbol,
-    support::EnvironmentSupport,
-    value,
     time,
 )
-    variable == :T || error("Unexpected variable `$(variable)`.")
-    cell = backend.cells_by_status[objectid(support.status)]
-    backend.values[cell] = value
-    push!(
-        backend.writes,
-        (
-            application=support.application,
-            process=support.process,
-            cell=cell,
-            variable=variable,
-            value=value,
-            time=time,
-        ),
-    )
-    return nothing
+    hasproperty(state, variable) || error("Transient test environment does not provide `$(variable)`.")
+    return getproperty(state, variable)
 end
 
-function PlantSimEngine.update_environment!(
+function PlantSimEngine.sample(
     backend::ModelObjectMutableEnvironmentBackend,
-    support::EnvironmentSupport,
-    meteo,
+    handle::ModelObjectEnvironmentHandle,
+    state::ModelObjectEnvironmentField,
+    variable::Symbol,
     time,
 )
-    hasproperty(meteo, :T) || error("Updated test meteo must provide `T`.")
-    cell = backend.cells_by_status[objectid(support.status)]
-    backend.values[cell] = meteo.T
+    variable == :CO2 && return state.co2
+    variable == :T || error("Unexpected variable `$(variable)`.")
+    return state.values[handle.cell]
+end
+
+function PlantSimEngine.commit_environment!(
+    backend::ModelObjectMutableEnvironmentBackend,
+    handle::ModelObjectEnvironmentHandle,
+    state,
+    time,
+)
+    hasproperty(state, :T) || error("Committed test environment must provide `T`.")
+    isnothing(handle.sink) && error("Test environment handle has no commit sink.")
+    backend.values[handle.cell] = state.T
     push!(
         backend.writes,
         (
-            application=support.application,
-            process=support.process,
-            cell=cell,
-            meteo=meteo,
+            application=handle.application,
+            process=handle.process,
+            cell=handle.cell,
+            meteo=state,
             time=time,
         ),
     )
@@ -1895,6 +2000,37 @@ end
     run!(reversed_dependency_scene)
     @test only(model_objects(reversed_dependency_scene; scale=:Leaf)).status.observed_signal == 1.0
 
+    previous_value_after_producer_scene = CompositeModel(
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            status=Status(signal=0.0, observed_signal=0.0),
+        );
+        applications=(
+            ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source) |>
+            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(ModelObjectSignalConsumerModel(); name=:lagged_consumer) |>
+            AppliesTo(One(scale=:Leaf)) |>
+            Inputs(
+                PreviousTimeStep(:signal) => One(
+                    within=Self(),
+                    application=:signal_source,
+                    var=:signal,
+                ),
+            ),
+        ),
+    )
+    previous_value_compiled =
+        Advanced.refresh_bindings!(previous_value_after_producer_scene)
+    @test previous_value_compiled.application_order ==
+          [:signal_source, :lagged_consumer]
+    run!(previous_value_after_producer_scene; steps=3)
+    previous_value_status =
+        only(model_objects(previous_value_after_producer_scene; scale=:Leaf)).status
+    @test previous_value_status.observed_signal == 2.0
+    @test previous_value_status.signal == 3.0
+
     @test_throws ErrorException Advanced.compile_composite_model(
         CompositeModel(
             Object(:scene; scale=:Scene, kind=:scene),
@@ -2283,7 +2419,7 @@ end
         Environment(provider=:grid),
         ModelSpec(ModelObjectEnvironmentUpdateModel(); name=:temperature_update) |>
         AppliesTo(Many(scale=:Leaf)) |>
-        Environment(provider=:grid),
+        Environment(provider=:grid, sink=:grid),
     )
     environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2298,8 +2434,8 @@ end
     @test !Advanced.environment_bindings_dirty(environment_scene)
     @test Advanced.compiled_environment_bindings(environment_scene) === compiled_environment
     @test length(compiled_environment.by_target) == length(compiled_environment.bindings)
-    @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].cell == :cell_a
-    @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].cell == :cell_b
+    @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].handle.cell == :cell_a
+    @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].handle.cell == :cell_b
     @test length(grid_backend.binds) == 4
     @test length(grid_backend.index_updates) == 1
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_a,), grid_backend.index_updates[1])
@@ -2307,15 +2443,15 @@ end
     environment_rows = explain_environment_bindings(compiled_environment)
     @test length(environment_rows) == 4
     leaf_1_probe = only(row for row in environment_rows if row.application_id == :probe && row.object_id == :leaf_1)
-    @test leaf_1_probe.provider == :grid
-    @test leaf_1_probe.cell == :cell_a
+    @test leaf_1_probe.handle.provider == :grid
+    @test leaf_1_probe.handle.cell == :cell_a
     @test leaf_1_probe.required_inputs == [:T, :CO2]
     @test leaf_1_probe.produced_outputs == Symbol[]
     leaf_2_update = only(row for row in environment_rows if row.application_id == :temperature_update && row.object_id == :leaf_2)
-    @test leaf_2_update.cell == :cell_b
+    @test leaf_2_update.handle.cell == :cell_b
     @test leaf_2_update.required_inputs == [:T]
     @test leaf_2_update.source_inputs == [:T]
-    @test leaf_2_update.produced_outputs == Symbol[]
+    @test leaf_2_update.produced_outputs == [:T]
 
     missing_global_meteo_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2581,7 +2717,7 @@ end
     revised_contract_binding =
         revised_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
     @test revised_contract_binding.required_inputs == [:T]
-    @test revised_contract_binding.cell == original_contract_binding.cell
+    @test revised_contract_binding.handle.cell == original_contract_binding.handle.cell
     @test revised_contract_binding !== original_contract_binding
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
@@ -2600,7 +2736,7 @@ end
     @test length(grid_backend.binds) == 6
     @test length(grid_backend.index_updates) == 2
     @test any(entity -> entity.id == :leaf_2 && entity.geometry == (cell=:cell_c,), grid_backend.index_updates[2])
-    @test only(row for row in explain_environment_bindings(refreshed_environment) if row.application_id == :probe && row.object_id == :leaf_2).cell == :cell_c
+    @test only(row for row in explain_environment_bindings(refreshed_environment) if row.application_id == :probe && row.object_id == :leaf_2).handle.cell == :cell_c
 
     update_geometry!(environment_scene, :leaf_1, (cell=:cell_e,); invalidate_environment=false)
     @test geometry(only(object for object in model_objects(environment_scene; scale=:Leaf) if object.id == ObjectId(:leaf_1))) == (cell=:cell_e,)
@@ -2612,7 +2748,7 @@ end
     @test length(grid_backend.binds) == 8
     @test length(grid_backend.index_updates) == 3
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_e,), grid_backend.index_updates[3])
-    @test only(row for row in explain_environment_bindings(refreshed_after_mark) if row.application_id == :probe && row.object_id == :leaf_1).cell == :cell_e
+    @test only(row for row in explain_environment_bindings(refreshed_after_mark) if row.application_id == :probe && row.object_id == :leaf_1).handle.cell == :cell_e
 
     register_object!(environment_scene, Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, geometry=(cell=:cell_d,)); parent=:plant_1)
     @test Advanced.bindings_dirty(environment_scene)
@@ -2623,7 +2759,7 @@ end
     @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[4])
     @test only(row for row in explain_applications(Advanced.refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3]
-    @test only(row for row in explain_environment_bindings(refreshed_with_new_leaf) if row.application_id == :probe && row.object_id == :leaf_3).cell == :cell_d
+    @test only(row for row in explain_environment_bindings(refreshed_with_new_leaf) if row.application_id == :probe && row.object_id == :leaf_3).handle.cell == :cell_d
 
     inherited_grid_backend = ModelObjectGridBackend()
     inherited_environment_scene = CompositeModel(
@@ -2654,10 +2790,10 @@ end
     inherited_rows = explain_environment_bindings(inherited_bindings)
     inherited_row = only(row for row in inherited_rows if row.object_id == :inherited_leaf)
     positioned_row = only(row for row in inherited_rows if row.object_id == :positioned_leaf)
-    @test inherited_row.cell == :cell_a
+    @test inherited_row.handle.cell == :cell_a
     @test inherited_row.geometry_source == :ancestor
     @test inherited_row.geometry_source_object_id == :plant_1
-    @test positioned_row.cell == :cell_c
+    @test positioned_row.handle.cell == :cell_c
     @test positioned_row.geometry_source == :self
     positioned_binding = inherited_bindings.by_target[
         (:inherited_probe, ObjectId(:positioned_leaf))
@@ -2670,7 +2806,7 @@ end
     refreshed_inherited_rows = explain_environment_bindings(refreshed_inherited_bindings)
     @test only(
         row for row in refreshed_inherited_rows if row.object_id == :inherited_leaf
-    ).cell == :cell_b
+    ).handle.cell == :cell_b
     @test refreshed_inherited_bindings.by_target[
         (:inherited_probe, ObjectId(:positioned_leaf))
     ] === positioned_binding
@@ -2683,7 +2819,7 @@ end
         applications=(
             ModelSpec(ModelObjectEnvironmentUpdateModel(); name=:temperature_update_runtime) |>
             AppliesTo(Many(scale=:Leaf)) |>
-            Environment(provider=:grid),
+            Environment(provider=:grid, sink=:grid),
             ModelSpec(ModelObjectEnvironmentProbeModel(); name=:probe_after_update) |>
             AppliesTo(Many(scale=:Leaf)) |>
             Environment(provider=:grid),
@@ -2714,7 +2850,7 @@ end
         applications=(
             ModelSpec(ModelObjectEnvironmentUpdateModel(); name=:temperature_update_runtime) |>
             AppliesTo(One(scale=:Leaf)) |>
-            Environment(provider=:grid),
+            Environment(provider=:grid, sink=:grid),
             ModelSpec(ModelObjectEnvironmentUpdateCallerModel(); name=:temperature_update_caller) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid) |>
@@ -2815,7 +2951,7 @@ end
             Environment(provider=:grid),
             ModelSpec(ModelObjectMeteoCallControllerModel(31.5, false); name=:meteo_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
-            Environment(provider=:grid) |>
+            Environment(provider=:grid, sink=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=hard_call_meteo_backend,
@@ -2826,6 +2962,60 @@ end
     @test hard_call_meteo_status.called_temperature == 31.5
     @test hard_call_meteo_backend.values[:cell_a] == 20.0
     @test isempty(hard_call_meteo_backend.writes)
+
+    spatial_trial_backend =
+        ModelObjectMutableEnvironmentBackend(:cell_a => 20.0, :cell_b => 21.0)
+    spatial_trial_state = ModelObjectEnvironmentField(
+        Dict(:cell_a => 30.5, :cell_b => 34.0),
+        410.0,
+    )
+    spatial_trial_scene = CompositeModel(
+        Object(
+            :scene;
+            scale=:Scene,
+            kind=:scene,
+            status=Status(called_targets=0),
+        ),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            parent=:scene,
+            geometry=(cell=:cell_a,),
+            status=Status(temperature_seen=0.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:plant,
+            parent=:scene,
+            geometry=(cell=:cell_b,),
+            status=Status(temperature_seen=0.0),
+        );
+        applications=(
+            ModelSpec(ModelObjectMeteoCallSourceModel(); name=:meteo_source) |>
+            AppliesTo(Many(scale=:Leaf)) |>
+            Environment(provider=:grid),
+            ModelSpec(
+                ModelObjectSpatialMeteoCallControllerModel(spatial_trial_state);
+                name=:spatial_meteo_controller,
+            ) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Environment(provider=:grid) |>
+            Calls(:source => Many(scale=:Leaf, process=:model_object_meteo_call_source)),
+        ),
+        environment=spatial_trial_backend,
+    )
+    run!(spatial_trial_scene)
+    spatial_trial_statuses = Dict(
+        object.id.value => object.status
+        for object in model_objects(spatial_trial_scene)
+    )
+    @test spatial_trial_statuses[:scene].called_targets == 2
+    @test spatial_trial_statuses[:leaf_1].temperature_seen == 30.5
+    @test spatial_trial_statuses[:leaf_2].temperature_seen == 34.0
+    @test spatial_trial_backend.values == Dict(:cell_a => 20.0, :cell_b => 21.0)
+    @test isempty(spatial_trial_backend.writes)
 
     publish_hard_call_meteo_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
     publish_hard_call_meteo_scene = CompositeModel(
@@ -2844,7 +3034,7 @@ end
             Environment(provider=:grid),
             ModelSpec(ModelObjectMeteoCallControllerModel(32.5, true); name=:meteo_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
-            Environment(provider=:grid) |>
+            Environment(provider=:grid, sink=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=publish_hard_call_meteo_backend,
@@ -2878,7 +3068,7 @@ end
                 name=:meteo_controller,
             ) |>
             AppliesTo(One(scale=:Leaf)) |>
-            Environment(provider=:grid) |>
+            Environment(provider=:grid, sink=:grid) |>
             Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
         ),
         environment=iterative_hard_call_backend,
@@ -3601,6 +3791,102 @@ end
     run!(writer_runtime_scene)
     @test only(model_objects(writer_runtime_scene; scale=:Leaf)).status.biomass == 0.0
 
+    empty_many_scene = CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(
+            :plant_1;
+            scale=:Plant,
+            kind=:plant,
+            parent=:scene,
+            status=Status(signals=Float64[], signal_total=0.0),
+        );
+        applications=(
+            ModelSpec(ModelObjectSignalSourceModel(); name=:leaf_signal) |>
+            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(ModelObjectPlantSignalSumModel(); name=:plant_signal_total) |>
+            AppliesTo(One(scale=:Plant)) |>
+            Inputs(
+                :signals => Many(
+                    scale=:Leaf,
+                    within=Subtree(),
+                    application=:leaf_signal,
+                    var=:signal,
+                ),
+            ),
+        ),
+    )
+    empty_many_compiled = Advanced.refresh_bindings!(empty_many_scene)
+    empty_many_binding = only(empty_many_compiled.input_bindings)
+    @test isempty(empty_many_binding.source_ids)
+    @test empty_many_binding.source_application_ids == [:leaf_signal]
+    @test empty_many_compiled.application_order ==
+          [:leaf_signal, :plant_signal_total]
+    register_object!(
+        empty_many_scene,
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            status=Status(signal=0.0),
+        );
+        parent=:plant_1,
+    )
+    run!(empty_many_scene)
+    @test only(model_objects(empty_many_scene; scale=:Plant)).status.signal_total == 1.0
+    refreshed_empty_many_binding = only(
+        binding for binding in
+        Advanced.refresh_bindings!(empty_many_scene).input_bindings
+        if binding.application_id == :plant_signal_total
+    )
+    @test refreshed_empty_many_binding.source_ids == [ObjectId(:leaf_1)]
+    @test refreshed_empty_many_binding.source_application_ids == [:leaf_signal]
+
+    initializing_growth_scene = CompositeModel(
+        Object(
+            :scene;
+            scale=:Scene,
+            kind=:scene,
+            status=Status(initialized_signal=0.0),
+        ),
+        Object(
+            :plant_1;
+            scale=:Plant,
+            kind=:plant,
+            parent=:scene,
+        );
+        applications=(
+            ModelSpec(
+                ModelObjectInitializingGrowthModel();
+                name=:initializing_growth,
+            ) |>
+            AppliesTo(One(scale=:Scene)) |>
+            Calls(
+                :initializer => Many(
+                    scale=:Leaf,
+                    application=:dynamic_initializer,
+                ),
+            ),
+            ModelSpec(
+                ModelObjectSignalSetModel(7.0);
+                name=:dynamic_initializer,
+            ) |>
+            AppliesTo(Many(scale=:Leaf)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    initializing_growth_simulation = run!(
+        initializing_growth_scene;
+        steps=2,
+    )
+    @test only(model_objects(initializing_growth_scene; scale=:Scene)).
+          status.initialized_signal == 7.0
+    @test only(model_objects(initializing_growth_scene; scale=:Leaf)).
+          status.signal == 7.0
+    @test initializing_growth_simulation.compiled.revision ==
+          Advanced.model_revision(initializing_growth_scene)
+    @test initializing_growth_simulation.execution_plan.model_revision ==
+          Advanced.model_revision(initializing_growth_scene)
+
     lifecycle_scene = CompositeModel(
         Object(
             :scene;
@@ -3653,8 +3939,8 @@ end
     @test lifecycle_status.removed_count == 1
     lifecycle_leaf_statuses = Dict(object.id.value => object.status for object in model_objects(lifecycle_scene; scale=:Leaf))
     @test lifecycle_leaf_statuses[:leaf_1].signal == 3.0
-    @test lifecycle_leaf_statuses[:grown_leaf].signal == 2.0
-    @test only(model_objects(lifecycle_scene; scale=:Plant)).status.signal_total == 5.0
+    @test lifecycle_leaf_statuses[:grown_leaf].signal == 3.0
+    @test only(model_objects(lifecycle_scene; scale=:Plant)).status.signal_total == 6.0
     lifecycle_application = lifecycle_simulation.compiled.applications_by_id[:leaf_signal]
     @test lifecycle_application.target_ids == [ObjectId(:grown_leaf), ObjectId(:leaf_1)]
     lifecycle_execution_row = only(
@@ -3685,7 +3971,7 @@ end
         current_target_count=2,
     )
     @test length(collect_outputs(lifecycle_simulation, :leaf_1, :signal; sink=nothing)) == 3
-    @test length(collect_outputs(lifecycle_simulation, :grown_leaf, :signal; sink=nothing)) == 2
+    @test length(collect_outputs(lifecycle_simulation, :grown_leaf, :signal; sink=nothing)) == 3
     @test length(collect_outputs(lifecycle_simulation, :leaf_2, :signal; sink=nothing)) == 2
     lifecycle_requested_rows = collect_outputs(
         lifecycle_simulation,
@@ -3693,7 +3979,7 @@ end
         sink=nothing,
     )
     @test count(row -> row.object_id == :leaf_1, lifecycle_requested_rows) == 3
-    @test count(row -> row.object_id == :grown_leaf, lifecycle_requested_rows) == 2
+    @test count(row -> row.object_id == :grown_leaf, lifecycle_requested_rows) == 3
     @test count(row -> row.object_id == :leaf_2, lifecycle_requested_rows) == 2
 
     moving_environment_backend = ModelObjectMutableEnvironmentBackend(
@@ -3736,11 +4022,11 @@ end
         :temperature_seen;
         sink=nothing,
     )
-    @test getproperty.(moving_probe_rows, :value) == [20.0, 30.0]
+    @test getproperty.(moving_probe_rows, :value) == [30.0, 30.0]
     @test only(
         row for row in explain_environment_bindings(moving_environment_simulation.environment_bindings)
         if row.application_id == :moving_probe
-    ).cell == :cell_b
+    ).handle.cell == :cell_b
 
     multirate_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),

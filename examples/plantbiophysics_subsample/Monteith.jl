@@ -559,8 +559,7 @@ function PlantSimEngine.run!(::Monteith, models, status, meteo, constants=PlantM
 
         # Update A, Gₛ, Cᵢ from models.status:
         PlantSimEngine.run_call!(
-            extra,
-            :photosynthesis;
+            only(PlantSimEngine.call_targets(extra, :photosynthesis));
             meteo=meteo,
             publish=false,
         )

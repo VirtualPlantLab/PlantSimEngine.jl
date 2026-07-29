@@ -66,6 +66,10 @@ else
         include("test-model-temporal-reducers.jl")
     end
 
+    @testset "PreviousTimeStep application-local status views" begin
+        include("test-model-previous-timestep-views.jl")
+    end
+
     @testset "Composite model binding inference" begin
         include("test-model-binding-inference.jl")
     end

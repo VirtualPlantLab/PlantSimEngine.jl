@@ -240,12 +240,11 @@ compiled targets without executing them:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    with_environment!(extra, trial_meteo(model, status)) do
-        run_call!(extra, :leaf_energy; publish=false)
-    end
+    trial = trial_meteo(model, status)
+    run_call!(extra, :leaf_energy; environment=trial, publish=false)
 
     accepted = accepted_meteo(model, status)
-    update_environment!(extra, accepted)
+    commit_environment!(extra, accepted)
     run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
@@ -254,8 +253,8 @@ end
 
 `run_call!` defaults to `publish=false`, so trial calls mutate target statuses
 without publishing temporal streams or committing mutable environment updates.
-Use `with_environment!` for non-committing trial meteorology and
-`update_environment!` before publishing the accepted state.
+Pass non-committing trial state with `environment=trial_state`, then call
+`commit_environment!` before publishing the accepted state.
 
 ## Next Steps
 

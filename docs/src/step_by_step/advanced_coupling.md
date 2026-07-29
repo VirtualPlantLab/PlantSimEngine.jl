@@ -139,17 +139,26 @@ targets = run_call!(extra, :leaf_energy; publish=true)
 ```
 
 The result is always vector-like. Retrieve targets without executing them when
-an iterative algorithm needs finer control:
+an algorithm needs selective execution or direct per-target meteorology:
+
+```julia
+targets = call_targets(extra, :leaf_energy)
+for (target, leaf_meteo) in zip(targets, meteorology_by_leaf)
+    run_call!(target; meteo=leaf_meteo, publish=false)
+end
+```
+
+For a provider-aware trial state shared by the call, keep the execute-all form.
+Each target still samples through its own compiled handle:
 
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
                              constants, extra)
-    with_environment!(extra, trial_meteo(model, status)) do
-        run_call!(extra, :leaf_energy; publish=false)
-    end
+    trial = trial_meteo(model, status)
+    run_call!(extra, :leaf_energy; environment=trial, publish=false)
 
     accepted = accepted_meteo(model, status)
-    update_environment!(extra, accepted)
+    commit_environment!(extra, accepted)
     run_call!(extra, :leaf_energy; publish=true)
 
     return nothing
@@ -157,9 +166,9 @@ end
 ```
 
 `run_call!` defaults to `publish=false`, which is useful for trial iterations.
-Use `with_environment!` for non-committing trial meteorology. Use
-`update_environment!` and `publish=true` for the accepted state so temporal
-streams and mutable environment updates are published once.
+Pass non-committing trial state with the `environment` keyword. Use
+`commit_environment!` and `publish=true` for the accepted state so temporal
+streams and mutable environment state are published once.
 
 The MAESPA-style example uses the same mechanism: a model energy-balance model
 calls all selected leaf energy-balance models and the shared soil model while

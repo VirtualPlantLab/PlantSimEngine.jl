@@ -138,8 +138,7 @@ function PlantSimEngine.run!(m::Fvcb, models, status, meteo, constants=PlantMete
 
     # Stomatal conductance (mol[CO₂] m-2 s-1)
     PlantSimEngine.run_call!(
-        extra,
-        :stomatal_conductance;
+        only(PlantSimEngine.call_targets(extra, :stomatal_conductance));
         meteo=st_closure,
         publish=false,
     )

@@ -28,6 +28,19 @@ struct CompiledModelInputBinding{SEL,P,W,C}
     carrier::C
 end
 
+struct CompiledTemporalInput{B,S,I,R}
+    binding::B
+    source_applications::S
+    initial::I
+    reference::R
+end
+
+struct CompiledModelStatusView{S,C,T}
+    status::S
+    canonical_status::C
+    temporal_inputs::T
+end
+
 struct CompiledModelCallBinding{NAME,SEL}
     application_id::Symbol
     consumer_id::ObjectId
@@ -69,33 +82,31 @@ end
 
 _compiled_call_name(::CompiledModelCallBinding{NAME}) where {NAME} = NAME
 
-struct CompiledEnvironmentBinding{B,C,S}
+struct CompiledEnvironmentBinding{B,H,C}
     application_id::Symbol
     object_id::ObjectId
-    provider::Symbol
     backend::B
-    cell::C
+    handle::H
     required_inputs::Vector{Symbol}
     source_inputs::Vector{Symbol}
     produced_outputs::Vector{Symbol}
-    support::S
+    context::C
     geometry_source_object_id::Union{Nothing,ObjectId}
     geometry_source::Symbol
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I,S,C,O}
+struct CompiledEnvironmentBindings{SC,B,I,S,C}
     model::SC
     bindings::B
     by_target::I
     samplers_by_application::S
     sample_cache::C
-    environment_overrides::O
     model_revision::Int
     environment_revision::Int
 end
 
-struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBI,AO,TL}
+struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBI,SVI,AO,TL}
     model::SC
     applications::AP
     applications_by_id::AI
@@ -106,6 +117,7 @@ struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBI,AO,TL}
     call_bindings_by_target::CBI
     dynamic_input_binding_indices::DBI
     model_bundles_by_target::MBI
+    status_views_by_target::SVI
     application_order::AO
     timeline::TL
     revision::Int
@@ -191,7 +203,17 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
     _wire_model_input_carriers!(model, input_bindings)
     validate_required_inputs &&
         _validate_model_required_inputs!(model, applications, input_bindings)
-    input_bindings_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
+    # Lifecycle refresh may replace an initially empty `Many(...)` carrier
+    # with a concrete carrier type. Keep the per-target index type-stable
+    # across that replacement so an updated compiled scene can be stored in
+    # an existing `Simulation`.
+    input_bindings_by_target = Dict{Any,Any}(
+        _index_model_bindings(
+            input_bindings,
+            :application_id,
+            :consumer_id,
+        ),
+    )
     call_bindings_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
     application_order = _compile_model_application_order(applications, input_bindings, call_bindings)
     applications_by_id = Dict(application.id => application for application in applications)
@@ -199,6 +221,13 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         applications,
         applications_by_id,
         call_bindings_by_target,
+    )
+    status_views_by_target = _compile_model_status_views(
+        model,
+        applications,
+        applications_by_id,
+        input_bindings_by_target,
+        application_order,
     )
     return CompiledCompositeModel(
         model,
@@ -211,6 +240,7 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         call_bindings_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
         model_bundles_by_target,
+        status_views_by_target,
         application_order,
         timeline,
         model.revision,
@@ -505,7 +535,12 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
 
     manual_application_ids = _manual_call_application_ids(call_bindings)
     input_bindings = copy(compiled.input_bindings)
-    input_bindings_by_target = copy(compiled.input_bindings_by_target)
+    # A `Many(...)` binding that starts empty is compiled with an untyped
+    # `RefVector{Any}` carrier. Once matching objects are registered, the
+    # refreshed carrier becomes concrete (for example `RefVector{Float64}`).
+    # Keep this incremental index value-widened so that lifecycle refresh can
+    # replace an initially empty binding without rebuilding the whole scene.
+    input_bindings_by_target = Dict{Any,Any}(compiled.input_bindings_by_target)
     changed_bindings = CompiledModelInputBinding[]
     processed_many_sources = IdDict{Any,Nothing}()
     candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
@@ -616,7 +651,12 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         )
         indexed
     end
-    application_order = compiled.application_order
+    # Newly resolved inputs can introduce ordering edges that did not exist
+    # while a dynamic application's target set was empty. Recompute the
+    # schedule before compiling status views and execution batches so new
+    # targets observe the same dependency contract as initial targets.
+    application_order =
+        _compile_model_application_order(applications, input_bindings, call_bindings)
     model_bundles_by_target = if existing_calls_affected
         _compile_model_model_bundles(
             applications,
@@ -637,6 +677,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
         bundles
     end
+    status_views_by_target = _compile_model_status_views(
+        model,
+        applications,
+        applications_by_id,
+        input_bindings_by_target,
+        application_order,
+    )
     return CompiledCompositeModel(
         model,
         applications,
@@ -648,6 +695,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         call_bindings_by_target,
         dynamic_input_binding_indices,
         model_bundles_by_target,
+        status_views_by_target,
         application_order,
         timeline,
         model.revision,
@@ -738,12 +786,9 @@ function explain_initialization(model::CompositeModel)
         model_inputs = inputs_(application.spec)
         environment_inputs = meteo_inputs_(application.spec)
         generated = Set(Symbol.(keys(model_outputs)))
-        union!(generated, Symbol.(keys(meteo_outputs_(application.spec))))
         for object_id in application.target_ids
             for variable in sort!(collect(generated); by=string)
-                default_value = haskey(model_outputs, variable) ?
-                                getproperty(model_outputs, variable) :
-                                getproperty(meteo_model_outputs, variable)
+                default_value = getproperty(model_outputs, variable)
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -754,6 +799,24 @@ function explain_initialization(model::CompositeModel)
                     source_object_ids=Any[],
                     source_variable=nothing,
                     origin=:model_output,
+                    expected_type=typeof(default_value),
+                    default_value=default_value,
+                    provided_type=nothing,
+                    detail=nothing,
+                ))
+            end
+            for variable in sort!(Symbol.(collect(keys(meteo_model_outputs))); by=string)
+                default_value = getproperty(meteo_model_outputs, variable)
+                push!(rows, (
+                    application_id=application.id,
+                    object_id=object_id.value,
+                    variable=variable,
+                    role=:environment_output,
+                    disposition=:declared,
+                    source_application_ids=Symbol[],
+                    source_object_ids=Any[],
+                    source_variable=nothing,
+                    origin=:environment_commit,
                     expected_type=typeof(default_value),
                     default_value=default_value,
                     provided_type=nothing,
@@ -1055,6 +1118,7 @@ function _manual_call_application_ids(call_bindings)
     ids = Set{Symbol}()
     for binding in call_bindings
         union!(ids, binding.callee_application_ids)
+        isnothing(binding.application) || push!(ids, binding.application)
     end
     return ids
 end
@@ -1260,7 +1324,7 @@ end
 
 function _prepare_model_output_statuses!(model::CompositeModel, applications)
     for application in applications
-        defaults = merge(outputs_(application.spec), meteo_outputs_(application.spec))
+        defaults = outputs_(application.spec)
         for object_id in application.target_ids
             status = _ensure_model_object_status!(model, object_id)
             for (variable, value) in pairs(defaults)
@@ -1301,6 +1365,175 @@ function _wire_model_input_carriers!(model::CompositeModel, bindings)
     return model
 end
 
+function _private_temporal_value(value)
+    value isa AbstractArray && return copy(value)
+    return value
+end
+
+function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
+    initial = _input_value(binding.carrier)
+    isnothing(initial) && (initial = status[binding.input])
+    if binding.multiplicity == :many
+        initial isa AbstractVector || error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` requires a vector-like initialized value; got ",
+            "`$(typeof(initial))`.",
+        )
+        if length(initial) == length(binding.source_ids)
+            return Any[_private_temporal_value(value) for value in initial]
+        end
+        binding.policy isa PreviousTimeStep && error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` resolved $(length(binding.source_ids)) source ",
+            "objects but has $(length(initial)) initialized values.",
+        )
+        isempty(binding.source_ids) && return Any[]
+        isempty(initial) && error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` needs an initialized element to preallocate ",
+            "$(length(binding.source_ids)) temporal values.",
+        )
+        return Any[
+            _private_temporal_value(first(initial))
+            for _ in binding.source_ids
+        ]
+    end
+    return _private_temporal_value(initial)
+end
+
+function _private_temporal_storage(binding::CompiledModelInputBinding, initial)
+    binding.multiplicity == :many ||
+        return _private_temporal_value(initial)
+    isempty(initial) && return RefVector{Any}()
+    references = Base.RefValue[Ref(_private_temporal_value(value)) for value in initial]
+    return _ref_vector_carrier(references)
+end
+
+function _temporal_source_application(
+    binding::CompiledModelInputBinding,
+    source_id::ObjectId,
+    applications_by_id,
+    application_positions,
+)
+    isempty(binding.source_application_ids) && return nothing
+    length(binding.source_application_ids) == 1 &&
+        return only(binding.source_application_ids)
+    matches = Symbol[
+        application_id for application_id in binding.source_application_ids
+        if source_id in applications_by_id[application_id].target_ids
+    ]
+    if length(matches) == 1
+        return only(matches)
+    elseif isempty(matches)
+        binding.policy isa PreviousTimeStep && return nothing
+        error(
+            "Temporal model input `$(binding.input)` from ",
+            "`$(source_id.value).$(binding.source_var)` has no source application ",
+            "matching object `$(source_id.value)`.",
+        )
+    elseif binding.policy isa PreviousTimeStep
+        return last(sort!(matches; by=application_id -> application_positions[application_id]))
+    end
+    error(
+        "Temporal model input `$(binding.input)` from ",
+        "`$(source_id.value).$(binding.source_var)` has ambiguous source ",
+        "applications `$(matches)`. Add `application=...` to `Inputs(...)`.",
+    )
+end
+
+function _validate_temporal_input_output_overlap!(
+    application::CompiledModelApplication,
+    temporal_bindings,
+)
+    output_names = Set(Symbol.(keys(outputs_(application.spec))))
+    for binding in temporal_bindings
+        binding.input in output_names || continue
+        error(
+            "Application `$(application.id)` declares `$(binding.input)` as both a ",
+            "temporal input and an output. A temporal input uses application-local ",
+            "storage while outputs publish through canonical status, so this overlap ",
+            "is ambiguous. Use distinct names such as `previous_$(binding.input)` for ",
+            "the lagged input and `$(binding.input)` for the current output, then map ",
+            "the source explicitly.",
+        )
+    end
+    return nothing
+end
+
+function _compile_model_status_view(
+    model::CompositeModel,
+    application::CompiledModelApplication,
+    object_id::ObjectId,
+    input_bindings,
+    applications_by_id,
+    application_positions,
+)
+    canonical_status = _ensure_model_object_status!(model, object_id)
+    temporal_bindings = Tuple(
+        binding for binding in input_bindings
+        if binding.carrier_hint == :temporal_stream
+    )
+    _validate_temporal_input_output_overlap!(application, temporal_bindings)
+    temporal_inputs = Tuple(begin
+        initial = _temporal_input_initial(binding, canonical_status)
+        CompiledTemporalInput(
+            binding,
+            Union{Nothing,Symbol}[
+                _temporal_source_application(
+                    binding,
+                    source_id,
+                    applications_by_id,
+                    application_positions,
+                )
+                for source_id in binding.source_ids
+            ],
+            initial,
+            Ref(_private_temporal_storage(binding, initial)),
+        )
+    end for binding in temporal_bindings)
+    temporal_by_name = Dict(
+        temporal_input.binding.input => temporal_input
+        for temporal_input in temporal_inputs
+    )
+    names = propertynames(canonical_status)
+    references = ntuple(length(names)) do index
+        name = names[index]
+        temporal_input = get(temporal_by_name, name, nothing)
+        isnothing(temporal_input) && return refvalue(canonical_status, name)
+        return temporal_input.reference
+    end
+    status = Status(NamedTuple{names}(references))
+    return CompiledModelStatusView(status, canonical_status, temporal_inputs)
+end
+
+function _compile_model_status_views(
+    model::CompositeModel,
+    applications,
+    applications_by_id,
+    input_bindings_by_target,
+    application_order,
+)
+    views = Dict{Tuple{Symbol,ObjectId},Any}()
+    positions = Dict(
+        application_id => index
+        for (index, application_id) in pairs(application_order)
+    )
+    for application in applications
+        for object_id in application.target_ids
+            key = (application.id, object_id)
+            views[key] = _compile_model_status_view(
+                model,
+                application,
+                object_id,
+                get(input_bindings_by_target, key, ()),
+                applications_by_id,
+                positions,
+            )
+        end
+    end
+    return views
+end
+
 input_carrier(binding::CompiledModelInputBinding) = binding.carrier
 has_reference_carrier(binding::CompiledModelInputBinding) = !isnothing(binding.carrier)
 input_value(binding::CompiledModelInputBinding) = _input_value(binding.carrier)
@@ -1337,6 +1570,23 @@ function _matching_input_source_applications(
             ", but no matching source application was found."
         )
     end
+    return matches
+end
+
+function _potential_input_source_applications(
+    applications_by_id,
+    source_var::Symbol,
+    process_filter,
+    application_filter,
+)
+    matches = Symbol[
+        application.id
+        for application in values(applications_by_id)
+        if source_var in _model_output_names(application) &&
+           (isnothing(process_filter) || application.process == process_filter) &&
+           (isnothing(application_filter) || application.id == application_filter)
+    ]
+    sort!(matches)
     return matches
 end
 
@@ -1439,8 +1689,25 @@ function _push_model_input_binding!(
         source_var,
         process_filter,
         application_filter,
-        allow_empty=selector isa OptionalOne,
+        allow_empty=selector isa OptionalOne ||
+                    (selector isa Many && isempty(source_ids)),
     )
+    if selector isa Many &&
+       isempty(source_ids) &&
+       (!isnothing(process_filter) || !isnothing(application_filter))
+        source_application_ids = _potential_input_source_applications(
+            applications_by_id,
+            source_var,
+            process_filter,
+            application_filter,
+        )
+        isempty(source_application_ids) && error(
+            "Input selector for source variable `$(source_var)` requested",
+            isnothing(process_filter) ? "" : " process `$(process_filter)`",
+            isnothing(application_filter) ? "" : " application `$(application_filter)`",
+            ", but no matching source application was found.",
+        )
+    end
     if !(selector isa Many) &&
        isnothing(process_filter) &&
        isnothing(application_filter) &&

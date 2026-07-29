@@ -93,7 +93,11 @@ end
 function _model_graph_dependency_children(applications, input_bindings, call_bindings)
     children = Dict{Symbol,Set{Symbol}}()
     call_owners = _model_call_owners(call_bindings)
-    _model_input_order_edges!(children, input_bindings, call_owners)
+    _model_input_order_edges!(
+        children,
+        input_bindings,
+        call_owners,
+    )
     _model_update_order_edges!(children, applications)
     return children
 end
@@ -161,6 +165,13 @@ function _model_graph_compiled(
         applications_by_id,
         call_by_target,
     )
+    status_views = _compile_model_status_views(
+        model,
+        applications,
+        applications_by_id,
+        input_by_target,
+        application_order,
+    )
     return CompiledCompositeModel(
         model,
         applications,
@@ -172,6 +183,7 @@ function _model_graph_compiled(
         call_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
         model_bundles,
+        status_views,
         application_order,
         _model_timeline(model),
         model.revision,
@@ -328,7 +340,11 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     children = Dict{Symbol,Set{Symbol}}()
     _model_graph_phase!(diagnostics, :dependency_inputs, nothing) do
         call_owners = _model_call_owners(call_bindings)
-        _model_input_order_edges!(children, input_bindings, call_owners)
+        _model_input_order_edges!(
+            children,
+            input_bindings,
+            call_owners,
+        )
     end
     _model_graph_phase!(diagnostics, :update_order, nothing) do
         _model_update_order_edges!(children, applications)
@@ -783,6 +799,23 @@ function _model_graph_update_edges(report)
     return edges
 end
 
+function _model_graph_environment_routes(config, backend)
+    payload = _environment_config_payload(config)
+    provider = if payload isa NamedTuple && haskey(payload, :provider)
+        Symbol(payload.provider)
+    elseif payload isa Symbol
+        payload
+    elseif isnothing(backend)
+        :none
+    else
+        :model
+    end
+    sink = payload isa NamedTuple && haskey(payload, :sink) ?
+           Symbol(payload.sink) :
+           provider
+    return provider, sink
+end
+
 function _model_graph_environment_edges(report, level)
     environment_bindings = try
         _compile_environment_bindings_for_applications(report.model, report.applications)
@@ -796,36 +829,35 @@ function _model_graph_environment_edges(report, level)
             isempty(required_inputs) && isempty(produced_outputs) && continue
             source_inputs = _environment_source_variable_names(application.spec)
             config = environment_config(application.spec)
-            provider = try
-                _environment_provider_from_config(
-                    config,
-                    _environment_backend_from_config(report.model, config),
-                )
-            catch
-                :model
-            end
+            backend = _environment_backend_from_config(report.model, config)
             for object_id in application.target_ids
                 push!(environment_bindings, (
                     application_id=application.id,
                     object_id=object_id,
-                    provider=provider,
+                    backend=backend,
                     required_inputs=required_inputs,
                     source_inputs=source_inputs,
                     produced_outputs=produced_outputs,
+                    config=config,
                 ))
             end
         end
     end
     edges = Dict{String,Dict{String,Any}}()
     for binding in environment_bindings
-        provider_id = string("environment:", binding.provider)
+        provider, sink = _model_graph_environment_routes(
+            binding.config,
+            binding.backend,
+        )
+        provider_id = string("environment:", provider)
+        sink_id = string("environment:", sink)
         target_id = level == :resolved ?
                     _model_graph_execution_node_id(binding.application_id, binding.object_id) :
                     _model_graph_application_node_id(binding.application_id)
         object_suffix = level == :resolved ? string(":", binding.object_id.value) : ""
         for (target_variable, source_variable) in zip(binding.required_inputs, binding.source_inputs)
             edge_id = string(
-                "environment-input:", binding.provider, ":", source_variable, ":",
+                "environment-input:", provider, ":", source_variable, ":",
                 binding.application_id, ":", target_variable, object_suffix,
             )
             edge = get!(edges, edge_id) do
@@ -844,7 +876,7 @@ function _model_graph_environment_edges(report, level)
                     "targetApplicationId" => string(binding.application_id),
                     "sourceObjectIds" => Any[],
                     "targetObjectIds" => Any[],
-                    "provider" => string(binding.provider),
+                    "provider" => string(provider),
                     "kind" => "environment_binding",
                     "projection" => string(level),
                     "cycle" => false,
@@ -856,25 +888,26 @@ function _model_graph_environment_edges(report, level)
         for variable in binding.produced_outputs
             edge_id = string(
                 "environment-output:", binding.application_id, ":", variable, ":",
-                binding.provider, object_suffix,
+                sink, object_suffix,
             )
             edge = get!(edges, edge_id) do
                 Dict{String,Any}(
                     "id" => edge_id,
                     "source" => target_id,
-                    "target" => provider_id,
+                    "target" => sink_id,
                     "sourcePort" => _model_graph_port_id(
                         binding.application_id,
                         :environment_output,
                         variable,
                     ),
-                    "targetPort" => string(provider_id, ":input:", variable),
+                    "targetPort" => string(sink_id, ":input:", variable),
                     "sourceVariable" => string(variable),
                     "targetVariable" => string(variable),
                     "sourceApplicationId" => string(binding.application_id),
                     "sourceObjectIds" => Any[],
                     "targetObjectIds" => Any[],
-                    "provider" => string(binding.provider),
+                    "provider" => string(sink),
+                    "sink" => string(sink),
                     "kind" => "environment_binding",
                     "projection" => string(level),
                     "cycle" => false,

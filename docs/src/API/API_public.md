@@ -38,8 +38,9 @@
   input policies.
 - `Environment(...)` configures environment providers and source remapping.
 - Models declare sampled environment variables with `meteo_inputs_`.
-- Mutable environment controllers use `with_environment!` for trial sampling
-  and `update_environment!` to commit accepted meteorology.
+- Mutable environment controllers pass trial state with
+  `run_call!(extra, name; environment=trial_state)` and commit accepted state
+  with `commit_environment!`.
 - `OutputRequest(selector, variable; ...)` selects retained and optionally
   resampled streams using the same object selector grammar.
 

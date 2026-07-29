@@ -4,28 +4,25 @@
 Backend protocol for meteorology and mutable microclimate providers.
 
 PlantSimEngine defines the protocol, not the spatial indexing strategy. External
-packages can subtype this and implement `sample`, `scatter!`, `update_index!`,
-`get_nsteps`, and `base_step_seconds`.
+packages can subtype this and implement `sample`, `commit_environment!`,
+`update_index!`, `get_nsteps`, and `base_step_seconds`.
 """
 abstract type AbstractEnvironmentBackend end
 
 """
-    EnvironmentSupport(application, scale, process, status[, cell])
+    EnvironmentContext(application, object_id, scale, process)
 
-Minimal support descriptor passed to environment backends when a model samples
-or mutates environmental variables. `cell` is the compiled backend binding
-value returned by `bind_environment`.
+Immutable model-target metadata passed to [`bind_environment`](@ref). Backends
+return an opaque handle from that method and use the handle for all subsequent
+sampling and commits. Runtime status and geometry are intentionally absent:
+object-to-environment routing belongs to the compiled handle.
 """
-struct EnvironmentSupport{S,C}
+struct EnvironmentContext{O}
     application::Symbol
+    object_id::O
     scale::Symbol
     process::Symbol
-    status::S
-    cell::C
 end
-
-EnvironmentSupport(application::Symbol, scale::Symbol, process::Symbol, status) =
-    EnvironmentSupport(application, scale, process, status, nothing)
 
 """
     GlobalConstant(meteo)
@@ -188,61 +185,63 @@ function validate_meteo_inputs(model::CompositeModel, meteo_or_backend)
 end
 
 """
-    sample(backend, variable, support, time)
+    sample(backend, handle, variable, time)
+    sample(backend, handle, state, variable, time)
 
-Sample one environmental variable for a model support at a runtime time.
+Sample one environmental variable through an opaque compiled backend `handle`.
+The four-argument method reads the backend's committed state. The five-argument
+method reads a transient backend-specific `state` supplied through
+`run_call!(extra, name; environment=state)`.
 """
-function sample(backend::AbstractEnvironmentBackend, variable::Symbol, support::EnvironmentSupport, time)
+function sample(backend::AbstractEnvironmentBackend, handle, variable::Symbol, time)
     error(
         "Environment backend `$(typeof(backend))` must implement ",
-        "`PlantSimEngine.sample(backend, variable, support, time)`."
+        "`PlantSimEngine.sample(backend, handle, variable, time)`."
     )
 end
 
-function sample(backend::GlobalConstant, variable::Symbol, support::EnvironmentSupport, time)
+function sample(backend::AbstractEnvironmentBackend, handle, state, variable::Symbol, time)
+    error(
+        "Environment backend `$(typeof(backend))` must implement transient sampling with ",
+        "`PlantSimEngine.sample(backend, handle, state, variable, time)` for state ",
+        "`$(typeof(state))`."
+    )
+end
+
+function sample(backend::GlobalConstant, handle, variable::Symbol, time)
     meteo = _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
     isnothing(meteo) && return nothing
     hasproperty(meteo, variable) || error(
-        "GlobalConstant meteo does not provide variable `$(variable)` for `$(support.application)/$(support.scale)/$(support.process)`."
+        "GlobalConstant meteo does not provide variable `$(variable)`."
+    )
+    return getproperty(meteo, variable)
+end
+
+function sample(backend::GlobalConstant, handle, state, variable::Symbol, time)
+    meteo = _meteo_row_at_step(state, Int(round(time)))
+    isnothing(meteo) && return nothing
+    hasproperty(meteo, variable) || error(
+        "Transient GlobalConstant state does not provide variable `$(variable)`."
     )
     return getproperty(meteo, variable)
 end
 
 """
-    scatter!(backend, variable, support, value, time)
+    commit_environment!(backend, handle, state, time)
 
-Scatter one model-computed environmental value back to a mutable backend.
+Commit an accepted environment `state` through an opaque compiled backend
+`handle`. Model kernels call `commit_environment!(extra, state)`; backend
+authors implement this method for their concrete mutable environment.
 """
-function scatter!(backend::AbstractEnvironmentBackend, variable::Symbol, support::EnvironmentSupport, value, time)
+function commit_environment!(backend::AbstractEnvironmentBackend, handle, state, time)
     error(
         "Environment backend `$(typeof(backend))` does not implement ",
-        "`PlantSimEngine.scatter!(backend, variable, support, value, time)`."
+        "`PlantSimEngine.commit_environment!(backend, handle, state, time)`."
     )
 end
 
-scatter!(backend::GlobalConstant, variable::Symbol, support::EnvironmentSupport, value, time) = error(
-    "GlobalConstant is immutable and cannot receive environment output `$(variable)` from ",
-    "`$(support.application)/$(support.scale)/$(support.process)`."
-)
-
-"""
-    update_environment!(backend, support, meteo, time)
-
-Commit an accepted meteorological state to a mutable environment backend.
-Model kernels normally call `update_environment!(extra, meteo)` on their
-`RunContext`; backend authors implement this method for their concrete
-environment.
-"""
-function update_environment!(backend::AbstractEnvironmentBackend, support::EnvironmentSupport, meteo, time)
-    error(
-        "Environment backend `$(typeof(backend))` does not implement ",
-        "`PlantSimEngine.update_environment!(backend, support, meteo, time)`."
-    )
-end
-
-update_environment!(backend::GlobalConstant, support::EnvironmentSupport, meteo, time) = error(
-    "GlobalConstant is immutable and cannot receive an accepted environment update from ",
-    "`$(support.application)/$(support.scale)/$(support.process)`."
+commit_environment!(backend::GlobalConstant, handle, state, time) = error(
+    "GlobalConstant is immutable and cannot receive an accepted environment commit."
 )
 
 """
@@ -254,21 +253,58 @@ update_index!(::AbstractEnvironmentBackend, entities) = nothing
 update_index!(::GlobalConstant, entities) = nothing
 
 """
-    sample_environment(backend, support, time, variables)
+    sample_environment(backend, handle, time, variables)
+    sample_environment(backend, handle, state, time, variables)
 
-Sample a meteo-like row for a model. `GlobalConstant` returns the original meteo
-row; other backends return a `NamedTuple` assembled from `sample` calls.
+Sample a model-facing meteo row through a compiled backend `handle`.
+`GlobalConstant` returns the original row; other backends return a `NamedTuple`
+assembled from `sample` calls. The overload containing `state` preserves the
+same handle while sampling a transient environment.
 """
-function sample_environment(backend::AbstractEnvironmentBackend, support::EnvironmentSupport, time, variables)
+function sample_environment(
+    backend::AbstractEnvironmentBackend,
+    handle,
+    time,
+    variables,
+)
     pairs = Pair{Symbol,Any}[]
     for variable in variables
-        push!(pairs, variable => sample(backend, variable, support, time))
+        push!(pairs, variable => sample(backend, handle, variable, time))
     end
     return (; pairs...)
 end
 
-function sample_environment(backend::GlobalConstant, support::EnvironmentSupport, time, variables)
+function sample_environment(
+    backend::AbstractEnvironmentBackend,
+    handle,
+    state,
+    time,
+    variables,
+)
+    pairs = Pair{Symbol,Any}[]
+    for variable in variables
+        push!(pairs, variable => sample(backend, handle, state, variable, time))
+    end
+    return (; pairs...)
+end
+
+function sample_environment(
+    backend::GlobalConstant,
+    handle,
+    time,
+    variables,
+)
     return _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
+end
+
+function sample_environment(
+    backend::GlobalConstant,
+    handle,
+    state,
+    time,
+    variables,
+)
+    return _meteo_row_at_step(state, Int(round(time)))
 end
 
 function _environment_sampling_rules(model_spec::ModelSpec)
@@ -306,24 +342,32 @@ end
 
 function sample_environment(
     backend::AbstractEnvironmentBackend,
-    support::EnvironmentSupport,
+    handle,
     time,
     model_spec::ModelSpec
 )
     pairs = Pair{Symbol,Any}[]
     for (target, source) in _environment_sampling_rules(model_spec)
-        push!(pairs, target => sample(backend, source, support, time))
+        push!(pairs, target => sample(backend, handle, source, time))
     end
     return (; pairs...)
 end
 
 function sample_environment(
-    backend::GlobalConstant,
-    support::EnvironmentSupport,
+    backend::AbstractEnvironmentBackend,
+    handle,
+    state,
     time,
     model_spec::ModelSpec
 )
-    row = _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
+    pairs = Pair{Symbol,Any}[]
+    for (target, source) in _environment_sampling_rules(model_spec)
+        push!(pairs, target => sample(backend, handle, state, source, time))
+    end
+    return (; pairs...)
+end
+
+function _sample_global_environment_row(row, model_spec::ModelSpec)
     bindings = meteo_bindings(model_spec)
     has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
     environment_sources = _environment_source_overrides(model_spec)
@@ -333,12 +377,12 @@ function sample_environment(
     pairs = Pair{Symbol,Any}[]
     for (target, source) in _environment_sampling_rules(model_spec)
         isnothing(row) && error(
-            "GlobalConstant meteo is `nothing`, but `$(support.application)/$(support.scale)/$(support.process)` ",
-            "requires meteo variable `$(target)`."
+            "GlobalConstant meteo is `nothing`, but the model requires meteo variable ",
+            "`$(target)`."
         )
         hasproperty(row, source) || error(
             "GlobalConstant meteo does not provide source variable `$(source)` for model-facing variable ",
-            "`$(target)` in `$(support.application)/$(support.scale)/$(support.process)`."
+            "`$(target)`."
         )
         push!(pairs, target => getproperty(row, source))
     end
@@ -348,33 +392,25 @@ function sample_environment(
     return (; pairs...)
 end
 
-function _environment_output_value(status, variable::Symbol, support::EnvironmentSupport)
-    hasproperty(status, variable) && return getproperty(status, variable)
-    error(
-        "Model `$(support.application)/$(support.scale)/$(support.process)` declares environment output ",
-        "`$(variable)` in `meteo_outputs_`, but its status does not contain `$(variable)`. ",
-        "Expose the computed value as a same-named `outputs_` variable or initialize it in the status."
-    )
-end
-
-"""
-    scatter_environment_outputs!(backend, support, time, model_spec, status)
-
-Scatter values declared by `meteo_outputs_(model)` from model status into a
-mutable environment backend.
-"""
-function scatter_environment_outputs!(
-    backend::AbstractEnvironmentBackend,
-    support::EnvironmentSupport,
+function sample_environment(
+    backend::GlobalConstant,
+    handle,
     time,
     model_spec::ModelSpec,
-    status
 )
-    for variable in keys(meteo_outputs_(model_spec))
-        value = _environment_output_value(status, variable, support)
-        scatter!(backend, variable, support, value, time)
-    end
-    return nothing
+    row = _meteo_row_at_step(environment_meteo(backend), Int(round(time)))
+    return _sample_global_environment_row(row, model_spec)
+end
+
+function sample_environment(
+    backend::GlobalConstant,
+    handle,
+    state,
+    time,
+    model_spec::ModelSpec,
+)
+    row = _meteo_row_at_step(state, Int(round(time)))
+    return _sample_global_environment_row(row, model_spec)
 end
 
 """

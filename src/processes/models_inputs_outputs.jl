@@ -170,8 +170,12 @@ meteo_inputs_(model::Missing) = NamedTuple()
     meteo_outputs(model::AbstractModel)
     meteo_outputs_(model::AbstractModel)
 
-Meteorological/environment variables produced by a model, for example local
-microclimate variables computed over a voxel or octree backend.
+Meteorological/environment variables that a controller model is allowed to
+commit with [`commit_environment!`](@ref), for example local microclimate
+variables computed over a canopy, voxel, or octree backend.
+
+These declarations are environment capabilities, not status outputs.
+Declare diagnostic status values separately with `outputs_`.
 """
 meteo_outputs(model::AbstractModel) = keys(meteo_outputs_(model))
 meteo_outputs(spec::ModelSpec) = keys(meteo_outputs_(spec))

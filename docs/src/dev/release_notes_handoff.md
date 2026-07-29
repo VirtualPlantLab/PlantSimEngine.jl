@@ -80,8 +80,8 @@ for multi-plant model coupling.
 - Ports MAESPA-style canopy air temperature and VPD update through the
   `canopy_air_update(...)` helper and `gbcanms`.
 - Treats input meteorology as above-canopy forcing, runs trial leaves with
-  `with_environment!`, commits accepted canopy meteorology with
-  `update_environment!`, and writes
+  `run_call!(...; environment=trial_state)`, commits accepted canopy
+  meteorology with `commit_environment!`, and writes
   below-canopy microclimate diagnostics to model status fields:
   `canopy_tair`, `canopy_vpd`, `canopy_rh`, `canopy_htot`, and
   `canopy_gcanop`.
@@ -208,8 +208,9 @@ for multi-plant model coupling.
 - CompositeModel applications now infer model-author default environment source remaps
   from `meteo_hint(...).bindings` when the scenario does not provide explicit
   meteo bindings. Scenario `Environment(; sources=...)` remains the override.
-- CompositeModel/object runtime exposes `with_environment!` for non-committing
-  trial meteorology and `update_environment!` for accepted mutable environment
+- CompositeModel/object runtime exposes `run_call!(...; environment=trial_state)`
+  for non-committing trial meteorology and `commit_environment!` for accepted
+  mutable environment
   commits from model kernels.
 - CompositeModel/object root applications now honor `TimeStep(...)` values backed by
   `Dates.Period` scheduling. `explain_schedule` reports normalized clocks and
@@ -274,7 +275,7 @@ for multi-plant model coupling.
   `species` labels. Membership explanations use the current topology rather
   than a copied instance object list.
 - CompositeModel hard calls now support trial microclimate through
-  `with_environment!(extra, local_meteo) do ... end`, so hard-called
+  `run_call!(extra, name; environment=local_state)`, so hard-called
   descendants resample the temporary environment through their normal
   environment bindings.
 - CompositeModel hard calls now default to `publish=false`. Trial calls mutate target

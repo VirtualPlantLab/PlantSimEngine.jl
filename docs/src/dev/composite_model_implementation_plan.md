@@ -215,8 +215,9 @@ types should be selectors, model traits, or internal compiled carriers.
   edge. This allows feedback cycles to compile without changing generic model
   kernels.
 - CompositeModel/object execution now exposes explicit mutable environment
-  commits through `update_environment!(extra, accepted_meteo)` and
-  non-committing trial scopes through `with_environment!(extra, trial_meteo)`.
+  commits through `commit_environment!(extra, accepted_state)` and
+  non-committing trial sampling through
+  `run_call!(extra, name; environment=trial_state)`.
   Meteorological state stays in the environment backend instead of being staged
   through same-named status values.
 - Added root application scheduling from `TimeStep(...)` using `Dates.Period`
@@ -330,7 +331,7 @@ types should be selectors, model traits, or internal compiled carriers.
   from the current topology, so growth, pruning, and reparenting do not leave a
   separate stale membership list.
 - CompositeModel hard calls can run under temporary local meteorology with
-  `with_environment!(extra, local_meteo) do ... end`. Descendants sample the
+  `run_call!(extra, name; environment=local_state)`. Descendants sample the
   temporary state through normal environment bindings, while `publish=false`
   suppresses output publication and environment commits. This supports
   iterative microclimate solvers such as the MAESPA model energy-balance loop.
@@ -832,8 +833,8 @@ Implement:
 - minimal geometry accessors or traits:
   `position`, `geometry`, and `bounds`.
 - backend protocol:
-  `Advanced.bind_environment`, `sample_environment`, `scatter_environment!`, and
-  `refresh_environment!`.
+  `Advanced.bind_environment`, opaque handles, committed/transient `sample`,
+  `commit_environment!`, and `update_index!`.
 - `Environment(...)` overrides for scenario-specific resolver/backend choices.
 - `Environment(; sources=(CO2=:Ca,))` for scenario-specific environment source
   remapping without changing model kernels.
@@ -866,7 +867,7 @@ Acceptance tests:
   the next timestep;
 - model `meteo_inputs_` changes update required variables without recomputing
   spatial links unless necessary.
-- `update_environment!(extra, accepted_meteo)` commits mutable microclimate
+- `commit_environment!(extra, accepted_state)` commits mutable microclimate
   state back to the active backend.
 
 ## Phase 7: Compiler, Scheduler, And Explanation Cleanup

@@ -567,17 +567,19 @@ backends.
 The environment backend protocol should be small and backend-oriented:
 
 ```julia
-Advanced.bind_environment(model, backend, object)
-sample_environment(backend, binding, time, variables)
-scatter_environment!(backend, binding, values)
-refresh_environment!(backend, model)
+handle = bind_environment(backend, object, context, config)
+sample(backend, handle, variable, time)
+sample(backend, handle, trial_state, variable, time)
+commit_environment!(backend, handle, accepted_state, time)
+update_index!(backend, entities)
 ```
 
 `meteo_inputs_(model)` declares what a model reads from the active environment
-provider. Controllers commit accepted mutable microclimate state with
-`update_environment!(extra, accepted_meteo)` and run trial descendants with
-`with_environment!(extra, trial_meteo)`. Simple global meteorology remains the
-default provider.
+provider, while `meteo_outputs_(model)` declares what it may commit. Controllers
+commit accepted mutable microclimate state with
+`commit_environment!(extra, accepted_state)` and run trial descendants with
+`run_call!(extra, name; environment=trial_state)`. Simple global meteorology
+remains the default provider.
 
 Scenario-level environment source remapping belongs on `Environment(...)`, for
 example:

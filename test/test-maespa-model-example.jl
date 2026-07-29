@@ -152,15 +152,15 @@ include("../examples/maespa_model_example.jl")
 
     environment_rows = explain_environment_bindings(result.environment)
     scene_environment = only(row for row in environment_rows if row.application_id == :scene_eb)
-    @test scene_environment.provider == :forcing
-    @test scene_environment.cell == :forcing
-    @test isempty(scene_environment.produced_outputs)
+    @test scene_environment.handle.provider == :forcing
+    @test scene_environment.handle.sink == :canopy
+    @test scene_environment.produced_outputs == [:T, :Rh]
     leaf_environment = only(
         row for row in environment_rows
         if row.application_id == :plant_A__energy_balance && row.object_id == :plant_A_leaf_1
     )
-    @test leaf_environment.provider == :canopy
-    @test leaf_environment.cell == :canopy
+    @test leaf_environment.handle.provider == :canopy
+    @test isnothing(leaf_environment.handle.sink)
     @test :T in leaf_environment.required_inputs
     @test :Rh in leaf_environment.required_inputs
 
@@ -178,6 +178,8 @@ include("../examples/maespa_model_example.jl")
     @test only(row for row in output_summary if row.object_id == :plant_A_leaf_1 && row.variable == :λE).application_id == :plant_A__energy_balance
 
     scene_status = only(model_objects(model; scale=:Scene)).status
+    @test !hasproperty(scene_status, :T)
+    @test !hasproperty(scene_status, :Rh)
     last_meteo = last(maespa_meteo(; nhours=25))
     vpd_above = max(0.01, last_meteo.VPD)
     @test isfinite(scene_status.canopy_tair)
@@ -201,6 +203,9 @@ include("../examples/maespa_model_example.jl")
     @test !occursin("cells_by_status", source)
     @test !occursin("geometry(object)", source)
     @test !occursin("PlantSimEngine.meteo_outputs_(::CanopyAir)", source)
+    @test !occursin("with_environment!", source)
+    @test !occursin("update_environment!", source)
+    @test !occursin("EnvironmentSupport", source)
 
     leaf_statuses = [object.status for object in model_objects(model; scale=:Leaf)]
     @test scene_status.leaf_area ≈ sum(st.leaf_area for st in leaf_statuses)

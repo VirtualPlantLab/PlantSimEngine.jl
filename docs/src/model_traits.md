@@ -75,16 +75,14 @@ Mutable microclimate updates should be committed explicitly by controller
 models:
 
 ```julia
-update_environment!(extra, accepted_meteo)
+commit_environment!(extra, accepted_meteo)
 ```
 
-For trial solves, wrap descendant calls in `with_environment!` so hard-called
-models sample a temporary atmosphere without committing it:
+For trial solves, pass a backend-specific state with `environment` so each
+hard-called model keeps its compiled provider or spatial handle:
 
 ```julia
-with_environment!(extra, trial_meteo) do
-    run_call!(extra, :leaf_energy; publish=false)
-end
+run_call!(extra, :leaf_energy; environment=trial_meteo, publish=false)
 ```
 
 Diagnostic variables such as canopy temperature or vapor-pressure deficit can

@@ -126,11 +126,13 @@ know its scenario timestep unless the scientific model explicitly requires it.
 
 - `Environment(...)` configures provider selection and source remapping.
 - Global meteorology and spatial backends use the same model-facing contract.
-- Spatial object-to-cell bindings are compiled and cached.
+- Spatial object-to-environment handles are compiled and cached.
 - `move_object!`, `update_geometry!`, or
   `mark_environment_binding_dirty!` invalidate affected bindings.
-- `scatter_environment_outputs!` writes model-produced microclimate variables
-  back to mutable backends.
+- `run_call!(extra, name; environment=trial_state)` samples transient
+  backend-specific state through each target's compiled handle.
+- `meteo_outputs_` declares environment variables a controller may commit, and
+  `commit_environment!` commits only the accepted state.
 
 ## Lifecycle
 
@@ -141,7 +143,8 @@ know its scenario timestep unless the scientific model explicitly requires it.
 - Use `register_object!` directly only when the caller already owns a fully
   initialized `Object`.
 - Structural changes refresh application targets, value carriers, call
-  targets, writer checks, and schedules between timesteps.
+  targets, writer checks, and schedules after the application that made the
+  change; new objects can run applications that remain later in the timestep.
 - Geometry changes refresh only affected environment bindings when possible.
 - Removed objects keep their historical output samples.
 

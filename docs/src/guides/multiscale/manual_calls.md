@@ -10,5 +10,6 @@ root scheduling.
 
 Explicit target cadence must match the caller. A target without an explicit
 cadence inherits the caller's invocation timing. Structural mutations are
-recompiled between timesteps, so new or removed objects affect calls on the
-next timestep, never recursively inside the mutation-producing kernel call.
+recompiled after the application that made the change. New or removed objects
+therefore affect later applications in the current timestep, but never
+recursively affect the mutation-producing kernel call itself.

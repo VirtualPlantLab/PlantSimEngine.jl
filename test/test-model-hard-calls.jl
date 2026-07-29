@@ -352,12 +352,15 @@ end
 
     simulation = run!(model)
     controller = only(model_objects(model; name=:plant_a)).status
+    schedule = Dict(row.application_id => row for row in explain_schedule(simulation.compiled))
+    @test schedule[:leaf_calls].manual_call_only
+    @test !schedule[:leaf_calls].root_scheduled
     @test controller.ncalls == 0
 
     reparent_object!(model, :leaf, :plant_a)
     continue!(simulation; steps=1)
     @test controller.ncalls == 1
-    @test controller.total == 2.0
+    @test controller.total == 1.0
 
     reparent_object!(model, :leaf, :plant_b)
     continue!(simulation; steps=1)

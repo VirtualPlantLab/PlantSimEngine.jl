@@ -14,9 +14,14 @@ PlantSimEngine.@process "alloc_a" verbose = false
 PlantSimEngine.@process "alloc_b" verbose = false
 
 duration_seconds(meteo) = Dates.value(Dates.Millisecond(meteo.duration)) / 1000.0
-mutable struct MaespaSingleLayerEnvironment{F,C} <: PlantSimEngine.AbstractEnvironmentBackendd
+mutable struct MaespaSingleLayerEnvironment{F,C} <: PlantSimEngine.AbstractEnvironmentBackend
     forcing::F # MAESPA forcing data (Meteo data from above the canopy)
     canopy::C # Within-canopy computed microclimate
+end
+
+struct MaespaEnvironmentHandle
+    provider::Symbol
+    sink::Union{Nothing,Symbol}
 end
 
 function MaespaSingleLayerEnvironment(forcing; canopy=_maespa_meteo_row(forcing, 1))
@@ -50,52 +55,55 @@ PlantSimEngine.environment_variables(::MaespaSingleLayerEnvironment) = Set([
 function PlantSimEngine.bind_environment(
     backend::MaespaSingleLayerEnvironment,
     object::Object,
-    support,
+    context::EnvironmentContext,
     config,
 )
-    provider = if config isa NamedTuple && haskey(config, :provider)
-        Symbol(config.provider)
-    elseif config isa Symbol
-        config
-    else
-        :canopy
-    end
+    provider = isnothing(config) ? :canopy : Symbol(config.provider)
+    sink = isnothing(config) || !haskey(config, :sink) ? nothing : Symbol(config.sink)
     provider in (:forcing, :canopy) || error(
         "MAESPA single-layer environment provider must be `:forcing` or `:canopy`, got `$(provider)`."
     )
-    return provider
+    isnothing(sink) || sink == :canopy || error(
+        "MAESPA single-layer environment sink must be `:canopy`, got `$(sink)`."
+    )
+    return MaespaEnvironmentHandle(provider, sink)
 end
 
 function PlantSimEngine.sample(
     backend::MaespaSingleLayerEnvironment,
+    handle::MaespaEnvironmentHandle,
     variable::Symbol,
-    support::EnvironmentSupport,
     time,
 )
-    provider = isnothing(support.cell) ? :canopy : support.cell
-    provider in (:forcing, :canopy) || error(
-        "MAESPA single-layer environment support cell must be `:forcing` or `:canopy`, got `$(provider)`."
-    )
-    meteo = provider == :forcing ? _maespa_meteo_row(backend.forcing, time) : backend.canopy
+    meteo = handle.provider == :forcing ?
+            _maespa_meteo_row(backend.forcing, time) :
+            backend.canopy
     return getproperty(meteo, variable)
 end
 
-function PlantSimEngine.update_environment!(
-    backend::MaespaSingleLayerEnvironment,
-    support::EnvironmentSupport,
-    meteo,
+function PlantSimEngine.sample(
+    backend::MaespaSingleLayerEnvironment{F,C},
+    handle::MaespaEnvironmentHandle,
+    state::C,
+    variable::Symbol,
     time,
-)
-    backend.canopy = Atmosphere(
-        T=meteo.T,
-        Rh=meteo.Rh,
-        Wind=meteo.Wind,
-        P=meteo.P,
-        Cₐ=meteo.Cₐ,
-        Ri_PAR_f=meteo.Ri_PAR_f,
-        Ri_SW_f=meteo.Ri_SW_f,
-        duration=meteo.duration,
+) where {F,C}
+    meteo = handle.provider == :forcing ?
+            _maespa_meteo_row(backend.forcing, time) :
+            state
+    return getproperty(meteo, variable)
+end
+
+function PlantSimEngine.commit_environment!(
+    backend::MaespaSingleLayerEnvironment{F,C},
+    handle::MaespaEnvironmentHandle,
+    state::C,
+    time,
+) where {F,C}
+    handle.sink == :canopy || error(
+        "MAESPA environment handle for provider `$(handle.provider)` has no `:canopy` commit sink."
     )
+    backend.canopy = state
     return nothing
 end
 
@@ -221,6 +229,7 @@ PlantSimEngine.meteo_inputs_(::SceneEB) = (
     VPD=0.0,
     λ=0.0,
 )
+PlantSimEngine.meteo_outputs_(::SceneEB) = (T=0.0, Rh=0.0)
 PlantSimEngine.outputs_(::SceneEB) = (
     canopy_rn=0.0,
     canopy_lambda_e=0.0,
@@ -307,9 +316,12 @@ end
 
 function _run_model_leaf_targets!(extra, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
     _prepare_model_leaf_inputs!(status, meteo_above, psi_soil)
-    with_environment!(extra, local_meteo) do
-        run_call!(extra, :energy_balance; publish=publish)
-    end
+    run_call!(
+        extra,
+        :energy_balance;
+        environment=local_meteo,
+        publish=publish,
+    )
     fluxes = _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
     return fluxes
 end
@@ -434,7 +446,7 @@ function _solve_model_energy_balance!(
 end
 
 function _publish_model_leaf_solution!(extra, status, solution::SceneEBSolverResult, meteo, ground_area)
-    update_environment!(extra, solution.final_meteo)
+    commit_environment!(extra, solution.final_meteo)
     fluxes = _run_model_leaf_targets_from_environment!(
         extra,
         status,
@@ -733,7 +745,7 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa
                 :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
                 :soil => One(kind=:soil, scale=:Soil, application=:soil_water),
             ) |>
-            Environment(provider=:forcing) |>
+            Environment(provider=:forcing, sink=:canopy) |>
             TimeStep(Dates.Hour(1)),
             ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water) |>
             AppliesTo(One(kind=:soil, scale=:Soil)) |>

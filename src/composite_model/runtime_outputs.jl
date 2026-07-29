@@ -14,7 +14,10 @@ Runtime context passed as the final argument to model kernels. Use
 `runtime_model`, `call_targets`, and `run_call!` instead of inspecting its
 fields.
 """
-struct RunContext{CS,A,CT,TS,OR,C}
+struct NoEnvironmentOverride end
+const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
+
+struct RunContext{CS,A,CT,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
@@ -25,9 +28,10 @@ struct RunContext{CS,A,CT,TS,OR,C}
     time::Float64
     constants::C
     publication_allowed::Bool
+    environment::E
 end
 
-struct CallTarget{CS,EB,A,M,S,TS,OR,C}
+struct CallTarget{CS,EB,A,M,S,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -39,6 +43,7 @@ struct CallTarget{CS,EB,A,M,S,TS,OR,C}
     time::Float64
     constants::C
     publication_allowed::Bool
+    environment::E
 end
 
 """
@@ -49,7 +54,7 @@ Retrieving it does not allocate a replacement collection. Obtain it with
 [`call_targets`](@ref) or as the result of
 [`run_call!(::RunContext, ::Symbol)`](@ref).
 """
-mutable struct CallTargets{CS,EB,B,TS,OR,C} <: AbstractVector{CallTarget}
+mutable struct CallTargets{CS,EB,B,TS,OR,C,E} <: AbstractVector{CallTarget}
     compiled::CS
     environment_bindings::EB
     binding::B
@@ -58,6 +63,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C} <: AbstractVector{CallTarget}
     time::Float64
     constants::C
     publication_allowed::Bool
+    environment::E
 end
 
 Base.IndexStyle(::Type{<:CallTargets}) = IndexLinear()
@@ -74,6 +80,7 @@ function _runtime_call_targets(
     time,
     constants,
     publication_allowed,
+    environment,
 )
     target = CallTargets(
         compiled,
@@ -84,6 +91,7 @@ function _runtime_call_targets(
         float(time),
         constants,
         publication_allowed,
+        environment,
     )
     return (
         target,
@@ -96,6 +104,7 @@ function _runtime_call_targets(
             time,
             constants,
             publication_allowed,
+            environment,
         )...,
     )
 end
@@ -105,10 +114,11 @@ struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
 const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
 
-struct CompiledExecutionTarget{M,S,MB,IB,EB}
+struct CompiledExecutionTarget{M,S,CS,MB,IB,EB}
     object_id::ObjectId
     model::M
     status::S
+    canonical_status::CS
     models::MB
     input_bindings::IB
     environment_binding::EB
@@ -190,6 +200,19 @@ function _model_object_status(model::CompositeModel, object_id::ObjectId)
         "CompositeModel object `$(object_id.value)` has no `Status`; model runtime requires status-backed objects."
     )
     return object.status
+end
+
+@inline function _model_status_view_for_application(
+    compiled::CompiledCompositeModel,
+    application::CompiledModelApplication,
+    object_id::ObjectId,
+)
+    key = (application.id, object_id)
+    haskey(compiled.status_views_by_target, key) || error(
+        "No compiled status view for application `$(application.id)` on object ",
+        "`$(object_id.value)`.",
+    )
+    return compiled.status_views_by_target[key]
 end
 
 function _set_status_if_present!(status::Status, variable::Symbol, value)
@@ -500,80 +523,79 @@ function _model_temporal_source_value(
     )
 end
 
-function _model_temporal_source_application(compiled::CompiledCompositeModel, binding::CompiledModelInputBinding, source_id::ObjectId)
-    if binding.policy isa PreviousTimeStep && isempty(binding.source_application_ids)
-        return nothing
-    end
-    isempty(binding.source_application_ids) && error(
-        "Temporal model input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
-        "has no resolved source application. Name the producer and add " *
-        "`application=...` to `Inputs(...)`."
-    )
-    length(binding.source_application_ids) == 1 &&
-        return only(binding.source_application_ids)
-    matches = Symbol[
-        application_id for application_id in binding.source_application_ids
-        if source_id in _compiled_application_by_id(compiled, application_id).target_ids
-    ]
-    if length(matches) == 1
-        return only(matches)
-    elseif isempty(matches)
-        binding.policy isa PreviousTimeStep && return nothing
-        error(
-            "Temporal model input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
-            "has no source application matching object `$(source_id.value)`."
+function _model_assign_private_temporal_value!(
+    temporal_input::CompiledTemporalInput,
+    value,
+)
+    current = temporal_input.reference[]
+    if current isa AbstractVector && value isa AbstractVector
+        if current isa Vector && length(current) != length(value)
+            resize!(current, length(value))
+        end
+        axes(current) == axes(value) || error(
+            "Temporal input `$(temporal_input.binding.input)` changed shape from ",
+            "`$(axes(current))` to ",
+            "`$(axes(value))`; use a stable vector shape or a `Many(...)` binding.",
         )
+        copyto!(current, value)
+        return temporal_input
     end
-    if binding.policy isa PreviousTimeStep
-        positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
-        return last(sort(matches; by=application_id -> get(positions, application_id, 0)))
-    end
-    error(
-        "Temporal model input `$(binding.input)` from `$(source_id.value).$(binding.source_var)` ",
-        "has ambiguous source applications `$(matches)`. Add `application=...` to `Inputs(...)`."
-    )
+    temporal_input.reference[] = value
+    return temporal_input
 end
 
-function _model_temporal_input_value(
-    compiled::CompiledCompositeModel,
-    binding::CompiledModelInputBinding,
-    application::CompiledModelApplication,
+function _materialize_model_temporal_input!(
     status::Status,
+    temporal_input::CompiledTemporalInput,
+    application::CompiledModelApplication,
     streams,
     time::Real,
     timeline,
 )
+    binding = temporal_input.binding
     window_steps = _model_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
-    initial = _input_value(binding.carrier)
-    isnothing(initial) && (initial = status[binding.input])
     if binding.multiplicity == :many
-        values = [
-            _model_temporal_source_value(
+        storage = temporal_input.reference[]
+        storage isa AbstractVector || error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` has non-vector private storage ",
+            "`$(typeof(storage))`.",
+        )
+        length(storage) == length(binding.source_ids) || error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` has $(length(storage)) private values for ",
+            "$(length(binding.source_ids)) resolved source objects. Refresh the ",
+            "compiled lifecycle bindings before execution.",
+        )
+        for index in eachindex(binding.source_ids)
+            value = _model_temporal_source_value(
                 streams,
-                _model_temporal_source_application(compiled, binding, source_id),
-                source_id,
+                temporal_input.source_applications[index],
+                binding.source_ids[index],
                 binding.source_var,
                 time,
                 binding.policy,
                 t_start,
                 timeline,
             )
-            for source_id in binding.source_ids
-        ]
-        if binding.policy isa PreviousTimeStep
-            initial_values = initial isa AbstractVector ? initial : ()
-            return [
-                isnothing(value) && index <= length(initial_values) ? initial_values[index] : value
-                for (index, value) in pairs(values)
-            ]
+            if isnothing(value)
+                binding.policy isa PreviousTimeStep || error(
+                    "No temporal model value available for input ",
+                    "`$(binding.input)` from ",
+                    "`$(binding.source_ids[index].value).$(binding.source_var)` ",
+                    "at t=$(time).",
+                )
+                value = temporal_input.initial[index]
+            end
+            storage[index] = value
         end
-        return values
+        return status
     end
     source_id = only(binding.source_ids)
     value = _model_temporal_source_value(
         streams,
-        _model_temporal_source_application(compiled, binding, source_id),
+        only(temporal_input.source_applications),
         source_id,
         binding.source_var,
         time,
@@ -581,47 +603,14 @@ function _model_temporal_input_value(
         t_start,
         timeline,
     )
-    isnothing(value) && binding.policy isa PreviousTimeStep && return initial
-    isnothing(value) && error(
-        "No temporal model value available for input `$(binding.input)` from ",
-        "`$(source_id.value).$(binding.source_var)` at t=$(time)."
-    )
-    return value
-end
-
-function _model_temporal_input_value(
-    compiled::CompiledCompositeModel,
-    binding::CompiledModelInputBinding,
-    application::CompiledModelApplication,
-    streams,
-    time::Real,
-    timeline,
-)
-    status = _model_object_status(compiled.model, binding.consumer_id)
-    return _model_temporal_input_value(
-        compiled,
-        binding,
-        application,
-        status,
-        streams,
-        time,
-        timeline,
-    )
-end
-
-function _model_assign_input_value!(status::Status, variable::Symbol, value)
-    variable in propertynames(status) || error(
-        "Cannot materialize input `$(variable)` because consumer status has no such variable."
-    )
-    current = status[variable]
-    if current isa RefVector && value isa AbstractVector
-        length(current) != length(value) && resize!(current, length(value))
-        for i in eachindex(value)
-            current[i] = value[i]
-        end
-        return status
+    if isnothing(value)
+        binding.policy isa PreviousTimeStep || error(
+            "No temporal model value available for input `$(binding.input)` from ",
+            "`$(source_id.value).$(binding.source_var)` at t=$(time).",
+        )
+        value = temporal_input.initial
     end
-    status[variable] = value
+    _model_assign_private_temporal_value!(temporal_input, value)
     return status
 end
 
@@ -632,26 +621,17 @@ function _materialize_model_inputs!(
     streams=nothing,
     time::Real=1,
 )
-    status = _model_object_status(compiled.model, object_id)
-    bindings = get(compiled.input_bindings_by_target, (application.id, object_id), ())
-    timeline = nothing
-    for binding in bindings
-        if binding.carrier_hint == :temporal_stream
-            isnothing(streams) && continue
-            isnothing(timeline) && (timeline = compiled.timeline)
-            value = _model_temporal_input_value(
-                compiled,
-                binding,
-                application,
-                status,
-                streams,
-                time,
-                timeline,
-            )
-            _model_assign_input_value!(status, binding.input, value)
-        end
-    end
-    return status
+    isnothing(streams) &&
+        return _model_object_status(compiled.model, object_id)
+    view = _model_status_view_for_application(compiled, application, object_id)
+    return _materialize_model_inputs!(
+        view.status,
+        view.temporal_inputs,
+        compiled,
+        application,
+        streams,
+        time,
+    )
 end
 
 function _materialize_model_inputs!(
@@ -662,22 +642,18 @@ function _materialize_model_inputs!(
     streams=nothing,
     time::Real=1,
 )
-    timeline = nothing
-    for binding in bindings
-        if binding.carrier_hint == :temporal_stream
-            isnothing(streams) && continue
-            isnothing(timeline) && (timeline = compiled.timeline)
-            value = _model_temporal_input_value(
-                compiled,
-                binding,
-                application,
-                status,
-                streams,
-                time,
-                timeline,
-            )
-            _model_assign_input_value!(status, binding.input, value)
-        end
+    isnothing(streams) && return status
+    timeline = compiled.timeline
+    for temporal_input in bindings
+        temporal_input isa CompiledTemporalInput || continue
+        _materialize_model_temporal_input!(
+            status,
+            temporal_input,
+            application,
+            streams,
+            time,
+            timeline,
+        )
     end
     return status
 end
@@ -687,9 +663,16 @@ function _model_meteo_for_model(
     application::CompiledModelApplication,
     object_id::ObjectId,
     time::Real,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
 )
     binding = _environment_binding_for(env_bindings, application.id, object_id)
-    return _model_meteo_for_binding(env_bindings, application, binding, time)
+    return _model_meteo_for_binding(
+        env_bindings,
+        application,
+        binding,
+        time,
+        environment,
+    )
 end
 
 function _model_meteo_for_binding(
@@ -697,11 +680,19 @@ function _model_meteo_for_binding(
     application::CompiledModelApplication,
     binding,
     time::Real,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
 )
-    isempty(env_bindings.environment_overrides) ||
-        return last(env_bindings.environment_overrides)
     isnothing(binding) && return nothing
     isnothing(binding.backend) && return nothing
+    if !(environment isa NoEnvironmentOverride)
+        return sample_environment(
+            binding.backend,
+            binding.handle,
+            environment,
+            time,
+            application.spec,
+        )
+    end
     if binding.backend isa GlobalConstant
         step = Int(round(time))
         key = (application.id, step)
@@ -732,14 +723,19 @@ function _model_meteo_for_binding(
         end
         sampled = sample_environment(
             binding.backend,
-            binding.support,
+            binding.handle,
             time,
             application.spec,
         )
         env_bindings.sample_cache[key] = sampled
         return sampled
     end
-    return sample_environment(binding.backend, binding.support, time, application.spec)
+    return sample_environment(
+        binding.backend,
+        binding.handle,
+        time,
+        application.spec,
+    )
 end
 
 function _push_model_model_entry!(pairs, names::Set{Symbol}, name::Symbol, model)
@@ -851,6 +847,7 @@ end
     application::CompiledModelApplication,
     object_id::ObjectId,
     status,
+    canonical_status,
     meteo_value,
     calls,
     time,
@@ -858,6 +855,7 @@ end
     temporal_streams,
     output_retention,
     publish::Bool,
+    environment,
 )
     context = RunContext(
         compiled,
@@ -870,6 +868,7 @@ end
         float(time),
         constants,
         publish,
+        environment,
     )
     model = _application_model(application, object_id)
     models = _model_models_for_application(compiled, application, object_id)
@@ -879,7 +878,7 @@ end
             temporal_streams,
             application,
             object_id,
-            status,
+            canonical_status,
             time,
             output_retention,
         )
@@ -897,10 +896,30 @@ function _run_model_application!(
     temporal_streams=nothing,
     output_retention=nothing,
     publish::Bool=true,
-    meteo=nothing,
+    meteo=_UNSPECIFIED_SCENE_METEO,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
 )
-    status = _materialize_model_inputs!(compiled, application, object_id, temporal_streams, time)
-    meteo_value = isnothing(meteo) ? _model_meteo_for_model(env_bindings, application, object_id, time) : meteo
+    status_view = _model_status_view_for_application(
+        compiled,
+        application,
+        object_id,
+    )
+    status = _materialize_model_inputs!(
+        status_view.status,
+        status_view.temporal_inputs,
+        compiled,
+        application,
+        temporal_streams,
+        time,
+    )
+    meteo_value = meteo isa UnspecifiedModelMeteo ?
+                  _model_meteo_for_model(
+        env_bindings,
+        application,
+        object_id,
+        time,
+        environment,
+    ) : meteo
     if isempty(compiled.call_bindings)
         return _run_model_application_with_calls!(
             compiled,
@@ -908,6 +927,7 @@ function _run_model_application!(
             application,
             object_id,
             status,
+            status_view.canonical_status,
             meteo_value,
             (),
             time,
@@ -915,6 +935,7 @@ function _run_model_application!(
             temporal_streams,
             output_retention,
             publish,
+            environment,
         )
     end
     call_bindings = get(
@@ -931,6 +952,7 @@ function _run_model_application!(
         time,
         constants,
         publish,
+        environment,
     )
     return _run_model_application_with_calls!(
         compiled,
@@ -938,6 +960,7 @@ function _run_model_application!(
         application,
         object_id,
         status,
+        status_view.canonical_status,
         meteo_value,
         calls,
         time,
@@ -945,6 +968,7 @@ function _run_model_application!(
         temporal_streams,
         output_retention,
         publish,
+        environment,
     )
 end
 
@@ -989,13 +1013,14 @@ function _run_model_execution_target_without_calls!(
         float(time),
         constants,
         true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
     publish_outputs && _model_publish_outputs!(
         temporal_streams,
         application,
         target.object_id,
-        status,
+        target.canonical_status,
         time,
         output_retention,
         retained_outputs,
@@ -1060,6 +1085,7 @@ function _run_model_execution_target!(
         time,
         constants,
         true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     context = RunContext(
         compiled,
@@ -1072,13 +1098,14 @@ function _run_model_execution_target!(
         float(time),
         constants,
         true,
+        _NO_ENVIRONMENT_OVERRIDE,
     )
     run!(target.model, target.models, status, meteo_value, constants, context)
     publish_outputs && _model_publish_outputs!(
         temporal_streams,
         application,
         target.object_id,
-        status,
+        target.canonical_status,
         time,
         output_retention,
         retained_outputs,
@@ -1158,6 +1185,7 @@ function _manual_call_application_ids(compiled::CompiledCompositeModel)
     ids = Set{Symbol}()
     for binding in compiled.call_bindings
         union!(ids, binding.callee_application_ids)
+        isnothing(binding.application) || push!(ids, binding.application)
     end
     return ids
 end
@@ -1168,18 +1196,13 @@ function _compiled_model_execution_target(
     application::CompiledModelApplication,
     object_id::ObjectId,
 )
-    status = _model_object_status(compiled.model, object_id)
+    status_view = _model_status_view_for_application(
+        compiled,
+        application,
+        object_id,
+    )
     model = _application_model(application, object_id)
     models = _model_models_for_application(compiled, application, object_id)
-    input_bindings = get(
-        compiled.input_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
-    temporal_input_bindings = Tuple(
-        binding for binding in input_bindings
-        if binding.carrier_hint == :temporal_stream
-    )
     environment_binding = _environment_binding_for(
         env_bindings,
         application.id,
@@ -1188,9 +1211,10 @@ function _compiled_model_execution_target(
     return CompiledExecutionTarget(
         object_id,
         model,
-        status,
+        status_view.status,
+        status_view.canonical_status,
         models,
-        temporal_input_bindings,
+        status_view.temporal_inputs,
         environment_binding,
     )
 end
@@ -1255,38 +1279,6 @@ function compile_model_execution_plan(
     end
     return CompiledExecutionPlan(
         batches,
-        compiled.revision,
-        env_bindings.environment_revision,
-    )
-end
-
-function _extend_model_execution_plan(
-    plan::CompiledExecutionPlan,
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    added_object_ids,
-)
-    added = Set(added_object_ids)
-    manual_application_ids = _manual_call_application_ids(compiled)
-    for application in _ordered_model_applications(compiled)
-        application.id in manual_application_ids && continue
-        for object_id in application.target_ids
-            object_id in added || continue
-            target = _compiled_model_execution_target(
-                compiled,
-                env_bindings,
-                application,
-                object_id,
-            )
-            batch_index = findfirst(plan.batches) do batch
-                batch.application.id == application.id && eltype(batch.targets) === typeof(target)
-            end
-            isnothing(batch_index) && return compile_model_execution_plan(compiled, env_bindings)
-            push!(plan.batches[batch_index].targets, target)
-        end
-    end
-    return CompiledExecutionPlan(
-        plan.batches,
         compiled.revision,
         env_bindings.environment_revision,
     )
@@ -1518,7 +1510,11 @@ end
 Base.size(targets::CallTargets) = (length(targets),)
 
 function _materialize_call(targets::CallTargets, application, object_id::ObjectId)
-    status = _model_object_status(targets.compiled.model, object_id)
+    status = _model_status_view_for_application(
+        targets.compiled,
+        application,
+        object_id,
+    ).status
     return CallTarget(
         targets.compiled,
         targets.environment_bindings,
@@ -1531,6 +1527,7 @@ function _materialize_call(targets::CallTargets, application, object_id::ObjectI
         targets.time,
         targets.constants,
         targets.publication_allowed,
+        targets.environment,
     )
 end
 
@@ -1573,12 +1570,20 @@ function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
 end
 
 """
-    call_targets(context::RunContext, name::Symbol)
+    call_targets(context::RunContext, name::Symbol; objects=nothing)
 
 Return a cached, non-executing vector-like view of the targets declared for
 `name` with `Calls(...)`. The collection is empty for an unresolved
 `OptionalOne`, has one element for `One`, and contains every resolved target
 for `Many`.
+
+When `objects` is provided, resolve the declared call against the current
+object topology and restrict the result to those objects. This explicit form is
+intended for models that create objects and immediately initialize selected
+applications on them. Ordinary scheduled execution still observes structural
+changes at the next timestep boundary. Each requested object may be an
+[`ObjectId`](@ref), [`Object`](@ref), an MTG node, or the [`Status`](@ref)
+returned by [`add_organ!`](@ref).
 
 Use this accessor with [`run_call!(::CallTarget)`](@ref) when targets need
 different meteorology, selective execution, a controlled order, or separate
@@ -1587,8 +1592,93 @@ trial and accepted publication.
 Base.@constprop :aggressive function call_targets(
     context::RunContext,
     name::Symbol,
+    ;
+    objects=nothing,
 )
+    isnothing(objects) ||
+        return _current_topology_call_targets(context, name, objects)
     return _model_call_targets(context, name)
+end
+
+function _call_target_object_id(model::CompositeModel, target)
+    target isa ObjectId && return target
+    target isa Object && return target.id
+    if target isa Status
+        hasproperty(target, :node) || error(
+            "A `Status` used as a hard-call object filter must contain its source `node`."
+        )
+        return _call_target_object_id(model, target.node)
+    end
+    adapter = model.source_adapter
+    if adapter isa MTGObjectAdapter && target isa MultiScaleTreeGraph.Node
+        return ObjectId(adapter.id(target))
+    end
+    return ObjectId(target)
+end
+
+function _call_target_object_ids(model::CompositeModel, objects)
+    requested = objects isa Union{Tuple,AbstractVector,AbstractSet} ?
+                objects : (objects,)
+    ids = ObjectId[_call_target_object_id(model, object) for object in requested]
+    unique!(ids)
+    return ids
+end
+
+function _current_topology_call_targets(
+    context::RunContext,
+    name::Symbol,
+    objects,
+)
+    model = runtime_model(context)
+    compiled = refresh_bindings!(model)
+    environment_bindings = refresh_environment_bindings!(model, compiled)
+    bindings = get(
+        compiled.call_bindings_by_target,
+        (context.application.id, context.object_id),
+        (),
+    )
+    binding = findfirst(
+        candidate -> _compiled_call_name(candidate) === name,
+        bindings,
+    )
+    if isnothing(binding)
+        available = Symbol[candidate.call for candidate in bindings]
+        error(
+            "Application `$(context.application.id)` on object ",
+            "`$(context.object_id.value)` did not declare call `$(name)`. ",
+            "Declared calls: $(available).",
+        )
+    end
+    resolved_binding = bindings[binding]
+    requested_ids = _call_target_object_ids(model, objects)
+    unresolved_ids = setdiff(requested_ids, resolved_binding.callee_object_ids)
+    isempty(unresolved_ids) || error(
+        "Hard call `$(name)` from application `$(context.application.id)` does not ",
+        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
+    )
+    selected_binding = CompiledModelCallBinding(
+        resolved_binding.application_id,
+        resolved_binding.consumer_id,
+        resolved_binding.call,
+        resolved_binding.selector,
+        resolved_binding.origin,
+        requested_ids,
+        resolved_binding.callee_application_ids,
+        resolved_binding.process,
+        resolved_binding.application,
+        resolved_binding.multiplicity,
+    )
+    return CallTargets(
+        compiled,
+        environment_bindings,
+        selected_binding,
+        context.temporal_streams,
+        context.output_retention,
+        context.time,
+        context.constants,
+        context.publication_allowed,
+        context.environment,
+    )
 end
 
 function _environment_binding_for_current_context(context::RunContext)
@@ -1599,8 +1689,8 @@ function _environment_binding_for_current_context(context::RunContext)
     )
     if isnothing(binding) || isnothing(binding.backend)
         error(
-            "Cannot update environment for `$(context.application.id)` on object ",
-            "`$(context.object_id.value)`: no mutable/updatable environment binding is configured. ",
+            "Cannot commit environment state for `$(context.application.id)` on object ",
+            "`$(context.object_id.value)`: no environment binding is configured. ",
             "Attach an environment with `CompositeModel(...; environment=...)` and ",
             "`ModelSpec(model) |> Environment(...)`."
         )
@@ -1608,66 +1698,47 @@ function _environment_binding_for_current_context(context::RunContext)
     return binding
 end
 
+function _validate_environment_commit(context::RunContext, state)
+    declared = Symbol.(collect(keys(meteo_outputs_(context.application.spec))))
+    isempty(declared) && error(
+        "Application `$(context.application.id)` cannot commit environment state because ",
+        "its model declares no `meteo_outputs_` variables.",
+    )
+    missing = Symbol[variable for variable in declared if !hasproperty(state, variable)]
+    isempty(missing) || error(
+        "Environment state committed by application `$(context.application.id)` is missing ",
+        "declared `meteo_outputs_` variable(s) `$(Tuple(missing))`.",
+    )
+    return nothing
+end
+
 """
-    update_environment!(context::RunContext, meteo)
+    commit_environment!(context::RunContext, state)
 
-Commit an accepted meteorological state to the mutable environment bound to the
-currently running model application/object. This is the model-facing API for
-controllers that intentionally update microclimate state.
+Commit an accepted environment `state` through the opaque handle compiled for
+the currently running model application/object. The model must declare the
+variables it commits with `meteo_outputs_`.
 
-The commit is ignored while the current model is executing as a non-publishing
-trial hard call. That keeps trial microclimates local to the call stack; only
-accepted/publishing contexts can mutate the backend.
-
-Backend-specific support metadata stays inside PlantSimEngine; model kernels
-only pass the accepted meteo object they computed.
+Commits are ignored while the current model is executing as a non-publishing
+hard call. Trial environment states should instead be passed to
+`run_call!(context, name; environment=state)`.
 """
-function update_environment!(context::RunContext, meteo)
+function commit_environment!(context::RunContext, state)
     context.publication_allowed || return nothing
     binding = _environment_binding_for_current_context(context)
-    return update_environment!(
+    _validate_environment_commit(context, state)
+    return commit_environment!(
         binding.backend,
-        binding.support,
-        meteo,
+        binding.handle,
+        state,
         context.time,
     )
 end
 
-function update_environment!(context, meteo)
+function commit_environment!(context, state)
     throw(
         ArgumentError(
-            "`update_environment!` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
-        ),
-    )
-end
-
-"""
-    with_environment!(f, context::RunContext, meteo)
-
-Temporarily override the sampled environment for hard calls executed inside
-`f`. The override is restored even if `f` throws. This is intended for
-iterative solvers that need non-committing trial microclimates:
-
-```julia
-with_environment!(extra, trial_meteo) do
-    run_call!(extra, :energy_balance; publish=false)
-end
-```
-"""
-function with_environment!(f::Function, context::RunContext, meteo)
-    overrides = context.environment_bindings.environment_overrides
-    push!(overrides, meteo)
-    try
-        return f()
-    finally
-        pop!(overrides)
-    end
-end
-
-function with_environment!(f::Function, context, meteo)
-    throw(
-        ArgumentError(
-            "`with_environment!` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
+            "`commit_environment!` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
         ),
     )
 end
@@ -1679,14 +1750,9 @@ Run one manually selected model call. By default, the call mutates its target
 status without publishing outputs or environment updates, which is suitable
 for trial iterations. Pass `publish=true` once for the accepted state. When
 `meteo` is provided, it is forwarded directly to this target instead of using
-its compiled environment binding. For a scoped trial environment shared by all
-hard-called descendants, prefer [`with_environment!`](@ref):
-
-```julia
-with_environment!(extra, trial_meteo) do
-    run_call!(target; publish=false)
-end
-```
+its compiled environment binding. This is the fine-grained escape hatch for
+one selected target; execute provider-aware trial states for all targets with
+`run_call!(context, name; environment=state)`.
 
 The method returns the same `CallTarget`.
 
@@ -1699,20 +1765,23 @@ select or iterate its targets:
 
 ```julia
 targets = call_targets(extra, :leaf_energy)
-with_environment!(extra, trial_meteo) do
-    for target in targets
-        run_call!(target; publish=false)
-    end
+for (target, target_meteo) in zip(targets, leaf_meteo)
+    run_call!(target; meteo=target_meteo, publish=false)
 end
 
 accepted = accepted_meteo(model, status)
-update_environment!(extra, accepted)
+commit_environment!(extra, accepted)
 for target in targets
     run_call!(target; publish=true)
 end
 ```
 """
-function run_call!(target::CallTarget; publish::Bool=false, meteo=nothing)
+function _run_call!(
+    target::CallTarget;
+    publish::Bool=false,
+    meteo=_UNSPECIFIED_SCENE_METEO,
+    environment=target.environment,
+)
     _run_model_application!(
         target.compiled,
         target.environment_bindings,
@@ -1724,39 +1793,65 @@ function run_call!(target::CallTarget; publish::Bool=false, meteo=nothing)
         output_retention=target.output_retention,
         publish=publish && target.publication_allowed,
         meteo=meteo,
+        environment=environment,
     )
     return target
 end
 
+function run_call!(
+    target::CallTarget;
+    publish::Bool=false,
+    meteo=_UNSPECIFIED_SCENE_METEO,
+)
+    return _run_call!(target; publish=publish, meteo=meteo)
+end
+
 """
-    run_call!(context::RunContext, name::Symbol; meteo=nothing, publish=false)
+    run_call!(context::RunContext, name::Symbol; environment, publish=false)
 
 Execute every target of the hard call declared as `name` and return its
 [`CallTargets`](@ref) collection. The return shape is always vector-like:
 `One` produces one element, `OptionalOne` zero or one, and `Many` zero or more.
 
-This is the convenient execute-all API. For finer-grained control over target
-selection, order, per-target meteorology, iterative trial calls, or publication
-of only an accepted result, use [`call_targets`](@ref) and execute individual
-targets with [`run_call!(::CallTarget)`](@ref). For trial microclimate scopes,
-wrap the hard calls with [`with_environment!`](@ref); for accepted mutable
-environment updates, call [`update_environment!`](@ref) before publishing the
+When `environment` is supplied, every target keeps its own opaque compiled
+backend handle and samples that transient backend-specific state. The state is
+inherited by nested hard calls. Omit it to sample the committed backend state.
+
+For finer-grained target selection, order, or direct per-target meteorology,
+use [`call_targets`](@ref) and [`run_call!(::CallTarget)`](@ref). Commit an
+accepted mutable state with [`commit_environment!`](@ref) before publishing the
 accepted descendants.
 """
 function run_call!(
     context::RunContext,
     name::Symbol;
-    meteo=nothing,
+    environment=_NO_ENVIRONMENT_OVERRIDE,
     publish::Bool=false,
+    objects=nothing,
 )
-    targets = call_targets(context, name)
+    targets = isnothing(objects) ?
+              call_targets(context, name) :
+              call_targets(context, name; objects=objects)
+    selected_environment = environment isa NoEnvironmentOverride ?
+                           context.environment :
+                           environment
     for target in targets
-        run_call!(target; meteo=meteo, publish=publish)
+        _run_call!(
+            target;
+            environment=selected_environment,
+            publish=publish,
+        )
     end
     return targets
 end
 
-function run_call!(context, name::Symbol; meteo=nothing, publish::Bool=false)
+function run_call!(
+    context,
+    name::Symbol;
+    environment=_NO_ENVIRONMENT_OVERRIDE,
+    publish::Bool=false,
+    objects=nothing,
+)
     throw(
         ArgumentError(
             "Hard call `$(name)` requires the compiled RunContext passed to a model kernel; got $(typeof(context)).",
@@ -1797,25 +1892,25 @@ end
 
 function _refresh_simulation_runtime!(simulation::Simulation)
     model = simulation.model
-    if bindings_dirty(model)
-        added_object_ids = isnothing(model.binding_dirty_objects) ?
-                           nothing : copy(model.binding_dirty_objects)
+    if bindings_dirty(model) ||
+       simulation.compiled.revision != model_revision(model)
         simulation.compiled = refresh_bindings!(model)
+        simulation.output_retention = compile_model_output_retention(
+            simulation.compiled,
+            simulation.output_requests;
+            retain_all=simulation.output_retention.retain_all,
+        )
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
             simulation.compiled,
         )
-        simulation.execution_plan = isnothing(added_object_ids) ?
-                                    compile_model_execution_plan(
+        simulation.execution_plan = compile_model_execution_plan(
             simulation.compiled,
             simulation.environment_bindings,
-        ) : _extend_model_execution_plan(
-            simulation.execution_plan,
-            simulation.compiled,
-            simulation.environment_bindings,
-            added_object_ids,
         )
-    elseif environment_bindings_dirty(model)
+    elseif environment_bindings_dirty(model) ||
+           simulation.environment_bindings.environment_revision !=
+           environment_revision(model)
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
             simulation.compiled,
@@ -1828,6 +1923,53 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     return simulation
 end
 
+function _simulation_runtime_dirty(simulation::Simulation)
+    model = simulation.model
+    return bindings_dirty(model) ||
+           simulation.compiled.revision != model_revision(model) ||
+           environment_bindings_dirty(model) ||
+           simulation.environment_bindings.environment_revision !=
+           environment_revision(model)
+end
+
+function _run_model_execution_step!(simulation::Simulation, step::Integer)
+    completed_applications = Set{Symbol}()
+    empty!(simulation.environment_bindings.sample_cache)
+    while true
+        batches = simulation.execution_plan.batches
+        first_batch = findfirst(
+            batch -> !(batch.application.id in completed_applications),
+            batches,
+        )
+        isnothing(first_batch) && return simulation
+
+        application_id = batches[first_batch].application.id
+        batch_index = first_batch
+        while batch_index <= length(batches) &&
+              batches[batch_index].application.id == application_id
+            _run_model_execution_batch!(
+                batches[batch_index],
+                simulation.compiled,
+                simulation.environment_bindings;
+                time=step,
+                constants=simulation.constants,
+                temporal_streams=simulation.temporal_streams,
+                output_retention=simulation.output_retention,
+            )
+            batch_index += 1
+        end
+        push!(completed_applications, application_id)
+
+        _simulation_runtime_dirty(simulation) || continue
+        added_object_ids = bindings_dirty(simulation.model) &&
+                           !isnothing(simulation.model.binding_dirty_objects) ?
+                           copy(simulation.model.binding_dirty_objects) : nothing
+        _refresh_simulation_runtime!(simulation)
+        _refresh_output_request_targets!(simulation, added_object_ids)
+        empty!(simulation.environment_bindings.sample_cache)
+    end
+end
+
 function _continue_scene!(simulation::Simulation, steps::Integer)
     steps >= 0 || error("`steps` must be non-negative, got $(steps).")
     start_step = simulation.current_step + 1
@@ -1838,18 +1980,7 @@ function _continue_scene!(simulation::Simulation, steps::Integer)
                            copy(simulation.model.binding_dirty_objects) : nothing
         _refresh_simulation_runtime!(simulation)
         _refresh_output_request_targets!(simulation, added_object_ids)
-        empty!(simulation.environment_bindings.sample_cache)
-        for batch in simulation.execution_plan.batches
-            _run_model_execution_batch!(
-                batch,
-                simulation.compiled,
-                simulation.environment_bindings;
-                time=step,
-                constants=simulation.constants,
-                temporal_streams=simulation.temporal_streams,
-                output_retention=simulation.output_retention,
-            )
-        end
+        _run_model_execution_step!(simulation, step)
         simulation.current_step = step
     end
     added_object_ids = bindings_dirty(simulation.model) &&
@@ -1871,7 +2002,21 @@ function _initial_output_request_targets(model, compiled, output_requests)
         )
         targets[request.name] = (
             application.id,
-            Dict(id => _model_object(model, id).scale for id in object_ids),
+            Dict(
+                id => (
+                    scale=_model_object(model, id).scale,
+                    initial=getproperty(
+                        _model_status_view_for_application(
+                            compiled,
+                            application,
+                            id,
+                        ).canonical_status,
+                        request.var,
+                    ),
+                    start_time=0.0,
+                )
+                for id in object_ids
+            ),
         )
     end
     return targets
@@ -1879,7 +2024,8 @@ end
 
 function _refresh_output_request_targets!(simulation::Simulation, added_object_ids=nothing)
     for request in simulation.output_requests
-        _, object_scales = simulation.output_request_targets[request.name]
+        application_id, object_targets =
+            simulation.output_request_targets[request.name]
         matched_ids = if isnothing(added_object_ids)
             resolve_object_ids(
                 simulation.model,
@@ -1898,18 +2044,32 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
             ]
         end
         match_count = isnothing(added_object_ids) ?
-                      length(matched_ids) : length(object_scales) + length(matched_ids)
+                      length(matched_ids) :
+                      length(union(Set(keys(object_targets)), Set(matched_ids)))
         if request.selector isa Union{One,OptionalOne} && match_count > 1
             error(
                 "Output request `$(request.name)` expected at most one current object for selector ",
                 "`$(request.selector)`, got $([id.value for id in matched_ids]).",
             )
         end
+        application = _compiled_application_by_id(
+            simulation.compiled,
+            application_id,
+        )
         for object_id in matched_ids
-            object_scales[object_id] = _model_object(
-                simulation.model,
-                object_id,
-            ).scale
+            haskey(object_targets, object_id) && continue
+            object_targets[object_id] = (
+                scale=_model_object(simulation.model, object_id).scale,
+                initial=getproperty(
+                    _model_status_view_for_application(
+                        simulation.compiled,
+                        application,
+                        object_id,
+                    ).canonical_status,
+                    request.var,
+                ),
+                start_time=float(simulation.current_step + 1),
+            )
         end
     end
     return simulation
@@ -2080,18 +2240,6 @@ function _model_application_matches_scale(
     return false
 end
 
-function _model_stream_object_matches_scale(
-    model::CompositeModel,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    scale::Symbol,
-)
-    object = get(model.registry.objects, object_id, nothing)
-    !isnothing(object) && return object.scale == scale
-    declared_scale = _selector_declared_scale(application.applies_to)
-    return isnothing(declared_scale) || declared_scale == scale
-end
-
 function _model_request_clock(request, timeline)
     isnothing(request.clock) && return ClockSpec(1.0, 0.0)
     clock = _clock_from_spec_timestep(request.clock, timeline)
@@ -2127,31 +2275,49 @@ function _model_requested_output_rows(
     request,
 )
     application_id, requested_objects = sim.output_request_targets[request.name]
-    requested_ids = keys(requested_objects)
     application = _compiled_application_by_id(sim.compiled, application_id)
     declared_scale = _selector_declared_scale(request.selector)
     timeline = _model_timeline(sim.model)
     clock = _model_request_clock(request, timeline)
     source_rows = [
-        (object_id=object_id, samples=samples)
-        for ((application_id, object_id, variable), samples) in sim.temporal_streams
-        if application_id == application.id &&
-           variable == request.var &&
-           (object_id in requested_ids ||
-            (!isnothing(declared_scale) &&
-             _model_stream_object_matches_scale(sim.model, application, object_id, declared_scale)))
+        (
+            object_id=object_id,
+            scale=target.scale,
+            samples=vcat(
+                [(target.start_time, target.initial)],
+                get(
+                    sim.temporal_streams,
+                    (application.id, object_id, request.var),
+                    Tuple{Float64,typeof(target.initial)}[],
+                ),
+            ),
+        )
+        for (object_id, target) in requested_objects
     ]
     isempty(source_rows) && return NamedTuple[]
     nonempty_source_rows = [row for row in source_rows if !isempty(row.samples)]
     isempty(nonempty_source_rows) && return NamedTuple[]
-    max_time = maximum(last(row.samples)[1] for row in nonempty_source_rows)
+    max_time = request.policy isa HoldLast ?
+               sim.current_step :
+               maximum(last(row.samples)[1] for row in nonempty_source_rows)
     rows = NamedTuple[]
     for time in 1:Int(floor(max_time))
         _should_run_at_time(clock, float(time)) || continue
         t_start = float(time) - float(clock.dt) + 1.0
         for row in sort!(nonempty_source_rows; by=row -> string(row.object_id.value))
             first_sample_time = first(row.samples)[1]
-            last_sample_time = last(row.samples)[1]
+            is_current_target =
+                haskey(sim.model.registry.objects, row.object_id) &&
+                _selector_matches_object_id(
+                    sim.model,
+                    request.selector,
+                    row.object_id;
+                    context=request.context,
+                )
+            last_sample_time = request.policy isa HoldLast &&
+                               is_current_target ?
+                               float(sim.current_step) :
+                               last(row.samples)[1]
             first_sample_time <= float(time) <= last_sample_time || continue
             push!(
                 rows,
@@ -2159,7 +2325,7 @@ function _model_requested_output_rows(
                     timestep=time,
                     time=float(time),
                     scale=isnothing(declared_scale) ?
-                          get(requested_objects, row.object_id, missing) :
+                          row.scale :
                           declared_scale,
                     process=application.process,
                     application_id=application.id,

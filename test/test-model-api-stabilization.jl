@@ -172,6 +172,8 @@ end
         :Simulation,
         :RunContext,
         :CallTarget,
+        :EnvironmentContext,
+        :commit_environment!,
         :model_objects,
         :runtime_model,
         :explain_applications,
@@ -188,6 +190,15 @@ end
     )
         @test internal_name ∉ public_names
         @test internal_name ∈ advanced_names
+    end
+    for removed_name in (
+        :EnvironmentSupport,
+        :with_environment!,
+        :update_environment!,
+        :scatter!,
+        :scatter_environment_outputs!,
+    )
+        @test removed_name ∉ public_names
     end
 end
 

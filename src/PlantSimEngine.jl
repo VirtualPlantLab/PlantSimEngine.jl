@@ -139,7 +139,7 @@ export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates, OutputRouting
-export call_targets, run_call!, with_environment!, update_environment!, explain_schedule
+export call_targets, run_call!, commit_environment!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status
 export @process, process
@@ -165,10 +165,9 @@ export SetModelObjectStatus, SetModelObjectStatuses, RemoveModelObjectStatus, Se
 export SetModelInstanceOverride, RemoveModelInstanceOverride
 export SetModelObjectOverride, RemoveModelObjectOverride, apply_model_graph_edit
 export AbstractModelGraphEditorSession, edit_graph, current_model, apply_edit!, undo!, redo!
-export AbstractEnvironmentBackend, EnvironmentSupport, GlobalConstant
+export AbstractEnvironmentBackend, EnvironmentContext, GlobalConstant
 export environment_backend, environment_variables, base_step_seconds
-export sample, sample_environment, scatter!, update_index!
-export scatter_environment_outputs!
+export sample, sample_environment, update_index!
 export explain_environment
 export run!, continue!, step!
 export fit
