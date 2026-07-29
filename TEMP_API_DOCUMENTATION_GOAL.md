@@ -329,10 +329,10 @@ committed XPalm v0.6.1 fixture:
 - [x] The best current result is therefore `58.59×` slower: approximately
       `105.654 ms` instead of `1.803 ms` per simulated day.
 - [x] The reference run finishes with 344 phytomers.
-- [ ] Reproduce the current timing again from a healthy Kaimon session before
+- [x] Reproduce the current timing again from a healthy Kaimon session before
       changing runtime code, recording warm-up policy, source revisions,
       machine information, wall time, allocations, and output mode.
-- [ ] Capture a sampling and allocation profile before optimization. The code
+- [x] Capture a sampling and allocation profile before optimization. The code
       paths below are confirmed work amplification, but their exact shares of
       elapsed time have not yet been measured because the profiling Kaimon
       session failed to start.
@@ -341,24 +341,37 @@ Use XPalm v0.6.1 with PlantSimEngine v0.14.1 as the exact historical performance
 reference. A v0.5.1 comparison may be retained as additional historical
 evidence, but it must not replace the reproducible v0.6.1 fixture.
 
+Current restoration checkpoints on the same staged XPalm fixture:
+
+- [x] At `195a346b`, the 1,000-day run took `4.118958` seconds and allocated
+      `3.145 GB` with `outputs=:none`; the reference-output run took
+      `4.089205` seconds and allocated `3.161 GB`.
+- [x] At `c1b8cc2f`, the 1,000-day run takes `3.989951` seconds and allocates
+      `2.702 GB` with `outputs=:none`; the reference-output run takes
+      `4.285781` seconds and allocates `2.719 GB`.
+- [x] Reference-output collection is measured separately at `0.597552`
+      seconds and `67.4 MB`.
+- [ ] Rerun and persist the exact 4,160-day fixture after the remaining
+      allocation work; the 1,000-day checkpoint is not the acceptance result.
+
 ### Performance invariants
 
-- [ ] The steady-state scheduler performs one linear traversal of compiled
+- [x] The steady-state scheduler performs one linear traversal of compiled
       application groups and targets per timestep.
-- [ ] A timestep with no structural or environment changes performs no selector
+- [x] A timestep with no structural or environment changes performs no selector
       resolution, dependency-graph compilation, status-view construction,
       execution-plan construction, or output-retention compilation.
-- [ ] Adding objects extends or replaces only affected compiled structures.
+- [x] Adding objects extends or replaces only affected compiled structures.
       Unaffected targets retain their status views, temporal storage, reference
       carriers, call bindings, environment handles, and execution batches.
-- [ ] Lifecycle extension cost scales with the number of added, removed,
+- [x] Lifecycle extension cost scales with the number of added, removed,
       reparented, or moved objects and the applications affected by that delta.
-- [ ] Temporal dependency state is distinct from user-retained output history.
-- [ ] Dynamic dispatch remains at compiled batch boundaries, not inside the
+- [x] Temporal dependency state is distinct from user-retained output history.
+- [x] Dynamic dispatch remains at compiled batch boundaries, not inside the
       per-object kernel loop.
-- [ ] Homogeneous steady-state batches preserve the existing zero-allocation
+- [x] Homogeneous steady-state batches preserve the existing zero-allocation
       target-loop guarantee.
-- [ ] Performance improvements preserve deterministic application order,
+- [x] Performance improvements preserve deterministic application order,
       lifecycle visibility, `PreviousTimeStep` semantics, hard-call
       publication, output retention, removed-object history, overrides, and
       generic numeric types.
@@ -377,14 +390,14 @@ evidence, but it must not replace the reproducible v0.6.1 fixture.
   - temporal input materialization and publication;
   - scientific kernel execution;
   - output collection.
-- [ ] Count lifecycle refreshes, dirty objects, affected applications, status
+- [x] Count lifecycle refreshes, dirty objects, affected applications, status
       views constructed, execution targets constructed, bindings replaced, and
       batches rebuilt.
-- [ ] Keep instrumentation disabled or effectively free in ordinary runs.
-- [ ] Use `Profile`, allocation measurements, and BenchmarkTools through
+- [x] Keep instrumentation disabled or effectively free in ordinary runs.
+- [x] Use `Profile`, allocation measurements, and BenchmarkTools through
       Kaimon. Do not infer percentage contributions from static inspection
       alone.
-- [ ] Profile a controlled matrix that separates:
+- [x] Profile a controlled matrix that separates:
   - scene construction from simulation;
   - steady-state execution from structural growth;
   - `outputs=:none` from requested regression outputs;
@@ -405,30 +418,30 @@ initial phytomer, rebuilding every existing view causes at least
 `1,602,153` growing-scale status-view constructions, excluding static and
 reproductive objects.
 
-- [ ] Preserve `status_views_by_target` for unaffected keys.
-- [ ] Compile status views only for new targets and for existing targets whose
+- [x] Preserve `status_views_by_target` for unaffected keys.
+- [x] Compile status views only for new targets and for existing targets whose
       dynamic input bindings genuinely changed.
-- [ ] Preserve private temporal storage and reference identity for unaffected
+- [x] Preserve private temporal storage and reference identity for unaffected
       status views.
-- [ ] Extend `input_bindings_by_target`, `call_bindings_by_target`, and
+- [x] Extend `input_bindings_by_target`, `call_bindings_by_target`, and
       `model_bundles_by_target` only for affected consumers and callees.
-- [ ] When a dynamic hard-call selector starts matching a new object, update
+- [x] When a dynamic hard-call selector starts matching a new object, update
       only that binding and the callers whose compiled bundle actually changes.
       Do not rebuild every call binding or model bundle.
 - [ ] Cache the application dependency graph or its edge set. Recompute
       application order only when a lifecycle delta introduces or removes an
       ordering edge.
-- [ ] Extend the execution plan by appending a new target to a compatible typed
+- [x] Extend the execution plan by appending a new target to a compatible typed
       batch or rebuilding only the affected application's groups.
-- [ ] Update output retention only when a new temporal dependency or requested
+- [x] Update output retention only when a new temporal dependency or requested
       output target changes retention.
-- [ ] Continue using the existing incremental environment-binding refresh for
+- [x] Continue using the existing incremental environment-binding refresh for
       affected objects; do not rebuild unrelated spatial handles.
-- [ ] Preserve the application-boundary lifecycle transaction so several
+- [x] Preserve the application-boundary lifecycle transaction so several
       objects created by one kernel are refreshed together.
-- [ ] Ensure `run_call!(...; objects=new_objects)` can initialize new objects
+- [x] Ensure `run_call!(...; objects=new_objects)` can initialize new objects
       without triggering a whole-scene rebuild.
-- [ ] Add lifecycle tests covering creation, removal, reparenting, overrides,
+- [x] Add lifecycle tests covering creation, removal, reparenting, overrides,
       new dynamic `Many` matches, hard-call initialization, and temporal state
       preservation.
 
@@ -439,17 +452,17 @@ The current step loop allocates a `Set{Symbol}` and repeatedly calls
 application. XPalm currently defines 62 applications, and one application can
 contain several typed batches.
 
-- [ ] Compile an `ApplicationExecutionGroup` or equivalent representation that
+- [x] Compile an `ApplicationExecutionGroup` or equivalent representation that
       owns one application and its typed batches.
-- [ ] Execute the ordinary clean-runtime path as one linear loop over groups
+- [x] Execute the ordinary clean-runtime path as one linear loop over groups
       and one linear loop over each group's targets.
-- [ ] Do not allocate a completed-application set on an ordinary timestep.
-- [ ] Put lifecycle resumption behind a separate slow path.
-- [ ] After a mid-step refresh, skip already completed application identities
+- [x] Do not allocate a completed-application set on an ordinary timestep.
+- [x] Put lifecycle resumption behind a separate slow path.
+- [x] After a mid-step refresh, skip already completed application identities
       without repeatedly rescanning all earlier batches.
-- [ ] Preserve correct behavior if a lifecycle change introduces a new
+- [x] Preserve correct behavior if a lifecycle change introduces a new
       dependency edge and changes the remaining order.
-- [ ] Benchmark and allocation-test one clean timestep with one batch per
+- [x] Benchmark and allocation-test one clean timestep with one batch per
       application and with several heterogeneous batches per application.
 
 ### 4. Compile temporal policies into typed state
@@ -459,19 +472,19 @@ dependencies are published through a global
 `Dict{Tuple{Symbol,ObjectId,Symbol},Any}` of sample vectors. Dependency-only
 streams then use `deleteat!` or `filter!` during publication.
 
-- [ ] Compile `PreviousTimeStep` to a typed previous/current double buffer or
+- [x] Compile `PreviousTimeStep` to a typed previous/current double buffer or
       equivalent fixed-size state.
-- [ ] Rotate previous-step state at a defined timestep boundary so the result
+- [x] Rotate previous-step state at a defined timestep boundary so the result
       is independent of same-step producer/consumer execution order.
-- [ ] Share compiled source cells with all compatible consumers instead of
+- [x] Share compiled source cells with all compatible consumers instead of
       repeating dictionary lookup by application, object, and variable.
-- [ ] Implement `Integrate`, `Aggregate`, and other finite-window policies with
+- [x] Implement `Integrate`, `Aggregate`, and other finite-window policies with
       typed ring buffers or another bounded representation.
-- [ ] Keep append-only historical streams only for outputs the user explicitly
+- [x] Keep append-only historical streams only for outputs the user explicitly
       retains or requests.
-- [ ] Preserve initial-value, missing-source, multirate cadence, publication,
+- [x] Preserve initial-value, missing-source, multirate cadence, publication,
       continuation, and removed-object history semantics.
-- [ ] Add allocation and scaling tests for thousands of objects using
+- [x] Add allocation and scaling tests for thousands of objects using
       `PreviousTimeStep` without retained user output.
 
 ### 5. Restore the no-hard-call fast path per batch
@@ -480,36 +493,36 @@ XPalm has only two `Calls(...)` declarations, but the presence of any compiled
 call binding currently sends every scheduled target through the call-capable
 execution path.
 
-- [ ] Record call capability per compiled target or homogeneous batch.
-- [ ] Run targets with no call bindings through the no-call kernel even when
+- [x] Record call capability per compiled target or homogeneous batch.
+- [x] Run targets with no call bindings through the no-call kernel even when
       unrelated applications in the scene declare hard calls.
-- [ ] Group call-capable targets by concrete call tuple or another type-stable
+- [x] Group call-capable targets by concrete call tuple or another type-stable
       representation.
-- [ ] Avoid a per-target lookup in `call_bindings_by_target` when call bindings
+- [x] Avoid a per-target lookup in `call_bindings_by_target` when call bindings
       are already known during compilation.
-- [ ] Preserve nested calls, selective targets, transient environments,
+- [x] Preserve nested calls, selective targets, transient environments,
       `publish=false`, accepted publication, and lifecycle-created call targets.
 - [ ] Benchmark a large scene with zero, sparse, and dense hard-call usage.
 
 ### 6. Separate and preallocate retained outputs
 
-- [ ] Benchmark `run!` and `collect_outputs` independently while retaining an
+- [x] Benchmark `run!` and `collect_outputs` independently while retaining an
       end-to-end benchmark comparable to the historical XPalm fixture.
-- [ ] Preallocate regular-cadence requested output columns from the known step
+- [x] Preallocate regular-cadence requested output columns from the known step
       count where possible.
-- [ ] Extend output storage incrementally when lifecycle changes introduce a
+- [x] Extend output storage incrementally when lifecycle changes introduce a
       newly requested object.
 - [ ] Avoid using the generic temporal-dependency stream representation for
       ordinary requested outputs when a typed columnar representation is
       available.
-- [ ] Preserve streams keyed by application, object, and variable and preserve
+- [x] Preserve streams keyed by application, object, and variable and preserve
       resampling and removed-object history.
 - [ ] Compare `outputs=:none`, a small explicit request, the XPalm regression
       request, and `outputs=:all`.
 
 ### Performance benchmark and regression matrix
 
-- [ ] Turn the existing BenchmarkTools suite into an executable, saved,
+- [x] Turn the existing BenchmarkTools suite into an executable, saved,
       comparable suite instead of leaving `tune!`, `run`, and result saving
       commented out.
 - [ ] Record source revisions, Julia version, manifest hash, fixture hash,
@@ -526,13 +539,13 @@ execution path.
   8. the same run with reference outputs;
   9. output collection alone;
   10. the complete end-to-end reference helper.
-- [ ] Keep a short deterministic PR gate for steady-state allocations,
+- [x] Keep a short deterministic PR gate for steady-state allocations,
       lifecycle scaling, and a simulation prefix.
 - [ ] Run and persist the complete XPalm performance suite on a stable runner
       nightly, before releases, or on explicit performance workflows.
 - [ ] Compare noisy wall-clock measurements with generous regression
       tolerances, but keep allocation and work-count regressions strict.
-- [ ] Fail correctness before considering performance: every benchmark fixture
+- [x] Fail correctness before considering performance: every benchmark fixture
       must verify final state or selected checkpoints.
 
 ### Performance acceptance targets
@@ -542,15 +555,15 @@ execution path.
 - [ ] Final target: complete it in at most 10 seconds, or document and obtain
       explicit approval for any remaining measured cost required by the new
       semantics.
-- [ ] Demonstrate that a clean steady-state step allocates no memory in the
+- [x] Demonstrate that a clean steady-state step allocates no memory in the
       homogeneous target loops and stays within an explicitly recorded total
       scheduler allocation budget.
-- [ ] Demonstrate that adding one equivalent organ to a large scene constructs
+- [x] Demonstrate that adding one equivalent organ to a large scene constructs
       only the new and affected compiled targets. The benchmark and work
       counters must show delta scaling rather than whole-scene scaling.
 - [ ] Demonstrate that sparse hard-call declarations do not slow unrelated
       applications onto the call-capable path.
-- [ ] Demonstrate bounded temporal dependency memory when outputs are not
+- [x] Demonstrate bounded temporal dependency memory when outputs are not
       retained.
 - [ ] Persist the repaired baseline so later API, lifecycle, temporal, and
       output changes cannot silently recreate a large regression.
