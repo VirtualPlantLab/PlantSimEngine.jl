@@ -3410,9 +3410,17 @@ end
     bounded_source_samples = outputs(bounded_temporal_simulation)[
         (:hourly_signal, ObjectId(:leaf_1), :signal)
     ]
+    @test bounded_source_samples isa
+          PlantSimEngine.TemporalDependencyBuffer{Float64}
+    @test length(bounded_source_samples.times) == 2
     @test length(bounded_source_samples) == 2
     @test getindex.(bounded_source_samples, 1) == [18.0, 19.0]
     @test getindex.(bounded_source_samples, 2) == [18.0, 19.0]
+    bounded_requested_samples = outputs(bounded_temporal_simulation)[
+        (:scene_temporal_sum, ObjectId(:scene), :temporal_total)
+    ]
+    @test bounded_requested_samples isa Vector{Tuple{Float64,Float64}}
+    @test length(bounded_requested_samples) == 10
     @test only(model_objects(bounded_temporal_scene; scale=:Scene)).status.temporal_total ==
           37.0
     @test length(

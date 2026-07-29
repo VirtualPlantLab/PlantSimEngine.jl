@@ -8,6 +8,96 @@ struct OutputRetentionPlan
 end
 
 """
+    TemporalDependencyBuffer{T} <: AbstractVector{Tuple{Float64,T}}
+
+Typed, bounded storage for an output retained only to satisfy temporal model
+dependencies. Requested and `outputs=:all` streams continue to use append-only
+vectors. The logical indexing order is oldest to newest, independently of the
+physical circular-buffer layout.
+"""
+mutable struct TemporalDependencyBuffer{T} <: AbstractVector{Tuple{Float64,T}}
+    times::Vector{Float64}
+    values::Vector{T}
+    first_slot::Int
+    sample_count::Int
+end
+
+function TemporalDependencyBuffer{T}(capacity::Integer) where {T}
+    capacity > 0 || throw(
+        ArgumentError("Temporal dependency capacity must be positive."),
+    )
+    return TemporalDependencyBuffer{T}(
+        Vector{Float64}(undef, capacity),
+        Vector{T}(undef, capacity),
+        1,
+        0,
+    )
+end
+
+Base.IndexStyle(::Type{<:TemporalDependencyBuffer}) = IndexLinear()
+Base.size(buffer::TemporalDependencyBuffer) = (buffer.sample_count,)
+
+@inline function _temporal_dependency_slot(
+    buffer::TemporalDependencyBuffer,
+    index::Int,
+)
+    @boundscheck checkbounds(buffer, index)
+    return mod1(buffer.first_slot + index - 1, length(buffer.times))
+end
+
+@inline function Base.getindex(buffer::TemporalDependencyBuffer, index::Int)
+    slot = _temporal_dependency_slot(buffer, index)
+    return (@inbounds buffer.times[slot], @inbounds buffer.values[slot])
+end
+
+@inline function Base.setindex!(
+    buffer::TemporalDependencyBuffer{T},
+    sample::Tuple{Float64,T},
+    index::Int,
+) where {T}
+    slot = _temporal_dependency_slot(buffer, index)
+    @inbounds buffer.times[slot] = first(sample)
+    @inbounds buffer.values[slot] = last(sample)
+    return sample
+end
+
+@inline function Base.push!(
+    buffer::TemporalDependencyBuffer{T},
+    sample::Tuple{Float64,T},
+) where {T}
+    capacity = length(buffer.times)
+    if buffer.sample_count < capacity
+        slot = mod1(buffer.first_slot + buffer.sample_count, capacity)
+        buffer.sample_count += 1
+    else
+        slot = buffer.first_slot
+        buffer.first_slot = mod1(buffer.first_slot + 1, capacity)
+    end
+    @inbounds buffer.times[slot] = first(sample)
+    @inbounds buffer.values[slot] = last(sample)
+    return buffer
+end
+
+@inline function Base.pop!(buffer::TemporalDependencyBuffer)
+    isempty(buffer) && throw(ArgumentError("array must be non-empty"))
+    sample = buffer[end]
+    buffer.sample_count -= 1
+    buffer.sample_count == 0 && (buffer.first_slot = 1)
+    return sample
+end
+
+@inline function _temporal_dependency_popfirst!(
+    buffer::TemporalDependencyBuffer,
+)
+    isempty(buffer) && throw(ArgumentError("array must be non-empty"))
+    sample = buffer[1]
+    buffer.first_slot = mod1(buffer.first_slot + 1, length(buffer.times))
+    buffer.sample_count -= 1
+    buffer.sample_count == 0 && (buffer.first_slot = 1)
+    return sample
+end
+
+"""
     RuntimePerformanceCounters
 
 Opt-in coarse runtime instrumentation used by the performance regression
@@ -321,6 +411,42 @@ _model_retain_application(::Nothing, application_id::Symbol) = true
 
 _model_retain_output(::Nothing, application_id::Symbol, variable::Symbol) = true
 
+function _model_dependency_only_output(
+    retention::OutputRetentionPlan,
+    application_id::Symbol,
+    variable::Symbol,
+)
+    retention.retain_all && return false
+    key = (application_id, variable)
+    return key in retention.temporal_dependencies &&
+           !(key in retention.requested_outputs)
+end
+
+_model_dependency_only_output(::Nothing, application_id::Symbol, variable::Symbol) =
+    false
+
+function _model_dependency_capacity(
+    retention::OutputRetentionPlan,
+    application_id::Symbol,
+    variable::Symbol,
+)
+    horizon = get(retention.dependency_horizons, (application_id, variable), 0.0)
+    return max(1, ceil(Int, horizon))
+end
+
+function _model_new_output_stream(
+    value,
+    retention,
+    application_id::Symbol,
+    variable::Symbol,
+)
+    if _model_dependency_only_output(retention, application_id, variable)
+        capacity = _model_dependency_capacity(retention, application_id, variable)
+        return TemporalDependencyBuffer{typeof(value)}(capacity)
+    end
+    return Tuple{Float64,typeof(value)}[]
+end
+
 function _model_prune_dependency_stream!(
     samples,
     retention::OutputRetentionPlan,
@@ -342,8 +468,48 @@ function _model_prune_dependency_stream!(
     return samples
 end
 
+function _model_prune_dependency_stream!(
+    samples::TemporalDependencyBuffer,
+    retention::OutputRetentionPlan,
+    application_id::Symbol,
+    variable::Symbol,
+    time::Real,
+)
+    horizon = get(retention.dependency_horizons, (application_id, variable), 0.0)
+    cutoff = horizon <= 0.0 ? float(time) : float(time) - horizon + 1.0
+    while !isempty(samples) && first(samples)[1] < cutoff - 1.0e-8
+        _temporal_dependency_popfirst!(samples)
+    end
+    return samples
+end
+
 _model_prune_dependency_stream!(samples, ::Nothing, application_id, variable, time) =
     samples
+
+function _model_remove_sample_time!(
+    samples::TemporalDependencyBuffer,
+    sample_time::Float64,
+)
+    write_index = 1
+    original_length = length(samples)
+    for read_index in 1:original_length
+        sample = samples[read_index]
+        isapprox(first(sample), sample_time; atol=1.0e-8, rtol=0.0) && continue
+        write_index == read_index || (samples[write_index] = sample)
+        write_index += 1
+    end
+    samples.sample_count = write_index - 1
+    samples.sample_count == 0 && (samples.first_slot = 1)
+    return samples
+end
+
+function _model_remove_sample_time!(samples, sample_time::Float64)
+    filter!(
+        sample -> !isapprox(sample[1], sample_time; atol=1.0e-8, rtol=0.0),
+        samples,
+    )
+    return samples
+end
 
 function _model_publish_outputs!(
     streams,
@@ -369,7 +535,12 @@ function _model_publish_outputs!(
         value = getproperty(status, var)
         samples = get(streams, key, nothing)
         if isnothing(samples)
-            samples = Tuple{Float64,typeof(value)}[]
+            samples = _model_new_output_stream(
+                value,
+                retention,
+                application.id,
+                var,
+            )
             streams[key] = samples
         elseif !(value isa fieldtype(eltype(samples), 2))
             error(
@@ -383,10 +554,7 @@ function _model_publish_outputs!(
            isapprox(last(samples)[1], sample_time; atol=1.0e-8, rtol=0.0)
             pop!(samples)
         elseif !isempty(samples) && last(samples)[1] > sample_time
-            filter!(
-                sample -> !isapprox(sample[1], sample_time; atol=1.0e-8, rtol=0.0),
-                samples,
-            )
+            _model_remove_sample_time!(samples, sample_time)
         end
         push!(samples, (sample_time, value))
         _model_prune_dependency_stream!(

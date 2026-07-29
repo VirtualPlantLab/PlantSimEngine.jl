@@ -218,9 +218,12 @@ end
         ),
         :value,
     ) == [10.0, 12.0, 14.0]
-    @test outputs(simulation)[
+    dependency_stream = outputs(simulation)[
         (:signal_source, ObjectId(:leaf), :signal)
-    ] == [(2.0, 7.0), (3.0, 8.0)]
+    ]
+    @test dependency_stream isa PlantSimEngine.TemporalDependencyBuffer{Float64}
+    @test length(dependency_stream.times) == 2
+    @test dependency_stream == [(2.0, 7.0), (3.0, 8.0)]
     retention = only(
         row for row in explain_output_retention(simulation)
         if row.application_id == :signal_source
@@ -571,6 +574,9 @@ end
         outputs(dynamic_temporal_simulation),
         (:signal_source, ObjectId(:leaf), :signal),
     )
+    @test outputs(dynamic_temporal_simulation)[
+        (:signal_source, ObjectId(:leaf), :signal)
+    ] isa PlantSimEngine.TemporalDependencyBuffer{Float64}
 
     ambiguous_overlap = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(signal=1.0));
@@ -591,4 +597,55 @@ end
     @test_throws "both a temporal input and an output" Advanced.refresh_bindings!(
         ambiguous_overlap,
     )
+end
+
+@testset "PreviousTimeStep dependency storage scales by object, not duration" begin
+    object_count = 2_000
+    objects = [
+        Object(
+            Symbol(:leaf_, index);
+            scale=:Leaf,
+            status=Status(
+                signal=0.0,
+                gain=1.0,
+                observed_signal=0.0,
+            ),
+        )
+        for index in 1:object_count
+    ]
+    scene = CompositeModel(
+        objects...;
+        applications=(
+            _temporal_view_source_spec(target=Many(scale=:Leaf)),
+            _temporal_view_consumer_spec(
+                target=Many(scale=:Leaf),
+                selector=One(
+                    within=Self(),
+                    application=:signal_source,
+                    var=:signal,
+                ),
+            ),
+        ),
+    )
+    simulation = run!(scene; steps=3, outputs=:none)
+    streams_by_key = copy(outputs(simulation))
+    streams = collect(values(streams_by_key))
+    @test length(streams) == object_count
+    @test all(
+        stream -> stream isa PlantSimEngine.TemporalDependencyBuffer{Float64},
+        streams,
+    )
+    @test all(stream -> length(stream) == 2, streams)
+    @test all(stream -> length(stream.times) == 2, streams)
+
+    continue!(simulation)
+    steady_allocations = @allocated continue!(simulation)
+    @test steady_allocations <= 4_096 * object_count
+
+    continue!(simulation; steps=16)
+    @test all(
+        outputs(simulation)[key] === stream
+        for (key, stream) in streams_by_key
+    )
+    @test all(stream -> length(stream) == 2, streams)
 end
