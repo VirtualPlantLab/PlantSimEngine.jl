@@ -2355,7 +2355,7 @@ function run!(
     _runtime_performance_count!(
         performance_counters,
         :initial_execution_targets_constructed,
-        sum(length(batch.targets) for batch in execution_plan.batches),
+        sum((length(batch.targets) for batch in execution_plan.batches); init=0),
     )
     _runtime_performance_count!(
         performance_counters,
