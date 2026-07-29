@@ -3680,8 +3680,11 @@ end
         environment,
     ) : meteo
     publication_allowed = publish && targets.publication_allowed
+    reusable_context =
+        target.context isa RunContext &&
+        typeof(target.context.environment) === typeof(environment)
     context = _prepare_model_execution_context!(
-        target.context,
+        reusable_context ? target.context : nothing,
         targets.compiled,
         targets.environment_bindings,
         application,
@@ -3693,7 +3696,7 @@ end
         publication_allowed,
         environment,
     )
-    target.context = context
+    reusable_context && (target.context = context)
     run!(
         target.model,
         target.models,
