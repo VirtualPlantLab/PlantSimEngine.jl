@@ -1097,9 +1097,18 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             :consumer_id,
         ),
     )
-    call_owners = _model_call_owners(call_bindings)
+    call_owners = compiled.call_owners
+    call_owners_changed = false
+    for binding in call_bindings
+        for callee_id in binding.callee_application_ids
+            owners = get!(call_owners, callee_id, Set{Symbol}())
+            binding.application_id in owners && continue
+            push!(owners, binding.application_id)
+            call_owners_changed = true
+        end
+    end
     application_children = if !application_edges_may_shrink &&
-                              call_owners == compiled.call_owners
+                              !call_owners_changed
         children = Dict(
             application_id => copy(child_ids)
             for (application_id, child_ids) in compiled.application_children
@@ -1144,11 +1153,32 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         changed_existing_call_bundle_targets,
     )
     pending_bundle_targets = collect(affected_model_bundle_targets)
+    call_bindings_by_callee_application =
+        Dict{Symbol,Vector{CompiledModelCallBinding}}()
+    if !isempty(pending_bundle_targets)
+        for binding in call_bindings
+            for callee_application_id in binding.callee_application_ids
+                push!(
+                    get!(
+                        call_bindings_by_callee_application,
+                        callee_application_id,
+                    ) do
+                        CompiledModelCallBinding[]
+                    end,
+                    binding,
+                )
+            end
+        end
+    end
     while !isempty(pending_bundle_targets)
         callee_application_id, callee_object_id =
             pop!(pending_bundle_targets)
         callee_application = applications_by_id[callee_application_id]
-        for binding in call_bindings
+        for binding in get(
+            call_bindings_by_callee_application,
+            callee_application_id,
+            (),
+        )
             _call_binding_uniquely_targets(
                 binding,
                 callee_application,

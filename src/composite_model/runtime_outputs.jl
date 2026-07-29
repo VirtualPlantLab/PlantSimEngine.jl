@@ -2540,6 +2540,8 @@ function _refresh_model_execution_plan(
     )
     groups = CompiledApplicationExecutionGroup[]
     batches = AbstractExecutionBatch[]
+    sizehint!(groups, length(previous.groups))
+    sizehint!(batches, length(previous.batches))
     targets_constructed = 0
     batches_constructed = 0
     groups_reused = 0
