@@ -178,13 +178,13 @@ PlantSimEngine model-developer API.
 - [x] Expose hard-call models and targets only through focused context
       functions such as `call_targets`, `run_call!`, and a small read-only model
       accessor if one is genuinely needed.
-- [ ] Use `context`, not `extra`, throughout source, examples, documentation,
+- [x] Use `context`, not `extra`, throughout source, examples, documentation,
       errors, and downstream packages.
 - [x] Keep the model kernel responsible for one timestep and one target.
       PlantSimEngine owns the timeline, scheduling, target iteration, and
       publication.
 - [x] Migrate all PlantSimEngine examples and tests.
-- [ ] Migrate all PlantBiophysics and XPalm model kernels.
+- [x] Migrate all PlantBiophysics and XPalm model kernels.
 - [x] Do not retain the six-argument method as compatibility.
 
 ### 2. One environment vocabulary
@@ -431,6 +431,11 @@ Current restoration checkpoints on the same staged XPalm fixture:
       `2.367 ms` per simulated day, preserves the exact final state, and passes
       all 622 unified runtime checks and all 68 XPalm reference-regression
       checks.
+- [x] After the five-argument kernel and environment-vocabulary migration
+      (`b7e56655` in PlantSimEngine and `00a8e80` in XPalm), a fresh exact
+      warmed full-cycle run takes `9.962219` seconds and allocates `6.049 GB`.
+      It preserves the same exact 4,160-day final state; XPalm passes 307
+      package checks and all 68 reference-regression checks.
 
 ### Performance invariants
 
@@ -936,11 +941,11 @@ Before using any of them:
 
 PlantBiophysics validates the model-author side of the API.
 
-- [ ] Preserve its current `multi-plant` branch work.
-- [ ] Migrate every model kernel to the final signature.
-- [ ] Migrate model parameters away from the redundant `models` bundle.
-- [ ] Migrate environment input/output declarations and kernel argument names.
-- [ ] Migrate hard-call code and the fine-grained sampled-environment escape
+- [x] Preserve its current `multi-plant` branch work.
+- [x] Migrate every model kernel to the final signature.
+- [x] Migrate model parameters away from the redundant `models` bundle.
+- [x] Migrate environment input/output declarations and kernel argument names.
+- [x] Migrate hard-call code and the fine-grained sampled-environment escape
       hatch.
 - [ ] Migrate required/default input declarations.
 - [ ] Migrate evaluation functions if they move under
@@ -949,12 +954,17 @@ PlantBiophysics validates the model-author side of the API.
 - [ ] Run its package tests and documentation build through a Kaimon session
       started for the PlantBiophysics checkout.
 
+Kernel milestone: PlantBiophysics commit `9688073` passes its full 268-check
+package suite, including embedded doctests. The standalone docs project is not
+yet a validated gate: it is not in Kaimon's allowed-project list, and a
+PlantBiophysics root session failed to start.
+
 ### XPalm: simulation-user and framework-builder acceptance suite
 
 XPalm validates the scenario-construction side of the API.
 
-- [ ] Preserve its current `multi-plant` branch work and existing commits.
-- [ ] Migrate every model kernel and environment declaration.
+- [x] Preserve its current `multi-plant` branch work and existing commits.
+- [x] Migrate every model kernel and environment declaration.
 - [ ] Migrate its scenario compiler to the single canonical `ModelSpec` syntax.
 - [ ] Migrate selectors and scopes without weakening plant-local isolation.
 - [ ] Verify templates, multiple plants, scene and soil sharing, lifecycle
@@ -962,6 +972,10 @@ XPalm validates the scenario-construction side of the API.
 - [ ] Update XPalm docs and extension/notebook examples.
 - [ ] Run its package tests and documentation build through a Kaimon session
       started for the XPalm checkout.
+
+Kernel milestone: XPalm commit `00a8e80` passes 307 package checks and all 68
+full-cycle reference-regression checks. Its pre-existing uncommitted
+`CHANGELOG.md` edit remains untouched and unstaged.
 
 ### Cross-repository completion rule
 
