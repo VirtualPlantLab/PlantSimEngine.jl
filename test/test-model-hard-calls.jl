@@ -190,7 +190,7 @@ end
         environment=(duration=Hour(1),),
     )
 
-    run!(model)
+    simulation = run!(model)
     controller = only(model_objects(model; scale=:Scene)).status
     @test controller.one_count == 1
     @test controller.optional_count == 0
@@ -201,6 +201,22 @@ end
     @test (@inferred literal_call_targets(context)) === call_targets(context, :one)
     call_lookup_allocations(context)
     @test call_lookup_allocations(context) == 0
+    one_call_view = call_targets(context, :one)
+    @test length(one_call_view.execution_targets) == 1
+    cached_execution_target = only(values(one_call_view.execution_targets))
+    continue!(simulation)
+    continued_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
+    @test continued_call_view === one_call_view
+    @test only(values(continued_call_view.execution_targets)) ===
+          cached_execution_target
+    register_object!(
+        model,
+        Object(:leaf_c; scale=:Leaf, name=:leaf_c, parent=:scene),
+    )
+    continue!(simulation)
+    refreshed_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
+    @test only(values(refreshed_call_view.execution_targets)) !==
+          cached_execution_target
     @test_throws ArgumentError run_call!(nothing, :one)
 
     undeclared = CompositeModel(
