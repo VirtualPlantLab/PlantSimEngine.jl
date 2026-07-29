@@ -1369,6 +1369,154 @@ function compile_model_execution_plan(
     )
 end
 
+function _model_execution_target_reusable(
+    target::CompiledExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+)
+    object_id = target.object_id
+    key = (application.id, object_id)
+    status_view = get(compiled.status_views_by_target, key, nothing)
+    isnothing(status_view) && return false
+    target.model === _application_model(application, object_id) || return false
+    target.status === status_view.status || return false
+    target.canonical_status === status_view.canonical_status || return false
+    target.models ===
+    _model_models_for_application(compiled, application, object_id) ||
+        return false
+    target.input_bindings === status_view.temporal_inputs || return false
+    target.call_bindings ===
+    get(compiled.call_bindings_by_target, key, ()) || return false
+    return target.environment_binding === _environment_binding_for(
+        env_bindings,
+        application.id,
+        object_id,
+    )
+end
+
+function _model_execution_group_targets(group::CompiledApplicationExecutionGroup)
+    return Dict(
+        target.object_id => target
+        for batch in group.batches for target in batch.targets
+    )
+end
+
+function _model_execution_group_reusable(
+    group::CompiledApplicationExecutionGroup,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+)
+    group.application === application || return false
+    target_index = 0
+    for batch in group.batches
+        for target in batch.targets
+            target_index += 1
+            target_index <= length(application.target_ids) || return false
+            target.object_id == application.target_ids[target_index] ||
+                return false
+            _model_execution_target_reusable(
+                target,
+                compiled,
+                env_bindings,
+                application,
+            ) || return false
+        end
+    end
+    return target_index == length(application.target_ids)
+end
+
+function _refresh_model_execution_plan(
+    previous::CompiledExecutionPlan,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+)
+    manual_application_ids = _manual_call_application_ids(compiled)
+    previous_groups = Dict(
+        group.application.id => group for group in previous.groups
+    )
+    groups = CompiledApplicationExecutionGroup[]
+    batches = AbstractExecutionBatch[]
+    targets_constructed = 0
+    batches_constructed = 0
+    groups_reused = 0
+
+    for application in _ordered_model_applications(compiled)
+        application.id in manual_application_ids && continue
+        previous_group = get(previous_groups, application.id, nothing)
+        if !isnothing(previous_group) &&
+           _model_execution_group_reusable(
+            previous_group,
+            compiled,
+            env_bindings,
+            application,
+        )
+            push!(groups, previous_group)
+            append!(batches, previous_group.batches)
+            groups_reused += 1
+            continue
+        end
+
+        previous_targets = isnothing(previous_group) ?
+                           Dict{ObjectId,Any}() :
+                           _model_execution_group_targets(previous_group)
+        targets = Any[]
+        for object_id in application.target_ids
+            previous_target = get(previous_targets, object_id, nothing)
+            if !isnothing(previous_target) &&
+               _model_execution_target_reusable(
+                previous_target,
+                compiled,
+                env_bindings,
+                application,
+            )
+                push!(targets, previous_target)
+            else
+                push!(
+                    targets,
+                    _compiled_model_execution_target(
+                        compiled,
+                        env_bindings,
+                        application,
+                        object_id,
+                    ),
+                )
+                targets_constructed += 1
+            end
+        end
+
+        application_batches = AbstractExecutionBatch[]
+        _append_model_execution_batches!(
+            application_batches,
+            application,
+            targets,
+        )
+        isempty(application_batches) && continue
+        push!(
+            groups,
+            CompiledApplicationExecutionGroup(
+                application,
+                application_batches,
+            ),
+        )
+        append!(batches, application_batches)
+        batches_constructed += length(application_batches)
+    end
+
+    return (
+        plan=CompiledExecutionPlan(
+            groups,
+            batches,
+            compiled.revision,
+            env_bindings.environment_revision,
+        ),
+        targets_constructed=targets_constructed,
+        batches_constructed=batches_constructed,
+        groups_reused=groups_reused,
+    )
+end
+
 function explain_execution_plan(plan::CompiledExecutionPlan)
     return [
         (
@@ -1408,6 +1556,81 @@ function explain_execution_plan(model::CompositeModel)
     )
 end
 
+function _model_temporal_retention_horizon(
+    binding,
+    consumer,
+    source,
+    timeline,
+)
+    window_steps = _model_input_window_steps(binding, consumer, timeline)
+    return if binding.policy isa Union{Integrate,Aggregate}
+        float(window_steps) + max(0.0, float(source.clock.dt) - 1.0)
+    elseif binding.policy isa Union{Interpolate,PreviousTimeStep}
+        max(2.0, float(source.clock.dt) + 1.0)
+    else
+        0.0
+    end
+end
+
+function _model_output_retention_covers_binding(
+    plan::OutputRetentionPlan,
+    compiled::CompiledCompositeModel,
+    binding,
+)
+    plan.retain_all && return true
+    consumer = _compiled_application_by_id(compiled, binding.application_id)
+    for application_id in binding.source_application_ids
+        source = _compiled_application_by_id(compiled, application_id)
+        required = _model_temporal_retention_horizon(
+            binding,
+            consumer,
+            source,
+            compiled.timeline,
+        )
+        key = (application_id, binding.source_var)
+        key in plan.temporal_dependencies || return false
+        get(plan.dependency_horizons, key, -Inf) >= required || return false
+    end
+    return true
+end
+
+function _model_output_retention_covers_addition(
+    plan::OutputRetentionPlan,
+    previous_status_views,
+    compiled::CompiledCompositeModel,
+)
+    for (key, view) in compiled.status_views_by_target
+        get(previous_status_views, key, nothing) === view && continue
+        for temporal_input in view.temporal_inputs
+            _model_output_retention_covers_binding(
+                plan,
+                compiled,
+                temporal_input.binding,
+            ) || return false
+        end
+    end
+    return true
+end
+
+function _model_status_view_refresh_is_pure_addition(
+    previous_status_views,
+    current_status_views,
+)
+    previous_keys = keys(previous_status_views)
+    current_keys = keys(current_status_views)
+    all(key -> haskey(current_status_views, key), previous_keys) || return false
+    new_keys = [
+        key for key in current_keys if !haskey(previous_status_views, key)
+    ]
+    isempty(new_keys) && return false
+    previous_object_ids = Set(last(key) for key in previous_keys)
+    added_object_ids = Set(
+        last(key) for key in new_keys if !(last(key) in previous_object_ids)
+    )
+    isempty(added_object_ids) && return false
+    return all(key -> last(key) in added_object_ids, new_keys)
+end
+
 function compile_model_output_retention(
     compiled::CompiledCompositeModel,
     output_requests;
@@ -1419,16 +1642,14 @@ function compile_model_output_retention(
     for binding in compiled.input_bindings
         binding.carrier_hint == :temporal_stream || continue
         consumer = _compiled_application_by_id(compiled, binding.application_id)
-        window_steps = _model_input_window_steps(binding, consumer, timeline)
         for application_id in binding.source_application_ids
             source = _compiled_application_by_id(compiled, application_id)
-            required = if binding.policy isa Union{Integrate,Aggregate}
-                float(window_steps) + max(0.0, float(source.clock.dt) - 1.0)
-            elseif binding.policy isa Union{Interpolate,PreviousTimeStep}
-                max(2.0, float(source.clock.dt) + 1.0)
-            else
-                0.0
-            end
+            required = _model_temporal_retention_horizon(
+                binding,
+                consumer,
+                source,
+                timeline,
+            )
             key = (application_id, binding.source_var)
             push!(
                 temporal_dependencies,
@@ -2016,21 +2237,37 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 simulation.compiled.status_views_by_target,
             ),
         )
-        started_at = _runtime_performance_start(simulation.performance)
-        simulation.output_retention = compile_model_output_retention(
+        pure_object_addition = _model_status_view_refresh_is_pure_addition(
+            previous_status_views,
+            simulation.compiled.status_views_by_target,
+        )
+        if pure_object_addition &&
+           _model_output_retention_covers_addition(
+            simulation.output_retention,
+            previous_status_views,
             simulation.compiled,
-            simulation.output_requests;
-            retain_all=simulation.output_retention.retain_all,
         )
-        _runtime_performance_finish!(
-            simulation.performance,
-            :output_retention_compile,
-            started_at,
-        )
-        _runtime_performance_count!(
-            simulation.performance,
-            :output_retention_compiles,
-        )
+            _runtime_performance_count!(
+                simulation.performance,
+                :output_retention_reuses,
+            )
+        else
+            started_at = _runtime_performance_start(simulation.performance)
+            simulation.output_retention = compile_model_output_retention(
+                simulation.compiled,
+                simulation.output_requests;
+                retain_all=simulation.output_retention.retain_all,
+            )
+            _runtime_performance_finish!(
+                simulation.performance,
+                :output_retention_compile,
+                started_at,
+            )
+            _runtime_performance_count!(
+                simulation.performance,
+                :output_retention_compiles,
+            )
+        end
         started_at = _runtime_performance_start(simulation.performance)
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
@@ -2046,10 +2283,12 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             :environment_refreshes,
         )
         started_at = _runtime_performance_start(simulation.performance)
-        simulation.execution_plan = compile_model_execution_plan(
+        execution_refresh = _refresh_model_execution_plan(
+            simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
         )
+        simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
             simulation.performance,
             :execution_plan_compile,
@@ -2062,15 +2301,17 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         _runtime_performance_count!(
             simulation.performance,
             :execution_targets_constructed,
-            sum(
-                length(batch.targets)
-                for batch in simulation.execution_plan.batches
-            ),
+            execution_refresh.targets_constructed,
         )
         _runtime_performance_count!(
             simulation.performance,
             :execution_batches_constructed,
-            length(simulation.execution_plan.batches),
+            execution_refresh.batches_constructed,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_groups_reused,
+            execution_refresh.groups_reused,
         )
     elseif environment_bindings_dirty(model) ||
            simulation.environment_bindings.environment_revision !=
@@ -2090,10 +2331,12 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             :environment_refreshes,
         )
         started_at = _runtime_performance_start(simulation.performance)
-        simulation.execution_plan = compile_model_execution_plan(
+        execution_refresh = _refresh_model_execution_plan(
+            simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
         )
+        simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
             simulation.performance,
             :execution_plan_compile,
@@ -2106,15 +2349,17 @@ function _refresh_simulation_runtime!(simulation::Simulation)
         _runtime_performance_count!(
             simulation.performance,
             :execution_targets_constructed,
-            sum(
-                length(batch.targets)
-                for batch in simulation.execution_plan.batches
-            ),
+            execution_refresh.targets_constructed,
         )
         _runtime_performance_count!(
             simulation.performance,
             :execution_batches_constructed,
-            length(simulation.execution_plan.batches),
+            execution_refresh.batches_constructed,
+        )
+        _runtime_performance_count!(
+            simulation.performance,
+            :execution_groups_reused,
+            execution_refresh.groups_reused,
         )
     end
     return simulation

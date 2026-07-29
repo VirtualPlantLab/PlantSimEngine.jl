@@ -522,8 +522,10 @@ end
     @test refreshed.counts[:binding_refreshes] == 1
     @test refreshed.counts[:dirty_binding_objects] == 1
     @test refreshed.counts[:status_views_constructed] == 1
+    @test refreshed.counts[:output_retention_reuses] == 1
+    @test !haskey(refreshed.counts, :output_retention_compiles)
     @test refreshed.counts[:execution_plan_compiles] == 1
-    @test refreshed.counts[:execution_targets_constructed] == 2
+    @test refreshed.counts[:execution_targets_constructed] == 1
     @test refreshed.counts[:execution_batches_constructed] == 1
     @test simulation.compiled.status_views_by_target[
         (:source, ObjectId(:leaf_1))
@@ -586,4 +588,43 @@ end
     @test plant_status.lagged_total == 3.0
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:status_views_constructed] == 2
+    @test performance.counts[:output_retention_reuses] == 1
+    @test !haskey(performance.counts, :output_retention_compiles)
+end
+
+@testset "incremental execution plan reuses unaffected groups" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf_1; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(StabilizationSourceModel(); name=:leaf_source) |>
+                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:scene_source) |>
+                AppliesTo(One(scale=:Scene)),
+        ),
+    )
+    simulation = run!(model; performance=true)
+    original_scene_group = only(
+        group for group in simulation.execution_plan.groups
+        if group.application.id == :scene_source
+    )
+    original_scene_target = only(only(original_scene_group.batches).targets)
+
+    register_object!(
+        model,
+        Object(:leaf_2; scale=:Leaf, parent=:scene),
+    )
+    continue!(simulation)
+
+    refreshed_scene_group = only(
+        group for group in simulation.execution_plan.groups
+        if group.application.id == :scene_source
+    )
+    refreshed_scene_target = only(only(refreshed_scene_group.batches).targets)
+    performance = Advanced.runtime_performance(simulation)
+    @test refreshed_scene_group === original_scene_group
+    @test refreshed_scene_target === original_scene_target
+    @test performance.counts[:execution_groups_reused] == 1
+    @test performance.counts[:execution_targets_constructed] == 1
+    @test performance.counts[:execution_batches_constructed] == 1
 end
