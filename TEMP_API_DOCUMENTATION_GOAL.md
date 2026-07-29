@@ -374,9 +374,10 @@ Current restoration checkpoints on the same staged XPalm fixture:
       The corrected warmed run finishes with `current_step=4160`,
       `phytomer_count=344`, `lai=5.0587602356164405`, and
       `ftsw=0.7991179101191216`, exactly matching the historical final state.
-- [x] The corrected fully warmed 4,160-day run takes `14.864538` seconds and
-      allocates `9.266 GB`. A preceding repetition took `15.007203` seconds
-      with the same allocation and exact final state.
+- [x] At committed revision `52ab05c7`, the corrected fully warmed 4,160-day
+      run takes `14.995239` seconds and allocates `9.267 GB`. Two preceding
+      repetitions took `14.864538` and `15.007203` seconds with the same exact
+      final state.
 
 ### Performance invariants
 
@@ -576,8 +577,8 @@ execution path.
 
 - [x] First restoration milestone: complete the exact XPalm full-cycle
       reference in at most 15 seconds on the baseline machine after warm-up.
-      The corrected run passes at `14.864538` seconds with the exact historical
-      trajectory and final state.
+      Committed revision `52ab05c7` passes at `14.995239` seconds with the
+      exact historical trajectory and final state.
 - [ ] Final target: complete it in at most 10 seconds, or document and obtain
       explicit approval for any remaining measured cost required by the new
       semantics.
