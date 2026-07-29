@@ -212,3 +212,37 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         @test isfile(output_path)
     end
 end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm CPU profile medium")
+    @testset "XPalm CPU profile medium" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        _warmup_xpalm_performance!(PERFORMANCE_MEDIUM_STEPS)
+        model, nsteps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_MEDIUM_STEPS)
+        Profile.clear()
+        simulation = Profile.@profile xpalm_reference_param_run(
+            model,
+            OutputRequest[],
+            nsteps;
+            outputs=:none,
+        )
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-cpu-medium-latest.txt",
+        )
+        open(output_path, "w") do io
+            Profile.print(
+                io;
+                format=:flat,
+                sortedby=:count,
+                C=false,
+                combine=true,
+            )
+        end
+        @test current_step(simulation) == PERFORMANCE_MEDIUM_STEPS
+        @test isfile(output_path)
+    end
+end

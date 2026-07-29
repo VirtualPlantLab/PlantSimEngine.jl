@@ -210,6 +210,7 @@ end
 
 function _compiled_environment_bindings(
     model::CompositeModel,
+    compiled::CompiledCompositeModel,
     bindings,
     by_target,
     samplers_by_application=_model_environment_samplers(bindings),
@@ -223,6 +224,7 @@ function _compiled_environment_bindings(
         sample_cache,
         model.revision,
         model.environment_revision,
+        objectid(compiled.applications),
     )
 end
 
@@ -237,7 +239,7 @@ function compile_environment_bindings(model::CompositeModel, compiled::CompiledC
     length(by_target) == length(bindings) || error(
         "Environment binding compilation produced duplicate `(application_id, object_id)` targets."
     )
-    return _compiled_environment_bindings(model, bindings, by_target)
+    return _compiled_environment_bindings(model, compiled, bindings, by_target)
 end
 
 function _same_environment_backend(a, b)
@@ -317,7 +319,7 @@ function _reconcile_environment_binding_metadata(
         (binding.application_id, binding.object_id) => binding
         for binding in bindings
     )
-    return _compiled_environment_bindings(model, bindings, by_target)
+    return _compiled_environment_bindings(model, compiled, bindings, by_target)
 end
 
 function _refresh_environment_bindings_for_objects(
@@ -345,7 +347,12 @@ function _refresh_environment_bindings_for_objects(
             (binding.application_id, binding.object_id) => binding
             for binding in bindings
         )
-        return _compiled_environment_bindings(model, bindings, by_target)
+        return _compiled_environment_bindings(
+            model,
+            compiled,
+            bindings,
+            by_target,
+        )
     end
     replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
     for application in compiled.applications
@@ -376,6 +383,7 @@ function _refresh_environment_bindings_for_objects(
         _validate_model_environment_inputs!(values(replacements), compiled.applications_by_id)
         return _compiled_environment_bindings(
             model,
+            compiled,
             cached.bindings,
             cached.by_target,
             cached.samplers_by_application,
@@ -400,6 +408,7 @@ function _refresh_environment_bindings_for_objects(
     )
     return _compiled_environment_bindings(
         model,
+        compiled,
         bindings,
         by_target,
         cached.samplers_by_application,

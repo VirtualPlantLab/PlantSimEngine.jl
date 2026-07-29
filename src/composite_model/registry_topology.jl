@@ -987,6 +987,12 @@ function refresh_environment_bindings!(model::CompositeModel, compiled=refresh_b
         end
         model.environment_bindings_dirty = false
         model.environment_dirty_objects = Set{ObjectId}()
+    elseif model.environment_binding_cache.model_revision == compiled.revision &&
+           model.environment_binding_cache.environment_revision ==
+           model.environment_revision &&
+           model.environment_binding_cache.applications_identity ==
+           objectid(compiled.applications)
+        return model.environment_binding_cache
     else
         reconciled = _reconcile_environment_binding_metadata(
             model,

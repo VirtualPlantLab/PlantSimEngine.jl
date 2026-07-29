@@ -2706,6 +2706,10 @@ end
     original_contract_binding =
         original_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
     @test original_contract_binding.required_inputs == [:T, :CO2]
+    @test Advanced.refresh_environment_bindings!(
+        contract_scene,
+        contract_compiled,
+    ) === original_contract_bindings
     @test length(contract_backend.binds) == 1
     @test length(contract_backend.index_updates) == 1
 

@@ -105,6 +105,7 @@ struct CompiledEnvironmentBindings{SC,B,I,S,C}
     sample_cache::C
     model_revision::Int
     environment_revision::Int
+    applications_identity::UInt
 end
 
 struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBI,SVI,AO,TL}

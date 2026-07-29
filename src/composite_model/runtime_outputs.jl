@@ -318,7 +318,7 @@ struct UnspecifiedModelMeteo end
 const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
 const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
 
-struct CompiledExecutionTarget{M,S,CS,MB,IB,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,CS,MB,IB,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
