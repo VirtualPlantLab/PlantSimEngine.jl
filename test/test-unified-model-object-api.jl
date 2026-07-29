@@ -627,7 +627,7 @@ struct ModelObjectInitializingGrowthModel <:
 
 PlantSimEngine.inputs_(::ModelObjectInitializingGrowthModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectInitializingGrowthModel) =
-    (initialized_signal=0.0,)
+    (initialized_signal=0.0, bindings_remained_dirty=false)
 
 function PlantSimEngine.run!(
     ::ModelObjectInitializingGrowthModel,
@@ -658,6 +658,7 @@ function PlantSimEngine.run!(
         ),
     )
     status.initialized_signal = target.status.signal
+    status.bindings_remained_dirty = Advanced.bindings_dirty(model)
     return nothing
 end
 
@@ -3913,6 +3914,8 @@ end
     )
     @test only(model_objects(initializing_growth_scene; scale=:Scene)).
           status.initialized_signal == 7.0
+    @test only(model_objects(initializing_growth_scene; scale=:Scene)).
+          status.bindings_remained_dirty
     @test only(model_objects(initializing_growth_scene; scale=:Leaf)).
           status.signal == 7.0
     @test initializing_growth_simulation.compiled.revision ==

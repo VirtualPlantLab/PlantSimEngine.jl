@@ -189,13 +189,18 @@ mutable struct RunContext{CS,A,CT,TS,OR,C,E}
     environment::E
 end
 
-struct CallTarget{CS,EB,A,M,S,TS,OR,C,E}
+struct CallTarget{CS,EB,A,M,S,VS,TI,MB,CT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
     object_id::ObjectId
     model::M
     status::S
+    canonical_status::VS
+    temporal_inputs::TI
+    models::MB
+    calls::CT
+    environment_binding::ENV
     temporal_streams::TS
     output_retention::OR
     time::Float64
@@ -2725,18 +2730,47 @@ end
 Base.size(targets::CallTargets) = (length(targets),)
 
 function _materialize_call(targets::CallTargets, application, object_id::ObjectId)
-    status = _model_status_view_for_application(
+    status_view = _model_status_view_for_application(
         targets.compiled,
         application,
         object_id,
-    ).status
+    )
+    call_bindings = get(
+        targets.compiled.call_bindings_by_target,
+        (application.id, object_id),
+        (),
+    )
+    calls = _runtime_call_targets(
+        targets.compiled,
+        targets.environment_bindings,
+        call_bindings,
+        targets.temporal_streams,
+        targets.output_retention,
+        targets.time,
+        targets.constants,
+        targets.publication_allowed,
+        targets.environment,
+    )
     return CallTarget(
         targets.compiled,
         targets.environment_bindings,
         application,
         object_id,
         _application_model(application, object_id),
-        status,
+        status_view.status,
+        status_view.canonical_status,
+        status_view.temporal_inputs,
+        _model_models_for_application(
+            targets.compiled,
+            application,
+            object_id,
+        ),
+        calls,
+        _environment_binding_for(
+            targets.environment_bindings,
+            application.id,
+            object_id,
+        ),
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -2839,12 +2873,290 @@ function _call_target_object_ids(model::CompositeModel, objects)
     return ids
 end
 
+function _partial_model_application(
+    application::CompiledModelApplication,
+    target_ids::Vector{ObjectId},
+)
+    return CompiledModelApplication(
+        application.id,
+        application.spec,
+        application.process,
+        application.name,
+        target_ids,
+        application.applies_to,
+        application.timestep,
+        application.clock,
+        application.model_overrides,
+    )
+end
+
+function _new_object_applications(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    requested_ids,
+)
+    by_object = copy(compiled.applications_by_object)
+    partial_applications = CompiledModelApplication[]
+    for application in compiled.applications
+        target_ids = ObjectId[
+            object_id for object_id in requested_ids
+            if _selector_matches_object_id(
+                model,
+                application.applies_to,
+                object_id,
+            )
+        ]
+        isempty(target_ids) && continue
+        new_target_count = length(application.target_ids) +
+                           count(
+            object_id -> !(object_id in application.target_ids),
+            target_ids,
+        )
+        if (application.applies_to isa One && new_target_count != 1) ||
+           (application.applies_to isa OptionalOne && new_target_count > 1)
+            return nothing
+        end
+        partial = _partial_model_application(application, target_ids)
+        push!(partial_applications, partial)
+        for object_id in target_ids
+            applications = get!(by_object, object_id, Any[])
+            any(candidate -> candidate.id == application.id, applications) ||
+                push!(applications, partial)
+        end
+    end
+    return partial_applications, by_object
+end
+
+function _targeted_callee_applications(
+    binding::CompiledModelCallBinding,
+    requested_ids,
+    partial_applications,
+)
+    applications = CompiledModelApplication[]
+    unresolved_ids = ObjectId[]
+    for object_id in requested_ids
+        matched = false
+        for application in partial_applications
+            object_id in application.target_ids || continue
+            isnothing(binding.process) ||
+                application.process == binding.process ||
+                continue
+            isnothing(binding.application) ||
+                application.id == binding.application ||
+                continue
+            calls = model_calls(application.spec)
+            calls isa NamedTuple && !isempty(keys(calls)) && return nothing
+            any(candidate -> candidate.id == application.id, applications) ||
+                push!(applications, application)
+            matched = true
+        end
+        matched || push!(unresolved_ids, object_id)
+    end
+    isempty(unresolved_ids) || error(
+        "Hard call `$(binding.call)` from application `$(binding.application_id)` does not ",
+        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
+    )
+    return applications
+end
+
+function _targeted_call_environment_bindings(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    cached::CompiledEnvironmentBindings,
+    applications,
+    applications_by_id,
+)
+    for application in applications
+        backend = _environment_backend_from_config(
+            model,
+            environment_config(application.spec),
+        )
+        isnothing(backend) || backend isa GlobalConstant || return nothing
+    end
+    partial = _compile_environment_bindings_for_applications(
+        model,
+        applications,
+    )
+    _validate_model_environment_inputs!(partial, applications_by_id)
+    by_target = Dict(
+        (binding.application_id, binding.object_id) => binding
+        for binding in partial
+    )
+    return _compiled_environment_bindings(
+        model,
+        compiled,
+        partial,
+        by_target,
+        _model_environment_samplers(partial),
+        cached.sample_cache,
+    )
+end
+
+function _targeted_new_object_call_targets(
+    context::RunContext,
+    name::Symbol,
+    requested_ids,
+)
+    model = runtime_model(context)
+    bindings_dirty(model) || return nothing
+    dirty_ids = model.binding_dirty_objects
+    isnothing(dirty_ids) && return nothing
+    all(object_id -> object_id in dirty_ids, requested_ids) || return nothing
+
+    cached_targets = _model_call_targets(context, name)
+    binding = cached_targets.binding
+    binding.multiplicity != :many && length(requested_ids) > 1 &&
+        error(
+            "Hard call `$(name)` from application `$(context.application.id)` ",
+            "accepts at most one requested object.",
+        )
+    default_scope = _default_dependency_scope(model, context.object_id)
+    unresolved_ids = ObjectId[
+        object_id for object_id in requested_ids
+        if !_selector_matches_object_id(
+            model,
+            binding.selector,
+            object_id;
+            context=context.object_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        )
+    ]
+    isempty(unresolved_ids) || error(
+        "Hard call `$(name)` from application `$(context.application.id)` does not ",
+        "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
+    )
+
+    compiled = context.compiled
+    new_applications = _new_object_applications(
+        model,
+        compiled,
+        requested_ids,
+    )
+    isnothing(new_applications) && return nothing
+    output_applications, applications_by_object = new_applications
+    callee_applications = _targeted_callee_applications(
+        binding,
+        requested_ids,
+        output_applications,
+    )
+    isnothing(callee_applications) && return nothing
+
+    _prepare_model_output_statuses!(model, output_applications)
+    manual_application_ids = _manual_call_application_ids(
+        compiled.call_bindings,
+    )
+    input_bindings = CompiledModelInputBinding[]
+    for application in callee_applications
+        for object_id in application.target_ids
+            _compile_added_consumer_bindings!(
+                input_bindings,
+                model,
+                application,
+                object_id,
+                manual_application_ids,
+                applications_by_object,
+                compiled.applications_by_id,
+            )
+        end
+    end
+    _prepare_model_bound_input_statuses!(
+        model,
+        callee_applications,
+        input_bindings,
+    )
+    _wire_model_input_carriers!(model, input_bindings)
+    _validate_model_required_inputs!(
+        model,
+        callee_applications,
+        input_bindings,
+    )
+    any(
+        binding -> binding.carrier_hint == :temporal_stream,
+        input_bindings,
+    ) && return nothing
+
+    targeted_input_bindings = _index_model_bindings(
+        input_bindings,
+        :application_id,
+        :consumer_id,
+    )
+    application_positions = Dict(
+        application_id => index
+        for (index, application_id) in pairs(compiled.application_order)
+    )
+
+    environment_bindings = _targeted_call_environment_bindings(
+        model,
+        compiled,
+        context.environment_bindings,
+        callee_applications,
+        compiled.applications_by_id,
+    )
+    isnothing(environment_bindings) && return nothing
+
+    targets = CallTarget[]
+    for partial_application in callee_applications
+        application = compiled.applications_by_id[partial_application.id]
+        for object_id in partial_application.target_ids
+            key = (application.id, object_id)
+            status_view = _compile_model_status_view(
+                model,
+                partial_application,
+                object_id,
+                get(targeted_input_bindings, key, ()),
+                compiled.applications_by_id,
+                application_positions,
+            )
+            push!(
+                targets,
+                CallTarget(
+                    compiled,
+                    environment_bindings,
+                    application,
+                    object_id,
+                    _application_model(application, object_id),
+                    status_view.status,
+                    status_view.canonical_status,
+                    status_view.temporal_inputs,
+                    _compile_model_model_bundle(
+                        compiled.applications_by_id,
+                        compiled.call_bindings_by_target,
+                        partial_application,
+                        object_id,
+                    ),
+                    (),
+                    _environment_binding_for(
+                        environment_bindings,
+                        application.id,
+                        object_id,
+                    ),
+                    context.temporal_streams,
+                    context.output_retention,
+                    context.time,
+                    context.constants,
+                    context.publication_allowed,
+                    context.environment,
+                ),
+            )
+        end
+    end
+    return targets
+end
+
 function _current_topology_call_targets(
     context::RunContext,
     name::Symbol,
     objects,
 )
     model = runtime_model(context)
+    requested_ids = _call_target_object_ids(model, objects)
+    targeted = _targeted_new_object_call_targets(
+        context,
+        name,
+        requested_ids,
+    )
+    isnothing(targeted) || return targeted
     compiled = refresh_bindings!(model)
     environment_bindings = refresh_environment_bindings!(model, compiled)
     bindings = get(
@@ -2865,7 +3177,6 @@ function _current_topology_call_targets(
         )
     end
     resolved_binding = bindings[binding]
-    requested_ids = _call_target_object_ids(model, objects)
     unresolved_ids = setdiff(requested_ids, resolved_binding.callee_object_ids)
     isempty(unresolved_ids) || error(
         "Hard call `$(name)` from application `$(context.application.id)` does not ",
@@ -2997,19 +3308,65 @@ end
     meteo,
     environment,
 )
-    _run_model_application!(
+    status = _materialize_model_inputs!(
+        target.status,
+        target.temporal_inputs,
+        target.compiled,
+        target.application,
+        target.temporal_streams,
+        target.time,
+    )
+    meteo_value = meteo isa UnspecifiedModelMeteo ?
+                  _model_meteo_for_binding(
+        target.environment_bindings,
+        target.application,
+        target.environment_binding,
+        target.time,
+        environment,
+    ) : meteo
+    publication_allowed = publish && target.publication_allowed
+    _prepare_runtime_call_targets!(
+        target.calls,
+        target.compiled,
+        target.environment_bindings,
+        target.temporal_streams,
+        target.output_retention,
+        target.time,
+        target.constants,
+        publication_allowed,
+        environment,
+    )
+    context = RunContext(
         target.compiled,
         target.environment_bindings,
         target.application,
         target.object_id,
-        target.time,
-        target.constants,
+        target.calls,
         target.temporal_streams,
         target.output_retention,
-        publish && target.publication_allowed,
-        meteo,
+        target.time,
+        target.constants,
+        publication_allowed,
         environment,
     )
+    run!(
+        target.model,
+        target.models,
+        status,
+        meteo_value,
+        target.constants,
+        context,
+    )
+    if publication_allowed
+        _model_publish_outputs!(
+            target.temporal_streams,
+            target.application,
+            target.object_id,
+            target.canonical_status,
+            target.time,
+            target.output_retention,
+        )
+    end
     return target
 end
 

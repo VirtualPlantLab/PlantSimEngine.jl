@@ -147,6 +147,59 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
 end
 
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm full no-output performance")
+    @testset "XPalm full no-output performance" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        _warmup_xpalm_performance!(PERFORMANCE_FULL_STEPS)
+        metadata = _performance_metadata(;
+            warmup_policy="unmeasured full-profile standard warmup",
+        )
+        records = NamedTuple[]
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-full-no-output-latest.csv",
+        )
+        model, nsteps = _measure_performance_stage!(
+            records,
+            metadata,
+            :full,
+            :scene_construction_no_outputs,
+            output_path,
+        ) do
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
+        end
+        simulation = _measure_performance_stage!(
+            records,
+            metadata,
+            :full,
+            :simulation_no_outputs,
+            output_path,
+        ) do
+            xpalm_reference_param_run(
+                model,
+                OutputRequest[],
+                nsteps;
+                outputs=:none,
+            )
+        end
+        final_state = xpalm_reference_final_state(simulation)
+        _record_xpalm_state!(
+            records,
+            metadata,
+            :full,
+            :final_state_no_outputs,
+            final_state,
+        )
+        _checkpoint_performance_records(output_path, records)
+        @test final_state.current_step == PERFORMANCE_FULL_STEPS
+        @test final_state.phytomer_count == 344
+        @test isfile(output_path)
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
    benchmark_test_enabled("XPalm allocation profile short")
     @testset "XPalm allocation profile short" begin
         include(joinpath(@__DIR__, "..", "performance_regression.jl"))
@@ -243,6 +296,45 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
             )
         end
         @test current_step(simulation) == PERFORMANCE_MEDIUM_STEPS
+        @test isfile(output_path)
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm CPU profile full")
+    @testset "XPalm CPU profile full" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        _warmup_xpalm_performance!(PERFORMANCE_FULL_STEPS)
+        model, nsteps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
+        profiled_steps = 660
+        simulation = xpalm_reference_param_run(
+            model,
+            OutputRequest[],
+            nsteps - profiled_steps;
+            outputs=:none,
+        )
+        Profile.clear()
+        Profile.@profile PlantSimEngine.continue!(
+            simulation;
+            steps=profiled_steps,
+        )
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-cpu-full-latest.txt",
+        )
+        open(output_path, "w") do io
+            Profile.print(
+                io;
+                format=:flat,
+                sortedby=:count,
+                C=false,
+                combine=true,
+            )
+        end
+        @test current_step(simulation) == PERFORMANCE_FULL_STEPS
         @test isfile(output_path)
     end
 end

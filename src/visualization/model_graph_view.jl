@@ -182,6 +182,7 @@ function _model_graph_compiled(
         input_by_target,
         call_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
+        _many_input_binding_cache(model, input_bindings),
         model_bundles,
         status_views,
         application_order,
