@@ -363,12 +363,20 @@ Current restoration checkpoints on the same staged XPalm fixture:
 - [x] The same checkpoint reduces a fully compiled 660-day mature-canopy tail
       from `4.834` seconds and `4.740 GB` to approximately `4.2` seconds and
       `2.5 GB`.
-- [ ] The current full-cycle result is still not an acceptance result:
-      `phytomer_count=344` and `ftsw=0.7991179101191208` agree with the
-      historical fixture, but `lai=4.897520126027398` does not equal the
-      historical `5.0587602356164405`. The warmed runtime now passes the
-      `<=15` second performance component, but correctness remains
-      release-blocking.
+- [x] The lifecycle-resume correctness blocker is repaired. When structural
+      growth activated a previously empty application ahead of already
+      completed groups, the runtime resumed at the new group but then replayed
+      completed groups that followed it. This ran `Plant__plant_age` twice at
+      timesteps 2,164 and 2,209 and shifted the downstream trajectory. The
+      runtime now skips every completed application while still running newly
+      activated later applications in the current timestep.
+- [x] The dedicated XPalm v0.6.1 full-cycle regression passes all 68 checks.
+      The corrected warmed run finishes with `current_step=4160`,
+      `phytomer_count=344`, `lai=5.0587602356164405`, and
+      `ftsw=0.7991179101191216`, exactly matching the historical final state.
+- [x] The corrected fully warmed 4,160-day run takes `14.864538` seconds and
+      allocates `9.266 GB`. A preceding repetition took `15.007203` seconds
+      with the same allocation and exact final state.
 
 ### Performance invariants
 
@@ -566,10 +574,10 @@ execution path.
 
 ### Performance acceptance targets
 
-- [ ] First restoration milestone: complete the exact XPalm full-cycle
+- [x] First restoration milestone: complete the exact XPalm full-cycle
       reference in at most 15 seconds on the baseline machine after warm-up.
-      The performance component currently passes at `14.382` seconds; this
-      remains unchecked until the historical final state also matches.
+      The corrected run passes at `14.864538` seconds with the exact historical
+      trajectory and final state.
 - [ ] Final target: complete it in at most 10 seconds, or document and obtain
       explicit approval for any remaining measured cost required by the new
       semantics.
@@ -583,8 +591,11 @@ execution path.
       applications onto the call-capable path.
 - [x] Demonstrate bounded temporal dependency memory when outputs are not
       retained.
-- [ ] Persist the repaired baseline so later API, lifecycle, temporal, and
-      output changes cannot silently recreate a large regression.
+- [x] Persist the repaired baseline so later API, lifecycle, temporal, and
+      output changes cannot silently recreate a large regression. The warmed
+      full-cycle target enforces the complete historical final state and a
+      generous 20-second noisy-run guard; the dedicated XPalm fixture enforces
+      the monthly trajectory, harvest events, and summary.
 
 ## Progressive Documentation Contract
 
@@ -966,15 +977,15 @@ No breaking PlantSimEngine milestone is complete until:
 
 1. [x] Snapshot all three dirty worktrees and identify ownership of overlapping
        changes.
-2. [ ] Reproduce and profile the current XPalm performance baseline through a
+2. [x] Reproduce and profile the current XPalm performance baseline through a
        healthy Kaimon session; add the runtime counters and benchmark matrix.
-3. [ ] Make lifecycle extension delta-based and verify that new-organ hard
+3. [x] Make lifecycle extension delta-based and verify that new-organ hard
        calls no longer rebuild the whole scene.
-4. [ ] Replace repeated scheduler scanning with linear application groups.
+4. [x] Replace repeated scheduler scanning with linear application groups.
 5. [ ] Compile temporal policies into bounded typed state.
 6. [ ] Restore per-batch no-hard-call specialization and separate/preallocate
        requested outputs.
-7. [ ] Reach and persist the first XPalm restoration milestone before layering
+7. [x] Reach and persist the first XPalm restoration milestone before layering
        further breaking API work onto the runtime.
 8. [ ] Finalize the model kernel, environment vocabulary, and required/default
        declarations.

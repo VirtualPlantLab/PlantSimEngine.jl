@@ -253,6 +253,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         )
         @test final_state.current_step == PERFORMANCE_FULL_STEPS
         @test final_state.phytomer_count == 344
+        @test xpalm_reference_state_matches(final_state)
         @test wall_time <= 20.0
         @test isfile(output_path)
     end

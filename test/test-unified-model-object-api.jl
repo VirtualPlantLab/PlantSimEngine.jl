@@ -620,6 +620,56 @@ function PlantSimEngine.run!(::ModelObjectGrowthModel, models, status, meteo, co
     return nothing
 end
 
+PlantSimEngine.@process "model_object_first_growth" verbose = false
+
+struct ModelObjectFirstGrowthModel <: AbstractModel_Object_First_GrowthModel end
+
+PlantSimEngine.inputs_(::ModelObjectFirstGrowthModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectFirstGrowthModel) = NamedTuple()
+
+function PlantSimEngine.run!(
+    ::ModelObjectFirstGrowthModel,
+    models,
+    status,
+    meteo,
+    constants=nothing,
+    extra=nothing,
+)
+    model = runtime_model(extra)
+    ObjectId(:first_growth_leaf) in object_ids(model) ||
+        register_object!(
+            model,
+            Object(
+                :first_growth_leaf;
+                scale=:Leaf,
+                parent=:scene,
+                status=Status(signal=0.0),
+            ),
+        )
+    return nothing
+end
+
+PlantSimEngine.@process "model_object_execution_counter" verbose = false
+
+struct ModelObjectExecutionCounterModel <:
+       AbstractModel_Object_Execution_CounterModel end
+
+PlantSimEngine.inputs_(::ModelObjectExecutionCounterModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectExecutionCounterModel) =
+    (execution_count=0,)
+
+function PlantSimEngine.run!(
+    ::ModelObjectExecutionCounterModel,
+    models,
+    status,
+    meteo,
+    constants=nothing,
+    extra=nothing,
+)
+    status.execution_count += 1
+    return nothing
+end
+
 PlantSimEngine.@process "model_object_initializing_growth" verbose = false
 
 struct ModelObjectInitializingGrowthModel <:
@@ -3922,6 +3972,43 @@ end
           Advanced.model_revision(initializing_growth_scene)
     @test initializing_growth_simulation.execution_plan.model_revision ==
           Advanced.model_revision(initializing_growth_scene)
+
+    lifecycle_resume_scene = CompositeModel(
+        Object(
+            :scene;
+            scale=:Scene,
+            kind=:scene,
+            status=Status(execution_count=0),
+        );
+        applications=(
+            ModelSpec(
+                ModelObjectSignalSourceModel();
+                name=:new_leaf_signal,
+            ) |>
+            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(
+                ModelObjectExecutionCounterModel();
+                name=:execution_counter,
+            ) |>
+            AppliesTo(One(scale=:Scene)),
+            ModelSpec(
+                ModelObjectFirstGrowthModel();
+                name=:first_growth,
+            ) |>
+            AppliesTo(One(scale=:Scene)),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    run!(lifecycle_resume_scene; steps=1)
+    @test only(model_objects(lifecycle_resume_scene; scale=:Scene)).
+          status.execution_count == 1
+    @test only(model_objects(lifecycle_resume_scene; scale=:Leaf)).
+          status.signal == 1.0
+    @test Set(object_ids(lifecycle_resume_scene)) ==
+          Set([
+        ObjectId(:scene),
+        ObjectId(:first_growth_leaf),
+    ])
 
     lifecycle_scene = CompositeModel(
         Object(

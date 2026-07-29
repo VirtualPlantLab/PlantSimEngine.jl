@@ -3960,6 +3960,14 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
     completed_applications = nothing
     while group_index <= length(groups)
         group = groups[group_index]
+        # A refresh can insert a newly activated group before applications
+        # that already ran. Skip every completed group, not only the prefix
+        # used to choose the first resume point.
+        if !isnothing(completed_applications) &&
+           group.application.id in completed_applications
+            group_index += 1
+            continue
+        end
         for batch in group.batches
             _run_model_execution_batch!(
                 batch,
@@ -3985,6 +3993,9 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             :application_groups_visited,
         )
 
+        if !isnothing(completed_applications)
+            push!(completed_applications, group.application.id)
+        end
         if !_simulation_runtime_dirty(simulation)
             group_index += 1
             continue
@@ -3994,8 +4005,6 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
                 groups[index].application.id
                 for index in firstindex(groups):group_index
             )
-        else
-            push!(completed_applications, group.application.id)
         end
         added_object_ids = bindings_dirty(simulation.model) &&
                            !isnothing(simulation.model.binding_dirty_objects) ?
