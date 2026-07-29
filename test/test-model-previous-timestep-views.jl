@@ -238,6 +238,10 @@ end
         ),
     )
     @test execution_target.status === status_view.status
+    runtime_temporal_input = only(execution_target.input_bindings)
+    @test runtime_temporal_input isa PlantSimEngine.RuntimeTemporalInput
+    @test runtime_temporal_input.compiled === only(status_view.temporal_inputs)
+    @test runtime_temporal_input.source_streams === dependency_stream
     materialized_status = PlantSimEngine._materialize_model_inputs!(
         simulation.compiled,
         simulation.compiled.applications_by_id[:lagged_consumer],

@@ -141,7 +141,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         pse_root = dirname(dirname(@__DIR__))
         xpalm_root = dirname(dirname(pathof(XPalm)))
         totals = Dict{
-            Tuple{String,String,Int,String},
+            Tuple{String,String,Int,String,String},
             Tuple{Int,Int},
         }()
         for allocation in allocation_results.allocs
@@ -153,7 +153,13 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
             frame = allocation.stacktrace[frame_index]
             file = string(frame.file)
             source = occursin(pse_root, file) ? "PlantSimEngine" : "XPalm"
-            key = (source, file, frame.line, string(frame.func))
+            key = (
+                source,
+                file,
+                frame.line,
+                string(frame.func),
+                string(allocation.type),
+            )
             count, bytes = get(totals, key, (0, 0))
             totals[key] = (count + 1, bytes + allocation.size)
         end
@@ -163,6 +169,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
                 file=key[2],
                 line=key[3],
                 function_name=key[4],
+                allocation_type=key[5],
                 sampled_allocations=first(value),
                 sampled_bytes=last(value),
                 sample_rate=0.01,

@@ -98,6 +98,18 @@ end
 end
 
 """
+    RuntimeTemporalInput
+
+Per-simulation temporal input state compiled into an execution target. It
+shares direct references to the producer streams with every compatible
+consumer, avoiding a global stream-dictionary lookup in the per-target loop.
+"""
+struct RuntimeTemporalInput{C,S}
+    compiled::C
+    source_streams::S
+end
+
+"""
     RuntimePerformanceCounters
 
 Opt-in coarse runtime instrumentation used by the performance regression
@@ -447,6 +459,37 @@ function _model_new_output_stream(
     return Tuple{Float64,typeof(value)}[]
 end
 
+function _initialize_model_temporal_streams!(
+    streams,
+    compiled::CompiledCompositeModel,
+    retention::OutputRetentionPlan,
+)
+    for (application_id, variable) in retention.temporal_dependencies
+        application = _compiled_application_by_id(compiled, application_id)
+        for object_id in application.target_ids
+            key = _model_stream_key(application_id, object_id, variable)
+            haskey(streams, key) && continue
+            status = _model_status_view_for_application(
+                compiled,
+                application,
+                object_id,
+            ).canonical_status
+            hasproperty(status, variable) || error(
+                "Application `$(application_id)` declares temporal output ",
+                "`$(variable)`, but object `$(object_id.value)` status has no ",
+                "such variable.",
+            )
+            streams[key] = _model_new_output_stream(
+                getproperty(status, variable),
+                retention,
+                application_id,
+                variable,
+            )
+        end
+    end
+    return streams
+end
+
 function _model_prune_dependency_stream!(
     samples,
     retention::OutputRetentionPlan,
@@ -728,6 +771,22 @@ function _model_temporal_source_value(
     timeline,
 )
     samples = get(streams, _model_stream_key(application_id, source_id, source_var), nothing)
+    return _model_temporal_sample_value(
+        samples,
+        time,
+        policy,
+        t_start,
+        timeline,
+    )
+end
+
+function _model_temporal_sample_value(
+    samples,
+    time::Real,
+    policy,
+    t_start::Real,
+    timeline,
+)
     isnothing(samples) && return policy isa Union{Integrate,Aggregate} ? 0.0 : nothing
     if policy isa HoldLast
         return _model_latest_sample(samples, time)
@@ -855,6 +914,71 @@ function _materialize_model_temporal_input!(
     return status
 end
 
+function _materialize_model_temporal_input!(
+    status::Status,
+    runtime_input::RuntimeTemporalInput,
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+)
+    temporal_input = runtime_input.compiled
+    binding = temporal_input.binding
+    window_steps = _model_input_window_steps(binding, application, timeline)
+    t_start = float(time) - float(window_steps) + 1.0
+    if binding.multiplicity == :many
+        storage = temporal_input.reference[]
+        storage isa AbstractVector || error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` has non-vector private storage ",
+            "`$(typeof(storage))`.",
+        )
+        length(storage) == length(binding.source_ids) || error(
+            "Temporal `Many` input `$(binding.input)` on application ",
+            "`$(binding.application_id)` has $(length(storage)) private values for ",
+            "$(length(binding.source_ids)) resolved source objects. Refresh the ",
+            "compiled lifecycle bindings before execution.",
+        )
+        for index in eachindex(binding.source_ids)
+            value = _model_temporal_sample_value(
+                runtime_input.source_streams[index],
+                time,
+                binding.policy,
+                t_start,
+                timeline,
+            )
+            if isnothing(value)
+                binding.policy isa PreviousTimeStep || error(
+                    "No temporal model value available for input ",
+                    "`$(binding.input)` from ",
+                    "`$(binding.source_ids[index].value).$(binding.source_var)` ",
+                    "at t=$(time).",
+                )
+                value = temporal_input.initial[index]
+            end
+            storage[index] = value
+        end
+        return status
+    end
+    source_id = only(binding.source_ids)
+    value = _model_temporal_sample_value(
+        runtime_input.source_streams,
+        time,
+        binding.policy,
+        t_start,
+        timeline,
+    )
+    if isnothing(value)
+        binding.policy isa PreviousTimeStep || error(
+            "No temporal model value available for input `$(binding.input)` from ",
+            "`$(source_id.value).$(binding.source_var)` at t=$(time).",
+        )
+        value = temporal_input.initial
+    end
+    _model_assign_private_temporal_value!(temporal_input, value)
+    return status
+end
+
 function _materialize_model_inputs!(
     compiled::CompiledCompositeModel,
     application::CompiledModelApplication,
@@ -886,7 +1010,6 @@ function _materialize_model_inputs!(
     isnothing(streams) && return status
     timeline = compiled.timeline
     for temporal_input in bindings
-        temporal_input isa CompiledTemporalInput || continue
         _materialize_model_temporal_input!(
             status,
             temporal_input,
@@ -1446,11 +1569,75 @@ function _manual_call_application_ids(compiled::CompiledCompositeModel)
     return ids
 end
 
+function _typed_temporal_source_streams(source_streams::Vector{Any})
+    isempty(source_streams) && return ()
+    source_type = typeof(first(source_streams))
+    all(source -> typeof(source) === source_type, source_streams) ||
+        return source_streams
+    typed = Vector{source_type}(undef, length(source_streams))
+    copyto!(typed, source_streams)
+    return typed
+end
+
+function _runtime_temporal_source_stream(
+    streams,
+    temporal_input::CompiledTemporalInput,
+    index::Int,
+)
+    application_id = temporal_input.source_applications[index]
+    isnothing(application_id) && return nothing
+    binding = temporal_input.binding
+    key = _model_stream_key(
+        application_id,
+        binding.source_ids[index],
+        binding.source_var,
+    )
+    stream = get(streams, key, nothing)
+    isnothing(stream) && error(
+        "No initialized temporal source stream for application ",
+        "`$(application_id)` on object `$(binding.source_ids[index].value)` ",
+        "and variable `$(binding.source_var)`.",
+    )
+    return stream
+end
+
+function _runtime_temporal_input(
+    temporal_input::CompiledTemporalInput,
+    streams,
+)
+    binding = temporal_input.binding
+    if binding.multiplicity == :many
+        source_streams = Any[
+            _runtime_temporal_source_stream(streams, temporal_input, index)
+            for index in eachindex(binding.source_ids)
+        ]
+        return RuntimeTemporalInput(
+            temporal_input,
+            _typed_temporal_source_streams(source_streams),
+        )
+    end
+    return RuntimeTemporalInput(
+        temporal_input,
+        _runtime_temporal_source_stream(streams, temporal_input, 1),
+    )
+end
+
+_runtime_model_temporal_inputs(temporal_inputs::Tuple, ::Nothing) =
+    temporal_inputs
+
+function _runtime_model_temporal_inputs(temporal_inputs::Tuple, streams)
+    return Tuple(
+        _runtime_temporal_input(temporal_input, streams)
+        for temporal_input in temporal_inputs
+    )
+end
+
 function _compiled_model_execution_target(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     object_id::ObjectId,
+    temporal_streams=nothing,
 )
     status_view = _model_status_view_for_application(
         compiled,
@@ -1475,7 +1662,10 @@ function _compiled_model_execution_target(
         status_view.status,
         status_view.canonical_status,
         models,
-        status_view.temporal_inputs,
+        _runtime_model_temporal_inputs(
+            status_view.temporal_inputs,
+            temporal_streams,
+        ),
         call_bindings,
         environment_binding,
     )
@@ -1523,6 +1713,7 @@ end
 function compile_model_execution_plan(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
+    temporal_streams=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
     groups = CompiledApplicationExecutionGroup[]
@@ -1536,6 +1727,7 @@ function compile_model_execution_plan(
                 env_bindings,
                 application,
                 object_id,
+                temporal_streams,
             )
             for object_id in application.target_ids
         ]
@@ -1557,6 +1749,23 @@ function compile_model_execution_plan(
     )
 end
 
+function _model_execution_inputs_match(
+    runtime_inputs::Tuple,
+    compiled_inputs::Tuple,
+)
+    length(runtime_inputs) == length(compiled_inputs) || return false
+    for index in eachindex(runtime_inputs)
+        runtime_input = runtime_inputs[index]
+        compiled_input = compiled_inputs[index]
+        if runtime_input isa RuntimeTemporalInput
+            runtime_input.compiled === compiled_input || return false
+        else
+            runtime_input === compiled_input || return false
+        end
+    end
+    return true
+end
+
 function _model_execution_target_change_reason(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
@@ -1575,7 +1784,10 @@ function _model_execution_target_change_reason(
     target.models ===
     _model_models_for_application(compiled, application, object_id) ||
         return :model_bundle
-    target.input_bindings === status_view.temporal_inputs ||
+    _model_execution_inputs_match(
+        target.input_bindings,
+        status_view.temporal_inputs,
+    ) ||
         return :temporal_inputs
     target.call_bindings ===
     get(compiled.call_bindings_by_target, key, ()) ||
@@ -1649,6 +1861,7 @@ function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
+    temporal_streams=nothing,
     performance=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
@@ -1721,6 +1934,7 @@ function _refresh_model_execution_plan(
                         env_bindings,
                         application,
                         object_id,
+                        temporal_streams,
                     ),
                 )
                 _count_model_execution_target_rebuild!(
@@ -2514,6 +2728,11 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 :output_retention_compiles,
             )
         end
+        _initialize_model_temporal_streams!(
+            simulation.temporal_streams,
+            simulation.compiled,
+            simulation.output_retention,
+        )
         started_at = _runtime_performance_start(simulation.performance)
         simulation.environment_bindings = refresh_environment_bindings!(
             model,
@@ -2533,6 +2752,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
+            simulation.temporal_streams,
             simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
@@ -2582,6 +2802,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
+            simulation.temporal_streams,
             simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
@@ -2838,8 +3059,30 @@ function run!(
         started_at,
     )
     empty!(env_bindings.sample_cache)
+    output_requests, retain_all = _model_output_selection(outputs, tracked_outputs)
     started_at = _runtime_performance_start(performance_counters)
-    execution_plan = compile_model_execution_plan(compiled, env_bindings)
+    output_retention = compile_model_output_retention(
+        compiled,
+        output_requests;
+        retain_all=retain_all,
+    )
+    _runtime_performance_finish!(
+        performance_counters,
+        :initial_output_retention_compile,
+        started_at,
+    )
+    temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
+    _initialize_model_temporal_streams!(
+        temporal_streams,
+        compiled,
+        output_retention,
+    )
+    started_at = _runtime_performance_start(performance_counters)
+    execution_plan = compile_model_execution_plan(
+        compiled,
+        env_bindings,
+        temporal_streams,
+    )
     _runtime_performance_finish!(
         performance_counters,
         :initial_execution_plan_compile,
@@ -2855,19 +3098,6 @@ function run!(
         :initial_execution_batches_constructed,
         length(execution_plan.batches),
     )
-    output_requests, retain_all = _model_output_selection(outputs, tracked_outputs)
-    started_at = _runtime_performance_start(performance_counters)
-    output_retention = compile_model_output_retention(
-        compiled,
-        output_requests;
-        retain_all=retain_all,
-    )
-    _runtime_performance_finish!(
-        performance_counters,
-        :initial_output_retention_compile,
-        started_at,
-    )
-    temporal_streams = Dict{Tuple{Symbol,ObjectId,Symbol},Any}()
     started_at = _runtime_performance_start(performance_counters)
     output_request_targets = _initial_output_request_targets(
         model,
