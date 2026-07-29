@@ -47,6 +47,29 @@ part of the consumer model. `within=Subtree()` searches descendants of the
 current target; `within=SelfPlant()` anchors repeated plant instances; and
 `SceneScope()` is deliberately global.
 
+By default, an input selector also identifies applications that produce the
+selected variable, and those producers are scheduled before the consumer. Use
+`from_status=true` only when the input deliberately reads the objects' current
+`Status` references independently of any producer:
+
+```julia
+Inputs(
+    :organ_reserves => Many(
+        scale=(:Leaf, :Internode),
+        within=Subtree(),
+        var=:reserve,
+        from_status=true,
+        after=:plant_allocation,
+    ),
+)
+```
+
+This is a same-step live-reference binding. It cannot be combined with
+`process`, `application`, `policy`, or `window`. It does not infer a producer
+edge; use `after=:application_id` when the state must be read or mutated after
+a particular application. Otherwise, the scenario's application order is
+preserved.
+
 ## Manual calls
 
 ```julia

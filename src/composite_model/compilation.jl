@@ -18,6 +18,7 @@ struct CompiledModelInputBinding{SEL,P,W,C}
     origin::Symbol
     source_ids::Vector{ObjectId}
     source_application_ids::Vector{Symbol}
+    order_after_application_ids::Vector{Symbol}
     source_var::Symbol
     process::Union{Nothing,Symbol}
     application::Union{Nothing,Symbol}
@@ -358,6 +359,7 @@ function _binding_with_shared_many_sources(
         binding.origin,
         canonical.source_ids,
         canonical.source_application_ids,
+        binding.order_after_application_ids,
         binding.source_var,
         binding.process,
         binding.application,
@@ -439,14 +441,18 @@ function _append_added_many_sources!(
     append!(existing_refs, new_refs)
     append!(binding.source_ids, new_source_ids)
 
-    new_application_ids = _matching_input_source_applications(
-        applications_by_object,
-        new_source_ids,
-        binding.source_var,
-        binding.process,
-        binding.application;
-        allow_empty=binding.selector isa OptionalOne,
-    )
+    new_application_ids = if _selector_from_status(binding.selector)
+        Symbol[]
+    else
+        _matching_input_source_applications(
+            applications_by_object,
+            new_source_ids,
+            binding.source_var,
+            binding.process,
+            binding.application;
+            allow_empty=binding.selector isa OptionalOne,
+        )
+    end
     for application_id in new_application_ids
         application_id in binding.source_application_ids ||
             push!(binding.source_application_ids, application_id)
@@ -1245,6 +1251,66 @@ function _selector_application(selector::AbstractObjectMultiplicity)
     return _criteria_get(criteria(selector), :application, nothing)
 end
 
+function _selector_from_status(selector::AbstractObjectMultiplicity)
+    from_status = _criteria_get(criteria(selector), :from_status, false)
+    from_status isa Bool || error(
+        "Selector keyword `from_status` must be `true` or `false`, got `$(repr(from_status))`."
+    )
+    return from_status
+end
+
+function _selector_order_after(selector::AbstractObjectMultiplicity)
+    after = _criteria_get(criteria(selector), :after, nothing)
+    isnothing(after) && return Symbol[]
+    values = after isa Union{Tuple,AbstractVector} ? after : (after,)
+    applications = Symbol[Symbol(value) for value in values]
+    isempty(applications) && error("Selector keyword `after` cannot be empty.")
+    return unique!(applications)
+end
+
+function _validate_from_status_selector!(
+    selector::AbstractObjectMultiplicity,
+    process_filter,
+    application_filter,
+    applications_by_id,
+    consumer_application_id,
+)
+    order_after = _selector_order_after(selector)
+    if !_selector_from_status(selector)
+        isempty(order_after) || error(
+            "Selector keyword `after` is only supported with `from_status=true`. ",
+            "Producer-bound inputs already derive their order from the selected application."
+        )
+        return order_after
+    end
+    isnothing(process_filter) || error(
+        "`from_status=true` cannot be combined with `process=` because it deliberately ",
+        "reads the selected objects' current Status without choosing a producer application."
+    )
+    isnothing(application_filter) || error(
+        "`from_status=true` cannot be combined with `application=` because it deliberately ",
+        "reads the selected objects' current Status without choosing a producer application."
+    )
+    _selector_has_policy(selector) && error(
+        "`from_status=true` cannot be combined with a temporal `policy=`. Remove ",
+        "`from_status=true` when reading a producer stream."
+    )
+    isnothing(_selector_window(selector)) || error(
+        "`from_status=true` cannot be combined with `window=`. Status bindings are ",
+        "same-step live references, not temporal streams."
+    )
+    for application_id in order_after
+        application_id == consumer_application_id && error(
+            "Status input on application `$(consumer_application_id)` cannot be ordered after itself."
+        )
+        haskey(applications_by_id, application_id) || error(
+            "Status input on application `$(consumer_application_id)` requested ",
+            "`after=$(repr(application_id))`, but no application with that id exists."
+        )
+    end
+    return order_after
+end
+
 function _dependency_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity, context::ObjectId)
     return _resolve_object_ids(
         model,
@@ -1683,15 +1749,26 @@ function _push_model_input_binding!(
     source_var = _selector_var(selector, input_sym)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
     application_filter = _selector_application(selector)
-    source_application_ids = _matching_input_source_applications(
-        applications_by_object,
-        source_ids,
-        source_var,
+    order_after_application_ids = _validate_from_status_selector!(
+        selector,
         process_filter,
         application_filter,
-        allow_empty=selector isa OptionalOne ||
-                    (selector isa Many && isempty(source_ids)),
+        applications_by_id,
+        application.id,
     )
+    source_application_ids = if _selector_from_status(selector)
+        Symbol[]
+    else
+        _matching_input_source_applications(
+            applications_by_object,
+            source_ids,
+            source_var,
+            process_filter,
+            application_filter,
+            allow_empty=selector isa OptionalOne ||
+                        (selector isa Many && isempty(source_ids)),
+        )
+    end
     if selector isa Many &&
        isempty(source_ids) &&
        (!isnothing(process_filter) || !isnothing(application_filter))
@@ -1771,6 +1848,7 @@ function _push_model_input_binding!(
             origin,
             source_ids,
             source_application_ids,
+            order_after_application_ids,
             source_var,
             process_filter,
             application_filter,
@@ -2041,7 +2119,11 @@ end
 function _model_input_order_edges!(children, input_bindings, call_owners)
     for binding in input_bindings
         binding.policy isa PreviousTimeStep && continue
-        for source_id in binding.source_application_ids
+        ordering_sources = (
+            binding.source_application_ids...,
+            binding.order_after_application_ids...,
+        )
+        for source_id in ordering_sources
             owners = get(call_owners, source_id, nothing)
             if isnothing(owners)
                 _add_model_application_edge!(children, source_id, binding.application_id)
@@ -2215,6 +2297,7 @@ function explain_bindings(compiled::CompiledCompositeModel)
             origin=binding.origin,
             source_ids=[id.value for id in binding.source_ids],
             source_application_ids=binding.source_application_ids,
+            order_after_application_ids=binding.order_after_application_ids,
             source_var=binding.source_var,
             process=binding.process,
             application=binding.application,

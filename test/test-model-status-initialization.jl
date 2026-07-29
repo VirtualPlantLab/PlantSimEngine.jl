@@ -40,6 +40,7 @@ end
     @test status.observed == 42
 
     unresolved = CompositeModel(InitializationConsumerModel(); status=(supplied=1,))
+    @test isnothing(only(model_objects(unresolved)).kind)
     @test any(row -> row.variable == :signal && row.disposition == :unresolved,
               explain_initialization(unresolved))
     @test_throws "Missing required composite-model/object input" run!(unresolved)

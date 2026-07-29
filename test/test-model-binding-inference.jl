@@ -3,11 +3,13 @@ using Test
 
 PlantSimEngine.@process "lineage_source" verbose = false
 PlantSimEngine.@process "lineage_consumer" verbose = false
+PlantSimEngine.@process "lineage_sum" verbose = false
 
 struct LineageSourceModel{T} <: AbstractLineage_SourceModel
     value::T
 end
 struct LineageConsumerModel <: AbstractLineage_ConsumerModel end
+struct LineageSumModel <: AbstractLineage_SumModel end
 PlantSimEngine.inputs_(::LineageSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::LineageSourceModel) = (signal=0.0,)
 function PlantSimEngine.run!(model::LineageSourceModel, models, status, meteo, constants, extra)
@@ -17,6 +19,11 @@ PlantSimEngine.inputs_(::LineageConsumerModel) = (signal=0.0,)
 PlantSimEngine.outputs_(::LineageConsumerModel) = (observed=0.0,)
 function PlantSimEngine.run!(::LineageConsumerModel, models, status, meteo, constants, extra)
     status.observed = status.signal
+end
+PlantSimEngine.inputs_(::LineageSumModel) = (signals=[0.0],)
+PlantSimEngine.outputs_(::LineageSumModel) = (total=0.0,)
+function PlantSimEngine.run!(::LineageSumModel, models, status, meteo, constants, extra)
+    status.total = sum(status.signals)
 end
 
 @testset "producer lineage, scope, and ambiguity" begin
@@ -99,4 +106,82 @@ end
     @test explicit_binding.source_ids == [:plant]
     run!(explicit)
     @test only(model_objects(explicit; scale=:Leaf)).status.observed == 1.0
+end
+
+@testset "explicit current Status bindings" begin
+    scalar = CompositeModel(
+        Object(:leaf; scale=:Leaf, status=Status(signal=4.0));
+        applications=(
+            ModelSpec(LineageConsumerModel(); name=:status_consumer) |>
+                AppliesTo(One(scale=:Leaf)) |>
+                Inputs(
+                    :signal => One(
+                        within=Self(),
+                        var=:signal,
+                        from_status=true,
+                        after=:later_source,
+                    ),
+                ),
+            ModelSpec(LineageSourceModel(10.0); name=:later_source) |>
+                AppliesTo(One(scale=:Leaf)),
+        ),
+    )
+    scalar_compiled = Advanced.refresh_bindings!(scalar)
+    scalar_binding = only(explain_bindings(scalar_compiled))
+    @test isempty(scalar_binding.source_application_ids)
+    @test scalar_binding.order_after_application_ids == [:later_source]
+    @test scalar_binding.carrier_kind == :ref
+    @test getproperty.(explain_schedule(scalar_compiled), :application_id) ==
+          [:later_source, :status_consumer]
+    run!(scalar)
+    scalar_status = only(model_objects(scalar; scale=:Leaf)).status
+    @test scalar_status.observed == 10.0
+    @test scalar_status.signal == 10.0
+
+    dynamic_many = CompositeModel(
+        Object(:plant; scale=:Plant, status=Status(total=0.0)),
+        Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(signal=1.0));
+        applications=(
+            ModelSpec(LineageSumModel(); name=:status_sum) |>
+                AppliesTo(One(scale=:Plant)) |>
+                Inputs(
+                    :signals => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        var=:signal,
+                        from_status=true,
+                    ),
+                ),
+            ModelSpec(LineageSourceModel(5.0); name=:later_sources) |>
+                AppliesTo(Many(scale=:Leaf)),
+        ),
+    )
+    simulation = run!(dynamic_many; outputs=:none)
+    @test only(model_objects(dynamic_many; scale=:Plant)).status.total == 1.0
+    register_object!(
+        dynamic_many,
+        Object(:leaf_2; scale=:Leaf, status=Status(signal=2.0));
+        parent=:plant,
+    )
+    continue!(simulation)
+    @test only(model_objects(dynamic_many; scale=:Plant)).status.total == 7.0
+
+    invalid = CompositeModel(
+        Object(:leaf; scale=:Leaf, status=Status(signal=1.0));
+        applications=(
+            ModelSpec(LineageConsumerModel(); name=:invalid_status_consumer) |>
+                AppliesTo(One(scale=:Leaf)) |>
+                Inputs(
+                    :signal => One(
+                        within=Self(),
+                        var=:signal,
+                        application=:missing,
+                        from_status=true,
+                    ),
+                ),
+        ),
+    )
+    @test_throws "`from_status=true` cannot be combined with `application=`" Advanced.refresh_bindings!(
+        invalid,
+    )
 end

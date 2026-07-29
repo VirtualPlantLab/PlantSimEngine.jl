@@ -431,7 +431,7 @@ end
 
 """
     CompositeModel(model::AbstractModel, models::AbstractModel...;
-          status=NamedTuple(), id=:scene, scale=:Scene, kind=:scene,
+          status=NamedTuple(), id=:scene, scale=:Scene, kind=nothing,
           name=id, environment=nothing, timestep=nothing)
 
 Construct a concise one-object simulation. This is syntax lowering only: it
@@ -450,7 +450,7 @@ function CompositeModel(
     status=NamedTuple(),
     id=:scene,
     scale=:Scene,
-    kind=:scene,
+    kind=nothing,
     name=id,
     environment=nothing,
     timestep=nothing,
