@@ -247,8 +247,8 @@ end
 PlantSimEngine.inputs_(::MyModel) = (x=0.0, y=-Inf)
 PlantSimEngine.outputs_(::MyModel) = (z=-Inf,)
 
-function PlantSimEngine.run!(m::MyModel, models, status, meteo, constants, extra=nothing)
-    status.z = f(status.x, status.y, meteo.T, m.p)
+function PlantSimEngine.run!(m::MyModel, status, environment, constants, context=nothing)
+    status.z = f(status.x, status.y, environment.T, m.p)
     return nothing
 end
 ```
@@ -258,10 +258,10 @@ Rules:
 - `inputs_` and `outputs_` are authoritative. Defaults are also initialization hints.
 - Use `NamedTuple()` for no inputs or no outputs.
 - Read and write model state through `status`. Do not store timestep-varying state in the model object.
-- Read weather through `meteo` and physical constants through `constants`.
-- In model runs, `extra` is a `RunContext`. Use its public hard-call and
+- Read sampled forcing through `environment` and physical constants through `constants`.
+- In model runs, `context` is a `RunContext`. Use its public hard-call and
   lifecycle APIs rather than attaching unrelated user data. Obtain the live
-  model with `runtime_model(extra)`; do not inspect `extra.compiled.model`.
+  model with `runtime_model(context)`; do not inspect `context.compiled.model`.
 - If a variable appears in both `inputs_` and `outputs_` with the same name, remember that `variables(model)` merges declarations and later output declarations win.
 
 ### Wrapping existing code
@@ -286,8 +286,8 @@ PlantSimEngine.dep(::ParentModel) = (
     child=Call(process=:child_process),
 )
 
-function PlantSimEngine.run!(m::ParentModel, models, status, meteo, constants, extra=nothing)
-    child = only(run_call!(extra, :child; meteo=meteo, publish=true))
+function PlantSimEngine.run!(m::ParentModel, status, environment, constants, context=nothing)
+    child = only(run_call!(context, :child; environment=environment, publish=true))
     status.parent_output = g(status.child_output)
 end
 ```

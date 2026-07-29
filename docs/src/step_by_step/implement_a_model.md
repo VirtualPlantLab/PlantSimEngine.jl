@@ -41,10 +41,10 @@ end
 Write the [`run!`](@ref) function that operates on a single timestep : 
 
 ```@example usepkg
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
     status.aPPFD =
-        meteo.Ri_PAR_f *
-        exp(-models.light_interception.k * status.LAI) *
+        environment.Ri_PAR_f *
+        exp(-model.k * status.LAI) *
         constants.J_to_umol
     return nothing
 end
@@ -167,19 +167,19 @@ These functions are internal, and end with an "\_". Users instead use [`inputs`]
 When running a simulation with [`run!`](@ref), each model is run at its
 scheduled timestep, following the dependency order compiled from model
 applications, inputs, and manual calls. Each model has its own [`run!`](@ref)
-method for updating the current state. The function takes six arguments:
+method for updating the current state. The function takes five arguments:
 
 ```julia
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
 ```
 
-- the model's type
-- models: the process-keyed model bundle compiled from the application and its
-  `Calls(...)`.
+- model: the current model instance, used for dispatch and parameter access.
 - status: a [`Status`](@ref) object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
-- meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
+- environment: the sampled model-facing environment for the current target and
+  timestep.
 - constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant, unit-conversion constants...)
-- extras: any other object you want to pass to your model, mostly for advanced usage, not detailed here
+- context: PlantSimEngine's runtime context for hard calls and lifecycle
+  operations.
 
 A typical [`run!`](@ref) function can therefore use simulation constants,
 input/output variables accessible through the [`Status`](@ref) object, or
@@ -190,10 +190,10 @@ Note that the input and output variables are accessed through the
 `status` argument:
 
 ```@example usepkg
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
     status.aPPFD =
-        meteo.Ri_PAR_f *
-        exp(-models.light_interception.k * status.LAI) *
+        environment.Ri_PAR_f *
+        exp(-model.k * status.LAI) *
         constants.J_to_umol
     return nothing
 end
@@ -206,9 +206,8 @@ To use this model, users will have to make sure that the variables for that mode
 !!! Note
     [`Status`](@ref) objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.
 
-Model parameters are available from the process-keyed `models` argument. Index
-by the process name, then the parameter name. For example, the `k` parameter of
-the `Beer` model is found in `models.light_interception.k`.
+Model parameters are read directly from the current model instance. For
+example, the `k` parameter of the `Beer` model is `model.k`.
 
 !!! warning
     Prefix functions you extend with `PlantSimEngine.`, or import them first,

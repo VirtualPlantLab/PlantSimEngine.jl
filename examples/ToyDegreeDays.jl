@@ -25,7 +25,7 @@ PlantSimEngine.inputs_(::ToyDegreeDaysCumulModel) = NamedTuple()
 PlantSimEngine.outputs_(m::ToyDegreeDaysCumulModel) = (TT=-Inf, TT_cu=0.0,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, status, meteo, constants=nothing, extra=nothing)
     status.TT = max(0.0, min(meteo.T, m.T_max) - m.T_base)
     status.TT_cu += status.TT
 end

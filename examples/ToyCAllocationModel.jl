@@ -39,7 +39,7 @@ function PlantSimEngine.outputs_(::ToyCAllocationModel)
     (carbon_offer=-Inf, carbon_allocation=[-Inf],)
 end
 
-function PlantSimEngine.run!(::ToyCAllocationModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(::ToyCAllocationModel, status, meteo, constants, extra_args)
 
     carbon_demand_tot = sum(status.carbon_demand)
     #Note: this model is multiscale, so status.carbon_demand, status.carbon_allocation, and status.carbon_assimilation are vectors.

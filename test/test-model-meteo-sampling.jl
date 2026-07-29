@@ -33,7 +33,7 @@ PlantSimEngine.meteo_hint(::Type{<:MeteoSamplingProbeModel}) = (
         Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
     ),
 )
-function PlantSimEngine.run!(::MeteoSamplingProbeModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::MeteoSamplingProbeModel, status, meteo, constants, extra)
     status.mean_T = meteo.T
     status.min_T = meteo.Tmin
     status.max_T = meteo.Tmax

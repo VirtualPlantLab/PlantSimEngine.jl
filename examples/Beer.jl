@@ -23,7 +23,7 @@ end
 
 
 """
-    run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
+    run!(model::Beer, status, environment, constants=Constants(), context=nothing)
 
 Computes the photosynthetic photon flux density (`aPPFD`, µmol m⁻² s⁻¹) absorbed by an 
 object using the incoming PAR radiation flux (`Ri_PAR_f`, W m⁻²) and the Beer-Lambert law
@@ -31,12 +31,11 @@ of light extinction.
 
 # Arguments
 
-- `::Beer`: a Beer model, from the model list (*i.e.* m.light_interception)
-- `models`: the process-keyed model bundle supplied by the model runtime.
+- `model`: the current Beer model instance.
 - `status`: the status of the model, usually the model list status (*i.e.* m.status)
-- `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
+- `environment`: sampled environment, such as an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) row
 - `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
-- `extra = nothing`: extra arguments, not used here.
+- `context = nothing`: runtime context, not used here.
 
 # Examples
 
@@ -59,10 +58,10 @@ run!(model)
 only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 """
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(model::Beer, status, meteo, constants, extra=nothing)
     status.aPPFD =
         meteo.Ri_PAR_f *
-        (1.0 - exp(-models.light_interception.k * status.LAI)) *
+        (1.0 - exp(-model.k * status.LAI)) *
         constants.J_to_umol
 end
 

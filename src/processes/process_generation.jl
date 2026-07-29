@@ -133,36 +133,34 @@ macro process(f, args...)
 
         ```julia
         function PlantSimEngine.run!(
-            ::$(dummy_type_name),
-            models,
+            m::$(dummy_type_name),
             status,
-            meteo,
+            environment,
             constants,
-            extra
+            context
         )
-            status.Y = models.$(process_name).a * meteo.CO2 + status.X
-            run_call!(extra, :other_process_name; publish=true)
+            status.Y = m.a * environment.CO2 + status.X
+            run_call!(context, :other_process_name; publish=true)
         end
         ```
 
-        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the called-model bundle, the status, the meteorology,
-        the constants and any extra values.
+        Note that {#8abeff}run!(){/#8abeff} takes five arguments: the model type
+        (used for dispatch and parameter access), the status, the sampled
+        environment, constants, and runtime context.
 
-        Then we can use variables from the status as inputs or outputs, and model parameters from the called-model bundle (indexing by process, here
-        using "$(process_name)" as the process name), and meteorology variables.
+        Then we can use variables from the status as inputs or outputs, read
+        this model's parameters directly from `m`, and use sampled environment
+        variables.
 
         Our example model has a hard dependency on `other_process_name`. The
         compiled runtime resolves its declared targets, executes them with
-        `run_call!(extra, :other_process_name; publish=true)`, and
+        `run_call!(context, :other_process_name; publish=true)`, and
         returns a vector-like `CallTargets` collection.
 
         !!! tip "Variables and parameters usage"
-            Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
-            for dispatch), the called-model bundle, the status, the meteorology, the constants and
-            any extra values.
-            Then we can use variables from the status as inputs or outputs, model parameters
-            from the called-model bundle (indexing by process, here using "$(process_name)" as the
-            process name), and meteorology variables.
+            The model argument owns parameters, `status` owns bound state,
+            `environment` contains sampled forcing, and `context` exposes hard
+            calls and lifecycle operations.
         """
         )
     )

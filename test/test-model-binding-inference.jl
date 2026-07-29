@@ -12,17 +12,17 @@ struct LineageConsumerModel <: AbstractLineage_ConsumerModel end
 struct LineageSumModel <: AbstractLineage_SumModel end
 PlantSimEngine.inputs_(::LineageSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::LineageSourceModel) = (signal=0.0,)
-function PlantSimEngine.run!(model::LineageSourceModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::LineageSourceModel, status, meteo, constants, extra)
     status.signal = model.value
 end
 PlantSimEngine.inputs_(::LineageConsumerModel) = (signal=0.0,)
 PlantSimEngine.outputs_(::LineageConsumerModel) = (observed=0.0,)
-function PlantSimEngine.run!(::LineageConsumerModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::LineageConsumerModel, status, meteo, constants, extra)
     status.observed = status.signal
 end
 PlantSimEngine.inputs_(::LineageSumModel) = (signals=[0.0],)
 PlantSimEngine.outputs_(::LineageSumModel) = (total=0.0,)
-function PlantSimEngine.run!(::LineageSumModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::LineageSumModel, status, meteo, constants, extra)
     status.total = sum(status.signals)
 end
 

@@ -83,7 +83,7 @@ function get_km(Tₖ, Tᵣₖ, O₂, R=PlantMeteo.Constants().R)
     return KC * (1.0 + O₂ / KO)
 end
 
-function PlantSimEngine.run!(m::Fvcb, models, status, meteo, constants=PlantMeteo.Constants(), extra=nothing)
+function PlantSimEngine.run!(m::Fvcb, status, meteo, constants=PlantMeteo.Constants(), extra=nothing)
 
     # Tranform Celsius temperatures in Kelvin:
     Tₖ = status.Tₗ - constants.K₀
@@ -108,9 +108,13 @@ function PlantSimEngine.run!(m::Fvcb, models, status, meteo, constants=PlantMete
     Vⱼ = J / 4
 
     # Stomatal conductance (mol[CO₂] m-2 s-1), dispatched on type of first argument (gs_closure):
-    st_closure = gs_closure(models.stomatal_conductance, models, status, meteo, extra)
+    stomatal_target =
+        only(PlantSimEngine.call_targets(extra, :stomatal_conductance))
+    stomatal_model = PlantSimEngine.runtime_model(stomatal_target)
+    st_closure =
+        gs_closure(stomatal_model, status, meteo, constants, extra)
 
-    Cᵢⱼ = get_Cᵢⱼ(Vⱼ, Γˢ, status.Cₛ, Rd, models.stomatal_conductance.g0, st_closure)
+    Cᵢⱼ = get_Cᵢⱼ(Vⱼ, Γˢ, status.Cₛ, Rd, stomatal_model.g0, st_closure)
 
     # Electron-transport-limited rate of CO2 assimilation (RuBP regeneration-limited):
     Wⱼ = Vⱼ * (Cᵢⱼ - Γˢ) / (Cᵢⱼ + 2.0 * Γˢ) # also called Aⱼ
@@ -124,7 +128,7 @@ function PlantSimEngine.run!(m::Fvcb, models, status, meteo, constants=PlantMete
         Wⱼ = Vⱼ * (Cᵢⱼ - Γˢ) / (Cᵢⱼ + 2.0 * Γˢ)
     end
 
-    Cᵢᵥ = get_Cᵢᵥ(VcMax, Γˢ, status.Cₛ, Rd, models.stomatal_conductance.g0, st_closure, Km)
+    Cᵢᵥ = get_Cᵢᵥ(VcMax, Γˢ, status.Cₛ, Rd, stomatal_model.g0, st_closure, Km)
 
     # Rubisco-carboxylation-limited rate of CO₂ assimilation (RuBP activity-limited):
     if Cᵢᵥ <= 0.0 || Cᵢᵥ > status.Cₛ

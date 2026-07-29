@@ -8,7 +8,7 @@ PlantSimEngine.inputs_(::MeteoTraitConsumerModel) = NamedTuple()
 PlantSimEngine.outputs_(::MeteoTraitConsumerModel) = (meteo_seen=0.0,)
 PlantSimEngine.meteo_inputs_(::MeteoTraitConsumerModel) = (T=0.0, CO2=400.0)
 
-function PlantSimEngine.run!(::MeteoTraitConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::MeteoTraitConsumerModel, status, meteo, constants=nothing, extra=nothing)
     status.meteo_seen = meteo.T
     return nothing
 end

@@ -18,7 +18,7 @@ A modeler writes generic kernels with:
 - `outputs_`
 - optional `dep`, `timespec`, `output_policy`, `meteo_inputs_`, and
   `meteo_outputs_` traits
-- `run!(model, models, status, meteo, constants, extra)`
+- `run!(model, status, environment, constants, context)`
 
 A simulation author assembles those kernels on objects in a model with:
 

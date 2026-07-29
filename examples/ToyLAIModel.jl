@@ -42,12 +42,12 @@ PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=-Inf,)
 PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(::ToyLAIModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ToyLAIModel, status, meteo, constants=nothing, extra=nothing)
     status.LAI =
-        models.LAI_Dynamic.max_lai *
+        model.max_lai *
         (1.0 /
-         (1.0 + exp((models.LAI_Dynamic.dd_incslope - status.TT_cu) / models.LAI_Dynamic.inc_slope)) -
-         1.0 / (1.0 + exp((models.LAI_Dynamic.dd_decslope - status.TT_cu) / models.LAI_Dynamic.dec_slope))
+         (1.0 + exp((model.dd_incslope - status.TT_cu) / model.inc_slope)) -
+         1.0 / (1.0 + exp((model.dd_decslope - status.TT_cu) / model.dec_slope))
         )
 
     if status.LAI < 0.0
@@ -86,7 +86,7 @@ PlantSimEngine.inputs_(::ToyLAIfromLeafAreaModel) = (plant_surfaces=[-Inf],)
 PlantSimEngine.outputs_(::ToyLAIfromLeafAreaModel) = (LAI=-Inf, total_surface=-Inf)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, status, meteo, constants=nothing, extra=nothing)
     status.total_surface = sum(status.plant_surfaces)
     status.LAI = status.total_surface / m.scene_area
 end

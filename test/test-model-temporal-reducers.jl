@@ -11,15 +11,15 @@ struct TemporalReducerOneArgModel <: AbstractTemporal_Reducer_One_ArgModel end
 struct TemporalReducerTwoArgModel <: AbstractTemporal_Reducer_Two_ArgModel end
 PlantSimEngine.inputs_(::TemporalReducerSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::TemporalReducerSourceModel) = (signal=0.0,)
-function PlantSimEngine.run!(::TemporalReducerSourceModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::TemporalReducerSourceModel, status, meteo, constants, extra)
     status.signal += 1
 end
 PlantSimEngine.inputs_(::Union{TemporalReducerOneArgModel,TemporalReducerTwoArgModel}) = (reduced=0.0,)
 PlantSimEngine.outputs_(::TemporalReducerOneArgModel) = (one_arg=0.0,)
 PlantSimEngine.outputs_(::TemporalReducerTwoArgModel) = (two_arg=0.0,)
-PlantSimEngine.run!(::TemporalReducerOneArgModel, models, status, meteo, constants, extra) =
+PlantSimEngine.run!(::TemporalReducerOneArgModel, status, meteo, constants, extra) =
     (status.one_arg = status.reduced)
-PlantSimEngine.run!(::TemporalReducerTwoArgModel, models, status, meteo, constants, extra) =
+PlantSimEngine.run!(::TemporalReducerTwoArgModel, status, meteo, constants, extra) =
     (status.two_arg = status.reduced)
 
 @testset "duration-aware and callable reducers" begin

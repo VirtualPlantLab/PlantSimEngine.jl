@@ -16,7 +16,7 @@ end
 PlantSimEngine.inputs_(::DocsLAIGrowth) = (lai=0.0,)
 PlantSimEngine.outputs_(::DocsLAIGrowth) = (lai_next=0.0,)
 PlantSimEngine.meteo_inputs_(::DocsLAIGrowth) = (T=0.0,)
-function PlantSimEngine.run!(m::DocsLAIGrowth, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(m::DocsLAIGrowth, status, meteo, constants, extra)
     status.lai_next = status.lai + m.rate * meteo.T
 end
 

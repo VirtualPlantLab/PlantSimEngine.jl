@@ -454,6 +454,7 @@ accessor instead of reaching through runtime implementation fields.
 """
 runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
+runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
 current_step(simulation::Simulation) = simulation.current_step
 
@@ -1572,8 +1573,7 @@ end
         environment,
     )
     model = _application_model(application, object_id)
-    models = _model_models_for_application(compiled, application, object_id)
-    run!(model, models, status, meteo_value, constants, context)
+    run!(model, status, meteo_value, constants, context)
     if publish
         _model_publish_outputs!(
             temporal_streams,
@@ -1730,7 +1730,7 @@ end
             _NO_ENVIRONMENT_OVERRIDE,
         )
     end
-    run!(target.model, target.models, status, meteo_value, constants, context)
+    run!(target.model, status, meteo_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -1803,7 +1803,7 @@ end
         time,
         constants,
     )
-    run!(target.model, target.models, status, meteo_value, constants, context)
+    run!(target.model, status, meteo_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -1956,7 +1956,6 @@ end
             end
             run!(
                 target.model,
-                target.models,
                 status,
                 meteo_value,
                 constants,
@@ -3725,7 +3724,6 @@ end
     )
     run!(
         target.model,
-        target.models,
         status,
         meteo_value,
         target.constants,
@@ -3820,7 +3818,6 @@ end
     reusable_context && (target.context = context)
     run!(
         target.model,
-        target.models,
         status,
         meteo_value,
         targets.constants,

@@ -29,7 +29,7 @@ PlantSimEngine.@process "docs_output_counter" verbose = false
 struct DocsOutputCounter <: AbstractDocs_Output_CounterModel end
 PlantSimEngine.inputs_(::DocsOutputCounter) = NamedTuple()
 PlantSimEngine.outputs_(::DocsOutputCounter) = (value=0,)
-PlantSimEngine.run!(::DocsOutputCounter, models, status, meteo, constants, extra) =
+PlantSimEngine.run!(::DocsOutputCounter, status, meteo, constants, extra) =
     (status.value += 1)
 
 model = CompositeModel(DocsOutputCounter(); environment=(duration=Hour(1),))

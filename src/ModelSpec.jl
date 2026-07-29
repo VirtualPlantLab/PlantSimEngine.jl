@@ -418,6 +418,6 @@ end
 meteo_inputs_(m::ModelSpec) = meteo_inputs_(model_(m))
 meteo_outputs_(m::ModelSpec) = meteo_outputs_(model_(m))
 
-function run!(m::ModelSpec, models, status, meteo, constants=nothing, extra=nothing)
-    return run!(model_(m), models, status, meteo, constants, extra)
+function run!(m::ModelSpec, status, environment, constants=nothing, context=nothing)
+    return run!(model_(m), status, environment, constants, context)
 end

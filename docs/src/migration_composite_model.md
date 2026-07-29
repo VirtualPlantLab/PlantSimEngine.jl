@@ -63,7 +63,7 @@ inputs_(model)
 outputs_(model)
 dep(model)
 meteo_inputs_(model)
-run!(model, models, status, meteo, constants, extra)
+run!(model, status, environment, constants, context)
 ```
 
 This page maps the legacy configuration concepts to their composite-model/object
@@ -213,7 +213,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
 The parent model controls execution:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
                              constants, extra)
     for iteration in 1:model.max_iterations
         trial = trial_meteo(model, status)

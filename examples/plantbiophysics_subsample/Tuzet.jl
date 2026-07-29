@@ -9,19 +9,15 @@
 # Conductance is typically summarized over a window rather than accumulated.
 PlantSimEngine.output_policy(::Type{<:AbstractStomatal_ConductanceModel}) = (Gₛ=PlantSimEngine.Aggregate(PlantMeteo.DurationSumReducer()),)
 
-# Gs is used a little bit differently compared to the other processes. We use two forms:
-# the stomatal closure and the full computation of Gs
-function PlantSimEngine.run!(Gs::Gsm, models, status, gs_closure, extra) where {Gsm<:AbstractStomatal_ConductanceModel}
+# Gs accepts either an ordinary sampled environment or a closure value passed
+# explicitly by the parent photosynthesis call.
+function PlantSimEngine.run!(Gs::Gsm, status, meteo, constants, context) where {Gsm<:AbstractStomatal_ConductanceModel}
+    closure = meteo isa Number ?
+              meteo :
+              gs_closure(Gs, status, meteo, constants, context)
     status.Gₛ = max(
-        models.stomatal_conductance.gs_min,
-        models.stomatal_conductance.g0 + gs_closure * status.A
-    )
-end
-
-function PlantSimEngine.run!(Gs::Gsm, models, status, meteo, constants, extra) where {Gsm<:AbstractStomatal_ConductanceModel}
-    status.Gₛ = max(
-        models.stomatal_conductance.gs_min,
-        models.stomatal_conductance.g0 + gs_closure(models.stomatal_conductance, models, status, meteo, constants, extra) * status.A
+        Gs.gs_min,
+        Gs.g0 + closure * status.A,
     )
 end
 
@@ -78,18 +74,17 @@ end
 Base.eltype(::Tuzet{T}) where T = T
 
 """
-    gs_closure(::Tuzet, models, status, meteo, constants=nothing, extra=nothing)
+    gs_closure(::Tuzet, status, environment, constants=nothing, context=nothing)
 
 Stomatal closure for CO₂ according to Tuzet et al. (2003).
 
 # Arguments
 
 - `::Tuzet`: an instance of the `Tuzet` model type.
-- `models`: the process-keyed model bundle supplied by the model runtime.
 - `status`: A status struct holding the variables for the models.
-- `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere). Is not used in this model.
+- `environment`: sampled environment. It is not used in this model.
 - `constants`: A constants struct holding the constants for the models. Is not used in this model.
-- `extra`: A struct holding the extra variables for the models. Is not used in this model.
+- `context`: The runtime context. It is not used in this model.
 
 # Details
 
@@ -100,7 +95,7 @@ The stomatal conductance is calculated as:
 
 where `Γ` is the CO₂ compensation point.
 """
-function gs_closure(m::Tuzet, models, status, meteo, constants=nothing, extra=nothing)
+function gs_closure(m::Tuzet, status, environment, constants=nothing, context=nothing)
     fpsif = (1 + exp(m.sf * m.Ψᵥ)) /
             (1 + exp(m.sf * (m.Ψᵥ - status.Ψₗ)))
     (m.g1 / (status.Cₛ - m.Γ)) * fpsif

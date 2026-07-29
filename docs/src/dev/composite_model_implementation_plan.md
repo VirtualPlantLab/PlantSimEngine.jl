@@ -335,12 +335,9 @@ types should be selectors, model traits, or internal compiled carriers.
   temporary state through normal environment bindings, while `publish=false`
   suppresses output publication and environment commits. This supports
   iterative microclimate solvers such as the MAESPA model energy-balance loop.
-- CompositeModel runtime now builds a small process-keyed `models` bundle from compiled
-  `Calls(...)` edges before invoking a model kernel. This lets existing generic
-  hard-dependency kernels such as `Monteith` continue to call
-  `models.photosynthesis`, and lets `Fvcb` call
-  `models.stomatal_conductance`, without wrapping or rewriting the model
-  implementation.
+- Model kernels read their own parameters from the `model` argument. Generic
+  hard-dependency kernels such as `Monteith` and `Fvcb` discover declared call
+  targets through `call_targets` and execute them through `run_call!`.
 - CompositeModel duplicate-writer validation now ignores manual-call-only applications
   when validating canonical root writers. This keeps hard-dependency children
   from being treated as independent root writers when they intentionally update

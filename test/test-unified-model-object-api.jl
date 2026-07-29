@@ -48,7 +48,7 @@ struct ModelObjectCarrierConsumerModel <: AbstractModel_Object_Carrier_ConsumerM
 PlantSimEngine.inputs_(::ModelObjectCarrierConsumerModel) = (leaf_areas=[0.0], leaf_tokens=Any[])
 PlantSimEngine.outputs_(::ModelObjectCarrierConsumerModel) = (carrier_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCarrierConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCarrierConsumerModel, status, meteo, constants=nothing, extra=nothing)
     status.carrier_total = sum(status.leaf_areas)
     return nothing
 end
@@ -61,7 +61,7 @@ PlantSimEngine.inputs_(::ModelObjectEnvironmentProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentProbeModel) = (temperature_seen=0.0,)
 PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentProbeModel) = (T=0.0, CO2=0.0)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentProbeModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectEnvironmentProbeModel, status, meteo, constants=nothing, extra=nothing)
     status.temperature_seen = meteo.T
     return nothing
 end
@@ -79,7 +79,6 @@ PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentCO2ProbeModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectEnvironmentCO2ProbeModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -103,7 +102,6 @@ PlantSimEngine.meteo_hint(::Type{<:ModelObjectEnvironmentCO2HintProbeModel}) =
 
 function PlantSimEngine.run!(
     ::ModelObjectEnvironmentCO2HintProbeModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -131,7 +129,6 @@ PlantSimEngine.meteo_hint(::Type{<:ModelObjectAggregatedEnvironmentProbeModel}) 
 
 function PlantSimEngine.run!(
     ::ModelObjectAggregatedEnvironmentProbeModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -152,7 +149,6 @@ PlantSimEngine.meteo_inputs_(::ModelObjectTemperatureOnlyProbeModel) = (T=0.0,)
 
 function PlantSimEngine.run!(
     ::ModelObjectTemperatureOnlyProbeModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -171,7 +167,7 @@ PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateModel) = (temperature_upda
 PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
 PlantSimEngine.meteo_outputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, status, meteo, constants=nothing, extra=nothing)
     status.temperature_update = meteo.T + 1.0
     commit_environment!(extra, (T=status.temperature_update, CO2=410.0))
     return nothing
@@ -184,7 +180,7 @@ struct ModelObjectEnvironmentUpdateCallerModel <: AbstractModel_Object_Environme
 PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateCallerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateCallerModel) = (called_temperature=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateCallerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateCallerModel, status, meteo, constants=nothing, extra=nothing)
     target = only(run_call!(extra, :updater; publish=false))
     status.called_temperature = target.status.temperature_update
     return nothing
@@ -197,7 +193,7 @@ struct ModelObjectSignalSourceModel <: AbstractModel_Object_Signal_SourceModel e
 PlantSimEngine.inputs_(::ModelObjectSignalSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectSignalSourceModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectSignalSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectSignalSourceModel, status, meteo, constants=nothing, extra=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -210,7 +206,7 @@ PlantSimEngine.inputs_(::ModelObjectTraitClockSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectTraitClockSourceModel) = (signal=0.0,)
 PlantSimEngine.timespec(::Type{<:ModelObjectTraitClockSourceModel}) = ClockSpec(2.0, 1.0)
 
-function PlantSimEngine.run!(::ModelObjectTraitClockSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTraitClockSourceModel, status, meteo, constants=nothing, extra=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -223,7 +219,7 @@ PlantSimEngine.inputs_(::ModelObjectStrictHintSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectStrictHintSourceModel) = (signal=0.0,)
 PlantSimEngine.timestep_hint(::Type{<:ModelObjectStrictHintSourceModel}) = Dates.Day(1)
 
-function PlantSimEngine.run!(::ModelObjectStrictHintSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectStrictHintSourceModel, status, meteo, constants=nothing, extra=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -235,7 +231,7 @@ end
 PlantSimEngine.inputs_(::ModelObjectTimeSignalModel) = NamedTuple()
 PlantSimEngine.outputs_(model::ModelObjectTimeSignalModel) = (signal=zero(model.prototype),)
 
-function PlantSimEngine.run!(model::ModelObjectTimeSignalModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ModelObjectTimeSignalModel, status, meteo, constants=nothing, extra=nothing)
     status.signal = convert(typeof(model.prototype), extra.time)
     return nothing
 end
@@ -246,7 +242,7 @@ PlantSimEngine.inputs_(::ModelObjectTraitPolicySignalModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectTraitPolicySignalModel) = (signal=0.0,)
 PlantSimEngine.output_policy(::Type{<:ModelObjectTraitPolicySignalModel}) = (signal=Aggregate(),)
 
-function PlantSimEngine.run!(::ModelObjectTraitPolicySignalModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTraitPolicySignalModel, status, meteo, constants=nothing, extra=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -258,7 +254,7 @@ end
 PlantSimEngine.inputs_(::ModelObjectParameterizedSignalModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectParameterizedSignalModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(model::ModelObjectParameterizedSignalModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ModelObjectParameterizedSignalModel, status, meteo, constants=nothing, extra=nothing)
     status.signal += model.increment
     return nothing
 end
@@ -270,7 +266,6 @@ PlantSimEngine.outputs_(::ModelObjectAlternativeSignalModel) = (signal=0.0,)
 
 function PlantSimEngine.run!(
     ::ModelObjectAlternativeSignalModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -291,7 +286,6 @@ PlantSimEngine.outputs_(::ModelObjectBatchCounterModel) = NamedTuple()
 
 function PlantSimEngine.run!(
     model::ModelObjectBatchCounterModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -308,7 +302,7 @@ end
 PlantSimEngine.inputs_(::ModelObjectSignalSetModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectSignalSetModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(model::ModelObjectSignalSetModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ModelObjectSignalSetModel, status, meteo, constants=nothing, extra=nothing)
     status.signal = model.value
     return nothing
 end
@@ -320,7 +314,7 @@ struct ModelObjectPlantSignalSumModel <: AbstractModel_Object_Plant_Signal_SumMo
 PlantSimEngine.inputs_(::ModelObjectPlantSignalSumModel) = (signals=[0.0],)
 PlantSimEngine.outputs_(::ModelObjectPlantSignalSumModel) = (signal_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectPlantSignalSumModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectPlantSignalSumModel, status, meteo, constants=nothing, extra=nothing)
     status.signal_total = sum(status.signals)
     return nothing
 end
@@ -342,7 +336,6 @@ PlantSimEngine.inputs_(::ModelObjectManualPairCallerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectManualPairCallerModel) = NamedTuple()
 function PlantSimEngine.run!(
     ::ModelObjectManualPairCallerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -351,7 +344,7 @@ function PlantSimEngine.run!(
     return nothing
 end
 
-function PlantSimEngine.run!(::ModelObjectSignalCallerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectSignalCallerModel, status, meteo, constants=nothing, extra=nothing)
     target = only(run_call!(extra, :signal; publish=true))
     status.called_signal = target.status.signal
     return nothing
@@ -365,7 +358,7 @@ PlantSimEngine.inputs_(::ModelObjectMeteoCallSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallSourceModel) = (temperature_seen=0.0,)
 PlantSimEngine.meteo_inputs_(::ModelObjectMeteoCallSourceModel) = (T=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectMeteoCallSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectMeteoCallSourceModel, status, meteo, constants=nothing, extra=nothing)
     status.temperature_seen = meteo.T
     return nothing
 end
@@ -381,7 +374,7 @@ PlantSimEngine.inputs_(::ModelObjectMeteoCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectMeteoCallControllerModel) = (called_temperature=0.0,)
 PlantSimEngine.meteo_outputs_(::ModelObjectMeteoCallControllerModel) = (T=0.0,)
 
-function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, status, meteo, constants=nothing, extra=nothing)
     local_meteo = (T=m.local_temperature, CO2=410.0)
     if m.publish
         commit_environment!(extra, local_meteo)
@@ -414,7 +407,6 @@ PlantSimEngine.meteo_outputs_(::ModelObjectIterativeMeteoCallControllerModel) =
 
 function PlantSimEngine.run!(
     m::ModelObjectIterativeMeteoCallControllerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -448,7 +440,6 @@ PlantSimEngine.outputs_(::ModelObjectSpatialMeteoCallControllerModel) =
 
 function PlantSimEngine.run!(
     m::ModelObjectSpatialMeteoCallControllerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -471,7 +462,7 @@ struct ModelObjectSignalConsumerModel <: AbstractModel_Object_Signal_ConsumerMod
 PlantSimEngine.inputs_(::ModelObjectSignalConsumerModel) = (signal=0.0,)
 PlantSimEngine.outputs_(::ModelObjectSignalConsumerModel) = (observed_signal=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectSignalConsumerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectSignalConsumerModel, status, meteo, constants=nothing, extra=nothing)
     status.observed_signal = status.signal
     return nothing
 end
@@ -488,7 +479,6 @@ PlantSimEngine.outputs_(::ModelObjectRenamedSignalConsumerModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectRenamedSignalConsumerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -509,7 +499,6 @@ PlantSimEngine.outputs_(::ModelObjectOptionalInputConsumerModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectOptionalInputConsumerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -530,7 +519,6 @@ PlantSimEngine.outputs_(::ModelObjectOptionalCallConsumerModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectOptionalCallConsumerModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -548,7 +536,7 @@ struct ModelObjectCycleAModel <: AbstractModel_Object_Cycle_AModel end
 PlantSimEngine.inputs_(::ModelObjectCycleAModel) = (cycle_b=0.0,)
 PlantSimEngine.outputs_(::ModelObjectCycleAModel) = (cycle_a=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCycleAModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCycleAModel, status, meteo, constants=nothing, extra=nothing)
     status.cycle_a = status.cycle_b + 1.0
     return nothing
 end
@@ -560,7 +548,7 @@ struct ModelObjectCycleBModel <: AbstractModel_Object_Cycle_BModel end
 PlantSimEngine.inputs_(::ModelObjectCycleBModel) = (cycle_a=0.0,)
 PlantSimEngine.outputs_(::ModelObjectCycleBModel) = (cycle_b=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCycleBModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCycleBModel, status, meteo, constants=nothing, extra=nothing)
     status.cycle_b = 2.0 * status.cycle_a
     return nothing
 end
@@ -572,7 +560,7 @@ struct ModelObjectTemporalSumModel <: AbstractModel_Object_Temporal_SumModel end
 PlantSimEngine.inputs_(::ModelObjectTemporalSumModel) = (signal_sum=0.0,)
 PlantSimEngine.outputs_(::ModelObjectTemporalSumModel) = (temporal_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectTemporalSumModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTemporalSumModel, status, meteo, constants=nothing, extra=nothing)
     status.temporal_total = status.signal_sum
     return nothing
 end
@@ -584,7 +572,7 @@ struct ModelObjectBiomassSourceModel <: AbstractModel_Object_Biomass_SourceModel
 PlantSimEngine.inputs_(::ModelObjectBiomassSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectBiomassSourceModel) = (biomass=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectBiomassSourceModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectBiomassSourceModel, status, meteo, constants=nothing, extra=nothing)
     status.biomass = 10.0
     return nothing
 end
@@ -596,7 +584,7 @@ struct ModelObjectBiomassPrunerModel <: AbstractModel_Object_Biomass_PrunerModel
 PlantSimEngine.inputs_(::ModelObjectBiomassPrunerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectBiomassPrunerModel) = (biomass=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectBiomassPrunerModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectBiomassPrunerModel, status, meteo, constants=nothing, extra=nothing)
     status.biomass = 0.0
     return nothing
 end
@@ -608,7 +596,7 @@ struct ModelObjectGrowthModel <: AbstractModel_Object_GrowthModel end
 PlantSimEngine.inputs_(::ModelObjectGrowthModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectGrowthModel) = (created_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectGrowthModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectGrowthModel, status, meteo, constants=nothing, extra=nothing)
     model = runtime_model(extra)
     if isapprox(extra.time, 1.0) && !(ObjectId(:grown_leaf) in object_ids(model; scale=:Leaf))
         register_object!(
@@ -629,7 +617,6 @@ PlantSimEngine.outputs_(::ModelObjectFirstGrowthModel) = NamedTuple()
 
 function PlantSimEngine.run!(
     ::ModelObjectFirstGrowthModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -660,7 +647,6 @@ PlantSimEngine.outputs_(::ModelObjectExecutionCounterModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectExecutionCounterModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -681,7 +667,6 @@ PlantSimEngine.outputs_(::ModelObjectInitializingGrowthModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectInitializingGrowthModel,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -719,7 +704,7 @@ struct ModelObjectPruningModel <: AbstractModel_Object_PruningModel end
 PlantSimEngine.inputs_(::ModelObjectPruningModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectPruningModel) = (removed_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectPruningModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectPruningModel, status, meteo, constants=nothing, extra=nothing)
     model = runtime_model(extra)
     if isapprox(extra.time, 2.0) && ObjectId(:leaf_2) in object_ids(model; scale=:Leaf)
         remove_object!(model, :leaf_2)
@@ -735,7 +720,7 @@ struct ModelObjectGeometryMoverModel <: AbstractModel_Object_Geometry_MoverModel
 PlantSimEngine.inputs_(::ModelObjectGeometryMoverModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectGeometryMoverModel) = (move_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectGeometryMoverModel, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectGeometryMoverModel, status, meteo, constants=nothing, extra=nothing)
     if isapprox(extra.time, 1.0)
         update_geometry!(runtime_model(extra), :leaf_1, (cell=:cell_b,))
         status.move_count += 1
@@ -790,7 +775,6 @@ PlantSimEngine.outputs_(::ModelObjectDualLikeSumModel) =
 
 function PlantSimEngine.run!(
     ::ModelObjectDualLikeSumModel,
-    models,
     status,
     meteo,
     constants=nothing,

@@ -238,7 +238,7 @@ targets = run_call!(extra, :leaf_energy; publish=true)
 compiled targets without executing them:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
                              constants, extra)
     trial = trial_meteo(model, status)
     run_call!(extra, :leaf_energy; environment=trial, publish=false)

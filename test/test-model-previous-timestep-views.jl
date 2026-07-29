@@ -10,7 +10,6 @@ PlantSimEngine.outputs_(::TemporalViewSignalSource) = (signal=0.0,)
 
 function PlantSimEngine.run!(
     ::TemporalViewSignalSource,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -29,7 +28,6 @@ PlantSimEngine.outputs_(::TemporalViewSignalConsumer) = (observed_signal=0.0,)
 
 function PlantSimEngine.run!(
     ::TemporalViewSignalConsumer,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -51,7 +49,6 @@ PlantSimEngine.outputs_(::TemporalViewSameStepConsumer) =
 
 function PlantSimEngine.run!(
     ::TemporalViewSameStepConsumer,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -70,7 +67,6 @@ PlantSimEngine.outputs_(::TemporalViewManyConsumer) = (signal_total=0.0,)
 
 function PlantSimEngine.run!(
     ::TemporalViewManyConsumer,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -94,7 +90,6 @@ PlantSimEngine.outputs_(::TemporalViewCycleB) = (cycle_b=0.0,)
 
 function PlantSimEngine.run!(
     ::TemporalViewCycleA,
-    models,
     status,
     meteo,
     constants=nothing,
@@ -106,7 +101,6 @@ end
 
 function PlantSimEngine.run!(
     ::TemporalViewCycleB,
-    models,
     status,
     meteo,
     constants=nothing,

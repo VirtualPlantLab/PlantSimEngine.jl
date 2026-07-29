@@ -292,10 +292,9 @@ for multi-plant model coupling.
 - Compiled `OptionalOne(...)` inputs and calls now accept zero matches.
   Optional inputs keep their declared model default, optional calls return an
   empty target collection, and both remain visible in structured explanations.
-- CompositeModel runtime now builds a process-keyed `models` bundle from compiled
-  `Calls(...)` edges before invoking a model kernel. Existing hard-dependency
-  kernels such as `Monteith` and `Fvcb` can therefore keep using
-  `models.photosynthesis` and `models.stomatal_conductance`.
+- Model kernels read their own parameters from the `model` argument. Hard-call
+  models and targets are available through focused context APIs such as
+  `call_targets`, `run_call!`, and `runtime_model`.
 - CompositeModel duplicate-writer validation now ignores manual-call-only applications
   when validating canonical root writers, so hard-dependency children are not
   treated as independent root writers for variables they update inside a parent

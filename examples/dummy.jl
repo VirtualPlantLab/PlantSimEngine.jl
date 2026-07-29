@@ -15,8 +15,8 @@ struct Process1Model <: AbstractProcess1Model
 end
 PlantSimEngine.inputs_(::Process1Model) = (var1=-Inf, var2=-Inf)
 PlantSimEngine.outputs_(::Process1Model) = (var3=-Inf,)
-function PlantSimEngine.run!(::Process1Model, models, status, meteo, constants=nothing, extra=nothing)
-    status.var3 = models.process1.a + status.var1 * status.var2
+function PlantSimEngine.run!(model::Process1Model, status, meteo, constants=nothing, extra=nothing)
+    status.var3 = model.a + status.var1 * status.var2
 end
 
 
@@ -35,7 +35,7 @@ PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (
     process1=PlantSimEngine.Call(PlantSimEngine.One(process=:process1)),
 )
-function PlantSimEngine.run!(::Process2Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process2Model, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
     PlantSimEngine.run_call!(extra, :process1; publish=true)
     # computing var4 and var5:
@@ -61,7 +61,7 @@ PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf,)
 PlantSimEngine.dep(::Process3Model) = (
     process2=PlantSimEngine.Call(PlantSimEngine.One(process=:process2)),
 )
-function PlantSimEngine.run!(::Process3Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process3Model, status, meteo, constants=nothing, extra=nothing)
     # computing var3, var4 and var5 using process2 (which calls process1):
     PlantSimEngine.run_call!(extra, :process2; publish=true)
     # re-computing var4:
@@ -83,7 +83,7 @@ It computes the inputs needed for the coupled processes 1-2-3.
 struct Process4Model <: AbstractProcess4Model end
 PlantSimEngine.inputs_(::Process4Model) = (var0=-Inf,)
 PlantSimEngine.outputs_(::Process4Model) = (var1=-Inf, var2=-Inf)
-function PlantSimEngine.run!(::Process4Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process4Model, status, meteo, constants=nothing, extra=nothing)
     # computing var3 using process1:
     # re-computing var4:
     status.var1 = status.var0 + 0.01
@@ -104,7 +104,7 @@ It needs the outputs from the coupled processes 1-2-3.
 struct Process5Model <: AbstractProcess5Model end
 PlantSimEngine.inputs_(::Process5Model) = (var5=-Inf, var6=-Inf)
 PlantSimEngine.outputs_(::Process5Model) = (var7=-Inf,)
-function PlantSimEngine.run!(::Process5Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process5Model, status, meteo, constants=nothing, extra=nothing)
     status.var7 = status.var5 * status.var6
 end
 
@@ -124,7 +124,7 @@ process 7 that is itself independant.
 struct Process6Model <: AbstractProcess6Model end
 PlantSimEngine.inputs_(::Process6Model) = (var7=-Inf, var9=-Inf)
 PlantSimEngine.outputs_(::Process6Model) = (var8=-Inf,)
-function PlantSimEngine.run!(::Process6Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process6Model, status, meteo, constants=nothing, extra=nothing)
     status.var8 = status.var7 + 1.0
 end
 
@@ -144,6 +144,6 @@ are used by Process6Model, so it is a soft-coupling.
 struct Process7Model <: AbstractProcess7Model end
 PlantSimEngine.inputs_(::Process7Model) = (var0=-Inf, var3=-Inf)
 PlantSimEngine.outputs_(::Process7Model) = (var9=-Inf,)
-function PlantSimEngine.run!(::Process7Model, models, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::Process7Model, status, meteo, constants=nothing, extra=nothing)
     status.var9 = status.var0 + 1.0
 end

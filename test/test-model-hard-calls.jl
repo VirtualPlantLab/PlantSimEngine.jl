@@ -28,7 +28,6 @@ PlantSimEngine.outputs_(::NestedCallLeafModel) = (value=0.0, calls=0)
 
 function PlantSimEngine.run!(
     ::NestedCallLeafModel,
-    models,
     status,
     meteo,
     constants,
@@ -44,7 +43,6 @@ PlantSimEngine.outputs_(::NestedCallMiddleModel) = (value=0.0, calls=0)
 
 function PlantSimEngine.run!(
     ::NestedCallMiddleModel,
-    models,
     status,
     meteo,
     constants,
@@ -62,7 +60,6 @@ PlantSimEngine.outputs_(::NestedCallRootModel) =
 
 function PlantSimEngine.run!(
     ::NestedCallRootModel,
-    models,
     status,
     meteo,
     constants,
@@ -82,7 +79,6 @@ PlantSimEngine.outputs_(::ManyCallControllerModel) = (total=0.0, ncalls=0)
 
 function PlantSimEngine.run!(
     ::ManyCallControllerModel,
-    models,
     status,
     meteo,
     constants,
@@ -105,7 +101,6 @@ PlantSimEngine.outputs_(::CallReturnShapeModel) = (
 
 function PlantSimEngine.run!(
     ::CallReturnShapeModel,
-    models,
     status,
     meteo,
     constants,

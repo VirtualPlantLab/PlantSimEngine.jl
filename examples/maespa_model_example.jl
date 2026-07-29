@@ -118,7 +118,7 @@ end
 PlantSimEngine.inputs_(::SoilWater) = (transpiration=0.0, infiltration=0.0)
 PlantSimEngine.outputs_(::SoilWater) = (theta1=0.32, theta2=0.34, psi_soil=-0.1)
 
-function PlantSimEngine.run!(m::SoilWater, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(m::SoilWater, status, meteo, constants, extra=nothing)
     withdrawal = max(status.transpiration, 0.0)
     recharge = max(status.infiltration, 0.0)
     status.theta1 = clamp(status.theta1 + (recharge - 0.7 * withdrawal) / max(m.depth1 * 1000.0, 1.0), 0.04, m.theta_sat)
@@ -133,7 +133,7 @@ struct LeafState <: AbstractLeaf_StateModel end
 PlantSimEngine.inputs_(::LeafState) = NamedTuple()
 PlantSimEngine.outputs_(::LeafState) = (leaf_area=0.0, leaf_carbon=0.0)
 
-PlantSimEngine.run!(::LeafState, models, status, meteo, constants, extra=nothing) = nothing
+PlantSimEngine.run!(::LeafState, status, meteo, constants, extra=nothing) = nothing
 
 """
     LAIModel(area)
@@ -152,7 +152,7 @@ end
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
 PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=(-Inf))
 
-function PlantSimEngine.run!(m::LAIModel, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(m::LAIModel, status, meteo, constants, extra=nothing)
     status.leaf_area = sum(status.leaf_areas)
     status.lai = status.leaf_area / m.area
     return nothing
@@ -463,7 +463,7 @@ function _publish_model_leaf_solution!(extra, status, solution::SceneEBSolverRes
     return fluxes
 end
 
-function PlantSimEngine.run!(m::SceneEB, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(m::SceneEB, status, meteo, constants, extra)
     solution = _solve_model_energy_balance!(m, extra, status, meteo, constants)
     fluxes = _publish_model_leaf_solution!(extra, status, solution, meteo, m.ground_area)
     transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
@@ -507,9 +507,9 @@ PlantSimEngine.outputs_(::AllocA) = alloc_outputs()
 PlantSimEngine.inputs_(::AllocB) = alloc_inputs()
 PlantSimEngine.outputs_(::AllocB) = alloc_outputs()
 
-PlantSimEngine.run!(m::AllocA, models, status, meteo, constants, extra=nothing) =
+PlantSimEngine.run!(m::AllocA, status, meteo, constants, extra=nothing) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
-PlantSimEngine.run!(m::AllocB, models, status, meteo, constants, extra=nothing) =
+PlantSimEngine.run!(m::AllocB, status, meteo, constants, extra=nothing) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
 
 function _maespa_leaf_status(; leaf_area, sky_fraction, d)

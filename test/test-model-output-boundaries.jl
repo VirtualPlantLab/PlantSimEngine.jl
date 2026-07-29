@@ -6,7 +6,7 @@ PlantSimEngine.@process "boundary_counter" verbose = false
 struct BoundaryCounterModel <: AbstractBoundary_CounterModel end
 PlantSimEngine.inputs_(::BoundaryCounterModel) = NamedTuple()
 PlantSimEngine.outputs_(::BoundaryCounterModel) = (count=0, ignored=0)
-function PlantSimEngine.run!(::BoundaryCounterModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::BoundaryCounterModel, status, meteo, constants, extra)
     status.count += 1
     status.ignored += 10
 end
@@ -21,7 +21,6 @@ PlantSimEngine.inputs_(::BoundaryManualCounterModel) = NamedTuple()
 PlantSimEngine.outputs_(::BoundaryManualCounterModel) = (count=0,)
 function PlantSimEngine.run!(
     ::BoundaryManualCounterModel,
-    models,
     status,
     meteo,
     constants,
@@ -34,7 +33,6 @@ PlantSimEngine.inputs_(::BoundaryManualControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::BoundaryManualControllerModel) = (step=0,)
 function PlantSimEngine.run!(
     ::BoundaryManualControllerModel,
-    models,
     status,
     meteo,
     constants,

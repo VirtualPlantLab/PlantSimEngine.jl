@@ -24,11 +24,11 @@ struct DocsHourlyFlux <: AbstractDocs_Hourly_FluxModel end
 struct DocsDailyTotal <: AbstractDocs_Daily_TotalModel end
 PlantSimEngine.inputs_(::DocsHourlyFlux) = (rate=0.0,)
 PlantSimEngine.outputs_(::DocsHourlyFlux) = (flux=0.0,)
-PlantSimEngine.run!(::DocsHourlyFlux, models, status, meteo, constants, extra) =
+PlantSimEngine.run!(::DocsHourlyFlux, status, meteo, constants, extra) =
     (status.flux = status.rate)
 PlantSimEngine.inputs_(::DocsDailyTotal) = (fluxes=[0.0],)
 PlantSimEngine.outputs_(::DocsDailyTotal) = (total=0.0,)
-PlantSimEngine.run!(::DocsDailyTotal, models, status, meteo, constants, extra) =
+PlantSimEngine.run!(::DocsDailyTotal, status, meteo, constants, extra) =
     (status.total = sum(status.fluxes))
 
 model = CompositeModel(

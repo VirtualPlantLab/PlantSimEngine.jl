@@ -27,10 +27,10 @@ A model kernel is still an ordinary PlantSimEngine model:
 - `inputs_(model)` declares required status variables;
 - `outputs_(model)` declares variables the model computes;
 - `meteo_inputs_(model)` declares environment variables it reads;
-- `commit_environment!(extra, state)` commits accepted mutable environment
+- `commit_environment!(context, state)` commits accepted mutable environment
   state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
-- `run!(model, models, status, meteo, constants, extra)` contains the model
+- `run!(model, status, environment, constants, context)` contains the model
   equations.
 
 The composite-model/object layer does not change that kernel contract. It adds a
@@ -150,7 +150,7 @@ return value is always vector-like: `One` returns one element, `OptionalOne`
 returns zero or one, and `Many` returns zero or more.
 
 ```julia
-soil_targets = run_call!(extra, :soil; publish=true)
+soil_targets = run_call!(context, :soil; publish=true)
 soil_status = only(soil_targets).status
 ```
 
@@ -158,14 +158,14 @@ For finer-grained iterative control, retrieve targets without executing them
 and decide when to publish the accepted state:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
-                             constants, extra)
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
+                             constants, context)
     trial = trial_meteo(model, status)
-    run_call!(extra, :leaf_energy; environment=trial, publish=false)
+    run_call!(context, :leaf_energy; environment=trial, publish=false)
 
     accepted = accepted_meteo(model, status)
-    commit_environment!(extra, accepted)
-    run_call!(extra, :leaf_energy; publish=true)
+    commit_environment!(context, accepted)
+    run_call!(context, :leaf_energy; publish=true)
 
     return nothing
 end

@@ -152,7 +152,7 @@ For a provider-aware trial state shared by the call, keep the execute-all form.
 Each target still samples through its own compiled handle:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, models, status, meteo,
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
                              constants, extra)
     trial = trial_meteo(model, status)
     run_call!(extra, :leaf_energy; environment=trial, publish=false)

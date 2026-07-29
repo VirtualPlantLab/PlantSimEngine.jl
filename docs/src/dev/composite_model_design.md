@@ -725,8 +725,7 @@ variables, and suggested fixes.
 
 ## API Position
 
-This is a breaking design. It preserves model kernels and the
-`run!(model, models, status, meteo, constants, extra)` contract while replacing
-the scenario configuration surface with `CompositeModel`, `Object`, `ModelSpec`,
-selectors, `Inputs(...)`, `Calls(...)`, `TimeStep(...)`, and
-`Environment(...)`.
+This is a breaking design. Model kernels use
+`run!(model, status, environment, constants, context)` while the scenario
+configuration surface uses `CompositeModel`, `Object`, `ModelSpec`, selectors,
+`Inputs(...)`, `Calls(...)`, `TimeStep(...)`, and `Environment(...)`.

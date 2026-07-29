@@ -35,7 +35,7 @@ function PlantSimEngine.outputs_(::ToyLeafSurfaceModel)
     (surface=-Inf,)
 end
 
-function PlantSimEngine.run!(m::ToyLeafSurfaceModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyLeafSurfaceModel, status, meteo, constants, extra_args)
     status.surface = status.carbon_biomass * m.SLA
 end
 
@@ -70,6 +70,6 @@ function PlantSimEngine.outputs_(::ToyPlantLeafSurfaceModel)
     (surface=-Inf,)
 end
 
-function PlantSimEngine.run!(m::ToyPlantLeafSurfaceModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyPlantLeafSurfaceModel, status, meteo, constants, extra_args)
     status.surface = sum(status.leaf_surfaces)
 end

@@ -7,7 +7,7 @@ struct RuntimeMatrixProbeModel <: AbstractRuntime_Matrix_ProbeModel end
 PlantSimEngine.inputs_(::RuntimeMatrixProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::RuntimeMatrixProbeModel) = (seen=0.0,)
 PlantSimEngine.meteo_inputs_(::RuntimeMatrixProbeModel) = (T=0.0,)
-function PlantSimEngine.run!(::RuntimeMatrixProbeModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::RuntimeMatrixProbeModel, status, meteo, constants, extra)
     status.seen = meteo.T
 end
 

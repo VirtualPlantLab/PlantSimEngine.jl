@@ -17,10 +17,10 @@ API.
 - Kernels implement:
 
 ```julia
-PlantSimEngine.run!(model, models, status, meteo, constants, extra)
+PlantSimEngine.run!(model, status, environment, constants, context)
 ```
 
-`models` is a process-keyed bundle compiled from `Calls(...)`. `extra` is a
+Read the current model's parameters directly from `model`. `context` is a
 `RunContext` and provides `run_call!`, `call_targets`, and lifecycle access.
 
 ## CompositeModel Structure

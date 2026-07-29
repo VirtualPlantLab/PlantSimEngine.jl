@@ -252,7 +252,7 @@ end
 @testset "MAESPA-style canopy helper functions" begin
     lai_model = LAIModel(2.0)
     lai_status = Status(leaf_areas=[0.5, 1.0], leaf_area=0.0, lai=0.0)
-    PlantSimEngine.run!(lai_model, nothing, lai_status, nothing, nothing)
+    PlantSimEngine.run!(lai_model, lai_status, nothing, nothing, nothing)
     @test lai_status.leaf_area ≈ 1.5
     @test lai_status.lai ≈ 0.75
 

@@ -11,7 +11,6 @@ PlantSimEngine.outputs_(::StabilizationSourceModel) = (signal=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationSourceModel,
-    models,
     status,
     meteo,
     constants,
@@ -30,7 +29,6 @@ PlantSimEngine.outputs_(::StabilizationConsumerModel) = (observed=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationConsumerModel,
-    models,
     status,
     meteo,
     constants,
@@ -49,7 +47,6 @@ PlantSimEngine.outputs_(::StabilizationContextModel) = (seen_revision=0,)
 
 function PlantSimEngine.run!(
     ::StabilizationContextModel,
-    models,
     status,
     meteo,
     constants,
@@ -69,7 +66,6 @@ PlantSimEngine.meteo_inputs_(::StabilizationEnvironmentModel) = (T=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationEnvironmentModel,
-    models,
     status,
     meteo,
     constants,
@@ -89,7 +85,6 @@ PlantSimEngine.outputs_(::StabilizationLaggedSumModel) = (lagged_total=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationLaggedSumModel,
-    models,
     status,
     meteo,
     constants,

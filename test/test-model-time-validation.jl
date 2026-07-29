@@ -6,7 +6,7 @@ PlantSimEngine.@process "time_validation_counter" verbose = false
 struct TimeValidationCounterModel <: AbstractTime_Validation_CounterModel end
 PlantSimEngine.inputs_(::TimeValidationCounterModel) = NamedTuple()
 PlantSimEngine.outputs_(::TimeValidationCounterModel) = (count=0,)
-function PlantSimEngine.run!(::TimeValidationCounterModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::TimeValidationCounterModel, status, meteo, constants, extra)
     status.count += 1
 end
 
@@ -15,7 +15,7 @@ struct TimeValidationOverrideHintModel <: AbstractTime_Validation_Override_HintM
 PlantSimEngine.inputs_(::TimeValidationOverrideHintModel) = NamedTuple()
 PlantSimEngine.outputs_(::TimeValidationOverrideHintModel) = (count=0,)
 PlantSimEngine.timestep_hint(::Type{<:TimeValidationOverrideHintModel}) = Day(1)
-function PlantSimEngine.run!(::TimeValidationOverrideHintModel, models, status, meteo, constants, extra)
+function PlantSimEngine.run!(::TimeValidationOverrideHintModel, status, meteo, constants, extra)
     status.count += 1
 end
 
