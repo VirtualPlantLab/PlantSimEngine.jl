@@ -12,9 +12,9 @@ PlantSimEngine.outputs_(::StabilizationSourceModel) = (signal=0.0,)
 function PlantSimEngine.run!(
     ::StabilizationSourceModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.signal += 1
     return nothing
@@ -30,9 +30,9 @@ PlantSimEngine.outputs_(::StabilizationConsumerModel) = (observed=0.0,)
 function PlantSimEngine.run!(
     ::StabilizationConsumerModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.observed = status.signal + status.supplied
     return nothing
@@ -48,11 +48,11 @@ PlantSimEngine.outputs_(::StabilizationContextModel) = (seen_revision=0,)
 function PlantSimEngine.run!(
     ::StabilizationContextModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
-    status.seen_revision = Advanced.model_revision(runtime_model(extra))
+    status.seen_revision = Advanced.model_revision(runtime_model(context))
     return nothing
 end
 
@@ -62,16 +62,16 @@ struct StabilizationEnvironmentModel <: AbstractStabilization_EnvironmentModel e
 
 PlantSimEngine.inputs_(::StabilizationEnvironmentModel) = NamedTuple()
 PlantSimEngine.outputs_(::StabilizationEnvironmentModel) = (temperature_seen=0.0,)
-PlantSimEngine.meteo_inputs_(::StabilizationEnvironmentModel) = (T=0.0,)
+PlantSimEngine.environment_inputs_(::StabilizationEnvironmentModel) = (T=0.0,)
 
 function PlantSimEngine.run!(
     ::StabilizationEnvironmentModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
-    status.temperature_seen = meteo.T
+    status.temperature_seen = environment.T
     return nothing
 end
 
@@ -86,9 +86,9 @@ PlantSimEngine.outputs_(::StabilizationLaggedSumModel) = (lagged_total=0.0,)
 function PlantSimEngine.run!(
     ::StabilizationLaggedSumModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.lagged_total = sum(status.previous_signals)
     return nothing

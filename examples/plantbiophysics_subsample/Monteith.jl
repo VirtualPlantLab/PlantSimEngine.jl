@@ -437,7 +437,7 @@ function PlantSimEngine.inputs_(::Monteith)
     (Ra_SW_f=-Inf, sky_fraction=-Inf, d=-Inf)
 end
 
-function PlantSimEngine.meteo_inputs_(::Monteith)
+function PlantSimEngine.environment_inputs_(::Monteith)
     (
         T=0.0,
         Rh=0.0,
@@ -503,7 +503,7 @@ the energy balance using the mass flux (~ Rn - λE).
     - `sky_fraction` (0-2): view factor between the object and the sky for both faces (see details).
     - `d` (m): characteristic dimension, *e.g.* leaf width (see eq. 10.9 from Monteith and Unsworth, 2013).
 - `status`: the status of the model, usually the model list status (*i.e.* leaf.status)
-- `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
+- `environment`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
 - `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
 
 # Details
@@ -540,14 +540,14 @@ Maxime Soma, et al. 2018. « Measuring and modelling energy partitioning in can
 complexity using MAESPA model ». Agricultural and Forest Meteorology 253‑254 (printemps): 203‑17.
 https://doi.org/10.1016/j.agrformet.2018.02.005.
 """
-function PlantSimEngine.run!(model::Monteith, status, meteo, constants=PlantMeteo.Constants(), extra=nothing)
+function PlantSimEngine.run!(model::Monteith, status, environment, constants=PlantMeteo.Constants(), context=nothing)
 
     # Initialisations
-    status.Tₗ = meteo.T - 0.2
-    Tₗ_new = zero(meteo.T)
-    status.Cₛ = meteo.Cₐ
-    status.Dₗ = PlantMeteo.e_sat(status.Tₗ) - PlantMeteo.e_sat(meteo.T) * meteo.Rh
-    γˢ = Rbₕ = Δ = zero(meteo.T)
+    status.Tₗ = environment.T - 0.2
+    Tₗ_new = zero(environment.T)
+    status.Cₛ = environment.Cₐ
+    status.Dₗ = PlantMeteo.e_sat(status.Tₗ) - PlantMeteo.e_sat(environment.T) * environment.Rh
+    γˢ = Rbₕ = Δ = zero(environment.T)
     status.Rn = status.Ra_SW_f
     iter = 0
     # ?NB: We use iter = 0 and not 1 to get the right number of iterations at the end
@@ -558,30 +558,30 @@ function PlantSimEngine.run!(model::Monteith, status, meteo, constants=PlantMete
 
         # Update A, Gₛ, Cᵢ through the declared photosynthesis call:
         PlantSimEngine.run_call!(
-            only(PlantSimEngine.call_targets(extra, :photosynthesis));
-            meteo=meteo,
+            only(PlantSimEngine.call_targets(context, :photosynthesis));
+            sampled_environment=environment,
             publish=false,
         )
 
         # Stomatal resistance to water vapor
-        Rsᵥ = 1.0 / (gsc_to_gsw(mol_to_ms(status.Gₛ, meteo.T, meteo.P, constants.R, constants.K₀),
+        Rsᵥ = 1.0 / (gsc_to_gsw(mol_to_ms(status.Gₛ, environment.T, environment.P, constants.R, constants.K₀),
             constants.Gsc_to_Gsw))
 
         # Re-computing the net radiation according to simulated leaf temperature:
-        status.Ra_LW_f = net_longwave_radiation(status.Tₗ, meteo.T, model.ε, meteo.ε,
+        status.Ra_LW_f = net_longwave_radiation(status.Tₗ, environment.T, model.ε, environment.ε,
             status.sky_fraction, constants.K₀, constants.σ)
         #= ? NB: we use the sky fraction here (0-2) instead of the view factor (0-1) because:
             - we consider both sides of the leaf at the same time (1 -> leaf sees sky on one face)
             - we consider all objects in the model have the same temperature as the leaf
             of interest except the atmosphere. So the leaf exchange thermal energy_balance only with
             the atmosphere. =#
-        # status.Ra_LW_f = (grey_body(meteo.T,1.0) - grey_body(status.Tₗ, 1.0))*status.sky_fraction
+        # status.Ra_LW_f = (grey_body(environment.T,1.0) - grey_body(status.Tₗ, 1.0))*status.sky_fraction
 
         status.Rn = status.Ra_SW_f + status.Ra_LW_f
 
         # Leaf boundary conductance for heat (m s-1), one sided:
-        status.Gbₕ = gbₕ_free(meteo.T, status.Tₗ, status.d, constants.Dₕ₀) +
-                     gbₕ_forced(meteo.Wind, status.d)
+        status.Gbₕ = gbₕ_free(environment.T, status.Tₗ, status.d, constants.Dₕ₀) +
+                     gbₕ_forced(environment.Wind, status.d)
         # NB, in MAESPA we use Rni so we add the radiation conductance also (not here)
 
         # Leaf boundary resistance for heat (s m-1):
@@ -591,24 +591,24 @@ function PlantSimEngine.run!(model::Monteith, status, meteo, constants=PlantMete
         Rbᵥ = 1 / gbh_to_gbw(status.Gbₕ)
 
         # Leaf boundary conductance for CO₂ (mol[CO₂] m-2 s-1):
-        status.Gbc = ms_to_mol(status.Gbₕ, meteo.T, meteo.P, constants.R, constants.K₀) /
+        status.Gbc = ms_to_mol(status.Gbₕ, environment.T, environment.P, constants.R, constants.K₀) /
                      constants.Gbc_to_Gbₕ
 
         # Update Cₛ using boundary layer conductance to CO₂ and assimilation:
-        status.Cₛ = min(meteo.Cₐ, meteo.Cₐ - status.A / (status.Gbc * model.aₛᵥ))
+        status.Cₛ = min(environment.Cₐ, environment.Cₐ - status.A / (status.Gbc * model.aₛᵥ))
 
         # Apparent value of psychrometer constant (kPa K−1)
-        γˢ = γ_star(meteo.γ, model.aₛₕ, model.aₛᵥ, Rbᵥ, Rsᵥ, Rbₕ)
+        γˢ = γ_star(environment.γ, model.aₛₕ, model.aₛᵥ, Rbᵥ, Rsᵥ, Rbₕ)
 
-        status.λE = latent_heat(status.Rn, meteo.VPD, γˢ, Rbₕ, meteo.Δ, meteo.ρ,
+        status.λE = latent_heat(status.Rn, environment.VPD, γˢ, Rbₕ, environment.Δ, environment.ρ,
             model.aₛₕ, constants.Cₚ)
 
         # If potential evaporation is needed, here is how to compute it:
-        # γˢₑ = γ_star(meteo.γ, energy_balance.aₛₕ, 1, Rbᵥ, 1.0e-9, Rbₕ) # Rsᵥ is inf. low
-        # Ev = latent_heat(status.Rn, meteo.VPD, γˢₑ, Rbₕ, meteo.Δ, meteo.ρ, energy_balance.aₛₕ, constants.Cₚ)
+        # γˢₑ = γ_star(environment.γ, energy_balance.aₛₕ, 1, Rbᵥ, 1.0e-9, Rbₕ) # Rsᵥ is inf. low
+        # Ev = latent_heat(status.Rn, environment.VPD, γˢₑ, Rbₕ, environment.Δ, environment.ρ, energy_balance.aₛₕ, constants.Cₚ)
 
-        Tₗ_new = meteo.T + (status.Rn - status.λE) /
-                           (meteo.ρ * constants.Cₚ * (model.aₛₕ / Rbₕ))
+        Tₗ_new = environment.T + (status.Rn - status.λE) /
+                           (environment.ρ * constants.Cₚ * (model.aₛₕ / Rbₕ))
 
         if abs(Tₗ_new - status.Tₗ) <= model.ΔT
             break
@@ -617,12 +617,12 @@ function PlantSimEngine.run!(model::Monteith, status, meteo, constants=PlantMete
         status.Tₗ = Tₗ_new
 
         # Vapour pressure difference between the surface and the saturation vapour pressure:
-        status.Dₗ = PlantMeteo.e_sat(status.Tₗ) - PlantMeteo.e_sat(meteo.T) * meteo.Rh
+        status.Dₗ = PlantMeteo.e_sat(status.Tₗ) - PlantMeteo.e_sat(environment.T) * environment.Rh
 
         iter += 1
     end
 
-    status.H = sensible_heat(status.Rn, meteo.VPD, γˢ, Rbₕ, meteo.Δ, meteo.ρ,
+    status.H = sensible_heat(status.Rn, environment.VPD, γˢ, Rbₕ, environment.Δ, environment.ρ,
         model.aₛₕ, constants.Cₚ)
 
     status.iter = iter
@@ -634,7 +634,7 @@ function PlantSimEngine.run!(model::Monteith, status, meteo, constants=PlantMete
     end
 
     # Transpiration (mol[H₂O] m-2 s-1):
-    # ET = status.λE / meteo.λ * constants.Mₕ₂ₒ
+    # ET = status.λE / environment.λ * constants.Mₕ₂ₒ
     # ET / constants.Mₕ₂ₒ to get mm s-1 <=> kg m-2 s-1 <=> l m-2 s-1
 
     nothing

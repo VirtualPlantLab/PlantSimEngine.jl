@@ -54,7 +54,7 @@ And that is all you need to get going, for this example with a single parameter 
 
 The [`@process`](@ref) macro does some boilerplate work described [here](@ref under_the_hood)
 
-Some extra utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
+Some context utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
 If your custom model needs to handle more complex couplings than the simple input/output described in this example, check out the [Coupling more complex models](@ref) page.
 
 ## Detailed version

@@ -48,7 +48,7 @@ struct ModelObjectCarrierConsumerModel <: AbstractModel_Object_Carrier_ConsumerM
 PlantSimEngine.inputs_(::ModelObjectCarrierConsumerModel) = (leaf_areas=[0.0], leaf_tokens=Any[])
 PlantSimEngine.outputs_(::ModelObjectCarrierConsumerModel) = (carrier_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCarrierConsumerModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCarrierConsumerModel, status, environment, constants=nothing, context=nothing)
     status.carrier_total = sum(status.leaf_areas)
     return nothing
 end
@@ -59,10 +59,10 @@ struct ModelObjectEnvironmentProbeModel <: AbstractModel_Object_Environment_Prob
 
 PlantSimEngine.inputs_(::ModelObjectEnvironmentProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentProbeModel) = (temperature_seen=0.0,)
-PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentProbeModel) = (T=0.0, CO2=0.0)
+PlantSimEngine.environment_inputs_(::ModelObjectEnvironmentProbeModel) = (T=0.0, CO2=0.0)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentProbeModel, status, meteo, constants=nothing, extra=nothing)
-    status.temperature_seen = meteo.T
+function PlantSimEngine.run!(::ModelObjectEnvironmentProbeModel, status, environment, constants=nothing, context=nothing)
+    status.temperature_seen = environment.T
     return nothing
 end
 
@@ -74,18 +74,18 @@ struct ModelObjectEnvironmentCO2ProbeModel <:
 PlantSimEngine.inputs_(::ModelObjectEnvironmentCO2ProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentCO2ProbeModel) =
     (temperature_seen=0.0, co2_seen=0.0)
-PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentCO2ProbeModel) =
+PlantSimEngine.environment_inputs_(::ModelObjectEnvironmentCO2ProbeModel) =
     (T=0.0, CO2=0.0)
 
 function PlantSimEngine.run!(
     ::ModelObjectEnvironmentCO2ProbeModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    status.temperature_seen = meteo.T
-    status.co2_seen = meteo.CO2
+    status.temperature_seen = environment.T
+    status.co2_seen = environment.CO2
     return nothing
 end
 
@@ -95,20 +95,20 @@ struct ModelObjectEnvironmentCO2HintProbeModel <:
 PlantSimEngine.inputs_(::ModelObjectEnvironmentCO2HintProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentCO2HintProbeModel) =
     (temperature_seen=0.0, co2_seen=0.0)
-PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentCO2HintProbeModel) =
+PlantSimEngine.environment_inputs_(::ModelObjectEnvironmentCO2HintProbeModel) =
     (T=0.0, CO2=0.0)
-PlantSimEngine.meteo_hint(::Type{<:ModelObjectEnvironmentCO2HintProbeModel}) =
+PlantSimEngine.environment_hint(::Type{<:ModelObjectEnvironmentCO2HintProbeModel}) =
     (bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),)
 
 function PlantSimEngine.run!(
     ::ModelObjectEnvironmentCO2HintProbeModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    status.temperature_seen = meteo.T
-    status.co2_seen = meteo.CO2
+    status.temperature_seen = environment.T
+    status.co2_seen = environment.CO2
     return nothing
 end
 
@@ -118,9 +118,9 @@ struct ModelObjectAggregatedEnvironmentProbeModel <:
 PlantSimEngine.inputs_(::ModelObjectAggregatedEnvironmentProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectAggregatedEnvironmentProbeModel) =
     (temperature_seen=0.0, co2_seen=0.0)
-PlantSimEngine.meteo_inputs_(::ModelObjectAggregatedEnvironmentProbeModel) =
+PlantSimEngine.environment_inputs_(::ModelObjectAggregatedEnvironmentProbeModel) =
     (T=0.0, CO2=0.0)
-PlantSimEngine.meteo_hint(::Type{<:ModelObjectAggregatedEnvironmentProbeModel}) = (
+PlantSimEngine.environment_hint(::Type{<:ModelObjectAggregatedEnvironmentProbeModel}) = (
     bindings=(
         T=(source=:T, reducer=MaxReducer()),
         CO2=(source=:Ca, reducer=MeanReducer()),
@@ -130,12 +130,12 @@ PlantSimEngine.meteo_hint(::Type{<:ModelObjectAggregatedEnvironmentProbeModel}) 
 function PlantSimEngine.run!(
     ::ModelObjectAggregatedEnvironmentProbeModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    status.temperature_seen = meteo.T
-    status.co2_seen = meteo.CO2
+    status.temperature_seen = environment.T
+    status.co2_seen = environment.CO2
     return nothing
 end
 
@@ -145,16 +145,16 @@ struct ModelObjectTemperatureOnlyProbeModel <:
 PlantSimEngine.inputs_(::ModelObjectTemperatureOnlyProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectTemperatureOnlyProbeModel) =
     (temperature_seen=0.0,)
-PlantSimEngine.meteo_inputs_(::ModelObjectTemperatureOnlyProbeModel) = (T=0.0,)
+PlantSimEngine.environment_inputs_(::ModelObjectTemperatureOnlyProbeModel) = (T=0.0,)
 
 function PlantSimEngine.run!(
     ::ModelObjectTemperatureOnlyProbeModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    status.temperature_seen = meteo.T
+    status.temperature_seen = environment.T
     return nothing
 end
 
@@ -164,12 +164,12 @@ struct ModelObjectEnvironmentUpdateModel <: AbstractModel_Object_Environment_Upd
 
 PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateModel) = (temperature_update=0.0,)
-PlantSimEngine.meteo_inputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
-PlantSimEngine.meteo_outputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
+PlantSimEngine.environment_inputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
+PlantSimEngine.environment_outputs_(::ModelObjectEnvironmentUpdateModel) = (T=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, status, meteo, constants=nothing, extra=nothing)
-    status.temperature_update = meteo.T + 1.0
-    commit_environment!(extra, (T=status.temperature_update, CO2=410.0))
+function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateModel, status, environment, constants=nothing, context=nothing)
+    status.temperature_update = environment.T + 1.0
+    commit_environment!(context, (T=status.temperature_update, CO2=410.0))
     return nothing
 end
 
@@ -180,8 +180,8 @@ struct ModelObjectEnvironmentUpdateCallerModel <: AbstractModel_Object_Environme
 PlantSimEngine.inputs_(::ModelObjectEnvironmentUpdateCallerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectEnvironmentUpdateCallerModel) = (called_temperature=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateCallerModel, status, meteo, constants=nothing, extra=nothing)
-    target = only(run_call!(extra, :updater; publish=false))
+function PlantSimEngine.run!(::ModelObjectEnvironmentUpdateCallerModel, status, environment, constants=nothing, context=nothing)
+    target = only(run_call!(context, :updater; publish=false))
     status.called_temperature = target.status.temperature_update
     return nothing
 end
@@ -193,7 +193,7 @@ struct ModelObjectSignalSourceModel <: AbstractModel_Object_Signal_SourceModel e
 PlantSimEngine.inputs_(::ModelObjectSignalSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectSignalSourceModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectSignalSourceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectSignalSourceModel, status, environment, constants=nothing, context=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -206,7 +206,7 @@ PlantSimEngine.inputs_(::ModelObjectTraitClockSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectTraitClockSourceModel) = (signal=0.0,)
 PlantSimEngine.timespec(::Type{<:ModelObjectTraitClockSourceModel}) = ClockSpec(2.0, 1.0)
 
-function PlantSimEngine.run!(::ModelObjectTraitClockSourceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTraitClockSourceModel, status, environment, constants=nothing, context=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -219,7 +219,7 @@ PlantSimEngine.inputs_(::ModelObjectStrictHintSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectStrictHintSourceModel) = (signal=0.0,)
 PlantSimEngine.timestep_hint(::Type{<:ModelObjectStrictHintSourceModel}) = Dates.Day(1)
 
-function PlantSimEngine.run!(::ModelObjectStrictHintSourceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectStrictHintSourceModel, status, environment, constants=nothing, context=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -231,8 +231,8 @@ end
 PlantSimEngine.inputs_(::ModelObjectTimeSignalModel) = NamedTuple()
 PlantSimEngine.outputs_(model::ModelObjectTimeSignalModel) = (signal=zero(model.prototype),)
 
-function PlantSimEngine.run!(model::ModelObjectTimeSignalModel, status, meteo, constants=nothing, extra=nothing)
-    status.signal = convert(typeof(model.prototype), extra.time)
+function PlantSimEngine.run!(model::ModelObjectTimeSignalModel, status, environment, constants=nothing, context=nothing)
+    status.signal = convert(typeof(model.prototype), context.time)
     return nothing
 end
 
@@ -242,7 +242,7 @@ PlantSimEngine.inputs_(::ModelObjectTraitPolicySignalModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectTraitPolicySignalModel) = (signal=0.0,)
 PlantSimEngine.output_policy(::Type{<:ModelObjectTraitPolicySignalModel}) = (signal=Aggregate(),)
 
-function PlantSimEngine.run!(::ModelObjectTraitPolicySignalModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTraitPolicySignalModel, status, environment, constants=nothing, context=nothing)
     status.signal += 1.0
     return nothing
 end
@@ -254,7 +254,7 @@ end
 PlantSimEngine.inputs_(::ModelObjectParameterizedSignalModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectParameterizedSignalModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(model::ModelObjectParameterizedSignalModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ModelObjectParameterizedSignalModel, status, environment, constants=nothing, context=nothing)
     status.signal += model.increment
     return nothing
 end
@@ -267,9 +267,9 @@ PlantSimEngine.outputs_(::ModelObjectAlternativeSignalModel) = (signal=0.0,)
 function PlantSimEngine.run!(
     ::ModelObjectAlternativeSignalModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.signal += 7.0
     return nothing
@@ -287,9 +287,9 @@ PlantSimEngine.outputs_(::ModelObjectBatchCounterModel) = NamedTuple()
 function PlantSimEngine.run!(
     model::ModelObjectBatchCounterModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     model.count[] += 1
     return nothing
@@ -302,7 +302,7 @@ end
 PlantSimEngine.inputs_(::ModelObjectSignalSetModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectSignalSetModel) = (signal=0.0,)
 
-function PlantSimEngine.run!(model::ModelObjectSignalSetModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(model::ModelObjectSignalSetModel, status, environment, constants=nothing, context=nothing)
     status.signal = model.value
     return nothing
 end
@@ -314,7 +314,7 @@ struct ModelObjectPlantSignalSumModel <: AbstractModel_Object_Plant_Signal_SumMo
 PlantSimEngine.inputs_(::ModelObjectPlantSignalSumModel) = (signals=[0.0],)
 PlantSimEngine.outputs_(::ModelObjectPlantSignalSumModel) = (signal_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectPlantSignalSumModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectPlantSignalSumModel, status, environment, constants=nothing, context=nothing)
     status.signal_total = sum(status.signals)
     return nothing
 end
@@ -337,53 +337,53 @@ PlantSimEngine.outputs_(::ModelObjectManualPairCallerModel) = NamedTuple()
 function PlantSimEngine.run!(
     ::ModelObjectManualPairCallerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     return nothing
 end
 
-function PlantSimEngine.run!(::ModelObjectSignalCallerModel, status, meteo, constants=nothing, extra=nothing)
-    target = only(run_call!(extra, :signal; publish=true))
+function PlantSimEngine.run!(::ModelObjectSignalCallerModel, status, environment, constants=nothing, context=nothing)
+    target = only(run_call!(context, :signal; publish=true))
     status.called_signal = target.status.signal
     return nothing
 end
 
-PlantSimEngine.@process "model_object_meteo_call_source" verbose = false
+PlantSimEngine.@process "model_object_environment_call_source" verbose = false
 
-struct ModelObjectMeteoCallSourceModel <: AbstractModel_Object_Meteo_Call_SourceModel end
+struct ModelObjectEnvironmentCallSourceModel <: AbstractModel_Object_Environment_Call_SourceModel end
 
-PlantSimEngine.inputs_(::ModelObjectMeteoCallSourceModel) = NamedTuple()
-PlantSimEngine.outputs_(::ModelObjectMeteoCallSourceModel) = (temperature_seen=0.0,)
-PlantSimEngine.meteo_inputs_(::ModelObjectMeteoCallSourceModel) = (T=0.0,)
+PlantSimEngine.inputs_(::ModelObjectEnvironmentCallSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectEnvironmentCallSourceModel) = (temperature_seen=0.0,)
+PlantSimEngine.environment_inputs_(::ModelObjectEnvironmentCallSourceModel) = (T=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectMeteoCallSourceModel, status, meteo, constants=nothing, extra=nothing)
-    status.temperature_seen = meteo.T
+function PlantSimEngine.run!(::ModelObjectEnvironmentCallSourceModel, status, environment, constants=nothing, context=nothing)
+    status.temperature_seen = environment.T
     return nothing
 end
 
-PlantSimEngine.@process "model_object_meteo_call_controller" verbose = false
+PlantSimEngine.@process "model_object_environment_call_controller" verbose = false
 
-struct ModelObjectMeteoCallControllerModel{T} <: AbstractModel_Object_Meteo_Call_ControllerModel
+struct ModelObjectEnvironmentCallControllerModel{T} <: AbstractModel_Object_Environment_Call_ControllerModel
     local_temperature::T
     publish::Bool
 end
 
-PlantSimEngine.inputs_(::ModelObjectMeteoCallControllerModel) = NamedTuple()
-PlantSimEngine.outputs_(::ModelObjectMeteoCallControllerModel) = (called_temperature=0.0,)
-PlantSimEngine.meteo_outputs_(::ModelObjectMeteoCallControllerModel) = (T=0.0,)
+PlantSimEngine.inputs_(::ModelObjectEnvironmentCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectEnvironmentCallControllerModel) = (called_temperature=0.0,)
+PlantSimEngine.environment_outputs_(::ModelObjectEnvironmentCallControllerModel) = (T=0.0,)
 
-function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, status, meteo, constants=nothing, extra=nothing)
-    local_meteo = (T=m.local_temperature, CO2=410.0)
+function PlantSimEngine.run!(m::ModelObjectEnvironmentCallControllerModel, status, environment, constants=nothing, context=nothing)
+    local_environment = (T=m.local_temperature, CO2=410.0)
     if m.publish
-        commit_environment!(extra, local_meteo)
-        target = only(run_call!(extra, :source; publish=true))
+        commit_environment!(context, local_environment)
+        target = only(run_call!(context, :source; publish=true))
     else
         target = only(run_call!(
-            extra,
+            context,
             :source;
-            environment=local_meteo,
+            environment=local_environment,
             publish=false,
         ))
     end
@@ -391,62 +391,62 @@ function PlantSimEngine.run!(m::ModelObjectMeteoCallControllerModel, status, met
     return nothing
 end
 
-PlantSimEngine.@process "model_object_iterative_meteo_call_controller" verbose = false
+PlantSimEngine.@process "model_object_iterative_environment_call_controller" verbose = false
 
-struct ModelObjectIterativeMeteoCallControllerModel{T} <:
-       AbstractModel_Object_Iterative_Meteo_Call_ControllerModel
+struct ModelObjectIterativeEnvironmentCallControllerModel{T} <:
+       AbstractModel_Object_Iterative_Environment_Call_ControllerModel
     trial_temperatures::NTuple{2,T}
     accepted_temperature::T
 end
 
-PlantSimEngine.inputs_(::ModelObjectIterativeMeteoCallControllerModel) = NamedTuple()
-PlantSimEngine.outputs_(::ModelObjectIterativeMeteoCallControllerModel) =
+PlantSimEngine.inputs_(::ModelObjectIterativeEnvironmentCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectIterativeEnvironmentCallControllerModel) =
     (called_temperature=0.0,)
-PlantSimEngine.meteo_outputs_(::ModelObjectIterativeMeteoCallControllerModel) =
+PlantSimEngine.environment_outputs_(::ModelObjectIterativeEnvironmentCallControllerModel) =
     (T=0.0,)
 
 function PlantSimEngine.run!(
-    m::ModelObjectIterativeMeteoCallControllerModel,
+    m::ModelObjectIterativeEnvironmentCallControllerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    target = only(call_targets(extra, :source))
+    target = only(call_targets(context, :source))
     for temperature in m.trial_temperatures
         run_call!(
-            extra,
+            context,
             :source;
             environment=(T=temperature, CO2=410.0),
             publish=false,
         )
     end
-    commit_environment!(extra, (T=m.accepted_temperature, CO2=410.0))
+    commit_environment!(context, (T=m.accepted_temperature, CO2=410.0))
     run_call!(target; publish=true)
     status.called_temperature = target.status.temperature_seen
     return nothing
 end
 
-PlantSimEngine.@process "model_object_spatial_meteo_call_controller" verbose = false
+PlantSimEngine.@process "model_object_spatial_environment_call_controller" verbose = false
 
-struct ModelObjectSpatialMeteoCallControllerModel{E} <:
-       AbstractModel_Object_Spatial_Meteo_Call_ControllerModel
+struct ModelObjectSpatialEnvironmentCallControllerModel{E} <:
+       AbstractModel_Object_Spatial_Environment_Call_ControllerModel
     environment::E
 end
 
-PlantSimEngine.inputs_(::ModelObjectSpatialMeteoCallControllerModel) = NamedTuple()
-PlantSimEngine.outputs_(::ModelObjectSpatialMeteoCallControllerModel) =
+PlantSimEngine.inputs_(::ModelObjectSpatialEnvironmentCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelObjectSpatialEnvironmentCallControllerModel) =
     (called_targets=0,)
 
 function PlantSimEngine.run!(
-    m::ModelObjectSpatialMeteoCallControllerModel,
+    m::ModelObjectSpatialEnvironmentCallControllerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     targets = run_call!(
-        extra,
+        context,
         :source;
         environment=m.environment,
         publish=false,
@@ -462,7 +462,7 @@ struct ModelObjectSignalConsumerModel <: AbstractModel_Object_Signal_ConsumerMod
 PlantSimEngine.inputs_(::ModelObjectSignalConsumerModel) = (signal=0.0,)
 PlantSimEngine.outputs_(::ModelObjectSignalConsumerModel) = (observed_signal=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectSignalConsumerModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectSignalConsumerModel, status, environment, constants=nothing, context=nothing)
     status.observed_signal = status.signal
     return nothing
 end
@@ -480,9 +480,9 @@ PlantSimEngine.outputs_(::ModelObjectRenamedSignalConsumerModel) =
 function PlantSimEngine.run!(
     ::ModelObjectRenamedSignalConsumerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.observed_renamed_signal = status.renamed_signal
     return nothing
@@ -500,9 +500,9 @@ PlantSimEngine.outputs_(::ModelObjectOptionalInputConsumerModel) =
 function PlantSimEngine.run!(
     ::ModelObjectOptionalInputConsumerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.observed_optional_signal = status.optional_signal
     return nothing
@@ -520,12 +520,12 @@ PlantSimEngine.outputs_(::ModelObjectOptionalCallConsumerModel) =
 function PlantSimEngine.run!(
     ::ModelObjectOptionalCallConsumerModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.optional_call_count =
-        length(run_call!(extra, :optional_source; publish=true))
+        length(run_call!(context, :optional_source; publish=true))
     return nothing
 end
 
@@ -536,7 +536,7 @@ struct ModelObjectCycleAModel <: AbstractModel_Object_Cycle_AModel end
 PlantSimEngine.inputs_(::ModelObjectCycleAModel) = (cycle_b=0.0,)
 PlantSimEngine.outputs_(::ModelObjectCycleAModel) = (cycle_a=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCycleAModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCycleAModel, status, environment, constants=nothing, context=nothing)
     status.cycle_a = status.cycle_b + 1.0
     return nothing
 end
@@ -548,7 +548,7 @@ struct ModelObjectCycleBModel <: AbstractModel_Object_Cycle_BModel end
 PlantSimEngine.inputs_(::ModelObjectCycleBModel) = (cycle_a=0.0,)
 PlantSimEngine.outputs_(::ModelObjectCycleBModel) = (cycle_b=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectCycleBModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectCycleBModel, status, environment, constants=nothing, context=nothing)
     status.cycle_b = 2.0 * status.cycle_a
     return nothing
 end
@@ -560,7 +560,7 @@ struct ModelObjectTemporalSumModel <: AbstractModel_Object_Temporal_SumModel end
 PlantSimEngine.inputs_(::ModelObjectTemporalSumModel) = (signal_sum=0.0,)
 PlantSimEngine.outputs_(::ModelObjectTemporalSumModel) = (temporal_total=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectTemporalSumModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectTemporalSumModel, status, environment, constants=nothing, context=nothing)
     status.temporal_total = status.signal_sum
     return nothing
 end
@@ -572,7 +572,7 @@ struct ModelObjectBiomassSourceModel <: AbstractModel_Object_Biomass_SourceModel
 PlantSimEngine.inputs_(::ModelObjectBiomassSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectBiomassSourceModel) = (biomass=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectBiomassSourceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectBiomassSourceModel, status, environment, constants=nothing, context=nothing)
     status.biomass = 10.0
     return nothing
 end
@@ -584,7 +584,7 @@ struct ModelObjectBiomassPrunerModel <: AbstractModel_Object_Biomass_PrunerModel
 PlantSimEngine.inputs_(::ModelObjectBiomassPrunerModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectBiomassPrunerModel) = (biomass=0.0,)
 
-function PlantSimEngine.run!(::ModelObjectBiomassPrunerModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::ModelObjectBiomassPrunerModel, status, environment, constants=nothing, context=nothing)
     status.biomass = 0.0
     return nothing
 end
@@ -596,9 +596,9 @@ struct ModelObjectGrowthModel <: AbstractModel_Object_GrowthModel end
 PlantSimEngine.inputs_(::ModelObjectGrowthModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectGrowthModel) = (created_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectGrowthModel, status, meteo, constants=nothing, extra=nothing)
-    model = runtime_model(extra)
-    if isapprox(extra.time, 1.0) && !(ObjectId(:grown_leaf) in object_ids(model; scale=:Leaf))
+function PlantSimEngine.run!(::ModelObjectGrowthModel, status, environment, constants=nothing, context=nothing)
+    model = runtime_model(context)
+    if isapprox(context.time, 1.0) && !(ObjectId(:grown_leaf) in object_ids(model; scale=:Leaf))
         register_object!(
             model,
             Object(:grown_leaf; scale=:Leaf, parent=:plant_1, status=Status(signal=0.0)),
@@ -618,11 +618,11 @@ PlantSimEngine.outputs_(::ModelObjectFirstGrowthModel) = NamedTuple()
 function PlantSimEngine.run!(
     ::ModelObjectFirstGrowthModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    model = runtime_model(extra)
+    model = runtime_model(context)
     ObjectId(:first_growth_leaf) in object_ids(model) ||
         register_object!(
             model,
@@ -648,9 +648,9 @@ PlantSimEngine.outputs_(::ModelObjectExecutionCounterModel) =
 function PlantSimEngine.run!(
     ::ModelObjectExecutionCounterModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.execution_count += 1
     return nothing
@@ -668,11 +668,11 @@ PlantSimEngine.outputs_(::ModelObjectInitializingGrowthModel) =
 function PlantSimEngine.run!(
     ::ModelObjectInitializingGrowthModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
-    model = runtime_model(extra)
+    model = runtime_model(context)
     ObjectId(:initialized_leaf) in object_ids(model; scale=:Leaf) &&
         return nothing
     leaf = register_object!(
@@ -686,7 +686,7 @@ function PlantSimEngine.run!(
     )
     target = only(
         run_call!(
-            extra,
+            context,
             :initializer;
             objects=leaf,
             publish=false,
@@ -704,9 +704,9 @@ struct ModelObjectPruningModel <: AbstractModel_Object_PruningModel end
 PlantSimEngine.inputs_(::ModelObjectPruningModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectPruningModel) = (removed_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectPruningModel, status, meteo, constants=nothing, extra=nothing)
-    model = runtime_model(extra)
-    if isapprox(extra.time, 2.0) && ObjectId(:leaf_2) in object_ids(model; scale=:Leaf)
+function PlantSimEngine.run!(::ModelObjectPruningModel, status, environment, constants=nothing, context=nothing)
+    model = runtime_model(context)
+    if isapprox(context.time, 2.0) && ObjectId(:leaf_2) in object_ids(model; scale=:Leaf)
         remove_object!(model, :leaf_2)
         status.removed_count += 1
     end
@@ -720,9 +720,9 @@ struct ModelObjectGeometryMoverModel <: AbstractModel_Object_Geometry_MoverModel
 PlantSimEngine.inputs_(::ModelObjectGeometryMoverModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelObjectGeometryMoverModel) = (move_count=0,)
 
-function PlantSimEngine.run!(::ModelObjectGeometryMoverModel, status, meteo, constants=nothing, extra=nothing)
-    if isapprox(extra.time, 1.0)
-        update_geometry!(runtime_model(extra), :leaf_1, (cell=:cell_b,))
+function PlantSimEngine.run!(::ModelObjectGeometryMoverModel, status, environment, constants=nothing, context=nothing)
+    if isapprox(context.time, 1.0)
+        update_geometry!(runtime_model(context), :leaf_1, (cell=:cell_b,))
         status.move_count += 1
     end
     return nothing
@@ -776,9 +776,9 @@ PlantSimEngine.outputs_(::ModelObjectDualLikeSumModel) =
 function PlantSimEngine.run!(
     ::ModelObjectDualLikeSumModel,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.total = sum(status.values)
     return nothing
@@ -915,7 +915,7 @@ function PlantSimEngine.commit_environment!(
             application=handle.application,
             process=handle.process,
             cell=handle.cell,
-            meteo=state,
+            environment=state,
             time=time,
         ),
     )
@@ -2466,7 +2466,7 @@ end
     @test leaf_2_update.source_inputs == [:T]
     @test leaf_2_update.produced_outputs == [:T]
 
-    missing_global_meteo_scene = CompositeModel(
+    missing_global_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
         applications=(
@@ -2476,9 +2476,9 @@ end
         ),
         environment=(T=20.0,),
     )
-    @test_throws "co2_probe" validate_meteo_inputs(missing_global_meteo_scene)
-    @test_throws "Composite model environment is missing required meteo inputs" Advanced.refresh_environment_bindings!(missing_global_meteo_scene)
-    @test_throws "source `CO2`" Advanced.refresh_environment_bindings!(missing_global_meteo_scene)
+    @test_throws "co2_probe" validate_environment_inputs(missing_global_environment_scene)
+    @test_throws "Composite model environment is missing required source inputs" Advanced.refresh_environment_bindings!(missing_global_environment_scene)
+    @test_throws "source `CO2`" Advanced.refresh_environment_bindings!(missing_global_environment_scene)
 
     application_environment_backend =
         ModelObjectMutableEnvironmentBackend(:cell_a => 23.0)
@@ -2498,15 +2498,15 @@ end
         ),
         environment=(T=20.0,),
     )
-    @test validate_meteo_inputs(application_environment_scene) === nothing
-    @test validate_meteo_inputs(Advanced.refresh_bindings!(application_environment_scene)) ===
+    @test validate_environment_inputs(application_environment_scene) === nothing
+    @test validate_environment_inputs(Advanced.refresh_bindings!(application_environment_scene)) ===
           nothing
-    @test_throws "CO2" validate_meteo_inputs(
+    @test_throws "CO2" validate_environment_inputs(
         Advanced.refresh_bindings!(application_environment_scene),
         (T=20.0,),
     )
 
-    remapped_global_meteo_scene = CompositeModel(
+    remapped_global_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
         applications=(
@@ -2516,25 +2516,25 @@ end
         ),
         environment=(T=20.0, Ca=415.0),
     )
-    @test validate_meteo_inputs(remapped_global_meteo_scene) === nothing
-    @test_throws "Ca" validate_meteo_inputs(
-        Advanced.refresh_bindings!(remapped_global_meteo_scene),
+    @test validate_environment_inputs(remapped_global_environment_scene) === nothing
+    @test_throws "Ca" validate_environment_inputs(
+        Advanced.refresh_bindings!(remapped_global_environment_scene),
         (T=20.0, CO2=415.0),
     )
-    @test validate_meteo_inputs(
-        Advanced.refresh_bindings!(remapped_global_meteo_scene),
+    @test validate_environment_inputs(
+        Advanced.refresh_bindings!(remapped_global_environment_scene),
         (T=20.0, Ca=415.0),
     ) === nothing
-    remapped_environment = Advanced.refresh_environment_bindings!(remapped_global_meteo_scene)
+    remapped_environment = Advanced.refresh_environment_bindings!(remapped_global_environment_scene)
     remapped_row = only(explain_environment_bindings(remapped_environment))
     @test remapped_row.required_inputs == [:T, :CO2]
     @test remapped_row.source_inputs == [:T, :Ca]
-    run!(remapped_global_meteo_scene)
-    remapped_status = only(model_objects(remapped_global_meteo_scene; scale=:Leaf)).status
+    run!(remapped_global_environment_scene)
+    remapped_status = only(model_objects(remapped_global_environment_scene; scale=:Leaf)).status
     @test remapped_status.temperature_seen == 20.0
     @test remapped_status.co2_seen == 415.0
 
-    hinted_global_meteo_scene = CompositeModel(
+    hinted_global_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
         applications=(
@@ -2544,19 +2544,19 @@ end
         ),
         environment=(T=21.0, Ca=420.0),
     )
-    @test validate_meteo_inputs(hinted_global_meteo_scene) === nothing
-    hinted_environment = Advanced.refresh_environment_bindings!(hinted_global_meteo_scene)
+    @test validate_environment_inputs(hinted_global_environment_scene) === nothing
+    hinted_environment = Advanced.refresh_environment_bindings!(hinted_global_environment_scene)
     hinted_row = only(explain_environment_bindings(hinted_environment))
     @test hinted_row.required_inputs == [:T, :CO2]
     @test hinted_row.source_inputs == [:T, :Ca]
-    hinted_application = Advanced.refresh_bindings!(hinted_global_meteo_scene).applications_by_id[:co2_probe]
-    @test meteo_bindings(hinted_application.spec).CO2.source == :Ca
-    run!(hinted_global_meteo_scene)
-    hinted_status = only(model_objects(hinted_global_meteo_scene; scale=:Leaf)).status
+    hinted_application = Advanced.refresh_bindings!(hinted_global_environment_scene).applications_by_id[:co2_probe]
+    @test environment_bindings(hinted_application.spec).CO2.source == :Ca
+    run!(hinted_global_environment_scene)
+    hinted_status = only(model_objects(hinted_global_environment_scene; scale=:Leaf)).status
     @test hinted_status.temperature_seen == 21.0
     @test hinted_status.co2_seen == 420.0
 
-    hinted_override_global_meteo_scene = CompositeModel(
+    hinted_override_global_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene);
         applications=(
@@ -2567,20 +2567,20 @@ end
         environment=(T=22.0, Ca=420.0, Cb=430.0),
     )
     hinted_override_row = only(
-        explain_environment_bindings(Advanced.refresh_environment_bindings!(hinted_override_global_meteo_scene))
+        explain_environment_bindings(Advanced.refresh_environment_bindings!(hinted_override_global_environment_scene))
     )
     @test hinted_override_row.source_inputs == [:T, :Cb]
     hinted_override_application =
-        Advanced.refresh_bindings!(hinted_override_global_meteo_scene).applications_by_id[:co2_probe]
-    @test meteo_bindings(hinted_override_application.spec).CO2.source == :Cb
-    @test meteo_bindings(hinted_override_application.spec).CO2.reducer isa MeanReducer
-    run!(hinted_override_global_meteo_scene)
+        Advanced.refresh_bindings!(hinted_override_global_environment_scene).applications_by_id[:co2_probe]
+    @test environment_bindings(hinted_override_application.spec).CO2.source == :Cb
+    @test environment_bindings(hinted_override_application.spec).CO2.reducer isa MeanReducer
+    run!(hinted_override_global_environment_scene)
     hinted_override_status =
-        only(model_objects(hinted_override_global_meteo_scene; scale=:Leaf)).status
+        only(model_objects(hinted_override_global_environment_scene; scale=:Leaf)).status
     @test hinted_override_status.temperature_seen == 22.0
     @test hinted_override_status.co2_seen == 430.0
 
-    if PlantSimEngine._has_meteo_sampler_api()
+    if PlantSimEngine._has_environment_sampler_api()
         windowed_weather = Weather([
             Atmosphere(
                 T=10.0,
@@ -2666,8 +2666,8 @@ end
         )
         windowed_override_application =
             Advanced.refresh_bindings!(windowed_override_scene).applications_by_id[:aggregated_probe]
-        @test meteo_bindings(windowed_override_application.spec).CO2.source == :Cb
-        @test meteo_bindings(windowed_override_application.spec).CO2.reducer isa MeanReducer
+        @test environment_bindings(windowed_override_application.spec).CO2.source == :Cb
+        @test environment_bindings(windowed_override_application.spec).CO2.reducer isa MeanReducer
         windowed_override_sim = run!(windowed_override_scene; steps=4, outputs=:all)
         temperature_values = getproperty.(
             collect_outputs(
@@ -2846,8 +2846,8 @@ end
     run!(mutable_environment_scene)
     @test mutable_environment_backend.values == Dict(:cell_a => 21.0, :cell_b => 31.0)
     @test mutable_environment_backend.writes == [
-        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_a, meteo=(T=21.0, CO2=410.0), time=1),
-        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_b, meteo=(T=31.0, CO2=410.0), time=1),
+        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_a, environment=(T=21.0, CO2=410.0), time=1),
+        (application=:temperature_update_runtime, process=:model_object_environment_update, cell=:cell_b, environment=(T=31.0, CO2=410.0), time=1),
     ]
     mutable_environment_statuses = Dict(object.id.value => object.status for object in model_objects(mutable_environment_scene; scale=:Leaf))
     @test mutable_environment_statuses[:leaf_1].temperature_seen == 21.0
@@ -2967,8 +2967,8 @@ end
         if row.application_id == :unrelated_no_call
     ).call_capability == :no_calls
 
-    hard_call_meteo_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
-    hard_call_meteo_scene = CompositeModel(
+    hard_call_environment_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
+    hard_call_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(
             :leaf_1;
@@ -2979,22 +2979,22 @@ end
             status=Status(T=0.0, temperature_seen=0.0, called_temperature=0.0),
         );
         applications=(
-            ModelSpec(ModelObjectMeteoCallSourceModel(); name=:meteo_source) |>
+            ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid),
-            ModelSpec(ModelObjectMeteoCallControllerModel(31.5, false); name=:meteo_controller) |>
+            ModelSpec(ModelObjectEnvironmentCallControllerModel(31.5, false); name=:environment_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid, sink=:grid) |>
-            Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
+            Calls(:source => One(scale=:Leaf, process=:model_object_environment_call_source)),
         ),
-        environment=hard_call_meteo_backend,
+        environment=hard_call_environment_backend,
     )
-    run!(hard_call_meteo_scene)
-    hard_call_meteo_status = only(model_objects(hard_call_meteo_scene; scale=:Leaf)).status
-    @test hard_call_meteo_status.temperature_seen == 31.5
-    @test hard_call_meteo_status.called_temperature == 31.5
-    @test hard_call_meteo_backend.values[:cell_a] == 20.0
-    @test isempty(hard_call_meteo_backend.writes)
+    run!(hard_call_environment_scene)
+    hard_call_environment_status = only(model_objects(hard_call_environment_scene; scale=:Leaf)).status
+    @test hard_call_environment_status.temperature_seen == 31.5
+    @test hard_call_environment_status.called_temperature == 31.5
+    @test hard_call_environment_backend.values[:cell_a] == 20.0
+    @test isempty(hard_call_environment_backend.writes)
 
     spatial_trial_backend =
         ModelObjectMutableEnvironmentBackend(:cell_a => 20.0, :cell_b => 21.0)
@@ -3026,16 +3026,16 @@ end
             status=Status(temperature_seen=0.0),
         );
         applications=(
-            ModelSpec(ModelObjectMeteoCallSourceModel(); name=:meteo_source) |>
+            ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source) |>
             AppliesTo(Many(scale=:Leaf)) |>
             Environment(provider=:grid),
             ModelSpec(
-                ModelObjectSpatialMeteoCallControllerModel(spatial_trial_state);
-                name=:spatial_meteo_controller,
+                ModelObjectSpatialEnvironmentCallControllerModel(spatial_trial_state);
+                name=:spatial_environment_controller,
             ) |>
             AppliesTo(One(scale=:Scene)) |>
             Environment(provider=:grid) |>
-            Calls(:source => Many(scale=:Leaf, process=:model_object_meteo_call_source)),
+            Calls(:source => Many(scale=:Leaf, process=:model_object_environment_call_source)),
         ),
         environment=spatial_trial_backend,
     )
@@ -3050,8 +3050,8 @@ end
     @test spatial_trial_backend.values == Dict(:cell_a => 20.0, :cell_b => 21.0)
     @test isempty(spatial_trial_backend.writes)
 
-    publish_hard_call_meteo_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
-    publish_hard_call_meteo_scene = CompositeModel(
+    publish_hard_call_environment_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
+    publish_hard_call_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(
             :leaf_1;
@@ -3062,23 +3062,23 @@ end
             status=Status(T=0.0, temperature_seen=0.0, called_temperature=0.0),
         );
         applications=(
-            ModelSpec(ModelObjectMeteoCallSourceModel(); name=:meteo_source) |>
+            ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid),
-            ModelSpec(ModelObjectMeteoCallControllerModel(32.5, true); name=:meteo_controller) |>
+            ModelSpec(ModelObjectEnvironmentCallControllerModel(32.5, true); name=:environment_controller) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid, sink=:grid) |>
-            Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
+            Calls(:source => One(scale=:Leaf, process=:model_object_environment_call_source)),
         ),
-        environment=publish_hard_call_meteo_backend,
+        environment=publish_hard_call_environment_backend,
     )
-    run!(publish_hard_call_meteo_scene)
-    publish_hard_call_meteo_status = only(model_objects(publish_hard_call_meteo_scene; scale=:Leaf)).status
-    @test publish_hard_call_meteo_status.temperature_seen == 32.5
-    @test publish_hard_call_meteo_status.called_temperature == 32.5
-    @test publish_hard_call_meteo_backend.values[:cell_a] == 32.5
-    @test publish_hard_call_meteo_backend.writes == [
-        (application=:meteo_controller, process=:model_object_meteo_call_controller, cell=:cell_a, meteo=(T=32.5, CO2=410.0), time=1),
+    run!(publish_hard_call_environment_scene)
+    publish_hard_call_environment_status = only(model_objects(publish_hard_call_environment_scene; scale=:Leaf)).status
+    @test publish_hard_call_environment_status.temperature_seen == 32.5
+    @test publish_hard_call_environment_status.called_temperature == 32.5
+    @test publish_hard_call_environment_backend.values[:cell_a] == 32.5
+    @test publish_hard_call_environment_backend.writes == [
+        (application=:environment_controller, process=:model_object_environment_call_controller, cell=:cell_a, environment=(T=32.5, CO2=410.0), time=1),
     ]
 
     iterative_hard_call_backend = ModelObjectMutableEnvironmentBackend(:cell_a => 20.0)
@@ -3093,16 +3093,16 @@ end
             status=Status(T=0.0, temperature_seen=0.0, called_temperature=0.0),
         );
         applications=(
-            ModelSpec(ModelObjectMeteoCallSourceModel(); name=:meteo_source) |>
+            ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid),
             ModelSpec(
-            ModelObjectIterativeMeteoCallControllerModel((30.0, 31.0), 32.0);
-                name=:meteo_controller,
+            ModelObjectIterativeEnvironmentCallControllerModel((30.0, 31.0), 32.0);
+                name=:environment_controller,
             ) |>
             AppliesTo(One(scale=:Leaf)) |>
             Environment(provider=:grid, sink=:grid) |>
-            Calls(:source => One(scale=:Leaf, process=:model_object_meteo_call_source)),
+            Calls(:source => One(scale=:Leaf, process=:model_object_environment_call_source)),
         ),
         environment=iterative_hard_call_backend,
     )
@@ -3114,15 +3114,15 @@ end
     @test iterative_hard_call_backend.values[:cell_a] == 32.0
     @test iterative_hard_call_backend.writes == [
         (
-            application=:meteo_controller,
-            process=:model_object_iterative_meteo_call_controller,
+            application=:environment_controller,
+            process=:model_object_iterative_environment_call_controller,
             cell=:cell_a,
-            meteo=(T=32.0, CO2=410.0),
+            environment=(T=32.0, CO2=410.0),
             time=1,
         ),
     ]
     accepted_call_samples = outputs(iterative_hard_call_sim)[
-        (:meteo_source, ObjectId(:leaf_1), :temperature_seen)
+        (:environment_source, ObjectId(:leaf_1), :temperature_seen)
     ]
     @test length(accepted_call_samples) == 1
     @test only(accepted_call_samples) == (1.0, 32.0)

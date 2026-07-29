@@ -10,8 +10,8 @@ Models subtype `AbstractModel` and declare:
 
 - `inputs_`: values read from object status;
 - `outputs_`: values written to object status;
-- `meteo_inputs_`: values sampled from the environment;
-- `meteo_outputs_`: environment variables a controller may commit;
+- `environment_inputs_`: values sampled from the environment;
+- `environment_outputs_`: environment variables a controller may commit;
 - `commit_environment!`: accepted meteorological state committed to a mutable
   environment by controller models;
 - `dep`: processes called manually by the model, when required.

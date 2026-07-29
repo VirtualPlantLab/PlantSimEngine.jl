@@ -80,7 +80,7 @@ without changing the model implementation.
   `TimeStep(Dates.Day(1))`, and temporal policies such as `Integrate()` or
   `HoldLast()` in the same model.
 - **Automatic environment binding**: global weather and spatial microclimate
-  backends are bound through `Environment(...)`, model `meteo_inputs_`, and
+  backends are bound through `Environment(...)`, model `environment_inputs_`, and
   explicit accepted-state commits with `commit_environment!`.
 - **Performance-oriented internals**: selectors and bindings are compiled
   before the timestep loop, same-rate inputs use references when possible, and
@@ -243,9 +243,9 @@ concrete callee application with `application=...`. Model authors use process
 requirements in `dep(model)` when they declare generic dependencies, because
 they cannot know the application names that a user will choose later.
 
-Inside `run!`, use `run_call!(extra, :leaf_energy)` to execute every target and
+Inside `run!`, use `run_call!(context, :leaf_energy)` to execute every target and
 receive a vector-like collection. Iterative parents use
-`call_targets(extra, :leaf_energy)` and `run_call!(target; publish=false)` for
+`call_targets(context, :leaf_energy)` and `run_call!(target; publish=false)` for
 trial iterations. The accepted state uses `run_call!(target; publish=true)`
 once, so temporal outputs and mutable environment writes are published exactly
 once.
@@ -259,7 +259,7 @@ once.
 - [Public API](API/API_public.md) lists the composite-model/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
-  `timespec`, `output_policy`, and `meteo_inputs_`.
+  `timespec`, `output_policy`, and `environment_inputs_`.
 
 ## Performance
 

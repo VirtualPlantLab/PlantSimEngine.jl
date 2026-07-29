@@ -36,7 +36,7 @@ function PlantSimEngine.outputs_(::ToyCBiomassModel)
     (carbon_biomass_increment=-Inf, carbon_biomass=0.0, growth_respiration=-Inf,)
 end
 
-function PlantSimEngine.run!(m::ToyCBiomassModel, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyCBiomassModel, status, environment, constants, context)
     status.carbon_biomass_increment = status.carbon_allocation / m.construction_cost
     status.carbon_biomass += status.carbon_biomass_increment
     status.growth_respiration = status.carbon_allocation - status.carbon_biomass_increment

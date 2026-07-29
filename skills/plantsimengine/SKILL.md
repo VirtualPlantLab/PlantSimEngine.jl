@@ -1,6 +1,6 @@
 ---
 name: plantsimengine
-description: Use PlantSimEngine.jl to compose models with the unified Composite Model/Object API, AppliesTo, Inputs, Calls, TimeStep, Environment, and to implement or wrap generic model kernels with inputs_, outputs_, dep, meteo traits, and run!.
+description: Use PlantSimEngine.jl to compose models with the unified Composite Model/Object API, AppliesTo, Inputs, Calls, TimeStep, Environment, and to implement or wrap generic model kernels with inputs_, outputs_, dep, environment traits, and run!.
 ---
 
 # PlantSimEngine Skill
@@ -15,7 +15,7 @@ PlantSimEngine has two main user roles:
   `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`, and
   `Environment`.
 - **Modelers** implement or wrap generic kernels. They need process identity,
-  `inputs_`, `outputs_`, `dep`, `meteo_inputs_`, `meteo_outputs_`, `run!`,
+  `inputs_`, `outputs_`, `dep`, `environment_inputs_`, `environment_outputs_`, `run!`,
   model traits, and focused tests.
 
 Use the unified model/object API for multiscale, multi-plant, soil, model, and
@@ -152,9 +152,9 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
     )
 ```
 
-Inside `run!`, execute all targets with `run_call!(extra, :name)`, which always
+Inside `run!`, execute all targets with `run_call!(context, :name)`, which always
 returns a vector-like `CallTargets` collection. For selective or iterative
-control, retrieve the collection with `call_targets(extra, :name)` and execute
+control, retrieve the collection with `call_targets(context, :name)` and execute
 individual targets. `run_call!` defaults to `publish=false` for trial
 iterations. Use `publish=true` once for the accepted state.
 
@@ -181,12 +181,12 @@ Policies are `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate`. When an
 `Inputs(...)` selector omits `policy=...`, a unique producer's
 `output_policy(::Type{<:Model})` trait supplies the default policy; explicit
 selector policies override the trait.
-Environment variables come from `meteo_inputs_` and `meteo_outputs_`.
-`meteo_hint(...).bindings` can provide model-author default source remaps, and
+Environment variables come from `environment_inputs_` and `environment_outputs_`.
+`environment_hint(...).bindings` can provide model-author default source remaps, and
 `Environment(; sources=...)` is the scenario-level override. Use
 `Environment(provider=:grid)` only when overriding automatic binding.
 For global `Weather` tables, model applications sample meteorology at their
-compiled clock using the `meteo_hint` reducer/window. An
+compiled clock using the `environment_hint` reducer/window. An
 `Environment(; sources=...)` override changes the source but preserves that
 reducer, and all objects in one application reuse the same sampled row for a
 given timestep. Spatial backends define their own temporal sampling semantics.
@@ -316,7 +316,7 @@ PlantSimEngine.output_policy(::Type{<:MyFluxModel}) = (
 PlantSimEngine.timestep_hint(::Type{<:MyModel}) =
     (; required=(Dates.Hour(1), Dates.Hour(6)), preferred=Dates.Hour(1))
 
-PlantSimEngine.meteo_hint(::Type{<:MyModel}) = (
+PlantSimEngine.environment_hint(::Type{<:MyModel}) = (
     bindings=(T=MeanReducer(),),
     window=RollingWindow(),
 )

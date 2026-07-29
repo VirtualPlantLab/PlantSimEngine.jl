@@ -1,7 +1,7 @@
 #! Careful: this file is more or less a copy/paste from the original model implementation in PlantBiophysics.jl (v0.16.2). It is only used for testing.
 #! If you want to use this model, use the one from PlantBiophysics.jl instead, which is more up to date and maintained.
 
-# Generate all methods for the stomatal conductance process: several meteo time-steps, components,
+# Generate all methods for the stomatal conductance process: several environment time-steps, components,
 #  over an MTG, and the mutating /non-mutating versions
 @process "stomatal_conductance" verbose = false
 
@@ -11,10 +11,10 @@ PlantSimEngine.output_policy(::Type{<:AbstractStomatal_ConductanceModel}) = (Gâ‚
 
 # Gs accepts either an ordinary sampled environment or a closure value passed
 # explicitly by the parent photosynthesis call.
-function PlantSimEngine.run!(Gs::Gsm, status, meteo, constants, context) where {Gsm<:AbstractStomatal_ConductanceModel}
-    closure = meteo isa Number ?
-              meteo :
-              gs_closure(Gs, status, meteo, constants, context)
+function PlantSimEngine.run!(Gs::Gsm, status, environment, constants, context) where {Gsm<:AbstractStomatal_ConductanceModel}
+    closure = environment isa Number ?
+              environment :
+              gs_closure(Gs, status, environment, constants, context)
     status.Gâ‚› = max(
         Gs.gs_min,
         Gs.g0 + closure * status.A,

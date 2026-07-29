@@ -11,9 +11,9 @@ PlantSimEngine.outputs_(::TemporalViewSignalSource) = (signal=0.0,)
 function PlantSimEngine.run!(
     ::TemporalViewSignalSource,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.signal += 1.0
     return nothing
@@ -29,9 +29,9 @@ PlantSimEngine.outputs_(::TemporalViewSignalConsumer) = (observed_signal=0.0,)
 function PlantSimEngine.run!(
     ::TemporalViewSignalConsumer,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.observed_signal = status.signal * status.gain
     status.signal = -999.0
@@ -50,9 +50,9 @@ PlantSimEngine.outputs_(::TemporalViewSameStepConsumer) =
 function PlantSimEngine.run!(
     ::TemporalViewSameStepConsumer,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.observed_signal = status.signal
     return nothing
@@ -68,9 +68,9 @@ PlantSimEngine.outputs_(::TemporalViewManyConsumer) = (signal_total=0.0,)
 function PlantSimEngine.run!(
     ::TemporalViewManyConsumer,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.signal_total = sum(status.signals)
     status.signals .= -999.0
@@ -91,9 +91,9 @@ PlantSimEngine.outputs_(::TemporalViewCycleB) = (cycle_b=0.0,)
 function PlantSimEngine.run!(
     ::TemporalViewCycleA,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.cycle_a = status.cycle_b + 1.0
     return nothing
@@ -102,9 +102,9 @@ end
 function PlantSimEngine.run!(
     ::TemporalViewCycleB,
     status,
-    meteo,
+    environment,
     constants=nothing,
-    extra=nothing,
+    context=nothing,
 )
     status.cycle_b = 2.0 * status.cycle_a
     return nothing

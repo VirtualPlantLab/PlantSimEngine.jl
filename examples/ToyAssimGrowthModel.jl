@@ -53,7 +53,7 @@ end
 Base.eltype(x::ToyAssimGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(model::ToyAssimGrowthModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ToyAssimGrowthModel, status, environment, constants, context)
 
     # The assimilation is simply the absorbed photosynthetic photon flux density (aPPFD) times the light use efficiency (LUE):
     status.carbon_assimilation = status.aPPFD * model.LUE

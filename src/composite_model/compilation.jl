@@ -102,7 +102,7 @@ struct CompiledEnvironmentBindings{SC,B,I,S,P,C}
     bindings::B
     by_target::I
     samplers_by_application::S
-    prepared_global_meteo::P
+    prepared_global_environment::P
     sample_cache::C
     model_revision::Int
     environment_revision::Int
@@ -196,7 +196,7 @@ end
 
 function _model_timeline(model::CompositeModel)
     backend = environment_backend(model.environment)
-    _validate_meteo_duration(backend)
+    _validate_environment_duration(backend)
     return _timeline_context(backend)
 end
 
@@ -1158,7 +1158,7 @@ function _validate_model_call_cadences!(applications, call_bindings, timeline)
             # A call-only target with no model/scenario cadence declaration
             # inherits the cadence of its parent call. An explicit target
             # cadence is a scientific contract and must match the caller.
-            _runtime_clock_source_for_spec(callee.spec) == :meteo_base_step &&
+            _runtime_clock_source_for_spec(callee.spec) == :environment_base_step &&
                 continue
             same_dt = isapprox(
                 float(caller.clock.dt),
@@ -1229,9 +1229,9 @@ function explain_initialization(model::CompositeModel)
     rows = NamedTuple[]
     for application in compiled.applications
         model_outputs = outputs_(application.spec)
-        meteo_model_outputs = meteo_outputs_(application.spec)
+        environment_model_outputs = environment_outputs_(application.spec)
         model_inputs = inputs_(application.spec)
-        environment_inputs = meteo_inputs_(application.spec)
+        environment_inputs = environment_inputs_(application.spec)
         generated = Set(Symbol.(keys(model_outputs)))
         for object_id in application.target_ids
             for variable in sort!(collect(generated); by=string)
@@ -1252,8 +1252,8 @@ function explain_initialization(model::CompositeModel)
                     detail=nothing,
                 ))
             end
-            for variable in sort!(Symbol.(collect(keys(meteo_model_outputs))); by=string)
-                default_value = getproperty(meteo_model_outputs, variable)
+            for variable in sort!(Symbol.(collect(keys(environment_model_outputs))); by=string)
+                default_value = getproperty(environment_model_outputs, variable)
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -1307,7 +1307,7 @@ function explain_initialization(model::CompositeModel)
                            nothing,
                 ))
             end
-            for variable in sort!(Symbol.(collect(keys(meteo_inputs_(application.spec)))); by=string)
+            for variable in sort!(Symbol.(collect(keys(environment_inputs_(application.spec)))); by=string)
                 environment_binding = get(
                     environment_bindings,
                     (application.id, object_id),
@@ -1380,7 +1380,7 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
         app_id in ids && error("Duplicate compiled model application id `$(app_id)`.")
         push!(ids, app_id)
         target_ids = resolve_object_ids(model, selector)
-        spec = _model_spec_with_meteo_hints(
+        spec = _model_spec_with_environment_hints(
             model,
             spec,
             _model_application_hint_scale(model, target_ids),
@@ -1404,32 +1404,32 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
     return applications
 end
 
-function _model_spec_with_meteo_hints(model::CompositeModel, spec, scale::Symbol)
-    hint = _normalize_meteo_hint(scale, process(spec), meteo_hint(model_(spec)))
+function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::Symbol)
+    hint = _normalize_environment_hint(scale, process(spec), environment_hint(model_(spec)))
 
-    current_bindings = meteo_bindings(spec)
+    current_bindings = environment_bindings(spec)
     has_explicit_bindings = !(current_bindings isa NamedTuple && isempty(keys(current_bindings)))
     new_bindings = has_explicit_bindings || isnothing(hint.bindings) ? current_bindings : hint.bindings
-    new_bindings = _model_meteo_bindings_with_environment_sources(spec, new_bindings)
+    new_bindings = _model_environment_bindings_with_environment_sources(spec, new_bindings)
 
-    current_window = meteo_window(spec)
+    current_window = environment_window(spec)
     new_window = isnothing(current_window) && !isnothing(hint.window) ? hint.window : current_window
 
     (new_bindings === current_bindings && new_window === current_window) && return spec
-    return ModelSpec(spec; meteo_bindings=new_bindings, meteo_window=new_window)
+    return ModelSpec(spec; environment_bindings=new_bindings, environment_window=new_window)
 end
 
-function _model_meteo_bindings_with_environment_sources(spec, bindings)
+function _model_environment_bindings_with_environment_sources(spec, bindings)
     sources = _environment_source_overrides(spec)
     isempty(keys(sources)) && return bindings
 
     bindings = bindings isa NamedTuple ? bindings : NamedTuple()
-    model_inputs = Set(Symbol.(keys(meteo_inputs_(spec))))
+    model_inputs = Set(Symbol.(keys(environment_inputs_(spec))))
     unknown = Symbol[target for target in keys(sources) if !(Symbol(target) in model_inputs)]
     isempty(unknown) || error(
         "`Environment(; sources=...)` for process `$(process(spec))` contains ",
-        "unknown model-facing meteo input(s) `$(Tuple(unknown))`. Declared ",
-        "`meteo_inputs_` are `$(Tuple(sort!(collect(model_inputs); by=string)))`."
+        "unknown model-facing environment input(s) `$(Tuple(unknown))`. Declared ",
+        "`environment_inputs_` are `$(Tuple(sort!(collect(model_inputs); by=string)))`."
     )
 
     targets = Symbol[Symbol(target) for target in keys(bindings)]
@@ -1441,7 +1441,7 @@ function _model_meteo_bindings_with_environment_sources(spec, bindings)
     resolved = Pair{Symbol,Any}[]
     for target in targets
         rule = haskey(bindings, target) ?
-               _normalize_meteo_binding_rule(target, bindings[target]) :
+               _normalize_environment_binding_rule(target, bindings[target]) :
                (source=target, reducer=PlantMeteo.MeanWeighted())
         source = haskey(sources, target) ? Symbol(sources[target]) : rule.source
         push!(resolved, target => (source=source, reducer=rule.reducer))
@@ -1624,10 +1624,10 @@ end
 function _model_application_clock(model::CompositeModel, spec, target_ids::Vector{ObjectId}, timeline)
     process_model = model_(spec)
     source = _runtime_clock_source_for_spec(spec)
-    source == :meteo_base_step || return _model_clock(spec, process_model, timeline)
+    source == :environment_base_step || return _model_clock(spec, process_model, timeline)
     scale = _model_application_hint_scale(model, target_ids)
     clock, hint_reason =
-        _resolve_meteo_hint_clock(scale, process(spec), process_model, timeline)
+        _resolve_environment_hint_clock(scale, process(spec), process_model, timeline)
     isnothing(hint_reason) || error(hint_reason)
     return clock
 end
@@ -2661,8 +2661,8 @@ function explain_applications(compiled::CompiledCompositeModel)
             applies_to=application.applies_to,
             inputs=Tuple(Symbol.(keys(inputs_(application.spec)))),
             outputs=Tuple(Symbol.(keys(outputs_(application.spec)))),
-            environment_inputs=Tuple(Symbol.(keys(meteo_inputs_(application.spec)))),
-            environment_outputs=Tuple(Symbol.(keys(meteo_outputs_(application.spec)))),
+            environment_inputs=Tuple(Symbol.(keys(environment_inputs_(application.spec)))),
+            environment_outputs=Tuple(Symbol.(keys(environment_outputs_(application.spec)))),
             timestep=application.timestep,
             clock=application.clock,
             model_type=typeof(_application_default_model(application)),

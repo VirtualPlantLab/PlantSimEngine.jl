@@ -42,7 +42,7 @@ end
 Base.eltype(x::ToyRUEGrowthModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(model::ToyRUEGrowthModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ToyRUEGrowthModel, status, environment, constants, context)
     status.biomass_increment = status.aPPFD * model.efficiency
     status.biomass += status.biomass_increment
 end

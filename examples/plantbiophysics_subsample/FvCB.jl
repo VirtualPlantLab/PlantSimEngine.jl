@@ -1,4 +1,4 @@
-# Generate all methods for the photosynthesis process: several meteo time-steps, components,
+# Generate all methods for the photosynthesis process: several environment time-steps, components,
 #  over an MTG, and the mutating /non-mutating versions
 @process "photosynthesis" verbose = false
 
@@ -83,7 +83,7 @@ function get_km(Tₖ, Tᵣₖ, O₂, R=PlantMeteo.Constants().R)
     return KC * (1.0 + O₂ / KO)
 end
 
-function PlantSimEngine.run!(m::Fvcb, status, meteo, constants=PlantMeteo.Constants(), extra=nothing)
+function PlantSimEngine.run!(m::Fvcb, status, environment, constants=PlantMeteo.Constants(), context=nothing)
 
     # Tranform Celsius temperatures in Kelvin:
     Tₖ = status.Tₗ - constants.K₀
@@ -109,10 +109,10 @@ function PlantSimEngine.run!(m::Fvcb, status, meteo, constants=PlantMeteo.Consta
 
     # Stomatal conductance (mol[CO₂] m-2 s-1), dispatched on type of first argument (gs_closure):
     stomatal_target =
-        only(PlantSimEngine.call_targets(extra, :stomatal_conductance))
+        only(PlantSimEngine.call_targets(context, :stomatal_conductance))
     stomatal_model = PlantSimEngine.runtime_model(stomatal_target)
     st_closure =
-        gs_closure(stomatal_model, status, meteo, constants, extra)
+        gs_closure(stomatal_model, status, environment, constants, context)
 
     Cᵢⱼ = get_Cᵢⱼ(Vⱼ, Γˢ, status.Cₛ, Rd, stomatal_model.g0, st_closure)
 
@@ -142,8 +142,8 @@ function PlantSimEngine.run!(m::Fvcb, status, meteo, constants=PlantMeteo.Consta
 
     # Stomatal conductance (mol[CO₂] m-2 s-1)
     PlantSimEngine.run_call!(
-        only(PlantSimEngine.call_targets(extra, :stomatal_conductance));
-        meteo=st_closure,
+        only(PlantSimEngine.call_targets(context, :stomatal_conductance));
+        sampled_environment=st_closure,
         publish=false,
     )
 

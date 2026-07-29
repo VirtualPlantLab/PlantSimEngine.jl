@@ -62,7 +62,7 @@ include("model_discovery.jl")
 # CompositeModel timing and environment runtime:
 include("time/runtime/clocks.jl")
 include("time/runtime/output_export.jl")
-include("time/runtime/meteo_sampling.jl")
+include("time/runtime/environment_sampling.jl")
 include("time/runtime/environment_backends.jl")
 
 # Static CompositeModel graph compilation and visualization:
@@ -148,10 +148,10 @@ export Status
 export @process, process
 export init_variables, dep
 export inputs, outputs, variables
-export timespec, output_policy, timestep_hint, meteo_hint
-export meteo_bindings, meteo_window, output_routing, updates
-export meteo_inputs, meteo_inputs_, meteo_outputs, meteo_outputs_
-export validate_meteo_inputs
+export timespec, output_policy, timestep_hint, environment_hint
+export environment_bindings, environment_window, output_routing, updates
+export environment_inputs, environment_inputs_, environment_outputs, environment_outputs_
+export validate_environment_inputs
 export available_processes, available_models, model_descriptor, model_constructor_descriptor
 export ModelGraphDiagnostic, CompositeModelCompilationReport, ModelGraphView
 export compile_model_report, compile_model_graph, model_graph_view

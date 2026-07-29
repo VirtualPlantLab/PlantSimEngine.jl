@@ -18,9 +18,9 @@
 - `Calls(...)` declares manually executable child models.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
-- `run_call!(extra, :name; publish=false)` executes every resolved hard-call
+- `run_call!(context, :name; publish=false)` executes every resolved hard-call
   target and always returns a vector-like `CallTargets` collection.
-- `call_targets(extra, :name)` returns the same non-executing collection for
+- `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
 
 ### Selectors
@@ -37,9 +37,9 @@
 - `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` define temporal
   input policies.
 - `Environment(...)` configures environment providers and source remapping.
-- Models declare sampled environment variables with `meteo_inputs_`.
+- Models declare sampled environment variables with `environment_inputs_`.
 - Mutable environment controllers pass trial state with
-  `run_call!(extra, name; environment=trial_state)` and commit accepted state
+  `run_call!(context, name; environment=trial_state)` and commit accepted state
   with `commit_environment!`.
 - `OutputRequest(selector, variable; ...)` selects retained and optionally
   resampled streams using the same object selector grammar.
@@ -49,7 +49,7 @@
 - `objects_from_mtg` and `CompositeModel(mtg; ...)` adapt an MTG into the object
   registry.
 - `add_organ!` creates and initializes a new organ in an MTG-backed model.
-- `runtime_model(extra)` gives lifecycle-capable kernels sanctioned access to
+- `runtime_model(context)` gives lifecycle-capable kernels sanctioned access to
   the live model from their `RunContext`.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.

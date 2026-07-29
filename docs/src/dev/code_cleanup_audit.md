@@ -35,7 +35,7 @@ Migration details are retained in
 | Model application configuration | `src/ModelSpec.jl` |
 | Status and reference vectors | `src/component_models/Status.jl`, `src/component_models/RefVector.jl` |
 | Dates-based clocks and policies | `src/time/multirate.jl`, `src/time/runtime/clocks.jl` |
-| Weather sampling | `src/time/runtime/meteo_sampling.jl` |
+| Environment sampling | `src/time/runtime/environment_sampling.jl` |
 | Environment backends | `src/time/runtime/environment_backends.jl` |
 | Output request definition | `src/time/runtime/output_export.jl` |
 

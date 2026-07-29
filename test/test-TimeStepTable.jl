@@ -71,6 +71,6 @@
 
     # Runtime meteorology lookup uses direct row indexing whenever the Tables
     # row source supports it; advancing to day `i` must not rescan days 1:i.
-    @test PlantSimEngine._meteo_row_at_step(ts, 2).Ra_SW_f == 5.0
-    @test PlantSimEngine._meteo_row_at_step(df, 2).sky_fraction == 0.8
+    @test PlantSimEngine._environment_row_at_step(ts, 2).Ra_SW_f == 5.0
+    @test PlantSimEngine._environment_row_at_step(df, 2).sky_fraction == 0.8
 end

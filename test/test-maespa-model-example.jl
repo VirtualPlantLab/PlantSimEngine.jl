@@ -190,7 +190,7 @@ include("../examples/maespa_model_example.jl")
     @test !occursin("MaespaEnvironmentWrite", source)
     @test !occursin("cells_by_status", source)
     @test !occursin("geometry(object)", source)
-    @test !occursin("PlantSimEngine.meteo_outputs_(::CanopyAir)", source)
+    @test !occursin("PlantSimEngine.environment_outputs_(::CanopyAir)", source)
     @test !occursin("with_environment!", source)
     @test !occursin("update_environment!", source)
     @test !occursin("EnvironmentSupport", source)
@@ -226,14 +226,14 @@ include("../examples/maespa_model_example.jl")
 end
 
 @testset "MAESPA-style model example validation" begin
-    meteo = maespa_meteo(; nhours=1)
+    environment = maespa_meteo(; nhours=1)
 
     scene_status = _maespa_model_status()
     @test_throws "SceneEB did not converge after 0 iterations" _solve_model_energy_balance!(
         SceneEB(0, 0.03, 0.005),
         nothing,
         scene_status,
-        first(meteo),
+        first(environment),
     )
 end
 

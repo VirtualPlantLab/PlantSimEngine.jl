@@ -44,10 +44,10 @@ ModelSpec(scene_model; name=:scene_eb) |>
 
 The scene receives above-canopy forcing from the `:forcing` provider and has
 `:canopy` as its explicit commit sink. Trial leaf calls use
-`run_call!(extra, :energy_balance; environment=trial_meteo)`, so all hard-called
+`run_call!(context, :energy_balance; environment=trial_environment)`, so all hard-called
 leaves sample the trial canopy atmosphere through their compiled handles without
 committing it. After convergence, the scene commits the accepted canopy
-atmosphere with `commit_environment!(extra, accepted_meteo)` and publishes one
+atmosphere with `commit_environment!(context, accepted_environment)` and publishes one
 accepted leaf call against that committed environment.
 
 Scene/soil values are wired declaratively with `Inputs(...)`, not by manually
@@ -156,7 +156,7 @@ canopy air update, and returns a new `Atmosphere`. The accepted solution is
 committed directly with:
 
 ```julia
-commit_environment!(extra, accepted_meteo)
+commit_environment!(context, accepted_environment)
 ```
 
 CompositeModel status also stores diagnostics for the resulting below-canopy

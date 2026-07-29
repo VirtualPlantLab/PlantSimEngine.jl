@@ -15,9 +15,9 @@ struct DocsLAIGrowth{T} <: AbstractDocs_Lai_GrowthModel
 end
 PlantSimEngine.inputs_(::DocsLAIGrowth) = (lai=0.0,)
 PlantSimEngine.outputs_(::DocsLAIGrowth) = (lai_next=0.0,)
-PlantSimEngine.meteo_inputs_(::DocsLAIGrowth) = (T=0.0,)
-function PlantSimEngine.run!(m::DocsLAIGrowth, status, meteo, constants, extra)
-    status.lai_next = status.lai + m.rate * meteo.T
+PlantSimEngine.environment_inputs_(::DocsLAIGrowth) = (T=0.0,)
+function PlantSimEngine.run!(m::DocsLAIGrowth, status, environment, constants, context)
+    status.lai_next = status.lai + m.rate * environment.T
 end
 
 model = CompositeModel(

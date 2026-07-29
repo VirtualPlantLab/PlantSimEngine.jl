@@ -48,7 +48,7 @@ end
 Base.eltype(::ToyCDemandModel{T}) where {T} = T
 
 # Implement the growth model:
-function PlantSimEngine.run!(model::ToyCDemandModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ToyCDemandModel, status, environment, constants, context)
     # The carbon demand is simply the biomass under optimal conditions divided by the duration of the development:
     status.carbon_demand =
         status.TT *

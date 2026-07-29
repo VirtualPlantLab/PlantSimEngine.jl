@@ -381,15 +381,15 @@ end
 end
 
 abstract type AbstractExecutionBatch end
-struct UnspecifiedModelMeteo end
-const _UNSPECIFIED_SCENE_METEO = UnspecifiedModelMeteo()
-const _SCENE_RAW_METEO_CACHE_ID = Symbol("#raw_global_meteo")
+struct UnspecifiedModelEnvironment end
+const _UNSPECIFIED_SCENE_ENVIRONMENT = UnspecifiedModelEnvironment()
+const _SCENE_RAW_ENVIRONMENT_CACHE_ID = Symbol("#raw_global_environment")
 
-struct RawGlobalModelMeteo{M}
-    meteo::M
+struct RawGlobalModelEnvironment{M}
+    sampled_environment::M
 end
 
-struct CachedGlobalModelMeteo{B}
+struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
@@ -408,7 +408,7 @@ end
 struct CompiledExecutionBatch{A,T<:AbstractVector,MP} <: AbstractExecutionBatch
     application::A
     targets::T
-    meteo_provider::MP
+    environment_provider::MP
 end
 
 struct CompiledApplicationExecutionGroup{A,B}
@@ -1216,7 +1216,7 @@ function _materialize_model_inputs!(
     return status
 end
 
-function _model_meteo_for_model(
+function _model_environment_for_model(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     object_id::ObjectId,
@@ -1224,7 +1224,7 @@ function _model_meteo_for_model(
     environment=_NO_ENVIRONMENT_OVERRIDE,
 )
     binding = _environment_binding_for(env_bindings, application.id, object_id)
-    return _model_meteo_for_binding(
+    return _model_environment_for_binding(
         env_bindings,
         application,
         binding,
@@ -1233,7 +1233,7 @@ function _model_meteo_for_model(
     )
 end
 
-function _model_meteo_for_binding(
+function _model_environment_for_binding(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     binding,
@@ -1256,13 +1256,13 @@ function _model_meteo_for_binding(
         key = (application.id, step)
         haskey(env_bindings.sample_cache, key) &&
             return env_bindings.sample_cache[key]
-        raw_key = (_SCENE_RAW_METEO_CACHE_ID, step)
+        raw_key = (_SCENE_RAW_ENVIRONMENT_CACHE_ID, step)
         raw_row = get!(env_bindings.sample_cache, raw_key) do
-            _meteo_row_at_step(environment_meteo(binding.backend), step)
+            _environment_row_at_step(environment_source(binding.backend), step)
         end
         sampler = get(env_bindings.samplers_by_application, application.id, nothing)
         if !isnothing(sampler)
-            sampled = _sample_meteo_for_model(
+            sampled = _sample_environment_for_model(
                 sampler,
                 raw_row,
                 step,
@@ -1272,7 +1272,7 @@ function _model_meteo_for_binding(
             env_bindings.sample_cache[key] = sampled
             return sampled
         end
-        bindings = meteo_bindings(application.spec)
+        bindings = environment_bindings(application.spec)
         has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
         environment_sources = _environment_source_overrides(application.spec)
         if !has_bindings && isempty(keys(environment_sources))
@@ -1444,7 +1444,7 @@ end
     object_id::ObjectId,
     status,
     canonical_status,
-    meteo_value,
+    environment_value,
     calls,
     time,
     constants,
@@ -1467,7 +1467,7 @@ end
         environment,
     )
     model = _application_model(application, object_id)
-    run!(model, status, meteo_value, constants, context)
+    run!(model, status, environment_value, constants, context)
     if publish
         _model_publish_outputs!(
             temporal_streams,
@@ -1491,7 +1491,7 @@ end
     temporal_streams,
     output_retention,
     publish::Bool,
-    meteo,
+    sampled_environment,
     environment,
 )
     status_view = _model_status_view_for_application(
@@ -1507,14 +1507,14 @@ end
         temporal_streams,
         time,
     )
-    meteo_value = meteo isa UnspecifiedModelMeteo ?
-                  _model_meteo_for_model(
+    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
+                        _model_environment_for_model(
         env_bindings,
         application,
         object_id,
         time,
         environment,
-    ) : meteo
+    ) : sampled_environment
     call_bindings = get(
         compiled.call_bindings_by_target,
         (application.id, object_id),
@@ -1528,7 +1528,7 @@ end
             object_id,
             status,
             status_view.canonical_status,
-            meteo_value,
+            environment_value,
             (),
             time,
             constants,
@@ -1556,7 +1556,7 @@ end
         object_id,
         status,
         status_view.canonical_status,
-        meteo_value,
+        environment_value,
         calls,
         time,
         constants,
@@ -1576,7 +1576,7 @@ end
     constants,
     temporal_streams,
     output_retention,
-    meteo,
+    sampled_environment,
     publish_outputs::Bool,
     retained_outputs,
 )
@@ -1590,13 +1590,13 @@ end
         temporal_streams,
         time,
     )
-    meteo_value = meteo isa UnspecifiedModelMeteo ?
-                  _model_meteo_for_binding(
+    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
+                        _model_environment_for_binding(
         env_bindings,
         application,
         target.environment_binding,
         time,
-    ) : meteo
+    ) : sampled_environment
     context = if target.context isa RunContext
         _prepare_model_execution_context!(
             target.context,
@@ -1624,7 +1624,7 @@ end
             _NO_ENVIRONMENT_OVERRIDE,
         )
     end
-    run!(target.model, status, meteo_value, constants, context)
+    run!(target.model, status, environment_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -1652,7 +1652,7 @@ end
     constants,
     temporal_streams,
     output_retention,
-    meteo,
+    sampled_environment,
     publish_outputs::Bool,
     retained_outputs,
 )
@@ -1665,7 +1665,7 @@ end
         constants,
         temporal_streams,
         output_retention,
-        meteo,
+        sampled_environment,
         publish_outputs,
         retained_outputs,
     )
@@ -1679,13 +1679,13 @@ end
         temporal_streams,
         time,
     )
-    meteo_value = meteo isa UnspecifiedModelMeteo ?
-                  _model_meteo_for_binding(
+    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
+                        _model_environment_for_binding(
         env_bindings,
         application,
         target.environment_binding,
         time,
-    ) : meteo
+    ) : sampled_environment
     context = _prepare_model_execution_context!(
         target.context,
         compiled,
@@ -1697,7 +1697,7 @@ end
         time,
         constants,
     )
-    run!(target.model, status, meteo_value, constants, context)
+    run!(target.model, status, environment_value, constants, context)
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
@@ -1716,45 +1716,48 @@ end
     return status
 end
 
-@inline _model_execution_batch_meteo(
+@inline _model_execution_batch_environment(
     ::Nothing,
     env_bindings,
     application,
     time,
 ) = nothing
 
-@inline _model_execution_batch_meteo(
-    ::UnspecifiedModelMeteo,
+@inline _model_execution_batch_environment(
+    ::UnspecifiedModelEnvironment,
     env_bindings,
     application,
     time,
-) = _UNSPECIFIED_SCENE_METEO
+) = _UNSPECIFIED_SCENE_ENVIRONMENT
 
-@inline function _model_execution_batch_meteo(
-    provider::RawGlobalModelMeteo,
+@inline function _model_execution_batch_environment(
+    provider::RawGlobalModelEnvironment,
     env_bindings,
     application,
     time,
 )
-    return _meteo_row_at_step(provider.meteo, Int(round(time)))
+    return _environment_row_at_step(
+        provider.sampled_environment,
+        Int(round(time)),
+    )
 end
 
-@inline function _model_execution_batch_meteo(
-    provider::RawGlobalModelMeteo{<:PreparedGlobalMeteoRows},
+@inline function _model_execution_batch_environment(
+    provider::RawGlobalModelEnvironment{<:PreparedGlobalEnvironmentRows},
     env_bindings,
     application,
     time,
 )
-    return @inbounds provider.meteo.rows[Int(round(time))]
+    return @inbounds provider.sampled_environment.rows[Int(round(time))]
 end
 
-@inline function _model_execution_batch_meteo(
-    provider::CachedGlobalModelMeteo,
+@inline function _model_execution_batch_environment(
+    provider::CachedGlobalModelEnvironment,
     env_bindings,
     application,
     time,
 )
-    return _model_meteo_for_binding(
+    return _model_environment_for_binding(
         env_bindings,
         application,
         provider.binding,
@@ -1772,8 +1775,8 @@ end
     output_retention,
 )
     _model_application_should_run(batch.application, time) || return nothing
-    shared_meteo = _model_execution_batch_meteo(
-        batch.meteo_provider,
+    shared_environment = _model_execution_batch_environment(
+        batch.environment_provider,
         env_bindings,
         batch.application,
         time,
@@ -1797,7 +1800,7 @@ end
                     constants,
                     temporal_streams,
                     output_retention,
-                    shared_meteo,
+                    shared_environment,
                     publish_outputs,
                     retained_outputs,
                 )
@@ -1815,13 +1818,13 @@ end
                 temporal_streams,
                 time,
             )
-            meteo_value = shared_meteo isa UnspecifiedModelMeteo ?
-                          _model_meteo_for_binding(
+            environment_value = shared_environment isa UnspecifiedModelEnvironment ?
+                          _model_environment_for_binding(
                 env_bindings,
                 batch.application,
                 target.environment_binding,
                 time,
-            ) : shared_meteo
+            ) : shared_environment
             context = target.context
             if context isa RunContext
                 _prepare_model_execution_context!(
@@ -1851,7 +1854,7 @@ end
             run!(
                 target.model,
                 status,
-                meteo_value,
+                environment_value,
                 constants,
                 context,
             )
@@ -1886,7 +1889,7 @@ end
             constants,
             temporal_streams,
             output_retention,
-            shared_meteo,
+            shared_environment,
             publish_outputs,
             retained_outputs,
         )
@@ -2002,7 +2005,7 @@ _runtime_model_output_streams(
     application,
     object_id,
     ::Nothing,
-    output_retention,
+    ::OutputRetentionPlan,
 ) = ()
 
 function _runtime_model_output_streams(
@@ -2156,7 +2159,7 @@ function _typed_model_execution_targets(targets, first_index::Int, last_index::I
     return typed
 end
 
-function _compiled_model_execution_meteo_provider(
+function _compiled_model_execution_environment_provider(
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     target::CompiledExecutionTarget,
@@ -2164,29 +2167,29 @@ function _compiled_model_execution_meteo_provider(
     binding = target.environment_binding
     isnothing(binding) && return nothing
     binding.backend isa GlobalConstant ||
-        return _UNSPECIFIED_SCENE_METEO
+        return _UNSPECIFIED_SCENE_ENVIRONMENT
 
     sampler = get(
         env_bindings.samplers_by_application,
         application.id,
         nothing,
     )
-    bindings = meteo_bindings(application.spec)
+    bindings = environment_bindings(application.spec)
     has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
     environment_sources =
         _environment_source_overrides(application.spec)
     if isnothing(sampler) &&
        !has_bindings &&
        isempty(keys(environment_sources))
-        meteo = environment_meteo(binding.backend)
+        source = environment_source(binding.backend)
         prepared = get(
-            env_bindings.prepared_global_meteo,
-            meteo,
-            meteo,
+            env_bindings.prepared_global_environment,
+            source,
+            source,
         )
-        return RawGlobalModelMeteo(prepared)
+        return RawGlobalModelEnvironment(prepared)
     end
-    return CachedGlobalModelMeteo(binding)
+    return CachedGlobalModelEnvironment(binding)
 end
 
 function _append_model_execution_batches!(
@@ -2205,7 +2208,7 @@ function _append_model_execution_batches!(
             CompiledExecutionBatch(
                 application,
                 _typed_model_execution_targets(targets, first_index, index - 1),
-                _compiled_model_execution_meteo_provider(
+                _compiled_model_execution_environment_provider(
                     env_bindings,
                     application,
                     targets[first_index],
@@ -2220,7 +2223,7 @@ function _append_model_execution_batches!(
         CompiledExecutionBatch(
             application,
             _typed_model_execution_targets(targets, first_index, lastindex(targets)),
-            _compiled_model_execution_meteo_provider(
+            _compiled_model_execution_environment_provider(
                 env_bindings,
                 application,
                 targets[first_index],
@@ -2994,7 +2997,7 @@ changes at the next timestep boundary. Each requested object may be an
 returned by [`add_organ!`](@ref).
 
 Use this accessor with [`run_call!(::CallTarget)`](@ref) when targets need
-different meteorology, selective execution, a controlled order, or separate
+different sampled environments, selective execution, a controlled order, or separate
 trial and accepted publication.
 """
 Base.@constprop :aggressive function call_targets(
@@ -3245,7 +3248,7 @@ function _targeted_call_environment_bindings(
         partial,
         by_target,
         _model_environment_samplers(partial),
-        cached.prepared_global_meteo,
+        cached.prepared_global_environment,
         cached.sample_cache,
     )
 end
@@ -3475,15 +3478,15 @@ function _environment_binding_for_current_context(context::RunContext)
 end
 
 function _validate_environment_commit(context::RunContext, state)
-    declared = Symbol.(collect(keys(meteo_outputs_(context.application.spec))))
+    declared = Symbol.(collect(keys(environment_outputs_(context.application.spec))))
     isempty(declared) && error(
         "Application `$(context.application.id)` cannot commit environment state because ",
-        "its model declares no `meteo_outputs_` variables.",
+        "its model declares no `environment_outputs_` variables.",
     )
     missing = Symbol[variable for variable in declared if !hasproperty(state, variable)]
     isempty(missing) || error(
         "Environment state committed by application `$(context.application.id)` is missing ",
-        "declared `meteo_outputs_` variable(s) `$(Tuple(missing))`.",
+        "declared `environment_outputs_` variable(s) `$(Tuple(missing))`.",
     )
     return nothing
 end
@@ -3493,7 +3496,7 @@ end
 
 Commit an accepted environment `state` through the opaque handle compiled for
 the currently running model application/object. The model must declare the
-variables it commits with `meteo_outputs_`.
+variables it commits with `environment_outputs_`.
 
 Commits are ignored while the current model is executing as a non-publishing
 hard call. Trial environment states should instead be passed to
@@ -3520,14 +3523,14 @@ function commit_environment!(context, state)
 end
 
 """
-    run_call!(target::CallTarget; publish=false, meteo=nothing)
+    run_call!(target::CallTarget; publish=false, sampled_environment)
 
 Run one manually selected model call. By default, the call mutates its target
 status without publishing outputs or environment updates, which is suitable
 for trial iterations. Pass `publish=true` once for the accepted state. When
-`meteo` is provided, it is forwarded directly to this target instead of using
-its compiled environment binding. This is the fine-grained escape hatch for
-one selected target; execute provider-aware trial states for all targets with
+`sampled_environment` is provided, it is forwarded directly to this target
+instead of using its compiled environment binding. This is the fine-grained
+escape hatch for one selected target; execute provider-aware trial states for all targets with
 `run_call!(context, name; environment=state)`.
 
 The method returns the same `CallTarget`.
@@ -3540,13 +3543,17 @@ For fine-grained control, obtain a collection with [`call_targets`](@ref), then
 select or iterate its targets:
 
 ```julia
-targets = call_targets(extra, :leaf_energy)
-for (target, target_meteo) in zip(targets, leaf_meteo)
-    run_call!(target; meteo=target_meteo, publish=false)
+targets = call_targets(context, :leaf_energy)
+for (target, target_environment) in zip(targets, environments_by_leaf)
+    run_call!(
+        target;
+        sampled_environment=target_environment,
+        publish=false,
+    )
 end
 
-accepted = accepted_meteo(model, status)
-commit_environment!(extra, accepted)
+accepted = accepted_environment(model, status)
+commit_environment!(context, accepted)
 for target in targets
     run_call!(target; publish=true)
 end
@@ -3555,7 +3562,7 @@ end
 @inline function _run_call!(
     target::CallTarget,
     publish::Bool,
-    meteo,
+    sampled_environment,
     environment,
 )
     status = _materialize_model_inputs!(
@@ -3566,14 +3573,14 @@ end
         target.temporal_streams,
         target.time,
     )
-    meteo_value = meteo isa UnspecifiedModelMeteo ?
-                  _model_meteo_for_binding(
+    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
+                        _model_environment_for_binding(
         target.environment_bindings,
         target.application,
         target.environment_binding,
         target.time,
         environment,
-    ) : meteo
+    ) : sampled_environment
     publication_allowed = publish && target.publication_allowed
     _prepare_runtime_call_targets!(
         target.calls,
@@ -3602,7 +3609,7 @@ end
     run!(
         target.model,
         status,
-        meteo_value,
+        environment_value,
         target.constants,
         context,
     )
@@ -3622,9 +3629,14 @@ end
 function run_call!(
     target::CallTarget;
     publish::Bool=false,
-    meteo=_UNSPECIFIED_SCENE_METEO,
+    sampled_environment=_UNSPECIFIED_SCENE_ENVIRONMENT,
 )
-    return _run_call!(target, publish, meteo, target.environment)
+    return _run_call!(
+        target,
+        publish,
+        sampled_environment,
+        target.environment,
+    )
 end
 
 @inline function _compiled_call_execution_target(
@@ -3651,7 +3663,7 @@ end
     application::CompiledModelApplication,
     object_id::ObjectId,
     publish::Bool,
-    meteo,
+    sampled_environment,
     environment,
 )
     target = _compiled_call_execution_target(
@@ -3667,14 +3679,14 @@ end
         targets.temporal_streams,
         targets.time,
     )
-    meteo_value = meteo isa UnspecifiedModelMeteo ?
-                  _model_meteo_for_binding(
+    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
+                        _model_environment_for_binding(
         targets.environment_bindings,
         application,
         target.environment_binding,
         targets.time,
         environment,
-    ) : meteo
+    ) : sampled_environment
     publication_allowed = publish && targets.publication_allowed
     reusable_context =
         target.context isa RunContext &&
@@ -3696,7 +3708,7 @@ end
     run!(
         target.model,
         status,
-        meteo_value,
+        environment_value,
         targets.constants,
         context,
     )
@@ -3716,7 +3728,7 @@ end
 function _run_call_targets!(
     targets::CallTargets,
     publish::Bool,
-    meteo,
+    sampled_environment,
     environment,
 )
     for application_id in targets.binding.callee_application_ids
@@ -3729,7 +3741,7 @@ function _run_call_targets!(
                 application,
                 object_id,
                 publish,
-                meteo,
+                sampled_environment,
                 environment,
             )
         end
@@ -3737,12 +3749,17 @@ function _run_call_targets!(
     return targets
 end
 
-function _run_call_targets!(targets, publish::Bool, meteo, environment)
+function _run_call_targets!(
+    targets,
+    publish::Bool,
+    sampled_environment,
+    environment,
+)
     for target in targets
         _run_call!(
             target,
             publish,
-            meteo,
+            sampled_environment,
             environment,
         )
     end
@@ -3760,7 +3777,7 @@ When `environment` is supplied, every target keeps its own opaque compiled
 backend handle and samples that transient backend-specific state. The state is
 inherited by nested hard calls. Omit it to sample the committed backend state.
 
-For finer-grained target selection, order, or direct per-target meteorology,
+For finer-grained target selection, order, or direct per-target sampled environments,
 use [`call_targets`](@ref) and [`run_call!(::CallTarget)`](@ref). Commit an
 accepted mutable state with [`commit_environment!`](@ref) before publishing the
 accepted descendants.
@@ -3781,7 +3798,7 @@ function run_call!(
     return _run_call_targets!(
         targets,
         publish,
-        _UNSPECIFIED_SCENE_METEO,
+        _UNSPECIFIED_SCENE_ENVIRONMENT,
         selected_environment,
     )
 end

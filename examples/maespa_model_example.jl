@@ -13,7 +13,7 @@ PlantSimEngine.@process "lai_dynamic" verbose = false
 PlantSimEngine.@process "alloc_a" verbose = false
 PlantSimEngine.@process "alloc_b" verbose = false
 
-duration_seconds(meteo) = Dates.value(Dates.Millisecond(meteo.duration)) / 1000.0
+duration_seconds(environment) = Dates.value(Dates.Millisecond(environment.duration)) / 1000.0
 mutable struct MaespaSingleLayerEnvironment{F,C} <: PlantSimEngine.AbstractEnvironmentBackend
     forcing::F # MAESPA forcing data (Meteo data from above the canopy)
     canopy::C # Within-canopy computed microclimate
@@ -41,8 +41,8 @@ function MaespaSingleLayerEnvironment(forcing; canopy=_maespa_meteo_row(forcing,
     )
 end
 
-_maespa_meteo_row(meteo, time) =
-    first(Iterators.drop(meteo, clamp(Int(round(time)), 1, PlantSimEngine.get_nsteps(meteo)) - 1))
+_maespa_meteo_row(environment, time) =
+    first(Iterators.drop(environment, clamp(Int(round(time)), 1, PlantSimEngine.get_nsteps(environment)) - 1))
 
 PlantSimEngine.base_step_seconds(backend::MaespaSingleLayerEnvironment) =
     PlantSimEngine.base_step_seconds(PlantSimEngine.environment_backend(backend.forcing))
@@ -75,10 +75,10 @@ function PlantSimEngine.sample(
     variable::Symbol,
     time,
 )
-    meteo = handle.provider == :forcing ?
+    environment = handle.provider == :forcing ?
             _maespa_meteo_row(backend.forcing, time) :
             backend.canopy
-    return getproperty(meteo, variable)
+    return getproperty(environment, variable)
 end
 
 function PlantSimEngine.sample(
@@ -88,10 +88,10 @@ function PlantSimEngine.sample(
     variable::Symbol,
     time,
 ) where {F,C}
-    meteo = handle.provider == :forcing ?
+    environment = handle.provider == :forcing ?
             _maespa_meteo_row(backend.forcing, time) :
             state
-    return getproperty(meteo, variable)
+    return getproperty(environment, variable)
 end
 
 function PlantSimEngine.commit_environment!(
@@ -118,7 +118,7 @@ end
 PlantSimEngine.inputs_(::SoilWater) = (transpiration=0.0, infiltration=0.0)
 PlantSimEngine.outputs_(::SoilWater) = (theta1=0.32, theta2=0.34, psi_soil=-0.1)
 
-function PlantSimEngine.run!(m::SoilWater, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(m::SoilWater, status, environment, constants, context=nothing)
     withdrawal = max(status.transpiration, 0.0)
     recharge = max(status.infiltration, 0.0)
     status.theta1 = clamp(status.theta1 + (recharge - 0.7 * withdrawal) / max(m.depth1 * 1000.0, 1.0), 0.04, m.theta_sat)
@@ -133,7 +133,7 @@ struct LeafState <: AbstractLeaf_StateModel end
 PlantSimEngine.inputs_(::LeafState) = NamedTuple()
 PlantSimEngine.outputs_(::LeafState) = (leaf_area=0.0, leaf_carbon=0.0)
 
-PlantSimEngine.run!(::LeafState, status, meteo, constants, extra=nothing) = nothing
+PlantSimEngine.run!(::LeafState, status, environment, constants, context=nothing) = nothing
 
 """
     LAIModel(area)
@@ -152,7 +152,7 @@ end
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
 PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=(-Inf))
 
-function PlantSimEngine.run!(m::LAIModel, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(m::LAIModel, status, environment, constants, context=nothing)
     status.leaf_area = sum(status.leaf_areas)
     status.lai = status.leaf_area / m.area
     return nothing
@@ -217,7 +217,7 @@ PlantSimEngine.inputs_(::SceneEB) = (
     leaf_a=[0.0],
     psi_soil=-0.1,
 )
-PlantSimEngine.meteo_inputs_(::SceneEB) = (
+PlantSimEngine.environment_inputs_(::SceneEB) = (
     T=0.0,
     Rh=0.0,
     Wind=0.0,
@@ -229,7 +229,7 @@ PlantSimEngine.meteo_inputs_(::SceneEB) = (
     VPD=0.0,
     λ=0.0,
 )
-PlantSimEngine.meteo_outputs_(::SceneEB) = (T=0.0, Rh=0.0)
+PlantSimEngine.environment_outputs_(::SceneEB) = (T=0.0, Rh=0.0)
 PlantSimEngine.outputs_(::SceneEB) = (
     canopy_rn=0.0,
     canopy_lambda_e=0.0,
@@ -257,16 +257,16 @@ struct SceneEBSolverResult
     lai::Float64
 end
 
-function _model_leaf_meteo(meteo, tair_canopy, vpd_canopy)
+function _model_leaf_meteo(environment, tair_canopy, vpd_canopy)
     return Atmosphere(
         T=tair_canopy,
         Rh=rh_from_vpd(vpd_canopy, e_sat(tair_canopy)),
-        Wind=meteo.Wind,
-        P=meteo.P,
-        Cₐ=meteo.Cₐ,
-        Ri_PAR_f=meteo.Ri_PAR_f,
-        Ri_SW_f=meteo.Ri_SW_f,
-        duration=meteo.duration,
+        Wind=environment.Wind,
+        P=environment.P,
+        Cₐ=environment.Cₐ,
+        Ri_PAR_f=environment.Ri_PAR_f,
+        Ri_SW_f=environment.Ri_SW_f,
+        duration=environment.duration,
     )
 end
 
@@ -297,7 +297,7 @@ function _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
         lambda_e=total_lambda_e / ground_area,
         h=total_h / ground_area,
         a=total_a / ground_area,
-        meteo=local_meteo,
+        environment=local_meteo,
     )
     status.canopy_rn = fluxes.rn
     status.canopy_lambda_e = fluxes.lambda_e
@@ -306,18 +306,18 @@ function _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
     return fluxes
 end
 
-function _prepare_model_leaf_inputs!(status, meteo, psi_soil)
+function _prepare_model_leaf_inputs!(status, environment, psi_soil)
     # Prepare the leaf status for each leaf target, and run the energy balance for each leaf:
-    status.leaf_Ra_SW_f .= meteo.Ri_SW_f
-    status.leaf_aPPFD .= meteo.Ri_PAR_f
+    status.leaf_Ra_SW_f .= environment.Ri_SW_f
+    status.leaf_aPPFD .= environment.Ri_PAR_f
     status.Ψₗ .= psi_soil
     return nothing
 end
 
-function _run_model_leaf_targets!(extra, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
+function _run_model_leaf_targets!(context, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
     _prepare_model_leaf_inputs!(status, meteo_above, psi_soil)
     run_call!(
-        extra,
+        context,
         :energy_balance;
         environment=local_meteo,
         publish=publish,
@@ -326,9 +326,9 @@ function _run_model_leaf_targets!(extra, status, local_meteo, meteo_above, psi_s
     return fluxes
 end
 
-function _run_model_leaf_targets_from_environment!(extra, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
+function _run_model_leaf_targets_from_environment!(context, status, local_meteo, meteo_above, psi_soil, ground_area; publish=false)
     _prepare_model_leaf_inputs!(status, meteo_above, psi_soil)
-    run_call!(extra, :energy_balance; publish=publish)
+    run_call!(context, :energy_balance; publish=publish)
     fluxes = _aggregate_model_leaf_fluxes(status, ground_area, local_meteo)
     return fluxes
 end
@@ -387,32 +387,32 @@ function canopy_air_update(m::SceneEB, fluxes, meteo_above, canopy_meteo, consta
     vpair_canopy = vpair_above + etot * canopy_meteo.γ / heat_conductance
     vpd_new = max(0.01, PlantMeteo.e_sat(tair_new) - vpair_canopy)
     vpd_new = clamp(vpd_new, max(0.01, vpd_above - 1.5), vpd_above + 1.5)
-    meteo = _model_leaf_meteo(meteo_above, tair_new, vpd_new)
-    return (meteo=meteo, tair=tair_new, vpd=vpd_new, rh=meteo.Rh, htot=htot, gcanop=gbcan_ms)
+    environment = _model_leaf_meteo(meteo_above, tair_new, vpd_new)
+    return (environment=environment, tair=tair_new, vpd=vpd_new, rh=environment.Rh, htot=htot, gcanop=gbcan_ms)
 end
 
 function _solve_model_energy_balance!(
     m::SceneEB,
-    extra,
+    context,
     status,
-    meteo,
+    environment,
     constants=PlantMeteo.Constants(),
 )
-    tair_above = meteo.T
-    vpd_above = max(0.01, meteo.VPD)
+    tair_above = environment.T
+    vpd_above = max(0.01, environment.VPD)
     tair_canopy = tair_above
     vpd_canopy = vpd_above
     psi_soil = status.psi_soil
-    final_meteo = meteo
-    last_update = (tair=tair_canopy, vpd=vpd_canopy, rh=meteo.Rh, htot=0.0, gcanop=0.0)
+    final_meteo = environment
+    last_update = (tair=tair_canopy, vpd=vpd_canopy, rh=environment.Rh, htot=0.0, gcanop=0.0)
 
     for iter in 1:m.maxiter
         # Run the energy balance of each leaf, and aggregate the fluxes at the canopy scale:
-        trial_meteo = _model_leaf_meteo(meteo, tair_canopy, vpd_canopy)
-        fluxes = _run_model_leaf_targets!(extra, status, trial_meteo, meteo, psi_soil, m.ground_area)
-        # Update the canopy-scale meteo based on the leaf fluxes, and check for convergence:
-        final_meteo = fluxes.meteo
-        update = canopy_air_update(m, fluxes, meteo, trial_meteo, constants)
+        trial_meteo = _model_leaf_meteo(environment, tair_canopy, vpd_canopy)
+        fluxes = _run_model_leaf_targets!(context, status, trial_meteo, environment, psi_soil, m.ground_area)
+        # Update the canopy-scale environment based on the leaf fluxes, and check for convergence:
+        final_meteo = fluxes.environment
+        update = canopy_air_update(m, fluxes, environment, trial_meteo, constants)
         status.canopy_tair = update.tair
         status.canopy_vpd = update.vpd
         status.canopy_rh = update.rh
@@ -427,7 +427,7 @@ function _solve_model_energy_balance!(
                 vpd_canopy,
                 update.rh,
                 psi_soil,
-                update.meteo,
+                update.environment,
                 iter,
                 update.htot,
                 update.gcanop,
@@ -445,28 +445,28 @@ function _solve_model_energy_balance!(
     )
 end
 
-function _publish_model_leaf_solution!(extra, status, solution::SceneEBSolverResult, meteo, ground_area)
-    commit_environment!(extra, solution.final_meteo)
+function _publish_model_leaf_solution!(context, status, solution::SceneEBSolverResult, environment, ground_area)
+    commit_environment!(context, solution.final_meteo)
     fluxes = _run_model_leaf_targets_from_environment!(
-        extra,
+        context,
         status,
         solution.final_meteo,
-        meteo,
+        environment,
         solution.psi_soil,
         ground_area;
         publish=true,
     )
     n = _check_leaf_vector_lengths(status, (:leaf_carbon, :leaf_a))
     for i in 1:n
-        status.leaf_carbon[i] += status.leaf_a[i] * status.leaf_areas[i] * duration_seconds(meteo) * 12.0e-6
+        status.leaf_carbon[i] += status.leaf_a[i] * status.leaf_areas[i] * duration_seconds(environment) * 12.0e-6
     end
     return fluxes
 end
 
-function PlantSimEngine.run!(m::SceneEB, status, meteo, constants, extra)
-    solution = _solve_model_energy_balance!(m, extra, status, meteo, constants)
-    fluxes = _publish_model_leaf_solution!(extra, status, solution, meteo, m.ground_area)
-    transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(meteo) * 18.0e-6
+function PlantSimEngine.run!(m::SceneEB, status, environment, constants, context)
+    solution = _solve_model_energy_balance!(m, context, status, environment, constants)
+    fluxes = _publish_model_leaf_solution!(context, status, solution, environment, m.ground_area)
+    transpiration_mm = λE_to_E(fluxes.lambda_e, solution.final_meteo.λ) * duration_seconds(environment) * 18.0e-6
 
     status.canopy_tair = solution.tair
     status.canopy_vpd = solution.vpd
@@ -477,7 +477,7 @@ function PlantSimEngine.run!(m::SceneEB, status, meteo, constants, extra)
     status.scene_infiltration = 0.0
     status.scene_assimilation = fluxes.a
     status.iterations = solution.iterations
-    run_call!(extra, :soil; publish=true)
+    run_call!(context, :soil; publish=true)
     return nothing
 end
 
@@ -507,9 +507,9 @@ PlantSimEngine.outputs_(::AllocA) = alloc_outputs()
 PlantSimEngine.inputs_(::AllocB) = alloc_inputs()
 PlantSimEngine.outputs_(::AllocB) = alloc_outputs()
 
-PlantSimEngine.run!(m::AllocA, status, meteo, constants, extra=nothing) =
+PlantSimEngine.run!(m::AllocA, status, environment, constants, context=nothing) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
-PlantSimEngine.run!(m::AllocB, status, meteo, constants, extra=nothing) =
+PlantSimEngine.run!(m::AllocB, status, environment, constants, context=nothing) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
 
 function _maespa_leaf_status(; leaf_area, sky_fraction, d)
@@ -622,8 +622,8 @@ function _maespa_plant_instance(name, template; nleaves, leaf_area, sky_fraction
     )
 end
 
-function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), meteo=maespa_meteo())
-    environment = meteo isa MaespaSingleLayerEnvironment ? meteo : MaespaSingleLayerEnvironment(meteo)
+function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), environment=maespa_meteo())
+    environment = environment isa MaespaSingleLayerEnvironment ? environment : MaespaSingleLayerEnvironment(environment)
     template_a = _maespa_species_template(
         :A;
         monteith=Monteith(; ε=0.955, maxiter=20, ΔT=0.02),
@@ -784,7 +784,7 @@ function maespa_meteo(; nhours=24)
 end
 
 function run_maespa_example(; nhours=24, check=true)
-    model = build_maespa_model(; meteo=maespa_meteo(; nhours=nhours))
+    model = build_maespa_model(; environment=maespa_meteo(; nhours=nhours))
     compiled = Advanced.compile_composite_model(model)
     check && Advanced.refresh_environment_bindings!(model, compiled)
     simulation = run!(

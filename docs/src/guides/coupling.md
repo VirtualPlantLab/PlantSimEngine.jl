@@ -6,9 +6,9 @@ explicit `One`, `OptionalOne`, or `Many` selector. Inspect the resolved
 references with `explain_bindings`.
 
 Use `Calls` only when a parent algorithm owns child execution or iteration.
-Use `run_call!(extra, :name)` to execute every resolved target. For selective
+Use `run_call!(context, :name)` to execute every resolved target. For selective
 or iterative execution, retrieve the vector-like collection with
-`call_targets(extra, :name)` and execute individual targets. Trial calls use
+`call_targets(context, :name)` and execute individual targets. Trial calls use
 `publish=false`; accepted state is published once.
 Nested calls inherit publication suppression, so a descendant cannot publish
 inside an unpublished ancestor trial. `explain_calls` and `explain_schedule`
@@ -78,7 +78,7 @@ ModelSpec(Optimizer(); name=:optimizer) |>
     Calls(:leaf_energy => Many(scale=:Leaf, within=Subtree()))
 ```
 
-Inside `Optimizer`, iterate over `call_targets(extra, :leaf_energy)`. Run
+Inside `Optimizer`, iterate over `call_targets(context, :leaf_energy)`. Run
 candidate states with `run_call!(target; publish=false)` and the accepted state
 with `publish=true`. A call-only target is excluded from root scheduling, and
 an unpublished outer call suppresses publication by every nested descendant.

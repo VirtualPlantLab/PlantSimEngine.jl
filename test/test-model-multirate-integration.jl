@@ -11,19 +11,19 @@ struct DailyPlantFluxModel <: AbstractDaily_Plant_FluxModel end
 struct DailySoilStateModel <: AbstractDaily_Soil_StateModel end
 PlantSimEngine.inputs_(::HourlyLeafFluxModel) = (rate=0.0,)
 PlantSimEngine.outputs_(::HourlyLeafFluxModel) = (flux=0.0, hourly_runs=0)
-function PlantSimEngine.run!(::HourlyLeafFluxModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::HourlyLeafFluxModel, status, environment, constants, context)
     status.flux = status.rate
     status.hourly_runs += 1
 end
 PlantSimEngine.inputs_(::DailyPlantFluxModel) = (leaf_fluxes=[0.0],)
 PlantSimEngine.outputs_(::DailyPlantFluxModel) = (daily_total=0.0, daily_runs=0)
-function PlantSimEngine.run!(::DailyPlantFluxModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::DailyPlantFluxModel, status, environment, constants, context)
     status.daily_total = sum(status.leaf_fluxes)
     status.daily_runs += 1
 end
 PlantSimEngine.inputs_(::DailySoilStateModel) = NamedTuple()
 PlantSimEngine.outputs_(::DailySoilStateModel) = (soil_runs=0,)
-function PlantSimEngine.run!(::DailySoilStateModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::DailySoilStateModel, status, environment, constants, context)
     status.soil_runs += 1
 end
 

@@ -7,7 +7,7 @@ struct MRBenchSourceModel <: AbstractMrbenchsourceModel
 end
 PlantSimEngine.inputs_(::MRBenchSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::MRBenchSourceModel) = (X=-Inf,)
-function PlantSimEngine.run!(m::MRBenchSourceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(m::MRBenchSourceModel, status, environment, constants=nothing, context=nothing)
     m.n[] += 1
     status.X = float(m.n[])
 end
@@ -16,7 +16,7 @@ PlantSimEngine.@process "mrbenchconsumer4" verbose = false
 struct MRBenchConsumer4Model <: AbstractMrbenchconsumer4Model end
 PlantSimEngine.inputs_(::MRBenchConsumer4Model) = (X=[-Inf],)
 PlantSimEngine.outputs_(::MRBenchConsumer4Model) = (Y4=-Inf,)
-function PlantSimEngine.run!(::MRBenchConsumer4Model, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::MRBenchConsumer4Model, status, environment, constants=nothing, context=nothing)
     status.Y4 = sum(status.X)
 end
 
@@ -24,7 +24,7 @@ PlantSimEngine.@process "mrbenchconsumer24" verbose = false
 struct MRBenchConsumer24Model <: AbstractMrbenchconsumer24Model end
 PlantSimEngine.inputs_(::MRBenchConsumer24Model) = (X=[-Inf],)
 PlantSimEngine.outputs_(::MRBenchConsumer24Model) = (Y24=-Inf,)
-function PlantSimEngine.run!(::MRBenchConsumer24Model, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::MRBenchConsumer24Model, status, environment, constants=nothing, context=nothing)
     status.Y24 = sum(status.X)
 end
 
@@ -70,8 +70,8 @@ function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     )
 
     nsteps = 24 * ndays
-    meteo = [(T=20.0, Wind=1.0, Rh=0.65, duration=Hour(1)) for _ in 1:nsteps]
-    model = CompositeModel(objects...; applications=applications, environment=meteo)
+    environment = [(T=20.0, Wind=1.0, Rh=0.65, duration=Hour(1)) for _ in 1:nsteps]
+    model = CompositeModel(objects...; applications=applications, environment=environment)
 
     reqs = [
         OutputRequest(:Plant, :Y4; name=:four_hour_total, application=:four_hour_consumer),

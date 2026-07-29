@@ -19,13 +19,13 @@ gives agents the package-specific conventions they need for:
 - configuring multirate simulations with `TimeStep`, `Dates.Period` values,
   and temporal policies;
 - binding global or spatial microclimate through `Environment`;
-- reasoning about model-clock weather aggregation, `meteo_hint` reducers, and
+- reasoning about model-clock weather aggregation, `environment_hint` reducers, and
   scenario source overrides;
 - inspecting compiled scenarios with structured explanation helpers;
 - reporting supplied, generated, bound, and unresolved variables with
   `explain_initialization`;
 - accessing the live model from lifecycle-capable kernels with
-  `runtime_model(extra)`;
+  `runtime_model(context)`;
 - inspecting homogeneous runtime batches with `explain_execution_plan`;
 - collecting raw or requested model outputs with `outputs`,
   `OutputRequest`, `collect_outputs`, and `explain_output_retention`;

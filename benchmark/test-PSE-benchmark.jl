@@ -18,9 +18,9 @@ ToyInternodeCrazyEmergence(; TT_emergence=300.0) = ToyInternodeCrazyEmergence(TT
 PlantSimEngine.inputs_(m::ToyInternodeCrazyEmergence) = (TT_cu=-Inf,)
 PlantSimEngine.outputs_(m::ToyInternodeCrazyEmergence) = (TT_cu_emergence=0.0,)
 
-function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, status, environment, constants=nothing, context=nothing)
 
-    model = runtime_model(extra)
+    model = runtime_model(context)
 
     #root = get_root(status.node)
 

@@ -26,7 +26,7 @@ A model kernel is still an ordinary PlantSimEngine model:
 
 - `inputs_(model)` declares required status variables;
 - `outputs_(model)` declares variables the model computes;
-- `meteo_inputs_(model)` declares environment variables it reads;
+- `environment_inputs_(model)` declares environment variables it reads;
 - `commit_environment!(context, state)` commits accepted mutable environment
   state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
@@ -160,10 +160,10 @@ and decide when to publish the accepted state:
 ```julia
 function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
                              constants, context)
-    trial = trial_meteo(model, status)
+    trial = trial_environment(model, status)
     run_call!(context, :leaf_energy; environment=trial, publish=false)
 
-    accepted = accepted_meteo(model, status)
+    accepted = accepted_environment(model, status)
     commit_environment!(context, accepted)
     run_call!(context, :leaf_energy; publish=true)
 
@@ -273,11 +273,11 @@ The compiler binds each application/object pair to the selected backend before
 runtime. Constant weather, global tabular meteorology, grid, layer, voxel, or
 octree-style microclimate backends all use the same contract:
 
-- `meteo_inputs_(model)` says what the model reads;
-- `meteo_outputs_(model)` says what the model may commit;
-- `commit_environment!(extra, accepted_meteo)` commits accepted mutable
+- `environment_inputs_(model)` says what the model reads;
+- `environment_outputs_(model)` says what the model may commit;
+- `commit_environment!(context, accepted_environment)` commits accepted mutable
   meteorology from a controller model;
-- `run_call!(extra, name; environment=trial_state)` exposes non-committing
+- `run_call!(context, name; environment=trial_state)` exposes non-committing
   trial state while preserving every target's compiled backend handle;
 - `Environment(; sources=...)` maps model-facing names to backend names;
 - geometry and position are used by spatial backends when available;
@@ -301,7 +301,7 @@ handle. A controller that reads from one provider and commits to another should
 encode both routes in the handle, for example
 `Environment(provider=:forcing, sink=:canopy)`.
 
-Model-level `meteo_hint(...)` can provide default source bindings and
+Model-level `environment_hint(...)` can provide default source bindings and
 aggregation rules. Scenario-level `Environment(...)` keeps precedence for
 source names, while explicit sampling policy on `Inputs(...)` controls
 model-to-model temporal values.
@@ -404,7 +404,7 @@ immutable lifecycle anchors: removing or reparenting a root, or an ancestor
 whose subtree contains one, is rejected atomically. Ordinary descendants may
 still be added, removed, or reparented.
 
-Inside a lifecycle-capable model kernel, use `runtime_model(extra)` to obtain
+Inside a lifecycle-capable model kernel, use `runtime_model(context)` to obtain
 the live model. Objects created during a kernel call do not recursively execute
 inside that call. Structural targets, value carriers, call targets, writer
 validation, schedules, and output-request matches are refreshed at the next
@@ -421,7 +421,7 @@ The historical mapping runtime has been removed. Translate old code as follows:
 - `MultiScaleModel(...)` -> `Inputs(...)`;
 - `InputBindings(...)` -> selector fields inside `Inputs(...)`;
 - `MeteoBindings(...)` / `MeteoWindow(...)` -> `Environment(...)`,
-  `meteo_hint(...)`, and model/application clocks;
+  `environment_hint(...)`, and model/application clocks;
 - `TimeStepModel(...)` -> `TimeStep(...)`.
 
 See [Migrating To The CompositeModel/Object API](migration_composite_model.md) for worked

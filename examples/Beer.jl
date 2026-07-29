@@ -58,9 +58,9 @@ run!(model)
 only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 """
-function PlantSimEngine.run!(model::Beer, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context=nothing)
     status.aPPFD =
-        meteo.Ri_PAR_f *
+        environment.Ri_PAR_f *
         (1.0 - exp(-model.k * status.LAI)) *
         constants.J_to_umol
 end
@@ -104,11 +104,11 @@ model = CompositeModel(
     status=(LAI=2.0,),
     id=:leaf,
     scale=:Leaf,
-    environment=meteo,
+    environment=environment,
 )
 run!(model)
 leaf = only(model_objects(model; scale=:Leaf))
-df = DataFrame(aPPFD=leaf.status.aPPFD, LAI=leaf.status.LAI, Ri_PAR_f=meteo.Ri_PAR_f[1])
+df = DataFrame(aPPFD=leaf.status.aPPFD, LAI=leaf.status.LAI, Ri_PAR_f=environment.Ri_PAR_f[1])
 fit(Beer, df)
 ```
 """

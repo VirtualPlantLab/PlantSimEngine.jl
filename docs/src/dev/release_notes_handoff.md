@@ -31,7 +31,7 @@ Source details live in `code_cleanup_audit.md`.
 - Added `Updates(:var; after=:application)` for ordered duplicate writers.
 - Added `runtime_model(runtime)` as the sanctioned live-model accessor for
   `RunContext` and `Simulation`; kernels no longer need to inspect
-  `extra.compiled.model`.
+  `context.compiled.model`.
 - Added `explain_initialization(model)` with structured `:supplied`,
   `:generated`, `:producer_bound`, `:environment_bound`, and `:unresolved`
   dispositions.
@@ -155,7 +155,7 @@ for multi-plant model coupling.
   for objects without their own geometry. Binding explanations expose the
   geometry provenance, and moving an ancestor refreshes only descendants that
   inherit its geometry.
-- Environment binding refresh can now update changed `meteo_inputs_` metadata
+- Environment binding refresh can now update changed `environment_inputs_` metadata
   without repeating spatial indexing or cell lookup when the
   application/object/provider/geometry contract is otherwise unchanged.
 - `Environment(; sources=(CO2=:Ca,))` now remaps model-facing environment
@@ -163,11 +163,11 @@ for multi-plant model coupling.
   validates missing source variables for enumerable backends such as
   `GlobalConstant`, and explanations expose both `required_inputs` and
   `source_inputs`.
-- `validate_meteo_inputs(model)` and
-  `validate_meteo_inputs(compiled_scene, meteo_or_backend)` now validate
+- `validate_environment_inputs(model)` and
+  `validate_environment_inputs(compiled_scene, environment_or_backend)` now validate
   composite-model/object environment contracts directly. Missing-variable diagnostics use
   model application ids, and validation honors both scenario
-  `Environment(; sources=...)` remaps and model-author `meteo_hint` defaults.
+  `Environment(; sources=...)` remaps and model-author `environment_hint` defaults.
 - Object movement now invalidates environment bindings without rebuilding the
   structural object/model binding cache.
 - Adds public geometry lifecycle helpers:
@@ -206,8 +206,8 @@ for multi-plant model coupling.
   the default when the selector omits `policy=...` and resolves to a unique
   source application. Explicit selector policies override the trait.
 - CompositeModel applications now infer model-author default environment source remaps
-  from `meteo_hint(...).bindings` when the scenario does not provide explicit
-  meteo bindings. Scenario `Environment(; sources=...)` remains the override.
+  from `environment_hint(...).bindings` when the scenario does not provide explicit
+  environment bindings. Scenario `Environment(; sources=...)` remains the override.
 - CompositeModel/object runtime exposes `run_call!(...; environment=trial_state)`
   for non-committing trial meteorology and `commit_environment!` for accepted
   mutable environment
@@ -236,7 +236,7 @@ for multi-plant model coupling.
   application and object id, removing the model-wide binding scan from
   environment sampling and output scattering.
 - Adds `RunContext` and `CallTarget`; composite-model/object models can use
-  `run_call!(extra, :name)` plus `call_targets(extra, :name)` for fine-grained manual `Calls(...)`
+  `run_call!(context, :name)` plus `call_targets(context, :name)` for fine-grained manual `Calls(...)`
   execution.
 - Applications selected by `Calls(...)` are skipped by the root
   `run!(model)` loop and execute only through explicit `run_call!`, preserving
@@ -275,7 +275,7 @@ for multi-plant model coupling.
   `species` labels. Membership explanations use the current topology rather
   than a copied instance object list.
 - CompositeModel hard calls now support trial microclimate through
-  `run_call!(extra, name; environment=local_state)`, so hard-called
+  `run_call!(context, name; environment=local_state)`, so hard-called
   descendants resample the temporary environment through their normal
   environment bindings.
 - CompositeModel hard calls now default to `publish=false`. Trial calls mutate target
@@ -383,8 +383,8 @@ for multi-plant model coupling.
 - Adds `explain_execution_plan(scene_or_simulation)` and a zero-allocation
   warmed 128-leaf inner-loop regression gate.
 - Manual `Calls(...)` handles now use the public
-  vector-like `run_call!(extra, name)` execute-all API, with
-  `call_targets(extra, name)` followed by `run_call!(target)` for fine-grained control.
+  vector-like `run_call!(context, name)` execute-all API, with
+  `call_targets(context, name)` followed by `run_call!(target)` for fine-grained control.
 - Removed the unreleased intermediate authoring and runtime subsystem after
   composite-model/object feature parity was established.
 - Adds `objects_from_mtg(root; ...)` and `CompositeModel(mtg; ...)` so existing MTG
@@ -392,7 +392,7 @@ for multi-plant model coupling.
   node-derived identity, parent relations, labels, geometry, and existing
   status objects.
 - CompositeModel applications now sample global tabular meteorology at their compiled
-  `Dates.Period` clock. PlantMeteo reducers and windows from `meteo_hint` are
+  `Dates.Period` clock. PlantMeteo reducers and windows from `environment_hint` are
   honored; `Environment(; sources=...)` overrides the source while preserving
   the reducer. Prepared samplers are shared, and one sampled row is cached per
   application/timestep for all selected objects.
@@ -427,7 +427,7 @@ The completed public migration is:
 - `ScopeModel(...)` -> `AppliesTo(...)` plus selector scopes.
 - `PreviousTimeStep(...)` remains supported as a temporal/cycle-breaking
   marker in the unified object-address graph.
-- explicit per-model meteo wiring -> automatic environment resolver plus
+- explicit per-model environment wiring -> automatic environment resolver plus
   cached environment bindings.
 
 Historical mapping examples, tests, and runtime files were removed after the

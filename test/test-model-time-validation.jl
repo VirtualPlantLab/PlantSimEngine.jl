@@ -6,7 +6,7 @@ PlantSimEngine.@process "time_validation_counter" verbose = false
 struct TimeValidationCounterModel <: AbstractTime_Validation_CounterModel end
 PlantSimEngine.inputs_(::TimeValidationCounterModel) = NamedTuple()
 PlantSimEngine.outputs_(::TimeValidationCounterModel) = (count=0,)
-function PlantSimEngine.run!(::TimeValidationCounterModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::TimeValidationCounterModel, status, environment, constants, context)
     status.count += 1
 end
 
@@ -15,7 +15,7 @@ struct TimeValidationOverrideHintModel <: AbstractTime_Validation_Override_HintM
 PlantSimEngine.inputs_(::TimeValidationOverrideHintModel) = NamedTuple()
 PlantSimEngine.outputs_(::TimeValidationOverrideHintModel) = (count=0,)
 PlantSimEngine.timestep_hint(::Type{<:TimeValidationOverrideHintModel}) = Day(1)
-function PlantSimEngine.run!(::TimeValidationOverrideHintModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::TimeValidationOverrideHintModel, status, environment, constants, context)
     status.count += 1
 end
 
@@ -31,10 +31,10 @@ function time_validation_scene(environment; cadence=nothing)
 end
 
 @testset "environment duration validation" begin
-    @test_throws "Missing required `duration` in meteorology row 1" Advanced.refresh_bindings!(
+    @test_throws "Missing required `duration` in environment row 1" Advanced.refresh_bindings!(
         time_validation_scene([(T=20.0,)])
     )
-    @test_throws "meteorology row 2" Advanced.refresh_bindings!(
+    @test_throws "environment row 2" Advanced.refresh_bindings!(
         time_validation_scene([(T=20.0, duration=Hour(1)), (T=21.0,)])
     )
     @test_throws "Invalid duration" Advanced.refresh_bindings!(
@@ -46,7 +46,7 @@ end
     @test_throws "positive period" Advanced.refresh_bindings!(
         time_validation_scene([(duration=Hour(-1),)])
     )
-    @test_throws "Inconsistent `duration` in meteorology row 2" Advanced.refresh_bindings!(
+    @test_throws "Inconsistent `duration` in environment row 2" Advanced.refresh_bindings!(
         time_validation_scene([(duration=Hour(1),), (duration=Minute(30),)])
     )
     @test_throws "shorter than the simulation base step" Advanced.refresh_bindings!(

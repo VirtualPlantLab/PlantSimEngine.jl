@@ -173,8 +173,8 @@ function _model_contract(model)
         process=process(model),
         inputs=Tuple(Symbol.(keys(inputs_(model)))),
         outputs=Tuple(Symbol.(keys(outputs_(model)))),
-        meteo_inputs=Tuple(Symbol.(keys(meteo_inputs_(model)))),
-        meteo_outputs=Tuple(Symbol.(keys(meteo_outputs_(model)))),
+        environment_inputs=Tuple(Symbol.(keys(environment_inputs_(model)))),
+        environment_outputs=Tuple(Symbol.(keys(environment_outputs_(model)))),
     )
 end
 

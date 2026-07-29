@@ -58,8 +58,8 @@ else
         include("test-model-runtime-matrix.jl")
     end
 
-    @testset "Composite model meteorological sampling" begin
-        include("test-model-meteo-sampling.jl")
+    @testset "Composite model environment sampling" begin
+        include("test-model-environment-sampling.jl")
     end
 
     @testset "Composite model temporal reducers" begin
@@ -98,8 +98,8 @@ else
         include("test-updates.jl")
     end
 
-    @testset "Meteo traits" begin
-        include("test-meteo-traits.jl")
+    @testset "Environment traits" begin
+        include("test-environment-traits.jl")
     end
 
     @testset "Environment backends" begin

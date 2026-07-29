@@ -230,7 +230,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
 For a one-shot call, execute all targets directly:
 
 ```julia
-targets = run_call!(extra, :leaf_energy; publish=true)
+targets = run_call!(context, :leaf_energy; publish=true)
 ```
 
 `targets` is always vector-like regardless of whether the declaration uses
@@ -238,14 +238,14 @@ targets = run_call!(extra, :leaf_energy; publish=true)
 compiled targets without executing them:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
-                             constants, extra)
-    trial = trial_meteo(model, status)
-    run_call!(extra, :leaf_energy; environment=trial, publish=false)
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
+                             constants, context)
+    trial = trial_environment(model, status)
+    run_call!(context, :leaf_energy; environment=trial, publish=false)
 
-    accepted = accepted_meteo(model, status)
-    commit_environment!(extra, accepted)
-    run_call!(extra, :leaf_energy; publish=true)
+    accepted = accepted_environment(model, status)
+    commit_environment!(context, accepted)
+    run_call!(context, :leaf_energy; publish=true)
 
     return nothing
 end
@@ -263,6 +263,6 @@ Pass non-committing trial state with `environment=trial_state`, then call
 - [Public API](../API/API_public.md) lists constructors, selectors, lifecycle
   helpers, environment helpers, and explanation helpers.
 - [Model traits](../model_traits.md) documents `inputs_`, `outputs_`, `dep`,
-  `timespec`, `output_policy`, and `meteo_inputs_`.
+  `timespec`, `output_policy`, and `environment_inputs_`.
 - [MAESPA-style model example handoff](../dev/maespa_model_handoff.md)
   records the current multi-plant model energy-balance acceptance example.

@@ -10,7 +10,7 @@ API.
 - `@process` defines the abstract process type.
 - `process(model)` identifies the process.
 - `inputs_(model)` and `outputs_(model)` declare status variables.
-- `meteo_inputs_(model)` and `meteo_outputs_(model)` declare environment
+- `environment_inputs_(model)` and `environment_outputs_(model)` declare environment
   variables.
 - `dep(model)` optionally returns model-author defaults using `Input(...)` and
   `Call(...)`.
@@ -98,9 +98,9 @@ coupling should be explicit with `Inputs(...)`.
 Hard dependencies are parent-controlled:
 
 1. Declare them with model-level `Call(...)` or scenario-level `Calls(...)`.
-2. Execute all resolved targets with `run_call!(extra, name)`. It always
+2. Execute all resolved targets with `run_call!(context, name)`. It always
    returns a vector-like `CallTargets` collection.
-3. For selective or iterative execution, inspect `call_targets(extra, name)`
+3. For selective or iterative execution, inspect `call_targets(context, name)`
    and execute individual `CallTarget`s with `run_call!`.
 
 `run_call!` defaults to `publish=false`, which is appropriate for iterative
@@ -129,9 +129,9 @@ know its scenario timestep unless the scientific model explicitly requires it.
 - Spatial object-to-environment handles are compiled and cached.
 - `move_object!`, `update_geometry!`, or
   `mark_environment_binding_dirty!` invalidate affected bindings.
-- `run_call!(extra, name; environment=trial_state)` samples transient
+- `run_call!(context, name; environment=trial_state)` samples transient
   backend-specific state through each target's compiled handle.
-- `meteo_outputs_` declares environment variables a controller may commit, and
+- `environment_outputs_` declares environment variables a controller may commit, and
   `commit_environment!` commits only the accepted state.
 
 ## Lifecycle
@@ -189,7 +189,7 @@ not overwrite each other.
 - `src/component_models/RefVector.jl`: homogeneous reference vectors.
 - `src/time/multirate.jl`: clocks and temporal policies.
 - `src/time/runtime/clocks.jl`: Dates-based timing.
-- `src/time/runtime/meteo_sampling.jl`: weather sampling.
+- `src/time/runtime/environment_sampling.jl`: model-facing environment sampling.
 - `src/time/runtime/environment_backends.jl`: environment backend contract.
 - `test/test-unified-model-object-api.jl`: broad integration coverage.
 - `test/test-model-*.jl`: focused CompositeModel/Object behavioral contracts.

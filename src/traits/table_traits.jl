@@ -56,7 +56,7 @@ DataFormat(::Type{<:Status}) = SingletonAlike()
 
 DataFormat(::Type{<:PlantMeteo.AbstractAtmosphere}) = SingletonAlike()
 DataFormat(::Type{<:PlantMeteo.TimeStepRow}) = SingletonAlike()
-DataFormat(::Type{<:Nothing}) = SingletonAlike() # For meteo == Nothing
+DataFormat(::Type{<:Nothing}) = SingletonAlike() # For environment == Nothing
 DataFormat(T::Type{<:Any}) = error("Unknown data format: $T.\nPlease define a `DataFormat` method, e.g.: DataFormat(::Type{$T}) method.")
 DataFormat(x::T) where {T} = DataFormat(T)
 DataFormat(::Type{<:DataFrames.DataFrameRow}) = SingletonAlike()

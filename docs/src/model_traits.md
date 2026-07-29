@@ -28,7 +28,7 @@ PlantSimEngine.dep(::EnergyBalance) = (
 ```
 
 The scenario binds the dependency with `Calls(...)`. The parent executes all
-resolved targets with `run_call!(extra, :photosynthesis)`, which always returns
+resolved targets with `run_call!(context, :photosynthesis)`, which always returns
 a vector-like collection. Use `call_targets` plus `run_call!(target)` when the
 parent needs selective trials and accepted publication.
 
@@ -54,15 +54,15 @@ Unspecified outputs use `HoldLast()`. A scenario can select another clock with
 `TimeStep(...)` and another input policy in `Inputs(...)`.
 
 `timestep_hint(model)` can declare required or preferred timestep constraints.
-`meteo_hint(model)` can provide default environment sampling configuration.
+`environment_hint(model)` can provide default environment sampling configuration.
 
 ## Environment Variables
 
-Use `meteo_inputs_(model)` for variables sampled from the active environment
+Use `environment_inputs_(model)` for variables sampled from the active environment
 backend:
 
 ```julia
-PlantSimEngine.meteo_inputs_(::LeafEnergyBalance) = (
+PlantSimEngine.environment_inputs_(::LeafEnergyBalance) = (
     T=0.0,
     Rh=0.0,
     Wind=0.0,
@@ -75,14 +75,14 @@ Mutable microclimate updates should be committed explicitly by controller
 models:
 
 ```julia
-commit_environment!(extra, accepted_meteo)
+commit_environment!(context, accepted_environment)
 ```
 
 For trial solves, pass a backend-specific state with `environment` so each
 hard-called model keeps its compiled provider or spatial handle:
 
 ```julia
-run_call!(extra, :leaf_energy; environment=trial_meteo, publish=false)
+run_call!(context, :leaf_energy; environment=trial_environment, publish=false)
 ```
 
 Diagnostic variables such as canopy temperature or vapor-pressure deficit can
@@ -95,4 +95,4 @@ Scenario configuration has precedence over model defaults:
 
 1. `Inputs(...)` policy, then producer `output_policy`, then `HoldLast()`.
 2. `TimeStep(...)`, then `timespec(model)`, then the environment base step.
-3. `Environment(...)`, then `meteo_hint(model)`, then backend defaults.
+3. `Environment(...)`, then `environment_hint(model)`, then backend defaults.

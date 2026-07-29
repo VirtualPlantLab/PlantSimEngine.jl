@@ -63,7 +63,7 @@ to migrate mapping code to the newer API.
   `InputBindings`, `MeteoBindings`, `MeteoWindow`, `OutputRouting`, and
   `ScopeModel`.
 - New model traits for multi-rate inference and defaults:
-  `output_policy`, `timestep_hint`, and `meteo_hint`.
+  `output_policy`, `timestep_hint`, and `environment_hint`.
 - New export API for resampled output streams with `OutputRequest(...)` and
   `collect_outputs(...)`.
 - New debugging/introspection helpers:
@@ -257,7 +257,7 @@ For reusable models, it is now often worth defining:
 - `output_policy(::Type{<:MyModel})` to describe the natural aggregation rule
   for a produced variable,
 - `timestep_hint(::Type{<:MyModel})` to declare valid/preferred cadences,
-- `meteo_hint(::Type{<:MyModel})` to declare default weather aggregation rules.
+- `environment_hint(::Type{<:MyModel})` to declare default environment aggregation rules.
 
 This is optional, but it makes inference more useful and error messages more
 actionable.

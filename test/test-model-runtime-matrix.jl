@@ -6,9 +6,9 @@ PlantSimEngine.@process "runtime_matrix_probe" verbose = false
 struct RuntimeMatrixProbeModel <: AbstractRuntime_Matrix_ProbeModel end
 PlantSimEngine.inputs_(::RuntimeMatrixProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::RuntimeMatrixProbeModel) = (seen=0.0,)
-PlantSimEngine.meteo_inputs_(::RuntimeMatrixProbeModel) = (T=0.0,)
-function PlantSimEngine.run!(::RuntimeMatrixProbeModel, status, meteo, constants, extra)
-    status.seen = meteo.T
+PlantSimEngine.environment_inputs_(::RuntimeMatrixProbeModel) = (T=0.0,)
+function PlantSimEngine.run!(::RuntimeMatrixProbeModel, status, environment, constants, context)
+    status.seen = environment.T
 end
 
 function runtime_matrix_scene(environment)

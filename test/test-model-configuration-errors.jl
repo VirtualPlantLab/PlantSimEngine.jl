@@ -5,17 +5,17 @@ using Test
 PlantSimEngine.@process "invalid_hint_probe" verbose = false
 PlantSimEngine.@process "configuration_probe" verbose = false
 PlantSimEngine.@process "configuration_consumer" verbose = false
-struct InvalidMeteoHintProbeModel <: AbstractInvalid_Hint_ProbeModel end
+struct InvalidEnvironmentHintProbeModel <: AbstractInvalid_Hint_ProbeModel end
 struct InvalidTimestepHintProbeModel <: AbstractInvalid_Hint_ProbeModel end
 struct ConfigurationProbeModel <: AbstractConfiguration_ProbeModel end
 struct ConfigurationConsumerModel <: AbstractConfiguration_ConsumerModel end
-PlantSimEngine.inputs_(::Union{InvalidMeteoHintProbeModel,InvalidTimestepHintProbeModel}) = NamedTuple()
-PlantSimEngine.outputs_(::Union{InvalidMeteoHintProbeModel,InvalidTimestepHintProbeModel}) = (value=0.0,)
-PlantSimEngine.meteo_hint(::Type{<:InvalidMeteoHintProbeModel}) = 42
+PlantSimEngine.inputs_(::Union{InvalidEnvironmentHintProbeModel,InvalidTimestepHintProbeModel}) = NamedTuple()
+PlantSimEngine.outputs_(::Union{InvalidEnvironmentHintProbeModel,InvalidTimestepHintProbeModel}) = (value=0.0,)
+PlantSimEngine.environment_hint(::Type{<:InvalidEnvironmentHintProbeModel}) = 42
 PlantSimEngine.timestep_hint(::Type{<:InvalidTimestepHintProbeModel}) = "hourly"
 PlantSimEngine.inputs_(::ConfigurationProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ConfigurationProbeModel) = (value=0.0,)
-PlantSimEngine.meteo_inputs_(::ConfigurationProbeModel) = (T=0.0,)
+PlantSimEngine.environment_inputs_(::ConfigurationProbeModel) = (T=0.0,)
 PlantSimEngine.inputs_(::ConfigurationConsumerModel) = (value=0.0,)
 PlantSimEngine.outputs_(::ConfigurationConsumerModel) = (observed=0.0,)
 
@@ -41,8 +41,8 @@ end
         environment=(duration=Hour(1),),
     )
     @test_throws "Unsupported non-fixed period" Advanced.refresh_bindings!(monthly_scene)
-    @test_throws "Invalid meteo_hint" Advanced.refresh_bindings!(
-        invalid_hint_scene(InvalidMeteoHintProbeModel())
+    @test_throws "Invalid environment_hint" Advanced.refresh_bindings!(
+        invalid_hint_scene(InvalidEnvironmentHintProbeModel())
     )
     @test_throws "Invalid timestep_hint" Advanced.refresh_bindings!(
         invalid_hint_scene(InvalidTimestepHintProbeModel())

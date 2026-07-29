@@ -1,7 +1,7 @@
 """
     ModelSpec(model; name=nothing, applies_to=nothing, inputs=NamedTuple(),
               calls=NamedTuple(), environment=nothing, timestep=nothing,
-              meteo_bindings=NamedTuple(), meteo_window=nothing,
+              environment_bindings=NamedTuple(), environment_window=nothing,
               output_routing=NamedTuple(), updates=())
 
 Configuration for one model application in a `CompositeModel`.
@@ -20,8 +20,8 @@ struct ModelSpec{M,N,AT,IN,IO,CA,CO,EV,TS,MB,MW,OR,UP}
     call_origins::CO
     environment::EV
     timestep::TS
-    meteo_bindings::MB
-    meteo_window::MW
+    environment_bindings::MB
+    environment_window::MW
     output_routing::OR
     updates::UP
 end
@@ -88,8 +88,8 @@ function ModelSpec(
     call_origins=nothing,
     environment=nothing,
     timestep=nothing,
-    meteo_bindings=NamedTuple(),
-    meteo_window=nothing,
+    environment_bindings=NamedTuple(),
+    environment_window=nothing,
     output_routing=NamedTuple(),
     updates=()
 )
@@ -108,11 +108,11 @@ function ModelSpec(
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
                               _normalize_binding_origins(call_origins, normalized_calls)
-    normalized_meteo_bindings = _normalize_meteo_bindings(meteo_bindings)
-    normalized_meteo_window = _normalize_meteo_window(meteo_window)
+    normalized_environment_bindings = _normalize_environment_bindings(environment_bindings)
+    normalized_environment_window = _normalize_environment_window(environment_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(environment),typeof(timestep),typeof(normalized_meteo_bindings),typeof(normalized_meteo_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(environment),typeof(timestep),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
         base_model,
         normalized_name,
         applies_to,
@@ -122,8 +122,8 @@ function ModelSpec(
         normalized_call_origins,
         environment,
         timestep,
-        normalized_meteo_bindings,
-        normalized_meteo_window,
+        normalized_environment_bindings,
+        normalized_environment_window,
         normalized_output_routing,
         normalized_updates
     )
@@ -140,12 +140,12 @@ function ModelSpec(
     call_origins=spec.call_origins,
     environment=spec.environment,
     timestep=spec.timestep,
-    meteo_bindings=spec.meteo_bindings,
-    meteo_window=spec.meteo_window,
+    environment_bindings=spec.environment_bindings,
+    environment_window=spec.environment_window,
     output_routing=spec.output_routing,
     updates=spec.updates
 )
-    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, input_origins=input_origins, calls=calls, call_origins=call_origins, environment=environment, timestep=timestep, meteo_bindings=meteo_bindings, meteo_window=meteo_window, output_routing=output_routing, updates=updates)
+    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, input_origins=input_origins, calls=calls, call_origins=call_origins, environment=environment, timestep=timestep, environment_bindings=environment_bindings, environment_window=environment_window, output_routing=output_routing, updates=updates)
 end
 
 as_model_spec(spec::ModelSpec) = spec
@@ -221,20 +221,20 @@ function with_timestep(model_or_spec, timestep)
 end
 
 """
-    with_meteo_bindings(model_or_spec, bindings)
+    with_environment_bindings(model_or_spec, bindings)
 
-Return a `ModelSpec` with explicit meteo aggregation bindings.
+Return a `ModelSpec` with explicit environment aggregation bindings.
 """
-with_meteo_bindings(model_or_spec, bindings) =
-    _with_spec(model_or_spec; meteo_bindings=_normalize_meteo_bindings(bindings))
+with_environment_bindings(model_or_spec, bindings) =
+    _with_spec(model_or_spec; environment_bindings=_normalize_environment_bindings(bindings))
 
 """
-    with_meteo_window(model_or_spec, window)
+    with_environment_window(model_or_spec, window)
 
 Return a `ModelSpec` with explicit weather-window selection strategy.
 """
-with_meteo_window(model_or_spec, window) =
-    _with_spec(model_or_spec; meteo_window=_normalize_meteo_window(window))
+with_environment_window(model_or_spec, window) =
+    _with_spec(model_or_spec; environment_window=_normalize_environment_window(window))
 
 """
     with_output_routing(model_or_spec, routing)
@@ -256,7 +256,7 @@ end
 
 (updates::Updates)(model_or_spec) = with_updates(model_or_spec, updates)
 
-function _normalize_meteo_binding(binding)
+function _normalize_environment_binding(binding)
     if binding isa DataType
         binding <: PlantMeteo.AbstractTimeReducer || error(
             "Unsupported environment reducer type `$(binding)`. ",
@@ -276,19 +276,19 @@ function _normalize_meteo_binding(binding)
     )
 end
 
-function _normalize_meteo_bindings(bindings::NamedTuple)
+function _normalize_environment_bindings(bindings::NamedTuple)
     normalized = Pair{Symbol,Any}[]
     for (k, v) in pairs(bindings)
-        push!(normalized, k => _normalize_meteo_binding(v))
+        push!(normalized, k => _normalize_environment_binding(v))
     end
     return (; normalized...)
 end
 
-function _normalize_meteo_bindings(bindings)
+function _normalize_environment_bindings(bindings)
     error("Unsupported environment bindings `$(bindings)` of type `$(typeof(bindings))`.")
 end
 
-function _normalize_meteo_window(window)
+function _normalize_environment_window(window)
     if isnothing(window)
         return nothing
     elseif window isa DataType
@@ -415,8 +415,8 @@ function dep(spec::ModelSpec)
     end
     return (; kept...)
 end
-meteo_inputs_(m::ModelSpec) = meteo_inputs_(model_(m))
-meteo_outputs_(m::ModelSpec) = meteo_outputs_(model_(m))
+environment_inputs_(m::ModelSpec) = environment_inputs_(model_(m))
+environment_outputs_(m::ModelSpec) = environment_outputs_(model_(m))
 
 function run!(m::ModelSpec, status, environment, constants=nothing, context=nothing)
     return run!(model_(m), status, environment, constants, context)

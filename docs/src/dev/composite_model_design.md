@@ -340,7 +340,7 @@ automatic differentiation, and error propagation depend on preserving user
 value types and avoiding hidden copies.
 
 PlantSimEngine should not force `Float64` internally. Status values,
-parameters, meteo values, and outputs must be allowed to use units, dual
+parameters, environment values, and outputs must be allowed to use units, dual
 numbers, uncertainty wrappers, tracked arrays, or other numeric-like types.
 Compiled carriers should be parametric and type stable whenever the object set
 and value type are known at initialization.
@@ -532,7 +532,7 @@ Meteorology should remain automatic unless a model or scenario needs special
 behavior. Models declare environment variables:
 
 ```julia
-meteo_inputs_(::LeafEnergyModel) = (
+environment_inputs_(::LeafEnergyModel) = (
     T=0.0,
     Rh=0.0,
     Wind=0.0,
@@ -545,11 +545,11 @@ The runtime resolves those variables through the model environment service.
 
 Default resolution:
 
-1. A global/table meteo backend gives every object the current meteo row.
+1. A global/table environment backend gives every object the current sampled row.
 2. A voxel, octree, layered, or grid backend samples the cell bound to the
    object.
 3. If the object has no position, use the parent position.
-4. If no spatial binding can be made, fall back to global meteo or error when
+4. If no spatial binding can be made, fall back to the global environment or error when
    the environment variable is required.
 
 Users can override the binding contract:
@@ -574,11 +574,11 @@ commit_environment!(backend, handle, accepted_state, time)
 update_index!(backend, entities)
 ```
 
-`meteo_inputs_(model)` declares what a model reads from the active environment
-provider, while `meteo_outputs_(model)` declares what it may commit. Controllers
+`environment_inputs_(model)` declares what a model reads from the active environment
+provider, while `environment_outputs_(model)` declares what it may commit. Controllers
 commit accepted mutable microclimate state with
-`commit_environment!(extra, accepted_state)` and run trial descendants with
-`run_call!(extra, name; environment=trial_state)`. Simple global meteorology
+`commit_environment!(context, accepted_state)` and run trial descendants with
+`run_call!(context, name; environment=trial_state)`. Simple global meteorology
 remains the default provider.
 
 Scenario-level environment source remapping belongs on `Environment(...)`, for
@@ -590,7 +590,7 @@ ModelSpec(LeafGasExchange(); name=:gas_exchange) |>
     Environment(provider=:global, sources=(CO2=:Ca,))
 ```
 
-Here the model still reads `meteo.CO2` because that is its declared generic
+Here the model reads `environment.CO2` because that is its declared generic
 contract, while the active environment backend samples the source variable
 `:Ca`. Environment binding refresh validates source availability when the
 backend can enumerate variables, and explanations report both
@@ -598,7 +598,7 @@ backend can enumerate variables, and explanations report both
 
 Global tabular meteorology follows the model application's compiled
 `TimeStep(...)`. PlantMeteo samples the table with the reducer and window from
-`meteo_hint(...)` when the model runs more slowly than the weather base step.
+`environment_hint(...)` when the model runs more slowly than the weather base step.
 An `Environment(; sources=...)` override replaces only the source variable; it
 does not discard the model-author reducer. The prepared weather sampler is
 compiled once, and one sampled row is reused by every object targeted by the

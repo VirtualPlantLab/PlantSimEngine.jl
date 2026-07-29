@@ -33,14 +33,14 @@ accepting a timestep. A canopy energy-balance model, for example, may need to:
 Pass non-committing trial state through `run_call!`:
 
 ```julia
-run_call!(extra, :leaf_energy; environment=trial_meteo, publish=false)
+run_call!(context, :leaf_energy; environment=trial_environment, publish=false)
 ```
 
 Then commit the accepted state through the model-facing environment API:
 
 ```julia
-commit_environment!(extra, accepted_meteo)
-run_call!(extra, :leaf_energy; publish=true)
+commit_environment!(context, accepted_environment)
+run_call!(context, :leaf_energy; publish=true)
 ```
 
 The transient state is interpreted by each target backend through its opaque

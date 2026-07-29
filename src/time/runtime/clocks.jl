@@ -8,8 +8,8 @@ _time_from_step(i, ::TimelineContext) = float(i)
 timestep_hint(model::AbstractModel) = timestep_hint(typeof(model))
 timestep_hint(::Type{<:AbstractModel}) = nothing
 
-meteo_hint(model::AbstractModel) = meteo_hint(typeof(model))
-meteo_hint(::Type{<:AbstractModel}) = nothing
+environment_hint(model::AbstractModel) = environment_hint(typeof(model))
+environment_hint(::Type{<:AbstractModel}) = nothing
 
 struct _ResolvedTimeStepHint
     fixed::Union{Nothing,Dates.FixedPeriod}
@@ -69,17 +69,17 @@ function _normalize_timestep_hint(scale::Symbol, process::Symbol, hint)
     error("Invalid timestep_hint for $(scale)/$(process).")
 end
 
-function _normalize_meteo_hint(scale::Symbol, process::Symbol, hint)
+function _normalize_environment_hint(scale::Symbol, process::Symbol, hint)
     isnothing(hint) && return (bindings=nothing, window=nothing)
     hint isa NamedTuple || error(
-        "Invalid meteo_hint for $(scale)/$(process): expected a NamedTuple."
+        "Invalid environment_hint for $(scale)/$(process): expected a NamedTuple."
     )
     all(key -> key in (:bindings, :window), keys(hint)) || error(
-        "Invalid meteo_hint fields for $(scale)/$(process)."
+        "Invalid environment_hint fields for $(scale)/$(process)."
     )
     bindings =
-        haskey(hint, :bindings) ? _normalize_meteo_bindings(hint.bindings) : nothing
-    window = haskey(hint, :window) ? _normalize_meteo_window(hint.window) : nothing
+        haskey(hint, :bindings) ? _normalize_environment_bindings(hint.bindings) : nothing
+    window = haskey(hint, :window) ? _normalize_environment_window(hint.window) : nothing
     return (bindings=bindings, window=window)
 end
 
@@ -122,16 +122,16 @@ function _timestep_to_step_count(period::Dates.Period, timeline::TimelineContext
     return steps
 end
 
-function _first_table_row(table; context::String="meteorology")
+function _first_table_row(table; context::String="environment")
     state = iterate(Tables.rows(table))
     isnothing(state) && error("Cannot infer a timestep from an empty $(context) table.")
     return state[1]
 end
 
-function _base_step_seconds_from_meteo_row(
+function _base_step_seconds_from_environment_row(
     row;
     require_duration::Bool=false,
-    context::String="meteorology",
+    context::String="environment",
 )
     if hasproperty(row, :duration)
         duration = getproperty(row, :duration)
@@ -144,46 +144,46 @@ function _base_step_seconds_from_meteo_row(
     return 1.0
 end
 
-function _validate_meteo_duration(meteo)
-    isnothing(meteo) && return nothing
-    if meteo isa Atmosphere
-        _base_step_seconds_from_meteo_row(meteo; require_duration=true)
-    elseif meteo isa TimeStepTable || DataFormat(meteo) == TableAlike()
+function _validate_environment_duration(environment)
+    isnothing(environment) && return nothing
+    if environment isa Atmosphere
+        _base_step_seconds_from_environment_row(environment; require_duration=true)
+    elseif environment isa TimeStepTable || DataFormat(environment) == TableAlike()
         base_seconds = nothing
-        for (i, row) in enumerate(Tables.rows(meteo))
-            seconds = _base_step_seconds_from_meteo_row(
+        for (i, row) in enumerate(Tables.rows(environment))
+            seconds = _base_step_seconds_from_environment_row(
                 row;
                 require_duration=true,
-                context="meteorology row $(i)",
+                context="environment row $(i)",
             )
             if isnothing(base_seconds)
                 base_seconds = seconds
             elseif !isapprox(seconds, base_seconds; atol=1.0e-9, rtol=0.0)
                 error(
-                    "Inconsistent `duration` in meteorology row $(i): ",
+                    "Inconsistent `duration` in environment row $(i): ",
                     "$(seconds) seconds does not match the base step ",
                     "$(base_seconds) seconds from row 1. Composite model scheduling ",
                     "requires a fixed environment base step."
                 )
             end
         end
-    elseif DataFormat(meteo) == SingletonAlike() && hasproperty(meteo, :duration)
-        _base_step_seconds_from_meteo_row(meteo; require_duration=true)
+    elseif DataFormat(environment) == SingletonAlike() && hasproperty(environment, :duration)
+        _base_step_seconds_from_environment_row(environment; require_duration=true)
     end
     return nothing
 end
 
-function _timeline_context(meteo)
-    if meteo isa TimeStepTable || (!isnothing(meteo) && DataFormat(meteo) == TableAlike())
-        row = _first_table_row(meteo)
+function _timeline_context(environment)
+    if environment isa TimeStepTable || (!isnothing(environment) && DataFormat(environment) == TableAlike())
+        row = _first_table_row(environment)
         return TimelineContext(
-            _base_step_seconds_from_meteo_row(row; require_duration=true)
+            _base_step_seconds_from_environment_row(row; require_duration=true)
         )
-    elseif meteo isa Atmosphere ||
-           (!isnothing(meteo) && DataFormat(meteo) == SingletonAlike() &&
-            hasproperty(meteo, :duration))
+    elseif environment isa Atmosphere ||
+           (!isnothing(environment) && DataFormat(environment) == SingletonAlike() &&
+            hasproperty(environment, :duration))
         return TimelineContext(
-            _base_step_seconds_from_meteo_row(meteo; require_duration=true)
+            _base_step_seconds_from_environment_row(environment; require_duration=true)
         )
     end
     return TimelineContext(1.0)
@@ -207,11 +207,11 @@ end
 
 function _runtime_clock_source_for_spec(spec::ModelSpec)
     !isnothing(timestep(spec)) && return :modelspec
-    return _is_default_clock(timespec(model_(spec))) ? :meteo_base_step :
+    return _is_default_clock(timespec(model_(spec))) ? :environment_base_step :
            :model_timespec
 end
 
-function _resolve_meteo_hint_clock(
+function _resolve_environment_hint_clock(
     scale::Symbol,
     process::Symbol,
     model,
@@ -223,11 +223,11 @@ function _resolve_meteo_hint_clock(
     if !isnothing(hint.fixed)
         required = _seconds_from_period(hint.fixed)
         isapprox(required, base_seconds; atol=1.0e-9, rtol=0.0) ||
-            (reason = "Meteorology base step is outside `timestep_hint.required=$(hint.fixed)` for `$(scale)/$(process)`.")
+            (reason = "Environment base step is outside `timestep_hint.required=$(hint.fixed)` for `$(scale)/$(process)`.")
     elseif !isnothing(hint.range)
         lower, upper = _seconds_from_period.(hint.range)
         lower <= base_seconds <= upper ||
-            (reason = "Meteorology base step is outside `timestep_hint.required=$(hint.range)` for `$(scale)/$(process)`.")
+            (reason = "Environment base step is outside `timestep_hint.required=$(hint.range)` for `$(scale)/$(process)`.")
     end
     return ClockSpec(1.0, 0.0), reason
 end

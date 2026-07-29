@@ -2,9 +2,9 @@
 
 Declare parent-owned execution with `Calls(:name => One(...))` or
 `Calls(:name => Many(...))`. In the kernel, execute every resolved target with
-`run_call!(extra, :name)`. The returned `CallTargets` collection is always
+`run_call!(context, :name)`. The returned `CallTargets` collection is always
 vector-like, including for `One` and `OptionalOne`. Use
-`call_targets(extra, :name)` followed by `run_call!(target)` for selective,
+`call_targets(context, :name)` followed by `run_call!(target)` for selective,
 per-target, or iterative execution. A target used only by calls is absent from
 root scheduling.
 

@@ -53,15 +53,16 @@ and cache controls are intentionally listed separately under
 
 - Model identity: `AbstractModel`, `@process`, `process`.
 - State: `Status`, `init_variables`, `dep`.
-- Model IO: `inputs`, `outputs`, `variables`, `meteo_inputs`, `meteo_inputs_`,
-  `validate_meteo_inputs`.
+- Model IO: `inputs`, `outputs`, `variables`, `environment_inputs`,
+  `environment_inputs_`, `environment_outputs`, `environment_outputs_`,
+  `validate_environment_inputs`.
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
-  `meteo_hint`, `meteo_bindings`, `meteo_window`.
+  `environment_hint`, `environment_bindings`, `environment_window`.
 
-The underscore declarations `inputs_`, `outputs_`, and `meteo_inputs_` are
-extension functions model authors implement with qualified
-definitions such as `PlantSimEngine.inputs_(model) = ...`. `inputs_` and
-`outputs_` remain intentionally unexported to avoid collisions with common
+The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`, and
+`environment_outputs_` are extension functions model authors implement with
+qualified definitions such as `PlantSimEngine.inputs_(model) = ...`. `inputs_`
+and `outputs_` remain intentionally unexported to avoid collisions with common
 user functions.
 
 ## Time and reducers

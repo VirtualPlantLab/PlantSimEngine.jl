@@ -28,31 +28,31 @@ struct ParityReceiverModel <: AbstractParity_ReceiverModel end
 
 PlantSimEngine.inputs_(::ParityForcingModel) = NamedTuple()
 PlantSimEngine.outputs_(::ParityForcingModel) = (var1=0.0,)
-PlantSimEngine.meteo_inputs_(::ParityForcingModel) = (forcing=0.0,)
-function PlantSimEngine.run!(::ParityForcingModel, status, meteo, constants, extra)
-    status.var1 = meteo.forcing
+PlantSimEngine.environment_inputs_(::ParityForcingModel) = (forcing=0.0,)
+function PlantSimEngine.run!(::ParityForcingModel, status, environment, constants, context)
+    status.var1 = environment.forcing
     return nothing
 end
 
 PlantSimEngine.inputs_(::ParityStageOneModel) = (var1=0.0, var2=0.0)
 PlantSimEngine.outputs_(::ParityStageOneModel) = (var3=0.0,)
-function PlantSimEngine.run!(model::ParityStageOneModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(model::ParityStageOneModel, status, environment, constants, context)
     status.var3 = model.a + status.var1 * status.var2
     return nothing
 end
 
 PlantSimEngine.inputs_(::ParityStageTwoModel) = (var3=0.0,)
 PlantSimEngine.outputs_(::ParityStageTwoModel) = (raw_var4=0.0, var5=0.0)
-PlantSimEngine.meteo_inputs_(::ParityStageTwoModel) = (T=0.0, Wind=0.0, Rh=0.0)
-function PlantSimEngine.run!(::ParityStageTwoModel, status, meteo, constants, extra)
+PlantSimEngine.environment_inputs_(::ParityStageTwoModel) = (T=0.0, Wind=0.0, Rh=0.0)
+function PlantSimEngine.run!(::ParityStageTwoModel, status, environment, constants, context)
     status.raw_var4 = status.var3 * 2
-    status.var5 = status.raw_var4 + meteo.T + 2 * meteo.Wind + 3 * meteo.Rh
+    status.var5 = status.raw_var4 + environment.T + 2 * environment.Wind + 3 * environment.Rh
     return nothing
 end
 
 PlantSimEngine.inputs_(::ParityStageThreeModel) = (raw_var4=0.0, var5=0.0)
 PlantSimEngine.outputs_(::ParityStageThreeModel) = (var4=0.0, var6=0.0)
-function PlantSimEngine.run!(::ParityStageThreeModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ParityStageThreeModel, status, environment, constants, context)
     status.var4 = status.raw_var4 * 2
     status.var6 = status.var5 + status.var4
     return nothing
@@ -60,26 +60,26 @@ end
 
 PlantSimEngine.inputs_(::ParityStageFiveModel) = (var5=0.0, var6=0.0)
 PlantSimEngine.outputs_(::ParityStageFiveModel) = (var7=0.0,)
-function PlantSimEngine.run!(::ParityStageFiveModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ParityStageFiveModel, status, environment, constants, context)
     status.var7 = status.var5 * status.var6
 end
 PlantSimEngine.inputs_(::ParityStageSixModel) = (var7=0.0,)
 PlantSimEngine.outputs_(::ParityStageSixModel) = (var8=0.0,)
-function PlantSimEngine.run!(::ParityStageSixModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ParityStageSixModel, status, environment, constants, context)
     status.var8 = status.var7 + 1
 end
 PlantSimEngine.inputs_(::ParitySoilModel) = NamedTuple()
 PlantSimEngine.outputs_(::ParitySoilModel) = (soil_value=1.0,)
-PlantSimEngine.run!(::ParitySoilModel, status, meteo, constants, extra) = nothing
+PlantSimEngine.run!(::ParitySoilModel, status, environment, constants, context) = nothing
 PlantSimEngine.inputs_(::ParityGatherModel) = (leaf_values=[0.0], soil_value=0.0)
 PlantSimEngine.outputs_(::ParityGatherModel) = (gathered=0.0, scattered=0.0)
-function PlantSimEngine.run!(::ParityGatherModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ParityGatherModel, status, environment, constants, context)
     status.gathered = sum(status.leaf_values) + status.soil_value
     status.scattered = first(status.leaf_values)
 end
 PlantSimEngine.inputs_(::ParityReceiverModel) = (shared=0.0,)
 PlantSimEngine.outputs_(::ParityReceiverModel) = (received=0.0,)
-function PlantSimEngine.run!(::ParityReceiverModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ParityReceiverModel, status, environment, constants, context)
     status.received = status.shared
 end
 

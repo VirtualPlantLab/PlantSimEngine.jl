@@ -528,8 +528,8 @@ function _model_graph_application_dict(composite_model, application)
     spec = application.spec
     inputs = inputs_(application.spec)
     outputs = outputs_(application.spec)
-    environment_inputs = meteo_inputs_(application.spec)
-    environment_outputs = meteo_outputs_(application.spec)
+    environment_inputs = environment_inputs_(application.spec)
+    environment_outputs = environment_outputs_(application.spec)
     target_objects = [_model_object(composite_model, id) for id in application.target_ids]
     environment = environment_config(spec)
     environment_payload = environment isa EnvironmentConfig ? environment.config : environment
@@ -569,8 +569,8 @@ function _model_graph_application_dict(composite_model, application)
             for (name, selector) in pairs(model_calls(spec))
         ),
         "environment" => _model_graph_json_value(environment_payload),
-        "meteoBindings" => _model_graph_json_value(meteo_bindings(spec)),
-        "meteoWindow" => _model_graph_json_value(meteo_window(spec)),
+        "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
+        "environmentWindow" => _model_graph_json_value(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
         "updates" => [
             Dict(
@@ -831,8 +831,8 @@ function _model_graph_environment_edges(report, level)
     end
     if isempty(environment_bindings)
         for application in report.applications
-            required_inputs = Symbol.(keys(meteo_inputs_(application.spec)))
-            produced_outputs = Symbol.(keys(meteo_outputs_(application.spec)))
+            required_inputs = Symbol.(keys(environment_inputs_(application.spec)))
+            produced_outputs = Symbol.(keys(environment_outputs_(application.spec)))
             isempty(required_inputs) && isempty(produced_outputs) && continue
             source_inputs = _environment_source_variable_names(application.spec)
             config = environment_config(application.spec)
@@ -986,8 +986,8 @@ function _model_graph_initialization(report)
     for application in report.applications
         model_inputs = inputs_(application.spec)
         model_outputs = outputs_(application.spec)
-        model_environment_inputs = meteo_inputs_(application.spec)
-        model_environment_outputs = meteo_outputs_(application.spec)
+        model_environment_inputs = environment_inputs_(application.spec)
+        model_environment_outputs = environment_outputs_(application.spec)
         source_overrides = _environment_source_overrides(application.spec)
         for object_id in application.target_ids
             object = _model_object(report.model, object_id)

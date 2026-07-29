@@ -29,6 +29,6 @@ PlantSimEngine.inputs_(::ToyLightPartitioningModel) = (aPPFD_larger_scale=-Inf, 
 # Define outputs:
 PlantSimEngine.outputs_(::ToyLightPartitioningModel) = (aPPFD=-Inf,)
 
-function PlantSimEngine.run!(::ToyLightPartitioningModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::ToyLightPartitioningModel, status, environment, constants, context)
     status.aPPFD = status.aPPFD_larger_scale * status.surface / status.total_surface
 end

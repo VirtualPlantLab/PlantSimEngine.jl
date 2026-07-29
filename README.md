@@ -16,8 +16,8 @@ A modeler writes generic kernels with:
 
 - `inputs_`
 - `outputs_`
-- optional `dep`, `timespec`, `output_policy`, `meteo_inputs_`, and
-  `meteo_outputs_` traits
+- optional `dep`, `timespec`, `output_policy`, `environment_inputs_`, and
+  `environment_outputs_` traits
 - `run!(model, status, environment, constants, context)`
 
 A simulation author assembles those kernels on objects in a model with:
@@ -160,9 +160,9 @@ producer or callee with `application=...`. Use process identities in model-level
 contracts such as `dep(model)`, where the model author cannot know the
 application names chosen by future scenarios.
 
-Inside the parent model, `run_call!(extra, :leaf_energy)` executes every target
+Inside the parent model, `run_call!(context, :leaf_energy)` executes every target
 and returns a vector-like collection. For iterative control,
-`call_targets(extra, :leaf_energy)` returns the collection without executing
+`call_targets(context, :leaf_energy)` returns the collection without executing
 it. `run_call!(target; publish=false)` is the default for trial iterations, and
 `run_call!(target; publish=true)` publishes the accepted state.
 
@@ -175,7 +175,7 @@ it. `run_call!(target; publish=false)` is the default for trial iterations, and
 - temporal policies such as `HoldLast`, `Interpolate`, `Integrate`, and
   `Aggregate`;
 - automatic global or spatial environment binding;
-- mutable microclimate outputs through `meteo_outputs_`;
+- mutable microclimate outputs through `environment_outputs_`;
 - growth, pruning, reparenting, and movement with binding-cache refresh;
 - structured explanations for users and agents.
 

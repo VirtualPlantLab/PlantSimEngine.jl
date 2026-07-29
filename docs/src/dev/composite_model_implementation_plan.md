@@ -138,7 +138,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `Advanced.compiled_environment_bindings`, `Advanced.environment_revision`, and
   `explain_environment_bindings`. The compiler resolves each
   application/object environment provider, backend, required
-  `meteo_inputs_`, support descriptor, and backend cell before runtime.
+  `environment_inputs_`, support descriptor, and backend cell before runtime.
 - Added the minimal model geometry contract: `geometry(object_or_status)`,
   `position(object_or_status)`, and `bounds(object_or_status)`. Environment
   binding refreshes now call `update_index!(backend, entities)` once per
@@ -153,13 +153,13 @@ types should be selectors, model traits, or internal compiled carriers.
   inherit its geometry, stopping at descendants with their own geometry. This
   preserves unaffected cached bindings.
 - Environment refresh now reconciles model environment contracts against
-  cached spatial bindings. If only `meteo_inputs_` changes while application
+  cached spatial bindings. If only `environment_inputs_` changes while application
   id, object, process, provider, backend, status, and geometry provenance remain
   unchanged, required metadata is updated while the cached cell is reused
   without `update_index!` or `Advanced.bind_environment`.
-- `validate_meteo_inputs(model)` and
-  `validate_meteo_inputs(compiled_scene, meteo_or_backend)` now validate
-  composite-model/object model application `meteo_inputs_` against the active
+- `validate_environment_inputs(model)` and
+  `validate_environment_inputs(compiled_scene, environment_or_backend)` now validate
+  composite-model/object model application `environment_inputs_` against the active
   environment or an explicit replacement. Errors report model application ids,
   so duplicate process applications remain diagnosable.
 - `Environment(; sources=(target=:source,))` now remaps model-facing
@@ -168,11 +168,11 @@ types should be selectors, model traits, or internal compiled carriers.
   variables, and `explain_environment_bindings` reports both `required_inputs`
   and `source_inputs`.
 - CompositeModel applications now infer model-author default environment source remaps
-  from `meteo_hint(...).bindings` when the scenario does not provide explicit
-  meteo bindings. Scenario `Environment(; sources=...)` keeps precedence over
+  from `environment_hint(...).bindings` when the scenario does not provide explicit
+  environment bindings. Scenario `Environment(; sources=...)` keeps precedence over
   the trait.
 - Global tabular meteorology is now sampled at each model application's
-  compiled clock. `meteo_hint(...).bindings` reducers and windows are applied
+  compiled clock. `environment_hint(...).bindings` reducers and windows are applied
   through PlantMeteo, while `Environment(; sources=...)` replaces only the
   source variable and preserves the selected reducer. Prepared weather
   samplers are shared by applications using the same weather table, and each
@@ -215,9 +215,9 @@ types should be selectors, model traits, or internal compiled carriers.
   edge. This allows feedback cycles to compile without changing generic model
   kernels.
 - CompositeModel/object execution now exposes explicit mutable environment
-  commits through `commit_environment!(extra, accepted_state)` and
+  commits through `commit_environment!(context, accepted_state)` and
   non-committing trial sampling through
-  `run_call!(extra, name; environment=trial_state)`.
+  `run_call!(context, name; environment=trial_state)`.
   Meteorological state stays in the environment backend instead of being staged
   through same-named status values.
 - Added root application scheduling from `TimeStep(...)` using `Dates.Period`
@@ -249,7 +249,7 @@ types should be selectors, model traits, or internal compiled carriers.
   output scattering use direct lookup instead of scanning all environment
   bindings for every model invocation.
 - Added `RunContext` and `CallTarget`. Models can retrieve manual
-  `Calls(...)` targets with `call_targets(extra, :name)` and execute
+  `Calls(...)` targets with `call_targets(context, :name)` and execute
   them with `run_call!`, preserving explicit call-stack control in the
   composite-model/object runtime. Manual calls execute immediately under the parent call
   stack; applications selected by `Calls(...)` are skipped by the root
@@ -331,7 +331,7 @@ types should be selectors, model traits, or internal compiled carriers.
   from the current topology, so growth, pruning, and reparenting do not leave a
   separate stale membership list.
 - CompositeModel hard calls can run under temporary local meteorology with
-  `run_call!(extra, name; environment=local_state)`. Descendants sample the
+  `run_call!(context, name; environment=local_state)`. Descendants sample the
   temporary state through normal environment bindings, while `publish=false`
   suppresses output publication and environment commits. This supports
   iterative microclimate solvers such as the MAESPA model energy-balance loop.
@@ -457,7 +457,7 @@ Define:
 Rules:
 
 - a model kernel remains generic and declares `inputs_`, `outputs_`, optional
-  `dep`, optional `meteo_inputs_`, and `run!`;
+  `dep`, optional `environment_inputs_`, and `run!`;
 - a model application decides where the kernel runs, at what rate, and how its
   inputs, calls, updates, outputs, and environment are bound;
 - application ids are stable and can be generated from explicit `name`,
@@ -800,14 +800,14 @@ Acceptance tests:
 
 ## Phase 6: Environment Binding Cache
 
-Goal: make meteo/microclimate automatic and fast.
+Goal: make environment and microclimate sampling automatic and fast.
 
 Implement:
 
 - `EnvironmentBinding` cache:
   object id, backend/provider id, cell/layer id, required variables.
 - default environment resolver:
-  global meteo for non-spatial backends;
+  global environment data for non-spatial backends;
   object position for spatial backends;
   parent position fallback;
   global fallback or validation error.
@@ -830,7 +830,7 @@ Implement:
 Runtime rule:
 
 ```text
-object -> cached binding -> backend cell/layer -> current meteo values
+object -> cached binding -> backend cell/layer -> current environment values
 ```
 
 Spatial lookup must happen only during binding refresh, not inside every model
@@ -838,14 +838,14 @@ call.
 
 Acceptance tests:
 
-- global meteo gives the same values to all objects;
-- missing global meteo variables fail during environment binding refresh when
+- global environment data gives the same values to all objects;
+- missing global environment variables fail during environment binding refresh when
   the backend can enumerate variables;
 - `Environment(; sources=...)` remaps backend variables to model-facing
-  `meteo_inputs_` names and is visible in explanations;
+  `environment_inputs_` names and is visible in explanations;
 - a model running every two hours over hourly global meteorology receives a
   windowed weather sample rather than only the current raw row;
-- model `meteo_hint` reducers/windows are honored, and an
+- model `environment_hint` reducers/windows are honored, and an
   `Environment(; sources=...)` override changes the source without discarding
   the reducer;
 - all objects targeted by one application reuse one global weather sample per
@@ -853,9 +853,9 @@ Acceptance tests:
 - mock grid backend binds leaves to cells once at initialization;
 - moving one leaf marks only that leaf binding dirty and refreshes it before
   the next timestep;
-- model `meteo_inputs_` changes update required variables without recomputing
+- model `environment_inputs_` changes update required variables without recomputing
   spatial links unless necessary.
-- `commit_environment!(extra, accepted_state)` commits mutable microclimate
+- `commit_environment!(context, accepted_state)` commits mutable microclimate
   state back to the active backend.
 
 ## Phase 7: Compiler, Scheduler, And Explanation Cleanup
@@ -916,7 +916,7 @@ Write migration notes:
 - cross-object value declarations -> consumer `Inputs(...)`;
 - manual dependency declarations -> `Calls(...)`;
 - repeated species assemblies -> `CompositeModelTemplate` plus `ObjectInstance`;
-- explicit meteo wiring -> environment resolver/binding backend.
+- explicit environment wiring -> environment resolver/binding backend.
 - `InputBindings(...)` -> source and temporal policy information inside
   `Inputs(...)`;
 - `MeteoBindings(...)` and `MeteoWindow(...)` -> `Environment(...)` and
@@ -997,13 +997,13 @@ Current removal audit:
   and a dedicated composite-model/object quickstart is now available in the main
   documentation navigation.
 - CompositeModel/object tests cover scheduling, temporal policies, binding inference
-  and overrides, meteo contracts and aggregation, output routing and
+  and overrides, environment contracts and aggregation, output routing and
   application-qualified export, and structured explanations. Legacy mapping
   regression tests were removed with the old runtime.
-- CompositeModel/object tests now include public meteo-contract validation parity for
+- CompositeModel/object tests now include public environment-contract validation parity for
   missing environment variables, explicit `Environment(; sources=...)`
-  remapping, model-author `meteo_hint` source defaults, and validation against
-  an explicit replacement meteo object/backend.
+  remapping, model-author `environment_hint` source defaults, and validation against
+  an explicit replacement environment object/backend.
 - Test code uses the canonical `TimeStep(...)` spelling and composite-model/object
   modifiers. Legacy transform tests were removed with the old compatibility
   constructors.

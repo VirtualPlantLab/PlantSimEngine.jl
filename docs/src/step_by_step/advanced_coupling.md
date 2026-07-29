@@ -135,16 +135,21 @@ For new composite-model/object models, execute all targets directly when they
 share meteorology and publication policy:
 
 ```julia
-targets = run_call!(extra, :leaf_energy; publish=true)
+targets = run_call!(context, :leaf_energy; publish=true)
 ```
 
 The result is always vector-like. Retrieve targets without executing them when
-an algorithm needs selective execution or direct per-target meteorology:
+an algorithm needs selective execution or an already sampled environment for
+each target:
 
 ```julia
-targets = call_targets(extra, :leaf_energy)
-for (target, leaf_meteo) in zip(targets, meteorology_by_leaf)
-    run_call!(target; meteo=leaf_meteo, publish=false)
+targets = call_targets(context, :leaf_energy)
+for (target, leaf_environment) in zip(targets, environments_by_leaf)
+    run_call!(
+        target;
+        sampled_environment=leaf_environment,
+        publish=false,
+    )
 end
 ```
 
@@ -152,14 +157,14 @@ For a provider-aware trial state shared by the call, keep the execute-all form.
 Each target still samples through its own compiled handle:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
-                             constants, extra)
-    trial = trial_meteo(model, status)
-    run_call!(extra, :leaf_energy; environment=trial, publish=false)
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
+                             constants, context)
+    trial = trial_environment(model, status)
+    run_call!(context, :leaf_energy; environment=trial, publish=false)
 
-    accepted = accepted_meteo(model, status)
-    commit_environment!(extra, accepted)
-    run_call!(extra, :leaf_energy; publish=true)
+    accepted = accepted_environment(model, status)
+    commit_environment!(context, accepted)
+    run_call!(context, :leaf_energy; publish=true)
 
     return nothing
 end

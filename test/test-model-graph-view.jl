@@ -33,8 +33,8 @@ PlantSimEngine.outputs_(::ModelGraphCycleBModel) = (y=-Inf,)
 struct ModelGraphEnvironmentModel <: AbstractModelGraphEnvironmentModel end
 PlantSimEngine.inputs_(::ModelGraphEnvironmentModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelGraphEnvironmentModel) = (result=-Inf,)
-PlantSimEngine.meteo_inputs_(::ModelGraphEnvironmentModel) = (T=-Inf,)
-PlantSimEngine.meteo_outputs_(::ModelGraphEnvironmentModel) = (leaf_temperature=-Inf,)
+PlantSimEngine.environment_inputs_(::ModelGraphEnvironmentModel) = (T=-Inf,)
+PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temperature=-Inf,)
 
 @testset "CompositeModel graph discovery" begin
     @test AbstractModelGraphSourceModel in available_processes()

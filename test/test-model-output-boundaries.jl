@@ -6,7 +6,7 @@ PlantSimEngine.@process "boundary_counter" verbose = false
 struct BoundaryCounterModel <: AbstractBoundary_CounterModel end
 PlantSimEngine.inputs_(::BoundaryCounterModel) = NamedTuple()
 PlantSimEngine.outputs_(::BoundaryCounterModel) = (count=0, ignored=0)
-function PlantSimEngine.run!(::BoundaryCounterModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::BoundaryCounterModel, status, environment, constants, context)
     status.count += 1
     status.ignored += 10
 end
@@ -22,9 +22,9 @@ PlantSimEngine.outputs_(::BoundaryManualCounterModel) = (count=0,)
 function PlantSimEngine.run!(
     ::BoundaryManualCounterModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.count += 1
 end
@@ -34,12 +34,12 @@ PlantSimEngine.outputs_(::BoundaryManualControllerModel) = (step=0,)
 function PlantSimEngine.run!(
     ::BoundaryManualControllerModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.step += 1
-    status.step == 2 && run_call!(extra, :counter; publish=true)
+    status.step == 2 && run_call!(context, :counter; publish=true)
 end
 
 @testset "one step over several objects" begin

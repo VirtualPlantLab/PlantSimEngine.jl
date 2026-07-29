@@ -109,9 +109,9 @@ function _compile_environment_bindings_for_applications(model::CompositeModel, a
     for application in applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(model, config)
-        required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
+        required_inputs = _environment_variable_names(environment_inputs_(application.spec))
         source_inputs = _environment_source_variable_names(application.spec)
-        produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
+        produced_outputs = _environment_variable_names(environment_outputs_(application.spec))
         for object_id in application.target_ids
             object = _model_object(model, object_id)
             context = _object_environment_context(application, object)
@@ -188,7 +188,7 @@ function _validate_model_environment_inputs!(bindings, applications_by_id)
         ],
         "; ",
     )
-    error("Composite model environment is missing required meteo inputs: ", details)
+    error("Composite model environment is missing required source inputs: ", details)
 end
 
 function _model_environment_samplers(bindings)
@@ -197,11 +197,11 @@ function _model_environment_samplers(bindings)
     for binding in bindings
         haskey(samplers_by_application, binding.application_id) && continue
         binding.backend isa GlobalConstant || continue
-        meteo = environment_meteo(binding.backend)
-        source_index = findfirst(entry -> entry[1] === meteo, prepared_sources)
+        source = environment_source(binding.backend)
+        source_index = findfirst(entry -> entry[1] === source, prepared_sources)
         sampler = if isnothing(source_index)
-            prepared = _prepare_meteo_sampler(meteo)
-            push!(prepared_sources, (meteo, prepared))
+            prepared = _prepare_environment_sampler(source)
+            push!(prepared_sources, (source, prepared))
             prepared
         else
             prepared_sources[source_index][2]
@@ -211,23 +211,23 @@ function _model_environment_samplers(bindings)
     return samplers_by_application
 end
 
-struct PreparedGlobalMeteoRows{R}
+struct PreparedGlobalEnvironmentRows{R}
     rows::R
 end
 
 # A `GlobalConstant` table is immutable simulation input. Materialize
 # heterogeneous DataFrame rows once so model kernels receive concrete
 # `NamedTuple` rows instead of type-erased `DataFrameRow` property values.
-_prepare_global_meteo(meteo::DataFrames.AbstractDataFrame) =
-    PreparedGlobalMeteoRows(Tables.rowtable(meteo))
-_prepare_global_meteo(meteo) = meteo
+_prepare_global_environment(source::DataFrames.AbstractDataFrame) =
+    PreparedGlobalEnvironmentRows(Tables.rowtable(source))
+_prepare_global_environment(source) = source
 
-function _prepared_global_meteo(bindings, cache=IdDict{Any,Any}())
+function _prepared_global_environment(bindings, cache=IdDict{Any,Any}())
     for binding in bindings
         binding.backend isa GlobalConstant || continue
-        meteo = environment_meteo(binding.backend)
-        haskey(cache, meteo) && continue
-        cache[meteo] = _prepare_global_meteo(meteo)
+        source = environment_source(binding.backend)
+        haskey(cache, source) && continue
+        cache[source] = _prepare_global_environment(source)
     end
     return cache
 end
@@ -238,7 +238,7 @@ function _compiled_environment_bindings(
     bindings,
     by_target,
     samplers_by_application=_model_environment_samplers(bindings),
-    prepared_global_meteo=_prepared_global_meteo(bindings),
+    prepared_global_environment=_prepared_global_environment(bindings),
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
 )
     return CompiledEnvironmentBindings(
@@ -246,7 +246,7 @@ function _compiled_environment_bindings(
         bindings,
         by_target,
         samplers_by_application,
-        prepared_global_meteo,
+        prepared_global_environment,
         sample_cache,
         model.revision,
         model.environment_revision,
@@ -271,7 +271,7 @@ end
 function _same_environment_backend(a, b)
     a === b && return true
     if a isa GlobalConstant && b isa GlobalConstant
-        return environment_meteo(a) === environment_meteo(b)
+        return environment_source(a) === environment_source(b)
     end
     return false
 end
@@ -296,9 +296,9 @@ function _reconcile_environment_binding_metadata(
     for application in compiled.applications
         config = environment_config(application.spec)
         backend = _environment_backend_from_config(model, config)
-        required_inputs = _environment_variable_names(meteo_inputs_(application.spec))
+        required_inputs = _environment_variable_names(environment_inputs_(application.spec))
         source_inputs = _environment_source_variable_names(application.spec)
-        produced_outputs = _environment_variable_names(meteo_outputs_(application.spec))
+        produced_outputs = _environment_variable_names(environment_outputs_(application.spec))
         for object_id in application.target_ids
             key = (application.id, object_id)
             old = get(cached.by_target, key, nothing)
@@ -413,7 +413,7 @@ function _refresh_environment_bindings_for_objects(
             cached.bindings,
             cached.by_target,
             cached.samplers_by_application,
-            cached.prepared_global_meteo,
+            cached.prepared_global_environment,
             cached.sample_cache,
         )
     end
@@ -439,7 +439,7 @@ function _refresh_environment_bindings_for_objects(
         bindings,
         by_target,
         cached.samplers_by_application,
-        cached.prepared_global_meteo,
+        cached.prepared_global_environment,
         cached.sample_cache,
     )
 end

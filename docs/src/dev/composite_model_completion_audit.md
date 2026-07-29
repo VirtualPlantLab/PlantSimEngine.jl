@@ -54,7 +54,7 @@ Evidence:
 | Reference semantics and low-copy execution | Shared scalar references, typed many-object carriers, preinstalled status bindings, zero-allocation materialization tests, and a zero-allocation warmed 128-object execution batch |
 | Duplicate writers | Canonical writer validation and `Updates(:variable; after=...)`, including pruning-after-allocation tests |
 | Growth, pruning, reparenting, and movement | Central lifecycle APIs, structural/environment cache invalidation, dynamic target/carrier rebuilding, removed-object output history, and object-scoped geometry refresh tests |
-| Automatic meteorology and microclimate | `meteo_inputs_`, global and spatial backends, ancestor geometry fallback, source remapping, model hints, tabular aggregation, cached opaque handles, `run_call!(...; environment=trial_state)` trial sampling, and `commit_environment!` accepted mutable commits |
+| Automatic meteorology and microclimate | `environment_inputs_`, global and spatial backends, ancestor geometry fallback, source remapping, model hints, tabular aggregation, cached opaque handles, `run_call!(...; environment=trial_state)` trial sampling, and `commit_environment!` accepted mutable commits |
 | Structured agent explanations | Object, instance, scope, application, binding, call, model-bundle, environment, schedule, writer, execution-plan, output, and retention explanations returning structured rows |
 | Initialization workflow | `explain_initialization` classifies supplied, generated, producer-bound, environment-bound, and unresolved variables without failing solely on unresolved values |
 | Runtime model access | `runtime_model` is the public accessor used by lifecycle-capable kernels and accepts `CompositeModel`, `RunContext`, and `Simulation` |

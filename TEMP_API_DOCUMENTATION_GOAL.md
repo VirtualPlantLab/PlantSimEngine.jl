@@ -156,10 +156,12 @@ present them as validation of later edits.
 
 ### 1. Model-developer kernel
 
-The current six-argument kernel exposes a redundant process-keyed `models`
-bundle and calls the actual context `extra`.
+The canonical kernel now carries only the current model, target status,
+sampled environment, constants, and execution context. The former
+process-keyed `models` bundle and `extra` vocabulary are no longer part of the
+PlantSimEngine model-developer API.
 
-- [ ] Replace the canonical model kernel with:
+- [x] Replace the canonical model kernel with:
 
       ```julia
       PlantSimEngine.run!(
@@ -171,44 +173,61 @@ bundle and calls the actual context `extra`.
       )
       ```
 
-- [ ] Use `model.parameter` for the current model's parameters.
-- [ ] Remove the `models` bundle from the model-developer contract.
-- [ ] Expose hard-call models and targets only through focused context
+- [x] Use `model.parameter` for the current model's parameters.
+- [x] Remove the `models` bundle from the model-developer contract.
+- [x] Expose hard-call models and targets only through focused context
       functions such as `call_targets`, `run_call!`, and a small read-only model
       accessor if one is genuinely needed.
 - [ ] Use `context`, not `extra`, throughout source, examples, documentation,
       errors, and downstream packages.
-- [ ] Keep the model kernel responsible for one timestep and one target.
+- [x] Keep the model kernel responsible for one timestep and one target.
       PlantSimEngine owns the timeline, scheduling, target iteration, and
       publication.
-- [ ] Migrate all PlantSimEngine examples and tests.
+- [x] Migrate all PlantSimEngine examples and tests.
 - [ ] Migrate all PlantBiophysics and XPalm model kernels.
-- [ ] Do not retain the six-argument method as compatibility.
+- [x] Do not retain the six-argument method as compatibility.
 
 ### 2. One environment vocabulary
 
-The new environment semantics are sound, but the model-facing vocabulary is
-still divided between `Environment`, `meteo_inputs_`, `meteo_outputs_`, and a
-kernel argument named `meteo`.
+The model-facing vocabulary now consistently uses `environment`. PlantMeteo
+remains the meteorological data provider/adapter and is not the name of the
+general PlantSimEngine environment abstraction.
 
-- [ ] Rename the model traits consistently:
+- [x] Rename the model traits consistently:
 
       ```julia
       environment_inputs_(model)
       environment_outputs_(model)
       ```
 
-- [ ] Rename related helpers, explanations, graph fields, diagnostics, and
+- [x] Rename related helpers, explanations, graph fields, diagnostics, and
       error messages consistently.
-- [ ] Call the sampled model-facing kernel argument `environment`.
-- [ ] Keep `environment=` on context-level `run_call!` for a typed transient
+- [x] Call the sampled model-facing kernel argument `environment`.
+- [x] Keep `environment=` on context-level `run_call!` for a typed transient
       backend state.
-- [ ] Rename the per-target bypass keyword to an unambiguous name such as
+- [x] Rename the per-target bypass keyword to an unambiguous name such as
       `sampled_environment=`; it supplies an already sampled row and bypasses
       provider sampling for exactly one target.
-- [ ] Keep PlantMeteo as a provider/adapter, not as the name of PlantSimEngine's
+- [x] Keep PlantMeteo as a provider/adapter, not as the name of PlantSimEngine's
       general environment abstraction.
-- [ ] Do not reintroduce the removed override-stack or scatter APIs.
+- [x] Do not reintroduce the removed override-stack or scatter APIs.
+
+Milestone validation on the PlantSimEngine source state:
+
+- environment trait tests: 5 pass;
+- environment sampling tests: 15 pass;
+- environment backend tests: 9 pass;
+- hard-call tests: 49 pass;
+- model-contract tests: 15 pass;
+- configuration-error tests: 6 pass;
+- API-stabilization tests: 148 pass;
+- graph-view tests: 115 pass;
+- graph-editor extension tests: 74 pass;
+- MAESPA tests: 170 pass;
+- unified model/object API tests: 614 pass;
+- isolated Aqua ambiguity check: 1 pass after resolving the retained-stream
+  overload ambiguity;
+- full PlantSimEngine suite, including Aqua and doctests: 1,461 pass.
 
 ### 3. Required inputs versus true defaults
 
@@ -995,14 +1014,14 @@ No breaking PlantSimEngine milestone is complete until:
 
 ### Test and documentation gates
 
-- [ ] Run focused PlantSimEngine model-contract tests.
-- [ ] Run focused environment backend tests.
+- [x] Run focused PlantSimEngine model-contract tests.
+- [x] Run focused environment backend tests.
 - [ ] Run focused steady-state allocation and scheduler tests.
 - [ ] Run focused incremental lifecycle work-count and scaling tests.
 - [ ] Run focused temporal-buffer and sparse-hard-call performance tests.
-- [ ] Run the unified model/object API suite.
-- [ ] Run the MAESPA focused suite.
-- [ ] Run the full PlantSimEngine suite.
+- [x] Run the unified model/object API suite.
+- [x] Run the MAESPA focused suite.
+- [x] Run the full PlantSimEngine suite.
 - [ ] Run the short deterministic performance-regression gate.
 - [ ] Run and persist the complete XPalm performance matrix on the baseline
       machine.
@@ -1027,7 +1046,7 @@ No breaking PlantSimEngine milestone is complete until:
 8. [ ] Finish separating and preallocating requested outputs.
 9. [ ] Finalize the model kernel, environment vocabulary, and required/default
        declarations.
-10. [ ] Migrate PlantSimEngine models and focused contract tests.
+10. [x] Migrate PlantSimEngine models and focused contract tests.
 11. [ ] Finalize `ModelSpec`, selectors, namespaces, and result ergonomics.
 12. [ ] Migrate XPalm early enough that it influences scenario API decisions
         and continuously rerun its correctness and performance suites.

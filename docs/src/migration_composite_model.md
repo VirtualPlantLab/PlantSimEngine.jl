@@ -62,7 +62,7 @@ timesteps. They keep the existing kernel contract:
 inputs_(model)
 outputs_(model)
 dep(model)
-meteo_inputs_(model)
+environment_inputs_(model)
 run!(model, status, environment, constants, context)
 ```
 
@@ -106,7 +106,7 @@ An existing MTG can be adapted without rebuilding its topology manually:
 model = CompositeModel(
     mtg;
     applications=applications,
-    environment=meteo,
+    environment=environment,
     kind=node_kind,
     species=node_species,
     geometry=node_geometry,
@@ -213,17 +213,17 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
 The parent model controls execution:
 
 ```julia
-function PlantSimEngine.run!(model::SceneEnergyBalance, status, meteo,
-                             constants, extra)
+function PlantSimEngine.run!(model::SceneEnergyBalance, status, environment,
+                             constants, context)
     for iteration in 1:model.max_iterations
-        trial = trial_meteo(model, status)
-        run_call!(extra, :leaf_energy; environment=trial, publish=false)
+        trial = trial_environment(model, status)
+        run_call!(context, :leaf_energy; environment=trial, publish=false)
         converged(model, status) && break
     end
 
-    accepted = accepted_meteo(model, status)
-    commit_environment!(extra, accepted)
-    run_call!(extra, :leaf_energy; publish=true)
+    accepted = accepted_environment(model, status)
+    commit_environment!(context, accepted)
+    run_call!(context, :leaf_energy; publish=true)
     return nothing
 end
 ```
@@ -342,7 +342,7 @@ the writer order.
 
 ## Environment And Microclimate
 
-Models declare sampled environment variables with `meteo_inputs_`. The scenario
+Models declare sampled environment variables with `environment_inputs_`. The scenario
 binds each object/application to the active environment backend:
 
 ```julia
@@ -364,23 +364,23 @@ ModelSpec(LeafGasExchange(); name=:gas_exchange) |>
 ```
 
 The model still declares and reads `CO2`; the model samples `Ca` from the
-active environment backend and exposes it to the model as `meteo.CO2`.
+active environment backend and exposes it to the model as `environment.CO2`.
 `explain_environment_bindings(...)` reports both `required_inputs` and
 `source_inputs`, so remapped meteorology is visible to users and agents.
 
 Model authors can also provide default source remaps with
-`meteo_hint(::Type{<:Model}) = (bindings=(CO2=(source=:Ca,),),)`. CompositeModel
+`environment_hint(::Type{<:Model}) = (bindings=(CO2=(source=:Ca,),),)`. CompositeModel
 applications use those defaults when the scenario does not provide an explicit
 source for the same variable. `Environment(; sources=...)` remains the
 scenario-level override.
 
 For global `Weather` tables, sampling follows the application's
 `TimeStep(...)`. A slower model receives a PlantMeteo windowed sample using its
-`meteo_hint` reducer and window instead of receiving only the current raw
+`environment_hint` reducer and window instead of receiving only the current raw
 weather row. A scenario source override preserves that reducer:
 
 ```julia
-meteo_hint(::Type{<:GasExchange}) = (
+environment_hint(::Type{<:GasExchange}) = (
     bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),
 )
 
@@ -390,7 +390,7 @@ ModelSpec(GasExchange()) |>
     Environment(provider=:global, sources=(CO2=:canopy_CO2,))
 ```
 
-Every leaf still reads `meteo.CO2`; the two-hour mean is computed from
+Every leaf still reads `environment.CO2`; the two-hour mean is computed from
 `:canopy_CO2`. The sampled row is computed once per application and timestep,
 then reused for all selected leaves.
 

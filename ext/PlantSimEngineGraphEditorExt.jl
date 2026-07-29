@@ -923,11 +923,11 @@ function _application_code(spec)
         code *= " |> Environment($(repr(payload)))"
     end
     isnothing(spec.timestep) || (code *= " |> TimeStep($(repr(spec.timestep)))")
-    if !isempty(keys(PlantSimEngine.meteo_bindings(spec)))
-        code = "PlantSimEngine.with_meteo_bindings($(code), $(repr(PlantSimEngine.meteo_bindings(spec))))"
+    if !isempty(keys(PlantSimEngine.environment_bindings(spec)))
+        code = "PlantSimEngine.with_environment_bindings($(code), $(repr(PlantSimEngine.environment_bindings(spec))))"
     end
-    if !isnothing(PlantSimEngine.meteo_window(spec))
-        code = "PlantSimEngine.with_meteo_window($(code), $(repr(PlantSimEngine.meteo_window(spec))))"
+    if !isnothing(PlantSimEngine.environment_window(spec))
+        code = "PlantSimEngine.with_environment_window($(code), $(repr(PlantSimEngine.environment_window(spec))))"
     end
     isempty(keys(PlantSimEngine.output_routing(spec))) ||
         (code *= " |> OutputRouting($(repr(PlantSimEngine.output_routing(spec))))")

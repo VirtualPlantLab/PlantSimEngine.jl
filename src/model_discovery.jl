@@ -76,12 +76,12 @@ function model_descriptor(::Type{T}) where {T<:AbstractModel}
         "processType" => isnothing(process_type) ? nothing : string(process_type),
         "inputs" => _model_var_descriptor(T, inputs_),
         "outputs" => _model_var_descriptor(T, outputs_),
-        "environmentInputs" => _model_var_descriptor(T, meteo_inputs_),
-        "environmentOutputs" => _model_var_descriptor(T, meteo_outputs_),
+        "environmentInputs" => _model_var_descriptor(T, environment_inputs_),
+        "environmentOutputs" => _model_var_descriptor(T, environment_outputs_),
         "timespec" => _safe_string_trait(T, timespec),
         "outputPolicy" => _safe_string_trait(T, output_policy),
         "timestepHint" => _safe_string_trait(T, timestep_hint),
-        "meteoHint" => _safe_string_trait(T, meteo_hint),
+        "environmentHint" => _safe_string_trait(T, environment_hint),
         "constructor" => model_constructor_descriptor(T),
     )
 end

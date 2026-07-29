@@ -133,54 +133,54 @@ another producer on the same object.
 updates(spec::ModelSpec) = spec.updates
 
 """
-    meteo_bindings(spec::ModelSpec)
+    environment_bindings(spec::ModelSpec)
 
 Optional explicit weather aggregation bindings used by the model runtime.
-Each key is the target meteo variable exposed to the model at execution time.
+Each key is the target environment variable exposed to the model at execution time.
 Each value can be:
 - PlantMeteo reducer instance/type (e.g. `MeanWeighted()`, `MaxReducer`)
 - `Function`: custom reducer callable
 - `NamedTuple`: optional fields `source` and `reducer`
 """
-meteo_bindings(spec::ModelSpec) = spec.meteo_bindings
+environment_bindings(spec::ModelSpec) = spec.environment_bindings
 
 """
-    meteo_window(spec::ModelSpec)
+    environment_window(spec::ModelSpec)
 
 Optional weather window-selection strategy used by the model runtime.
 Defaults to `nothing` (runtime falls back to `PlantMeteo.RollingWindow()` behavior).
 """
-meteo_window(spec::ModelSpec) = spec.meteo_window
+environment_window(spec::ModelSpec) = spec.environment_window
 
 """
-    meteo_inputs(model::AbstractModel)
-    meteo_inputs_(model::AbstractModel)
+    environment_inputs(model::AbstractModel)
+    environment_inputs_(model::AbstractModel)
 
-Meteorological/environment variables read directly by a model.
+Environment variables read directly by a model.
 
 This trait is separate from `inputs_` because meteorology may be constant,
 table-backed, or produced by a microclimate backend. The default is empty.
 """
-meteo_inputs(model::AbstractModel) = keys(meteo_inputs_(model))
-meteo_inputs(spec::ModelSpec) = keys(meteo_inputs_(spec))
-meteo_inputs_(model::AbstractModel) = NamedTuple()
-meteo_inputs_(model::Missing) = NamedTuple()
+environment_inputs(model::AbstractModel) = keys(environment_inputs_(model))
+environment_inputs(spec::ModelSpec) = keys(environment_inputs_(spec))
+environment_inputs_(model::AbstractModel) = NamedTuple()
+environment_inputs_(model::Missing) = NamedTuple()
 
 """
-    meteo_outputs(model::AbstractModel)
-    meteo_outputs_(model::AbstractModel)
+    environment_outputs(model::AbstractModel)
+    environment_outputs_(model::AbstractModel)
 
-Meteorological/environment variables that a controller model is allowed to
+Environment variables that a controller model is allowed to
 commit with [`commit_environment!`](@ref), for example local microclimate
 variables computed over a canopy, voxel, or octree backend.
 
 These declarations are environment capabilities, not status outputs.
 Declare diagnostic status values separately with `outputs_`.
 """
-meteo_outputs(model::AbstractModel) = keys(meteo_outputs_(model))
-meteo_outputs(spec::ModelSpec) = keys(meteo_outputs_(spec))
-meteo_outputs_(model::AbstractModel) = NamedTuple()
-meteo_outputs_(model::Missing) = NamedTuple()
+environment_outputs(model::AbstractModel) = keys(environment_outputs_(model))
+environment_outputs(spec::ModelSpec) = keys(environment_outputs_(spec))
+environment_outputs_(model::AbstractModel) = NamedTuple()
+environment_outputs_(model::Missing) = NamedTuple()
 
 """
     outputs(model::AbstractModel)

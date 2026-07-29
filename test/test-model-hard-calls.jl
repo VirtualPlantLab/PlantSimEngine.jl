@@ -29,9 +29,9 @@ PlantSimEngine.outputs_(::NestedCallLeafModel) = (value=0.0, calls=0)
 function PlantSimEngine.run!(
     ::NestedCallLeafModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.calls += 1
     status.value += 1.0
@@ -44,12 +44,12 @@ PlantSimEngine.outputs_(::NestedCallMiddleModel) = (value=0.0, calls=0)
 function PlantSimEngine.run!(
     ::NestedCallMiddleModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.calls += 1
-    leaf = only(run_call!(extra, :leaf; publish=true))
+    leaf = only(run_call!(context, :leaf; publish=true))
     status.value = leaf.status.value
     return nothing
 end
@@ -61,12 +61,12 @@ PlantSimEngine.outputs_(::NestedCallRootModel) =
 function PlantSimEngine.run!(
     ::NestedCallRootModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
     status.calls += 1
-    middle = only(call_targets(extra, :middle))
+    middle = only(call_targets(context, :middle))
     run_call!(middle; publish=false)
     status.trial_value = middle.status.value
     run_call!(middle; publish=true)
@@ -80,11 +80,11 @@ PlantSimEngine.outputs_(::ManyCallControllerModel) = (total=0.0, ncalls=0)
 function PlantSimEngine.run!(
     ::ManyCallControllerModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
-    targets = run_call!(extra, :children; publish=true)
+    targets = run_call!(context, :children; publish=true)
     status.ncalls = length(targets)
     status.total = sum((target.status.value for target in targets); init=0.0)
     return nothing
@@ -102,13 +102,13 @@ PlantSimEngine.outputs_(::CallReturnShapeModel) = (
 function PlantSimEngine.run!(
     ::CallReturnShapeModel,
     status,
-    meteo,
+    environment,
     constants,
-    extra,
+    context,
 )
-    one_targets = run_call!(extra, :one; publish=false)
-    optional_targets = run_call!(extra, :optional; publish=false)
-    many_targets = run_call!(extra, :many; publish=false)
+    one_targets = run_call!(context, :one; publish=false)
+    optional_targets = run_call!(context, :optional; publish=false)
+    many_targets = run_call!(context, :many; publish=false)
     status.one_count = length(one_targets)
     status.optional_count = length(optional_targets)
     status.many_count = length(many_targets)
@@ -116,8 +116,8 @@ function PlantSimEngine.run!(
         targets -> targets isa AbstractVector{CallTarget},
         (one_targets, optional_targets, many_targets),
     )
-    status.cached_view = call_targets(extra, :one) === call_targets(extra, :one)
-    CALL_RETURN_CONTEXT[] = extra
+    status.cached_view = call_targets(context, :one) === call_targets(context, :one)
+    CALL_RETURN_CONTEXT[] = context
     return nothing
 end
 

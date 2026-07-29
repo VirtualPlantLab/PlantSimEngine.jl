@@ -3,10 +3,10 @@ using PlantMeteo
 using PlantSimEngine
 using Test
 
-PlantSimEngine.@process "meteo_sampling_probe" verbose = false
-struct MeteoSamplingProbeModel <: AbstractMeteo_Sampling_ProbeModel end
-PlantSimEngine.inputs_(::MeteoSamplingProbeModel) = NamedTuple()
-PlantSimEngine.outputs_(::MeteoSamplingProbeModel) = (
+PlantSimEngine.@process "environment_sampling_probe" verbose = false
+struct EnvironmentSamplingProbeModel <: AbstractEnvironment_Sampling_ProbeModel end
+PlantSimEngine.inputs_(::EnvironmentSamplingProbeModel) = NamedTuple()
+PlantSimEngine.outputs_(::EnvironmentSamplingProbeModel) = (
     mean_T=0.0,
     min_T=0.0,
     max_T=0.0,
@@ -14,7 +14,7 @@ PlantSimEngine.outputs_(::MeteoSamplingProbeModel) = (
     mean_radiation=0.0,
     radiation_energy=0.0,
 )
-PlantSimEngine.meteo_inputs_(::MeteoSamplingProbeModel) = (
+PlantSimEngine.environment_inputs_(::EnvironmentSamplingProbeModel) = (
     T=0.0,
     Tmin=0.0,
     Tmax=0.0,
@@ -22,7 +22,7 @@ PlantSimEngine.meteo_inputs_(::MeteoSamplingProbeModel) = (
     Ri_SW_f=0.0,
     Ri_SW_q=0.0,
 )
-PlantSimEngine.meteo_hint(::Type{<:MeteoSamplingProbeModel}) = (
+PlantSimEngine.environment_hint(::Type{<:EnvironmentSamplingProbeModel}) = (
     window=PlantMeteo.RollingWindow(2.0),
     bindings=(
         T=(source=:T, reducer=MeanWeighted()),
@@ -33,17 +33,17 @@ PlantSimEngine.meteo_hint(::Type{<:MeteoSamplingProbeModel}) = (
         Ri_SW_q=(source=:Ri_SW_f, reducer=RadiationEnergy()),
     ),
 )
-function PlantSimEngine.run!(::MeteoSamplingProbeModel, status, meteo, constants, extra)
-    status.mean_T = meteo.T
-    status.min_T = meteo.Tmin
-    status.max_T = meteo.Tmax
-    status.mean_Rh = meteo.Rh
-    status.mean_radiation = meteo.Ri_SW_f
-    status.radiation_energy = meteo.Ri_SW_q
+function PlantSimEngine.run!(::EnvironmentSamplingProbeModel, status, environment, constants, context)
+    status.mean_T = environment.T
+    status.min_T = environment.Tmin
+    status.max_T = environment.Tmax
+    status.mean_Rh = environment.Rh
+    status.mean_radiation = environment.Ri_SW_f
+    status.radiation_energy = environment.Ri_SW_q
 end
 
-@testset "meteorological aggregation and model hint" begin
-    if PlantSimEngine._has_meteo_sampler_api()
+@testset "environment aggregation and model hint" begin
+    if PlantSimEngine._has_environment_sampler_api()
         base_date = DateTime(2025, 1, 1)
         weather = Weather([
             Atmosphere(date=base_date, T=10.0, Wind=1.0, Rh=0.5, P=100.0, Ri_SW_f=100.0, duration=Hour(1)),
@@ -54,7 +54,7 @@ end
         model = CompositeModel(
             Object(:leaf; scale=:Leaf);
             applications=(
-                ModelSpec(MeteoSamplingProbeModel(); name=:probe) |>
+                ModelSpec(EnvironmentSamplingProbeModel(); name=:probe) |>
                     AppliesTo(One(scale=:Leaf)) |>
                     TimeStep(Hour(2)) |>
                     Environment(provider=:global),
@@ -64,7 +64,7 @@ end
         bindings = only(explain_environment_bindings(Advanced.refresh_environment_bindings!(model)))
         @test bindings.temporal_sampler
         spec = Advanced.refresh_bindings!(model).applications_by_id[:probe].spec
-        @test meteo_bindings(spec).Ri_SW_q.reducer isa RadiationEnergy
+        @test environment_bindings(spec).Ri_SW_q.reducer isa RadiationEnergy
         simulation = run!(model; steps=4, outputs=:all)
         values(variable) = getproperty.(
             collect_outputs(simulation, :leaf, variable; sink=nothing),
@@ -78,7 +78,7 @@ end
         @test values(:radiation_energy) ≈ [0.36, 1.8]
 
         template = CompositeModelTemplate((
-            ModelSpec(MeteoSamplingProbeModel(); name=:probe) |>
+            ModelSpec(EnvironmentSamplingProbeModel(); name=:probe) |>
                 AppliesTo(Many(scale=:Leaf)) |>
                 TimeStep(Hour(2)) |>
                 Environment(provider=:global),
@@ -95,16 +95,16 @@ end
                 Override(
                     object=:leaf_b,
                     application=:probe,
-                    model=MeteoSamplingProbeModel(),
+                    model=EnvironmentSamplingProbeModel(),
                 ),
             ),
         )
         override_scene = CompositeModel(instance; environment=weather)
         override_compiled = Advanced.refresh_bindings!(override_scene)
         override_spec = override_compiled.applications_by_id[:plant__probe].spec
-        @test meteo_window(override_spec) isa PlantMeteo.RollingWindow
-        @test meteo_window(override_spec).dt == 2.0
-        @test meteo_bindings(override_spec).Ri_SW_q.reducer isa RadiationEnergy
+        @test environment_window(override_spec) isa PlantMeteo.RollingWindow
+        @test environment_window(override_spec).dt == 2.0
+        @test environment_bindings(override_spec).Ri_SW_q.reducer isa RadiationEnergy
         run!(override_scene; steps=4)
         for object in model_objects(override_scene; scale=:Leaf)
             @test object.status.mean_T == 25.0

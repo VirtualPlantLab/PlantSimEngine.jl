@@ -9,13 +9,13 @@ struct InitializationConsumerModel <: AbstractInitialization_ConsumerModel end
 
 PlantSimEngine.inputs_(::InitializationSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::InitializationSourceModel) = (signal=1,)
-function PlantSimEngine.run!(::InitializationSourceModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::InitializationSourceModel, status, environment, constants, context)
     status.signal += 1
 end
 
 PlantSimEngine.inputs_(::InitializationConsumerModel) = (signal=0, supplied=0)
 PlantSimEngine.outputs_(::InitializationConsumerModel) = (observed=0,)
-function PlantSimEngine.run!(::InitializationConsumerModel, status, meteo, constants, extra)
+function PlantSimEngine.run!(::InitializationConsumerModel, status, environment, constants, context)
     status.observed = status.signal + status.supplied
 end
 

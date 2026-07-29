@@ -8,7 +8,7 @@ PlantSimEngine.@process "update_biomass_observer" verbose = false
 struct UpdateCarbonAllocationModel <: AbstractUpdate_Carbon_AllocationModel end
 PlantSimEngine.inputs_(::UpdateCarbonAllocationModel) = NamedTuple()
 PlantSimEngine.outputs_(::UpdateCarbonAllocationModel) = (leaf_biomass=0.0,)
-function PlantSimEngine.run!(::UpdateCarbonAllocationModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::UpdateCarbonAllocationModel, status, environment, constants=nothing, context=nothing)
     status.leaf_biomass = 10.0
     return nothing
 end
@@ -16,7 +16,7 @@ end
 struct UpdateLeafPruningModel <: AbstractUpdate_Leaf_PruningModel end
 PlantSimEngine.inputs_(::UpdateLeafPruningModel) = NamedTuple()
 PlantSimEngine.outputs_(::UpdateLeafPruningModel) = (leaf_biomass=0.0,)
-function PlantSimEngine.run!(::UpdateLeafPruningModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::UpdateLeafPruningModel, status, environment, constants=nothing, context=nothing)
     status.leaf_biomass = 0.0
     return nothing
 end
@@ -24,7 +24,7 @@ end
 struct UpdateLeafSenescenceModel <: AbstractUpdate_Leaf_SenescenceModel end
 PlantSimEngine.inputs_(::UpdateLeafSenescenceModel) = NamedTuple()
 PlantSimEngine.outputs_(::UpdateLeafSenescenceModel) = (leaf_biomass=0.0,)
-function PlantSimEngine.run!(::UpdateLeafSenescenceModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::UpdateLeafSenescenceModel, status, environment, constants=nothing, context=nothing)
     status.leaf_biomass *= 0.5
     return nothing
 end
@@ -32,7 +32,7 @@ end
 struct UpdateBiomassObserverModel <: AbstractUpdate_Biomass_ObserverModel end
 PlantSimEngine.inputs_(::UpdateBiomassObserverModel) = (leaf_biomass=0.0,)
 PlantSimEngine.outputs_(::UpdateBiomassObserverModel) = (observed_biomass=0.0,)
-function PlantSimEngine.run!(::UpdateBiomassObserverModel, status, meteo, constants=nothing, extra=nothing)
+function PlantSimEngine.run!(::UpdateBiomassObserverModel, status, environment, constants=nothing, context=nothing)
     status.observed_biomass = status.leaf_biomass
     return nothing
 end

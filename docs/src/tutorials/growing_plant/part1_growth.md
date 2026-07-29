@@ -22,7 +22,7 @@ model = CompositeModel(
 
 The plant balance gathers leaf production with
 `Many(scale=:Leaf, within=Subtree())`. The growth kernel obtains the live model
-with `runtime_model(extra)`, checks its carbon and thermal thresholds, creates
+with `runtime_model(context)`, checks its carbon and thermal thresholds, creates
 a fully initialized `Object`, and calls `register_object!`. It should deduct
 the construction cost exactly once before registration.
 
