@@ -5,6 +5,7 @@ using MultiScaleTreeGraph
 using PlantMeteo
 using PlantSimEngine
 using PlantSimEngine.Examples
+using Profile
 using Statistics
 using Test
 
@@ -96,5 +97,88 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
                     row.metric == "execution_targets_visited",
             result.records,
         )
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm staged performance profile medium")
+    @testset "XPalm staged performance profile medium" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-medium-latest.csv",
+        )
+        result = write_xpalm_performance_profile(output_path; profile=:medium)
+        @test result.no_output_state == result.reference_state
+        @test result.reference_state.current_step == PERFORMANCE_MEDIUM_STEPS
+        @test isfile(output_path)
+        @test any(
+            row ->
+                row.stage == "simulation_no_outputs" &&
+                    row.metric == "output_retention_reuses",
+            result.records,
+        )
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm allocation profile short")
+    @testset "XPalm allocation profile short" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        _warmup_xpalm_performance!(PERFORMANCE_SHORT_STEPS)
+        model, nsteps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_SHORT_STEPS)
+        Profile.Allocs.clear()
+        simulation = Profile.Allocs.@profile sample_rate = 0.01 xpalm_reference_param_run(
+            model,
+            OutputRequest[],
+            nsteps;
+            outputs=:none,
+        )
+        allocation_results = Profile.Allocs.fetch()
+        pse_root = dirname(dirname(@__DIR__))
+        xpalm_root = dirname(dirname(pathof(XPalm)))
+        totals = Dict{
+            Tuple{String,String,Int,String},
+            Tuple{Int,Int},
+        }()
+        for allocation in allocation_results.allocs
+            frame_index = findfirst(allocation.stacktrace) do frame
+                file = string(frame.file)
+                occursin(pse_root, file) || occursin(xpalm_root, file)
+            end
+            isnothing(frame_index) && continue
+            frame = allocation.stacktrace[frame_index]
+            file = string(frame.file)
+            source = occursin(pse_root, file) ? "PlantSimEngine" : "XPalm"
+            key = (source, file, frame.line, string(frame.func))
+            count, bytes = get(totals, key, (0, 0))
+            totals[key] = (count + 1, bytes + allocation.size)
+        end
+        rows = [
+            (
+                source=first(key),
+                file=key[2],
+                line=key[3],
+                function_name=key[4],
+                sampled_allocations=first(value),
+                sampled_bytes=last(value),
+                sample_rate=0.01,
+            )
+            for (key, value) in totals
+        ]
+        sort!(rows; by=row -> row.sampled_bytes, rev=true)
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-allocations-short-latest.csv",
+        )
+        CSV.write(output_path, DataFrame(rows))
+        @test current_step(simulation) == PERFORMANCE_SHORT_STEPS
+        @test !isempty(rows)
+        @test isfile(output_path)
     end
 end

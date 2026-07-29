@@ -659,9 +659,9 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             ),
         )
     end
-    existing_calls_affected = false
+    affected_existing_call_targets = Set{Tuple{Symbol,ObjectId}}()
     if has_calls
-        existing_calls_affected = any(compiled.call_bindings) do binding
+        for binding in compiled.call_bindings
             _selector_matches_any_object_id(
                 model,
                 binding.selector,
@@ -669,6 +669,10 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
                 context=binding.consumer_id,
                 default_to_context=true,
                 default_scope=_default_dependency_scope(model, binding.consumer_id),
+            ) || continue
+            push!(
+                affected_existing_call_targets,
+                (binding.application_id, binding.consumer_id),
             )
         end
     end
@@ -680,18 +684,77 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         ;
         by_object=applications_by_object,
     ) : CompiledModelCallBinding[]
-    call_bindings = if existing_calls_affected
+    affected_call_applications = CompiledModelApplication[]
+    for application in applications
+        target_ids = ObjectId[
+            object_id for object_id in application.target_ids
+            if (application.id, object_id) in affected_existing_call_targets
+        ]
+        isempty(target_ids) && continue
+        push!(
+            affected_call_applications,
+            CompiledModelApplication(
+                application.id,
+                application.spec,
+                application.process,
+                application.name,
+                target_ids,
+                application.applies_to,
+                application.timestep,
+                application.clock,
+                application.model_overrides,
+            ),
+        )
+    end
+    replacement_call_bindings = isempty(affected_call_applications) ?
+                                CompiledModelCallBinding[] :
         _compile_model_call_bindings(
             model,
+            affected_call_applications,
             applications;
             by_object=applications_by_object,
         )
-    else
-        bindings = copy(compiled.call_bindings)
-        append!(bindings, new_call_bindings)
-        bindings
+    replacement_call_bindings_by_target = _index_model_bindings(
+        replacement_call_bindings,
+        :application_id,
+        :consumer_id,
+    )
+    call_bindings = compiled.call_bindings
+    for key in affected_existing_call_targets
+        existing = get(compiled.call_bindings_by_target, key, ())
+        replacements = get(replacement_call_bindings_by_target, key, ())
+        length(existing) == length(replacements) || error(
+            "Incremental hard-call refresh changed the number of declared calls ",
+            "for application `$(first(key))` on object `$(last(key).value)`.",
+        )
+        for binding in existing
+            replacement_index = findfirst(
+                candidate ->
+                    _compiled_call_name(candidate) ===
+                    _compiled_call_name(binding),
+                replacements,
+            )
+            isnothing(replacement_index) && error(
+                "Incremental hard-call refresh lost declared call ",
+                "`$(_compiled_call_name(binding))` for application ",
+                "`$(first(key))` on object `$(last(key).value)`.",
+            )
+            replacement = replacements[replacement_index]
+            empty!(binding.callee_object_ids)
+            append!(binding.callee_object_ids, replacement.callee_object_ids)
+            empty!(binding.callee_application_ids)
+            append!(
+                binding.callee_application_ids,
+                replacement.callee_application_ids,
+            )
+        end
     end
-    _validate_model_call_cadences!(applications, call_bindings, timeline)
+    append!(call_bindings, new_call_bindings)
+    _validate_model_call_cadences!(
+        applications,
+        (replacement_call_bindings..., new_call_bindings...),
+        timeline,
+    )
     _validate_model_writers!(added_applications, call_bindings)
     _prepare_model_output_statuses!(model, added_applications)
 
@@ -838,18 +901,15 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     _prepare_model_bound_input_statuses!(model, added_applications, changed_bindings)
     _wire_model_input_carriers!(model, changed_bindings)
     _validate_model_required_inputs!(model, added_applications, changed_bindings)
-    call_bindings_by_target = if existing_calls_affected
-        _index_model_bindings(call_bindings, :application_id, :consumer_id)
-    elseif isempty(new_call_bindings)
-        compiled.call_bindings_by_target
-    else
-        indexed = copy(compiled.call_bindings_by_target)
-        merge!(
-            indexed,
-            _index_model_bindings(new_call_bindings, :application_id, :consumer_id),
-        )
-        indexed
-    end
+    call_bindings_by_target = compiled.call_bindings_by_target
+    isempty(new_call_bindings) || merge!(
+        call_bindings_by_target,
+        _index_model_bindings(
+            new_call_bindings,
+            :application_id,
+            :consumer_id,
+        ),
+    )
     # Newly resolved inputs can introduce ordering edges that did not exist
     # while a dynamic application's target set was empty. Recompute the
     # schedule before compiling status views and execution batches so new
@@ -870,25 +930,45 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             end
         end
     end
-    model_bundles_by_target = if existing_calls_affected
-        _compile_model_model_bundles(
-            applications,
-            applications_by_id,
-            call_bindings_by_target,
-        )
-    else
-        bundles = copy(compiled.model_bundles_by_target)
-        for application in added_applications
-            for object_id in application.target_ids
-                bundles[(application.id, object_id)] = _compile_model_model_bundle(
-                    applications_by_id,
-                    call_bindings_by_target,
-                    application,
-                    object_id,
-                )
-            end
+    affected_model_bundle_targets = copy(affected_existing_call_targets)
+    affected_bundle_applications = Set(first(key) for key in affected_model_bundle_targets)
+    changed = true
+    while changed
+        changed = false
+        for binding in call_bindings
+            any(
+                application_id -> application_id in affected_bundle_applications,
+                binding.callee_application_ids,
+            ) || continue
+            key = (binding.application_id, binding.consumer_id)
+            key in affected_model_bundle_targets && continue
+            push!(affected_model_bundle_targets, key)
+            push!(affected_bundle_applications, binding.application_id)
+            changed = true
         end
-        bundles
+    end
+    model_bundles_by_target = compiled.model_bundles_by_target
+    for application in added_applications
+        for object_id in application.target_ids
+            model_bundles_by_target[(application.id, object_id)] =
+                _compile_model_model_bundle(
+                applications_by_id,
+                call_bindings_by_target,
+                application,
+                object_id,
+            )
+        end
+    end
+    for (application_id, object_id) in affected_model_bundle_targets
+        application = applications_by_id[application_id]
+        object_id in application.target_ids || continue
+        model_bundles_by_target[(application_id, object_id)] =
+            _compile_model_model_bundle(
+                applications_by_id,
+                call_bindings_by_target,
+                application,
+                object_id,
+            )
     end
     status_views_by_target = _extend_model_status_views(
         model,

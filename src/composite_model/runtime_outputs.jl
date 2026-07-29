@@ -959,18 +959,18 @@ end
     return status
 end
 
-function _run_model_application!(
+@inline function _run_model_application!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    object_id::ObjectId;
-    time::Real=1,
-    constants=nothing,
-    temporal_streams=nothing,
-    output_retention=nothing,
-    publish::Bool=true,
-    meteo=_UNSPECIFIED_SCENE_METEO,
-    environment=_NO_ENVIRONMENT_OVERRIDE,
+    object_id::ObjectId,
+    time::Real,
+    constants,
+    temporal_streams,
+    output_retention,
+    publish::Bool,
+    meteo,
+    environment,
 )
     status_view = _model_status_view_for_application(
         compiled,
@@ -1045,18 +1045,18 @@ function _run_model_application!(
     )
 end
 
-function _run_model_execution_target_without_calls!(
+@inline function _run_model_execution_target_without_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget;
-    time::Real=1,
-    constants=nothing,
-    temporal_streams=nothing,
-    output_retention=nothing,
-    meteo=_UNSPECIFIED_SCENE_METEO,
-    publish_outputs::Bool=true,
-    retained_outputs=nothing,
+    target::CompiledExecutionTarget,
+    time::Real,
+    constants,
+    temporal_streams,
+    output_retention,
+    meteo,
+    publish_outputs::Bool,
+    retained_outputs,
 )
     status = isempty(target.input_bindings) ?
              target.status :
@@ -1101,31 +1101,31 @@ function _run_model_execution_target_without_calls!(
     return status
 end
 
-function _run_model_execution_target!(
+@inline function _run_model_execution_target!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
-    target::CompiledExecutionTarget;
-    time::Real=1,
-    constants=nothing,
-    temporal_streams=nothing,
-    output_retention=nothing,
-    meteo=_UNSPECIFIED_SCENE_METEO,
-    publish_outputs::Bool=true,
-    retained_outputs=nothing,
+    target::CompiledExecutionTarget,
+    time::Real,
+    constants,
+    temporal_streams,
+    output_retention,
+    meteo,
+    publish_outputs::Bool,
+    retained_outputs,
 )
     isempty(target.call_bindings) && return _run_model_execution_target_without_calls!(
         compiled,
         env_bindings,
         application,
-        target;
-        time=time,
-        constants=constants,
-        temporal_streams=temporal_streams,
-        output_retention=output_retention,
-        meteo=meteo,
-        publish_outputs=publish_outputs,
-        retained_outputs=retained_outputs,
+        target,
+        time,
+        constants,
+        temporal_streams,
+        output_retention,
+        meteo,
+        publish_outputs,
+        retained_outputs,
     )
     status = isempty(target.input_bindings) ?
              target.status :
@@ -1181,14 +1181,14 @@ function _run_model_execution_target!(
     return status
 end
 
-function _run_model_execution_batch!(
+@inline function _run_model_execution_batch!(
     batch::CompiledExecutionBatch,
     compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings;
-    time::Real=1,
-    constants=nothing,
-    temporal_streams=nothing,
-    output_retention=nothing,
+    env_bindings::CompiledEnvironmentBindings,
+    time::Real,
+    constants,
+    temporal_streams,
+    output_retention,
 )
     _model_application_should_run(batch.application, time) || return nothing
     shared_meteo = if !isempty(batch.targets) &&
@@ -1216,14 +1216,14 @@ function _run_model_execution_batch!(
                 compiled,
                 env_bindings,
                 batch.application,
-                target;
-                time=time,
-                constants=constants,
-                temporal_streams=temporal_streams,
-                output_retention=output_retention,
-                meteo=shared_meteo,
-                publish_outputs=publish_outputs,
-                retained_outputs=retained_outputs,
+                target,
+                time,
+                constants,
+                temporal_streams,
+                output_retention,
+                shared_meteo,
+                publish_outputs,
+                retained_outputs,
             )
         end
         return nothing
@@ -1233,17 +1233,37 @@ function _run_model_execution_batch!(
             compiled,
             env_bindings,
             batch.application,
-            target;
-            time=time,
-            constants=constants,
-            temporal_streams=temporal_streams,
-            output_retention=output_retention,
-            meteo=shared_meteo,
-            publish_outputs=publish_outputs,
-            retained_outputs=retained_outputs,
+            target,
+            time,
+            constants,
+            temporal_streams,
+            output_retention,
+            shared_meteo,
+            publish_outputs,
+            retained_outputs,
         )
     end
     return nothing
+end
+
+function _run_model_execution_batch!(
+    batch::CompiledExecutionBatch,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings;
+    time::Real=1,
+    constants=nothing,
+    temporal_streams=nothing,
+    output_retention=nothing,
+)
+    return _run_model_execution_batch!(
+        batch,
+        compiled,
+        env_bindings,
+        time,
+        constants,
+        temporal_streams,
+        output_retention,
+    )
 end
 
 _model_application_should_run(application::CompiledModelApplication, t::Real) =
@@ -1369,7 +1389,7 @@ function compile_model_execution_plan(
     )
 end
 
-function _model_execution_target_reusable(
+function _model_execution_target_change_reason(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -1378,28 +1398,58 @@ function _model_execution_target_reusable(
     object_id = target.object_id
     key = (application.id, object_id)
     status_view = get(compiled.status_views_by_target, key, nothing)
-    isnothing(status_view) && return false
-    target.model === _application_model(application, object_id) || return false
-    target.status === status_view.status || return false
-    target.canonical_status === status_view.canonical_status || return false
+    isnothing(status_view) && return :missing_status_view
+    target.model === _application_model(application, object_id) ||
+        return :model
+    target.status === status_view.status || return :status_view
+    target.canonical_status === status_view.canonical_status ||
+        return :canonical_status
     target.models ===
     _model_models_for_application(compiled, application, object_id) ||
-        return false
-    target.input_bindings === status_view.temporal_inputs || return false
+        return :model_bundle
+    target.input_bindings === status_view.temporal_inputs ||
+        return :temporal_inputs
     target.call_bindings ===
-    get(compiled.call_bindings_by_target, key, ()) || return false
-    return target.environment_binding === _environment_binding_for(
+    get(compiled.call_bindings_by_target, key, ()) ||
+        return :call_bindings
+    target.environment_binding === _environment_binding_for(
         env_bindings,
         application.id,
         object_id,
-    )
+    ) || return :environment_binding
+    return nothing
 end
 
-function _model_execution_group_targets(group::CompiledApplicationExecutionGroup)
-    return Dict(
-        target.object_id => target
-        for batch in group.batches for target in batch.targets
-    )
+function _count_model_execution_target_rebuild!(::Nothing, reason)
+    return nothing
+end
+
+function _count_model_execution_target_rebuild!(
+    performance::RuntimePerformanceCounters,
+    reason,
+)
+    counter = if reason === :new_target
+        :execution_target_rebuild_new
+    elseif reason === :missing_status_view
+        :execution_target_rebuild_missing_status_view
+    elseif reason === :model
+        :execution_target_rebuild_model
+    elseif reason === :status_view
+        :execution_target_rebuild_status_view
+    elseif reason === :canonical_status
+        :execution_target_rebuild_canonical_status
+    elseif reason === :model_bundle
+        :execution_target_rebuild_model_bundle
+    elseif reason === :temporal_inputs
+        :execution_target_rebuild_temporal_inputs
+    elseif reason === :call_bindings
+        :execution_target_rebuild_call_bindings
+    elseif reason === :environment_binding
+        :execution_target_rebuild_environment_binding
+    else
+        :execution_target_rebuild_unknown
+    end
+    return _runtime_performance_count!(performance, counter)
 end
 
 function _model_execution_group_reusable(
@@ -1416,12 +1466,12 @@ function _model_execution_group_reusable(
             target_index <= length(application.target_ids) || return false
             target.object_id == application.target_ids[target_index] ||
                 return false
-            _model_execution_target_reusable(
+            isnothing(_model_execution_target_change_reason(
                 target,
                 compiled,
                 env_bindings,
                 application,
-            ) || return false
+            )) || return false
         end
     end
     return target_index == length(application.target_ids)
@@ -1431,6 +1481,7 @@ function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
+    performance=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
     previous_groups = Dict(
@@ -1458,19 +1509,41 @@ function _refresh_model_execution_plan(
             continue
         end
 
-        previous_targets = isnothing(previous_group) ?
-                           Dict{ObjectId,Any}() :
-                           _model_execution_group_targets(previous_group)
         targets = Any[]
+        previous_batch_index = 1
+        previous_target_index = 1
         for object_id in application.target_ids
-            previous_target = get(previous_targets, object_id, nothing)
-            if !isnothing(previous_target) &&
-               _model_execution_target_reusable(
+            previous_target = nothing
+            while !isnothing(previous_group) &&
+                  previous_batch_index <= length(previous_group.batches)
+                previous_batch =
+                    previous_group.batches[previous_batch_index]
+                if previous_target_index > length(previous_batch.targets)
+                    previous_batch_index += 1
+                    previous_target_index = 1
+                    continue
+                end
+                candidate =
+                    previous_batch.targets[previous_target_index]
+                if candidate.object_id == object_id
+                    previous_target = candidate
+                    previous_target_index += 1
+                    break
+                elseif _object_id_isless(candidate.object_id, object_id)
+                    previous_target_index += 1
+                    continue
+                end
+                break
+            end
+            change_reason = isnothing(previous_target) ?
+                            :new_target :
+                            _model_execution_target_change_reason(
                 previous_target,
                 compiled,
                 env_bindings,
                 application,
             )
+            if isnothing(change_reason)
                 push!(targets, previous_target)
             else
                 push!(
@@ -1481,6 +1554,10 @@ function _refresh_model_execution_plan(
                         application,
                         object_id,
                     ),
+                )
+                _count_model_execution_target_rebuild!(
+                    performance,
+                    change_reason,
                 )
                 targets_constructed += 1
             end
@@ -2086,24 +2163,24 @@ for target in targets
 end
 ```
 """
-function _run_call!(
-    target::CallTarget;
-    publish::Bool=false,
-    meteo=_UNSPECIFIED_SCENE_METEO,
-    environment=target.environment,
+@inline function _run_call!(
+    target::CallTarget,
+    publish::Bool,
+    meteo,
+    environment,
 )
     _run_model_application!(
         target.compiled,
         target.environment_bindings,
         target.application,
-        target.object_id;
-        time=target.time,
-        constants=target.constants,
-        temporal_streams=target.temporal_streams,
-        output_retention=target.output_retention,
-        publish=publish && target.publication_allowed,
-        meteo=meteo,
-        environment=environment,
+        target.object_id,
+        target.time,
+        target.constants,
+        target.temporal_streams,
+        target.output_retention,
+        publish && target.publication_allowed,
+        meteo,
+        environment,
     )
     return target
 end
@@ -2113,7 +2190,7 @@ function run_call!(
     publish::Bool=false,
     meteo=_UNSPECIFIED_SCENE_METEO,
 )
-    return _run_call!(target; publish=publish, meteo=meteo)
+    return _run_call!(target, publish, meteo, target.environment)
 end
 
 """
@@ -2147,9 +2224,10 @@ function run_call!(
                            environment
     for target in targets
         _run_call!(
-            target;
-            environment=selected_environment,
-            publish=publish,
+            target,
+            publish,
+            _UNSPECIFIED_SCENE_METEO,
+            selected_environment,
         )
     end
     return targets
@@ -2287,6 +2365,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
+            simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
@@ -2335,6 +2414,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.execution_plan,
             simulation.compiled,
             simulation.environment_bindings,
+            simulation.performance,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
@@ -2386,11 +2466,11 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             _run_model_execution_batch!(
                 batch,
                 simulation.compiled,
-                simulation.environment_bindings;
-                time=step,
-                constants=simulation.constants,
-                temporal_streams=simulation.temporal_streams,
-                output_retention=simulation.output_retention,
+                simulation.environment_bindings,
+                step,
+                simulation.constants,
+                simulation.temporal_streams,
+                simulation.output_retention,
             )
             _runtime_performance_count!(
                 simulation.performance,

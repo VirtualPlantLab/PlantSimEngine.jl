@@ -9,6 +9,7 @@ isdefined(@__MODULE__, :xpalm_reference_param_create) ||
 
 const PERFORMANCE_SMOKE_STEPS = 2
 const PERFORMANCE_SHORT_STEPS = 100
+const PERFORMANCE_MEDIUM_STEPS = 1000
 const PERFORMANCE_FULL_STEPS = 4160
 
 function _performance_git_revision(path)
@@ -138,9 +139,11 @@ end
 function _performance_steps(profile)
     profile == :smoke && return PERFORMANCE_SMOKE_STEPS
     profile == :short && return PERFORMANCE_SHORT_STEPS
+    profile == :medium && return PERFORMANCE_MEDIUM_STEPS
     profile == :full && return PERFORMANCE_FULL_STEPS
     error(
-        "Unsupported performance profile `$(profile)`. Use `:smoke`, `:short`, or `:full`.",
+        "Unsupported performance profile `$(profile)`. Use `:smoke`, `:short`, ",
+        "`:medium`, or `:full`.",
     )
 end
 
