@@ -108,7 +108,7 @@ struct CompiledEnvironmentBindings{SC,B,I,S,C}
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBC,MBI,SVI,AO,TL}
+struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBC,CO,AC,MBI,SVI,CE,AO,TL}
     model::SC
     applications::AP
     applications_by_id::AI
@@ -119,8 +119,11 @@ struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBC,MBI,SVI,AO,TL}
     call_bindings_by_target::CBI
     dynamic_input_binding_indices::DBI
     many_input_binding_cache::MBC
+    call_owners::CO
+    application_children::AC
     model_bundles_by_target::MBI
     status_views_by_target::SVI
+    changed_execution_application_ids::CE
     application_order::AO
     timeline::TL
     revision::Int
@@ -219,7 +222,16 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         ),
     )
     call_bindings_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
-    application_order = _compile_model_application_order(applications, input_bindings, call_bindings)
+    call_owners = _model_call_owners(call_bindings)
+    application_children = _compile_model_application_children(
+        applications,
+        input_bindings,
+        call_owners,
+    )
+    application_order = _stable_topological_application_order(
+        applications,
+        application_children,
+    )
     applications_by_id = Dict(application.id => application for application in applications)
     model_bundles_by_target = _compile_model_model_bundles(
         applications,
@@ -244,8 +256,11 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         call_bindings_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
         many_input_binding_cache,
+        call_owners,
+        application_children,
         model_bundles_by_target,
         status_views_by_target,
+        Set(application.id for application in applications),
         application_order,
         timeline,
         model.revision,
@@ -875,12 +890,14 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     input_bindings_by_target = Dict{Any,Any}(compiled.input_bindings_by_target)
     many_binding_cache = copy(compiled.many_input_binding_cache)
     changed_bindings = CompiledModelInputBinding[]
+    order_changed_bindings = CompiledModelInputBinding[]
     rewired_consumer_ids = Set{ObjectId}()
     affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
     previous_temporal_sources =
         Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
+    application_edges_may_shrink = false
     candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
     for object_id in added_ids
         object_scale = _model_object(model, object_id).scale
@@ -905,6 +922,8 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         previous_source_ids = binding.carrier_hint == :temporal_stream ?
                               copy(binding.source_ids) :
                               ObjectId[]
+        previous_source_application_ids =
+            copy(binding.source_application_ids)
         binding.multiplicity == :many &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
@@ -923,6 +942,9 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             applications_by_object,
         )
         if appended_sources
+            previous_source_application_ids !=
+            binding.source_application_ids &&
+                push!(order_changed_bindings, binding)
             if binding.carrier_hint == :temporal_stream &&
                previous_source_ids != binding.source_ids
                 key = (binding.application_id, binding.consumer_id)
@@ -958,8 +980,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             model,
             only(replacement),
         )
+        issubset(
+            previous_source_application_ids,
+            replacement_binding.source_application_ids,
+        ) || (application_edges_may_shrink = true)
         input_bindings[index] = replacement_binding
         push!(changed_bindings, replacement_binding)
+        push!(order_changed_bindings, replacement_binding)
         push!(rewired_consumer_ids, binding.consumer_id)
         if binding.carrier_hint == :temporal_stream
             key = (binding.application_id, binding.consumer_id)
@@ -999,6 +1026,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
                 end
                 new_bindings = input_bindings[first_new_binding:last_new_binding]
                 append!(changed_bindings, new_bindings)
+                append!(order_changed_bindings, new_bindings)
                 input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
             end
         end
@@ -1026,12 +1054,35 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             :consumer_id,
         ),
     )
-    # Newly resolved inputs can introduce ordering edges that did not exist
-    # while a dynamic application's target set was empty. Recompute the
-    # schedule before compiling status views and execution batches so new
-    # targets observe the same dependency contract as initial targets.
-    application_order =
-        _compile_model_application_order(applications, input_bindings, call_bindings)
+    call_owners = _model_call_owners(call_bindings)
+    application_children = if !application_edges_may_shrink &&
+                              call_owners == compiled.call_owners
+        children = Dict(
+            application_id => copy(child_ids)
+            for (application_id, child_ids) in compiled.application_children
+        )
+        _model_input_order_edges!(
+            children,
+            order_changed_bindings,
+            call_owners,
+        )
+        _model_update_order_edges!(children, added_applications)
+    else
+        _compile_model_application_children(
+            applications,
+            input_bindings,
+            call_owners,
+        )
+    end
+    application_order = if application_children ==
+                           compiled.application_children
+        compiled.application_order
+    else
+        _stable_topological_application_order(
+            applications,
+            application_children,
+        )
+    end
     if application_order != compiled.application_order
         for (key, view) in compiled.status_views_by_target
             isempty(view.temporal_inputs) && continue
@@ -1102,6 +1153,24 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         affected_temporal_keys,
         previous_temporal_sources,
     )
+    changed_execution_application_ids = Set(keys(new_targets))
+    union!(
+        changed_execution_application_ids,
+        first(key) for key in affected_model_bundle_targets
+    )
+    union!(
+        changed_execution_application_ids,
+        first(key) for key in affected_temporal_keys
+    )
+    for object_id in rewired_consumer_ids
+        union!(
+            changed_execution_application_ids,
+            (
+                application.id
+                for application in get(applications_by_object, object_id, ())
+            ),
+        )
+    end
     return CompiledCompositeModel(
         model,
         applications,
@@ -1113,8 +1182,11 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         call_bindings_by_target,
         dynamic_input_binding_indices,
         many_binding_cache,
+        call_owners,
+        application_children,
         model_bundles_by_target,
         status_views_by_target,
+        changed_execution_application_ids,
         application_order,
         timeline,
         model.revision,
@@ -2594,11 +2666,23 @@ function _stable_topological_application_order(applications, children)
     return order
 end
 
-function _compile_model_application_order(applications, input_bindings, call_bindings)
+function _compile_model_application_children(
+    applications,
+    input_bindings,
+    call_owners,
+)
     children = Dict{Symbol,Set{Symbol}}()
-    call_owners = _model_call_owners(call_bindings)
     _model_input_order_edges!(children, input_bindings, call_owners)
     _model_update_order_edges!(children, applications)
+    return children
+end
+
+function _compile_model_application_order(applications, input_bindings, call_bindings)
+    children = _compile_model_application_children(
+        applications,
+        input_bindings,
+        _model_call_owners(call_bindings),
+    )
     return _stable_topological_application_order(applications, children)
 end
 

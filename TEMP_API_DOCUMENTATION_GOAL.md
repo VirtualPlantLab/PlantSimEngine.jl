@@ -351,8 +351,17 @@ Current restoration checkpoints on the same staged XPalm fixture:
       `4.285781` seconds and allocates `2.719 GB`.
 - [x] Reference-output collection is measured separately at `0.597552`
       seconds and `67.4 MB`.
-- [ ] Rerun and persist the exact 4,160-day fixture after the remaining
-      allocation work; the 1,000-day checkpoint is not the acceptance result.
+- [x] At `4bf7575e`, the exact 4,160-day `outputs=:none` fixture took
+      `110.872` seconds and allocated `48.889 GB`.
+- [x] The lifecycle hard-call delta committed as `bb619c4e` reduced that
+      fixture to `52.918` seconds and `29.360 GB`.
+- [x] With the persistent dependency graph and delta execution-plan refresh,
+      the current worktree takes `48.935` seconds and allocates `23.590 GB`.
+- [ ] The current full-cycle result is still not an acceptance result:
+      `phytomer_count=344` and `ftsw=0.7991179101191208` agree with the
+      historical fixture, but `lai=4.897520126027398` does not equal the
+      historical `5.0587602356164405`, and the runtime remains above the
+      `<=15` second release gate.
 
 ### Performance invariants
 
@@ -364,7 +373,7 @@ Current restoration checkpoints on the same staged XPalm fixture:
 - [x] Adding objects extends or replaces only affected compiled structures.
       Unaffected targets retain their status views, temporal storage, reference
       carriers, call bindings, environment handles, and execution batches.
-- [x] Lifecycle extension cost scales with the number of added, removed,
+- [ ] Lifecycle extension cost scales with the number of added, removed,
       reparented, or moved objects and the applications affected by that delta.
 - [x] Temporal dependency state is distinct from user-retained output history.
 - [x] Dynamic dispatch remains at compiled batch boundaries, not inside the
@@ -428,7 +437,7 @@ reproductive objects.
 - [x] When a dynamic hard-call selector starts matching a new object, update
       only that binding and the callers whose compiled bundle actually changes.
       Do not rebuild every call binding or model bundle.
-- [ ] Cache the application dependency graph or its edge set. Recompute
+- [x] Cache the application dependency graph or its edge set. Recompute
       application order only when a lifecycle delta introduces or removes an
       ordering edge.
 - [x] Extend the execution plan by appending a new target to a compatible typed

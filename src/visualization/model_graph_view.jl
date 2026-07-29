@@ -172,6 +172,12 @@ function _model_graph_compiled(
         input_by_target,
         application_order,
     )
+    call_owners = _model_call_owners(call_bindings)
+    application_children = _compile_model_application_children(
+        applications,
+        input_bindings,
+        call_owners,
+    )
     return CompiledCompositeModel(
         model,
         applications,
@@ -183,8 +189,11 @@ function _model_graph_compiled(
         call_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
         _many_input_binding_cache(model, input_bindings),
+        call_owners,
+        application_children,
         model_bundles,
         status_views,
+        Set(application.id for application in applications),
         application_order,
         _model_timeline(model),
         model.revision,

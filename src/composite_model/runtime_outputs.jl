@@ -2291,6 +2291,7 @@ function _refresh_model_execution_plan(
     output_retention=nothing,
     constants=nothing,
     performance=nothing,
+    changed_application_ids=nothing,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
     previous_groups = Dict(
@@ -2306,6 +2307,13 @@ function _refresh_model_execution_plan(
         application.id in manual_application_ids && continue
         previous_group = get(previous_groups, application.id, nothing)
         if !isnothing(previous_group) &&
+           !isnothing(changed_application_ids) &&
+           !(application.id in changed_application_ids)
+            push!(groups, previous_group)
+            append!(batches, previous_group.batches)
+            groups_reused += 1
+            continue
+        elseif !isnothing(previous_group) &&
            _model_execution_group_reusable(
             previous_group,
             compiled,
@@ -2959,6 +2967,19 @@ function _targeted_callee_applications(
     return applications
 end
 
+function _applications_use_only_global_environment(
+    model::CompositeModel,
+    applications,
+)
+    return all(applications) do application
+        backend = _environment_backend_from_config(
+            model,
+            environment_config(application.spec),
+        )
+        return isnothing(backend) || backend isa GlobalConstant
+    end
+end
+
 function _targeted_call_environment_bindings(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
@@ -2966,13 +2987,8 @@ function _targeted_call_environment_bindings(
     applications,
     applications_by_id,
 )
-    for application in applications
-        backend = _environment_backend_from_config(
-            model,
-            environment_config(application.spec),
-        )
-        isnothing(backend) || backend isa GlobalConstant || return nothing
-    end
+    _applications_use_only_global_environment(model, applications) ||
+        return nothing
     partial = _compile_environment_bindings_for_applications(
         model,
         applications,
@@ -3504,12 +3520,13 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             previous_status_views,
             simulation.compiled.status_views_by_target,
         )
-        if pure_object_addition &&
-           _model_output_retention_covers_addition(
+        output_retention_reused = pure_object_addition &&
+                                  _model_output_retention_covers_addition(
             simulation.output_retention,
             previous_status_views,
             simulation.compiled,
         )
+        if output_retention_reused
             _runtime_performance_count!(
                 simulation.performance,
                 :output_retention_reuses,
@@ -3550,6 +3567,16 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.performance,
             :environment_refreshes,
         )
+        changed_execution_application_ids =
+            if output_retention_reused &&
+               _applications_use_only_global_environment(
+                model,
+                simulation.compiled.applications,
+            )
+                simulation.compiled.changed_execution_application_ids
+            else
+                nothing
+            end
         started_at = _runtime_performance_start(simulation.performance)
         execution_refresh = _refresh_model_execution_plan(
             simulation.execution_plan,
@@ -3559,6 +3586,7 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.output_retention,
             simulation.constants,
             simulation.performance,
+            changed_execution_application_ids,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(
