@@ -187,6 +187,36 @@ mutable struct RunContext{CS,A,CT,TS,OR,C,E}
     constants::C
     publication_allowed::Bool
     environment::E
+    targeted_topology_runtime::Any
+end
+
+function RunContext(
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    calls,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+)
+    return RunContext(
+        compiled,
+        environment_bindings,
+        application,
+        object_id,
+        calls,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publication_allowed,
+        environment,
+        nothing,
+    )
 end
 
 struct CallTarget{CS,EB,A,M,S,VS,TI,MB,CT,ENV,TS,OR,C,E}
@@ -767,6 +797,21 @@ function _model_latest_sample(samples, time::Real)
     for index in reverse(eachindex(samples))
         sample_t, value = samples[index]
         sample_t <= requested_time && return value
+    end
+    return nothing
+end
+
+@inline function _model_latest_sample(
+    samples::TemporalDependencyBuffer,
+    time::Real,
+)
+    requested_time = float(time)
+    capacity = length(samples.times)
+    for offset in (samples.sample_count - 1):-1:0
+        slot = mod1(samples.first_slot + offset, capacity)
+        sample_time = @inbounds samples.times[slot]
+        sample_time <= requested_time &&
+            return @inbounds samples.values[slot]
     end
     return nothing
 end
@@ -1380,6 +1425,7 @@ end
         context.temporal_streams = temporal_streams
         context.output_retention = output_retention
         context.constants = constants
+        context.targeted_topology_runtime = nothing
     end
     context.time = float(time)
     context.publication_allowed = publication_allowed
@@ -3126,6 +3172,20 @@ struct _ApplicationsByObjectOverlay{B,O}
     overlay::O
 end
 
+mutable struct _TargetedApplicationSet{A,B}
+    applications::A
+    applications_by_object::B
+    outputs_prepared::Bool
+end
+
+mutable struct _TargetedTopologyRuntime{CS}
+    compiled::CS
+    model_revision::Int
+    application_sets::Dict{Tuple{Vararg{ObjectId}},Any}
+    manual_application_ids::Set{Symbol}
+    application_positions::Dict{Symbol,Int}
+end
+
 @inline function Base.get(
     applications::_ApplicationsByObjectOverlay,
     object_id,
@@ -3134,6 +3194,31 @@ end
     overlay = get(applications.overlay, object_id, nothing)
     isnothing(overlay) || return overlay
     return get(applications.base, object_id, default)
+end
+
+function _targeted_topology_runtime!(
+    context::RunContext,
+    model::CompositeModel,
+)
+    cached = context.targeted_topology_runtime
+    if cached isa _TargetedTopologyRuntime &&
+       cached.compiled === context.compiled &&
+       cached.model_revision == model.revision
+        return cached
+    end
+    compiled = context.compiled
+    runtime = _TargetedTopologyRuntime(
+        compiled,
+        model.revision,
+        Dict{Tuple{Vararg{ObjectId}},Any}(),
+        _manual_call_application_ids(compiled.call_bindings),
+        Dict(
+            application_id => index
+            for (index, application_id) in pairs(compiled.application_order)
+        ),
+    )
+    context.targeted_topology_runtime = runtime
+    return runtime
 end
 
 function _new_object_applications(
@@ -3185,6 +3270,28 @@ function _new_object_applications(
             by_object,
         ),
     )
+end
+
+function _targeted_application_set!(
+    runtime::_TargetedTopologyRuntime,
+    model::CompositeModel,
+    requested_ids,
+)
+    key = Tuple(requested_ids)
+    return get!(runtime.application_sets, key) do
+        applications = _new_object_applications(
+            model,
+            runtime.compiled,
+            requested_ids,
+        )
+        isnothing(applications) && return nothing
+        output_applications, applications_by_object = applications
+        return _TargetedApplicationSet(
+            output_applications,
+            applications_by_object,
+            false,
+        )
+    end
 end
 
 function _targeted_callee_applications(
@@ -3297,13 +3404,15 @@ function _targeted_new_object_call_targets(
     )
 
     compiled = context.compiled
-    new_applications = _new_object_applications(
+    targeted_runtime = _targeted_topology_runtime!(context, model)
+    application_set = _targeted_application_set!(
+        targeted_runtime,
         model,
-        compiled,
         requested_ids,
     )
-    isnothing(new_applications) && return nothing
-    output_applications, applications_by_object = new_applications
+    isnothing(application_set) && return nothing
+    output_applications = application_set.applications
+    applications_by_object = application_set.applications_by_object
     callee_applications = _targeted_callee_applications(
         binding,
         requested_ids,
@@ -3311,10 +3420,10 @@ function _targeted_new_object_call_targets(
     )
     isnothing(callee_applications) && return nothing
 
-    _prepare_model_output_statuses!(model, output_applications)
-    manual_application_ids = _manual_call_application_ids(
-        compiled.call_bindings,
-    )
+    if !application_set.outputs_prepared
+        _prepare_model_output_statuses!(model, output_applications)
+        application_set.outputs_prepared = true
+    end
     input_bindings = CompiledModelInputBinding[]
     for application in callee_applications
         for object_id in application.target_ids
@@ -3323,7 +3432,7 @@ function _targeted_new_object_call_targets(
                 model,
                 application,
                 object_id,
-                manual_application_ids,
+                targeted_runtime.manual_application_ids,
                 applications_by_object,
                 compiled.applications_by_id,
             )
@@ -3350,10 +3459,6 @@ function _targeted_new_object_call_targets(
         :application_id,
         :consumer_id,
     )
-    application_positions = Dict(
-        application_id => index
-        for (index, application_id) in pairs(compiled.application_order)
-    )
 
     environment_bindings = _targeted_call_environment_bindings(
         model,
@@ -3375,7 +3480,7 @@ function _targeted_new_object_call_targets(
                 object_id,
                 get(targeted_input_bindings, key, ()),
                 compiled.applications_by_id,
-                application_positions,
+                targeted_runtime.application_positions,
             )
             push!(
                 targets,
