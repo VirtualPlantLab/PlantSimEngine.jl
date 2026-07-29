@@ -200,6 +200,106 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
 end
 
 if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm full warmed no-output performance")
+    @testset "XPalm full warmed no-output performance" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        warmup_model, warmup_steps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
+        xpalm_reference_param_run(
+            warmup_model,
+            OutputRequest[],
+            warmup_steps;
+            outputs=:none,
+        )
+        model, nsteps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
+        metadata = _performance_metadata(;
+            warmup_policy="unmeasured complete 4,160-day lifecycle run",
+        )
+        records = NamedTuple[]
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-full-warmed-no-output-latest.csv",
+        )
+        simulation = _measure_performance_stage!(
+            records,
+            metadata,
+            :full,
+            :simulation_warmed_no_outputs,
+            output_path,
+        ) do
+            xpalm_reference_param_run(
+                model,
+                OutputRequest[],
+                nsteps;
+                outputs=:none,
+            )
+        end
+        final_state = xpalm_reference_final_state(simulation)
+        _record_xpalm_state!(
+            records,
+            metadata,
+            :full,
+            :final_state_warmed_no_outputs,
+            final_state,
+        )
+        _checkpoint_performance_records(output_path, records)
+        wall_time = only(
+            row.value for row in records
+            if row.stage == "simulation_warmed_no_outputs" &&
+               row.metric == "wall_time"
+        )
+        @test final_state.current_step == PERFORMANCE_FULL_STEPS
+        @test final_state.phytomer_count == 344
+        @test wall_time <= 20.0
+        @test isfile(output_path)
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("XPalm full steady tail performance")
+    @testset "XPalm full steady tail performance" begin
+        include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        _warmup_xpalm_performance!(PERFORMANCE_SHORT_STEPS)
+        model, nsteps =
+            xpalm_reference_model_create(; nsteps=PERFORMANCE_FULL_STEPS)
+        tail_steps = 660
+        simulation = xpalm_reference_param_run(
+            model,
+            OutputRequest[],
+            nsteps - tail_steps;
+            outputs=:none,
+        )
+        GC.gc()
+        measurement = @timed PlantSimEngine.continue!(
+            simulation;
+            steps=tail_steps,
+        )
+        output_path = joinpath(
+            @__DIR__,
+            "..",
+            "results",
+            "xpalm-full-steady-tail-latest.csv",
+        )
+        CSV.write(
+            output_path,
+            DataFrame(
+                metric=["wall_time", "allocated", "gc_time"],
+                value=[
+                    measurement.time,
+                    measurement.bytes,
+                    measurement.gctime,
+                ],
+            ),
+        )
+        @test current_step(simulation) == PERFORMANCE_FULL_STEPS
+        @test isfile(output_path)
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
    benchmark_test_enabled("XPalm allocation profile short")
     @testset "XPalm allocation profile short" begin
         include(joinpath(@__DIR__, "..", "performance_regression.jl"))

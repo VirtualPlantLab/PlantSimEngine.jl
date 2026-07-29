@@ -356,12 +356,19 @@ Current restoration checkpoints on the same staged XPalm fixture:
 - [x] The lifecycle hard-call delta committed as `bb619c4e` reduced that
       fixture to `52.918` seconds and `29.360 GB`.
 - [x] With the persistent dependency graph and delta execution-plan refresh,
-      the current worktree takes `48.935` seconds and allocates `23.590 GB`.
+      the full run took `48.935` seconds and allocated `23.590 GB`.
+- [x] Typed global-weather rows, compiler-owned target deltas, cached timeline
+      reuse, and disabled-path instrumentation removal reduce the fully warmed
+      4,160-day run to `14.382` seconds and `9.268 GB`.
+- [x] The same checkpoint reduces a fully compiled 660-day mature-canopy tail
+      from `4.834` seconds and `4.740 GB` to approximately `4.2` seconds and
+      `2.5 GB`.
 - [ ] The current full-cycle result is still not an acceptance result:
       `phytomer_count=344` and `ftsw=0.7991179101191208` agree with the
       historical fixture, but `lai=4.897520126027398` does not equal the
-      historical `5.0587602356164405`, and the runtime remains above the
-      `<=15` second release gate.
+      historical `5.0587602356164405`. The warmed runtime now passes the
+      `<=15` second performance component, but correctness remains
+      release-blocking.
 
 ### Performance invariants
 
@@ -561,6 +568,8 @@ execution path.
 
 - [ ] First restoration milestone: complete the exact XPalm full-cycle
       reference in at most 15 seconds on the baseline machine after warm-up.
+      The performance component currently passes at `14.382` seconds; this
+      remains unchecked until the historical final state also matches.
 - [ ] Final target: complete it in at most 10 seconds, or document and obtain
       explicit approval for any remaining measured cost required by the new
       semantics.

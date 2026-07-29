@@ -90,6 +90,9 @@ function _meteo_row_at_step(meteo, i::Int)
     return meteo
 end
 
+@inline _meteo_row_at_step(meteo::DataFrames.DataFrame, i::Int) =
+    DataFrames.DataFrameRow(meteo, i, :)
+
 function _available_meteo_variables(meteo)
     row = _first_meteo_row(meteo)
     isnothing(row) && return nothing

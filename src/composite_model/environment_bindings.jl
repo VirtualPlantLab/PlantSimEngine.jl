@@ -208,12 +208,34 @@ function _model_environment_samplers(bindings)
     return samplers_by_application
 end
 
+struct PreparedGlobalMeteoRows{R}
+    rows::R
+end
+
+# A `GlobalConstant` table is immutable simulation input. Materialize
+# heterogeneous DataFrame rows once so model kernels receive concrete
+# `NamedTuple` rows instead of type-erased `DataFrameRow` property values.
+_prepare_global_meteo(meteo::DataFrames.AbstractDataFrame) =
+    PreparedGlobalMeteoRows(Tables.rowtable(meteo))
+_prepare_global_meteo(meteo) = meteo
+
+function _prepared_global_meteo(bindings, cache=IdDict{Any,Any}())
+    for binding in bindings
+        binding.backend isa GlobalConstant || continue
+        meteo = environment_meteo(binding.backend)
+        haskey(cache, meteo) && continue
+        cache[meteo] = _prepare_global_meteo(meteo)
+    end
+    return cache
+end
+
 function _compiled_environment_bindings(
     model::CompositeModel,
     compiled::CompiledCompositeModel,
     bindings,
     by_target,
     samplers_by_application=_model_environment_samplers(bindings),
+    prepared_global_meteo=_prepared_global_meteo(bindings),
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
 )
     return CompiledEnvironmentBindings(
@@ -221,6 +243,7 @@ function _compiled_environment_bindings(
         bindings,
         by_target,
         samplers_by_application,
+        prepared_global_meteo,
         sample_cache,
         model.revision,
         model.environment_revision,
@@ -387,6 +410,7 @@ function _refresh_environment_bindings_for_objects(
             cached.bindings,
             cached.by_target,
             cached.samplers_by_application,
+            cached.prepared_global_meteo,
             cached.sample_cache,
         )
     end
@@ -412,6 +436,7 @@ function _refresh_environment_bindings_for_objects(
         bindings,
         by_target,
         cached.samplers_by_application,
+        cached.prepared_global_meteo,
         cached.sample_cache,
     )
 end

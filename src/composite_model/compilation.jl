@@ -97,18 +97,19 @@ struct CompiledEnvironmentBinding{B,H,C}
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I,S,C}
+struct CompiledEnvironmentBindings{SC,B,I,S,P,C}
     model::SC
     bindings::B
     by_target::I
     samplers_by_application::S
+    prepared_global_meteo::P
     sample_cache::C
     model_revision::Int
     environment_revision::Int
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBC,CO,AC,MBI,SVI,CE,AO,TL}
+struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,MBI,SVI,CE,CET,PA,AO,TL}
     model::SC
     applications::AP
     applications_by_id::AI
@@ -118,12 +119,15 @@ struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,MBC,CO,AC,MBI,SVI,C
     input_bindings_by_target::IBI
     call_bindings_by_target::CBI
     dynamic_input_binding_indices::DBI
+    dynamic_call_binding_indices::DCBI
     many_input_binding_cache::MBC
     call_owners::CO
     application_children::AC
     model_bundles_by_target::MBI
     status_views_by_target::SVI
     changed_execution_application_ids::CE
+    changed_execution_target_ids::CET
+    status_view_refresh_is_pure_addition::PA
     application_order::AO
     timeline::TL
     revision::Int
@@ -141,7 +145,7 @@ function _dynamic_binding_scale_keys(model::CompositeModel, binding)
     return Symbol[Symbol(value) for value in (scale isa Tuple ? scale : (scale,))]
 end
 
-function _index_dynamic_input_bindings(model::CompositeModel, bindings)
+function _index_dynamic_bindings(model::CompositeModel, bindings)
     index = Dict{Union{Nothing,Symbol},Vector{Int}}()
     for (binding_index, binding) in pairs(bindings)
         for scale in _dynamic_binding_scale_keys(model, binding)
@@ -150,6 +154,11 @@ function _index_dynamic_input_bindings(model::CompositeModel, bindings)
     end
     return index
 end
+
+_index_dynamic_input_bindings(model::CompositeModel, bindings) =
+    _index_dynamic_bindings(model, bindings)
+_index_dynamic_call_bindings(model::CompositeModel, bindings) =
+    _index_dynamic_bindings(model, bindings)
 
 function _index_model_bindings(bindings, application_field::Symbol, object_field::Symbol)
     grouped = Dict{Tuple{Symbol,ObjectId},Vector{Any}}()
@@ -255,12 +264,15 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         input_bindings_by_target,
         call_bindings_by_target,
         _index_dynamic_input_bindings(model, input_bindings),
+        _index_dynamic_call_bindings(model, call_bindings),
         many_input_binding_cache,
         call_owners,
         application_children,
         model_bundles_by_target,
         status_views_by_target,
         Set(application.id for application in applications),
+        Set(keys(status_views_by_target)),
+        false,
         application_order,
         timeline,
         model.revision,
@@ -752,7 +764,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         calls = model_calls(application.spec)
         calls isa NamedTuple && !isempty(keys(calls))
     end
-    timeline = _model_timeline(model)
+    timeline = compiled.timeline
     added_applications = CompiledModelApplication[]
     for application in applications
         target_ids = get(new_targets, application.id, ObjectId[])
@@ -776,7 +788,21 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         Set{Tuple{Symbol,ObjectId}}()
     rebuilt_existing_call_targets = Set{Tuple{Symbol,ObjectId}}()
     if has_calls
-        for binding in compiled.call_bindings
+        candidate_call_binding_indices =
+            Set(get(compiled.dynamic_call_binding_indices, nothing, Int[]))
+        for object_id in added_ids
+            object_scale = _model_object(model, object_id).scale
+            isnothing(object_scale) || union!(
+                candidate_call_binding_indices,
+                get(
+                    compiled.dynamic_call_binding_indices,
+                    object_scale,
+                    Int[],
+                ),
+            )
+        end
+        for binding_index in candidate_call_binding_indices
+            binding = compiled.call_bindings[binding_index]
             _selector_matches_any_object_id(
                 model,
                 binding.selector,
@@ -872,6 +898,21 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
     end
     append!(call_bindings, new_call_bindings)
+    dynamic_call_binding_indices =
+        Dict{Union{Nothing,Symbol},Vector{Int}}(
+            scale => copy(indices)
+            for (scale, indices) in compiled.dynamic_call_binding_indices
+        )
+    first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
+    for binding_index in first_new_call_binding:length(call_bindings)
+        binding = call_bindings[binding_index]
+        for scale in _dynamic_binding_scale_keys(model, binding)
+            push!(
+                get!(dynamic_call_binding_indices, scale, Int[]),
+                binding_index,
+            )
+        end
+    end
     _validate_model_call_cadences!(
         applications,
         (replacement_call_bindings..., new_call_bindings...),
@@ -1153,24 +1194,32 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         affected_temporal_keys,
         previous_temporal_sources,
     )
-    changed_execution_application_ids = Set(keys(new_targets))
-    union!(
-        changed_execution_application_ids,
-        first(key) for key in affected_model_bundle_targets
+    changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}(
+        (application_id, object_id)
+        for (application_id, object_ids) in new_targets
+        for object_id in object_ids
     )
     union!(
-        changed_execution_application_ids,
-        first(key) for key in affected_temporal_keys
+        changed_execution_target_ids,
+        affected_model_bundle_targets,
+    )
+    union!(
+        changed_execution_target_ids,
+        affected_temporal_keys,
     )
     for object_id in rewired_consumer_ids
         union!(
-            changed_execution_application_ids,
+            changed_execution_target_ids,
             (
-                application.id
+                (application.id, object_id)
                 for application in get(applications_by_object, object_id, ())
             ),
         )
     end
+    changed_execution_application_ids = Set(
+        first(key) for key in changed_execution_target_ids
+    )
+    status_view_refresh_is_pure_addition = true
     return CompiledCompositeModel(
         model,
         applications,
@@ -1181,12 +1230,15 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         input_bindings_by_target,
         call_bindings_by_target,
         dynamic_input_binding_indices,
+        dynamic_call_binding_indices,
         many_binding_cache,
         call_owners,
         application_children,
         model_bundles_by_target,
         status_views_by_target,
         changed_execution_application_ids,
+        changed_execution_target_ids,
+        status_view_refresh_is_pure_addition,
         application_order,
         timeline,
         model.revision,
