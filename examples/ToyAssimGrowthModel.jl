@@ -41,12 +41,19 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyAssimGrowthModel)
-    (aPPFD=Required(Float64),)
+    (aPPFD=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyAssimGrowthModel)
-    (carbon_assimilation=-Inf, Rm=-Inf, Rg=-Inf, biomass_increment=-Inf, biomass=0.0)
+function PlantSimEngine.outputs_(model::ToyAssimGrowthModel)
+    initial = oftype(model.LUE, -Inf)
+    return (
+        carbon_assimilation=initial,
+        Rm=initial,
+        Rg=initial,
+        biomass_increment=initial,
+        biomass=zero(model.LUE),
+    )
 end
 
 # Tells Julia what is the type of elements:

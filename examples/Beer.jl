@@ -66,12 +66,14 @@ function PlantSimEngine.run!(model::Beer, status, environment, constants, contex
 end
 
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=Required(Float64),)
+    (LAI=Required(Real),)
 end
 
-function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+function PlantSimEngine.outputs_(model::Beer)
+    (aPPFD=oftype(float(model.k), -Inf),)
 end
+
+PlantSimEngine.environment_inputs_(::Beer) = (Ri_PAR_f=0.0,)
 
 
 """

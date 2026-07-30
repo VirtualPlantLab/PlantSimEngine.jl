@@ -30,12 +30,12 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyRUEGrowthModel)
-    (aPPFD=Required(Float64),)
+    (aPPFD=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyRUEGrowthModel)
-    (biomass=0.0, biomass_increment=-Inf)
+function PlantSimEngine.outputs_(model::ToyRUEGrowthModel)
+    (biomass=zero(model.efficiency), biomass_increment=oftype(float(model.efficiency), -Inf))
 end
 
 # Tells Julia what is the type of elements:

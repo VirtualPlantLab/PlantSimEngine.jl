@@ -24,7 +24,11 @@ Computes the light partitioning based on relative surface.
 struct ToyLightPartitioningModel <: AbstractLight_PartitioningModel end
 
 # Define inputs:
-PlantSimEngine.inputs_(::ToyLightPartitioningModel) = (aPPFD_larger_scale=Required(Float64), total_surface=Required(Float64), surface=Required(Float64),)
+PlantSimEngine.inputs_(::ToyLightPartitioningModel) = (
+    aPPFD_larger_scale=Required(Real),
+    total_surface=Required(Real),
+    surface=Required(Real),
+)
 
 # Define outputs:
 PlantSimEngine.outputs_(::ToyLightPartitioningModel) = (aPPFD=-Inf,)

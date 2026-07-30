@@ -32,6 +32,7 @@ A dummy model implementing a "process2" process for testing purposes.
 struct Process2Model <: AbstractProcess2Model end
 PlantSimEngine.inputs_(::Process2Model) = (var1=Required(Float64), var3=Required(Float64))
 PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
+PlantSimEngine.environment_inputs_(::Process2Model) = (T=0.0, Wind=0.0, Rh=0.0)
 PlantSimEngine.dep(::Process2Model) = (
     process1=PlantSimEngine.Call(PlantSimEngine.One(process=:process1)),
 )

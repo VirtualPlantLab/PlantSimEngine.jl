@@ -31,17 +31,18 @@ end
 
 # Instantiate the `struct` with keyword arguments and default values:
 function ToyCDemandModel(; optimal_biomass, development_duration)
-    ToyCDemandModel(optimal_biomass, development_duration)
+    parameters = promote(float(optimal_biomass), float(development_duration))
+    return ToyCDemandModel(parameters...)
 end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCDemandModel)
-    (TT=Required(Float64),)
+    (TT=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyCDemandModel)
-    (carbon_demand=-Inf,)
+function PlantSimEngine.outputs_(model::ToyCDemandModel)
+    (carbon_demand=oftype(model.optimal_biomass, -Inf),)
 end
 
 # Tells Julia what is the type of elements:

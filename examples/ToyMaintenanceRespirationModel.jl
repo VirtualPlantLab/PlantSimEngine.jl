@@ -30,8 +30,20 @@ struct ToyMaintenanceRespirationModel{T} <: AbstractMaintenance_RespirationModel
     nitrogen_content::T
 end
 
-PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=Required(Float64),)
-PlantSimEngine.outputs_(::ToyMaintenanceRespirationModel) = (Rm=-Inf,)
+function ToyMaintenanceRespirationModel(Q10, Rm_base, T_ref, P_alive, nitrogen_content)
+    parameters = promote(
+        float(Q10),
+        float(Rm_base),
+        float(T_ref),
+        float(P_alive),
+        float(nitrogen_content),
+    )
+    return ToyMaintenanceRespirationModel{typeof(first(parameters))}(parameters...)
+end
+
+PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=Required(Real),)
+PlantSimEngine.outputs_(m::ToyMaintenanceRespirationModel) = (Rm=oftype(m.Rm_base, -Inf),)
+PlantSimEngine.environment_inputs_(m::ToyMaintenanceRespirationModel) = (T=zero(m.T_ref),)
 
 function PlantSimEngine.run!(m::ToyMaintenanceRespirationModel, status, environment, constants, context=nothing)
     status.Rm =
@@ -54,7 +66,7 @@ Total plant maintenance respiration based on the sum of `Rm_organs`, the mainten
 """
 struct ToyPlantRmModel <: AbstractMaintenance_RespirationModel end
 
-PlantSimEngine.inputs_(::ToyPlantRmModel) = (Rm_organs=Required(Vector{Float64}),)
+PlantSimEngine.inputs_(::ToyPlantRmModel) = (Rm_organs=Required(AbstractVector{<:Real}),)
 PlantSimEngine.outputs_(::ToyPlantRmModel) = (Rm=-Inf,)
 
 function PlantSimEngine.run!(::ToyPlantRmModel, status, environment, constants, context=nothing)

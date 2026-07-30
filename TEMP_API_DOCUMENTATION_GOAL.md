@@ -876,9 +876,9 @@ composite simulation naturally runs over time.
       contract explicitly.
 - [ ] Show model environment declarations, `Environment(...)`, source
       remapping, and global sampling.
-- [ ] Correct every reused example model so it declares every environment
+- [x] Correct every reused example model so it declares every environment
       variable it reads.
-- [ ] Run canonical examples against a strict backend that exposes only
+- [x] Run canonical examples against a strict backend that exposes only
       declared variables.
 - [ ] Introduce spatial handles only after the global provider is understood.
 
@@ -999,13 +999,22 @@ Inspect and update these models before inventing new tutorial types:
 
 Before using any of them:
 
-- [ ] Ensure its input, output, environment, and timing declarations match what
+- [x] Ensure its input, output, environment, and timing declarations match what
       its kernel actually reads and writes.
-- [ ] Ensure it uses the final model kernel and accesses its own parameters
+- [x] Ensure it uses the final model kernel and accesses its own parameters
       through the `model` argument.
 - [ ] Ensure its docstring uses current `CompositeModel`/`Object` terminology.
-- [ ] Ensure its numeric fields remain generic where scientifically possible.
-- [ ] Add direct contract tests and at least one composition test.
+- [x] Ensure its numeric fields remain generic where scientifically possible.
+- [x] Add direct contract tests and at least one composition test.
+
+The reusable model audit now checks all sixteen teaching models directly. The
+environment-reading thermal-time, Beer, and maintenance-respiration models
+declare exactly the fields their kernels sample. The canonical coupled chain
+runs with `Float32` parameters and status against forcing containing only `T`,
+`Ri_PAR_f`, and the required timeline duration; omitting `Ri_PAR_f` fails
+environment validation. The focused contract/composition suite passes 71
+checks, and the six-part internal/downstream benchmark smoke suite passes all
+35 checks.
 
 ## Documentation Navigation Target
 

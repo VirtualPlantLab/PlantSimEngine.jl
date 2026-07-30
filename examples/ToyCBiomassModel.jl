@@ -28,12 +28,17 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCBiomassModel)
-    (carbon_allocation=Required(Float64),)
+    (carbon_allocation=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyCBiomassModel)
-    (carbon_biomass_increment=-Inf, carbon_biomass=0.0, growth_respiration=-Inf,)
+function PlantSimEngine.outputs_(model::ToyCBiomassModel)
+    initial = oftype(float(model.construction_cost), -Inf)
+    return (
+        carbon_biomass_increment=initial,
+        carbon_biomass=zero(float(model.construction_cost)),
+        growth_respiration=initial,
+    )
 end
 
 function PlantSimEngine.run!(m::ToyCBiomassModel, status, environment, constants, context)

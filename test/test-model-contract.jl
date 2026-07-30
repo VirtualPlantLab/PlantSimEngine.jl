@@ -29,14 +29,14 @@ PlantSimEngine.environment_outputs_(::ContractExplicitModel) = (T=0,)
     @test output_policy(model) == NamedTuple()
     @test timestep_hint(model) === nothing
     @test environment_hint(model) === nothing
-    @test environment_inputs_(model) == NamedTuple()
-    @test environment_outputs_(model) == NamedTuple()
+    @test PlantSimEngine.environment_inputs_(model) == NamedTuple()
+    @test PlantSimEngine.environment_outputs_(model) == NamedTuple()
 
     explicit = ContractExplicitModel()
     @test timespec(explicit) == ClockSpec(2, 1)
     @test output_policy(explicit).value isa Aggregate
     @test timestep_hint(explicit) == (preferred=Dates.Hour(2),)
     @test environment_hint(explicit) == (window=Dates.Hour(2),)
-    @test environment_inputs_(explicit) == (T=0,)
-    @test environment_outputs_(explicit) == (T=0,)
+    @test PlantSimEngine.environment_inputs_(explicit) == (T=0,)
+    @test PlantSimEngine.environment_outputs_(explicit) == (T=0,)
 end

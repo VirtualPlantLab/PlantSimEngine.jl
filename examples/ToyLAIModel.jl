@@ -26,32 +26,41 @@ Computes the Leaf Area Index (LAI) based on a sigmoid function of thermal time.
 
 - `LAI`: the Leaf Area Index, usually in m² m⁻²
 """
-struct ToyLAIModel <: AbstractLai_DynamicModel
-    max_lai::Float64
-    dd_incslope::Int
-    inc_slope::Float64
-    dd_decslope::Int
-    dec_slope::Float64
+struct ToyLAIModel{T<:Real} <: AbstractLai_DynamicModel
+    max_lai::T
+    dd_incslope::T
+    inc_slope::T
+    dd_decslope::T
+    dec_slope::T
 end
 
 # Defining a method with keyword arguments and default values:
-ToyLAIModel(; max_lai=8.0, dd_incslope=800, inc_slope=110, dd_decslope=1500, dec_slope=20) = ToyLAIModel(max_lai, dd_incslope, inc_slope, dd_decslope, dec_slope)
+function ToyLAIModel(; max_lai=8.0, dd_incslope=800, inc_slope=110, dd_decslope=1500, dec_slope=20)
+    parameters = promote(
+        float(max_lai),
+        float(dd_incslope),
+        float(inc_slope),
+        float(dd_decslope),
+        float(dec_slope),
+    )
+    return ToyLAIModel(parameters...)
+end
 
 # Defining the inputs and outputs of the model:
-PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=Required(Float64),)
-PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
+PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=Required(Real),)
+PlantSimEngine.outputs_(model::ToyLAIModel) = (LAI=oftype(model.max_lai, -Inf),)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(model::ToyLAIModel, status, environment, constants=nothing, context=nothing)
     status.LAI =
         model.max_lai *
-        (1.0 /
-         (1.0 + exp((model.dd_incslope - status.TT_cu) / model.inc_slope)) -
-         1.0 / (1.0 + exp((model.dd_decslope - status.TT_cu) / model.dec_slope))
+        (one(model.max_lai) /
+         (one(model.max_lai) + exp((model.dd_incslope - status.TT_cu) / model.inc_slope)) -
+         one(model.max_lai) / (one(model.max_lai) + exp((model.dd_decslope - status.TT_cu) / model.dec_slope))
         )
 
-    if status.LAI < 0.0
-        status.LAI = 0.0
+    if status.LAI < zero(model.max_lai)
+        status.LAI = zero(model.max_lai)
     end
 end
 
@@ -82,8 +91,13 @@ struct ToyLAIfromLeafAreaModel{T} <: AbstractLai_DynamicModel
 end
 
 # Defining the inputs and outputs of the model:
-PlantSimEngine.inputs_(::ToyLAIfromLeafAreaModel) = (plant_surfaces=Required(Vector{Float64}),)
-PlantSimEngine.outputs_(::ToyLAIfromLeafAreaModel) = (LAI=-Inf, total_surface=-Inf)
+PlantSimEngine.inputs_(::ToyLAIfromLeafAreaModel) = (
+    plant_surfaces=Required(AbstractVector{<:Real}),
+)
+PlantSimEngine.outputs_(m::ToyLAIfromLeafAreaModel) = (
+    LAI=oftype(float(m.scene_area), -Inf),
+    total_surface=oftype(float(m.scene_area), -Inf),
+)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
 function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, status, environment, constants=nothing, context=nothing)

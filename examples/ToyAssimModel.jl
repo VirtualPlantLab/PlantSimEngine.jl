@@ -39,12 +39,12 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyAssimModel)
-    (aPPFD=Required(Float64), soil_water_content=Required(Float64))
+    (aPPFD=Required(Real), soil_water_content=Required(Real))
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyAssimModel)
-    (carbon_assimilation=-Inf,)
+function PlantSimEngine.outputs_(model::ToyAssimModel)
+    (carbon_assimilation=oftype(float(model.LUE), -Inf),)
 end
 
 # Tells Julia what is the type of elements:
