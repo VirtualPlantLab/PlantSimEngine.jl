@@ -138,7 +138,10 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             :(include(path) = Base.include(@__MODULE__, path)),
         )
         include_error = try
-            withenv("PSE_BENCHMARK_INCLUDE_DOWNSTREAM" => "false") do
+            withenv(
+                "GITHUB_ACTIONS" => "true",
+                "PSE_BENCHMARK_INCLUDE_DOWNSTREAM" => nothing,
+            ) do
                 Base.include(
                     benchmark_module,
                     joinpath(@__DIR__, "..", "benchmarks.jl"),

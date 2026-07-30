@@ -17,8 +17,11 @@ elseif Sys.islinux()
     suite_name = suite_name * "linux"
 end
 const SUITE = BenchmarkGroup()
-const INCLUDE_DOWNSTREAM_BENCHMARKS =
-    get(ENV, "PSE_BENCHMARK_INCLUDE_DOWNSTREAM", "true") == "true"
+const INCLUDE_DOWNSTREAM_BENCHMARKS = get(
+    ENV,
+    "PSE_BENCHMARK_INCLUDE_DOWNSTREAM",
+    get(ENV, "GITHUB_ACTIONS", "false") == "true" ? "false" : "true",
+) == "true"
 SUITE[suite_name] = BenchmarkGroup(
     INCLUDE_DOWNSTREAM_BENCHMARKS ? ["PSE", "PBP", "XPalm"] : ["PSE"],
 )

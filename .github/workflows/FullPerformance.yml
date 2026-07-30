@@ -1,12 +1,6 @@
 name: Full XPalm performance
 
 on:
-  pull_request:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/FullPerformance.yml"
-      - "benchmark/**"
   schedule:
     - cron: "17 2 * * *"
   push:
@@ -22,6 +16,18 @@ on:
       plantbiophysics_ref:
         description: PlantBiophysics branch, tag, or commit
         required: true
+        default: master
+        type: string
+  workflow_call:
+    inputs:
+      xpalm_ref:
+        description: XPalm branch, tag, or commit
+        required: false
+        default: main
+        type: string
+      plantbiophysics_ref:
+        description: PlantBiophysics branch, tag, or commit
+        required: false
         default: master
         type: string
 
@@ -40,6 +46,7 @@ jobs:
     env:
       JULIA_NUM_THREADS: "1"
       JULIA_PKG_PRECOMPILE_AUTO: "0"
+      PSE_BENCHMARK_INCLUDE_DOWNSTREAM: "true"
     steps:
       - name: Check out PlantSimEngine
         uses: actions/checkout@v6
@@ -50,14 +57,14 @@ jobs:
         uses: actions/checkout@v6
         with:
           repository: PalmStudio/XPalm.jl
-          ref: ${{ inputs.xpalm_ref || 'codex/xpalm-release-regression' }}
+          ref: ${{ inputs.xpalm_ref || 'main' }}
           path: downstream/XPalm
 
       - name: Check out PlantBiophysics
         uses: actions/checkout@v6
         with:
           repository: VEZY/PlantBiophysics.jl
-          ref: ${{ inputs.plantbiophysics_ref || 'multi-plant' }}
+          ref: ${{ inputs.plantbiophysics_ref || 'master' }}
           path: downstream/PlantBiophysics
 
       - name: Set up Julia

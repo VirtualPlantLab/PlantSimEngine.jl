@@ -3,10 +3,18 @@ on:
   pull_request_target:
     branches: [ main ]
   workflow_dispatch:
+    inputs:
+      full_performance:
+        description: Run the complete XPalm performance workflow
+        required: false
+        default: false
+        type: boolean
 permissions:
   pull-requests: write
+  contents: read
 jobs:
   bench:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.full_performance }}
     name: Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{
       github.event_name }}
     runs-on: ${{ matrix.os }}
@@ -27,3 +35,10 @@ jobs:
         with:
           julia-version: ${{ matrix.version }}
           bench-on: ${{ github.event.pull_request.head.sha }}
+
+  full-performance:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_performance }}
+    uses: ./.github/workflows/FullPerformance.yml
+    with:
+      xpalm_ref: codex/xpalm-release-regression
+      plantbiophysics_ref: multi-plant
