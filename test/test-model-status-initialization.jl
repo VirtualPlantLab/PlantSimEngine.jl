@@ -79,6 +79,10 @@ PlantSimEngine.outputs_(::GenericRequiredInitializationModel) = NamedTuple()
     @test typed.supplied == Int
     @test typed.offset == Int
     @test typed.observed == Int
+    PlantSimEngine._input_schema(InitializationConsumerModel())
+    @test @allocated(
+        PlantSimEngine._input_schema(InitializationConsumerModel())
+    ) == 0
     invalid = CompositeModel(
         InvalidInitializationSchemaModel();
         status=(legacy_literal=1.0,),

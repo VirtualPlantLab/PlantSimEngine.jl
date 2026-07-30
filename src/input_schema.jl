@@ -23,6 +23,11 @@ struct Default{T}
 end
 
 _is_input_declaration(value) = value isa Union{Required,Default}
+@inline _has_only_input_declarations(::Tuple{}) = true
+@inline function _has_only_input_declarations(declarations::Tuple)
+    return _is_input_declaration(first(declarations)) &&
+           _has_only_input_declarations(Base.tail(declarations))
+end
 
 _input_expected_type(::Required{T}) where {T} = T
 _input_expected_type(declaration::Default) = typeof(declaration.value)
@@ -36,7 +41,8 @@ end
 
 _private_initial_value(value) = deepcopy(value)
 
-function _validated_input_schema(schema; context="`inputs_`")
+@noinline function _invalid_input_schema_error(model, schema)
+    context = "`inputs_($(typeof(model)))`"
     schema isa NamedTuple || error(
         context,
         " must return a `NamedTuple` of `Required(T)` and `Default(value)` declarations; ",
@@ -57,14 +63,15 @@ function _validated_input_schema(schema; context="`inputs_`")
         ),
         ".",
     )
-    return schema
+    error("Invalid input schema.")
 end
 
-function _input_schema(model)
-    return _validated_input_schema(
-        inputs_(model);
-        context="`inputs_($(typeof(model)))`",
-    )
+@inline function _input_schema(model)
+    schema = inputs_(model)
+    schema isa NamedTuple || return _invalid_input_schema_error(model, schema)
+    _has_only_input_declarations(values(schema)) ||
+        return _invalid_input_schema_error(model, schema)
+    return schema
 end
 
 function _input_default_values(schema::NamedTuple)
