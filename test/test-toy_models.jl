@@ -846,3 +846,141 @@ end
         for row in Diagnostics.explain_environment_bindings(spatial_model)
     ) == Dict(:sun_leaf => :sun, :shade_leaf => :shade)
 end
+
+@testset "Advanced execution-control tutorial composition" begin
+    controller = ToySelectiveCallControllerModel(
+        (28, 31.0f0),
+        22;
+        selected_object=:sun_leaf,
+    )
+    @test PlantSimEngine.inputs_(controller) == NamedTuple()
+    @test PlantSimEngine.outputs_(controller) == (
+        target_count=0,
+        trial_temperature_seen=0.0,
+        accepted_temperature_seen=0.0,
+    )
+
+    environment = ToySpatialEnvironment(
+        Dict(
+            :sun => (T=26.0,),
+            :shade => (T=18.0,),
+        );
+        step_seconds=3600.0,
+    )
+    model = CompositeModel(
+        Object(:plant; scale=:Plant, kind=:plant),
+        Object(
+            :sun_leaf;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            geometry=(cell=:sun,),
+        ),
+        Object(
+            :shade_leaf;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            geometry=(cell=:shade,),
+        );
+        applications=(
+            ModelSpec(
+                ToyEnvironmentReaderModel();
+                name=:reader,
+                on=Many(scale=:Leaf),
+                environment=Environment(backend=environment),
+            ),
+            ModelSpec(
+                controller;
+                name=:controller,
+                on=One(scale=:Plant),
+                calls=(
+                    :readers => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:reader,
+                    ),
+                ),
+            ),
+        ),
+    )
+    simulation = run!(model; outputs=:all)
+    plant_state = final_state(simulation, :plant)
+    leaf_states = final_state(simulation, Many(scale=:Leaf))
+    @test plant_state.target_count == 2
+    @test plant_state.trial_temperature_seen == 31.0
+    @test plant_state.accepted_temperature_seen == 22.0
+    @test leaf_states[:sun_leaf].temperature_seen == 22.0
+    @test leaf_states[:shade_leaf].temperature_seen == 0.0
+    @test Dict(
+        row.object_id => row.nsamples
+        for row in Diagnostics.explain_outputs(simulation)
+        if row.application_id == :reader
+    ) == Dict(:sun_leaf => 1, :shade_leaf => 0)
+
+    writer = ToyStockWriterModel(4)
+    @test PlantSimEngine.inputs_(writer) == NamedTuple()
+    @test PlantSimEngine.outputs_(writer) == (stock=0.0,)
+
+    @test_throws "Ambiguous canonical writers" Advanced.refresh_bindings!(
+        CompositeModel(
+            Object(:reserve; scale=:Organ);
+            applications=(
+                ModelSpec(
+                    ToyStockWriterModel(4);
+                    name=:initial_stock,
+                    on=One(scale=:Organ),
+                ),
+                ModelSpec(
+                    ToyStockWriterModel(8);
+                    name=:adjusted_stock,
+                    on=One(scale=:Organ),
+                ),
+            ),
+        ),
+    )
+
+    writer_model = CompositeModel(
+        Object(:reserve; scale=:Organ);
+        applications=(
+            ModelSpec(
+                ToyStockWriterModel(4);
+                name=:initial_stock,
+                on=One(scale=:Organ),
+            ),
+            ModelSpec(
+                ToyStockWriterModel(8);
+                name=:adjusted_stock,
+                on=One(scale=:Organ),
+                updates=Updates(:stock; after=:initial_stock),
+            ),
+            ModelSpec(
+                ToyStockWriterModel(99);
+                name=:alternative_stock,
+                on=One(scale=:Organ),
+                output_routing=(stock=:stream_only,),
+            ),
+        ),
+    )
+    writer_simulation = run!(writer_model; outputs=:all)
+    @test final_state(writer_simulation).stock == 8.0
+    @test Dict(
+        row.application_id => row.value
+        for row in collect_outputs(
+            writer_simulation,
+            :reserve,
+            :stock;
+            sink=nothing,
+        )
+    ) == Dict(
+        :initial_stock => 4.0,
+        :adjusted_stock => 8.0,
+        :alternative_stock => 99.0,
+    )
+    stock_writer = only(
+        row for row in Diagnostics.explain_writers(writer_model)
+        if row.variable == :stock
+    )
+    @test stock_writer.application_ids ==
+          [:initial_stock, :adjusted_stock]
+end

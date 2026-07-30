@@ -682,7 +682,7 @@ function _initialize_model_output_streams!(
                 compiled,
                 application,
                 object_id,
-            ).canonical_status
+            ).status
             for variable in variables
                 key = _model_stream_key(application_id, object_id, variable)
                 haskey(streams, key) && continue
@@ -1550,7 +1550,7 @@ end
             temporal_streams,
             application,
             object_id,
-            canonical_status,
+            status,
             time,
             output_retention,
         )
@@ -1710,7 +1710,7 @@ end
                 temporal_streams,
                 application,
                 target.object_id,
-                target.canonical_status,
+                status,
                 time,
                 output_retention,
                 retained_outputs,
@@ -1783,7 +1783,7 @@ end
                 temporal_streams,
                 application,
                 target.object_id,
-                target.canonical_status,
+                status,
                 time,
                 output_retention,
                 retained_outputs,
@@ -1946,7 +1946,7 @@ end
                         temporal_streams,
                         batch.application,
                         target.object_id,
-                        target.canonical_status,
+                        status,
                         time,
                         output_retention,
                         retained_outputs,
@@ -2070,7 +2070,7 @@ function _runtime_model_temporal_inputs(temporal_inputs::Tuple, streams)
 end
 
 _runtime_model_output_streams(
-    canonical_status,
+    status,
     application,
     object_id,
     ::Nothing,
@@ -2078,7 +2078,7 @@ _runtime_model_output_streams(
 ) = ()
 
 _runtime_model_output_streams(
-    canonical_status,
+    status,
     application,
     object_id,
     ::Nothing,
@@ -2086,7 +2086,7 @@ _runtime_model_output_streams(
 ) = ()
 
 function _runtime_model_output_streams(
-    canonical_status,
+    status,
     application,
     object_id,
     streams,
@@ -2105,7 +2105,7 @@ function _runtime_model_output_streams(
             "`$(application.id)` on object `$(object_id.value)` and variable ",
             "`$(variable)`.",
         )
-        reference = refvalue(canonical_status, variable)
+        reference = refvalue(status, variable)
         RuntimeOutputStream{
             variable,
             typeof(stream),
@@ -2123,7 +2123,7 @@ function _runtime_model_output_streams(
 end
 
 function _runtime_model_output_streams(
-    canonical_status,
+    status,
     application,
     object_id,
     streams,
@@ -2205,7 +2205,7 @@ function _compiled_model_execution_target(
         constants,
     )
     output_bindings = _runtime_model_output_streams(
-        status_view.canonical_status,
+        status_view.status,
         application,
         object_id,
         temporal_streams,
@@ -3688,7 +3688,7 @@ end
             target.temporal_streams,
             target.application,
             target.object_id,
-            target.canonical_status,
+            status,
             target.time,
             target.output_retention,
         )
@@ -3787,7 +3787,7 @@ end
             targets.temporal_streams,
             application,
             object_id,
-            target.canonical_status,
+            status,
             targets.time,
             targets.output_retention,
         )
@@ -4220,7 +4220,7 @@ function _initial_output_request_targets(model, compiled, output_requests)
                             compiled,
                             application,
                             id,
-                        ).canonical_status,
+                        ).status,
                         request.var,
                     ),
                     start_time=0.0,
@@ -4275,7 +4275,7 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
                         simulation.compiled,
                         application,
                         object_id,
-                    ).canonical_status,
+                    ).status,
                     request.var,
                 ),
                 start_time=float(simulation.current_step + 1),

@@ -3537,9 +3537,9 @@ end
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0, observed_signal=0.0));
         applications=(
-            ModelSpec(ModelObjectSignalSetModel(10.0); name=:stream_signal, on=One(scale=:Leaf), output_routing=(signal=:stream_only,)),
             ModelSpec(ModelObjectSignalSetModel(1.0); name=:canonical_signal, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf)),
+            ModelSpec(ModelObjectSignalSetModel(10.0); name=:stream_signal, on=One(scale=:Leaf), output_routing=(signal=:stream_only,)),
         ),
     )
     stream_only_compiled = Advanced.refresh_bindings!(stream_only_scene)
@@ -3549,12 +3549,54 @@ end
     @test stream_only_binding.source_application_ids == [:canonical_signal]
     stream_only_simulation = run!(stream_only_scene; outputs=:all)
     stream_only_status = only(model_objects(stream_only_scene; scale=:Leaf)).status
+    @test stream_only_status.signal == 1.0
     @test stream_only_status.observed_signal == 1.0
     signal_rows = collect_outputs(stream_only_simulation, :leaf_1, :signal; sink=nothing)
     @test Dict(row.application_id => row.value for row in signal_rows) ==
           Dict(:stream_signal => 10.0, :canonical_signal => 1.0)
     @test Set(row.application_id for row in explain_outputs(stream_only_simulation) if row.variable == :signal) ==
           Set([:stream_signal, :canonical_signal])
+
+    stateful_stream_scene = CompositeModel(
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            status=Status(signal=0.0),
+        );
+        applications=(
+            ModelSpec(
+                ModelObjectSignalSetModel(1.0);
+                name=:canonical_signal,
+                on=One(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelObjectSignalSourceModel();
+                name=:stream_increment,
+                on=One(scale=:Leaf),
+                output_routing=(signal=:stream_only,),
+            ),
+        ),
+        environment=[(duration=Dates.Hour(1),) for _ in 1:2],
+    )
+    stateful_stream_simulation =
+        run!(stateful_stream_scene; steps=1, outputs=:all)
+    step!(stateful_stream_simulation)
+    @test final_state(stateful_stream_simulation).signal == 1.0
+    stateful_signal_rows = collect_outputs(
+        stateful_stream_simulation,
+        :leaf_1,
+        :signal;
+        sink=nothing,
+    )
+    @test getproperty.(
+        filter(
+            row -> row.application_id == :stream_increment,
+            stateful_signal_rows,
+        ),
+        :value,
+    ) == [1.0, 2.0]
+
     stream_only_only_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:scene, status=Status(signal=0.0));

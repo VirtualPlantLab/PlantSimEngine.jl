@@ -36,10 +36,11 @@ struct CompiledTemporalInput{B,S,I,R}
     reference::R
 end
 
-struct CompiledModelStatusView{S,C,T}
+struct CompiledModelStatusView{S,C,T,P}
     status::S
     canonical_status::C
     temporal_inputs::T
+    private_outputs::P
 end
 
 struct CompiledModelCallBinding{NAME,SEL}
@@ -530,7 +531,6 @@ function _preserve_model_status_view_temporal_state!(
     previous_temporal_sources,
     key,
 )
-    isempty(previous.temporal_inputs) && return current
     previous_by_input = Dict(
         temporal_input.binding.input => temporal_input
         for temporal_input in previous.temporal_inputs
@@ -560,19 +560,33 @@ function _preserve_model_status_view_temporal_state!(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
     )
-    names = propertynames(current.canonical_status)
+    private_output_names = propertynames(current.private_outputs)
+    private_output_references = ntuple(
+        index -> begin
+            name = private_output_names[index]
+            return hasproperty(previous.private_outputs, name) ?
+                   getproperty(previous.private_outputs, name) :
+                   getproperty(current.private_outputs, name)
+        end,
+        length(private_output_names),
+    )
+    private_outputs =
+        NamedTuple{private_output_names}(private_output_references)
+    names = propertynames(current.status)
     references = ntuple(length(names)) do index
         name = names[index]
         temporal_input = get(temporal_by_name, name, nothing)
-        isnothing(temporal_input) &&
-            return refvalue(current.canonical_status, name)
-        return temporal_input.reference
+        isnothing(temporal_input) || return temporal_input.reference
+        hasproperty(private_outputs, name) &&
+            return getproperty(private_outputs, name)
+        return refvalue(current.canonical_status, name)
     end
     status = Status(NamedTuple{names}(references))
     return CompiledModelStatusView(
         status,
         current.canonical_status,
         temporal_inputs,
+        private_outputs,
     )
 end
 
@@ -1853,6 +1867,8 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
         for object_id in application.target_ids
             status = _ensure_model_object_status!(model, object_id)
             for (variable, value) in pairs(defaults)
+                _publish_mode_for_output(application.spec, variable) ==
+                    :canonical || continue
                 status = _status_with_default(
                     status,
                     variable,
@@ -2053,21 +2069,45 @@ function _compile_model_status_view(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
     )
+    output_defaults = outputs_(application.spec)
+    private_output_names = Tuple(
+        Symbol(variable) for variable in keys(output_defaults)
+        if _publish_mode_for_output(application.spec, variable) ==
+           :stream_only
+    )
+    private_outputs = NamedTuple{private_output_names}(
+        Tuple(
+            Ref(_private_initial_value(getproperty(output_defaults, name)))
+            for name in private_output_names
+        ),
+    )
     canonical_names = propertynames(canonical_status)
+    private_names = Tuple(
+        name for name in private_output_names
+        if !(name in canonical_names)
+    )
     temporal_names = Tuple(
         input.binding.input
         for input in temporal_inputs
-        if !(input.binding.input in canonical_names)
+        if !(input.binding.input in canonical_names) &&
+           !(input.binding.input in private_output_names)
     )
-    names = (canonical_names..., temporal_names...)
+    names = (canonical_names..., private_names..., temporal_names...)
     references = ntuple(length(names)) do index
         name = names[index]
         temporal_input = get(temporal_by_name, name, nothing)
-        isnothing(temporal_input) && return refvalue(canonical_status, name)
-        return temporal_input.reference
+        isnothing(temporal_input) || return temporal_input.reference
+        hasproperty(private_outputs, name) &&
+            return getproperty(private_outputs, name)
+        return refvalue(canonical_status, name)
     end
     status = Status(NamedTuple{names}(references))
-    return CompiledModelStatusView(status, canonical_status, temporal_inputs)
+    return CompiledModelStatusView(
+        status,
+        canonical_status,
+        temporal_inputs,
+        private_outputs,
+    )
 end
 
 function _compile_model_status_views(

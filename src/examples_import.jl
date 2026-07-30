@@ -37,6 +37,7 @@ include(joinpath(@__DIR__, "../examples/ToyCBiomassModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyLeafSurfaceModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToyLightPartitioningModel.jl"))
 include(joinpath(@__DIR__, "../examples/ToySpatialEnvironment.jl"))
+include(joinpath(@__DIR__, "../examples/ToyAdvancedControl.jl"))
 
 
 """
@@ -90,6 +91,7 @@ export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
 export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel, ToyCBiomassModel
 export ToySpatialEnvironment, ToyEnvironmentHandle
 export ToyEnvironmentReaderModel, ToyEnvironmentControllerModel
+export ToySelectiveCallControllerModel, ToyStockWriterModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 

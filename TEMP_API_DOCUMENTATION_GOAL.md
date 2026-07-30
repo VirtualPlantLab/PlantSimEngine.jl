@@ -1000,11 +1000,24 @@ public-API stabilization checks, and the full documentation build pass.
 
 #### Journey 9: Advanced execution control
 
-- [ ] Teach hard calls, target inspection, selective target calls, iterative
+- [x] Teach hard calls, target inspection, selective target calls, iterative
       publication, duplicate writers, `Updates`, and output routing.
-- [ ] Make `publish=false` trial semantics and accepted publication explicit.
-- [ ] Keep these APIs out of all earlier examples unless scientifically
+- [x] Make `publish=false` trial semantics and accepted publication explicit.
+- [x] Keep these APIs out of all earlier examples unless scientifically
       necessary.
+
+The advanced execution page declares a call-only `Many` reader, inspects its
+vector-like targets, restricts execution explicitly by `ObjectId`, runs two
+unpublished trials, and publishes one accepted target call. A separate stock
+example proves that unordered canonical writers are rejected, `Updates`
+establishes the intentional order, and `output_routing=(stock=:stream_only,)`
+retains an alternative stream without changing canonical final state. Building
+that example exposed and fixed a runtime defect where stream-only kernels still
+shared the canonical reference; private application-local output references
+now persist across timesteps. The 130-check toy suite, 640-check unified
+runtime suite, 49-check hard-call suite, 14-check output-boundary suite,
+10-check runtime matrix, 259-check API stabilization suite, and full
+documentation build pass.
 
 #### Journey 10: Complete realistic example
 
