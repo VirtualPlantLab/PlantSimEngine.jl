@@ -98,10 +98,11 @@ struct CompiledEnvironmentBinding{B,H,C}
     config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I,S,P,C}
+struct CompiledEnvironmentBindings{SC,B,I,PI,S,P,C}
     model::SC
     bindings::B
     by_target::I
+    positions_by_target::PI
     samplers_by_application::S
     prepared_global_environment::P
     sample_cache::C
@@ -342,6 +343,49 @@ function _new_application_targets(model::CompositeModel, applications, added_ids
     return targets
 end
 
+function _sorted_object_id_position(ids, object_id::ObjectId)
+    lower = firstindex(ids)
+    upper = lastindex(ids)
+    while lower <= upper
+        middle = (lower + upper) >>> 1
+        candidate = @inbounds ids[middle]
+        candidate == object_id && return (true, middle)
+        if _object_id_isless(candidate, object_id)
+            lower = middle + 1
+        else
+            upper = middle - 1
+        end
+    end
+    return (false, lower)
+end
+
+function _insert_with_spare_capacity!(values::Vector, position::Integer, value)
+    old_length = length(values)
+    1 <= position <= old_length + 1 ||
+        throw(BoundsError(values, position))
+    push!(values, value)
+    position == old_length + 1 && return values
+    copyto!(
+        values,
+        position + 1,
+        values,
+        position,
+        old_length - position + 1,
+    )
+    values[position] = value
+    return values
+end
+
+function _insert_sorted_object_ids!(ids, added_ids)
+    isempty(added_ids) && return ids
+    sizehint!(ids, length(ids) + length(added_ids))
+    for object_id in added_ids
+        found, position = _sorted_object_id_position(ids, object_id)
+        found || _insert_with_spare_capacity!(ids, position, object_id)
+    end
+    return ids
+end
+
 function _compile_added_consumer_bindings!(
     bindings,
     model,
@@ -534,6 +578,63 @@ function _append_added_many_sources!(
             push!(binding.source_application_ids, application_id)
     end
     return true
+end
+
+function _update_structural_many_sources!(
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+    dirty_ids,
+)
+    binding.multiplicity == :many || return :fallback
+    binding.carrier_hint == :ref_vector || return :fallback
+    isnothing(binding.application) && return :fallback
+    carrier_references = parent(binding.carrier)
+    default_scope = _default_dependency_scope(model, binding.consumer_id)
+    changes = Tuple{ObjectId,Bool,Any}[]
+    for object_id in dirty_ids
+        was_source, _ =
+            _sorted_object_id_position(binding.source_ids, object_id)
+        is_source = haskey(model.registry.objects, object_id) &&
+                    _selector_matches_object_id(
+            model,
+            binding.selector,
+            object_id;
+            context=binding.consumer_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        )
+        was_source == is_source && continue
+        source_reference = nothing
+        if is_source
+            source = _model_object(model, object_id)
+            source_reference =
+                _status_ref_or_nothing(source.status, binding.source_var)
+            isnothing(source_reference) && return :fallback
+            source_reference isa eltype(carrier_references) ||
+                return :fallback
+        end
+        push!(changes, (object_id, is_source, source_reference))
+    end
+    for (object_id, is_source, source_reference) in changes
+        was_source, position =
+            _sorted_object_id_position(binding.source_ids, object_id)
+        if was_source
+            deleteat!(binding.source_ids, position)
+            deleteat!(carrier_references, position)
+        elseif is_source
+            _insert_with_spare_capacity!(
+                binding.source_ids,
+                position,
+                object_id,
+            )
+            _insert_with_spare_capacity!(
+                carrier_references,
+                position,
+                source_reference,
+            )
+        end
+    end
+    return isempty(changes) ? :unchanged : :updated
 end
 
 function _preserve_temporal_input_state!(
@@ -763,16 +864,20 @@ function _prepare_structural_compiled_delta(
     dirty = Set{ObjectId}(dirty_object_ids)
     removed_target_keys = Set{Tuple{Symbol,ObjectId}}()
     changed_application_ids = Set{Symbol}()
-    for application in compiled.applications
-        for object_id in application.target_ids
-            object_id in dirty || continue
+    applications_by_object = compiled.applications_by_object
+    for object_id in dirty
+        for application in get(applications_by_object, object_id, ())
+            found, position = _sorted_object_id_position(
+                application.target_ids,
+                object_id,
+            )
+            found || continue
             push!(removed_target_keys, (application.id, object_id))
             push!(changed_application_ids, application.id)
+            deleteat!(application.target_ids, position)
         end
-        filter!(object_id -> !(object_id in dirty), application.target_ids)
     end
 
-    applications_by_object = compiled.applications_by_object
     for object_id in dirty
         delete!(applications_by_object, object_id)
     end
@@ -796,7 +901,8 @@ function _prepare_structural_compiled_delta(
         Vector{ObjectId},
     }()
     for binding in input_bindings
-        any(object_id -> object_id in dirty, binding.source_ids) || continue
+        any(dirty_id -> first(_sorted_object_id_position(binding.source_ids, dirty_id)), dirty) ||
+            continue
         key = (binding.application_id, binding.consumer_id, binding.input)
         push!(forced_input_binding_keys, key)
         if binding.carrier_hint == :temporal_stream
@@ -824,7 +930,15 @@ function _prepare_structural_compiled_delta(
     end
     forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
     for binding in call_bindings
-        any(object_id -> object_id in dirty, binding.callee_object_ids) ||
+        any(
+            dirty_id -> first(
+                _sorted_object_id_position(
+                    binding.callee_object_ids,
+                    dirty_id,
+                ),
+            ),
+            dirty,
+        ) ||
             continue
         push!(
             forced_call_target_keys,
@@ -906,6 +1020,7 @@ function _extend_compiled_scene(
     application_graph_may_shrink::Bool=false,
     recompute_call_owners::Bool=false,
     pure_addition::Bool=true,
+    structural_dirty_ids=ObjectId[],
     performance=nothing,
 )
     added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
@@ -929,8 +1044,10 @@ function _extend_compiled_scene(
     )
 
     for application in compiled.applications
-        append!(application.target_ids, get(new_targets, application.id, ObjectId[]))
-        _sort_object_ids!(application.target_ids)
+        _insert_sorted_object_ids!(
+            application.target_ids,
+            get(new_targets, application.id, ObjectId[]),
+        )
         if application.id in changed_application_ids_seed
             target_count = length(application.target_ids)
             if application.applies_to isa One && target_count != 1
@@ -1032,26 +1149,29 @@ function _extend_compiled_scene(
         by_object=applications_by_object,
     ) : CompiledModelCallBinding[]
     affected_call_applications = CompiledModelApplication[]
-    for application in applications
-        target_ids = ObjectId[
-            object_id for object_id in application.target_ids
-            if (application.id, object_id) in rebuilt_existing_call_targets
-        ]
-        isempty(target_ids) && continue
-        push!(
-            affected_call_applications,
-            CompiledModelApplication(
-                application.id,
-                application.spec,
-                application.process,
-                application.name,
-                target_ids,
-                application.applies_to,
-                application.timestep,
-                application.clock,
-                application.model_overrides,
-            ),
-        )
+    if !isempty(rebuilt_existing_call_targets)
+        for application in applications
+            target_ids = ObjectId[
+                object_id for object_id in application.target_ids
+                if (application.id, object_id) in
+                   rebuilt_existing_call_targets
+            ]
+            isempty(target_ids) && continue
+            push!(
+                affected_call_applications,
+                CompiledModelApplication(
+                    application.id,
+                    application.spec,
+                    application.process,
+                    application.name,
+                    target_ids,
+                    application.applies_to,
+                    application.timestep,
+                    application.clock,
+                    application.model_overrides,
+                ),
+            )
+        end
     end
     replacement_call_bindings = isempty(affected_call_applications) ?
                                 CompiledModelCallBinding[] :
@@ -1113,11 +1233,12 @@ function _extend_compiled_scene(
         (replacement_call_bindings..., new_call_bindings...),
         timeline,
     )
-    if pure_addition
-        _validate_model_writers!(added_applications, call_bindings)
-    else
-        _validate_model_writers!(applications, call_bindings)
-    end
+    _validate_model_writers_for_objects!(
+        applications,
+        applications_by_object,
+        added_ids,
+        call_bindings,
+    )
     _prepare_model_output_statuses!(model, added_applications)
     _runtime_performance_finish!(
         performance,
@@ -1195,8 +1316,20 @@ function _extend_compiled_scene(
         previous_source_application_ids =
             copy(binding.source_application_ids)
         binding.multiplicity == :many &&
+            binding.carrier_hint == :temporal_stream &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
+        if !pure_addition
+            structural_update = _update_structural_many_sources!(
+                model,
+                binding,
+                structural_dirty_ids,
+            )
+            if structural_update != :fallback
+                processed_many_sources[binding.source_ids] = nothing
+                continue
+            end
+        end
         if !force_rebuild
             _selector_matches_any_object_id(
                 model,
@@ -1315,7 +1448,8 @@ function _extend_compiled_scene(
         end
     end
 
-    affected_input_applications = if pure_addition
+    affected_input_applications = if pure_addition ||
+                                     isempty(rewired_consumer_ids)
         Tuple(added_applications)
     else
         rewired_applications = CompiledModelApplication[]
@@ -1751,6 +1885,7 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
         app_id in ids && error("Duplicate compiled model application id `$(app_id)`.")
         push!(ids, app_id)
         target_ids = resolve_object_ids(model, selector)
+        sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
             model,
             spec,
@@ -1935,9 +2070,8 @@ function _manual_call_application_ids(call_bindings)
     return ids
 end
 
-function _validate_model_writers!(applications, call_bindings=())
-    manual_application_ids = _manual_call_application_ids(call_bindings)
-    for ((object_id, variable), indexed_writers) in _model_writer_groups(applications, manual_application_ids)
+function _validate_model_writer_groups!(writer_groups)
+    for ((object_id, variable), indexed_writers) in writer_groups
         length(indexed_writers) <= 1 && continue
         sort!(indexed_writers; by=first)
         previous = CompiledModelApplication[]
@@ -1977,6 +2111,44 @@ function _validate_model_writers!(applications, call_bindings=())
         end
     end
     return nothing
+end
+
+function _validate_model_writers!(applications, call_bindings=())
+    manual_application_ids = _manual_call_application_ids(call_bindings)
+    return _validate_model_writer_groups!(
+        _model_writer_groups(applications, manual_application_ids),
+    )
+end
+
+function _validate_model_writers_for_objects!(
+    applications,
+    applications_by_object,
+    object_ids,
+    call_bindings=(),
+)
+    isempty(object_ids) && return nothing
+    manual_application_ids = _manual_call_application_ids(call_bindings)
+    positions = Dict(
+        application.id => index
+        for (index, application) in pairs(applications)
+    )
+    groups = Dict{Tuple{ObjectId,Symbol},Vector{Tuple{Int,Any}}}()
+    for object_id in object_ids
+        for application in get(applications_by_object, object_id, ())
+            application.id in manual_application_ids && continue
+            for variable in _model_canonical_output_names(application)
+                push!(
+                    get!(
+                        groups,
+                        (object_id, variable),
+                        Tuple{Int,Any}[],
+                    ),
+                    (positions[application.id], application),
+                )
+            end
+        end
+    end
+    return _validate_model_writer_groups!(groups)
 end
 
 function _model_application_hint_scale(model::CompositeModel, target_ids::Vector{ObjectId})
@@ -2142,6 +2314,7 @@ end
 
 function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplicity, source_ids::Vector{ObjectId}, source_var::Symbol)
     refs = Base.RefValue[]
+    selector isa Many && sizehint!(refs, length(source_ids) + 1)
     for source_id in source_ids
         object = _model_object(model, source_id)
         source_ref = _status_ref_or_nothing(object.status, source_var)
@@ -2226,6 +2399,7 @@ end
 function _ref_vector_carrier(refs)
     T = typeof(refs[1][])
     typed_refs = Base.RefValue{T}[]
+    sizehint!(typed_refs, length(refs) + 1)
     for source_ref in refs
         source_ref isa Base.RefValue{T} || return ObjectRefVector(refs)
         push!(typed_refs, source_ref)
@@ -2676,6 +2850,7 @@ function _push_model_input_binding!(
     source_ids_override=nothing,
 )
     source_ids = isnothing(source_ids_override) ? _dependency_object_ids(model, selector, consumer_id) : source_ids_override
+    selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
     window = _selector_window(selector)
     source_var = _selector_var(selector, input_sym)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
@@ -3086,6 +3261,8 @@ function _model_input_order_edges!(children, input_bindings, call_owners)
 end
 
 function _model_update_order_edges!(children, applications)
+    any(application -> !isempty(updates(application.spec)), applications) ||
+        return children
     for indexed_writers in values(_model_writer_groups(applications))
         length(indexed_writers) > 1 || continue
         sort!(indexed_writers; by=first)

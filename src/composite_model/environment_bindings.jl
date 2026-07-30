@@ -53,22 +53,32 @@ function _environment_binding_object(model::CompositeModel, object::Object)
     return object, nothing, :global
 end
 
-function _model_environment_entities(model::CompositeModel)
-    return [
+function _model_environment_entity(object::Object)
+    return (
+        id=object.id.value,
+        object=object,
+        scale=object.scale,
+        kind=object.kind,
+        species=object.species,
+        name=object.name,
+        parent=isnothing(object.parent) ? nothing : object.parent.value,
+        geometry=geometry(object),
+        position=position(object),
+        bounds=bounds(object),
+    )
+end
+
+function _model_environment_entities(model::CompositeModel, object_ids=nothing)
+    objects = if isnothing(object_ids)
+        model_objects(model)
+    else
         (
-            id=object.id.value,
-            object=object,
-            scale=object.scale,
-            kind=object.kind,
-            species=object.species,
-            name=object.name,
-            parent=isnothing(object.parent) ? nothing : object.parent.value,
-            geometry=geometry(object),
-            position=position(object),
-            bounds=bounds(object),
+            _model_object(model, object_id)
+            for object_id in object_ids
+            if haskey(model.registry.objects, object_id)
         )
-        for object in model_objects(model)
-    ]
+    end
+    return [_model_environment_entity(object) for object in objects]
 end
 
 function _model_environment_backends(model::CompositeModel, compiled::CompiledCompositeModel)
@@ -85,13 +95,23 @@ function _model_environment_backends(model::CompositeModel, compiled::CompiledCo
     return backends
 end
 
-function _update_model_environment_indices!(model::CompositeModel, compiled::CompiledCompositeModel)
+function _update_model_environment_indices!(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    dirty_object_ids=nothing,
+)
     backends = _model_environment_backends(model, compiled)
     filter!(backend -> !(backend isa GlobalConstant), backends)
     isempty(backends) && return nothing
-    entities = _model_environment_entities(model)
+    entities = _model_environment_entities(model, dirty_object_ids)
+    removed_object_ids = isnothing(dirty_object_ids) ?
+                         ObjectId[] :
+                         ObjectId[
+        object_id for object_id in dirty_object_ids
+        if !haskey(model.registry.objects, object_id)
+    ]
     for backend in backends
-        update_index!(backend, entities)
+        update_index!(backend, entities, removed_object_ids)
     end
     return nothing
 end
@@ -240,11 +260,16 @@ function _compiled_environment_bindings(
     samplers_by_application=_model_environment_samplers(bindings),
     prepared_global_environment=_prepared_global_environment(bindings),
     sample_cache=Dict{Tuple{Symbol,Int},Any}(),
+    positions_by_target=Dict(
+        (binding.application_id, binding.object_id) => index
+        for (index, binding) in pairs(bindings)
+    ),
 )
     return CompiledEnvironmentBindings(
         model,
         bindings,
         by_target,
+        positions_by_target,
         samplers_by_application,
         prepared_global_environment,
         sample_cache,
@@ -356,40 +381,48 @@ function _refresh_environment_bindings_for_objects(
     cached::CompiledEnvironmentBindings,
     dirty_object_ids,
 )
-    _update_model_environment_indices!(model, compiled)
-    dirty = Set(dirty_object_ids)
-    pure_addition = compiled.status_view_refresh_is_pure_addition
-    stale_targets = if pure_addition
-        Set{Tuple{Symbol,ObjectId}}()
-    else
-        valid_dirty_targets = Set{Tuple{Symbol,ObjectId}}(
-            (application.id, object_id)
-            for application in compiled.applications
-            for object_id in application.target_ids
-            if object_id in dirty
-        )
-        Set{Tuple{Symbol,ObjectId}}(
-            target for target in keys(cached.by_target)
-            if last(target) in dirty && !(target in valid_dirty_targets)
-        )
-    end
+    dirty_ids = ObjectId[dirty_object_ids...]
+    _sort_object_ids!(dirty_ids)
+    _update_model_environment_indices!(model, compiled, dirty_ids)
+    stale_targets = Set{Tuple{Symbol,ObjectId}}()
     replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
-    for application in compiled.applications
-        selected_ids = ObjectId[id for id in application.target_ids if id in dirty]
-        isempty(selected_ids) && continue
-        partial_application = CompiledModelApplication(
-            application.id,
-            application.spec,
-            application.process,
-            application.name,
-            selected_ids,
-            application.applies_to,
-            application.timestep,
-            application.clock,
-            application.model_overrides,
+    for object_id in dirty_ids
+        current_applications = get(
+            compiled.applications_by_object,
+            object_id,
+            (),
         )
-        for binding in _compile_environment_bindings_for_applications(model, (partial_application,))
-            replacements[(binding.application_id, binding.object_id)] = binding
+        current_application_ids = Set(
+            application.id for application in current_applications
+        )
+        for application in compiled.applications
+            target = (application.id, object_id)
+            haskey(cached.by_target, target) || continue
+            application.id in current_application_ids ||
+                push!(stale_targets, target)
+        end
+        haskey(model.registry.objects, object_id) || continue
+        for application in current_applications
+            partial_application = CompiledModelApplication(
+                application.id,
+                application.spec,
+                application.process,
+                application.name,
+                ObjectId[object_id],
+                application.applies_to,
+                application.timestep,
+                application.clock,
+                application.model_overrides,
+            )
+            for binding in _compile_environment_bindings_for_applications(
+                model,
+                (partial_application,),
+            )
+                replacements[(
+                    binding.application_id,
+                    binding.object_id,
+                )] = binding
+            end
         end
     end
     _validate_model_environment_inputs!(
@@ -397,37 +430,31 @@ function _refresh_environment_bindings_for_objects(
         compiled.applications_by_id,
     )
 
-    if pure_addition
-        append!(cached.bindings, values(replacements))
-        merge!(cached.by_target, replacements)
-        return _compiled_environment_bindings(
-            model,
-            compiled,
-            cached.bindings,
-            cached.by_target,
-            cached.samplers_by_application,
-            cached.prepared_global_environment,
-            cached.sample_cache,
-        )
-    end
-
-    cached_targets = Set(keys(cached.by_target))
-    filter!(cached.bindings) do binding
-        !((binding.application_id, binding.object_id) in stale_targets)
-    end
-    for index in eachindex(cached.bindings)
-        binding = cached.bindings[index]
-        target = (binding.application_id, binding.object_id)
-        cached.bindings[index] = get(replacements, target, binding)
-    end
-    for (target, binding) in replacements
-        target in cached_targets && continue
-        push!(cached.bindings, binding)
-    end
     for target in stale_targets
+        position = pop!(cached.positions_by_target, target)
+        last_position = lastindex(cached.bindings)
+        if position != last_position
+            moved_binding = cached.bindings[last_position]
+            cached.bindings[position] = moved_binding
+            cached.positions_by_target[(
+                moved_binding.application_id,
+                moved_binding.object_id,
+            )] = position
+        end
+        pop!(cached.bindings)
         delete!(cached.by_target, target)
     end
-    merge!(cached.by_target, replacements)
+    for (target, binding) in replacements
+        position = get(cached.positions_by_target, target, nothing)
+        if isnothing(position)
+            push!(cached.bindings, binding)
+            cached.positions_by_target[target] =
+                lastindex(cached.bindings)
+        else
+            cached.bindings[position] = binding
+        end
+        cached.by_target[target] = binding
+    end
     return _compiled_environment_bindings(
         model,
         compiled,
@@ -436,11 +463,12 @@ function _refresh_environment_bindings_for_objects(
         cached.samplers_by_application,
         cached.prepared_global_environment,
         cached.sample_cache,
+        cached.positions_by_target,
     )
 end
 
 function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
-    return [
+    rows = [
         (
             application_id=binding.application_id,
             object_id=binding.object_id.value,
@@ -460,6 +488,11 @@ function explain_environment_bindings(compiled::CompiledEnvironmentBindings)
         )
         for binding in compiled.bindings
     ]
+    sort!(
+        rows;
+        by=row -> (string(row.application_id), string(row.object_id)),
+    )
+    return rows
 end
 
 function explain_environment_bindings(model::CompositeModel)

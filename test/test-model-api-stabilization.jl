@@ -875,7 +875,8 @@ end
     @test !haskey(refreshed.counts, :output_retention_compiles)
     @test refreshed.counts[:execution_plan_compiles] == 1
     @test refreshed.counts[:execution_targets_constructed] == 1
-    @test refreshed.counts[:execution_batches_constructed] == 1
+    @test refreshed.counts[:execution_batches_constructed] == 0
+    @test refreshed.counts[:execution_groups_updated_in_place] == 1
     @test refreshed.elapsed_seconds[:application_target_refresh] >= 0.0
     @test refreshed.elapsed_seconds[:call_binding_refresh] >= 0.0
     @test refreshed.elapsed_seconds[:input_binding_refresh] >= 0.0
@@ -973,7 +974,8 @@ end
     @test refreshed_scene_target === original_scene_target
     @test performance.counts[:execution_groups_reused] == 1
     @test performance.counts[:execution_targets_constructed] == 1
-    @test performance.counts[:execution_batches_constructed] == 1
+    @test performance.counts[:execution_batches_constructed] == 0
+    @test performance.counts[:execution_groups_updated_in_place] == 1
 end
 
 function stabilization_lifecycle_scene(nleaves_per_plant)
@@ -1015,7 +1017,7 @@ function stabilization_lifecycle_scene(nleaves_per_plant)
                 name=:plant_sum,
                 on=Many(scale=:Plant),
                 inputs=(
-                    PreviousTimeStep(:previous_signals) => Many(
+                    :previous_signals => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         application=:source,
@@ -1033,7 +1035,7 @@ function stabilization_lifecycle_work(nleaves_per_plant, operation)
     simulation = run!(
         model;
         steps=2,
-        outputs=:none,
+        outputs=:all,
         performance=true,
     )
     unaffected_key = (
@@ -1074,6 +1076,11 @@ function stabilization_lifecycle_work(nleaves_per_plant, operation)
             :execution_batches_constructed,
             0,
         ),
+        execution_groups_updated=get(
+            performance.counts,
+            :execution_groups_updated_in_place,
+            0,
+        ),
         binding_refreshes=get(performance.counts, :binding_refreshes, 0),
         environment_refreshes=get(
             performance.counts,
@@ -1081,6 +1088,24 @@ function stabilization_lifecycle_work(nleaves_per_plant, operation)
             0,
         ),
     ), simulation
+end
+
+function stabilization_lifecycle_refresh_allocations(
+    nleaves_per_plant,
+    operation,
+)
+    model = stabilization_lifecycle_scene(nleaves_per_plant)
+    simulation = run!(model; outputs=:none)
+    if operation == :remove
+        remove_object!(model, :removed_leaf)
+    elseif operation == :reparent
+        reparent_object!(model, :moving_leaf, :plant_b)
+    elseif operation == :move
+        move_object!(model, :geometry_leaf, (cell=:shade,))
+    else
+        error("Unknown stabilization lifecycle operation `$(operation)`.")
+    end
+    return @allocated PlantSimEngine._refresh_simulation_runtime!(simulation)
 end
 
 @testset "lifecycle work counts scale with the structural delta" begin
@@ -1092,6 +1117,8 @@ end
         @test small_work == large_work
         @test small_work.status_views <= 3
         @test small_work.execution_targets <= 3
+        @test small_work.execution_batches == 0
+        @test small_work.execution_groups_updated <= 3
 
         if operation == :remove
             @test !haskey(
@@ -1123,5 +1150,18 @@ end
             @test :moving_leaf ∉ plant_a.source_ids
             @test :moving_leaf ∈ plant_b.source_ids
         end
+    end
+
+    for operation in (:remove, :reparent, :move)
+        stabilization_lifecycle_refresh_allocations(8, operation)
+        small_allocations = minimum(
+            stabilization_lifecycle_refresh_allocations(8, operation)
+            for _ in 1:2
+        )
+        large_allocations = minimum(
+            stabilization_lifecycle_refresh_allocations(2048, operation)
+            for _ in 1:2
+        )
+        @test large_allocations <= small_allocations + 16_384
     end
 end

@@ -142,7 +142,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `environment_inputs_`, support descriptor, and backend cell before runtime.
 - Added the minimal model geometry contract: `geometry(object_or_status)`,
   `position(object_or_status)`, and `bounds(object_or_status)`. Environment
-  binding refreshes now call `EnvironmentAPI.update_index!(backend, entities)` once per
+  binding refreshes now call `EnvironmentAPI.update_index!(backend, changed_entities, removed_object_ids)` once per
   distinct backend before `Advanced.EnvironmentAPI.bind_environment`, giving spatial backends a current
   model-wide object/entity list for precomputed microclimate lookup.
 - Automatic spatial binding now uses the nearest ancestor geometry when a

@@ -731,9 +731,11 @@ end
 mutable struct ModelObjectGridBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     binds::Vector{Any}
     index_updates::Vector{Any}
+    removed_index_ids::Vector{Any}
 end
 
-ModelObjectGridBackend(binds::Vector{Any}=Any[]) = ModelObjectGridBackend(binds, Any[])
+ModelObjectGridBackend(binds::Vector{Any}=Any[]) =
+    ModelObjectGridBackend(binds, Any[], Any[])
 
 struct ModelObjectEnvironmentHandle
     provider::Symbol
@@ -817,7 +819,11 @@ function PlantSimEngine.EnvironmentAPI.bind_environment(
     return handle
 end
 
-function PlantSimEngine.EnvironmentAPI.update_index!(backend::ModelObjectGridBackend, entities)
+function PlantSimEngine.EnvironmentAPI.update_index!(
+    backend::ModelObjectGridBackend,
+    entities,
+    removed_object_ids,
+)
     push!(
         backend.index_updates,
         [
@@ -831,6 +837,10 @@ function PlantSimEngine.EnvironmentAPI.update_index!(backend::ModelObjectGridBac
             )
             for entity in entities
         ],
+    )
+    push!(
+        backend.removed_index_ids,
+        [object_id.value for object_id in removed_object_ids],
     )
     return nothing
 end
@@ -2427,6 +2437,8 @@ end
     @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].handle.cell == :cell_b
     @test length(grid_backend.binds) == 4
     @test length(grid_backend.index_updates) == 1
+    @test length(grid_backend.index_updates[1]) == 4
+    @test grid_backend.removed_index_ids == [Symbol[]]
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_a,), grid_backend.index_updates[1])
     @test any(entity -> entity.id == :plant_1 && entity.scale == :Plant, grid_backend.index_updates[1])
     environment_rows = explain_environment_bindings(compiled_environment)
@@ -2707,6 +2719,8 @@ end
     @test !Advanced.environment_bindings_dirty(environment_scene)
     @test length(grid_backend.binds) == 6
     @test length(grid_backend.index_updates) == 2
+    @test only(grid_backend.index_updates[2]).id == :leaf_2
+    @test isempty(grid_backend.removed_index_ids[2])
     @test any(entity -> entity.id == :leaf_2 && entity.geometry == (cell=:cell_c,), grid_backend.index_updates[2])
     @test only(row for row in explain_environment_bindings(refreshed_environment) if row.application_id == :probe && row.object_id == :leaf_2).handle.cell == :cell_c
 
@@ -2719,6 +2733,8 @@ end
     @test !Advanced.environment_bindings_dirty(environment_scene)
     @test length(grid_backend.binds) == 8
     @test length(grid_backend.index_updates) == 3
+    @test only(grid_backend.index_updates[3]).id == :leaf_1
+    @test isempty(grid_backend.removed_index_ids[3])
     @test any(entity -> entity.id == :leaf_1 && entity.geometry == (cell=:cell_e,), grid_backend.index_updates[3])
     @test only(row for row in explain_environment_bindings(refreshed_after_mark) if row.application_id == :probe && row.object_id == :leaf_1).handle.cell == :cell_e
 
@@ -2728,10 +2744,22 @@ end
     refreshed_with_new_leaf = Advanced.refresh_environment_bindings!(environment_scene)
     @test length(grid_backend.binds) == 10
     @test length(grid_backend.index_updates) == 4
+    @test only(grid_backend.index_updates[4]).id == :leaf_3
+    @test isempty(grid_backend.removed_index_ids[4])
     @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[4])
     @test only(row for row in explain_applications(Advanced.refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
           [:leaf_1, :leaf_2, :leaf_3]
     @test only(row for row in explain_environment_bindings(refreshed_with_new_leaf) if row.application_id == :probe && row.object_id == :leaf_3).handle.cell == :cell_d
+
+    remove_object!(environment_scene, :leaf_3)
+    refreshed_without_leaf = Advanced.refresh_environment_bindings!(environment_scene)
+    @test length(grid_backend.index_updates) == 5
+    @test isempty(grid_backend.index_updates[5])
+    @test grid_backend.removed_index_ids[5] == [:leaf_3]
+    @test all(
+        row.object_id != :leaf_3
+        for row in explain_environment_bindings(refreshed_without_leaf)
+    )
 
     inherited_grid_backend = ModelObjectGridBackend()
     inherited_environment_scene = CompositeModel(
@@ -4051,11 +4079,27 @@ end
         ),
         environment=moving_environment_backend,
     )
-    moving_environment_simulation = run!(moving_environment_scene; steps=2, outputs=:all)
+    moving_environment_simulation = run!(
+        moving_environment_scene;
+        steps=2,
+        outputs=:all,
+        performance=true,
+    )
     @test !Advanced.bindings_dirty(moving_environment_scene)
     @test !Advanced.environment_bindings_dirty(moving_environment_scene)
     @test only(model_objects(moving_environment_scene; scale=:Scene)).status.move_count == 1
     @test only(model_objects(moving_environment_scene; scale=:Leaf)).status.temperature_seen == 30.0
+    moving_environment_performance =
+        Advanced.runtime_performance(moving_environment_simulation)
+    @test moving_environment_performance.counts[
+        :execution_targets_constructed
+    ] == 1
+    @test moving_environment_performance.counts[
+        :execution_batches_constructed
+    ] == 0
+    @test moving_environment_performance.counts[
+        :execution_groups_updated_in_place
+    ] == 1
     moving_probe_rows = collect_outputs(
         moving_environment_simulation,
         :leaf_1,

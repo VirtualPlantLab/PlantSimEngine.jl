@@ -252,12 +252,20 @@ commit_environment!(backend::GlobalConstant, handle, state, time) = error(
 )
 
 """
-    update_index!(backend, entities)
+    update_index!(backend, changed_entities, removed_object_ids)
 
 Update the backend spatial/entity index after topology or geometry changes.
+`changed_entities` contains only new or changed objects and
+`removed_object_ids` contains stable [`ObjectId`](@ref)s that no longer exist.
+The initial compilation supplies every entity and an empty removal vector.
 """
-update_index!(::AbstractEnvironmentBackend, entities) = nothing
-update_index!(::GlobalConstant, entities) = nothing
+update_index!(
+    ::AbstractEnvironmentBackend,
+    changed_entities,
+    removed_object_ids,
+) = nothing
+update_index!(::GlobalConstant, changed_entities, removed_object_ids) =
+    nothing
 
 """
     sample_environment(backend, handle, time, variables)

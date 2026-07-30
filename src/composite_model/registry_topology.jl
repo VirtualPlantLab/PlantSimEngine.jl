@@ -1059,6 +1059,7 @@ function refresh_bindings!(
                 application_graph_may_shrink=delta.graph_may_shrink,
                 recompute_call_owners=delta.call_graph_may_shrink,
                 pure_addition=false,
+                structural_dirty_ids=model.binding_dirty_objects,
                 performance=performance,
             )
             _remove_stale_status_views!(

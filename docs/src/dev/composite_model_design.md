@@ -561,7 +561,7 @@ handle = EnvironmentAPI.bind_environment(backend, object, context, config)
 EnvironmentAPI.sample(backend, handle, variable, time)
 EnvironmentAPI.sample(backend, handle, trial_state, variable, time)
 commit_environment!(backend, handle, accepted_state, time)
-EnvironmentAPI.update_index!(backend, entities)
+EnvironmentAPI.update_index!(backend, changed_entities, removed_object_ids)
 ```
 
 `environment_inputs_(model)` declares what a model reads from the active environment

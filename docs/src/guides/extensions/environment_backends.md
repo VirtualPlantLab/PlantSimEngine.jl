@@ -31,8 +31,9 @@ Mutable or structurally indexed backends add only the capabilities they need:
   states supplied to `run_call!`;
 - `commit_environment!(backend, handle, accepted_state, time)` for accepted
   state;
-- `update_index!(backend, entities)` when topology or geometry changes require
-  rebuilding a spatial index.
+- `update_index!(backend, changed_entities, removed_object_ids)` when topology
+  or geometry changes require a spatial-index refresh. Initial compilation
+  supplies all entities; later refreshes supply only the structural delta.
 
 [`ToySpatialEnvironment`](@ref) is the small, tested implementation used by
 the user journeys.

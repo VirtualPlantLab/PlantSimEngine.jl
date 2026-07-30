@@ -2376,6 +2376,7 @@ end
 function _typed_model_execution_targets(targets, first_index::Int, last_index::Int)
     target_type = typeof(targets[first_index])
     typed = Vector{target_type}(undef, last_index - first_index + 1)
+    sizehint!(typed, length(typed) + 1)
     for (destination, source) in enumerate(first_index:last_index)
         typed[destination] = targets[source]
     end
@@ -2638,6 +2639,213 @@ function _model_execution_group_reusable(
     return target_index == length(application.target_ids)
 end
 
+function _sorted_execution_target_position(
+    targets,
+    object_id::ObjectId,
+)
+    lower = firstindex(targets)
+    upper = lastindex(targets)
+    while lower <= upper
+        middle = (lower + upper) >>> 1
+        candidate_id = @inbounds targets[middle].object_id
+        candidate_id == object_id && return (true, middle)
+        if _object_id_isless(candidate_id, object_id)
+            lower = middle + 1
+        else
+            upper = middle - 1
+        end
+    end
+    return (false, lower)
+end
+
+function _model_execution_target_location(
+    group::CompiledApplicationExecutionGroup,
+    object_id::ObjectId,
+)
+    for (batch_index, batch) in pairs(group.batches)
+        found, target_index =
+            _sorted_execution_target_position(batch.targets, object_id)
+        found && return (batch_index, target_index)
+    end
+    return nothing
+end
+
+function _model_execution_target_insertion(
+    group::CompiledApplicationExecutionGroup,
+    object_id::ObjectId,
+)
+    for (batch_index, batch) in pairs(group.batches)
+        isempty(batch.targets) && continue
+        if !_object_id_isless(last(batch.targets).object_id, object_id)
+            _, target_index =
+                _sorted_execution_target_position(
+                    batch.targets,
+                    object_id,
+                )
+            return (batch_index, target_index)
+        end
+    end
+    isempty(group.batches) && return nothing
+    batch_index = lastindex(group.batches)
+    return (
+        batch_index,
+        length(group.batches[batch_index].targets) + 1,
+    )
+end
+
+function _model_execution_batch_accepts_target(
+    batch::CompiledExecutionBatch,
+    target::CompiledExecutionTarget,
+    env_bindings,
+    application,
+)
+    typeof(target) === eltype(batch.targets) || return false
+    provider = _compiled_model_execution_environment_provider(
+        env_bindings,
+        application,
+        target,
+    )
+    return isequal(provider, batch.environment_provider)
+end
+
+function _refresh_model_execution_group_delta!(
+    previous_group::CompiledApplicationExecutionGroup,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    application::CompiledModelApplication,
+    temporal_streams,
+    output_retention,
+    constants,
+    performance,
+    changed_execution_target_ids,
+)
+    previous_group.application === application || return nothing
+    changed_object_ids = ObjectId[
+        object_id
+        for (application_id, object_id) in changed_execution_target_ids
+        if application_id == application.id
+    ]
+    isempty(changed_object_ids) && return nothing
+    _sort_object_ids!(changed_object_ids)
+    actions = NamedTuple[]
+    targets_constructed = 0
+    for object_id in changed_object_ids
+        location = _model_execution_target_location(
+            previous_group,
+            object_id,
+        )
+        is_current_target =
+            first(_sorted_object_id_position(application.target_ids, object_id))
+        if !is_current_target
+            isnothing(location) || push!(
+                actions,
+                (
+                    kind=:remove,
+                    object_id=object_id,
+                    target=nothing,
+                    reason=nothing,
+                ),
+            )
+            continue
+        end
+        previous_target = if isnothing(location)
+            nothing
+        else
+            batch_index, target_index = location
+            previous_group.batches[batch_index].targets[target_index]
+        end
+        change_reason = isnothing(previous_target) ?
+                        :new_target :
+                        _model_execution_target_change_reason(
+            previous_target,
+            compiled,
+            env_bindings,
+            application,
+            output_retention,
+        )
+        isnothing(change_reason) && continue
+        target = _compiled_model_execution_target(
+            compiled,
+            env_bindings,
+            application,
+            object_id,
+            temporal_streams,
+            output_retention,
+            constants,
+        )
+        insertion = isnothing(location) ?
+                    _model_execution_target_insertion(
+            previous_group,
+            object_id,
+        ) : location
+        isnothing(insertion) && return nothing
+        batch = previous_group.batches[first(insertion)]
+        _model_execution_batch_accepts_target(
+            batch,
+            target,
+            env_bindings,
+            application,
+        ) || return nothing
+        push!(
+            actions,
+            (
+                kind=isnothing(location) ? :insert : :replace,
+                object_id=object_id,
+                target=target,
+                reason=change_reason,
+            ),
+        )
+        targets_constructed += 1
+    end
+
+    for action in actions
+        isnothing(action.reason) && continue
+        _count_model_execution_target_rebuild!(
+            performance,
+            action.reason,
+        )
+    end
+    isempty(actions) || _runtime_performance_count!(
+        performance,
+        :execution_groups_updated_in_place,
+    )
+    batches = copy(previous_group.batches)
+    working_group = CompiledApplicationExecutionGroup(application, batches)
+    for action in actions
+        location = _model_execution_target_location(
+            working_group,
+            action.object_id,
+        )
+        if action.kind === :remove
+            isnothing(location) && continue
+            batch_index, target_index = location
+            deleteat!(batches[batch_index].targets, target_index)
+        elseif action.kind === :replace
+            isnothing(location) && return nothing
+            batch_index, target_index = location
+            batches[batch_index].targets[target_index] = action.target
+        else
+            insertion = _model_execution_target_insertion(
+                working_group,
+                action.object_id,
+            )
+            isnothing(insertion) && return nothing
+            batch_index, target_index = insertion
+            _insert_with_spare_capacity!(
+                batches[batch_index].targets,
+                target_index,
+                action.target,
+            )
+        end
+    end
+    filter!(batch -> !isempty(batch.targets), batches)
+    return (
+        group=isempty(batches) ? nothing : working_group,
+        targets_constructed=targets_constructed,
+        batches_constructed=0,
+    )
+end
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -2647,6 +2855,7 @@ function _refresh_model_execution_plan(
     constants=nothing,
     performance=nothing,
     changed_application_ids=nothing,
+    changed_execution_target_ids=compiled.changed_execution_target_ids,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
     previous_groups = Dict(
@@ -2669,6 +2878,28 @@ function _refresh_model_execution_plan(
                     push!(groups, previous_group)
                     append!(batches, previous_group.batches)
                     groups_reused += 1
+                    continue
+                end
+                delta_group = _refresh_model_execution_group_delta!(
+                    previous_group,
+                    compiled,
+                    env_bindings,
+                    application,
+                    temporal_streams,
+                    output_retention,
+                    constants,
+                    performance,
+                    changed_execution_target_ids,
+                )
+                if !isnothing(delta_group)
+                    if !isnothing(delta_group.group)
+                        push!(groups, delta_group.group)
+                        append!(batches, delta_group.group.batches)
+                    end
+                    targets_constructed +=
+                        delta_group.targets_constructed
+                    batches_constructed +=
+                        delta_group.batches_constructed
                     continue
                 end
             elseif _model_execution_group_reusable(
@@ -2873,6 +3104,25 @@ function _model_output_retention_covers_addition(
         end
     end
     return true
+end
+
+function _same_model_output_retention(
+    previous::OutputRetentionPlan,
+    current::OutputRetentionPlan,
+)
+    return previous.retain_all == current.retain_all &&
+           previous.temporal_dependencies ==
+           current.temporal_dependencies &&
+           previous.requested_outputs == current.requested_outputs &&
+           previous.dependency_horizons == current.dependency_horizons &&
+           previous.retained_application_ids ==
+           current.retained_application_ids &&
+           previous.retained_outputs_by_application ==
+           current.retained_outputs_by_application &&
+           previous.dependency_outputs_by_application ==
+           current.dependency_outputs_by_application &&
+           previous.historical_outputs_by_application ==
+           current.historical_outputs_by_application
 end
 
 function _model_status_view_refresh_is_pure_addition(
@@ -4143,14 +4393,9 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.output_retention,
             simulation.compiled,
         )
-        if output_retention_reused
-            _runtime_performance_count!(
-                simulation.performance,
-                :output_retention_reuses,
-            )
-        else
+        if !output_retention_reused
             started_at = _runtime_performance_start(simulation.performance)
-            simulation.output_retention = compile_model_output_retention(
+            refreshed_output_retention = compile_model_output_retention(
                 simulation.compiled,
                 simulation.output_requests;
                 retain_all=simulation.output_retention.retain_all,
@@ -4163,6 +4408,18 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             _runtime_performance_count!(
                 simulation.performance,
                 :output_retention_compiles,
+            )
+            output_retention_reused = _same_model_output_retention(
+                simulation.output_retention,
+                refreshed_output_retention,
+            )
+            output_retention_reused ||
+                (simulation.output_retention = refreshed_output_retention)
+        end
+        if output_retention_reused
+            _runtime_performance_count!(
+                simulation.performance,
+                :output_retention_reuses,
             )
         end
         _initialize_model_output_streams!(
@@ -4202,16 +4459,9 @@ function _refresh_simulation_runtime!(simulation::Simulation)
                 ),
             )
         end
-        changed_execution_application_ids =
-            if output_retention_reused &&
-               _applications_use_only_global_environment(
-                model,
-                simulation.compiled.applications,
-            )
-                simulation.compiled.changed_execution_application_ids
-            else
-                nothing
-            end
+        changed_execution_application_ids = output_retention_reused ?
+                                            simulation.compiled.changed_execution_application_ids :
+                                            nothing
         started_at = _runtime_performance_start(simulation.performance)
         execution_refresh = _refresh_model_execution_plan(
             simulation.execution_plan,
@@ -4256,6 +4506,32 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     elseif environment_bindings_dirty(model) ||
            simulation.environment_bindings.environment_revision !=
            environment_revision(model)
+        dirty_environment_object_ids =
+            isnothing(model.environment_dirty_objects) ?
+            nothing :
+            copy(model.environment_dirty_objects)
+        changed_execution_application_ids = nothing
+        changed_execution_target_ids =
+            Set{Tuple{Symbol,ObjectId}}()
+        if !isnothing(dirty_environment_object_ids)
+            changed_execution_application_ids = Set{Symbol}()
+            for object_id in dirty_environment_object_ids
+                for application in get(
+                    simulation.compiled.applications_by_object,
+                    object_id,
+                    (),
+                )
+                    push!(
+                        changed_execution_application_ids,
+                        application.id,
+                    )
+                    push!(
+                        changed_execution_target_ids,
+                        (application.id, object_id),
+                    )
+                end
+            end
+        end
         previous_environment_bindings = isnothing(simulation.performance) ?
                                         nothing :
                                         copy(
@@ -4302,6 +4578,8 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.output_retention,
             simulation.constants,
             simulation.performance,
+            changed_execution_application_ids,
+            changed_execution_target_ids,
         )
         simulation.execution_plan = execution_refresh.plan
         _runtime_performance_finish!(

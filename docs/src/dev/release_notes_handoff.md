@@ -153,7 +153,7 @@ for multi-plant model coupling.
   `Advanced.environment_bindings_dirty`, `Advanced.compiled_environment_bindings`,
   `Advanced.environment_revision`, and `Diagnostics.explain_environment_bindings`.
 - Adds `geometry`, `position`, and `bounds` accessors for model objects/statuses.
-  Environment binding refreshes call `EnvironmentAPI.update_index!(backend, entities)` before
+  Environment binding refreshes call `EnvironmentAPI.update_index!(backend, changed_entities, removed_object_ids)` before
   binding objects to backend cells/layers, so spatial backends can precompute
   model-wide lookup structures.
 - Spatial environment binding now falls back to the nearest ancestor geometry
