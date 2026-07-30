@@ -7,8 +7,8 @@ adds parent/child topology: one plant object owns two leaf objects.
 
 The scope picture for this page is:
 
-> `:plant` — `Subtree()` from here contains `:plant`, `:leaf_1`, and `:leaf_2`  
-> ├─ `:leaf_1` — `Self()` is `:leaf_1`; `SelfPlant()` resolves to `:plant`  
+> `:plant` — `Subtree()` from here contains `:plant`, `:leaf_1`, and `:leaf_2`<br>
+> ├─ `:leaf_1` — `Self()` is `:leaf_1`; `SelfPlant()` resolves to `:plant`<br>
 > └─ `:leaf_2` — `Self()` is `:leaf_2`; `SelfPlant()` resolves to `:plant`
 
 Selectors still filter that scope. For example,

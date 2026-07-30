@@ -100,4 +100,3 @@ execution is established.
   names, and the selector describing the target set.
 - **New API names:** `Object`, `Status`, `ModelSpec`, `Many`, and
   `Diagnostics.explain_applications`.
-

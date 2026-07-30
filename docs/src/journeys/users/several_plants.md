@@ -202,4 +202,3 @@ shared source, such as a soil object or scene-level forcing controller.
   exact application replaced by an override.
 - **New API names:** `CompositeModelTemplate`, `ObjectInstance`, `overrides`,
   and `Diagnostics.explain_instances`.
-

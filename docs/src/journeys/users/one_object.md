@@ -94,4 +94,3 @@ state_at_day_31 = final_state(simulation)
 - **New API names:** `CompositeModel`, `run!`, `Simulation`, `final_state`,
   `collect_outputs`, `outputs`, `current_step`, `step!`, and
   `Diagnostics.explain_bindings`.
-

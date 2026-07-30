@@ -164,4 +164,3 @@ environment extension reference.
 - **New API names:** `environment_inputs_`, `Environment`,
   `validate_environment_inputs`, `ToySpatialEnvironment`, and
   `Diagnostics.explain_environment_bindings`.
-

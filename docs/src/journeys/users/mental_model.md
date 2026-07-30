@@ -53,4 +53,3 @@ a runtime context.
   cross-object connections, time policies, and requested output history.
 - **New API names:** none yet. The next page introduces `CompositeModel`,
   `run!`, `Simulation`, `final_state`, and `collect_outputs`.
-

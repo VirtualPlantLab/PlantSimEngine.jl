@@ -201,4 +201,3 @@ cycle.
 - **New API names:** `every`, `HoldLast`, `Integrate`, `Aggregate`,
   `window`, `Diagnostics.explain_schedule`, and
   `Diagnostics.explain_outputs`.
-
