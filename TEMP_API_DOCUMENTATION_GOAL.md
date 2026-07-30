@@ -1021,12 +1021,25 @@ documentation build pass.
 
 #### Journey 10: Complete realistic example
 
-- [ ] Use the MAESPA-style example as the integrated reference.
-- [ ] Include multiple plants, multiple scales, multiple cadences, dynamic
+- [x] Use the MAESPA-style example as the integrated reference.
+- [x] Include multiple plants, multiple scales, multiple cadences, dynamic
       structure where relevant, and mutable/spatial environments.
-- [ ] Present it as a synthesis and reference, not as onboarding.
-- [ ] Link every advanced construct back to the earlier page that introduced
+- [x] Present it as a synthesis and reference, not as onboarding.
+- [x] Link every advanced construct back to the earlier page that introduced
       it independently.
+
+The synthesis page executes the tested 25-hour MAESPA-style stand with two
+species instances, five leaves, scene/plant/internode/leaf/soil scales, hourly
+canopy and soil exchange, daily LAI and allocation, parent-controlled leaf
+calls, and an explicitly committed single-layer canopy environment. It
+inspects instances, schedule, calls, live-reference carriers, compiled
+environment routes, final state, and retained cadence counts. A cross-reference
+table links each integrated mechanism back to its focused journey. The page
+also states why topology remains fixed for this short canopy-energy question
+and links dynamic-growth users to the independent structure journey. Making
+the source runnable outside the test harness moved its backend extensions to
+the canonical `EnvironmentAPI` namespace. The 174-check MAESPA suite and full
+documentation build pass.
 
 ### Model-developer journey
 
@@ -1106,7 +1119,7 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
   2. spatial environments;
   3. different model cadences;
   4. temporal policies.
-- [ ] **Dynamic and advanced simulations**
+- [x] **Dynamic and advanced simulations**
   1. structural growth;
   2. mutable environments;
   3. hard calls and iterative execution;

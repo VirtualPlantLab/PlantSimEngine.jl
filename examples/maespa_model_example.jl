@@ -14,7 +14,8 @@ PlantSimEngine.@process "alloc_a" verbose = false
 PlantSimEngine.@process "alloc_b" verbose = false
 
 duration_seconds(environment) = Dates.value(Dates.Millisecond(environment.duration)) / 1000.0
-mutable struct MaespaSingleLayerEnvironment{F,C} <: PlantSimEngine.AbstractEnvironmentBackend
+mutable struct MaespaSingleLayerEnvironment{F,C} <:
+               PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     forcing::F # MAESPA forcing data (Meteo data from above the canopy)
     canopy::C # Within-canopy computed microclimate
 end
@@ -44,18 +45,24 @@ end
 _maespa_meteo_row(environment, time) =
     first(Iterators.drop(environment, clamp(Int(round(time)), 1, PlantSimEngine.get_nsteps(environment)) - 1))
 
-PlantSimEngine.base_step_seconds(backend::MaespaSingleLayerEnvironment) =
-    PlantSimEngine.base_step_seconds(PlantSimEngine.environment_backend(backend.forcing))
-PlantSimEngine.get_nsteps(backend::MaespaSingleLayerEnvironment) =
-    PlantSimEngine.get_nsteps(backend.forcing)
-PlantSimEngine.environment_variables(::MaespaSingleLayerEnvironment) = Set([
+PlantSimEngine.EnvironmentAPI.base_step_seconds(
+    backend::MaespaSingleLayerEnvironment,
+) = PlantSimEngine.EnvironmentAPI.base_step_seconds(
+    PlantSimEngine.EnvironmentAPI.environment_backend(backend.forcing),
+)
+PlantSimEngine.EnvironmentAPI.get_nsteps(
+    backend::MaespaSingleLayerEnvironment,
+) = PlantSimEngine.EnvironmentAPI.get_nsteps(backend.forcing)
+PlantSimEngine.EnvironmentAPI.environment_variables(
+    ::MaespaSingleLayerEnvironment,
+) = Set([
     :T, :Rh, :Wind, :P, :Cₐ, :Ri_PAR_f, :Ri_SW_f, :duration, :VPD, :ε, :γ, :Δ, :ρ, :λ,
 ])
 
-function PlantSimEngine.bind_environment(
+function PlantSimEngine.EnvironmentAPI.bind_environment(
     backend::MaespaSingleLayerEnvironment,
     object::Object,
-    context::EnvironmentContext,
+    context::PlantSimEngine.EnvironmentAPI.EnvironmentContext,
     config,
 )
     provider = isnothing(config) ? :canopy : Symbol(config.provider)
@@ -69,7 +76,7 @@ function PlantSimEngine.bind_environment(
     return MaespaEnvironmentHandle(provider, sink)
 end
 
-function PlantSimEngine.sample(
+function PlantSimEngine.EnvironmentAPI.sample(
     backend::MaespaSingleLayerEnvironment,
     handle::MaespaEnvironmentHandle,
     variable::Symbol,
@@ -81,7 +88,7 @@ function PlantSimEngine.sample(
     return getproperty(environment, variable)
 end
 
-function PlantSimEngine.sample(
+function PlantSimEngine.EnvironmentAPI.sample(
     backend::MaespaSingleLayerEnvironment{F,C},
     handle::MaespaEnvironmentHandle,
     state::C,
@@ -94,7 +101,7 @@ function PlantSimEngine.sample(
     return getproperty(environment, variable)
 end
 
-function PlantSimEngine.commit_environment!(
+function PlantSimEngine.EnvironmentAPI.commit_environment!(
     backend::MaespaSingleLayerEnvironment{F,C},
     handle::MaespaEnvironmentHandle,
     state::C,

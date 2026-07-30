@@ -66,6 +66,7 @@ makedocs(;
             "Modify plant structure" => "./journeys/users/structure_changes.md",
             "Modify the environment" => "./journeys/users/mutable_environments.md",
             "Control advanced execution" => "./journeys/users/advanced_execution.md",
+            "MAESPA-style synthesis" => "./journeys/users/maespa_synthesis.md",
             "Part 2: roots and water" => "./tutorials/growing_plant/part2_roots_water.md",
             "Part 3: debugging" => "./tutorials/growing_plant/part3_debugging.md",
             "Manual calls" => "./guides/multiscale/manual_calls.md",

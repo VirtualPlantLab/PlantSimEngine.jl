@@ -194,6 +194,16 @@ include("../examples/maespa_model_example.jl")
     @test !occursin("with_environment!", source)
     @test !occursin("update_environment!", source)
     @test !occursin("EnvironmentSupport", source)
+    @test occursin(
+        "PlantSimEngine.EnvironmentAPI.bind_environment",
+        source,
+    )
+    @test occursin(
+        "PlantSimEngine.EnvironmentAPI.commit_environment!",
+        source,
+    )
+    @test !occursin("function PlantSimEngine.bind_environment", source)
+    @test !occursin("function PlantSimEngine.sample", source)
 
     leaf_statuses = [object.status for object in model_objects(model; scale=:Leaf)]
     @test scene_status.leaf_area ≈ sum(st.leaf_area for st in leaf_statuses)
