@@ -853,20 +853,28 @@ API material, and the roadmap are grouped under Maintainers.
 
 #### Journey 3: Build one multiscale plant
 
-- [ ] Add one plant and several organs.
-- [ ] Introduce parent/child topology, cross-object inputs, and plant-local
+- [x] Add one plant and several organs.
+- [x] Introduce parent/child topology, cross-object inputs, and plant-local
       aggregation one at a time.
-- [ ] Prefer existing models designed for this purpose:
+- [x] Prefer existing models designed for this purpose:
   - `ToyLeafSurfaceModel`;
   - `ToyPlantLeafSurfaceModel`;
   - `ToyLAIfromLeafAreaModel`;
   - `ToyLightPartitioningModel`;
   - `ToyMaintenanceRespirationModel`;
   - `ToyPlantRmModel`.
-- [ ] Introduce `Subtree()` and `SelfPlant()` with a diagram showing their
+- [x] Introduce `Subtree()` and `SelfPlant()` with a diagram showing their
       exact scopes.
-- [ ] Introduce vector/reference carriers only after a scalar cross-object
+- [x] Introduce vector/reference carriers only after a scalar cross-object
       example works.
+
+The one-plant journey extends the preceding explicit-object example with a
+plant and two leaves. It first partitions a supplied plant scalar to the leaves
+through `SelfPlant()`, then replaces supplied surfaces with
+`ToyLeafSurfaceModel` and a plant-local `ToyPlantLeafSurfaceModel` aggregation
+through `Subtree()`. Its scope diagram, scalar references, `RefVector`, final
+states, and binding diagnostics execute in the docs build; the same composition
+is protected by eight focused tutorial regression checks.
 
 #### Journey 4: Instantiate several plants
 

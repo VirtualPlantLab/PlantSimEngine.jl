@@ -49,10 +49,10 @@ makedocs(;
             "Several same-scale objects" => "./journeys/users/several_objects.md",
         ],
         "Structure and composition" => [
-            "How composite models execute" => "./guides/multiscale/concepts.md",
-            "From one object" => "./guides/multiscale/from_one_object.md",
+            "One multiscale plant" => "./journeys/users/one_plant.md",
             "Value coupling" => "./guides/multiscale/value_coupling.md",
             "Importing an MTG" => "./guides/multiscale/import_mtg.md",
+            "How composite models execute" => "./guides/multiscale/concepts.md",
             "Visualizing structure" => "./guides/multiscale/visualizing_structure.md",
         ],
         "Environment and time" => [

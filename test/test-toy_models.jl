@@ -227,3 +227,124 @@ end
     @test full_status.aPPFD > 0.0
     @test full_status.biomass ≈ rue * full_status.aPPFD
 end
+
+@testset "One-plant tutorial composition" begin
+    scalar_model = CompositeModel(
+        Object(
+            :plant;
+            scale=:Plant,
+            kind=:plant,
+            status=Status(aPPFD=120.0, surface=3.0),
+        ),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(surface=1.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(surface=2.0),
+        );
+        applications=(
+            ModelSpec(
+                ToyLightPartitioningModel();
+                name=:leaf_light,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    :aPPFD_larger_scale => One(
+                        scale=:Plant,
+                        within=SelfPlant(),
+                        var=:aPPFD,
+                    ),
+                    :total_surface => One(
+                        scale=:Plant,
+                        within=SelfPlant(),
+                        var=:surface,
+                    ),
+                ),
+            ),
+        ),
+    )
+    scalar_simulation = run!(scalar_model)
+    scalar_states = final_state(scalar_simulation, Many(scale=:Leaf))
+    @test scalar_states[:leaf_1].aPPFD == 40.0
+    @test scalar_states[:leaf_2].aPPFD == 80.0
+
+    computed_model = CompositeModel(
+        Object(
+            :plant;
+            scale=:Plant,
+            kind=:plant,
+            status=Status(aPPFD=120.0),
+        ),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(carbon_biomass=50.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(carbon_biomass=100.0),
+        );
+        applications=(
+            ModelSpec(
+                ToyLeafSurfaceModel(0.02);
+                name=:leaf_surface,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ToyPlantLeafSurfaceModel();
+                name=:plant_surface,
+                on=One(scale=:Plant),
+                inputs=(
+                    :leaf_surfaces => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:leaf_surface,
+                        var=:surface,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                ToyLightPartitioningModel();
+                name=:leaf_light,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    :aPPFD_larger_scale => One(
+                        scale=:Plant,
+                        within=SelfPlant(),
+                        var=:aPPFD,
+                    ),
+                    :total_surface => One(
+                        scale=:Plant,
+                        within=SelfPlant(),
+                        application=:plant_surface,
+                        var=:surface,
+                    ),
+                ),
+            ),
+        ),
+    )
+    computed_simulation = run!(computed_model)
+    plant_state = final_state(computed_simulation, One(scale=:Plant))
+    leaf_states = final_state(computed_simulation, Many(scale=:Leaf))
+    @test plant_state.surface == 3.0
+    @test leaf_states[:leaf_1].surface == 1.0
+    @test leaf_states[:leaf_2].surface == 2.0
+    @test leaf_states[:leaf_1].aPPFD == 40.0
+    @test leaf_states[:leaf_2].aPPFD == 80.0
+    @test only(
+        row for row in Diagnostics.explain_bindings(computed_model)
+        if row.application_id == :plant_surface
+    ).carrier_kind == :ref_vector
+end
