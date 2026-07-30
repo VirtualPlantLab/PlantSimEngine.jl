@@ -396,18 +396,40 @@ Validation evidence:
 
 ### 7. Simulation results
 
-- [ ] Keep the memory-safe `outputs=:none` default unless measurements justify
+- [x] Keep the memory-safe `outputs=:none` default unless measurements justify
       changing it.
-- [ ] Add a concise `show(::Simulation)` that reports elapsed steps, object and
+- [x] Add a concise `show(::Simulation)` that reports elapsed steps, object and
       application counts, retained stream count, and an actionable hint when
       no streams were retained.
-- [ ] Add a sanctioned `final_state` or equivalent accessor for common final
+- [x] Add a sanctioned `final_state` or equivalent accessor for common final
       values, so tutorials do not require
       `only(model_objects(...)).status`.
-- [ ] Use `outputs=:all` or explicit `OutputRequest`s in tutorials that collect
+- [x] Use `outputs=:all` or explicit `OutputRequest`s in tutorials that collect
       or plot output streams.
-- [ ] Introduce basic collection in the first journey; defer retention,
+- [x] Introduce basic collection in the first journey; defer retention,
       resampling, and routing policies until later.
+
+Validation evidence:
+
+- PlantSimEngine commit `e48cc3a9` adds concise compact and plain-text
+  `Simulation` displays, preserves `outputs=:none`, and adds `final_state` for
+  one object, an explicit object id, or `One`, `OptionalOne`, and `Many`
+  selectors;
+- `final_state` materializes the latest canonical status independently of
+  retained history; scalar snapshots remain unchanged when the simulation is
+  later continued, and `Many` returns an object-id-to-state dictionary;
+- commit `a794876d` adds explicit multi-object result coverage; the focused API
+  stabilization file passes 257 checks;
+- every documentation example that calls `collect_outputs` now retains
+  `outputs=:all` or an explicit `OutputRequest`, while final-value examples use
+  `final_state`;
+- the complete Documenter build, including the first multi-timestep collection
+  journey and all runnable Markdown examples: pass;
+- XPalm: 307 package checks and 68 XPalm v0.6.1 full-cycle numerical
+  regression checks pass;
+- PlantBiophysics: 268 checks pass;
+- no reference fixture was changed, and XPalm's unrelated `CHANGELOG.md`
+  modification remains untouched.
 
 ## Performance Restoration Contract
 
