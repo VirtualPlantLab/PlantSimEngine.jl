@@ -348,3 +348,144 @@ end
         if row.application_id == :plant_surface
     ).carrier_kind == :ref_vector
 end
+
+@testset "Several-plant tutorial composition" begin
+    plant_template = CompositeModelTemplate((
+        ModelSpec(
+            ToyLeafSurfaceModel(0.02);
+            name=:leaf_surface,
+            on=Many(scale=:Leaf),
+        ),
+        ModelSpec(
+            ToyPlantLeafSurfaceModel();
+            name=:plant_surface,
+            on=One(scale=:Plant),
+            inputs=(
+                :leaf_surfaces => Many(
+                    scale=:Leaf,
+                    within=Subtree(),
+                    application=:leaf_surface,
+                    var=:surface,
+                ),
+            ),
+        ),
+        ModelSpec(
+            ToyLightPartitioningModel();
+            name=:leaf_light,
+            on=Many(scale=:Leaf),
+            inputs=(
+                :aPPFD_larger_scale => One(
+                    scale=:Plant,
+                    within=SelfPlant(),
+                    var=:aPPFD,
+                ),
+                :total_surface => One(
+                    scale=:Plant,
+                    within=SelfPlant(),
+                    application=:plant_surface,
+                    var=:surface,
+                ),
+            ),
+        ),
+    ))
+
+    plant_a = ObjectInstance(
+        :plant_a,
+        plant_template;
+        root=Object(
+            :plant_a_root;
+            scale=:Plant,
+            kind=:plant,
+            status=Status(aPPFD=120.0),
+        ),
+        objects=(
+            Object(
+                :plant_a_leaf_1;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_a_root,
+                status=Status(carbon_biomass=50.0),
+            ),
+            Object(
+                :plant_a_leaf_2;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_a_root,
+                status=Status(carbon_biomass=100.0),
+            ),
+        ),
+    )
+    plant_b = ObjectInstance(
+        :plant_b,
+        plant_template;
+        root=Object(
+            :plant_b_root;
+            scale=:Plant,
+            kind=:plant,
+            status=Status(aPPFD=200.0),
+        ),
+        objects=(
+            Object(
+                :plant_b_leaf_1;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_b_root,
+                status=Status(carbon_biomass=50.0),
+            ),
+            Object(
+                :plant_b_leaf_2;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_b_root,
+                status=Status(carbon_biomass=50.0),
+            ),
+        ),
+    )
+
+    model = CompositeModel(plant_a, plant_b)
+    simulation = run!(model)
+    plant_states = final_state(simulation, Many(scale=:Plant))
+    leaf_states = final_state(simulation, Many(scale=:Leaf))
+    @test plant_states[:plant_a_root].surface == 3.0
+    @test plant_states[:plant_b_root].surface == 2.0
+    @test sum(
+        leaf_states[id].aPPFD
+        for id in (:plant_a_leaf_1, :plant_a_leaf_2)
+    ) == 120.0
+    @test sum(
+        leaf_states[id].aPPFD
+        for id in (:plant_b_leaf_1, :plant_b_leaf_2)
+    ) == 200.0
+    @test Set(row.name for row in Diagnostics.explain_instances(model)) ==
+          Set((:plant_a, :plant_b))
+
+    plant_c = ObjectInstance(
+        :plant_c,
+        plant_template;
+        root=Object(
+            :plant_c_root;
+            scale=:Plant,
+            kind=:plant,
+            status=Status(aPPFD=120.0),
+        ),
+        objects=(
+            Object(
+                :plant_c_leaf_1;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_c_root,
+                status=Status(carbon_biomass=50.0),
+            ),
+            Object(
+                :plant_c_leaf_2;
+                scale=:Leaf,
+                kind=:leaf,
+                parent=:plant_c_root,
+                status=Status(carbon_biomass=100.0),
+            ),
+        ),
+        overrides=(leaf_surface=ToyLeafSurfaceModel(0.04),),
+    )
+    override_simulation = run!(CompositeModel(plant_c))
+    @test final_state(override_simulation, One(scale=:Plant)).surface == 6.0
+end

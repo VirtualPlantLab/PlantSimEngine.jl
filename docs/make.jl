@@ -50,6 +50,7 @@ makedocs(;
         ],
         "Structure and composition" => [
             "One multiscale plant" => "./journeys/users/one_plant.md",
+            "Several plants" => "./journeys/users/several_plants.md",
             "Value coupling" => "./guides/multiscale/value_coupling.md",
             "Importing an MTG" => "./guides/multiscale/import_mtg.md",
             "How composite models execute" => "./guides/multiscale/concepts.md",

@@ -878,12 +878,20 @@ is protected by eight focused tutorial regression checks.
 
 #### Journey 4: Instantiate several plants
 
-- [ ] Convert the previous plant into a `CompositeModelTemplate`.
-- [ ] Instantiate it at least twice with independent initial values.
-- [ ] Prove that plant-local selectors do not mix organs between plants.
-- [ ] Introduce `SceneScope()` only when adding a deliberately shared scene or
+- [x] Convert the previous plant into a `CompositeModelTemplate`.
+- [x] Instantiate it at least twice with independent initial values.
+- [x] Prove that plant-local selectors do not mix organs between plants.
+- [x] Introduce `SceneScope()` only when adding a deliberately shared scene or
       soil source.
-- [ ] Demonstrate one override only after the two identical instances work.
+- [x] Demonstrate one override only after the two identical instances work.
+
+The several-plants journey mounts the one-plant applications from a single
+`CompositeModelTemplate` on two instances with independent initial light and
+biomass. Exact surface totals and per-plant light sums prove that `Subtree()` and
+`SelfPlant()` do not cross instance boundaries. Only after that base scenario
+runs, a third instance overrides `:leaf_surface`, doubling its surface without
+changing the template wiring. `SceneScope()` is intentionally deferred until a
+shared scene or soil source exists.
 
 #### Journey 5: Understand environments
 
@@ -1038,7 +1046,7 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
   2. mental model;
   3. first same-scale coupled simulation over many timesteps;
   4. several same-scale objects.
-- [ ] **Structure and composition**
+- [x] **Structure and composition**
   1. one multiscale plant;
   2. several plants;
   3. templates and overrides;
