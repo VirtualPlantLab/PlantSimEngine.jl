@@ -105,7 +105,7 @@ Commit the resulting `frontend/dist` changes together with the source changes.
 Do not commit `frontend/node_modules`, Playwright reports, screenshots, videos,
 or local test output.
 
-The end-to-end suite starts a real Julia `edit_graph` session and controls it
+The end-to-end suite starts a real Julia `GraphEditor.edit_graph` session and controls it
 with Chromium:
 
 ```sh

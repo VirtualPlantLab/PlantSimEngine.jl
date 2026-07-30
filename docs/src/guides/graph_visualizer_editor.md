@@ -29,7 +29,7 @@ model = CompositeModel(
     kind=:plant,
 )
 
-view = model_graph_view(model)
+view = GraphEditor.model_graph_view(model)
 view.metadata
 ```
 
@@ -63,7 +63,7 @@ The static visualizer is part of PlantSimEngine core and does not load a web
 server:
 
 ```julia
-path = write_model_graph_view("model-graph.html", model)
+path = GraphEditor.write_model_graph_view("model-graph.html", model)
 ```
 
 The output bundles the graph payload, JavaScript, and CSS in one HTML file. It
@@ -73,7 +73,7 @@ package can generate the file from `docs/make.jl` and place it under
 
 ```julia
 mkpath(joinpath(@__DIR__, "src", "assets"))
-write_model_graph_view(
+GraphEditor.write_model_graph_view(
     joinpath(@__DIR__, "src", "assets", "default_scene.html"),
     default_scene(),
 )
@@ -99,7 +99,7 @@ Then start a session:
 using PlantSimEngine
 using HTTP
 
-session = edit_graph(model)
+session = GraphEditor.edit_graph(model)
 ```
 
 The default browser opens automatically. The returned session also prints its
@@ -110,11 +110,11 @@ and returned as a fresh graph state.
 Inspect the current result or stop the server with:
 
 ```julia
-edited_scene = current_model(session)
+edited_scene = GraphEditor.current_model(session)
 close(session)
 ```
 
-Call `edit_graph()` without a CompositeModel to start from an empty scenario. Use
+Call `GraphEditor.edit_graph()` without a CompositeModel to start from an empty scenario. Use
 `open_browser=false` on remote machines or when a test controls the browser.
 
 ## What Can Be Edited
@@ -143,7 +143,7 @@ using PlantSimEngine
 using PlantBiophysics
 using HTTP
 
-session = edit_graph(model)
+session = GraphEditor.edit_graph(model)
 ```
 
 The `+` buttons next to ports use exact declared variable names only. For an

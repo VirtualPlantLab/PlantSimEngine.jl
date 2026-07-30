@@ -12,12 +12,12 @@ composite models. Raw rows have the stable columns `timestep`, `time`, `applicat
 identify `scale` and `process`. A temporal request emits `missing` when its
 policy cannot produce a value for a scheduled output time.
 `time` is expressed in model base-step coordinates; application clock metadata
-is reported by `explain_schedule(simulation)`. Values retain their concrete
+is reported by `Diagnostics.explain_schedule(simulation)`. Values retain their concrete
 types, so unit-bearing model outputs remain unit-bearing in collected rows.
 
 `OutputRequest` controls requested retention or resampling. Dependency streams
 may also be retained for runtime correctness. Use
-`explain_output_retention(sim)` to see why each stream exists. Removed objects
+`Diagnostics.explain_output_retention(sim)` to see why each stream exists. Removed objects
 retain accepted historical rows.
 
 ```@example collect-output

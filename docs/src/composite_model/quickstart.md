@@ -79,7 +79,7 @@ scene_status = only(model_objects(model; scale=:Scene)).status
 
 ## Inspect The Compiled Bindings
 
-Before running, `explain_initialization(model)` classifies each variable as
+Before running, `Diagnostics.explain_initialization(model)` classifies each variable as
 `:required`, `:defaulted`, `:supplied`, `:producer_bound`, `:generated`, or
 `:environment_bound`. The report remains available when required values are
 missing, so it can be used to finish configuring a model.
@@ -92,7 +92,7 @@ inputs and outputs:
 
 ```@example model_object_quickstart
 select(
-    DataFrame(explain_bindings(model)),
+    DataFrame(Diagnostics.explain_bindings(model)),
     :application_id,
     :input,
     :source_application_ids,
@@ -108,7 +108,7 @@ For runtime performance diagnostics, inspect the execution plan:
 
 ```@example model_object_quickstart
 select(
-    DataFrame(explain_execution_plan(model)),
+    DataFrame(Diagnostics.explain_execution_plan(model)),
     :application_id,
     :object_ids,
     :batch_size,
@@ -144,7 +144,7 @@ collect_outputs(requested_sim, :lai_every_two_days; sink=nothing)[1:4]
 The retention explanation reports why a stream was kept:
 
 ```@example model_object_quickstart
-explain_output_retention(requested_sim)
+Diagnostics.explain_output_retention(requested_sim)
 ```
 
 ## Many Objects As Inputs
@@ -187,7 +187,7 @@ The compiled binding shows a `RefVector` carrier:
 
 ```@example model_object_quickstart
 select(
-    DataFrame(explain_bindings(plant_scene)),
+    DataFrame(Diagnostics.explain_bindings(plant_scene)),
     :application_id,
     :input,
     :source_ids,

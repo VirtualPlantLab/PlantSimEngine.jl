@@ -1,11 +1,12 @@
 # Parameter Fitting
 
-`PlantSimEngine.fit` is a shared interface for model-specific calibration.
+`PlantSimEngine.Evaluation.fit` is the shared interface for model-specific
+calibration.
 Model packages implement a method whose first argument is the model type and
 whose second argument is Tables.jl-compatible observations.
 
 ```julia
-function PlantSimEngine.fit(
+function PlantSimEngine.Evaluation.fit(
     ::Type{Beer},
     data;
     J_to_umol=PlantMeteo.Constants().J_to_umol,
@@ -48,7 +49,7 @@ data = DataFrame(
     Ri_PAR_f=[meteo.Ri_PAR_f[1]],
 )
 
-fit(Beer, data)
+PlantSimEngine.Evaluation.fit(Beer, data)
 ```
 
 This example recovers the parameter used to generate the synthetic

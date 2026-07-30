@@ -23,12 +23,12 @@ gives agents the package-specific conventions they need for:
   scenario source overrides;
 - inspecting compiled scenarios with structured explanation helpers;
 - reporting supplied, generated, bound, and unresolved variables with
-  `explain_initialization`;
+  `Diagnostics.explain_initialization`;
 - accessing the live model from lifecycle-capable kernels with
   `runtime_model(context)`;
-- inspecting homogeneous runtime batches with `explain_execution_plan`;
+- inspecting homogeneous runtime batches with `Diagnostics.explain_execution_plan`;
 - collecting raw or requested model outputs with `outputs`,
-  `OutputRequest`, `collect_outputs`, and `explain_output_retention`;
+  `OutputRequest`, `collect_outputs`, and `Diagnostics.explain_output_retention`;
 - implementing or wrapping models with `@process`, `inputs_`, `outputs_`,
   `run!`, hard dependencies, and model traits.
 

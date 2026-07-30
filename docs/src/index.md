@@ -145,7 +145,7 @@ bindings from each model's declared inputs and outputs:
 
 ```@example readme
 select(
-    DataFrame(explain_bindings(model)),
+    DataFrame(Diagnostics.explain_bindings(model)),
     :application_id,
     :input,
     :source_application_ids,
@@ -267,9 +267,9 @@ For performance-sensitive composite models, inspect the supported structured
 explanations:
 
 ```julia
-explain_bindings(model)
-explain_schedule(model)
-explain_execution_plan(model)
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_execution_plan(model)
 ```
 
 These helpers expose resolved objects, carriers, copy/reference semantics,

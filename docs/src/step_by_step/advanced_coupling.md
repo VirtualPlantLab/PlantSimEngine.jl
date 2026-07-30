@@ -71,7 +71,7 @@ complex_scene = CompositeModel(
 )
 
 select(
-    DataFrame(explain_calls(complex_scene)),
+    DataFrame(Diagnostics.explain_calls(complex_scene)),
     :application_id,
     :call,
     :callee_application_ids,
@@ -92,7 +92,7 @@ rules:
 
 ```@example scene_advanced_coupling
 select(
-    DataFrame(explain_schedule(complex_scene)),
+    DataFrame(Diagnostics.explain_schedule(complex_scene)),
     :application_id,
     :manual_call_only,
     :execution_index,

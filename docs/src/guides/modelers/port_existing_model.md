@@ -32,7 +32,7 @@ simulation = run!(model)
 Test the scientific function first, then the kernel directly with a `Status`,
 and finally the same model through a model. These three levels separate a
 scientific error from a model-contract error and a scenario-binding error.
-`explain_initialization(model)` should show `lai` as supplied, `T` as
+`Diagnostics.explain_initialization(model)` should show `lai` as supplied, `T` as
 environment-bound, and `lai_next` as generated.
 
 Use `Default(value)` only when the scientific model really defines a fallback.

@@ -22,7 +22,7 @@ using Dates
     @test sample(backend, handle, (T=23.0,), :T, 1.0) == 23.0
     @test sample_environment(backend, handle, 1.0, (:T,)).T == 20.0
     @test sample_environment(backend, handle, (T=23.0,), 1.0, (:T,)).T == 23.0
-    @test PlantSimEngine.get_nsteps(backend) == 1
+    @test PlantSimEngine.EnvironmentAPI.get_nsteps(backend) == 1
     @test base_step_seconds(backend) == 3600.0
     @test environment_variables(GlobalConstant(nothing)) == Set{Symbol}()
 

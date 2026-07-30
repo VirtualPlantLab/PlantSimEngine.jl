@@ -9,7 +9,7 @@ The closer to 0 the better.
 # Examples
 
 ```@example
-using PlantSimEngine
+using PlantSimEngine.Evaluation
 
 obs = [1.0, 2.0, 3.0]
 sim = [1.1, 2.1, 3.1]
@@ -30,7 +30,7 @@ Normalization is performed using division by observations range (max-min).
 # Examples
 
 ```@example
-using PlantSimEngine
+using PlantSimEngine.Evaluation
 
 obs = [1.0, 2.0, 3.0]
 sim = [1.1, 2.1, 3.1]
@@ -53,7 +53,7 @@ The closer to 1 the better.
 # Examples
 
 ```@example
-using PlantSimEngine
+using PlantSimEngine.Evaluation
 
 obs = [1.0, 2.0, 3.0]
 sim = [1.1, 2.1, 3.1]
@@ -78,7 +78,7 @@ The closer to 1 the better.
 # Examples
 
 ```@example
-using PlantSimEngine
+using PlantSimEngine.Evaluation
 
 obs = [1.0, 2.0, 3.0]
 sim = [1.1, 2.1, 3.1]

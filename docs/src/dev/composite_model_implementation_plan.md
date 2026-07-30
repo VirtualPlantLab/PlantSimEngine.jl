@@ -35,7 +35,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `environment_config`.
 - Added selector and address types: `SceneScope`, `Self`, `Subtree`,
   `SelfPlant`, `Ancestor`, `Scope`, `Relation`, `One`, `OptionalOne`, `Many`,
-  and `ObjectAddress`.
+  and `Diagnostics.ObjectAddress`.
 - Added initial `CompositeModel`/`Object` registry types and lifecycle hooks:
   `register_object!`, `remove_object!`, `reparent_object!`, `move_object!`,
   and `Advanced.refresh_bindings!`.
@@ -43,7 +43,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `resolve_objects` for `SceneScope()`, `Self()`, `SelfPlant()`,
   `Ancestor(...)`, `Scope(...)`, label keywords such as `kind=:plant` and
   `scale=:Leaf`, and `One`/`OptionalOne`/`Many` cardinality checks.
-- Added `explain_scopes(model)` for agent-readable scope diagnostics. It
+- Added `Diagnostics.explain_scopes(model)` for agent-readable scope diagnostics. It
   reports the global model scope, each object subtree, each named
   `Scope(...)`, and label groups by scale, kind, and species with concrete
   resolved object ids.
@@ -56,7 +56,7 @@ types should be selectors, model traits, or internal compiled carriers.
   object. Explicit scopes constrain relation results, default dependency scopes
   do not erase parent/sibling queries, and compiled `ModelSpec(...; inputs=...)` can use these
   relations without runtime selector resolution.
-- `ObjectAddress(selector)` normalizes scope, relation, label, routing,
+- `Diagnostics.ObjectAddress(selector)` normalizes scope, relation, label, routing,
   temporal-policy, and status-ordering fields into one structured diagnostic
   record.
 - Started the object-address compiler with `Advanced.compile_composite_model(model, specs)` and
@@ -64,27 +64,27 @@ types should be selectors, model traits, or internal compiled carriers.
   `ModelSpec(...; on=...)` target object ids, object-relative `ModelSpec(...; inputs=...)` source
   object ids, and object-relative `ModelSpec(...; calls=...)` callee object/application ids
   before runtime.
-- Added `explain_applications`, `explain_bindings`, and `explain_calls`
+- Added `Diagnostics.explain_applications`, `Diagnostics.explain_bindings`, and `Diagnostics.explain_calls`
   for the compiled model view. These explanations expose application ids,
   processes, target ids, input source ids, call callee ids, temporal policy,
   window, and carrier hints.
 - Added status-backed compiled input carriers. When source objects already
   hold `Status` values, `ModelSpec(...; inputs=...)` bindings now precompile a scalar shared
   `Ref`, a homogeneous `RefVector`, or an `Advanced.ObjectRefVector` fallback for
-  heterogeneous reference-preserving vectors. `input_carrier`, `input_value`,
-  and `has_reference_carrier` expose these carriers, and `explain_bindings`
+  heterogeneous reference-preserving vectors. `Diagnostics.input_carrier`, `Diagnostics.input_value`,
+  and `Diagnostics.has_reference_carrier` expose these carriers, and `Diagnostics.explain_bindings`
   reports carrier kind, copy/reference semantics, carrier type, and reference
   availability.
 - Added conservative same-object input inference in the model compiler. When a
   model declares an `inputs_` variable that is not covered by explicit/default
   `ModelSpec(...; inputs=...)`, and exactly one other application on the same object outputs
   the same variable, `Advanced.compile_composite_model` creates an inferred reference binding.
-  `explain_bindings` now reports binding `origin` values such as
+  `Diagnostics.explain_bindings` now reports binding `origin` values such as
   `:model_default`, `:model_spec`, and `:inferred_same_object`.
 - Compiled input bindings now carry producer metadata. When an `ModelSpec(...; inputs=...)`
   selector uses `process=` or `application=`, `Advanced.compile_composite_model` validates that a
   matching source application exists for the selected source objects.
-  `explain_bindings` reports `source_application_ids`, `process`, and
+  `Diagnostics.explain_bindings` reports `source_application_ids`, `process`, and
   `application` for agent-readable dependency diagnostics.
 - Dependency selectors in `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)` now infer a default
   scope from the consumer object when no explicit `within=...` is provided:
@@ -116,7 +116,7 @@ types should be selectors, model traits, or internal compiled carriers.
 - Same-object renaming is supported directly by `ModelSpec(...; inputs=...)`, for example
   `inputs=(:renamed_signal => One(within=Self(), var=:signal),)`. The compiler
   aliases the source `Ref`, records the renamed source variable in
-  `explain_bindings`, and schedules the producer before the consumer.
+  `Diagnostics.explain_bindings`, and schedules the producer before the consumer.
 - Same-rate input carriers are installed directly into consumer `Status`
   reference cells during model compilation. Scalar bindings share the source
   `Ref`; many-object bindings store the compiled `RefVector` or
@@ -137,13 +137,13 @@ types should be selectors, model traits, or internal compiled carriers.
   `Advanced.compile_environment_bindings`, `Advanced.CompiledEnvironmentBinding`,
   `Advanced.CompiledEnvironmentBindings`, `Advanced.environment_bindings_dirty`,
   `Advanced.compiled_environment_bindings`, `Advanced.environment_revision`, and
-  `explain_environment_bindings`. The compiler resolves each
+  `Diagnostics.explain_environment_bindings`. The compiler resolves each
   application/object environment provider, backend, required
   `environment_inputs_`, support descriptor, and backend cell before runtime.
 - Added the minimal model geometry contract: `geometry(object_or_status)`,
   `position(object_or_status)`, and `bounds(object_or_status)`. Environment
-  binding refreshes now call `update_index!(backend, entities)` once per
-  distinct backend before `Advanced.bind_environment`, giving spatial backends a current
+  binding refreshes now call `EnvironmentAPI.update_index!(backend, entities)` once per
+  distinct backend before `Advanced.EnvironmentAPI.bind_environment`, giving spatial backends a current
   model-wide object/entity list for precomputed microclimate lookup.
 - Automatic spatial binding now uses the nearest ancestor geometry when a
   target object has no geometry of its own. Existing backends still receive an
@@ -157,7 +157,7 @@ types should be selectors, model traits, or internal compiled carriers.
   cached spatial bindings. If only `environment_inputs_` changes while application
   id, object, process, provider, backend, status, and geometry provenance remain
   unchanged, required metadata is updated while the cached cell is reused
-  without `update_index!` or `Advanced.bind_environment`.
+  without `EnvironmentAPI.update_index!` or `Advanced.EnvironmentAPI.bind_environment`.
 - `validate_environment_inputs(model)` and
   `validate_environment_inputs(compiled_scene, environment_or_backend)` now validate
   composite-model/object model application `environment_inputs_` against the active
@@ -166,7 +166,7 @@ types should be selectors, model traits, or internal compiled carriers.
 - `Environment(; sources=(target=:source,))` now remaps model-facing
   environment variables to backend source variables. Environment binding
   refresh validates missing source variables when the backend can enumerate its
-  variables, and `explain_environment_bindings` reports both `required_inputs`
+  variables, and `Diagnostics.explain_environment_bindings` reports both `required_inputs`
   and `source_inputs`.
 - CompositeModel applications now infer model-author default environment source remaps
   from `environment_hint(...).bindings` when the scenario does not provide explicit
@@ -222,7 +222,7 @@ types should be selectors, model traits, or internal compiled carriers.
   Meteorological state stays in the environment backend instead of being staged
   through same-named status values.
 - Added root application scheduling from `ModelSpec(...; every=...)` using `Dates.Period`
-  values and the model environment base step. `explain_schedule` on a
+  values and the model environment base step. `Diagnostics.explain_schedule` on a
   `Advanced.CompiledCompositeModel` now reports each application clock, phase, timestep in base
   steps, timestep duration in seconds, and whether the application is scheduled
   as a root application or is manual-call-only.
@@ -237,7 +237,7 @@ types should be selectors, model traits, or internal compiled carriers.
   Inputs produced by manual-call-only applications are redirected to the parent
   application that owns the `ModelSpec(...; calls=...)` call stack. `run!(model)` uses this
   precompiled order instead of user declaration order, cycles fail at compile
-  time, and `explain_schedule` reports `execution_index`.
+  time, and `Diagnostics.explain_schedule` reports `execution_index`.
 - `Advanced.CompiledCompositeModel` now pre-indexes input and call bindings by
   `(application_id, object_id)`. Per-object input materialization and
   `call_targets` lookup uses these indexes instead of scanning every
@@ -261,7 +261,7 @@ types should be selectors, model traits, or internal compiled carriers.
   previous application id/name or process, so scenario authors can express
   cases such as pruning after carbon allocation without changing either model
   implementation.
-- Added `explain_writers(compiled)`. It reports each object/variable writer
+- Added `Diagnostics.explain_writers(compiled)`. It reports each object/variable writer
   group, duplicate-writer status, writer application ids/processes, and the
   `Updates(...)` declarations used to validate ordered updates.
 - Extended `explain_model_specs` rows with application name, target selector,
@@ -323,10 +323,10 @@ types should be selectors, model traits, or internal compiled carriers.
   table. Structured application explanations report shared/per-object storage,
   concrete versus heterogeneous dispatch, overridden object ids, and model
   types.
-- `CompositeModel` retains mounted instance metadata and `explain_instances(model)`
+- `CompositeModel` retains mounted instance metadata and `Diagnostics.explain_instances(model)`
   reports each instance root, current subtree object ids, mounted application
   ids, instance/object overrides, template labels, and parameter ownership.
-  `explain_objects(model)` also reports instance membership.
+  `Diagnostics.explain_objects(model)` also reports instance membership.
 - New objects registered below an instance automatically inherit missing
   template `kind` and `species` labels. Instance explanations derive membership
   from the current topology, so growth, pruning, and reparenting do not leave a
@@ -355,7 +355,7 @@ types should be selectors, model traits, or internal compiled carriers.
   model-local temporal output streams. This keeps existing status mutation
   behavior but makes model outputs inspectable after a run.
 - Added `outputs(sim::Simulation)`, `collect_outputs(sim)`, and
-  `explain_outputs(sim)` for composite-model/object runs. The explanation reports object
+  `Diagnostics.explain_outputs(sim)` for composite-model/object runs. The explanation reports object
   ids, variables, publishing application ids, sample counts, time bounds, and
   value types.
 - `run!(model; tracked_outputs=...)` now accepts `OutputRequest` and returns
@@ -377,7 +377,7 @@ types should be selectors, model traits, or internal compiled carriers.
   complete histories for post-run export. Export is therefore not yet fully
   online, but unrequested temporal dependencies no longer grow for the full
   simulation.
-- Added `explain_output_retention(sim)` to report which application/variable
+- Added `Diagnostics.explain_output_retention(sim)` to report which application/variable
   streams are retained and whether the reason is default retention, an output
   request, or a temporal dependency. Dependency-only rows also report their
   compiled `retention_steps`; unbounded requested/default rows report
@@ -412,7 +412,7 @@ types should be selectors, model traits, or internal compiled carriers.
 - Environment dirty tracking is now object-scoped for geometry-only changes.
   `move_object!`, `update_geometry!`, and
   `mark_environment_binding_dirty!(model, object)` retain unaffected compiled
-  bindings and re-run `Advanced.bind_environment` only for applications targeting the
+  bindings and re-run `Advanced.EnvironmentAPI.bind_environment` only for applications targeting the
   changed object. Structural changes and provider-wide invalidation still
   rebuild the complete environment cache.
 - Runtime lifecycle tests cover a model-created leaf joining a leaf
@@ -427,7 +427,7 @@ types should be selectors, model traits, or internal compiled carriers.
   become separate batches without changing stable object execution order.
   Structural or environment binding refresh recompiles the execution plan
   before the next timestep.
-- Added `explain_execution_plan(scene_or_simulation)`. It reports batch object
+- Added `Diagnostics.explain_execution_plan(scene_or_simulation)`. It reports batch object
   ids, concrete model/status/carrier types, batch sizes, and inner-loop dispatch
   semantics. A focused 128-leaf gate verifies zero allocations inside a warmed
   homogeneous no-output batch.
@@ -526,7 +526,7 @@ OptionalOne(selector...)
 Many(selector...)
 ```
 
-Selectors must normalize to `ObjectAddress` objects with enough context to be
+Selectors must normalize to `Diagnostics.ObjectAddress` objects with enough context to be
 resolved relative to a consuming object.
 
 Implement `ModelSpec(...; on=...)` using the same selector system. The target object
@@ -581,7 +581,7 @@ Implement:
 - `ModelSpec(...; inputs=...)` as `ModelSpec` configuration.
 - `Input(...)` or an equivalent internal wrapper that lets `dep(model)`
   provide default value-input bindings.
-- normalized input bindings from target variable to `ObjectAddress`.
+- normalized input bindings from target variable to `Diagnostics.ObjectAddress`.
 - compiler pass that decides carrier:
   direct reference, `RefVector`, temporal stream, or materialization.
 - status-default insertion for materialized target variables using the
@@ -660,7 +660,7 @@ Implement:
 - `ModelSpec(...; calls=...)` as `ModelSpec` configuration.
 - `Call(...)` or an equivalent internal wrapper that lets `dep(model)` provide
   default manual-call dependencies.
-- call resolution from `ObjectAddress` to concrete `ModelCall` handles, or an
+- call resolution from `Diagnostics.ObjectAddress` to concrete `ModelCall` handles, or an
   equivalent callable runtime object if the final internal type name differs.
 - same-status hard dependency calls using the same public API.
 - publication semantics:
@@ -698,14 +698,14 @@ Implemented:
 - An iterative hard-call regression executes two default non-publishing trials
   followed by one accepted call and verifies exactly one environment write and
   one temporal output sample for the accepted state.
-- `explain_calls(compiled)` reports
+- `Diagnostics.explain_calls(compiled)` reports
   `publication_policy=:explicit_accept`, `default_publish=false`, and
   `accepted_publish=true` for every compiled call edge.
 - `ModelSpec` now retains per-binding provenance for value inputs and manual
   calls. Bindings from `dep(model)` are reported as `:model_default`,
   scenario-level `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)` are reported as `:model_spec`,
   and compiler-created same-object value links are reported as
-  `:inferred_same_object`. `explain_bindings`, `explain_calls`, and
+  `:inferred_same_object`. `Diagnostics.explain_bindings`, `Diagnostics.explain_calls`, and
   `explain_model_specs` expose these origins for agent-readable diagnostics.
 - Zero-match `OptionalOne(...)` dependencies remain compiled and visible.
   Optional inputs retain the consumer `inputs_` default with
@@ -821,12 +821,12 @@ Implement:
   automatic dirty marking on object creation, removal, reparenting, and
   environment grid rebuild.
 - explanation helper:
-  `explain_environment_bindings(sim)`.
+  `Diagnostics.explain_environment_bindings(sim)`.
 - minimal geometry accessors or traits:
   `position`, `geometry`, and `bounds`.
 - backend protocol:
-  `Advanced.bind_environment`, opaque handles, committed/transient `sample`,
-  `commit_environment!`, and `update_index!`.
+  `Advanced.EnvironmentAPI.bind_environment`, opaque handles, committed/transient `sample`,
+  `commit_environment!`, and `EnvironmentAPI.update_index!`.
 - `Environment(...)` overrides for scenario-specific resolver/backend choices.
 - `Environment(; sources=(CO2=:Ca,))` for scenario-specific environment source
   remapping without changing model kernels.
@@ -881,9 +881,9 @@ Implement:
 - arbitrary value type preservation through status, input carriers, temporal
   storage, and environment samples;
 - structured explanation:
-  `explain_objects`, `explain_scopes`, `explain_bindings`,
-  `explain_calls`, `explain_environment_bindings`, `explain_schedule`,
-  `explain_writers`.
+  `Diagnostics.explain_objects`, `Diagnostics.explain_scopes`, `Diagnostics.explain_bindings`,
+  `Diagnostics.explain_calls`, `Diagnostics.explain_environment_bindings`, `Diagnostics.explain_schedule`,
+  `Diagnostics.explain_writers`.
 
 Acceptance tests:
 
@@ -895,7 +895,7 @@ Acceptance tests:
   outputs;
 - explanation helpers include enough concrete object ids, scales, processes,
   and variables for an AI agent to repair bad mappings.
-- `explain_bindings(sim)` reports whether each dependency came from inference,
+- `Diagnostics.explain_bindings(sim)` reports whether each dependency came from inference,
   `dep(model)`, or `ModelSpec`, and reports carrier/copy semantics.
 - no selector resolution occurs inside the per-object, per-model timestep loop
   for static composite models.

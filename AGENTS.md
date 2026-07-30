@@ -85,8 +85,8 @@ The compiler resolves `ModelSpec(...; inputs=...)` to reference carriers:
 - heterogeneous sources use `ObjectRefVector`;
 - temporal policies read typed output streams.
 
-Use `input_carrier`, `input_value`, `explain_bindings`, and
-`has_reference_carrier` instead of inspecting internal fields.
+Use `Diagnostics.input_carrier`, `Diagnostics.input_value`, `Diagnostics.explain_bindings`, and
+`Diagnostics.has_reference_carrier` instead of inspecting internal fields.
 
 Same-object input/output matches are inferred when unique. Cross-object
 coupling should be explicit with `ModelSpec(...; inputs=...)`.
@@ -154,7 +154,7 @@ know its scenario timestep unless the scientific model explicitly requires it.
 - `outputs(sim)` exposes retained typed streams.
 - `OutputRequest` selects retained/resampled outputs.
 - `collect_outputs(sim)` materializes output rows.
-- `explain_output_retention(sim)` reports why each stream is retained.
+- `Diagnostics.explain_output_retention(sim)` reports why each stream is retained.
 
 Streams are keyed by application, object, and variable so repeated processes do
 not overwrite each other.

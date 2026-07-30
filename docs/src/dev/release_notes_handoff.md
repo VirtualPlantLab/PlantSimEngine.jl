@@ -32,7 +32,7 @@ Source details live in `code_cleanup_audit.md`.
 - Added `runtime_model(runtime)` as the sanctioned live-model accessor for
   `RunContext` and `Simulation`; kernels no longer need to inspect
   `context.compiled.model`.
-- Added `explain_initialization(model)` with structured `:required`,
+- Added `Diagnostics.explain_initialization(model)` with structured `:required`,
   `:defaulted`, `:supplied`, `:generated`, `:producer_bound`, and
   `:environment_bound` dispositions.
 - Added `CompositeModel(model, models...; status=...)` as a thin one-object constructor
@@ -95,7 +95,7 @@ for multi-plant model coupling.
 - Adds initial registry-backed model selector resolution with
   `resolve_object_ids` and `resolve_objects` for global, self-relative,
   plant-relative, ancestor-relative, and named-scope object selections.
-- Adds `explain_scopes(model)` for structured scope diagnostics. It reports
+- Adds `Diagnostics.explain_scopes(model)` for structured scope diagnostics. It reports
   the model scope, object subtree scopes, named `Scope(...)` entries, and
   scale/kind/species label groups with concrete object ids.
 - Selector failures now include context, matched object ids, requested
@@ -109,13 +109,13 @@ for multi-plant model coupling.
   because they have no current object context.
 - Selector labels now have one spelling (`scale=:Leaf`, `kind=:plant`,
   `species=:oil_palm`, and `name=:leaf_1`); the duplicate `Scale`, `Kind`, and
-  `Species` wrappers were removed. `ObjectAddress` preserves all normalized
+  `Species` wrappers were removed. `Diagnostics.ObjectAddress` preserves all normalized
   object, routing, temporal, and status-ordering fields, while positional
   topology selectors such as `Relation(:parent)` remain supported.
 - Adds the first compiled composite-model/object view with `Advanced.compile_composite_model`,
   `Advanced.CompiledCompositeModel`, `Advanced.CompiledModelApplication`, `Advanced.CompiledModelInputBinding`,
-  `Advanced.CompiledModelCallBinding`, `explain_applications`,
-  `explain_bindings`, and `explain_calls`.
+  `Advanced.CompiledModelCallBinding`, `Diagnostics.explain_applications`,
+  `Diagnostics.explain_bindings`, and `Diagnostics.explain_calls`.
 - The compiled model view resolves `ModelSpec(...; on=...)`, `ModelSpec(...; inputs=...)`, and
   `ModelSpec(...; calls=...)` to object ids ahead of runtime, and reports temporal policy,
   window, carrier hints, and callee application ids for agent-readable
@@ -126,7 +126,7 @@ for multi-plant model coupling.
   soil state, should use `within=SceneScope()` explicitly.
 - Adds status-backed compiled input carriers for the composite-model/object view:
   scalar shared refs, homogeneous `RefVector`s, and `Advanced.ObjectRefVector` fallback
-  carriers. `input_carrier`, `input_value`, and `has_reference_carrier` expose
+  carriers. `Diagnostics.input_carrier`, `Diagnostics.input_value`, and `Diagnostics.has_reference_carrier` expose
   them for tests, diagnostics, and future runtime execution.
 - Same-rate model inputs are now wired into consumer `Status` references once
   during compilation. Scalar and `Many(...)` inputs remain live references,
@@ -140,7 +140,7 @@ for multi-plant model coupling.
 - Same-object variable renaming now uses normal `ModelSpec(...; inputs=...)` syntax instead of
   `SameScale()`. Renamed inputs share the producer reference and contribute the
   expected producer-to-consumer scheduling edge.
-- `explain_bindings` now reports stable carrier kind and copy/reference
+- `Diagnostics.explain_bindings` now reports stable carrier kind and copy/reference
   semantics, making reference-wired inputs and materialized temporal values
   explicit for users and agents.
 - Adds model binding cache helpers:
@@ -151,9 +151,9 @@ for multi-plant model coupling.
   `Advanced.refresh_environment_bindings!`, `Advanced.compile_environment_bindings`,
   `Advanced.CompiledEnvironmentBinding`, `Advanced.CompiledEnvironmentBindings`,
   `Advanced.environment_bindings_dirty`, `Advanced.compiled_environment_bindings`,
-  `Advanced.environment_revision`, and `explain_environment_bindings`.
+  `Advanced.environment_revision`, and `Diagnostics.explain_environment_bindings`.
 - Adds `geometry`, `position`, and `bounds` accessors for model objects/statuses.
-  Environment binding refreshes call `update_index!(backend, entities)` before
+  Environment binding refreshes call `EnvironmentAPI.update_index!(backend, entities)` before
   binding objects to backend cells/layers, so spatial backends can precompute
   model-wide lookup structures.
 - Spatial environment binding now falls back to the nearest ancestor geometry
@@ -166,7 +166,7 @@ for multi-plant model coupling.
 - `Environment(; sources=(CO2=:Ca,))` now remaps model-facing environment
   variables to backend source variables. CompositeModel environment binding refresh
   validates missing source variables for enumerable backends such as
-  `GlobalConstant`, and explanations expose both `required_inputs` and
+  `EnvironmentAPI.GlobalConstant`, and explanations expose both `required_inputs` and
   `source_inputs`.
 - `validate_environment_inputs(model)` and
   `validate_environment_inputs(compiled_scene, environment_or_backend)` now validate
@@ -184,11 +184,11 @@ for multi-plant model coupling.
   It materializes compiled `ModelSpec(...; inputs=...)` carriers, samples bound environment
   inputs, and executes generic model kernels on object `Status` values.
 - CompositeModel/object compiler now infers simple same-object value bindings from
-  `inputs_`/`outputs_` when one producer is unambiguous. `explain_bindings`
+  `inputs_`/`outputs_` when one producer is unambiguous. `Diagnostics.explain_bindings`
   reports each binding origin, including `:model_default`, `:model_spec`, and
   `:inferred_same_object`.
 - Compiled input bindings now validate `ModelSpec(...; inputs=...)` `process=`/`application=`
-  filters when they are provided, and `explain_bindings` reports
+  filters when they are provided, and `Diagnostics.explain_bindings` reports
   `source_application_ids`, `process`, and `application`.
 - `Advanced.compile_composite_model` now errors for required `inputs_(model)` variables that are
   neither bound through `ModelSpec(...; inputs=...)`/inference nor present on the target object
@@ -218,7 +218,7 @@ for multi-plant model coupling.
   mutable environment
   commits from model kernels.
 - CompositeModel/object root applications now honor `ModelSpec(...; every=...)` values backed by
-  `Dates.Period` scheduling. `explain_schedule` reports normalized clocks and
+  `Dates.Period` scheduling. `Diagnostics.explain_schedule` reports normalized clocks and
   whether an application is root-scheduled or manual-call-only.
 - CompositeModel/object root applications now also honor `timespec(...)` model traits
   when no explicit `ModelSpec(...; every=...)` is provided. Scenario-level `ModelSpec(...; every=...)`
@@ -230,7 +230,7 @@ for multi-plant model coupling.
   compiled from `ModelSpec(...; inputs=...)` producer edges and `Updates(...)` ordering.
   Dependencies on manual-call-only applications are redirected to their parent
   caller, same-timestep cycles fail during compilation, and
-  `explain_schedule` reports `execution_index`.
+  `Diagnostics.explain_schedule` reports `execution_index`.
 - `Advanced.CompiledCompositeModel` now pre-indexes input and call bindings by application and
   object id. Runtime input materialization and hard-call lookup no longer scan
   all model bindings for every object/model invocation.
@@ -250,7 +250,7 @@ for multi-plant model coupling.
   may have only one canonical writer per object unless later writers declare
   `Updates(:var; after=...)`, where `after` can match a previous application
   id/name or process.
-- Adds `explain_writers(compiled)` to report object-variable writer groups,
+- Adds `Diagnostics.explain_writers(compiled)` to report object-variable writer groups,
   duplicate writers, and the `Updates(...)` declarations that validate ordered
   updates.
 - Adds the first reusable object-template path with `CompositeModelTemplate` and
@@ -272,8 +272,8 @@ for multi-plant model coupling.
 - Override validation requires the same process and declared status/environment
   variable names. Application explanations report model storage, dispatch
   mode, overridden object ids, and replacement model types.
-- Adds `explain_instances(model)` and instance membership in
-  `explain_objects(model)`. Instance rows expose roots, current object
+- Adds `Diagnostics.explain_instances(model)` and instance membership in
+  `Diagnostics.explain_objects(model)`. Instance rows expose roots, current object
   membership, mounted applications, overrides, template labels, and
   reference-based parameter ownership.
 - Objects created below a mounted instance inherit missing template `kind` and
@@ -287,7 +287,7 @@ for multi-plant model coupling.
   status without publishing temporal samples or environment writes; accepted
   states must use `run_call!(target; publish=true)`. Iterative-call tests verify
   that several trials followed by one accepted call publish exactly once.
-- `explain_calls(compiled)` now exposes the manual-call publication contract
+- `Diagnostics.explain_calls(compiled)` now exposes the manual-call publication contract
   through `publication_policy`, `default_publish`, and `accepted_publish`
   fields.
 - `ModelSpec` now keeps provenance for `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)`.
@@ -316,7 +316,7 @@ for multi-plant model coupling.
   model-local temporal output streams.
 - Adds model output inspection helpers:
   `outputs(sim::Simulation)`, `collect_outputs(sim)`, and
-  `explain_outputs(sim)`. These expose object ids, variables, publishing
+  `Diagnostics.explain_outputs(sim)`. These expose object ids, variables, publishing
   application ids, sample counts, time bounds, and value types.
 - `run!(model; tracked_outputs=...)` now accepts `OutputRequest` for
   composite-model/object runs. Requested outputs are collected from retained typed model
@@ -334,7 +334,7 @@ for multi-plant model coupling.
   `Interpolate`/`PreviousTimeStep`. Requested and default retain-all streams
   still preserve complete histories, and export remains post-run rather than
   fully online.
-- Adds `explain_output_retention(sim)` for structured diagnostics of retained
+- Adds `Diagnostics.explain_output_retention(sim)` for structured diagnostics of retained
   model output streams, their reasons, and the compiled retention horizon for
   dependency-only streams.
 - CompositeModel temporal streams are now keyed by application id, object id, and
@@ -385,7 +385,7 @@ for multi-plant model coupling.
   statuses, input bindings, and environment bindings are
   prebound, so dynamic dispatch happens once per batch instead of once per
   object. Heterogeneous object overrides split into ordered concrete batches.
-- Adds `explain_execution_plan(scene_or_simulation)` and a zero-allocation
+- Adds `Diagnostics.explain_execution_plan(scene_or_simulation)` and a zero-allocation
   warmed 128-leaf inner-loop regression gate.
 - Manual `ModelSpec(...; calls=...)` handles now use the public
   vector-like `run_call!(context, name)` execute-all API, with

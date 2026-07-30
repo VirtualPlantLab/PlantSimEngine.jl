@@ -4,8 +4,10 @@
 Backend protocol for meteorology and mutable microclimate providers.
 
 PlantSimEngine defines the protocol, not the spatial indexing strategy. External
-packages can subtype this and implement `sample`, `commit_environment!`,
-`update_index!`, `get_nsteps`, and `base_step_seconds`.
+packages subtype `PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend`
+and extend the functions in `PlantSimEngine.EnvironmentAPI`, including
+`sample`, `commit_environment!`, `update_index!`, `get_nsteps`, and
+`base_step_seconds`.
 """
 abstract type AbstractEnvironmentBackend end
 
@@ -53,7 +55,7 @@ Return the duration of one simulation base step in seconds.
 function base_step_seconds(backend::AbstractEnvironmentBackend)
     error(
         "Environment backend `$(typeof(backend))` must implement ",
-        "`PlantSimEngine.base_step_seconds(backend)`."
+        "`PlantSimEngine.EnvironmentAPI.base_step_seconds(backend)`."
     )
 end
 
@@ -63,7 +65,7 @@ end
 
 get_nsteps(backend::AbstractEnvironmentBackend) = error(
     "Environment backend `$(typeof(backend))` must implement ",
-    "`PlantSimEngine.get_nsteps(backend)`."
+    "`PlantSimEngine.EnvironmentAPI.get_nsteps(backend)`."
 )
 get_nsteps(backend::GlobalConstant) = isnothing(environment_source(backend)) ? 1 : get_nsteps(environment_source(backend))
 

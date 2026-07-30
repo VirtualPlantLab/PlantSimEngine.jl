@@ -54,7 +54,7 @@ coupled_scene = CompositeModel(
 )
 
 select(
-    DataFrame(explain_bindings(coupled_scene)),
+    DataFrame(Diagnostics.explain_bindings(coupled_scene)),
     :application_id,
     :input,
     :source_application_ids,

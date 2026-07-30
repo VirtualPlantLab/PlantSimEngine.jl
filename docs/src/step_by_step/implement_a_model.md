@@ -179,7 +179,7 @@ PlantSimEngine does not convert status values to `Float64`.
 
 These extension functions end with an "\_". Simulation users instead use
 [`inputs`](@ref), [`outputs`](@ref), [`init_variables`](@ref), and
-[`explain_initialization`](@ref) to inspect the contract.
+[`Diagnostics.explain_initialization`](@ref) to inspect the contract.
 
 ### The run! method
 

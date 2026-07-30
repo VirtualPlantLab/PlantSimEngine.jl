@@ -86,13 +86,13 @@ compiled indexes and carriers.
 Useful inspection helpers:
 
 ```julia
-explain_applications(model)
-explain_bindings(model)
-explain_calls(model)
-explain_environment_bindings(model)
-explain_schedule(model)
-explain_execution_plan(model)
-explain_writers(model)
+Diagnostics.explain_applications(model)
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_calls(model)
+Diagnostics.explain_environment_bindings(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_execution_plan(model)
+Diagnostics.explain_writers(model)
 ```
 
 These explanations are intended for both users and agents. They report the
@@ -181,7 +181,7 @@ state through their compiled environment handles. Call `commit_environment!` and
 `run_call!(...; publish=true)` once for the accepted state.
 
 Applications selected only by `ModelSpec(...; calls=...)` are marked manual-call-only in
-`explain_schedule(model)` and are skipped by the root `run!(model)` loop.
+`Diagnostics.explain_schedule(model)` and are skipped by the root `run!(model)` loop.
 
 ## Duplicate Writers With Updates
 
@@ -196,10 +196,10 @@ ModelSpec(LeafPruning(); name=:leaf_pruning, on=Many(scale=:Leaf), updates=Updat
 ```
 
 This keeps ordinary duplicate outputs as errors while allowing cases such as
-allocation followed by pruning. `explain_writers(model)` reports writer
+allocation followed by pruning. `Diagnostics.explain_writers(model)` reports writer
 groups and the `Updates(...)` declarations that validate them.
 The `after` value is the canonical application identifier shown by
-`explain_applications(model)`, not the process name.
+`Diagnostics.explain_applications(model)`, not the process name.
 
 ## Multirate Execution
 
@@ -277,16 +277,16 @@ octree-style microclimate backends all use the same contract:
 Backend authors implement an opaque-handle protocol:
 
 ```julia
-handle = bind_environment(backend, object, context, config)
+handle = EnvironmentAPI.bind_environment(backend, object, context, config)
 
-sample(backend, handle, variable, time)               # committed state
-sample(backend, handle, trial_state, variable, time)  # transient state
+EnvironmentAPI.sample(backend, handle, variable, time)               # committed state
+EnvironmentAPI.sample(backend, handle, trial_state, variable, time)  # transient state
 commit_environment!(backend, handle, accepted_state, time)
 ```
 
-`EnvironmentContext` identifies the application, object, scale, and process
+`EnvironmentAPI.EnvironmentContext` identifies the application, object, scale, and process
 while the handle is compiled. Runtime status and geometry are not passed to
-sampling: a spatial backend resolves them once in `bind_environment` and stores
+sampling: a spatial backend resolves them once in `EnvironmentAPI.bind_environment` and stores
 the resulting provider, layer, voxel, or other routing data in its concrete
 handle. A controller that reads from one provider and commits to another should
 encode both routes in the handle, for example
@@ -324,7 +324,7 @@ request = OutputRequest(
 
 sim = run!(model; steps=72, outputs=request)
 collect_outputs(sim, :leaf_assimilation_daily; sink=nothing)
-explain_output_retention(sim)
+Diagnostics.explain_output_retention(sim)
 ```
 
 When several applications publish the same process and variable, use
@@ -349,7 +349,7 @@ Temporal dependency streams that are not explicitly requested retain only the
 history required by their input policy. `HoldLast` keeps the latest sample,
 `Integrate` and `Aggregate` keep their input window, and `Interpolate` and
 `PreviousTimeStep` keep sufficient recent source samples. Requested streams
-retain complete histories for post-run export. `explain_output_retention(sim)`
+retain complete histories for post-run export. `Diagnostics.explain_output_retention(sim)`
 reports `retention_steps` for bounded dependency-only streams and `nothing`
 for full-history streams.
 

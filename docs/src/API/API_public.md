@@ -95,39 +95,59 @@ targets.
 
 ### Explanations
 
-Use structured explanation helpers instead of inspecting internals:
+Use the `Diagnostics` namespace instead of inspecting internals:
 
-- `explain_objects`
-- `explain_instances`
-- `explain_scopes`
-- `explain_applications`
-- `explain_bindings`
-- `explain_calls`
-- `explain_environment_bindings`
-- `explain_schedule`
-- `explain_writers`
-- `explain_execution_plan`
-- `explain_output_retention`
-- `explain_outputs`
-- `explain_initialization`
+- `Diagnostics.explain_objects`
+- `Diagnostics.explain_instances`
+- `Diagnostics.explain_scopes`
+- `Diagnostics.explain_applications`
+- `Diagnostics.explain_bindings`
+- `Diagnostics.explain_calls`
+- `Diagnostics.explain_environment_bindings`
+- `Diagnostics.explain_schedule`
+- `Diagnostics.explain_writers`
+- `Diagnostics.explain_execution_plan`
+- `Diagnostics.explain_output_retention`
+- `Diagnostics.explain_outputs`
+- `Diagnostics.explain_initialization`
+- `Diagnostics.input_carrier`, `Diagnostics.input_value`, and
+  `Diagnostics.has_reference_carrier`
+- `Diagnostics.object_address`
 
 See [Migrating To The CompositeModel/Object API](../migration_composite_model.md) for
 translations from removed APIs.
 
 ### CompositeModel graph visualization and editing
 
-- `compile_model_report(model; strict=false)` preserves partial graph state and
+- `GraphEditor.compile_model_report(model; strict=false)` preserves partial graph state and
   structured diagnostics for incomplete or cyclic composite models.
-- `model_graph_view(model; level=:applications)` returns the typed graph view.
-- `model_graph_view_json(model)` serializes the same DTO used by the browser.
-- `write_model_graph_view(path, model)` writes a self-contained static viewer.
-- `edit_graph(model)` starts the optional HTTP editor after `using HTTP`.
-- `current_model(session)`, `undo!(session)`, `redo!(session)`, and
-  `close(session)` control an interactive session from Julia.
+- `GraphEditor.model_graph_view(model; level=:applications)` returns the typed graph view.
+- `GraphEditor.model_graph_view_json(model)` serializes the same DTO used by the browser.
+- `GraphEditor.write_model_graph_view(path, model)` writes a self-contained static viewer.
+- `GraphEditor.edit_graph(model)` starts the optional HTTP editor after `using HTTP`.
+- `GraphEditor.current_model(session)`, `GraphEditor.undo!(session)`,
+  `GraphEditor.redo!(session)`, and `close(session)` control an interactive
+  session from Julia.
 
 See [Visualize And Edit A CompositeModel](../guides/graph_visualizer_editor.md) for the
 runnable workflow, model discovery, selector previews, cycle breaking, and
 Documenter embedding.
+
+### Environment backend extensions
+
+Backend packages extend the protocol under `EnvironmentAPI`, including
+`EnvironmentAPI.AbstractEnvironmentBackend`,
+`EnvironmentAPI.bind_environment`, `EnvironmentAPI.sample`,
+`EnvironmentAPI.commit_environment!`, and `EnvironmentAPI.update_index!`.
+The root-level `commit_environment!` remains part of the ordinary model-kernel
+workflow for committing an accepted controller state.
+
+### Fitting and evaluation
+
+Generic fitting and metrics live under `Evaluation`: `Evaluation.fit`,
+`Evaluation.RMSE`, `Evaluation.NRMSE`, `Evaluation.EF`, and `Evaluation.dr`.
+PlantMeteo reducers are accessed from `PlantMeteo` directly rather than being
+re-exported by PlantSimEngine.
 
 ## Advanced compiler API
 
@@ -138,7 +158,7 @@ PlantSimEngine.Advanced
 Compiler representations, cache refresh operations, and low-level binding
 compilers live under `PlantSimEngine.Advanced`. They are intended for package
 integration, diagnostics development, and compiler work rather than ordinary
-scenario composition. Prefer the public `explain_*` functions, which accept a
+scenario composition. Prefer `Diagnostics.explain_*`, which accepts a
 `CompositeModel` directly, over manually compiling and inspecting fields.
 
 Examples include `Advanced.compile_composite_model`, `Advanced.refresh_bindings!`, and
@@ -154,6 +174,12 @@ Pages = ["API_public.md"]
 ## API Documentation
 
 ```@autodocs
-Modules = [PlantSimEngine]
+Modules = [
+    PlantSimEngine,
+    PlantSimEngine.Diagnostics,
+    PlantSimEngine.GraphEditor,
+    PlantSimEngine.EnvironmentAPI,
+    PlantSimEngine.Evaluation,
+]
 Private = false
 ```

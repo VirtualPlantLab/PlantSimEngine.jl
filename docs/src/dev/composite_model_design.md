@@ -409,7 +409,7 @@ The important user rule is:
   calls;
 - call outputs are published only according to the call publication contract.
 
-`explain_calls(compiled)` exposes this as
+`Diagnostics.explain_calls(compiled)` exposes this as
 `publication_policy=:explicit_accept`, with `default_publish=false` and
 `accepted_publish=true`.
 
@@ -445,7 +445,7 @@ consumer scope. `Many(...)` returns a vector-like value or target collection.
 All source and target declarations normalize to an internal address:
 
 ```julia
-ObjectAddress(
+Diagnostics.ObjectAddress(
     scope,
     kind,
     species,
@@ -464,7 +464,7 @@ ObjectAddress(
 ```
 
 Only the compiler works with this normalized address. Users should not need to
-construct it manually. [`object_address`](@ref) is the structured diagnostic
+construct it manually. [`Diagnostics.object_address`](@ref) is the structured diagnostic
 view and preserves every normalized selector field, including temporal and
 status-routing fields.
 
@@ -557,11 +557,11 @@ backends.
 The environment backend protocol should be small and backend-oriented:
 
 ```julia
-handle = bind_environment(backend, object, context, config)
-sample(backend, handle, variable, time)
-sample(backend, handle, trial_state, variable, time)
+handle = EnvironmentAPI.bind_environment(backend, object, context, config)
+EnvironmentAPI.sample(backend, handle, variable, time)
+EnvironmentAPI.sample(backend, handle, trial_state, variable, time)
 commit_environment!(backend, handle, accepted_state, time)
-update_index!(backend, entities)
+EnvironmentAPI.update_index!(backend, entities)
 ```
 
 `environment_inputs_(model)` declares what a model reads from the active environment
@@ -671,16 +671,16 @@ The final design must be understandable by agents through structured
 explanation helpers:
 
 ```julia
-explain_objects(model)
-explain_instances(model)
-explain_scopes(model)
-explain_bindings(sim)
-explain_calls(sim)
-explain_environment_bindings(sim)
-explain_schedule(sim)
-explain_writers(sim)
-explain_execution_plan(sim)
-explain_output_retention(sim)
+Diagnostics.explain_objects(model)
+Diagnostics.explain_instances(model)
+Diagnostics.explain_scopes(model)
+Diagnostics.explain_bindings(sim)
+Diagnostics.explain_calls(sim)
+Diagnostics.explain_environment_bindings(sim)
+Diagnostics.explain_schedule(sim)
+Diagnostics.explain_writers(sim)
+Diagnostics.explain_execution_plan(sim)
+Diagnostics.explain_output_retention(sim)
 ```
 
 These helpers should return stable structured data, not only pretty text. A

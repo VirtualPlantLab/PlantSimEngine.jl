@@ -12,12 +12,12 @@ ordering.
 
 Use this debugging order:
 
-1. `explain_initialization(model)` for missing state or environment values.
-2. `explain_bindings(model)` for source scope and multiplicity.
-3. `explain_writers(model)` for competing canonical outputs.
-4. `explain_calls(model)` for call-only targets and target cardinality.
-5. `explain_schedule(model)` for cadence and root ordering.
-6. `explain_outputs(simulation)` after execution for publication history.
+1. `Diagnostics.explain_initialization(model)` for missing state or environment values.
+2. `Diagnostics.explain_bindings(model)` for source scope and multiplicity.
+3. `Diagnostics.explain_writers(model)` for competing canonical outputs.
+4. `Diagnostics.explain_calls(model)` for call-only targets and target cardinality.
+5. `Diagnostics.explain_schedule(model)` for cadence and root ordering.
+6. `Diagnostics.explain_outputs(simulation)` after execution for publication history.
 
 A trial call must not mutate accepted output history or scatter mutable
 environment outputs. Nested trials inherit the outer publication decision.

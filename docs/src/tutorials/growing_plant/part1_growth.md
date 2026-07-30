@@ -28,5 +28,5 @@ the construction cost exactly once before registration.
 
 After each step, assert both biology and structure: remaining plant carbon,
 the number of leaf objects, each new leaf's parent, and accepted historical
-outputs. `explain_applications` should show that the new leaf is absent
+outputs. `Diagnostics.explain_applications` should show that the new leaf is absent
 during its creation step and present after the between-step refresh.

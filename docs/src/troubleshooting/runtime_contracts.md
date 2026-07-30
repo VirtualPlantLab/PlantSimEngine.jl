@@ -1,8 +1,8 @@
 # Runtime Contracts And Diagnostics
 
-Use `explain_initialization`, `explain_bindings`, `explain_calls`,
-`explain_schedule`, `explain_environment_bindings`, and
-`explain_output_retention` as the supported inspection surface. Do not inspect
+Use `Diagnostics.explain_initialization`, `Diagnostics.explain_bindings`, `Diagnostics.explain_calls`,
+`Diagnostics.explain_schedule`, `Diagnostics.explain_environment_bindings`, and
+`Diagnostics.explain_output_retention` as the supported inspection surface. Do not inspect
 compiled internal fields.
 
 Targets, carriers, calls, writer checks, and schedules refresh after the

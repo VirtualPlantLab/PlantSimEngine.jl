@@ -366,7 +366,7 @@ ModelSpec(LeafGasExchange(); name=:gas_exchange, on=Many(scale=:Leaf), environme
 
 The model still declares and reads `CO2`; the model samples `Ca` from the
 active environment backend and exposes it to the model as `environment.CO2`.
-`explain_environment_bindings(...)` reports both `required_inputs` and
+`Diagnostics.explain_environment_bindings(...)` reports both `required_inputs` and
 `source_inputs`, so remapped meteorology is visible to users and agents.
 
 Model authors can also provide default source remaps with
@@ -423,7 +423,7 @@ timestep, but never applications that already ran. Geometry-only changes
 refresh environment bindings without rebuilding unrelated structural bindings.
 
 The refreshed runtime also rebuilds homogeneous execution batches. Use
-`explain_execution_plan(scene_or_simulation)` to inspect the concrete
+`Diagnostics.explain_execution_plan(scene_or_simulation)` to inspect the concrete
 model/status/carrier types and the objects grouped into each specialized inner
 loop. Exceptional per-object model overrides appear as separate ordered
 batches.
@@ -431,7 +431,7 @@ batches.
 ## Output Collection
 
 `run!(model; steps=...)` returns a `Simulation`. Use
-`outputs(sim)` for the retained typed streams, `explain_outputs(sim)` for
+`outputs(sim)` for the retained typed streams, `Diagnostics.explain_outputs(sim)` for
 structured diagnostics, and `collect_outputs(sim)` for tabular rows.
 
 ```julia
@@ -456,7 +456,7 @@ If several model applications implement the same process, add
 way to request a named `:stream_only` publisher.
 `outputs=:none` retains no user streams. Passing explicit requests retains only
 their application/variable streams plus streams needed by temporal
-`ModelSpec(...; inputs=...)`. Use `explain_output_retention(sim)`
+`ModelSpec(...; inputs=...)`. Use `Diagnostics.explain_output_retention(sim)`
 to inspect why each retained stream was kept. Dependency-only streams retain a
 bounded policy-specific horizon, while requested streams keep complete
 histories for post-run export. Export is not yet a fully online path.
@@ -466,15 +466,15 @@ histories for post-run export. Export is not yet a fully online path.
 Use structured explanations instead of inspecting internal dictionaries:
 
 ```julia
-explain_objects(model)
-explain_instances(model)
-explain_scopes(model)
-explain_applications(model)
-explain_bindings(model)
-explain_calls(model)
-explain_environment_bindings(model)
-explain_schedule(model)
-explain_writers(model)
+Diagnostics.explain_objects(model)
+Diagnostics.explain_instances(model)
+Diagnostics.explain_scopes(model)
+Diagnostics.explain_applications(model)
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_calls(model)
+Diagnostics.explain_environment_bindings(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_writers(model)
 ```
 
 These functions return structured rows with concrete object ids, application

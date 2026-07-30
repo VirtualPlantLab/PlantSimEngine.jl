@@ -37,7 +37,7 @@ Use `init_variables(model)` to inspect only values PlantSimEngine can
 initialize by itself: `Default` input values and output initial values.
 Required inputs are intentionally omitted.
 
-Before running a scenario, `explain_initialization(model)` classifies inputs as
+Before running a scenario, `Diagnostics.explain_initialization(model)` classifies inputs as
 `:required`, `:defaulted`, `:supplied`, or `:producer_bound`. A
 `:required` row must be resolved before compilation can succeed.
 

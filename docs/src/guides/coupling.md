@@ -3,7 +3,7 @@
 Use `inputs` when a model reads a value produced by another application. A
 unique same-object producer is inferred; cross-object sources should use an
 explicit `One`, `OptionalOne`, or `Many` selector. Inspect the resolved
-references with `explain_bindings`.
+references with `Diagnostics.explain_bindings`.
 
 Use `calls` only when a parent algorithm owns child execution or iteration.
 Use `run_call!(context, :name)` to execute every resolved target. For selective
@@ -11,10 +11,10 @@ or iterative execution, retrieve the vector-like collection with
 `call_targets(context, :name)` and execute individual targets. Trial calls use
 `publish=false`; accepted state is published once.
 Nested calls inherit publication suppression, so a descendant cannot publish
-inside an unpublished ancestor trial. `explain_calls` and `explain_schedule`
+inside an unpublished ancestor trial. `Diagnostics.explain_calls` and `Diagnostics.explain_schedule`
 show call-only targets and ordering.
 
-`explain_initialization(model)` classifies values as supplied, generated,
+`Diagnostics.explain_initialization(model)` classifies values as supplied, generated,
 producer-bound, defaulted, required, or environment-bound before execution.
 
 ## Value coupling
@@ -80,7 +80,7 @@ candidate states with `run_call!(target; publish=false)` and the accepted state
 with `publish=true`. A call-only target is excluded from root scheduling, and
 an unpublished outer call suppresses publication by every nested descendant.
 
-After compilation, inspect `explain_bindings(compiled)` for source identity
-and carrier type, `explain_calls(compiled)` for call-only targets, and
-`explain_schedule(compiled)` for root execution order. These rows are the
+After compilation, inspect `Diagnostics.explain_bindings(compiled)` for source identity
+and carrier type, `Diagnostics.explain_calls(compiled)` for call-only targets, and
+`Diagnostics.explain_schedule(compiled)` for root execution order. These rows are the
 supported diagnostic surface; compiled fields are internal.

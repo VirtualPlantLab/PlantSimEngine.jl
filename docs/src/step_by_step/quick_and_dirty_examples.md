@@ -58,7 +58,7 @@ Inspect the inferred coupling:
 
 ```@example quick_model_examples
 select(
-    DataFrame(explain_bindings(lai_scene)),
+    DataFrame(Diagnostics.explain_bindings(lai_scene)),
     :application_id,
     :input,
     :source_application_ids,

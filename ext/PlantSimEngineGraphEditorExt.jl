@@ -3,9 +3,9 @@ module PlantSimEngineGraphEditorExt
 import HTTP
 import JSON
 import PlantSimEngine
-import PlantSimEngine: edit_graph, current_model, apply_edit!, undo!, redo!
+import PlantSimEngine.GraphEditor: edit_graph, current_model, apply_edit!, undo!, redo!
 
-mutable struct GraphEditorSession <: PlantSimEngine.AbstractModelGraphEditorSession
+mutable struct GraphEditorSession <: PlantSimEngine.GraphEditor.AbstractModelGraphEditorSession
     model::PlantSimEngine.CompositeModel
     history::Vector{Any}
     future::Vector{Any}
@@ -39,7 +39,7 @@ function Base.show(io::IO, ::MIME"text/plain", session::GraphEditorSession)
     println(io, "PlantSimEngineGraphEditorExt.GraphEditorSession")
     println(io, "  Open in browser: $(session.url)")
     println(io, "  State JSON: $(_state_url(session))")
-    println(io, "  Current model: current_model(session)")
+    println(io, "  Current model: GraphEditor.current_model(session)")
     println(io, "  Quit session: close(session)")
     isnothing(session.autosave_path) || println(io, "  Recovery autosave: $(session.autosave_path)")
     isnothing(session.save_path) || println(io, "  Saving changes to: $(session.save_path)")
@@ -105,8 +105,8 @@ function edit_graph(
     return session
 end
 
-function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.AbstractModelGraphEdit)
-    candidate = PlantSimEngine.apply_model_graph_edit(session.model, edit)
+function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEditor.AbstractModelGraphEdit)
+    candidate = PlantSimEngine.GraphEditor.apply_model_graph_edit(session.model, edit)
     push!(session.history, session.model)
     empty!(session.future)
     session.model = candidate
@@ -166,12 +166,12 @@ function _handle_http(session::GraphEditorSession, stream::HTTP.Stream)
     if path == "/" || path == "/index.html"
         return _write_response(stream, 200, "text/html; charset=utf-8", _editor_html(session))
     elseif path == "/static"
-        view = PlantSimEngine.model_graph_view(session.model)
+        view = PlantSimEngine.GraphEditor.model_graph_view(session.model)
         return _write_response(
             stream,
             200,
             "text/html; charset=utf-8",
-            PlantSimEngine.model_graph_view_html(view),
+            PlantSimEngine.GraphEditor.model_graph_view_html(view),
         )
     elseif path == "/state"
         return _write_response(stream, 200, "application/json", _state_json(session))
@@ -292,15 +292,15 @@ end
 function _preview_input_binding_payload(session, command)
     application_id = Symbol(command["applicationId"])
     input = Symbol(command["input"])
-    candidate = PlantSimEngine.apply_model_graph_edit(
+    candidate = PlantSimEngine.GraphEditor.apply_model_graph_edit(
         session.model,
-        PlantSimEngine.SetModelInputBinding(
+        PlantSimEngine.GraphEditor.SetModelInputBinding(
             application_id,
             input,
             _selector_from_payload(command["selector"]),
         ),
     )
-    report = PlantSimEngine.compile_model_report(candidate)
+    report = PlantSimEngine.GraphEditor.compile_model_report(candidate)
     bindings = [
         binding for binding in report.input_bindings
         if binding.application_id == application_id && binding.input == input
@@ -330,90 +330,90 @@ end
 function _edit_from_command(session, command)
     kind = String(get(command, "kind", ""))
     application_id = Symbol(get(command, "applicationId", ""))
-    kind == "remove_application" && return PlantSimEngine.RemoveModelApplication(application_id)
-    kind == "remove_template_application" && return PlantSimEngine.RemoveModelTemplateApplication(
+    kind == "remove_application" && return PlantSimEngine.GraphEditor.RemoveModelApplication(application_id)
+    kind == "remove_template_application" && return PlantSimEngine.GraphEditor.RemoveModelTemplateApplication(
         command["instance"],
         application_id,
     )
-    kind == "mark_previous_timestep" && return PlantSimEngine.MarkModelPreviousTimeStep(
+    kind == "mark_previous_timestep" && return PlantSimEngine.GraphEditor.MarkModelPreviousTimeStep(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "unmark_previous_timestep" && return PlantSimEngine.UnmarkModelPreviousTimeStep(
+    kind == "unmark_previous_timestep" && return PlantSimEngine.GraphEditor.UnmarkModelPreviousTimeStep(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "break_cycle" && return PlantSimEngine.BreakModelCycle(
+    kind == "break_cycle" && return PlantSimEngine.GraphEditor.BreakModelCycle(
         application_id,
         Symbol(command["input"]),
         Bool(get(command, "initializeMissing", false)),
         _parameter_value(session, get(command, "initialValue", nothing)),
     )
-    kind == "set_application_targets" && return PlantSimEngine.SetModelApplicationTargets(
+    kind == "set_application_targets" && return PlantSimEngine.GraphEditor.SetModelApplicationTargets(
         application_id,
         _selector_from_payload(command["selector"]),
     )
-    kind == "set_input_binding" && return PlantSimEngine.SetModelInputBinding(
+    kind == "set_input_binding" && return PlantSimEngine.GraphEditor.SetModelInputBinding(
         application_id,
         Symbol(command["input"]),
         _selector_from_payload(command["selector"]),
     )
-    kind == "remove_input_binding" && return PlantSimEngine.RemoveModelInputBinding(
+    kind == "remove_input_binding" && return PlantSimEngine.GraphEditor.RemoveModelInputBinding(
         application_id,
         Symbol(command["input"]),
     )
-    kind == "set_call_binding" && return PlantSimEngine.SetModelCallBinding(
+    kind == "set_call_binding" && return PlantSimEngine.GraphEditor.SetModelCallBinding(
         application_id,
         Symbol(command["call"]),
         _selector_from_payload(command["selector"]),
     )
-    kind == "remove_call_binding" && return PlantSimEngine.RemoveModelCallBinding(
+    kind == "remove_call_binding" && return PlantSimEngine.GraphEditor.RemoveModelCallBinding(
         application_id,
         Symbol(command["call"]),
     )
-    kind == "set_timestep" && return PlantSimEngine.SetModelApplicationTimeStep(
+    kind == "set_timestep" && return PlantSimEngine.GraphEditor.SetModelApplicationTimeStep(
         application_id,
         _timestep_from_payload(get(command, "timestep", nothing)),
     )
-    kind == "set_application_environment" && return PlantSimEngine.SetModelApplicationEnvironment(
+    kind == "set_application_environment" && return PlantSimEngine.GraphEditor.SetModelApplicationEnvironment(
         application_id,
         _configuration_from_payload(session, get(command, "configuration", nothing)),
     )
-    kind == "set_environment_provider" && return PlantSimEngine.SetModelApplicationEnvironment(
+    kind == "set_environment_provider" && return PlantSimEngine.GraphEditor.SetModelApplicationEnvironment(
         application_id,
         _environment_with_provider(session.model, application_id, command["provider"]),
     )
-    kind == "set_output_routing" && return PlantSimEngine.SetModelOutputRouting(
+    kind == "set_output_routing" && return PlantSimEngine.GraphEditor.SetModelOutputRouting(
         application_id,
         Symbol(command["output"]),
         Symbol(command["route"]),
     )
-    kind == "set_update_ordering" && return PlantSimEngine.SetModelUpdateOrdering(
+    kind == "set_update_ordering" && return PlantSimEngine.GraphEditor.SetModelUpdateOrdering(
         application_id,
         _updates_from_payload(get(command, "updates", Any[])),
     )
-    kind == "set_object_status" && return PlantSimEngine.SetModelObjectStatus(
+    kind == "set_object_status" && return PlantSimEngine.GraphEditor.SetModelObjectStatus(
         command["objectId"],
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
-    kind == "set_object_statuses" && return PlantSimEngine.SetModelObjectStatuses(
+    kind == "set_object_statuses" && return PlantSimEngine.GraphEditor.SetModelObjectStatuses(
         command["objectIds"],
         Symbol(command["variable"]),
         _parameter_value(session, command["value"]),
     )
-    kind == "remove_object_status" && return PlantSimEngine.RemoveModelObjectStatus(
+    kind == "remove_object_status" && return PlantSimEngine.GraphEditor.RemoveModelObjectStatus(
         command["objectId"],
         Symbol(command["variable"]),
     )
-    kind in ("set_object_metadata", "update_object") && return PlantSimEngine.SetModelObjectMetadata(
+    kind in ("set_object_metadata", "update_object") && return PlantSimEngine.GraphEditor.SetModelObjectMetadata(
         PlantSimEngine.ObjectId(command["objectId"]),
         _metadata_from_payload(get(command, "configuration", Dict())),
     )
-    kind == "add_object" && return PlantSimEngine.AddModelObject(
+    kind == "add_object" && return PlantSimEngine.GraphEditor.AddModelObject(
         _object_from_command(session, command),
     )
-    kind == "remove_object" && return PlantSimEngine.RemoveModelObject(
+    kind == "remove_object" && return PlantSimEngine.GraphEditor.RemoveModelObject(
         command["objectId"];
         recursive=Bool(get(command, "recursive", true)),
     )
@@ -421,36 +421,36 @@ function _edit_from_command(session, command)
         command["objectId"],
         get(command, "parentId", nothing),
     )
-    kind == "set_instance_override" && return PlantSimEngine.SetModelInstanceOverride(
+    kind == "set_instance_override" && return PlantSimEngine.GraphEditor.SetModelInstanceOverride(
         command["instance"],
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
-    kind == "remove_instance_override" && return PlantSimEngine.RemoveModelInstanceOverride(
+    kind == "remove_instance_override" && return PlantSimEngine.GraphEditor.RemoveModelInstanceOverride(
         command["instance"],
         application_id,
     )
-    kind == "set_object_override" && return PlantSimEngine.SetModelObjectOverride(
+    kind == "set_object_override" && return PlantSimEngine.GraphEditor.SetModelObjectOverride(
         command["instance"],
         command["objectId"],
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
-    kind == "remove_object_override" && return PlantSimEngine.RemoveModelObjectOverride(
+    kind == "remove_object_override" && return PlantSimEngine.GraphEditor.RemoveModelObjectOverride(
         command["instance"],
         command["objectId"],
         application_id,
     )
     kind == "add_application" && return _add_application_edit(session, command)
     kind == "update_application" && return _update_application_edit(session, command)
-    kind == "update_template_application" && return PlantSimEngine.UpdateModelTemplateApplication(
+    kind == "update_template_application" && return PlantSimEngine.GraphEditor.UpdateModelTemplateApplication(
         Symbol(command["instance"]),
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
         _selector_from_payload(command["selector"]),
         _timestep_from_payload(get(command, "timestep", nothing)),
     )
-    kind == "replace_application_model" && return PlantSimEngine.ReplaceModelApplicationModel(
+    kind == "replace_application_model" && return PlantSimEngine.GraphEditor.ReplaceModelApplicationModel(
         application_id,
         _construct_model(session, command["modelType"], get(command, "parameters", Dict())),
     )
@@ -533,7 +533,7 @@ end
 function _update_application_edit(session, command)
     application_id = Symbol(command["applicationId"])
     model = _construct_model(session, command["modelType"], get(command, "parameters", Dict()))
-    return PlantSimEngine.UpdateModelApplication(
+    return PlantSimEngine.GraphEditor.UpdateModelApplication(
         application_id,
         model,
         Symbol(get(command, "name", string(application_id))),
@@ -551,12 +551,12 @@ function _add_application_edit(session, command)
         name=name,
         on=selector,
         every=timestep,)
-    return PlantSimEngine.AddModelApplication(spec)
+    return PlantSimEngine.GraphEditor.AddModelApplication(spec)
 end
 
 function _resolve_model_type(label)
     text = String(label)
-    for model_type in PlantSimEngine.available_models()
+    for model_type in PlantSimEngine.GraphEditor.available_models()
         text in (string(model_type), string(nameof(model_type))) && return model_type
     end
     error("No loaded model type matches `$(text)`. Load the defining package with `using PackageName` first.")
@@ -564,7 +564,7 @@ end
 
 function _construct_model(session, label, parameters)
     model_type = _resolve_model_type(label)
-    descriptor = PlantSimEngine.model_constructor_descriptor(model_type)
+    descriptor = PlantSimEngine.GraphEditor.model_constructor_descriptor(model_type)
     fields = descriptor["fields"]
     isempty(fields) && return model_type()
     default_instance = try
@@ -676,7 +676,7 @@ function _timestep_from_payload(payload)
 end
 
 function _state_payload(session; ok=true, diagnostics=String[])
-    graph = JSON.parse(PlantSimEngine.model_graph_view_json(session.model))
+    graph = JSON.parse(PlantSimEngine.GraphEditor.model_graph_view_json(session.model))
     return Dict{String,Any}(
         "ok" => ok,
         "diagnostics" => diagnostics,
@@ -740,8 +740,8 @@ end
 _state_json(session) = JSON.json(_state_payload(session))
 
 function _editor_html(session)
-    view = PlantSimEngine.model_graph_view(session.model)
-    html = PlantSimEngine.model_graph_view_html(view)
+    view = PlantSimEngine.GraphEditor.model_graph_view(session.model)
+    html = PlantSimEngine.GraphEditor.model_graph_view_html(view)
     config = replace(JSON.json(Dict("websocketUrl" => _websocket_url(session))), "</" => "<\\/")
     script = "<script type=\"application/json\" id=\"pse-editor-config\">$(config)</script>"
     return replace(html, "</head>" => "$(script)</head>")

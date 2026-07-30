@@ -1,8 +1,13 @@
 # Public Symbol Inventory
 
-This page records the supported default namespace. Compiler representations
-and cache controls are intentionally listed separately under
-[`PlantSimEngine.Advanced`](#advanced-namespace).
+This page records the supported default namespace and the four focused public
+submodules. Compiler representations and cache controls are intentionally
+listed separately under [`PlantSimEngine.Advanced`](#advanced-namespace).
+
+`using PlantSimEngine` imports the ordinary model-author and simulation-user
+workflow plus the `Diagnostics`, `GraphEditor`, `EnvironmentAPI`, and
+`Evaluation` module names. Their members remain qualified unless a user
+explicitly imports one of those submodules.
 
 ## Scenario composition
 
@@ -20,7 +25,6 @@ and cache controls are intentionally listed separately under
   `Scope`, `Relation`.
 - Label criteria are selector keywords: `kind`, `species`, `scale`, and
   `name`.
-- Normalized addresses: `ObjectAddress`, `object_address`.
 - Queries: `object_ids`, `model_objects`, `resolve_object_ids`,
   `resolve_objects`.
 - Object data: `geometry`, `position`, `bounds`.
@@ -37,57 +41,76 @@ and cache controls are intentionally listed separately under
 - Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_targets`,
   `run_call!`.
 
-## Structured explanations
+## Diagnostics namespace
 
-- Structure: `explain_objects`, `explain_instances`, `explain_scopes`.
-- Compilation: `explain_applications`, `explain_bindings`,
-  `explain_calls`, `explain_writers`,
-  `explain_schedule`, `explain_execution_plan`.
-- Initialization, environment, and outputs: `explain_initialization`,
-  `explain_environment`, `explain_environment_bindings`,
-  `explain_output_retention`, `explain_outputs`.
-- Supported carrier inspection: `input_carrier`, `input_value`,
-  `has_reference_carrier`.
+`PlantSimEngine.Diagnostics` owns structured explanations and supported
+inspection:
+
+- Structure: `Diagnostics.explain_objects`, `Diagnostics.explain_instances`, `Diagnostics.explain_scopes`.
+- Compilation: `Diagnostics.explain_applications`, `Diagnostics.explain_bindings`,
+  `Diagnostics.explain_calls`, `Diagnostics.explain_writers`,
+  `Diagnostics.explain_schedule`, `Diagnostics.explain_execution_plan`.
+- Initialization, environment, and outputs: `Diagnostics.explain_initialization`,
+  `Diagnostics.explain_environment`, `Diagnostics.explain_environment_bindings`,
+  `Diagnostics.explain_output_retention`, `Diagnostics.explain_outputs`.
+- Supported carrier inspection: `Diagnostics.input_carrier`, `Diagnostics.input_value`,
+  `Diagnostics.has_reference_carrier`.
+- Normalized selector addresses: `Diagnostics.ObjectAddress`,
+  `Diagnostics.object_address`.
 
 ## Model-author contract
 
 - Model identity: `AbstractModel`, `@process`, `process`.
 - State schema and initialization: `Status`, `Required`, `Default`,
   `init_variables`, `dep`.
-- Model IO: `inputs`, `outputs`, `variables`, `environment_inputs`,
-  `environment_inputs_`, `environment_outputs`, `environment_outputs_`,
+- Model IO inspection: `inputs`, `outputs`, `variables`,
+  `environment_inputs`, `environment_outputs`,
   `validate_environment_inputs`.
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
   `environment_hint`, `environment_bindings`, `environment_window`.
 
 The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`, and
-`environment_outputs_` are extension functions model authors implement with
-qualified definitions such as `PlantSimEngine.inputs_(model) = ...`. `inputs_`
-must return explicit `Required(T)` or `Default(value)` declarations.
-`outputs_` continues to return initial output-state values. The underscore
-functions remain intentionally unexported to avoid collisions with common user
-functions.
+`environment_outputs_` are intentionally unexported extension functions.
+Model authors implement them with qualified definitions such as
+`PlantSimEngine.inputs_(model) = ...`. `inputs_` must return explicit
+`Required(T)` or `Default(value)` declarations; `outputs_` returns initial
+output-state values.
 
 ## Time and reducers
 
 - Scheduling: `ClockSpec`, `SchedulePolicy`, `HoldLast`, `Interpolate`,
   `Integrate`, `Aggregate`.
-- Reducers: `AbstractTimeReducer`, `MeanWeighted`, `MeanReducer`, `SumReducer`,
-  `MinReducer`, `MaxReducer`, `FirstReducer`, `LastReducer`,
-  `RadiationEnergy`.
+- Meteorology reducers are not re-exported. Use qualified PlantMeteo names,
+  for example `PlantMeteo.MeanReducer` or `PlantMeteo.RadiationEnergy`.
 
-## Environment extension interface
+## EnvironmentAPI namespace
 
-- Backend contract: `AbstractEnvironmentBackend`, `EnvironmentContext`,
-  `GlobalConstant`, `environment_backend`, `environment_variables`,
-  `base_step_seconds`.
-- Sampling and mutation: `sample`, `sample_environment`,
-  `commit_environment!`, `update_index!`.
+- Backend contract: `EnvironmentAPI.AbstractEnvironmentBackend`, `EnvironmentAPI.EnvironmentContext`,
+  `EnvironmentAPI.GlobalConstant`, `EnvironmentAPI.environment_backend`, `EnvironmentAPI.environment_variables`,
+  `EnvironmentAPI.base_step_seconds`, `EnvironmentAPI.get_nsteps`, and
+  `EnvironmentAPI.bind_environment`.
+- Sampling and mutation: `EnvironmentAPI.sample`,
+  `EnvironmentAPI.sample_environment`, `EnvironmentAPI.commit_environment!`,
+  and `EnvironmentAPI.update_index!`.
 - PlantMeteo conveniences: `Atmosphere`, `Constants`, `Weather`.
 
-## Evaluation
+## GraphEditor namespace
 
-- Fitting and metrics: `fit`, `RMSE`, `NRMSE`, `EF`, `dr`.
+- Discovery and DTOs: `GraphEditor.available_models`,
+  `GraphEditor.model_descriptor`, `GraphEditor.compile_model_report`,
+  `GraphEditor.ModelGraphView`, and `GraphEditor.model_graph_view`.
+- Serialization and static views: `GraphEditor.model_graph_view_json`,
+  `GraphEditor.model_graph_view_html`, and
+  `GraphEditor.write_model_graph_view`.
+- Semantic edits and sessions live under the same namespace, including
+  `GraphEditor.AddModelApplication`, `GraphEditor.apply_model_graph_edit`,
+  `GraphEditor.edit_graph`, `GraphEditor.current_model`,
+  `GraphEditor.undo!`, and `GraphEditor.redo!`.
+
+## Evaluation namespace
+
+- Fitting and metrics: `Evaluation.fit`, `Evaluation.RMSE`,
+  `Evaluation.NRMSE`, `Evaluation.EF`, and `Evaluation.dr`.
 
 ## Advanced namespace
 
@@ -100,8 +123,7 @@ functions.
 - carrier and adapter implementation types: `ObjectRefVector`,
   `TimeStepTable`;
 - compiler and cache operations: `compile_composite_model`, `refresh_bindings!`,
-  `refresh_environment_bindings!`, `compile_environment_bindings`,
-  `bind_environment`;
+  `refresh_environment_bindings!`, `compile_environment_bindings`;
 - cache diagnostics: `bindings_dirty`, `environment_bindings_dirty`,
   `model_revision`, `environment_revision`, `compiled_bindings`,
   `compiled_environment_bindings`.
@@ -109,3 +131,8 @@ functions.
 These names require explicit qualification or `using PlantSimEngine.Advanced`.
 They are not part of the concise user namespace and may evolve with compiler
 implementation requirements.
+
+The namespace-boundary test in `test/test-model-api-stabilization.jl` compares
+the complete default public-name set with an explicit inventory and separately
+checks every focused submodule. Adding or removing an export therefore requires
+an intentional inventory update.

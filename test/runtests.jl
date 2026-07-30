@@ -1,4 +1,8 @@
 using PlantSimEngine
+using PlantSimEngine.Diagnostics
+using PlantSimEngine.GraphEditor
+using PlantSimEngine.EnvironmentAPI
+using PlantSimEngine.Evaluation
 # Include the example dummy processes:
 using PlantSimEngine.Examples
 using Test, Aqua

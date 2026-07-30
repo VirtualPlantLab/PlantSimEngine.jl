@@ -28,5 +28,5 @@ and use `Scope(name)` only when the model explicitly defines that scope.
 One application produces a separate stream for every selected object and
 output variable. Stream keys also include application identity, so repeated
 applications of the same process cannot overwrite each other. Use
-`explain_applications`, `explain_objects`, and `explain_bindings` to
+`Diagnostics.explain_applications`, `Diagnostics.explain_objects`, and `Diagnostics.explain_bindings` to
 verify target and source multiplicities before a long run.

@@ -19,7 +19,7 @@ function build_model_graph_example()
         scale=:Plant,
         kind=:plant,
     )
-    write_model_graph_view(
+    GraphEditor.write_model_graph_view(
         joinpath(output_dir, "model_graph_example.html"),
         model,
     )

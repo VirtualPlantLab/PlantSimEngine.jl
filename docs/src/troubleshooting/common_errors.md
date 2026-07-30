@@ -1,7 +1,7 @@
 # Common Errors
 
 A missing-input error means a `Required(T)` input has neither supplied state
-nor a producer binding; start with `explain_initialization`. A
+nor a producer binding; start with `Diagnostics.explain_initialization`. A
 plain-input-declaration error means `inputs_` must replace each literal with
 `Required(T)` or `Default(value)`. A cardinality error lists selector matches;
 correct the scope or choose the intended `OptionalOne`/`Many` multiplicity. An

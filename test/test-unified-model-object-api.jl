@@ -728,7 +728,7 @@ function PlantSimEngine.run!(::ModelObjectGeometryMoverModel, status, environmen
     return nothing
 end
 
-mutable struct ModelObjectGridBackend <: PlantSimEngine.AbstractEnvironmentBackend
+mutable struct ModelObjectGridBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     binds::Vector{Any}
     index_updates::Vector{Any}
 end
@@ -784,11 +784,11 @@ function PlantSimEngine.run!(
     return nothing
 end
 
-PlantSimEngine.base_step_seconds(::ModelObjectGridBackend) = 3600.0
-PlantSimEngine.get_nsteps(::ModelObjectGridBackend) = 1
-PlantSimEngine.environment_variables(::ModelObjectGridBackend) = Set([:T, :CO2])
+PlantSimEngine.EnvironmentAPI.base_step_seconds(::ModelObjectGridBackend) = 3600.0
+PlantSimEngine.EnvironmentAPI.get_nsteps(::ModelObjectGridBackend) = 1
+PlantSimEngine.EnvironmentAPI.environment_variables(::ModelObjectGridBackend) = Set([:T, :CO2])
 
-function PlantSimEngine.bind_environment(
+function PlantSimEngine.EnvironmentAPI.bind_environment(
     backend::ModelObjectGridBackend,
     object::Object,
     context::EnvironmentContext,
@@ -817,7 +817,7 @@ function PlantSimEngine.bind_environment(
     return handle
 end
 
-function PlantSimEngine.update_index!(backend::ModelObjectGridBackend, entities)
+function PlantSimEngine.EnvironmentAPI.update_index!(backend::ModelObjectGridBackend, entities)
     push!(
         backend.index_updates,
         [
@@ -835,7 +835,7 @@ function PlantSimEngine.update_index!(backend::ModelObjectGridBackend, entities)
     return nothing
 end
 
-mutable struct ModelObjectMutableEnvironmentBackend <: PlantSimEngine.AbstractEnvironmentBackend
+mutable struct ModelObjectMutableEnvironmentBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     values::Dict{Symbol,Float64}
     writes::Vector{Any}
 end
@@ -843,11 +843,11 @@ end
 ModelObjectMutableEnvironmentBackend(values::Pair...) =
     ModelObjectMutableEnvironmentBackend(Dict{Symbol,Float64}(values), Any[])
 
-PlantSimEngine.base_step_seconds(::ModelObjectMutableEnvironmentBackend) = 3600.0
-PlantSimEngine.get_nsteps(::ModelObjectMutableEnvironmentBackend) = 1
-PlantSimEngine.environment_variables(::ModelObjectMutableEnvironmentBackend) = Set([:T, :CO2])
+PlantSimEngine.EnvironmentAPI.base_step_seconds(::ModelObjectMutableEnvironmentBackend) = 3600.0
+PlantSimEngine.EnvironmentAPI.get_nsteps(::ModelObjectMutableEnvironmentBackend) = 1
+PlantSimEngine.EnvironmentAPI.environment_variables(::ModelObjectMutableEnvironmentBackend) = Set([:T, :CO2])
 
-function PlantSimEngine.bind_environment(
+function PlantSimEngine.EnvironmentAPI.bind_environment(
     backend::ModelObjectMutableEnvironmentBackend,
     object::Object,
     context::EnvironmentContext,
@@ -866,7 +866,7 @@ function PlantSimEngine.bind_environment(
     )
 end
 
-function PlantSimEngine.sample(
+function PlantSimEngine.EnvironmentAPI.sample(
     backend::ModelObjectMutableEnvironmentBackend,
     handle::ModelObjectEnvironmentHandle,
     variable::Symbol,
@@ -877,7 +877,7 @@ function PlantSimEngine.sample(
     return backend.values[handle.cell]
 end
 
-function PlantSimEngine.sample(
+function PlantSimEngine.EnvironmentAPI.sample(
     backend::ModelObjectMutableEnvironmentBackend,
     handle::ModelObjectEnvironmentHandle,
     state::NamedTuple,
@@ -888,7 +888,7 @@ function PlantSimEngine.sample(
     return getproperty(state, variable)
 end
 
-function PlantSimEngine.sample(
+function PlantSimEngine.EnvironmentAPI.sample(
     backend::ModelObjectMutableEnvironmentBackend,
     handle::ModelObjectEnvironmentHandle,
     state::ModelObjectEnvironmentField,
@@ -900,7 +900,7 @@ function PlantSimEngine.sample(
     return state.values[handle.cell]
 end
 
-function PlantSimEngine.commit_environment!(
+function PlantSimEngine.EnvironmentAPI.commit_environment!(
     backend::ModelObjectMutableEnvironmentBackend,
     handle::ModelObjectEnvironmentHandle,
     state,

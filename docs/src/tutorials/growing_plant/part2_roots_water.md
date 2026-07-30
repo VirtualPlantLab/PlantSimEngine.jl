@@ -34,4 +34,4 @@ Precipitation, temperature, and radiation remain environment variables, not
 ordinary object outputs. Use `Environment(sources=...)` when provider column
 names differ from model-facing names. When growth creates a root, initialize
 all required root status values before `register_object!`; verify the next
-timestep's carrier with `input_value` or `explain_bindings`.
+timestep's carrier with `Diagnostics.input_value` or `Diagnostics.explain_bindings`.

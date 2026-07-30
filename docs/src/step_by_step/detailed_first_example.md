@@ -89,7 +89,7 @@ This avoids resolving object selections inside the timestep loop.
 
 ```@example detailed_scene
 select(
-    DataFrame(explain_applications(model)),
+    DataFrame(Diagnostics.explain_applications(model)),
     :application_id,
     :process,
     :target_ids,
@@ -100,14 +100,14 @@ select(
 initialized directly on the object status:
 
 ```@example detailed_scene
-explain_bindings(model)
+Diagnostics.explain_bindings(model)
 ```
 
 The schedule tells us when each application runs:
 
 ```@example detailed_scene
 select(
-    DataFrame(explain_schedule(model)),
+    DataFrame(Diagnostics.explain_schedule(model)),
     :application_id,
     :dt_seconds,
     :root_scheduled,
@@ -160,7 +160,7 @@ coupled_scene = CompositeModel(
 )
 
 select(
-    DataFrame(explain_bindings(coupled_scene)),
+    DataFrame(Diagnostics.explain_bindings(coupled_scene)),
     :application_id,
     :input,
     :source_application_ids,
@@ -210,7 +210,7 @@ bad_scene = CompositeModel(
 )
 
 try
-    explain_bindings(bad_scene)
+    Diagnostics.explain_bindings(bad_scene)
 catch err
     first(sprint(showerror, err), 300)
 end

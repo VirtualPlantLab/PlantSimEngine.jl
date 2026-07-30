@@ -14,7 +14,11 @@ For example the method for fitting the `Beer` model from the example script (see
 this:
 
 ```julia
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
+function PlantSimEngine.Evaluation.fit(
+    ::Type{Beer},
+    df;
+    J_to_umol=PlantMeteo.Constants().J_to_umol,
+)
     k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.aPPFD ./ J_to_umol)) ./ df.LAI)
     return (k=k,)
 end
@@ -28,6 +32,7 @@ and `Ri_PAR_f`.
 ```julia
 # Including example processes and models:
 using PlantSimEngine.Examples;
+using PlantSimEngine.Evaluation;
 
 meteo = Atmosphere(
     T=20.0,
@@ -51,7 +56,7 @@ df = DataFrame(
     LAI=leaf.status.LAI,
     Ri_PAR_f=meteo.Ri_PAR_f[1],
 )
-fit(Beer, df)
+Evaluation.fit(Beer, df)
 ```
 
 Note that this is a dummy example to show that the fitting method works, as we simulate the aPPFD 

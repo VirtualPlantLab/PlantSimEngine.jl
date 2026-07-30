@@ -7,7 +7,7 @@ normal `ModelSpec`; only its `every` value and input policy differ.
 
 Runtime dependency streams are retained because consumers need them. Output
 resampling is independent: create named `OutputRequest`s for hourly, daily,
-and weekly analysis, then compare `explain_schedule` sample counts with rows
+and weekly analysis, then compare `Diagnostics.explain_schedule` sample counts with rows
 from `collect_outputs`.
 
 The following reduced example checks the important physical contract: two
