@@ -570,6 +570,24 @@ end
     @test final_state(default_simulation, Many()) ==
           Dict(:scene => (signal=2.0,))
 
+    multi_object_scene = CompositeModel(
+        Object(:leaf_1; scale=:Leaf),
+        Object(:leaf_2; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                on=Many(scale=:Leaf),
+            ),
+        ),
+    )
+    multi_object_simulation = run!(multi_object_scene)
+    @test_throws Exception final_state(multi_object_simulation)
+    @test final_state(multi_object_simulation, Many(scale=:Leaf)) ==
+          Dict(
+              :leaf_1 => (signal=1.0,),
+              :leaf_2 => (signal=1.0,),
+          )
+
     compact_display = sprint(show, default_simulation)
     @test compact_display ==
           "Simulation(steps=2, objects=1, applications=1, retained_streams=0)"
