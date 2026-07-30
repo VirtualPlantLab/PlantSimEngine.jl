@@ -33,17 +33,16 @@ types should be selectors, model traits, or internal compiled carriers.
 - Added `ModelSpec(model; name=...)` application names and getters:
   `application_name`, `applies_to`, `value_inputs`, `model_calls`, and
   `environment_config`.
-- Added initial selector and address types:
-  `SceneScope`, `Self`, `SelfPlant`, `Ancestor`, `Scope`, `Kind`, `Species`,
-  `Scale`, `Relation`, `One`, `OptionalOne`, `Many`, and `ObjectAddress`.
+- Added selector and address types: `SceneScope`, `Self`, `Subtree`,
+  `SelfPlant`, `Ancestor`, `Scope`, `Relation`, `One`, `OptionalOne`, `Many`,
+  and `ObjectAddress`.
 - Added initial `CompositeModel`/`Object` registry types and lifecycle hooks:
   `register_object!`, `remove_object!`, `reparent_object!`, `move_object!`,
   and `Advanced.refresh_bindings!`.
 - Added registry-backed selector resolution with `resolve_object_ids` and
   `resolve_objects` for `SceneScope()`, `Self()`, `SelfPlant()`,
-  `Ancestor(...)`, `Scope(...)`, positional selectors such as
-  `Kind(:plant)`/`Scale(:Leaf)`, and `One`/`OptionalOne`/`Many` cardinality
-  checks.
+  `Ancestor(...)`, `Scope(...)`, label keywords such as `kind=:plant` and
+  `scale=:Leaf`, and `One`/`OptionalOne`/`Many` cardinality checks.
 - Added `explain_scopes(model)` for agent-readable scope diagnostics. It
   reports the global model scope, each object subtree, each named
   `Scope(...)`, and label groups by scale, kind, and species with concrete
@@ -57,9 +56,9 @@ types should be selectors, model traits, or internal compiled carriers.
   object. Explicit scopes constrain relation results, default dependency scopes
   do not erase parent/sibling queries, and compiled `ModelSpec(...; inputs=...)` can use these
   relations without runtime selector resolution.
-- `ObjectAddress(selector)` now normalizes positional `Kind`, `Species`,
-  `Scale`, scope, and `Relation` selectors instead of recording only keyword
-  criteria.
+- `ObjectAddress(selector)` normalizes scope, relation, label, routing,
+  temporal-policy, and status-ordering fields into one structured diagnostic
+  record.
 - Started the object-address compiler with `Advanced.compile_composite_model(model, specs)` and
   compiled model application/binding carriers. The compiler now resolves
   `ModelSpec(...; on=...)` target object ids, object-relative `ModelSpec(...; inputs=...)` source
@@ -509,14 +508,15 @@ Implement selector types:
 ```julia
 SceneScope()
 Self()
+Subtree()
 SelfPlant()
 Ancestor(scale=:Plant)
 Scope(name)
-Kind(kind)
-Species(species)
-Scale(scale)
 Relation(...)
 ```
+
+Object labels use keyword criteria such as `kind=:plant`,
+`species=:oil_palm`, `scale=:Leaf`, and `name=:leaf_1`.
 
 Implement multiplicity wrappers:
 
@@ -535,7 +535,8 @@ implicit scale table.
 
 Definitions:
 
-- `Self()` means only the current model application object.
+- `Self()` means only the current object: the object on which the consuming
+  model application runs. It is a plant only when that object is the plant.
 - `Subtree()` means the current object and its descendants.
 - `SelfPlant()` means the nearest containing plant scope.
 - `Ancestor(scale=:Plant)` is the generic selector form for `SelfPlant()`.
@@ -1015,8 +1016,9 @@ Current removal audit:
 
 ## Resolved API Decisions
 
-- `SceneScope`, `Self`, `SelfPlant`, `Kind`, `Species`, and `Scale` are the
-  public selector names.
+- `SceneScope`, `Self`, `Subtree`, `SelfPlant`, `Ancestor`, `Scope`, and
+  `Relation` are the public topology selector names. Object labels use
+  `kind=`, `species=`, `scale=`, and `name=` keyword criteria.
 - `ModelSpec(...; inputs=...)` is the only scenario-level value-binding
   construction form.
 - `ModelSpec(...; every=...)` is the canonical timestep configuration.

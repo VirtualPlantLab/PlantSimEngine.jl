@@ -103,11 +103,15 @@ for multi-plant model coupling.
   such as `scale=:Leef` therefore suggest `:Leaf` instead of returning only a
   cardinality count.
 - `Relation(...)` now supports `:self`, `:parent`, `:children`, `:ancestors`,
-  `:descendants`, and `:siblings` in `on`, `inputs`, and `calls`
+  `:descendants`, and `:siblings` in object-relative input, call, and query
   selectors. Relation results are compiled to concrete object ids and may be
-  constrained by an explicit scope.
-- `ObjectAddress` explanations now preserve positional selector criteria such
-  as `Scale(:Leaf)` and `Relation(:parent)`.
+  constrained by an explicit scope. Application targets reject relations
+  because they have no current object context.
+- Selector labels now have one spelling (`scale=:Leaf`, `kind=:plant`,
+  `species=:oil_palm`, and `name=:leaf_1`); the duplicate `Scale`, `Kind`, and
+  `Species` wrappers were removed. `ObjectAddress` preserves all normalized
+  object, routing, temporal, and status-ordering fields, while positional
+  topology selectors such as `Relation(:parent)` remain supported.
 - Adds the first compiled composite-model/object view with `Advanced.compile_composite_model`,
   `Advanced.CompiledCompositeModel`, `Advanced.CompiledModelApplication`, `Advanced.CompiledModelInputBinding`,
   `Advanced.CompiledModelCallBinding`, `explain_applications`,

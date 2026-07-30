@@ -4437,12 +4437,7 @@ end
 
 function _selector_declared_scale(selector::AbstractObjectMultiplicity)
     selector_criteria = criteria(selector)
-    scale = _criteria_get(selector_criteria, :scale, nothing)
-    !isnothing(scale) && return scale
-    for positional_selector in _criteria_get(selector_criteria, :selectors, ())
-        positional_selector isa Scale && return positional_selector.scale
-    end
-    return nothing
+    return _criteria_get(selector_criteria, :scale, nothing)
 end
 
 function _model_application_matches_scale(

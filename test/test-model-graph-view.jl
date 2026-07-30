@@ -50,6 +50,47 @@ PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temper
     @test descriptor["constructor"]["fields"][1]["name"] == "coefficient"
 end
 
+@testset "CompositeModel selector diagnostics preserve normalized fields" begin
+    selector = Many(
+        Relation(:parent);
+        within=SceneScope(),
+        kind=:plant,
+        species=:oil_palm,
+        scale=:Leaf,
+        name=:leaf_1,
+        process=:energy_balance,
+        application=:sunlit_energy,
+        var=:temperature,
+        policy=Integrate(),
+        window=2.0,
+        from_status=true,
+        after=("radiation", :water),
+    )
+    payload = PlantSimEngine._model_graph_selector_criteria(selector)
+
+    @test Set(keys(payload)) == Set([
+        "selectors",
+        "within",
+        "kind",
+        "species",
+        "scale",
+        "name",
+        "process",
+        "application",
+        "var",
+        "policy",
+        "window",
+        "from_status",
+        "after",
+    ])
+    @test only(payload["selectors"]) == Dict(
+        "type" => "Relation",
+        "relation" => "parent",
+    )
+    @test payload["within"] == Dict("type" => "SceneScope")
+    @test payload["after"] == ["radiation", "water"]
+end
+
 @testset "CompositeModel graph application and resolved views" begin
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, kind=:organ, status=Status(driver=1.0));

@@ -140,15 +140,23 @@ function _build_model_spec(
     updates=(),
 )
     normalized_name = _normalize_application_name(name)
+    normalized_on = isnothing(on) ? nothing :
+                    _validate_selector_context(on, :application_target)
     default_inputs = _model_default_value_inputs(base_model)
     explicit_inputs = _normalize_application_bindings(inputs)
     normalized_inputs = _merge_value_inputs(default_inputs, explicit_inputs)
+    for selector in values(normalized_inputs)
+        _validate_selector_context(selector, :input)
+    end
     normalized_input_origins = isnothing(input_origins) ?
                                _binding_origins(default_inputs, explicit_inputs) :
                                _normalize_binding_origins(input_origins, normalized_inputs)
     default_calls = _model_default_model_calls(base_model)
     explicit_calls = _normalize_application_bindings(calls)
     normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
+    for selector in values(normalized_calls)
+        _validate_selector_context(selector, :call)
+    end
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
                               _normalize_binding_origins(call_origins, normalized_calls)
@@ -157,10 +165,10 @@ function _build_model_spec(
     normalized_environment_window = _normalize_environment_window(environment_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(normalized_on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
         base_model,
         normalized_name,
-        on,
+        normalized_on,
         normalized_inputs,
         normalized_input_origins,
         normalized_calls,

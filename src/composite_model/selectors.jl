@@ -1,4 +1,11 @@
 struct SceneScope <: AbstractObjectSelector end
+
+"""
+    Self()
+
+Select the current object: the object on which the consuming model application
+runs. `Self()` means a plant only when that object is itself the plant.
+"""
 struct Self <: AbstractObjectSelector end
 struct Subtree <: AbstractObjectSelector end
 struct SelfPlant <: AbstractObjectSelector end
@@ -12,21 +19,6 @@ struct Scope <: AbstractObjectSelector
     name::Symbol
 end
 Scope(name::Union{Symbol,AbstractString}) = Scope(Symbol(name))
-
-struct Kind <: AbstractObjectSelector
-    kind::Symbol
-end
-Kind(kind::Union{Symbol,AbstractString}) = Kind(Symbol(kind))
-
-struct Species <: AbstractObjectSelector
-    species::Symbol
-end
-Species(species::Union{Symbol,AbstractString}) = Species(Symbol(species))
-
-struct Scale <: AbstractObjectSelector
-    scale::Symbol
-end
-Scale(scale::Union{Symbol,AbstractString}) = Scale(Symbol(scale))
 
 struct Relation <: AbstractObjectSelector
     relation::Symbol
@@ -42,7 +34,59 @@ Relation(relation::AbstractString) = Relation(Symbol(relation))
 
 _maybe_symbol(x) = isnothing(x) ? nothing : Symbol(x)
 
-const _OBJECT_ADDRESS_SYMBOL_FIELDS = (:kind, :species, :scale, :name, :process, :var, :relation, :application)
+const _OBJECT_SELECTOR_KEYWORD_FIELDS = (
+    :within,
+    :kind,
+    :species,
+    :scale,
+    :name,
+    :relation,
+    :process,
+    :application,
+    :var,
+    :policy,
+    :window,
+    :from_status,
+    :after,
+)
+const _OBJECT_LABEL_SYMBOL_FIELDS = (:kind, :species, :scale, :name)
+const _OBJECT_ROUTING_SYMBOL_FIELDS = (:process, :var, :application)
+const _OBJECT_SELECTOR_POSITIONAL_TYPES =
+    Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope,Relation}
+const _OBJECT_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :name, :relation)
+const _APPLICATION_TARGET_SELECTOR_FIELDS = (:within, :kind, :species, :scale, :name)
+const _INPUT_SELECTOR_FIELDS = (
+    _OBJECT_SELECTOR_FIELDS...,
+    :process,
+    :application,
+    :var,
+    :policy,
+    :window,
+    :from_status,
+    :after,
+)
+const _CALL_SELECTOR_FIELDS = (
+    _OBJECT_SELECTOR_FIELDS...,
+    :process,
+    :application,
+)
+
+function _selector_context_fields(context::Symbol)
+    context == :application_target && return _APPLICATION_TARGET_SELECTOR_FIELDS
+    context in (:object_query, :output_request) && return _OBJECT_SELECTOR_FIELDS
+    context == :input && return _INPUT_SELECTOR_FIELDS
+    context == :call && return _CALL_SELECTOR_FIELDS
+    error("Unsupported selector validation context `$(context)`.")
+end
+
+function _selector_context_description(context::Symbol)
+    context == :application_target && return "application-target"
+    context == :object_query && return "object-query"
+    context == :output_request && return "output-request"
+    context == :input && return "input-binding"
+    context == :call && return "call-binding"
+    return string(context)
+end
 
 function _maybe_symbol_collection(value)
     value isa Tuple && return Tuple(_maybe_symbol(item) for item in value)
@@ -51,7 +95,28 @@ function _maybe_symbol_collection(value)
 end
 
 function _normalize_object_selector_value(key::Symbol, value)
-    key in _OBJECT_ADDRESS_SYMBOL_FIELDS && return _maybe_symbol_collection(value)
+    key == :within && begin
+        value isa Union{SceneScope,Self,Subtree,SelfPlant,Ancestor,Scope} || error(
+            "Selector keyword `within` must be a topology scope such as `Self()`, ",
+            "`SelfPlant()`, `SceneScope()`, `Ancestor(...)`, or `Scope(...)`; ",
+            "got `$(repr(value))`."
+        )
+        return value
+    end
+    key == :relation && return Relation(value).relation
+    key == :after && begin
+        values = value isa Union{Tuple,AbstractVector} ? value : (value,)
+        isempty(values) && error("Selector keyword `after` cannot be empty.")
+        return Tuple(Symbol(item) for item in values)
+    end
+    key == :from_status && begin
+        value isa Bool || error(
+            "Selector keyword `from_status` must be `true` or `false`, got `$(repr(value))`."
+        )
+        return value
+    end
+    key in _OBJECT_LABEL_SYMBOL_FIELDS && return _maybe_symbol_collection(value)
+    key in _OBJECT_ROUTING_SYMBOL_FIELDS && return _maybe_symbol(value)
     return value
 end
 
@@ -62,6 +127,11 @@ function _object_matches_selector_value(object_value, requested)
 end
 
 function _normalize_selector_kwargs(kwargs)
+    unsupported = Symbol[key for key in keys(kwargs) if !(key in _OBJECT_SELECTOR_KEYWORD_FIELDS)]
+    isempty(unsupported) || error(
+        "Unsupported object selector keyword(s) `$(Tuple(unsupported))`. ",
+        "Supported keywords are `$(_OBJECT_SELECTOR_KEYWORD_FIELDS)`."
+    )
     return NamedTuple{keys(kwargs)}(
         Tuple(_normalize_object_selector_value(k, v) for (k, v) in pairs(kwargs))
     )
@@ -69,8 +139,10 @@ end
 
 function _normalize_selector_criteria(args::Tuple; kwargs...)
     selectors = Tuple(args)
-    all(selector -> selector isa AbstractObjectSelector, selectors) || error(
-        "Object selector positional arguments must be selector objects such as `Kind(:plant)` or `Scale(:Leaf)`."
+    all(selector -> selector isa _OBJECT_SELECTOR_POSITIONAL_TYPES, selectors) || error(
+        "Object selector positional arguments are reserved for topology selectors such as ",
+        "`Self()`, `Ancestor(...)`, `Scope(...)`, or `Relation(...)`. ",
+        "Use keyword criteria such as `kind=:plant` and `scale=:Leaf` for labels."
     )
     normalized_kwargs = _normalize_selector_kwargs((; kwargs...))
     return (; selectors=selectors, normalized_kwargs...)
@@ -94,6 +166,44 @@ criteria(selector::AbstractObjectMultiplicity) = selector.criteria
 multiplicity(::One) = :one
 multiplicity(::OptionalOne) = :optional_one
 multiplicity(::Many) = :many
+
+function _selector_semantic_fields(selector::AbstractObjectMultiplicity)
+    selector_criteria = criteria(selector)
+    fields = Symbol[Symbol(key) for key in keys(selector_criteria) if Symbol(key) != :selectors]
+    for atom in selector_criteria.selectors
+        atom isa Relation ? push!(fields, :relation) : push!(fields, :within)
+    end
+    return unique!(fields)
+end
+
+function _validate_selector_context(
+    selector::AbstractObjectMultiplicity,
+    context::Symbol,
+)
+    allowed = _selector_context_fields(context)
+    invalid = Symbol[field for field in _selector_semantic_fields(selector) if !(field in allowed)]
+    isempty(invalid) || error(
+        "Selector field(s) `$(Tuple(invalid))` are not valid in ",
+        "$(_selector_context_description(context)) selectors. ",
+        "Allowed fields are `$(allowed)`."
+    )
+    if context == :application_target
+        scope = _criteria_scope(criteria(selector))
+        scope isa Union{Nothing,SceneScope,Scope} || error(
+            "Application-target selectors have no current object, so `within=$(repr(scope))` ",
+            "cannot be resolved. Use `SceneScope()` or a named `Scope(...)`; ",
+            "use object-relative scopes in `inputs` and `calls`."
+        )
+    end
+    return selector
+end
+
+function _validate_selector_context(selector, context::Symbol)
+    error(
+        "$(_selector_context_description(context)) selectors must use `One(...)`, ",
+        "`OptionalOne(...)`, or `Many(...)`; got `$(typeof(selector))`."
+    )
+end
 
 _rebuild_selector(::One, criteria) = One{typeof(criteria)}(criteria)
 _rebuild_selector(::OptionalOne, criteria) = OptionalOne{typeof(criteria)}(criteria)
@@ -413,27 +523,6 @@ function _selector_scope_from_positional(selectors)
     return only(scopes)
 end
 
-function _selector_value_from_positional(selectors, ::Type{Kind})
-    values = [selector.kind for selector in selectors if selector isa Kind]
-    isempty(values) && return nothing
-    length(unique(values)) == 1 || error("Conflicting `Kind(...)` selector values: $(values).")
-    return only(unique(values))
-end
-
-function _selector_value_from_positional(selectors, ::Type{Species})
-    values = [selector.species for selector in selectors if selector isa Species]
-    isempty(values) && return nothing
-    length(unique(values)) == 1 || error("Conflicting `Species(...)` selector values: $(values).")
-    return only(unique(values))
-end
-
-function _selector_value_from_positional(selectors, ::Type{Scale})
-    values = [selector.scale for selector in selectors if selector isa Scale]
-    isempty(values) && return nothing
-    length(unique(values)) == 1 || error("Conflicting `Scale(...)` selector values: $(values).")
-    return only(unique(values))
-end
-
 function _selector_value_from_positional(selectors, ::Type{Relation})
     values = [selector.relation for selector in selectors if selector isa Relation]
     isempty(values) && return nothing
@@ -450,10 +539,13 @@ function _criteria_value(criteria, key::Symbol, selector_type)
     return isnothing(keyword) ? positional : keyword
 end
 
+_criteria_value(criteria, key::Symbol) =
+    haskey(criteria, key) ? getproperty(criteria, key) : nothing
+
 function _criteria_scope(criteria)
     positional = _selector_scope_from_positional(criteria.selectors)
     keyword = haskey(criteria, :within) ? criteria.within : nothing
-    if !isnothing(positional) && !isnothing(keyword) && typeof(positional) != typeof(keyword)
+    if !isnothing(positional) && !isnothing(keyword) && positional != keyword
         error("Conflicting scope selectors: `$(positional)` and `$(keyword)`.")
     end
     return isnothing(keyword) ? positional : keyword
@@ -680,9 +772,9 @@ function _selector_matches_object_id(
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
     explicit_scope = _criteria_scope(criteria_)
-    scale = _criteria_value(criteria_, :scale, Scale)
-    kind = _criteria_value(criteria_, :kind, Kind)
-    species = _criteria_value(criteria_, :species, Species)
+    scale = _criteria_value(criteria_, :scale)
+    kind = _criteria_value(criteria_, :kind)
+    species = _criteria_value(criteria_, :species)
     name = haskey(criteria_, :name) ? criteria_.name : nothing
     if default_to_context &&
        isnothing(explicit_scope) &&
@@ -729,9 +821,9 @@ function _selector_matches_any_object_id(
     criteria_ = criteria(selector)
     relation = _criteria_value(criteria_, :relation, Relation)
     explicit_scope = _criteria_scope(criteria_)
-    scale = _criteria_value(criteria_, :scale, Scale)
-    kind = _criteria_value(criteria_, :kind, Kind)
-    species = _criteria_value(criteria_, :species, Species)
+    scale = _criteria_value(criteria_, :scale)
+    kind = _criteria_value(criteria_, :kind)
+    species = _criteria_value(criteria_, :species)
     name = haskey(criteria_, :name) ? criteria_.name : nothing
     if default_to_context &&
        isnothing(explicit_scope) &&
@@ -779,6 +871,7 @@ function _selector_matches_any_object_id(
 end
 
 function resolve_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity; context=nothing)
+    _validate_selector_context(selector, :object_query)
     return _resolve_object_ids(model, selector; context=context)
 end
 
@@ -800,9 +893,9 @@ function _resolve_object_ids(
     else
         nothing
     end
-    scale = _criteria_value(criteria_, :scale, Scale)
-    kind = _criteria_value(criteria_, :kind, Kind)
-    species = _criteria_value(criteria_, :species, Species)
+    scale = _criteria_value(criteria_, :scale)
+    kind = _criteria_value(criteria_, :kind)
+    species = _criteria_value(criteria_, :species)
     name = haskey(criteria_, :name) ? criteria_.name : nothing
 
     if default_to_context &&

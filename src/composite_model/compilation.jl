@@ -139,7 +139,7 @@ function _dynamic_binding_scale_keys(model::CompositeModel, binding)
     default_scope = _default_dependency_scope(model, binding.consumer_id)
     scope = isnothing(explicit_scope) ? default_scope : explicit_scope
     scope isa Self && return Symbol[]
-    scale = _criteria_value(selector_criteria, :scale, Scale)
+    scale = _criteria_value(selector_criteria, :scale)
     isnothing(scale) && return Union{Nothing,Symbol}[nothing]
     return Symbol[Symbol(value) for value in (scale isa Tuple ? scale : (scale,))]
 end

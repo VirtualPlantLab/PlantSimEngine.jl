@@ -18,7 +18,8 @@ and cache controls are intentionally listed separately under
 - Multiplicity: `One`, `OptionalOne`, `Many`.
 - Scope and topology: `SceneScope`, `Self`, `Subtree`, `SelfPlant`, `Ancestor`,
   `Scope`, `Relation`.
-- Labels: `Kind`, `Species`, `Scale`.
+- Label criteria are selector keywords: `kind`, `species`, `scale`, and
+  `name`.
 - Normalized addresses: `ObjectAddress`, `object_address`.
 - Queries: `object_ids`, `model_objects`, `resolve_object_ids`,
   `resolve_objects`.

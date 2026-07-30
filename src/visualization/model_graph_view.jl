@@ -454,9 +454,6 @@ function _model_graph_selector_atom(selector::AbstractObjectSelector)
     descriptor = Dict{String,Any}("type" => string(nameof(typeof(selector))))
     selector isa Ancestor && (descriptor["scale"] = _model_graph_json_value(selector.scale))
     selector isa Scope && (descriptor["name"] = string(selector.name))
-    selector isa Kind && (descriptor["kind"] = string(selector.kind))
-    selector isa Species && (descriptor["species"] = string(selector.species))
-    selector isa Scale && (descriptor["scale"] = string(selector.scale))
     selector isa Relation && (descriptor["relation"] = string(selector.relation))
     return descriptor
 end

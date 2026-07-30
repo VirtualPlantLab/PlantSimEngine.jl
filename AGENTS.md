@@ -68,7 +68,10 @@ Scope and topology:
 - `SelfPlant()`: the current plant instance/root
 - `Ancestor(...)`
 - `Scope(name)`
-- `Kind(...)`, `Species(...)`, `Scale(...)`, `Relation(...)`
+- `Relation(...)`
+
+Use keyword criteria for object labels: `kind=:plant`, `species=:oil_palm`,
+`scale=:Leaf`, and `name=:leaf_1`.
 
 `Self()` never means the model, species, or plant unless the current object is
 itself that plant.

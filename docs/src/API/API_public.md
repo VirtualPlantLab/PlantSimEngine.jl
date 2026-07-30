@@ -41,8 +41,25 @@
 - Multiplicity: `One(...)`, `OptionalOne(...)`, and `Many(...)`.
 - Scope: `SceneScope()`, `Self()`, `Subtree()`, `SelfPlant()`,
   `Ancestor(...)`, and `Scope(name)`.
-- Labels and topology: `Kind(...)`, `Species(...)`, `Scale(...)`, and
-  `Relation(...)`.
+- Label criteria: `kind=...`, `species=...`, `scale=...`, and `name=...`.
+- Topology relations: `Relation(...)`.
+
+`Self()` always means the current object: the object on which the consuming
+application runs. It means a plant only when that object is itself the plant.
+
+Selector fields are checked where the selector is used:
+
+| Context | Accepted criteria |
+|---|---|
+| `ModelSpec(...; on=...)` | `kind`, `species`, `scale`, `name`, and a scene or named scope |
+| `ModelSpec(...; inputs=...)` | object criteria plus `process`, `application`, `var`, `policy`, `window`, `from_status`, and `after` |
+| `ModelSpec(...; calls=...)` | object criteria plus `process` and `application` |
+| object queries and `OutputRequest` selectors | object criteria only |
+
+Unsupported or misspelled fields fail when the selector is constructed.
+Object-relative scopes and relations require a current object, so they belong
+in inputs, calls, or contextual object/output queries rather than application
+targets.
 
 ### Time and environment
 

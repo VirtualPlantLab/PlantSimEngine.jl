@@ -1072,7 +1072,7 @@ end
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf)) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
     @test only(resolve_objects(selector_scene, One(scale=:Scene))).id == ObjectId(:scene)
-    @test resolve_object_ids(selector_scene, Many(Kind(:plant), Scale(:Leaf))) ==
+    @test resolve_object_ids(selector_scene, Many(kind=:plant, scale=:Leaf)) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2), ObjectId(:leaf_3)]
     @test resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Subtree()); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2)]
@@ -1090,13 +1090,13 @@ end
           [ObjectId(:axis_1), ObjectId(:leaf_1)]
     @test resolve_object_ids(selector_scene, Many(Relation(:ancestors)); context=:leaf_2) ==
           [ObjectId(:axis_1), ObjectId(:plant_1), ObjectId(:scene)]
-    @test resolve_object_ids(selector_scene, Many(Relation(:descendants), Scale(:Leaf)); context=:plant_1) ==
+    @test resolve_object_ids(selector_scene, Many(Relation(:descendants); scale=:Leaf); context=:plant_1) ==
           [ObjectId(:leaf_1), ObjectId(:leaf_2)]
     @test resolve_object_ids(selector_scene, Many(Relation(:siblings)); context=:axis_1) ==
           [ObjectId(:leaf_1)]
     @test resolve_object_ids(
         selector_scene,
-        Many(Relation(:ancestors), Scale(:Plant), within=SceneScope());
+        Many(Relation(:ancestors); scale=:Plant, within=SceneScope());
         context=:leaf_2,
     ) == [ObjectId(:plant_1)]
     @test_throws "require a current object context" resolve_object_ids(
@@ -1123,6 +1123,11 @@ end
         sprint(showerror, error)
     end
     @test contains(ambiguous_selector_error, "matched_ids=[:leaf_1, :leaf_2, :leaf_3]")
+    @test_throws "Unsupported object selector keyword" One(sacle=:Leaf)
+    @test_throws "object-query" resolve_object_ids(
+        selector_scene,
+        One(scale=:Leaf, var=:leaf_area),
+    )
     scope_selector_error = try
         resolve_object_ids(selector_scene, Many(scale=:Leaf, within=Scope(:palm_3)))
         nothing
@@ -1454,10 +1459,33 @@ end
     @test address.kind == :plant
     @test address.scale == :Leaf
     @test address.process == :leaf_state
+    @test isnothing(address.application)
     @test address.var == :leaf_area
+    @test address.policy isa Integrate
+    @test address.window == Day(1)
+    @test !address.from_status
+    @test isnothing(address.after)
     @test address.multiplicity == :many
 
-    @test One(Kind(:plant), Scale(:Leaf)).criteria.selectors == (Kind(:plant), Scale(:Leaf))
+    status_address = object_address(
+        One(
+            Relation(:parent);
+            scale=:Plant,
+            var=:water,
+            from_status=true,
+            after=("soil", :weather),
+        ),
+    )
+    @test status_address.scope === nothing
+    @test status_address.relation == :parent
+    @test status_address.var == :water
+    @test status_address.from_status
+    @test status_address.after == (:soil, :weather)
+
+    keyword_selector = One(kind=:plant, scale=:Leaf)
+    @test isempty(keyword_selector.criteria.selectors)
+    @test keyword_selector.criteria.kind == :plant
+    @test keyword_selector.criteria.scale == :Leaf
     @test object_address(OptionalOne(scale=:Scene)).multiplicity == :optional_one
 
     default_input = Input(Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
@@ -1469,6 +1497,26 @@ end
     @test object_address(default_call.selector).process == :stomatal_conductance
 
     m = Process1Model(1.0)
+    @test_throws "application-target" ModelSpec(
+        m;
+        on=One(scale=:Leaf, var=:leaf_area),
+    )
+    @test_throws "no current object" ModelSpec(
+        m;
+        on=One(scale=:Leaf, within=Self()),
+    )
+    @test_throws "application-target" ModelSpec(
+        m;
+        on=One(Relation(:parent)),
+    )
+    @test_throws "call-binding" ModelSpec(
+        m;
+        calls=(:stomata => One(scale=:Leaf, var=:leaf_area),),
+    )
+    @test_throws "output-request" OutputRequest(
+        One(scale=:Leaf, application=:leaf_energy),
+        :leaf_area,
+    )
     spec = ModelSpec(m; name=:leaf_energy, on=Many(kind=:plant, scale=:Leaf), inputs=(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
                :leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon, policy=Integrate(), window=Day(1)),), calls=(:stomata => One(scale=:Leaf, process=:stomatal_conductance)), every=Hour(1), environment=Environment(provider=:global))
 

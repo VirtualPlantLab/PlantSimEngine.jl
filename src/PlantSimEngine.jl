@@ -138,7 +138,7 @@ export RunContext, CallTarget, CallTargets, Simulation, runtime_model, current_s
 export explain_initialization
 export explain_execution_plan, explain_output_retention
 export explain_environment_bindings
-export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Kind, Species, Scale, Relation
+export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many, ObjectAddress, object_address
 export Input, Call, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config

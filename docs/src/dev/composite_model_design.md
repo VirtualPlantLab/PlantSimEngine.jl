@@ -93,12 +93,14 @@ Self()
 SelfPlant()
 Ancestor(scale=:Plant)
 Scope(:oil_palm)
-Kind(:plant)
-Species(:oil_palm)
+Many(kind=:plant)
+Many(species=:oil_palm)
 ```
 
-`Self()` means only the current model application object. `Subtree()` means
-that object and its descendants. Neither spelling changes meaning with scale.
+`Self()` means only the current object: the object on which the consuming
+application runs. It never means the model, species, or plant unless that
+object is itself the plant. `Subtree()` means that object and its descendants.
+Neither spelling changes meaning with scale.
 
 `SelfPlant()` is the nearest containing plant scope. The more generic form is
 `Ancestor(scale=:Plant)`. Use these when a model running below the plant scale
@@ -116,8 +118,8 @@ Topology-relative selections use `Relation(...)`:
 ```julia
 One(Relation(:parent))
 Many(Relation(:children))
-Many(Relation(:ancestors), Scale(:Plant))
-Many(Relation(:descendants), Scale(:Leaf))
+Many(Relation(:ancestors); scale=:Plant)
+Many(Relation(:descendants); scale=:Leaf)
 Many(Relation(:siblings))
 ```
 
@@ -450,14 +452,21 @@ ObjectAddress(
     scale,
     name,
     process,
+    application,
     var,
     relation,
+    policy,
+    window,
+    from_status,
+    after,
     multiplicity,
 )
 ```
 
 Only the compiler works with this normalized address. Users should not need to
-construct it manually.
+construct it manually. [`object_address`](@ref) is the structured diagnostic
+view and preserves every normalized selector field, including temporal and
+status-routing fields.
 
 ## Object Lifecycle And Spatial Contracts
 

@@ -30,6 +30,7 @@ function OutputRequest(
     policy::SchedulePolicy=HoldLast(),
     clock=nothing,
 )
+    _validate_selector_context(selector, :output_request)
     if !isnothing(process)
         Base.depwarn(
             "`process=` in `OutputRequest` is deprecated; name the model application and use `application=`.",

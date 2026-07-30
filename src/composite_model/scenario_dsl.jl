@@ -1,28 +1,65 @@
-struct ObjectAddress{SC,K,SP,S,N,P,V,R,M}
+"""
+    ObjectAddress(selector)
+
+Return the normalized, structured diagnostic address for an object selector.
+The address preserves scope, object labels, producer/callee routing, temporal
+policy/window, live-status ordering, and multiplicity.
+"""
+struct ObjectAddress{SC,K,SP,S,N,P,A,V,R,POL,W,FS,AF,M}
     scope::SC
     kind::K
     species::SP
     scale::S
     name::N
     process::P
+    application::A
     var::V
     relation::R
+    policy::POL
+    window::W
+    from_status::FS
+    after::AF
     multiplicity::M
 end
 
 function ObjectAddress(selector::AbstractObjectMultiplicity)
     c = criteria(selector)
     scope = _criteria_scope(c)
-    kind = _criteria_value(c, :kind, Kind)
-    species = _criteria_value(c, :species, Species)
-    scale = _criteria_value(c, :scale, Scale)
+    kind = _criteria_value(c, :kind)
+    species = _criteria_value(c, :species)
+    scale = _criteria_value(c, :scale)
     name = haskey(c, :name) ? c.name : nothing
     process = haskey(c, :process) ? c.process : nothing
+    application = haskey(c, :application) ? c.application : nothing
     var = haskey(c, :var) ? c.var : nothing
     relation = _criteria_value(c, :relation, Relation)
-    return ObjectAddress(scope, kind, species, scale, name, process, var, relation, multiplicity(selector))
+    policy = haskey(c, :policy) ? c.policy : nothing
+    window = haskey(c, :window) ? c.window : nothing
+    from_status = haskey(c, :from_status) ? c.from_status : false
+    after = haskey(c, :after) ? c.after : nothing
+    return ObjectAddress(
+        scope,
+        kind,
+        species,
+        scale,
+        name,
+        process,
+        application,
+        var,
+        relation,
+        policy,
+        window,
+        from_status,
+        after,
+        multiplicity(selector),
+    )
 end
 
+"""
+    object_address(selector)
+
+Return an [`ObjectAddress`](@ref) containing every normalized selector field.
+"""
 object_address(selector::AbstractObjectMultiplicity) = ObjectAddress(selector)
 
 struct Input{S}

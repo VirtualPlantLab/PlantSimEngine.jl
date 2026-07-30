@@ -159,7 +159,8 @@ end
             "selector" => Dict(
                 "multiplicity" => "one",
                 "criteria" => Dict(
-                    "selectors" => [Dict("type" => "Scale", "scale" => "Leaf")],
+                    "selectors" => Any[],
+                    "scale" => "Leaf",
                 ),
             ),
             "timestep" => Dict("mode" => "default"),
