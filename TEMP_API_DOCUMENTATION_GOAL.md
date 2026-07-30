@@ -940,17 +940,28 @@ multirate integration, and full docs gates all pass.
 
 #### Journey 7: Modify plant structure
 
-- [ ] Grow one plant by adding one organ.
-- [ ] Explain that structural changes become visible after the current
-      timestep and bindings refresh between timesteps.
-- [ ] Add removal and reparenting only after creation works.
-- [ ] Reuse existing carbon demand/allocation/biomass models when practical:
+- [x] Grow one plant by adding one organ.
+- [x] Explain that structural changes refresh after the mutating application:
+      later application groups may see them in the current timestep, while
+      already-completed groups do not; external changes between steps refresh
+      before the next timestep.
+- [x] Add removal and reparenting only after creation works.
+- [x] Reuse existing carbon demand/allocation/biomass models when practical:
   - `ToyCDemandModel`;
   - `ToyCAllocationModel`;
   - `ToyCBiomassModel`;
   - `ToyAssimModel`.
-- [ ] Verify conservation, parentage, refreshed application targets, and
+- [x] Verify conservation, parentage, refreshed application targets, and
       retained history.
+
+The structure journey runs `ToyCDemandModel` into `ToyCBiomassModel` under the
+explicit all-demand-is-accepted assumption, adds `:leaf_3`, then reparents it
+and removes `:leaf_2` in later stages. It shows the stale simulation plan before
+refresh and the extended plan afterward, verifies every retained
+`demand ≈ biomass_increment + growth_respiration` sample, and confirms output
+history counts of 4, 3, and 3 for the persistent, removed, and newly created
+leaves. It also corrects the older growth page to the actual after-application
+refresh contract.
 
 #### Journey 8: Modify the environment
 

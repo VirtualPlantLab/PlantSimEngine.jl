@@ -4,10 +4,11 @@ Begin with a plant object and leaf objects whose carbon production is gathered
 by a plant application through `Many(scale=:Leaf, within=Subtree())`. A growth
 model calls `register_object!` after its carbon or thermal threshold is met.
 
-Structural changes become visible after the current timestep completes. The
-new leaf receives status and application targets during refresh and starts on
-the following timestep; it cannot consume the resource that created it in the
-same kernel call.
+Structural changes refresh compiled targets after the application that made
+the change. A new leaf may run applications that remain later in the same
+timestep, but it never retroactively runs applications that already completed.
+When callers mutate structure between `step!` calls, refresh occurs before the
+next step.
 
 Build the initial registry explicitly so ownership remains visible:
 

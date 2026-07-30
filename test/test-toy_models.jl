@@ -639,3 +639,125 @@ end
     @test summaries[(:lai, :LAI)] == 2
     @test summaries[(:light, :aPPFD)] == 25
 end
+
+@testset "Structure-change tutorial composition" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant, kind=:plant),
+        Object(:branch; scale=:Axis, kind=:axis, parent=:plant),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(TT=10.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant,
+            status=Status(TT=15.0),
+        );
+        applications=(
+            ModelSpec(
+                ToyCDemandModel(
+                    optimal_biomass=12.0,
+                    development_duration=120.0,
+                );
+                name=:carbon_demand,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ToyCBiomassModel(1.2);
+                name=:biomass,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    :carbon_allocation => One(
+                        within=Self(),
+                        application=:carbon_demand,
+                        var=:carbon_demand,
+                    ),
+                ),
+            ),
+        ),
+    )
+    simulation = run!(model; outputs=:all)
+    initial_targets = only(
+        row for row in Diagnostics.explain_applications(simulation)
+        if row.application_id == :biomass
+    ).target_ids
+    @test initial_targets == [:leaf_1, :leaf_2]
+
+    register_object!(
+        model,
+        Object(
+            :leaf_3;
+            scale=:Leaf,
+            kind=:leaf,
+            status=Status(TT=20.0),
+        );
+        parent=:plant,
+    )
+    @test only(
+        row for row in Diagnostics.explain_applications(simulation)
+        if row.application_id == :biomass
+    ).target_ids == initial_targets
+    continue!(simulation)
+    @test only(
+        row for row in Diagnostics.explain_applications(simulation)
+        if row.application_id == :biomass
+    ).target_ids == [:leaf_1, :leaf_2, :leaf_3]
+    @test only(
+        object.parent for object in model_objects(model)
+        if object.id == ObjectId(:leaf_3)
+    ) == ObjectId(:plant)
+
+    reparent_object!(model, :leaf_3, :branch)
+    continue!(simulation)
+    @test only(
+        object.parent for object in model_objects(model)
+        if object.id == ObjectId(:leaf_3)
+    ) == ObjectId(:branch)
+
+    @test remove_object!(model, :leaf_2).id == ObjectId(:leaf_2)
+    continue!(simulation)
+    @test Set(object_ids(model; scale=:Leaf)) ==
+          Set(ObjectId.((:leaf_1, :leaf_3)))
+    @test only(
+        row for row in Diagnostics.explain_applications(simulation)
+        if row.application_id == :biomass
+    ).target_ids == [:leaf_1, :leaf_3]
+
+    rows = collect_outputs(simulation; sink=nothing)
+    demand = Dict(
+        (row.timestep, row.object_id) => row.value
+        for row in rows
+        if row.application_id == :carbon_demand &&
+           row.variable == :carbon_demand
+    )
+    increment = Dict(
+        (row.timestep, row.object_id) => row.value
+        for row in rows
+        if row.application_id == :biomass &&
+           row.variable == :carbon_biomass_increment
+    )
+    respiration = Dict(
+        (row.timestep, row.object_id) => row.value
+        for row in rows
+        if row.application_id == :biomass &&
+           row.variable == :growth_respiration
+    )
+    @test all(
+        demand[key] ≈ increment[key] + respiration[key]
+        for key in keys(demand)
+    )
+    @test Dict(
+        id => length(collect_outputs(
+            simulation,
+            id,
+            :carbon_biomass;
+            sink=nothing,
+        ))
+        for id in (:leaf_1, :leaf_2, :leaf_3)
+    ) == Dict(:leaf_1 => 4, :leaf_2 => 3, :leaf_3 => 3)
+end

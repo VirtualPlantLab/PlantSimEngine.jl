@@ -63,7 +63,7 @@ makedocs(;
             "Advanced configuration" => "./guides/time/advanced_time_environment.md",
         ],
         "Dynamic and advanced simulations" => [
-            "Part 1: structural growth" => "./tutorials/growing_plant/part1_growth.md",
+            "Modify plant structure" => "./journeys/users/structure_changes.md",
             "Part 2: roots and water" => "./tutorials/growing_plant/part2_roots_water.md",
             "Part 3: debugging" => "./tutorials/growing_plant/part3_debugging.md",
             "Manual calls" => "./guides/multiscale/manual_calls.md",
