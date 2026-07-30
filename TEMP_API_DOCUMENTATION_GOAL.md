@@ -318,17 +318,41 @@ Milestone validation:
 
 ### 5. Selectors
 
-- [ ] Keep `One`, `OptionalOne`, and `Many`.
-- [ ] Keep meaningful topology scopes: `Self`, `Subtree`, `SelfPlant`,
+- [x] Keep `One`, `OptionalOne`, and `Many`.
+- [x] Keep meaningful topology scopes: `Self`, `Subtree`, `SelfPlant`,
       `SceneScope`, `Ancestor`, `Scope`, and `Relation`.
-- [ ] Prefer keyword criteria such as `scale=:Leaf` over duplicate wrapper
+- [x] Prefer keyword criteria such as `scale=:Leaf` over duplicate wrapper
       spellings such as `Scale(:Leaf)`.
-- [ ] Validate selector fields by context. For example, an application-target
+- [x] Validate selector fields by context. For example, an application-target
       selector must not silently accept value-routing-only fields.
-- [ ] Document `Self()` literally as the current object. It never means the
+- [x] Document `Self()` literally as the current object. It never means the
       current plant unless that object is the plant.
-- [ ] Ensure structured selector diagnostics include every semantically
+- [x] Ensure structured selector diagnostics include every semantically
       relevant normalized field.
+
+Validation evidence:
+
+- PlantSimEngine commit `75a00b88` keeps the multiplicity and topology
+  vocabulary, removes the duplicate `Kind`, `Species`, and `Scale` wrapper
+  types, and makes label criteria keyword-only;
+- selector construction rejects unknown fields, while `ModelSpec` validates
+  distinct field sets for application targets, input bindings, and call
+  bindings; object queries and `OutputRequest` selectors accept object
+  criteria only;
+- application targets reject relations and object-relative scopes because
+  they have no current object; `Self()` is documented in source and user docs
+  as exactly the current object;
+- `ObjectAddress` and graph selector DTOs preserve scope, labels, process,
+  application, variable, relation, temporal policy/window, live-status
+  routing/order, and multiplicity;
+- all 26 focused PlantSimEngine test files pass individually (1,517 checks),
+  and the focused Aqua quality/ambiguity audit passes (11 checks);
+- the complete Documenter build, including runnable Markdown examples: pass;
+- XPalm: 307 package checks and 68 XPalm v0.6.1 full-cycle numerical
+  regression checks pass;
+- PlantBiophysics: 268 checks pass;
+- no downstream source migration or reference-fixture change was needed, and
+  XPalm's unrelated `CHANGELOG.md` modification remains untouched.
 
 ### 6. Public namespace
 
