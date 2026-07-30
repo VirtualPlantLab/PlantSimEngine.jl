@@ -234,7 +234,7 @@ Milestone validation on the PlantSimEngine source state:
 Input literals are currently described as defaults even when an unresolved
 input still causes compilation to fail.
 
-- [ ] Make required and defaulted inputs explicit. The target contract is:
+- [x] Make required and defaulted inputs explicit. The target contract is:
 
       ```julia
       inputs_(::MyModel) = (
@@ -243,16 +243,30 @@ input still causes compilation to fail.
       )
       ```
 
-- [ ] Keep output literals as initial output-state values unless a more explicit
+- [x] Keep output literals as initial output-state values unless a more explicit
       output schema is justified.
-- [ ] Ensure required/default declarations preserve generic types and do not
+- [x] Ensure required/default declarations preserve generic types and do not
       force `Float64`.
-- [ ] Remove undocumented `-Inf`-as-required conventions from canonical
+- [x] Remove undocumented `-Inf`-as-required conventions from canonical
       examples.
-- [ ] Make initialization explanations report whether a value is required,
+- [x] Make initialization explanations report whether a value is required,
       defaulted, user supplied, or bound from another application.
-- [ ] Add compile-error tests for missing required inputs and tests proving that
+- [x] Add compile-error tests for missing required inputs and tests proving that
       true defaults require no user initialization.
+
+Milestone validation:
+
+- PlantSimEngine commits `757649eb`, `143f07df`, and `03e0a5f9` implement,
+  document, and restore the hot-path performance of the explicit schema;
+- valid schema lookup is allocation-free, mutable defaults are private per
+  target, and `Required(Real)` preserves a supplied `BigFloat`;
+- status-initialization tests: 28 pass;
+- unified model/object API tests: 614 pass;
+- the complete Documenter build, including runnable Markdown examples: pass;
+- PlantBiophysics commit `0d110a9`: 268 pass;
+- XPalm commit `871daaf`: 307 package checks and 68 v0.6.1 full-cycle
+  regression checks pass;
+- no reference fixture was changed.
 
 ### 4. Scenario configuration
 
@@ -436,6 +450,14 @@ Current restoration checkpoints on the same staged XPalm fixture:
       warmed full-cycle run takes `9.962219` seconds and allocates `6.049 GB`.
       It preserves the same exact 4,160-day final state; XPalm passes 307
       package checks and all 68 reference-regression checks.
+- [x] The first explicit-input implementation accidentally formatted
+      diagnostics and allocated an invalid-declaration vector on every valid
+      schema lookup. That raised the warmed XPalm full cycle to
+      `113.161024` seconds. Commit `03e0a5f9` moves diagnostic construction to
+      the invalid-only slow path and validates heterogeneous declaration tuples
+      without allocation. The same warmed full-cycle scenario returns to
+      `9.714` seconds, while XPalm still passes 307 package checks and all 68
+      v0.6.1 regression checks.
 
 ### Performance invariants
 
