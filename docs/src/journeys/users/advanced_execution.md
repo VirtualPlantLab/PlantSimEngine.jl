@@ -1,5 +1,7 @@
 # Control Advanced Execution
 
+## New concept: parent-controlled execution and explicit publication
+
 Most coupling should remain a value dependency through `inputs`. Use a hard
 call only when a parent algorithm must decide whether, when, or how often
 another model runs—for example, while iterating toward an accepted leaf

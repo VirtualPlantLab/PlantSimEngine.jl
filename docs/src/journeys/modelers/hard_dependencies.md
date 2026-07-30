@@ -1,11 +1,14 @@
 # Implement A Hard Dependency
 
-This page adds one model-author concept: declare a process-level hard
-dependency only when the parent kernel must control another model's execution.
-Value dependencies should stay in `inputs_`.
+**New concept:** a process-level hard dependency, used only when the parent
+kernel must control another model's execution. Value dependencies should stay
+in `inputs_`.
 
 Simulation users wire and inspect advanced calls in
 [Control Advanced Execution](@ref).
+
+The plain Julia blocks below are excerpts from the shipped, tested
+`ToySelectiveCallControllerModel`.
 
 ## Model 8: declare and execute the call
 

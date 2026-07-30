@@ -12,7 +12,7 @@ PlantSimEngine.@process "light_interception" verbose = false
 Beer-Lambert law for light interception.
 
 Required inputs: `LAI` in m² m⁻².
-Required meteorology data: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
+Required environment input: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
 PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹).
 
 Output: aPPFD, the absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹.
@@ -23,7 +23,7 @@ end
 
 
 """
-    run!(model::Beer, status, environment, constants=Constants(), context=nothing)
+    run!(model::Beer, status, environment, constants, context)
 
 Computes the photosynthetic photon flux density (`aPPFD`, µmol m⁻² s⁻¹) absorbed by an 
 object using the incoming PAR radiation flux (`Ri_PAR_f`, W m⁻²) and the Beer-Lambert law
@@ -32,10 +32,10 @@ of light extinction.
 # Arguments
 
 - `model`: the current Beer model instance.
-- `status`: the status of the model, usually the model list status (*i.e.* m.status)
-- `environment`: sampled environment, such as an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) row
-- `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
-- `context = nothing`: runtime context, not used here.
+- `status`: the application-local view of the target [`Object`](@ref) status.
+- `environment`: sampled environment, such as an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) row.
+- `constants`: physical constants supplied by the [`CompositeModel`](@ref) run.
+- `context`: runtime context; this kernel does not use it.
 
 # Examples
 
@@ -58,7 +58,7 @@ run!(model)
 only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 """
-function PlantSimEngine.run!(model::Beer, status, environment, constants, context=nothing)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
     status.aPPFD =
         environment.Ri_PAR_f *
         (1.0 - exp(-model.k * status.LAI)) *
@@ -98,7 +98,7 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 ```
 
-Create a model list with a Beer model, and fit it to the data:
+Create a `CompositeModel` with one leaf object, then fit `Beer` to the data:
 
 ```julia
 model = CompositeModel(
@@ -108,13 +108,17 @@ model = CompositeModel(
     scale=:Leaf,
     environment=environment,
 )
-run!(model)
-leaf = only(model_objects(model; scale=:Leaf))
-df = DataFrame(aPPFD=leaf.status.aPPFD, LAI=leaf.status.LAI, Ri_PAR_f=environment.Ri_PAR_f[1])
-fit(Beer, df)
+simulation = run!(model)
+leaf = final_state(simulation, One(scale=:Leaf))
+df = DataFrame(aPPFD=leaf.aPPFD, LAI=leaf.LAI, Ri_PAR_f=environment.Ri_PAR_f[1])
+Evaluation.fit(Beer, df)
 ```
 """
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
+function PlantSimEngine.Evaluation.fit(
+    ::Type{Beer},
+    df;
+    J_to_umol=PlantMeteo.Constants().J_to_umol,
+)
     k = Statistics.mean(-log.(1 .- df.aPPFD ./ (J_to_umol .* df.Ri_PAR_f)) ./ df.LAI)
     return (k=k,)
 end

@@ -32,7 +32,7 @@ PlantSimEngine.outputs_(m::ToyDegreeDaysCumulModel) = (
 PlantSimEngine.environment_inputs_(m::ToyDegreeDaysCumulModel) = (T=zero(m.T_base),)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, status, environment, constants=nothing, context=nothing)
+function PlantSimEngine.run!(m::ToyDegreeDaysCumulModel, status, environment, constants, context)
     status.TT = max(zero(m.T_base), min(environment.T, m.T_max) - m.T_base)
     status.TT_cu += status.TT
 end

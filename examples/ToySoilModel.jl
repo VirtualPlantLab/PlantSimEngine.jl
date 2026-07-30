@@ -31,6 +31,6 @@ PlantSimEngine.outputs_(m::ToySoilWaterModel) = (
 )
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToySoilWaterModel, status, environment, constants=nothing, context=nothing)
+function PlantSimEngine.run!(m::ToySoilWaterModel, status, environment, constants, context)
     status.soil_water_content = rand(m.values)
 end

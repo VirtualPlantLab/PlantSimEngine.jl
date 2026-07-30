@@ -1,12 +1,15 @@
 # Implement A Mutable Environment Controller
 
-This page adds the final model-author concept: declare which environment
-variables a controller may commit, evaluate typed trial states, and commit one
+**New concept:** accepted mutable environment state. A controller declares
+which variables it may commit, evaluates typed trial states, and commits one
 accepted state explicitly.
 
 Simulation users first encounter this workflow in
 [Modify The Environment](@ref). Backend packages implement the separate
 [Environment Backend Extensions](@ref) contract.
+
+The plain Julia blocks below are excerpts from the shipped, tested
+`ToyEnvironmentControllerModel`.
 
 ## Model 9: declare commit permission
 

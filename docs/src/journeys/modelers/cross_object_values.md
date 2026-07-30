@@ -1,11 +1,13 @@
 # Implement Cross-Object Values
 
-This page adds one model-author concept: scalar and vector-like inputs use the
-same one-step kernel contract. Object selection and topology remain scenario
-concerns.
+**New concept:** scalar and vector-like inputs use the same one-step kernel
+contract. Object selection and topology remain scenario concerns.
 
 See [Build One Multiscale Plant](@ref) for the simulation-user construction
 journey.
+
+The plain Julia block below is an excerpt from a shipped example whose
+declarations and compositions are tested in `test/test-toy_models.jl`.
 
 ## Model 4: consume one scalar from another object
 

@@ -51,7 +51,7 @@ PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=Required(Real),)
 PlantSimEngine.outputs_(model::ToyLAIModel) = (LAI=oftype(model.max_lai, -Inf),)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(model::ToyLAIModel, status, environment, constants=nothing, context=nothing)
+function PlantSimEngine.run!(model::ToyLAIModel, status, environment, constants, context)
     status.LAI =
         model.max_lai *
         (one(model.max_lai) /
@@ -100,7 +100,7 @@ PlantSimEngine.outputs_(m::ToyLAIfromLeafAreaModel) = (
 )
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
-function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, status, environment, constants=nothing, context=nothing)
+function PlantSimEngine.run!(m::ToyLAIfromLeafAreaModel, status, environment, constants, context)
     status.total_surface = sum(status.plant_surfaces)
     status.LAI = status.total_surface / m.scene_area
 end

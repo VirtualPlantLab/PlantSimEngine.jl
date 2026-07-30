@@ -87,7 +87,7 @@ function get_km(Tₖ, Tᵣₖ, O₂, R=PlantMeteo.Constants().R)
     return KC * (1.0 + O₂ / KO)
 end
 
-function PlantSimEngine.run!(m::Fvcb, status, environment, constants=PlantMeteo.Constants(), context=nothing)
+function PlantSimEngine.run!(m::Fvcb, status, environment, constants, context)
 
     # Tranform Celsius temperatures in Kelvin:
     Tₖ = status.Tₗ - constants.K₀

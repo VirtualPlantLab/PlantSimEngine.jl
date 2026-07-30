@@ -1,7 +1,8 @@
 # Implement Environment And Cadence Traits
 
-This page adds two related model-author declarations: which environment fields
-a kernel samples, and what default cadence/output semantics the model carries.
+**New concept:** model-authored runtime traits. Environment declarations name
+the fields a kernel samples, while cadence and output-policy traits state when
+the same kernel runs and how its values cross clocks.
 
 Simulation users configure providers in [Understand Environments](@ref) and
 application clocks in [Give Models Different Cadences](@ref).

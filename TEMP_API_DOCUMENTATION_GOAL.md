@@ -776,25 +776,31 @@ execution path.
 
 ### Teaching rules
 
-- [ ] Every page states the one new concept it introduces.
-- [ ] Every page starts from a working previous state or a minimal standalone
+- [x] Every page states the one new concept it introduces.
+- [x] Every page starts from a working previous state or a minimal standalone
       example.
-- [ ] Each page shows the smallest meaningful diff from the previous journey.
-- [ ] Do not introduce a selector, scope, backend protocol, temporal policy,
+- [x] Each page shows the smallest meaningful diff from the previous journey.
+- [x] Do not introduce a selector, scope, backend protocol, temporal policy,
       hard call, lifecycle operation, or output-routing policy before it is
       needed.
-- [ ] Use one small diagram only when it makes object ownership, coupling, or
+- [x] Use one small diagram only when it makes object ownership, coupling, or
       execution order clearer than prose.
-- [ ] Include one relevant explanation/diagnostic at each stage rather than
+- [x] Include one relevant explanation/diagnostic at each stage rather than
       presenting every diagnostic at once.
-- [ ] End each page with:
+- [x] End each page with:
   - what the user added;
   - what PlantSimEngine inferred;
   - what remains explicit;
   - the small set of new API names.
 - [x] Keep migration and maintainer design documents outside the first-time
       navigation.
-- [ ] Run every code block as a doctest or an included tested example.
+- [x] Run every code block as a doctest or an included tested example.
+
+The docs test project now enforces the concept statement and four-part recap
+on every progressive page. Ordinary user pages contain only executable
+Documenter `@example` blocks; model-author source excerpts come from the
+shipped examples covered by the focused composition suite. The gate passes 112
+journey-structure assertions plus the full Documenter build.
 
 ### Simulation-user journey
 
@@ -1098,7 +1104,7 @@ Before using any of them:
       its kernel actually reads and writes.
 - [x] Ensure it uses the final model kernel and accesses its own parameters
       through the `model` argument.
-- [ ] Ensure its docstring uses current `CompositeModel`/`Object` terminology.
+- [x] Ensure its docstring uses current `CompositeModel`/`Object` terminology.
 - [x] Ensure its numeric fields remain generic where scientifically possible.
 - [x] Add direct contract tests and at least one composition test.
 
@@ -1142,12 +1148,16 @@ internal/downstream benchmark smoke suite passes all 35 checks.
   4. multiscale values;
   5. environment-aware models;
   6. hard dependencies.
-- [ ] **Reference**
+- [x] **Reference**
   1. ordinary public API;
   2. diagnostics;
   3. backend extension API;
   4. graph editor;
   5. evaluation.
+
+The Reference navigation contains the ordinary Public API and symbol
+inventory, troubleshooting and diagnostics pages, the backend extension
+contract, graph editor guide, and `Evaluation` fitting/metrics material.
 - [x] **Migration**
   - keep migration from the removed mapping runtime separate from onboarding.
 - [x] **Maintainers**

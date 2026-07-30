@@ -125,7 +125,7 @@ end
 PlantSimEngine.inputs_(::SoilWater) = (transpiration=Required(Float64), infiltration=Required(Float64))
 PlantSimEngine.outputs_(::SoilWater) = (theta1=0.32, theta2=0.34, psi_soil=-0.1)
 
-function PlantSimEngine.run!(m::SoilWater, status, environment, constants, context=nothing)
+function PlantSimEngine.run!(m::SoilWater, status, environment, constants, context)
     withdrawal = max(status.transpiration, 0.0)
     recharge = max(status.infiltration, 0.0)
     status.theta1 = clamp(status.theta1 + (recharge - 0.7 * withdrawal) / max(m.depth1 * 1000.0, 1.0), 0.04, m.theta_sat)
@@ -140,7 +140,7 @@ struct LeafState <: AbstractLeaf_StateModel end
 PlantSimEngine.inputs_(::LeafState) = NamedTuple()
 PlantSimEngine.outputs_(::LeafState) = (leaf_area=0.0, leaf_carbon=0.0)
 
-PlantSimEngine.run!(::LeafState, status, environment, constants, context=nothing) = nothing
+PlantSimEngine.run!(::LeafState, status, environment, constants, context) = nothing
 
 """
     LAIModel(area)
@@ -159,7 +159,7 @@ end
 PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=(-Inf))
 
-function PlantSimEngine.run!(m::LAIModel, status, environment, constants, context=nothing)
+function PlantSimEngine.run!(m::LAIModel, status, environment, constants, context)
     status.leaf_area = sum(status.leaf_areas)
     status.lai = status.leaf_area / m.area
     return nothing
@@ -514,9 +514,9 @@ PlantSimEngine.outputs_(::AllocA) = alloc_outputs()
 PlantSimEngine.inputs_(::AllocB) = alloc_inputs()
 PlantSimEngine.outputs_(::AllocB) = alloc_outputs()
 
-PlantSimEngine.run!(m::AllocA, status, environment, constants, context=nothing) =
+PlantSimEngine.run!(m::AllocA, status, environment, constants, context) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
-PlantSimEngine.run!(m::AllocB, status, environment, constants, context=nothing) =
+PlantSimEngine.run!(m::AllocB, status, environment, constants, context) =
     allocate!(status, m.leaf_fraction, m.wood_fraction)
 
 function _maespa_leaf_status(; leaf_area, sky_fraction, d)

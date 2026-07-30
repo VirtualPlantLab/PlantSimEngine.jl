@@ -1,8 +1,8 @@
 # Implement A Basic Model
 
-This page introduces one model-author concept: the complete one-step model
-contract. It then proves that the same kernel composes automatically on one
-object and runs unchanged over several objects.
+**New concept:** the complete one-step model contract. This page then proves
+that the same kernel composes automatically on one object and runs unchanged
+over several objects.
 
 For the simulation-user view of these scenarios, see
 [Couple Models On One Object](@ref) and

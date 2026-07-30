@@ -1,5 +1,7 @@
 # MAESPA-Style Synthesis
 
+## New concept: synthesis without another runtime mechanism
+
 This page is an integrated reference, not an onboarding example. It combines
 the ideas developed independently in the earlier journeys into a small
 MAESPA-style stand: two species, five leaves, hourly canopy and soil exchange,
@@ -226,3 +228,15 @@ floating-point trajectories:
 - accepted canopy air is committed separately from above-canopy forcing;
 - leaf fluxes are finite and aggregate consistently at scene scale;
 - both species grow, while their parameterized allocations remain distinct.
+
+## Page recap
+
+- **You added:** no new primitive; you assembled the earlier topology,
+  cadence, hard-call, environment, and output mechanisms into one stand.
+- **PlantSimEngine inferred:** application order, plant-local bindings,
+  concrete call targets, environment handles, and the hourly/daily schedule.
+- **You keep explicit:** species parameters, topology, scientific iteration,
+  accepted state, output requests, and the invariants used to validate the
+  result.
+- **New API names:** none. Every API in this synthesis was introduced on a
+  focused earlier journey.
