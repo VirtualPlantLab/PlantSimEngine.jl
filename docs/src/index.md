@@ -16,13 +16,6 @@ Pages = ["index.md"]
 Depth = 4
 ```
 
-!!! warning "Configuration API migration"
-    New multiscale, multi-plant, soil, model, and microclimate scenarios should
-    use the unified `CompositeModel`/`Object` API and direct `ModelSpec`
-    keywords. See
-    [Migrating To The CompositeModel/Object API](migration_composite_model.md). Superseded
-    mapping constructors and their implementation have been removed.
-
 ## Overview
 
 `PlantSimEngine` is a Julia framework for building soil-plant-atmosphere
@@ -245,14 +238,18 @@ once.
 
 ## Where To Go Next
 
-- [CompositeModel/Object Quickstart](composite_model/quickstart.md) gives a compact
-  runnable workflow using the new API.
-- [Migrating To The CompositeModel/Object API](migration_composite_model.md) translates
-  historical `ModelMapping` and `MultiScaleModel` examples.
+- [A mental model](journeys/users/mental_model.md) introduces the seven ideas
+  used throughout the framework without configuration details.
+- [Couple models on one object](journeys/users/one_object.md) is the first
+  executable journey and runs a coupled simulation over many timesteps.
+- [Run the coupling on several objects](journeys/users/several_objects.md)
+  introduces stable object identity and `Many`.
 - [Public API](API/API_public.md) lists the composite-model/object constructors,
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
   `timespec`, `output_policy`, and `environment_inputs_`.
+- Existing projects using the removed mapping runtime can use the separate
+  [migration guide](migration_composite_model.md).
 
 ## Performance
 

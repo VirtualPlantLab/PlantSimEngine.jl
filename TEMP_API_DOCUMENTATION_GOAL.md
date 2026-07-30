@@ -792,7 +792,7 @@ execution path.
   - what PlantSimEngine inferred;
   - what remains explicit;
   - the small set of new API names.
-- [ ] Keep migration and maintainer design documents outside the first-time
+- [x] Keep migration and maintainer design documents outside the first-time
       navigation.
 - [ ] Run every code block as a doctest or an included tested example.
 
@@ -800,49 +800,56 @@ execution path.
 
 #### Journey 0: Mental model
 
-- [ ] Explain process, model, application, object, status, environment, and
+- [x] Explain process, model, application, object, status, environment, and
       simulation in one short page.
-- [ ] State that PlantSimEngine is a composition/runtime framework, not a
+- [x] State that PlantSimEngine is a composition/runtime framework, not a
       scientific plant-model library or prescribed plant architecture.
-- [ ] Avoid executable configuration details on this page.
+- [x] Avoid executable configuration details on this page.
 
 #### Journey 1: Couple models on one object and run many timesteps
 
 This is the first executable journey and must demonstrate immediately that a
 composite simulation naturally runs over time.
 
-- [ ] Couple at least two existing models on one object and one scale.
-- [ ] Prefer the existing chain:
+- [x] Couple at least two existing models on one object and one scale.
+- [x] Prefer the existing chain:
   - `ToyDegreeDaysCumulModel`;
   - `ToyLAIModel`;
   - optionally `Beer` as the third model when the extra output improves the
     story.
-- [ ] Run for several timesteps, not one:
+- [x] Run for several timesteps, not one:
 
       ```julia
       simulation = run!(model; steps=30, outputs=:all)
       results = collect_outputs(simulation)
       ```
 
-- [ ] Show a short table or plot in which cumulative thermal time and LAI
+- [x] Show a short table or plot in which cumulative thermal time and LAI
       visibly evolve.
-- [ ] Explain automatic same-object coupling by matching model outputs to
+- [x] Explain automatic same-object coupling by matching model outputs to
       inputs.
-- [ ] Show the final state and the retained timeline.
-- [ ] Optionally show one additional `step!` or `continue!` call after the main
+- [x] Show the final state and the retained timeline.
+- [x] Optionally show one additional `step!` or `continue!` call after the main
       run, without turning continuation into a separate advanced subject.
-- [ ] Use a simple weather fixture if needed, but treat it only as supplied
+- [x] Use a simple weather fixture if needed, but treat it only as supplied
       forcing data here. Do not teach providers, handles, spatial binding, or
       mutable environments yet.
-- [ ] Do not use explicit `ModelSpec`, selectors, templates, hard calls,
+- [x] Do not use explicit `ModelSpec`, selectors, templates, hard calls,
       multiple cadences, or lifecycle mutation.
 
 #### Journey 2: Run the coupling on several same-scale objects
 
-- [ ] Reuse the first model chain on two or more objects at the same scale.
-- [ ] Introduce stable object identity and one `Many` target selection.
-- [ ] Show that every object has independent status and output streams.
-- [ ] Do not introduce parent/child scales or templates yet.
+- [x] Reuse the first model chain on two or more objects at the same scale.
+- [x] Introduce stable object identity and one `Many` target selection.
+- [x] Show that every object has independent status and output streams.
+- [x] Do not introduce parent/child scales or templates yet.
+
+The new Start-here path now contains a configuration-free mental model, the
+30-day one-object thermal-time/LAI/Beer chain, and the smallest two-object
+extension using one shared `Many` selector. Each executable block ran during a
+complete Documenter build through the dedicated docs test project. Migration
+has its own navigation section, while design notes, audits, handoffs, internal
+API material, and the roadmap are grouped under Maintainers.
 
 #### Journey 3: Build one multiscale plant
 
@@ -1018,7 +1025,7 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
 
 ## Documentation Navigation Target
 
-- [ ] **Start here**
+- [x] **Start here**
   1. Why PlantSimEngine;
   2. mental model;
   3. first same-scale coupled simulation over many timesteps;
@@ -1051,9 +1058,9 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
   3. backend extension API;
   4. graph editor;
   5. evaluation.
-- [ ] **Migration**
+- [x] **Migration**
   - keep migration from the removed mapping runtime separate from onboarding.
-- [ ] **Maintainers**
+- [x] **Maintainers**
   - move design notes, implementation plans, completion audits, and handoff
     documents out of the normal user journey.
 
