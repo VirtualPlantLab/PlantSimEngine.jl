@@ -965,8 +965,8 @@ refresh contract.
 
 #### Journey 8: Modify the environment
 
-- [ ] Begin with a single-layer mutable environment.
-- [ ] Show the current typed trial-state path:
+- [x] Begin with a single-layer mutable environment.
+- [x] Show the current typed trial-state path:
 
       ```julia
       run_call!(
@@ -977,17 +977,26 @@ refresh contract.
       )
       ```
 
-- [ ] Show an explicit accepted commit:
+- [x] Show an explicit accepted commit:
 
       ```julia
       commit_environment!(context, accepted_environment)
       ```
 
-- [ ] Explain environment output declarations as commit permissions.
-- [ ] Then extend to a spatial/voxel environment, proving that `Many` preserves
+- [x] Explain environment output declarations as commit permissions.
+- [x] Then extend to a spatial/voxel environment, proving that `Many` preserves
       each target's opaque compiled handle.
-- [ ] Do not expose backend implementation protocol in the ordinary user page;
+- [x] Do not expose backend implementation protocol in the ordinary user page;
       place backend authoring in an extension guide.
+
+The mutable-environment journey first runs one reader against a typed trial
+temperature without publication, then commits and publishes a distinct
+accepted temperature. Its focused test verifies the committed backend state
+and that the reader retained exactly one accepted sample. A two-cell `Many`
+case proves that the same application retains distinct `:sun` and `:shade`
+compiled handles. The backend protocol is documented separately in
+`guides/extensions/environment_backends.md`; 116 focused toy checks, 259
+public-API stabilization checks, and the full documentation build pass.
 
 #### Journey 9: Advanced execution control
 

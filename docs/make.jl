@@ -64,6 +64,7 @@ makedocs(;
         ],
         "Dynamic and advanced simulations" => [
             "Modify plant structure" => "./journeys/users/structure_changes.md",
+            "Modify the environment" => "./journeys/users/mutable_environments.md",
             "Part 2: roots and water" => "./tutorials/growing_plant/part2_roots_water.md",
             "Part 3: debugging" => "./tutorials/growing_plant/part3_debugging.md",
             "Manual calls" => "./guides/multiscale/manual_calls.md",
@@ -92,6 +93,7 @@ makedocs(;
             "Runtime contracts" => "./troubleshooting/runtime_contracts.md",
             "Dependency cycles" => "./troubleshooting/dependency_cycles.md",
             "Downstream testing" => "./troubleshooting_and_testing/downstream_tests.md",
+            "Environment backend extensions" => "./guides/extensions/environment_backends.md",
             "AI agent skill" => "agent_skill.md",
             "Public API" => "./API/API_public.md",
             "Public symbol inventory" => "./API/public_symbols.md",

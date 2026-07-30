@@ -89,6 +89,7 @@ export Beer, ToyLightPartitioningModel, ToyLAIModel, ToyLAIfromLeafAreaModel, To
 export ToyAssimModel, ToyCAllocationModel, ToyCDemandModel, ToySoilWaterModel
 export ToyAssimGrowthModel, ToyRUEGrowthModel, ToyMaintenanceRespirationModel, ToyPlantRmModel, ToyCBiomassModel
 export ToySpatialEnvironment, ToyEnvironmentHandle
+export ToyEnvironmentReaderModel, ToyEnvironmentControllerModel
 export Process1Model, Process2Model, Process3Model, Process4Model, Process5Model
 export Process6Model, Process7Model
 

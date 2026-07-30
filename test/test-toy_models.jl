@@ -761,3 +761,88 @@ end
         for id in (:leaf_1, :leaf_2, :leaf_3)
     ) == Dict(:leaf_1 => 4, :leaf_2 => 3, :leaf_3 => 3)
 end
+
+@testset "Mutable-environment tutorial composition" begin
+    environment = ToySpatialEnvironment(
+        Dict(:canopy => (T=20.0,));
+        step_seconds=3600.0,
+    )
+    model = CompositeModel(
+        Object(
+            :leaf;
+            scale=:Leaf,
+            kind=:leaf,
+            geometry=(cell=:canopy,),
+        );
+        applications=(
+            ModelSpec(
+                ToyEnvironmentReaderModel();
+                name=:reader,
+                on=One(scale=:Leaf),
+                environment=Environment(backend=environment),
+            ),
+            ModelSpec(
+                ToyEnvironmentControllerModel(30.0, 22.0);
+                name=:controller,
+                on=One(scale=:Leaf),
+                calls=(
+                    :reader => One(
+                        scale=:Leaf,
+                        application=:reader,
+                    ),
+                ),
+                environment=Environment(
+                    backend=environment,
+                    sink=:cells,
+                ),
+            ),
+        ),
+    )
+    simulation = run!(model; outputs=:all)
+    state = final_state(simulation)
+    @test state.trial_temperature_seen == 30.0
+    @test state.accepted_temperature_seen == 22.0
+    @test environment.cells[:canopy].T == 22.0
+    @test only(
+        row for row in Diagnostics.explain_outputs(simulation)
+        if row.application_id == :reader
+    ).nsamples == 1
+
+    spatial_environment = ToySpatialEnvironment(
+        Dict(
+            :sun => (T=26.0,),
+            :shade => (T=18.0,),
+        );
+        step_seconds=3600.0,
+    )
+    spatial_model = CompositeModel(
+        Object(
+            :sun_leaf;
+            scale=:Leaf,
+            geometry=(cell=:sun,),
+        ),
+        Object(
+            :shade_leaf;
+            scale=:Leaf,
+            geometry=(cell=:shade,),
+        );
+        applications=(
+            ModelSpec(
+                ToyEnvironmentReaderModel();
+                name=:temperature,
+                on=Many(scale=:Leaf),
+                environment=Environment(backend=spatial_environment),
+            ),
+        ),
+    )
+    spatial_states = final_state(
+        run!(spatial_model),
+        Many(scale=:Leaf),
+    )
+    @test spatial_states[:sun_leaf].temperature_seen == 26.0
+    @test spatial_states[:shade_leaf].temperature_seen == 18.0
+    @test Dict(
+        row.object_id => row.handle.cell
+        for row in Diagnostics.explain_environment_bindings(spatial_model)
+    ) == Dict(:sun_leaf => :sun, :shade_leaf => :shade)
+end
