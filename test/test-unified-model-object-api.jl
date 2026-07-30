@@ -3557,6 +3557,57 @@ end
     @test Set(row.application_id for row in explain_outputs(stream_only_simulation) if row.variable == :signal) ==
           Set([:stream_signal, :canonical_signal])
 
+    stream_bound_scene = CompositeModel(
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            status=Status(observed_signal=0.0),
+        );
+        applications=(
+            ModelSpec(
+                ModelObjectSignalSetModel(10.0);
+                name=:stream_signal,
+                on=One(scale=:Leaf),
+                output_routing=(signal=:stream_only,),
+            ),
+            ModelSpec(
+                ModelObjectSignalConsumerModel();
+                name=:signal_consumer,
+                on=One(scale=:Leaf),
+                inputs=(
+                    signal=One(
+                        within=Self(),
+                        application=:stream_signal,
+                        var=:signal,
+                        policy=HoldLast(),
+                    ),
+                ),
+            ),
+        ),
+    )
+    stream_bound_compiled = Advanced.refresh_bindings!(stream_bound_scene)
+    stream_bound_binding = only(
+        row for row in explain_bindings(stream_bound_compiled)
+        if row.application_id == :signal_consumer
+    )
+    @test stream_bound_binding.source_application_ids == [:stream_signal]
+    @test stream_bound_binding.carrier_kind == :temporal_stream
+    stream_bound_simulation = run!(stream_bound_scene; outputs=:all)
+    stream_bound_status =
+        only(model_objects(stream_bound_scene; scale=:Leaf)).status
+    @test !(:signal in propertynames(stream_bound_status))
+    @test stream_bound_status.observed_signal == 10.0
+    @test only(
+        row.value for row in collect_outputs(
+            stream_bound_simulation,
+            :leaf_1,
+            :signal;
+            sink=nothing,
+        )
+        if row.application_id == :stream_signal
+    ) == 10.0
+
     stateful_stream_scene = CompositeModel(
         Object(
             :leaf_1;

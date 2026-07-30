@@ -898,7 +898,6 @@ end
 
 function _object_override_code(override)
     options = String["object=$(repr(override.object.value))"]
-    isnothing(override.process) || push!(options, "process=$(repr(override.process))")
     isnothing(override.application) || push!(options, "application=$(repr(override.application))")
     push!(options, "model=$(repr(override.model))")
     return "Override(; $(join(options, ", ")))"

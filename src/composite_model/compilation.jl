@@ -2155,6 +2155,74 @@ function _input_carrier(model::CompositeModel, selector::AbstractObjectMultiplic
     return isempty(refs) ? nothing : only(refs)
 end
 
+function _has_stream_only_input_source(
+    source_application_ids,
+    source_var::Symbol,
+    applications_by_id,
+)
+    return any(source_application_ids) do application_id
+        application = applications_by_id[application_id]
+        _publish_mode_for_output(application.spec, source_var) ==
+            :stream_only
+    end
+end
+
+function _stream_only_initial_reference(
+    model::CompositeModel,
+    source_id::ObjectId,
+    source_application_ids,
+    source_var::Symbol,
+    applications_by_id,
+)
+    matching_applications = CompiledModelApplication[
+        applications_by_id[application_id]
+        for application_id in source_application_ids
+        if source_id in applications_by_id[application_id].target_ids
+    ]
+    if length(matching_applications) == 1
+        application = only(matching_applications)
+        if _publish_mode_for_output(application.spec, source_var) ==
+           :stream_only
+            return Ref(
+                _private_initial_value(
+                    getproperty(outputs_(application.spec), source_var),
+                ),
+            )
+        end
+    end
+    return _status_ref_or_nothing(
+        _model_object(model, source_id).status,
+        source_var,
+    )
+end
+
+function _stream_only_initial_carrier(
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+    source_ids,
+    source_application_ids,
+    source_var::Symbol,
+    applications_by_id,
+)
+    references = Base.RefValue[]
+    for source_id in source_ids
+        reference = _stream_only_initial_reference(
+            model,
+            source_id,
+            source_application_ids,
+            source_var,
+            applications_by_id,
+        )
+        isnothing(reference) && return nothing
+        push!(references, reference)
+    end
+    if selector isa Many
+        isempty(references) && return RefVector{Any}()
+        return _ref_vector_carrier(references)
+    end
+    return isempty(references) ? nothing : only(references)
+end
+
 function _ref_vector_carrier(refs)
     T = typeof(refs[1][])
     typed_refs = Base.RefValue{T}[]
@@ -2686,11 +2754,30 @@ function _push_model_input_binding!(
             policy,
         )
     end
-    carrier = _input_carrier(model, selector, source_ids, source_var)
-    carrier_hint =
-        isempty(source_ids) && selector isa OptionalOne ?
-        :optional_default :
+    stream_only_source = _has_stream_only_input_source(
+        source_application_ids,
+        source_var,
+        applications_by_id,
+    )
+    carrier = if stream_only_source
+        _stream_only_initial_carrier(
+            model,
+            selector,
+            source_ids,
+            source_application_ids,
+            source_var,
+            applications_by_id,
+        )
+    else
+        _input_carrier(model, selector, source_ids, source_var)
+    end
+    carrier_hint = if isempty(source_ids) && selector isa OptionalOne
+        :optional_default
+    elseif stream_only_source
+        :temporal_stream
+    else
         _carrier_hint(selector, policy, window)
+    end
     _validate_model_input_source!(
         model,
         application,
