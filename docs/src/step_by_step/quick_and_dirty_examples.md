@@ -82,7 +82,7 @@ growth_scene = CompositeModel(
 )
 
 growth_sim = run!(growth_scene; steps=5)
-growth_status = only(model_objects(growth_scene; scale=:Scene)).status
+growth_status = final_state(growth_sim)
 (LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```
 

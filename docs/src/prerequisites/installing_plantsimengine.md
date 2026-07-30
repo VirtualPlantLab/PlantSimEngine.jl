@@ -38,8 +38,8 @@ model = CompositeModel(
     environment=meteo,
 )
 
-run!(model)
-only(model_objects(model; scale=:Leaf)).status.aPPFD
+simulation = run!(model)
+final_state(simulation, One(scale=:Leaf)).aPPFD
 ```
 
 Example models are provided by the `PlantSimEngine.Examples` submodule. They

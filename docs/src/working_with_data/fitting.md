@@ -41,11 +41,11 @@ model = CompositeModel(
     environment=meteo,
 )
 
-run!(model)
-leaf = only(model_objects(model; scale=:Leaf))
+simulation = run!(model)
+leaf = final_state(simulation, One(scale=:Leaf))
 data = DataFrame(
-    aPPFD=[leaf.status.aPPFD],
-    LAI=[leaf.status.LAI],
+    aPPFD=[leaf.aPPFD],
+    LAI=[leaf.LAI],
     Ri_PAR_f=[meteo.Ri_PAR_f[1]],
 )
 

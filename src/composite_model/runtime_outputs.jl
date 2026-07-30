@@ -427,7 +427,7 @@ end
     Simulation
 
 Result of running a [`CompositeModel`](@ref). Use `outputs`, `collect_outputs`,
-and the explanation helpers to inspect it.
+[`final_state`](@ref), and `PlantSimEngine.Diagnostics` to inspect it.
 """
 mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     model::S
@@ -441,6 +441,37 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     current_step::Int
     constants::C
     performance::P
+end
+
+function Base.show(io::IO, simulation::Simulation)
+    print(
+        io,
+        "Simulation(steps=",
+        simulation.current_step,
+        ", objects=",
+        length(simulation.model.registry.objects),
+        ", applications=",
+        length(simulation.compiled.applications),
+        ", retained_streams=",
+        length(simulation.temporal_streams),
+        ")",
+    )
+end
+
+function Base.show(io::IO, ::MIME"text/plain", simulation::Simulation)
+    retained_streams = length(simulation.temporal_streams)
+    println(io, "Simulation")
+    println(io, "  elapsed steps: ", simulation.current_step)
+    println(io, "  objects: ", length(simulation.model.registry.objects))
+    println(io, "  applications: ", length(simulation.compiled.applications))
+    print(io, "  retained streams: ", retained_streams)
+    if iszero(retained_streams)
+        print(
+            io,
+            "\n  hint: no output history retained; rerun with ",
+            "`outputs=:all` or an `OutputRequest`.",
+        )
+    end
 end
 
 """
@@ -457,6 +488,52 @@ runtime_model(simulation::Simulation) = simulation.model
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
+
+@inline function _final_state_snapshot(simulation::Simulation, object_id)
+    return NamedTuple(_model_object_status(simulation.model, ObjectId(object_id)))
+end
+
+"""
+    final_state(simulation)
+    final_state(simulation, object_id)
+    final_state(simulation, selector; context=nothing)
+
+Return a `NamedTuple` snapshot of the latest canonical object status.
+The no-selector form requires the simulation to contain exactly one object.
+`One` returns one snapshot, `OptionalOne` returns one snapshot or `nothing`,
+and `Many` returns a dictionary from object ids to snapshots.
+
+This accessor reports final state, independently of output retention. Use
+`collect_outputs` for retained history.
+"""
+final_state(simulation::Simulation) = final_state(simulation, One())
+
+function final_state(simulation::Simulation, object_id)
+    return _final_state_snapshot(simulation, object_id)
+end
+
+function final_state(
+    simulation::Simulation,
+    selector::AbstractObjectMultiplicity;
+    context=nothing,
+)
+    object_ids = resolve_object_ids(
+        simulation.model,
+        selector;
+        context=context,
+    )
+    if selector isa One
+        return _final_state_snapshot(simulation, only(object_ids))
+    elseif selector isa OptionalOne
+        return isempty(object_ids) ?
+               nothing :
+               _final_state_snapshot(simulation, only(object_ids))
+    end
+    return Dict(
+        object_id.value => _final_state_snapshot(simulation, object_id)
+        for object_id in object_ids
+    )
+end
 
 """
     runtime_performance(simulation)

@@ -430,9 +430,10 @@ batches.
 
 ## Output Collection
 
-`run!(model; steps=...)` returns a `Simulation`. Use
-`outputs(sim)` for the retained typed streams, `Diagnostics.explain_outputs(sim)` for
-structured diagnostics, and `collect_outputs(sim)` for tabular rows.
+`run!(model; steps=...)` returns a `Simulation`. Use `final_state(sim)` for the
+latest one-object state, `outputs(sim)` for retained typed streams,
+`Diagnostics.explain_outputs(sim)` for structured diagnostics, and
+`collect_outputs(sim)` for tabular rows.
 
 ```julia
 request = OutputRequest(

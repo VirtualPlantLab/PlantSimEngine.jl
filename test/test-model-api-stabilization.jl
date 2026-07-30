@@ -244,6 +244,7 @@ end
         :environment_inputs,
         :environment_outputs,
         :environment_window,
+        :final_state,
         :geometry,
         :init_variables,
         :inputs,
@@ -411,6 +412,7 @@ end
         :RunContext,
         :CallTarget,
         :commit_environment!,
+        :final_state,
         :model_objects,
         :runtime_model,
         :Diagnostics,
@@ -559,15 +561,40 @@ end
     default_simulation = run!(default_scene; steps=2)
     @test isempty(outputs(default_simulation))
     @test current_step(default_simulation) == 2
+    @test final_state(default_simulation) == (signal=2.0,)
+    @test final_state(default_simulation, :scene) == (signal=2.0,)
+    @test final_state(
+        default_simulation,
+        OptionalOne(scale=:Leaf),
+    ) === nothing
+    @test final_state(default_simulation, Many()) ==
+          Dict(:scene => (signal=2.0,))
+
+    compact_display = sprint(show, default_simulation)
+    @test compact_display ==
+          "Simulation(steps=2, objects=1, applications=1, retained_streams=0)"
+    detailed_display = sprint(show, MIME"text/plain"(), default_simulation)
+    @test occursin("elapsed steps: 2", detailed_display)
+    @test occursin("objects: 1", detailed_display)
+    @test occursin("applications: 1", detailed_display)
+    @test occursin("retained streams: 0", detailed_display)
+    @test occursin("outputs=:all", detailed_display)
+    @test occursin("OutputRequest", detailed_display)
 
     retained_scene = CompositeModel(StabilizationSourceModel())
     simulation = run!(retained_scene; steps=2, outputs=:all)
     @test current_step(simulation) == 2
+    retained_display = sprint(show, MIME"text/plain"(), simulation)
+    @test occursin("retained streams: 1", retained_display)
+    @test !occursin("hint:", retained_display)
     @test last.(outputs(simulation)[
         (:stabilization_source, ObjectId(:scene), :signal)
     ]) == [1.0, 2.0]
 
+    state_before_continuation = final_state(simulation)
     @test continue!(simulation; steps=2) === simulation
+    @test state_before_continuation == (signal=2.0,)
+    @test final_state(simulation) == (signal=4.0,)
     @test current_step(simulation) == 4
     @test last.(outputs(simulation)[
         (:stabilization_source, ObjectId(:scene), :signal)

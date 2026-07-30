@@ -151,6 +151,8 @@ know its scenario timestep unless the scientific model explicitly requires it.
 - `run!(model; outputs=:none)` starts a fresh timeline and returns
   `Simulation`; use `outputs=:all` or output requests to retain streams.
 - `continue!(simulation)` and `step!(simulation)` advance the same timeline.
+- `final_state(simulation)` returns the latest one-object status snapshot;
+  pass an object id or selector for multi-object simulations.
 - `outputs(sim)` exposes retained typed streams.
 - `OutputRequest` selects retained/resampled outputs.
 - `collect_outputs(sim)` materializes output rows.

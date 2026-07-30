@@ -70,10 +70,10 @@ out = collect_outputs(sim; sink=DataFrame)
 first(out, 6)
 ```
 
-The model object now holds the latest status values:
+The `Simulation` provides a snapshot of the latest status values:
 
 ```@example model_object_quickstart
-scene_status = only(model_objects(model; scale=:Scene)).status
+scene_status = final_state(sim)
 (TT_cu=scene_status.TT_cu, LAI=scene_status.LAI, aPPFD=scene_status.aPPFD)
 ```
 
@@ -178,8 +178,8 @@ plant_scene = CompositeModel(
     ),
 )
 
-run!(plant_scene)
-plant_model_status = only(model_objects(plant_scene; scale=:Scene)).status
+plant_sim = run!(plant_scene)
+plant_model_status = final_state(plant_sim, One(scale=:Scene))
 (total_surface=plant_model_status.total_surface, LAI=plant_model_status.LAI)
 ```
 

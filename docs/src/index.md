@@ -193,8 +193,8 @@ plant_scene = CompositeModel(
     ),
 )
 
-run!(plant_scene)
-scene_status = only(model_objects(plant_scene; scale=:Scene)).status
+plant_sim = run!(plant_scene)
+scene_status = final_state(plant_sim, One(scale=:Scene))
 scene_status
 ```
 

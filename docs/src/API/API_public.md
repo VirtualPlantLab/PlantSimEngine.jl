@@ -91,6 +91,9 @@ targets.
 - `continue!(simulation; steps=...)` and `step!(simulation)` advance an
   existing timeline without resetting temporal state.
 - `current_step(simulation)` reports the accepted timeline position.
+- `final_state(simulation)` returns a latest-state snapshot without
+  requiring output retention; pass an object id or selector for multi-object
+  simulations.
 - `collect_outputs(sim)` materializes retained output streams.
 
 ### Explanations

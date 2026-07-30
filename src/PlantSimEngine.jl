@@ -285,7 +285,8 @@ export add_organ!, register_object!, remove_object!, reparent_object!, move_obje
 export mark_environment_binding_dirty!
 export objects_from_mtg, object_ids, model_objects, resolve_object_ids, resolve_objects
 export geometry, position, bounds
-export RunContext, CallTarget, CallTargets, Simulation, runtime_model, current_step, outputs
+export RunContext, CallTarget, CallTargets, Simulation
+export runtime_model, current_step, final_state, outputs
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many
 export Input, Call, Environment

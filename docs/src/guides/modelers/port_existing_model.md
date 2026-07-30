@@ -26,7 +26,7 @@ model = CompositeModel(
     environment=(T=10.0, duration=Day(1)),
 )
 simulation = run!(model)
-@assert only(model_objects(model)).status.lai_next == 1.2
+@assert final_state(simulation).lai_next == 1.2
 ```
 
 Test the scientific function first, then the kernel directly with a `Status`,

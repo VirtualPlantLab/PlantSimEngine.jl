@@ -120,14 +120,14 @@ select(
 Run the model with [`run!`](@ref):
 
 ```@example detailed_scene
-sim = run!(model; steps=3)
+sim = run!(model; steps=3, outputs=:all)
 nothing
 ```
 
-The object status stores the latest value:
+Final state is available independently of retained output history:
 
 ```@example detailed_scene
-scene_status = only(model_objects(model; scale=:Scene)).status
+scene_status = final_state(sim)
 (LAI=scene_status.LAI, aPPFD=scene_status.aPPFD)
 ```
 
@@ -182,7 +182,7 @@ first(collect_outputs(coupled_sim), 8)
 The final object status contains the latest values from the coupled models:
 
 ```@example detailed_scene
-coupled_status = only(model_objects(coupled_scene; scale=:Scene)).status
+coupled_status = final_state(coupled_sim)
 (TT_cu=coupled_status.TT_cu, LAI=coupled_status.LAI, aPPFD=coupled_status.aPPFD)
 ```
 

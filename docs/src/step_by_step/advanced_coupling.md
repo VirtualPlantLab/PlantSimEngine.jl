@@ -104,7 +104,7 @@ Run one timestep:
 
 ```@example scene_advanced_coupling
 complex_sim = run!(complex_scene; steps=1)
-complex_status = only(model_objects(complex_scene; scale=:Scene)).status
+complex_status = final_state(complex_sim)
 (
     var3=complex_status.var3,
     var5=complex_status.var5,

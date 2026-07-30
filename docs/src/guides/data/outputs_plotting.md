@@ -1,9 +1,11 @@
 # Collecting And Plotting Outputs
 
-Run a model to obtain `Simulation`, then call `collect_outputs(sim)` for
-ordinary analysis. Rows identify application, object, variable, timestep/time,
-and value, so repeated processes cannot overwrite one another. Convert the rows
-to a `DataFrame`, filter by application/object/variable, group, and plot.
+Run a model with `outputs=:all` or an explicit `OutputRequest`, then call
+`collect_outputs(sim)` for ordinary analysis. Rows identify application,
+object, variable, timestep/time, and value, so repeated processes cannot
+overwrite one another. Convert the rows to a `DataFrame`, filter by
+application/object/variable, group, and plot. Use `final_state(sim)` when only
+the latest values are needed.
 
 Runs default to `outputs=:none`. Use `outputs=:all` only when complete stream
 history is intentional; selected requests are the memory-safe choice for large
