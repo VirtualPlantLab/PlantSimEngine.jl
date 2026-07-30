@@ -895,15 +895,24 @@ shared scene or soil source exists.
 
 #### Journey 5: Understand environments
 
-- [ ] Return to the forcing used in Journey 1 and now explain the environment
+- [x] Return to the forcing used in Journey 1 and now explain the environment
       contract explicitly.
-- [ ] Show model environment declarations, `Environment(...)`, source
+- [x] Show model environment declarations, `Environment(...)`, source
       remapping, and global sampling.
 - [x] Correct every reused example model so it declares every environment
       variable it reads.
 - [x] Run canonical examples against a strict backend that exposes only
       declared variables.
-- [ ] Introduce spatial handles only after the global provider is understood.
+- [x] Introduce spatial handles only after the global provider is understood.
+
+The environment journey first exposes the declarations already used by the
+thermal-time and Beer kernels, then maps strict global source names with
+`Environment(...; sources=...)`. Only after that succeeds does it switch the
+unchanged Beer application to a small read-only `ToySpatialEnvironment`; two
+leaf geometries compile to distinct `:sun` and `:shade` handles under one
+`Many` application. The shipped backend example extends the canonical
+`EnvironmentAPI` namespace, and its load order is covered by 259 API
+stabilization checks in addition to 91 focused example checks.
 
 #### Journey 6: Give models different cadences
 

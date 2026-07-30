@@ -57,7 +57,7 @@ makedocs(;
             "Visualizing structure" => "./guides/multiscale/visualizing_structure.md",
         ],
         "Environment and time" => [
-            "Environment inputs" => "./guides/data/environment_inputs.md",
+            "Read an environment" => "./journeys/users/environments.md",
             "Understanding cadence" => "./guides/time/multirate_concepts.md",
             "Hourly, daily, and weekly" => "./guides/time/hourly_daily_weekly.md",
             "Advanced configuration" => "./guides/time/advanced_time_environment.md",

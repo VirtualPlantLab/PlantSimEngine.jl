@@ -489,3 +489,93 @@ end
     override_simulation = run!(CompositeModel(plant_c))
     @test final_state(override_simulation, One(scale=:Plant)).surface == 6.0
 end
+
+@testset "Environment tutorial composition" begin
+    forcing = (
+        air_temperature=20.0,
+        incident_par=300.0,
+        duration=Day(1),
+    )
+    global_model = CompositeModel(
+        Object(:plant; scale=:Plant, kind=:plant);
+        applications=(
+            ModelSpec(
+                ToyDegreeDaysCumulModel();
+                name=:degree_days,
+                on=One(scale=:Plant),
+                environment=Environment(
+                    provider=:global,
+                    sources=(T=:air_temperature,),
+                ),
+            ),
+            ModelSpec(
+                ToyLAIModel();
+                name=:lai,
+                on=One(scale=:Plant),
+            ),
+            ModelSpec(
+                Beer(0.6);
+                name=:light,
+                on=One(scale=:Plant),
+                environment=Environment(
+                    provider=:global,
+                    sources=(Ri_PAR_f=:incident_par,),
+                ),
+            ),
+        ),
+        environment=forcing,
+    )
+    @test validate_environment_inputs(global_model) === nothing
+    global_state = final_state(run!(global_model))
+    @test global_state.TT_cu == 10.0
+    global_environment_rows =
+        Diagnostics.explain_environment_bindings(global_model)
+    @test only(
+        row for row in global_environment_rows
+        if row.application_id == :degree_days
+    ).source_inputs == [:air_temperature]
+    @test only(
+        row for row in global_environment_rows
+        if row.application_id == :light
+    ).source_inputs == [:incident_par]
+
+    backend = ToySpatialEnvironment(
+        Dict(
+            :sun => (Ri_PAR_f=400.0,),
+            :shade => (Ri_PAR_f=100.0,),
+        );
+        step_seconds=3600.0,
+    )
+    spatial_model = CompositeModel(
+        Object(
+            :sun_leaf;
+            scale=:Leaf,
+            kind=:leaf,
+            geometry=(cell=:sun,),
+            status=Status(LAI=2.0),
+        ),
+        Object(
+            :shade_leaf;
+            scale=:Leaf,
+            kind=:leaf,
+            geometry=(cell=:shade,),
+            status=Status(LAI=2.0),
+        );
+        applications=(
+            ModelSpec(
+                Beer(0.6);
+                name=:light,
+                on=Many(scale=:Leaf),
+                environment=Environment(backend=backend),
+            ),
+        ),
+    )
+    spatial_states = final_state(run!(spatial_model), Many(scale=:Leaf))
+    @test spatial_states[:sun_leaf].aPPFD >
+          spatial_states[:shade_leaf].aPPFD
+    handles = Dict(
+        row.object_id => row.handle.cell
+        for row in Diagnostics.explain_environment_bindings(spatial_model)
+    )
+    @test handles == Dict(:sun_leaf => :sun, :shade_leaf => :shade)
+end

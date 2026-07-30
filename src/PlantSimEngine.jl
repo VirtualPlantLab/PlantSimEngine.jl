@@ -73,9 +73,6 @@ include("visualization/model_graph_editor_api.jl")
 # Fitting
 include("evaluation/fit.jl")
 
-# Examples
-include("examples_import.jl")
-
 """
     PlantSimEngine.Advanced
 
@@ -274,6 +271,10 @@ import ..PlantSimEngine: fit, RMSE, NRMSE, EF, dr
 
 export fit, RMSE, NRMSE, EF, dr
 end
+
+# Examples are loaded after the public namespaces so shipped extension examples
+# use the same qualified API as downstream packages.
+include("examples_import.jl")
 
 export PreviousTimeStep
 export AbstractModel
