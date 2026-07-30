@@ -130,6 +130,41 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
+    @testset "internal-only benchmark suite assembly smoke" begin
+        benchmark_module = Module(:InternalOnlyBenchmarkSuite)
+        Core.eval(
+            benchmark_module,
+            :(include(path) = Base.include(@__MODULE__, path)),
+        )
+        include_error = try
+            withenv("PSE_BENCHMARK_INCLUDE_DOWNSTREAM" => "false") do
+                Base.include(
+                    benchmark_module,
+                    joinpath(@__DIR__, "..", "benchmarks.jl"),
+                )
+            end
+            nothing
+        catch error
+            sprint(showerror, error, catch_backtrace())
+        end
+        @test isnothing(include_error)
+        if isnothing(include_error)
+            suite = getfield(
+                benchmark_module,
+                :SUITE,
+            )[getfield(benchmark_module, :suite_name)]
+            @test haskey(suite, "PSE")
+            @test haskey(suite, "PSE_hard_calls_zero")
+            @test haskey(suite, "PSE_lifecycle_large")
+            @test !haskey(suite, "PBP")
+            @test !haskey(suite, "PBP_batch_run")
+            @test !haskey(suite, "XPalm_run_100")
+            @test !haskey(suite, "XPalm_all_outputs_100")
+        end
+    end
+end
+
 if benchmark_test_enabled("PlantBiophysics benchmark API smoke")
     @testset "PlantBiophysics benchmark API smoke" begin
         include(joinpath(@__DIR__, "..", "test-plantbiophysics.jl"))

@@ -17,7 +17,11 @@ elseif Sys.islinux()
     suite_name = suite_name * "linux"
 end
 const SUITE = BenchmarkGroup()
-SUITE[suite_name] = BenchmarkGroup(["PSE", "PBP", "XPalm"])
+const INCLUDE_DOWNSTREAM_BENCHMARKS =
+    get(ENV, "PSE_BENCHMARK_INCLUDE_DOWNSTREAM", "true") == "true"
+SUITE[suite_name] = BenchmarkGroup(
+    INCLUDE_DOWNSTREAM_BENCHMARKS ? ["PSE", "PBP", "XPalm"] : ["PSE"],
+)
 
 # "PSE benchmark"
 include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
@@ -80,62 +84,71 @@ SUITE[suite_name]["PSE_lifecycle_immediate_hard_call"] =
             usage=:dense,
         ))
 
-# "PBP benchmark"
-include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
-SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
-SUITE[suite_name]["PBP_batch_run"] = @benchmarkable benchmark_plantbiophysics_batch(
-    scenes,
-) setup = (scenes = setup_benchmark_plantbiophysics_batch())
+if INCLUDE_DOWNSTREAM_BENCHMARKS
+    # "PBP benchmark"
+    include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
+    SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
+    SUITE[suite_name]["PBP_batch_run"] =
+        @benchmarkable benchmark_plantbiophysics_batch(
+            scenes,
+        ) setup = (scenes = setup_benchmark_plantbiophysics_batch())
 
-# "XPalm benchmark" 
-include(joinpath(@__DIR__, "test-xpalm.jl"))
-include(joinpath(@__DIR__, "performance_regression.jl"))
-const XPALM_PR_BENCHMARK_STEPS = 100
-SUITE[suite_name]["XPalm_setup_100"] = @benchmarkable xpalm_default_param_create(
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-) seconds = 30
+    # "XPalm benchmark"
+    include(joinpath(@__DIR__, "test-xpalm.jl"))
+    include(joinpath(@__DIR__, "performance_regression.jl"))
+    const XPALM_PR_BENCHMARK_STEPS = 100
+    SUITE[suite_name]["XPalm_setup_100"] =
+        @benchmarkable xpalm_default_param_create(
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ) seconds = 30
 
-SUITE[suite_name]["XPalm_run_100"] = @benchmarkable xpalm_default_param_run(
-    model,
-    requests,
-    nsteps,
-) setup = ((model, requests, nsteps) = xpalm_default_param_create(;
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-))
+    SUITE[suite_name]["XPalm_run_100"] =
+        @benchmarkable xpalm_default_param_run(
+            model,
+            requests,
+            nsteps,
+        ) setup = ((model, requests, nsteps) = xpalm_default_param_create(;
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ))
 
-SUITE[suite_name]["XPalm_reference_outputs_100"] = @benchmarkable xpalm_reference_param_run(
-    model,
-    requests,
-    nsteps,
-) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-))
+    SUITE[suite_name]["XPalm_reference_outputs_100"] =
+        @benchmarkable xpalm_reference_param_run(
+            model,
+            requests,
+            nsteps,
+        ) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ))
 
-SUITE[suite_name]["XPalm_no_outputs_100"] = @benchmarkable xpalm_reference_param_run(
-    model,
-    requests,
-    nsteps;
-    outputs=:none,
-) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-))
+    SUITE[suite_name]["XPalm_no_outputs_100"] =
+        @benchmarkable xpalm_reference_param_run(
+            model,
+            requests,
+            nsteps;
+            outputs=:none,
+        ) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ))
 
-SUITE[suite_name]["XPalm_small_outputs_100"] = @benchmarkable xpalm_reference_param_run(
-    model,
-    requests,
-    nsteps,
-) setup = ((model, requests, nsteps) = xpalm_small_param_create(;
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-))
+    SUITE[suite_name]["XPalm_small_outputs_100"] =
+        @benchmarkable xpalm_reference_param_run(
+            model,
+            requests,
+            nsteps,
+        ) setup = ((model, requests, nsteps) = xpalm_small_param_create(;
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ))
 
-SUITE[suite_name]["XPalm_all_outputs_100"] = @benchmarkable xpalm_reference_param_run(
-    model,
-    OutputRequest[],
-    nsteps;
-    outputs=:all,
-) setup = ((model, nsteps) = xpalm_reference_model_create(;
-    nsteps=XPALM_PR_BENCHMARK_STEPS,
-))
+    SUITE[suite_name]["XPalm_all_outputs_100"] =
+        @benchmarkable xpalm_reference_param_run(
+            model,
+            OutputRequest[],
+            nsteps;
+            outputs=:all,
+        ) setup = ((model, nsteps) = xpalm_reference_model_create(;
+            nsteps=XPALM_PR_BENCHMARK_STEPS,
+        ))
+end
 
 if abspath(PROGRAM_FILE) == @__FILE__
     tune!(SUITE)
@@ -149,10 +162,14 @@ if abspath(PROGRAM_FILE) == @__FILE__
     )
     mkpath(dirname(output_path))
     BenchmarkTools.save(output_path, median(results))
-    summary_path = replace(output_path, r"\.[^.]+$" => "-summary.csv")
-    metadata = _performance_metadata(;
-        warmup_policy="BenchmarkTools tune plus per-benchmark setup",
-    )
-    write_benchmark_summary(summary_path, results, metadata)
-    @info "PlantSimEngine benchmark suite complete" output_path summary_path
+    if INCLUDE_DOWNSTREAM_BENCHMARKS
+        summary_path = replace(output_path, r"\.[^.]+$" => "-summary.csv")
+        metadata = _performance_metadata(;
+            warmup_policy="BenchmarkTools tune plus per-benchmark setup",
+        )
+        write_benchmark_summary(summary_path, results, metadata)
+        @info "PlantSimEngine benchmark suite complete" output_path summary_path
+    else
+        @info "PlantSimEngine benchmark suite complete" output_path
+    end
 end
