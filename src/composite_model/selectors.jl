@@ -171,7 +171,7 @@ end
 function _model_contract(model)
     return (
         process=process(model),
-        inputs=Tuple(Symbol.(keys(inputs_(model)))),
+        inputs=Tuple(Symbol.(keys(_input_schema(model)))),
         outputs=Tuple(Symbol.(keys(outputs_(model)))),
         environment_inputs=Tuple(Symbol.(keys(environment_inputs_(model)))),
         environment_outputs=Tuple(Symbol.(keys(environment_outputs_(model)))),

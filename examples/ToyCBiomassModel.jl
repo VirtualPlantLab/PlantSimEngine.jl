@@ -28,7 +28,7 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCBiomassModel)
-    (carbon_allocation=-Inf,)
+    (carbon_allocation=Required(Float64),)
 end
 
 # Define outputs:

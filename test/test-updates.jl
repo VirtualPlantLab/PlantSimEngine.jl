@@ -30,7 +30,7 @@ function PlantSimEngine.run!(::UpdateLeafSenescenceModel, status, environment, c
 end
 
 struct UpdateBiomassObserverModel <: AbstractUpdate_Biomass_ObserverModel end
-PlantSimEngine.inputs_(::UpdateBiomassObserverModel) = (leaf_biomass=0.0,)
+PlantSimEngine.inputs_(::UpdateBiomassObserverModel) = (leaf_biomass=Required(Float64),)
 PlantSimEngine.outputs_(::UpdateBiomassObserverModel) = (observed_biomass=0.0,)
 function PlantSimEngine.run!(::UpdateBiomassObserverModel, status, environment, constants=nothing, context=nothing)
     status.observed_biomass = status.leaf_biomass

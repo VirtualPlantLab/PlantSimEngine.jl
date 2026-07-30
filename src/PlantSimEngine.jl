@@ -29,6 +29,7 @@ include("variables_wrappers.jl")
 
 # Models:
 include("Abstract_model_structs.jl")
+include("input_schema.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
@@ -145,6 +146,7 @@ export ModelSpec, Updates, OutputRouting
 export call_targets, run_call!, commit_environment!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status
+export Required, Default
 export @process, process
 export init_variables, dep
 export inputs, outputs, variables

@@ -111,7 +111,7 @@ macro process(f, args...)
         We also have to define the model inputs and outputs by adding methods to `inputs_`:
 
         ```julia
-            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
+            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=Required(Float64),)
         ```
 
         And `outputs_` from PlantSimEngine:

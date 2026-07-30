@@ -13,7 +13,7 @@ A dummy model implementing a "process1" process for testing purposes.
 struct Process1Model <: AbstractProcess1Model
     a
 end
-PlantSimEngine.inputs_(::Process1Model) = (var1=-Inf, var2=-Inf)
+PlantSimEngine.inputs_(::Process1Model) = (var1=Required(Float64), var2=Required(Float64))
 PlantSimEngine.outputs_(::Process1Model) = (var3=-Inf,)
 function PlantSimEngine.run!(model::Process1Model, status, environment, constants=nothing, context=nothing)
     status.var3 = model.a + status.var1 * status.var2
@@ -30,7 +30,7 @@ PlantSimEngine.@process "process2" verbose = false
 A dummy model implementing a "process2" process for testing purposes.
 """
 struct Process2Model <: AbstractProcess2Model end
-PlantSimEngine.inputs_(::Process2Model) = (var1=-Inf, var3=-Inf)
+PlantSimEngine.inputs_(::Process2Model) = (var1=Required(Float64), var3=Required(Float64))
 PlantSimEngine.outputs_(::Process2Model) = (var4=-Inf, var5=-Inf)
 PlantSimEngine.dep(::Process2Model) = (
     process1=PlantSimEngine.Call(PlantSimEngine.One(process=:process1)),
@@ -54,7 +54,7 @@ PlantSimEngine.@process "process3" verbose = false
 A dummy model implementing a "process3" process for testing purposes.
 """
 struct Process3Model <: AbstractProcess3Model end
-PlantSimEngine.inputs_(::Process3Model) = (var5=-Inf,)
+PlantSimEngine.inputs_(::Process3Model) = (var5=Required(Float64),)
 PlantSimEngine.outputs_(::Process3Model) = (var4=-Inf, var6=-Inf,)
 # NB: var4 is computed by process2, so it is not in the inputs, it is also recomputed by this model, 
 # so we need a hard dependency on process2:
@@ -81,7 +81,7 @@ A dummy model implementing a "process4" process for testing purposes.
 It computes the inputs needed for the coupled processes 1-2-3.
 """
 struct Process4Model <: AbstractProcess4Model end
-PlantSimEngine.inputs_(::Process4Model) = (var0=-Inf,)
+PlantSimEngine.inputs_(::Process4Model) = (var0=Required(Float64),)
 PlantSimEngine.outputs_(::Process4Model) = (var1=-Inf, var2=-Inf)
 function PlantSimEngine.run!(::Process4Model, status, environment, constants=nothing, context=nothing)
     # computing var3 using process1:
@@ -102,7 +102,7 @@ A dummy model implementing a "process5" process for testing purposes.
 It needs the outputs from the coupled processes 1-2-3.
 """
 struct Process5Model <: AbstractProcess5Model end
-PlantSimEngine.inputs_(::Process5Model) = (var5=-Inf, var6=-Inf)
+PlantSimEngine.inputs_(::Process5Model) = (var5=Required(Float64), var6=Required(Float64))
 PlantSimEngine.outputs_(::Process5Model) = (var7=-Inf,)
 function PlantSimEngine.run!(::Process5Model, status, environment, constants=nothing, context=nothing)
     status.var7 = status.var5 * status.var6
@@ -122,7 +122,7 @@ It needs the outputs from the coupled processes 1-2-3, but also from
 process 7 that is itself independant.
 """
 struct Process6Model <: AbstractProcess6Model end
-PlantSimEngine.inputs_(::Process6Model) = (var7=-Inf, var9=-Inf)
+PlantSimEngine.inputs_(::Process6Model) = (var7=Required(Float64), var9=Required(Float64))
 PlantSimEngine.outputs_(::Process6Model) = (var8=-Inf,)
 function PlantSimEngine.run!(::Process6Model, status, environment, constants=nothing, context=nothing)
     status.var8 = status.var7 + 1.0
@@ -142,7 +142,7 @@ It is independent (needs :var0 only as for Process4Model), but its outputs
 are used by Process6Model, so it is a soft-coupling.
 """
 struct Process7Model <: AbstractProcess7Model end
-PlantSimEngine.inputs_(::Process7Model) = (var0=-Inf, var3=-Inf)
+PlantSimEngine.inputs_(::Process7Model) = (var0=Required(Float64), var3=Required(Float64))
 PlantSimEngine.outputs_(::Process7Model) = (var9=-Inf,)
 function PlantSimEngine.run!(::Process7Model, status, environment, constants=nothing, context=nothing)
     status.var9 = status.var0 + 1.0

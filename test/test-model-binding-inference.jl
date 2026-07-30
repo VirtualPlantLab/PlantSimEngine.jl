@@ -15,12 +15,12 @@ PlantSimEngine.outputs_(::LineageSourceModel) = (signal=0.0,)
 function PlantSimEngine.run!(model::LineageSourceModel, status, environment, constants, context)
     status.signal = model.value
 end
-PlantSimEngine.inputs_(::LineageConsumerModel) = (signal=0.0,)
+PlantSimEngine.inputs_(::LineageConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::LineageConsumerModel) = (observed=0.0,)
 function PlantSimEngine.run!(::LineageConsumerModel, status, environment, constants, context)
     status.observed = status.signal
 end
-PlantSimEngine.inputs_(::LineageSumModel) = (signals=[0.0],)
+PlantSimEngine.inputs_(::LineageSumModel) = (signals=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::LineageSumModel) = (total=0.0,)
 function PlantSimEngine.run!(::LineageSumModel, status, environment, constants, context)
     status.total = sum(status.signals)

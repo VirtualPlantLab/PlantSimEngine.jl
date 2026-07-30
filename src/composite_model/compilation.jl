@@ -214,7 +214,7 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
-    _prepare_model_bound_input_statuses!(model, applications, input_bindings)
+    _prepare_model_input_defaults!(model, applications)
     _wire_model_input_carriers!(model, input_bindings)
     validate_required_inputs &&
         _validate_model_required_inputs!(model, applications, input_bindings)
@@ -1026,7 +1026,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
     end
 
-    _prepare_model_bound_input_statuses!(model, added_applications, changed_bindings)
+    _prepare_model_input_defaults!(model, added_applications)
     _wire_model_input_carriers!(model, changed_bindings)
     _validate_model_required_inputs!(model, added_applications, changed_bindings)
     call_bindings_by_target = compiled.call_bindings_by_target
@@ -1206,8 +1206,11 @@ and other invalid configuration errors remain errors.
 """
 function explain_initialization(model::CompositeModel)
     supplied = Dict(
-        object.id => Set{Symbol}(
-            object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[]
+        object.id => setdiff(
+            Set{Symbol}(
+                object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[]
+            ),
+            get(model.input_default_status_variables, object.id, Set{Symbol}()),
         )
         for object in values(model.registry.objects)
     )
@@ -1230,7 +1233,7 @@ function explain_initialization(model::CompositeModel)
     for application in compiled.applications
         model_outputs = outputs_(application.spec)
         environment_model_outputs = environment_outputs_(application.spec)
-        model_inputs = inputs_(application.spec)
+        model_inputs = _input_schema(application.spec)
         environment_inputs = environment_inputs_(application.spec)
         generated = Set(Symbol.(keys(model_outputs)))
         for object_id in application.target_ids
@@ -1270,17 +1273,32 @@ function explain_initialization(model::CompositeModel)
                     detail=nothing,
                 ))
             end
-            for variable in sort!(Symbol.(collect(keys(inputs_(application.spec)))); by=string)
+            for variable in sort!(Symbol.(collect(keys(model_inputs))); by=string)
                 key = (application.id, object_id, variable)
                 binding = get(bindings, key, nothing)
-                disposition = if !isnothing(binding)
+                declaration = getproperty(model_inputs, variable)
+                binding_resolved =
+                    !isnothing(binding) &&
+                    !(binding.carrier_hint == :optional_default &&
+                      isnothing(binding.carrier))
+                missing_previous_initial =
+                    binding_resolved &&
+                    binding.policy isa PreviousTimeStep &&
+                    declaration isa Required &&
+                    !(variable in get(supplied, object_id, Set{Symbol}()))
+                disposition = if missing_previous_initial
+                    :required
+                elseif binding_resolved
                     :producer_bound
                 elseif variable in get(supplied, object_id, Set{Symbol}())
                     :supplied
+                elseif declaration isa Default
+                    :defaulted
                 else
-                    :unresolved
+                    :required
                 end
-                default_value = getproperty(model_inputs, variable)
+                default_value =
+                    declaration isa Default ? declaration.value : nothing
                 object = _model_object(model, object_id)
                 provided_type = if disposition == :supplied
                     typeof(getproperty(object.status, variable))
@@ -1293,16 +1311,22 @@ function explain_initialization(model::CompositeModel)
                     variable=variable,
                     role=:input,
                     disposition=disposition,
-                    source_application_ids=isnothing(binding) ? Symbol[] : copy(binding.source_application_ids),
-                    source_object_ids=isnothing(binding) ? Any[] : [id.value for id in binding.source_ids],
-                    source_variable=isnothing(binding) ? nothing : binding.source_var,
-                    origin=isnothing(binding) ?
-                           (disposition == :supplied ? :status : :missing) :
-                           binding.origin,
-                    expected_type=typeof(default_value),
+                    source_application_ids=binding_resolved ?
+                                           copy(binding.source_application_ids) :
+                                           Symbol[],
+                    source_object_ids=binding_resolved ?
+                                      [id.value for id in binding.source_ids] :
+                                      Any[],
+                    source_variable=binding_resolved ? binding.source_var : nothing,
+                    origin=binding_resolved ?
+                           binding.origin :
+                           (disposition == :supplied ? :status :
+                            disposition == :defaulted ? :model_default : :missing),
+                    declaration=declaration isa Required ? :required : :defaulted,
+                    expected_type=_input_expected_type(declaration),
                     default_value=default_value,
                     provided_type=provided_type,
-                    detail=disposition == :unresolved ?
+                    detail=disposition == :required ?
                            "Provide `$(variable)` on object `$(object_id.value)` Status or add `Inputs(:$(variable) => ...)` to application `$(application.id)`." :
                            nothing,
                 ))
@@ -1835,7 +1859,11 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
         for object_id in application.target_ids
             status = _ensure_model_object_status!(model, object_id)
             for (variable, value) in pairs(defaults)
-                status = _status_with_default(status, Symbol(variable), value)
+                status = _status_with_default(
+                    status,
+                    variable,
+                    _private_initial_value(value),
+                )
             end
             _model_object(model, object_id).status = status
         end
@@ -1843,18 +1871,31 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
     return model
 end
 
-function _prepare_model_bound_input_statuses!(model::CompositeModel, applications, bindings)
-    applications_by_id = Dict(application.id => application for application in applications)
-    for binding in bindings
-        status = _ensure_model_object_status!(model, binding.consumer_id)
-        binding.input in propertynames(status) && continue
-        application = applications_by_id[binding.application_id]
-        defaults = inputs_(application.spec)
-        binding.input in keys(defaults) || error(
-            "Bound input `$(binding.input)` is not declared by application `$(binding.application_id)`."
-        )
-        _model_object(model, binding.consumer_id).status =
-            _status_with_default(status, binding.input, getproperty(defaults, binding.input))
+function _prepare_model_input_defaults!(model::CompositeModel, applications)
+    for application in applications
+        schema = _input_schema(application.spec)
+        defaults = _input_default_values(schema)
+        for object_id in application.target_ids
+            status = _ensure_model_object_status!(model, object_id)
+            for (variable, value) in pairs(defaults)
+                variable = Symbol(variable)
+                variable in propertynames(status) && continue
+                status = _status_with_default(
+                    status,
+                    variable,
+                    _private_initial_value(value),
+                )
+                push!(
+                    get!(
+                        model.input_default_status_variables,
+                        object_id,
+                        Set{Symbol}(),
+                    ),
+                    variable,
+                )
+            end
+            _model_object(model, object_id).status = status
+        end
     end
     return model
 end
@@ -1868,6 +1909,14 @@ function _wire_model_input_carriers!(model::CompositeModel, bindings)
         status isa Status || continue
         reference = binding.carrier isa Base.RefValue ? binding.carrier : Ref(binding.carrier)
         object.status = _status_with_reference(status, binding.input, reference)
+        delete!(
+            get!(
+                model.input_default_status_variables,
+                binding.consumer_id,
+                Set{Symbol}(),
+            ),
+            binding.input,
+        )
     end
     return model
 end
@@ -1879,7 +1928,15 @@ end
 
 function _temporal_input_initial(binding::CompiledModelInputBinding, status::Status)
     initial = _input_value(binding.carrier)
-    isnothing(initial) && (initial = status[binding.input])
+    if isnothing(initial)
+        binding.input in propertynames(status) || error(
+            "Temporal input `$(binding.input)` on application ",
+            "`$(binding.application_id)` has neither a resolved source carrier nor an ",
+            "initialized status value. Resolved source objects: ",
+            "`$(Tuple(id.value for id in binding.source_ids))`.",
+        )
+        initial = status[binding.input]
+    end
     if binding.multiplicity == :many
         initial isa AbstractVector || error(
             "Temporal `Many` input `$(binding.input)` on application ",
@@ -2002,7 +2059,13 @@ function _compile_model_status_view(
         temporal_input.binding.input => temporal_input
         for temporal_input in temporal_inputs
     )
-    names = propertynames(canonical_status)
+    canonical_names = propertynames(canonical_status)
+    temporal_names = Tuple(
+        input.binding.input
+        for input in temporal_inputs
+        if !(input.binding.input in canonical_names)
+    )
+    names = (canonical_names..., temporal_names...)
     references = ntuple(length(names)) do index
         name = names[index]
         temporal_input = get(temporal_by_name, name, nothing)
@@ -2304,7 +2367,7 @@ function _push_model_input_binding!(
 end
 
 function _model_input_names(application::CompiledModelApplication)
-    return Symbol[Symbol(var) for var in keys(inputs_(application.spec))]
+    return Symbol[Symbol(var) for var in keys(_input_schema(application.spec))]
 end
 
 function _validate_model_input_source!(
@@ -2317,7 +2380,6 @@ function _validate_model_input_source!(
     carrier,
     carrier_hint::Symbol,
 )
-    carrier_hint == :temporal_stream && return nothing
     !isnothing(carrier) && return nothing
     status_source_ids = ObjectId[
         source_id for source_id in source_ids
@@ -2393,6 +2455,10 @@ end
 function _bound_model_inputs(input_bindings)
     bound = Set{Tuple{Symbol,ObjectId,Symbol}}()
     for binding in input_bindings
+        binding.policy isa PreviousTimeStep && continue
+        binding.carrier_hint == :optional_default &&
+            isnothing(binding.carrier) &&
+            continue
         push!(bound, (binding.application_id, binding.consumer_id, binding.input))
     end
     return bound
@@ -2408,8 +2474,11 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, i
     bound = _bound_model_inputs(input_bindings)
     missing = NamedTuple[]
     for application in applications
+        schema = _input_schema(application.spec)
         for object_id in application.target_ids
-            for input in _model_input_names(application)
+            for (input_, declaration) in pairs(schema)
+                declaration isa Required || continue
+                input = Symbol(input_)
                 (application.id, object_id, input) in bound && continue
                 _status_has_variable(model, object_id, input) && continue
                 push!(
@@ -2659,7 +2728,7 @@ function explain_applications(compiled::CompiledCompositeModel)
                 if !isnothing(_model_object(compiled.model, id).scale)
             ]); by=string),
             applies_to=application.applies_to,
-            inputs=Tuple(Symbol.(keys(inputs_(application.spec)))),
+            inputs=Tuple(Symbol.(keys(_input_schema(application.spec)))),
             outputs=Tuple(Symbol.(keys(outputs_(application.spec)))),
             environment_inputs=Tuple(Symbol.(keys(environment_inputs_(application.spec)))),
             environment_outputs=Tuple(Symbol.(keys(environment_outputs_(application.spec)))),

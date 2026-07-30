@@ -15,19 +15,19 @@ struct ModelGraphSourceModel{T} <: AbstractModelGraphSourceModel
 end
 
 ModelGraphSourceModel() = ModelGraphSourceModel(2.0)
-PlantSimEngine.inputs_(::ModelGraphSourceModel) = (driver=-Inf,)
+PlantSimEngine.inputs_(::ModelGraphSourceModel) = (driver=Required(Float64),)
 PlantSimEngine.outputs_(::ModelGraphSourceModel) = (signal=-Inf,)
 
 struct ModelGraphConsumerModel <: AbstractModelGraphConsumerModel end
-PlantSimEngine.inputs_(::ModelGraphConsumerModel) = (signal=-Inf,)
+PlantSimEngine.inputs_(::ModelGraphConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::ModelGraphConsumerModel) = (result=-Inf,)
 
 struct ModelGraphCycleAModel <: AbstractModelGraphCycleAModel end
-PlantSimEngine.inputs_(::ModelGraphCycleAModel) = (y=-Inf,)
+PlantSimEngine.inputs_(::ModelGraphCycleAModel) = (y=Required(Float64),)
 PlantSimEngine.outputs_(::ModelGraphCycleAModel) = (x=-Inf,)
 
 struct ModelGraphCycleBModel <: AbstractModelGraphCycleBModel end
-PlantSimEngine.inputs_(::ModelGraphCycleBModel) = (x=-Inf,)
+PlantSimEngine.inputs_(::ModelGraphCycleBModel) = (x=Required(Float64),)
 PlantSimEngine.outputs_(::ModelGraphCycleBModel) = (y=-Inf,)
 
 struct ModelGraphEnvironmentModel <: AbstractModelGraphEnvironmentModel end
@@ -42,7 +42,9 @@ PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temper
 
     descriptor = model_descriptor(ModelGraphSourceModel)
     @test descriptor["process"] == "model_graph_source"
-    @test descriptor["inputs"]["driver"] == "-Inf"
+    @test descriptor["inputs"]["driver"]["declaration"] == "required"
+    @test descriptor["inputs"]["driver"]["expectedType"] == "Float64"
+    @test isnothing(descriptor["inputs"]["driver"]["default"])
     @test descriptor["outputs"]["signal"] == "-Inf"
     @test descriptor["constructor"]["hasZeroArgConstructor"]
     @test descriptor["constructor"]["fields"][1]["name"] == "coefficient"
@@ -193,7 +195,7 @@ end
         row for row in view.initialization
         if row["applicationId"] == "consumer" && row["variable"] == "signal"
     )
-    @test unresolved["disposition"] == "unresolved"
+    @test unresolved["disposition"] == "required"
     @test view.metadata["unresolvedInitializationCount"] == 1
 end
 
@@ -276,7 +278,7 @@ end
         if row["applicationId"] == "cycle_a" && row["variable"] == "y"
     )
     @test lagged_row["previousTimeStep"]
-    @test lagged_row["disposition"] == "unresolved"
+    @test lagged_row["disposition"] == "required"
     initialized_break = apply_model_graph_edit(
         initialized_scene,
         BreakModelCycle(:cycle_a, :y, true, 0.25),

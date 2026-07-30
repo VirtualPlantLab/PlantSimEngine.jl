@@ -10,14 +10,14 @@ struct ReebE2E{T} <: AbstractReebE2EModel
 end
 
 ReebE2E() = ReebE2E(0.5)
-PlantSimEngine.inputs_(::ReebE2E) = (aPPFD=-Inf,)
+PlantSimEngine.inputs_(::ReebE2E) = (aPPFD=Required(Float64),)
 PlantSimEngine.outputs_(::ReebE2E) = (LAI=-Inf,)
 
 abstract type AbstractE2EConsumerModel <: PlantSimEngine.AbstractModel end
 PlantSimEngine.process_(::Type{AbstractE2EConsumerModel}) = :e2e_consumer
 
 struct E2EConsumer <: AbstractE2EConsumerModel end
-PlantSimEngine.inputs_(::E2EConsumer) = (aPPFD=-Inf,)
+PlantSimEngine.inputs_(::E2EConsumer) = (aPPFD=Required(Float64),)
 PlantSimEngine.outputs_(::E2EConsumer) = (consumed=-Inf,)
 
 session = edit_graph(; port=0, open_browser=false, autosave=false)

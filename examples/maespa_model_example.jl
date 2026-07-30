@@ -115,7 +115,7 @@ struct SoilWater{T} <: AbstractSoil_WaterModel
     depth2::T
 end
 
-PlantSimEngine.inputs_(::SoilWater) = (transpiration=0.0, infiltration=0.0)
+PlantSimEngine.inputs_(::SoilWater) = (transpiration=Required(Float64), infiltration=Required(Float64))
 PlantSimEngine.outputs_(::SoilWater) = (theta1=0.32, theta2=0.34, psi_soil=-0.1)
 
 function PlantSimEngine.run!(m::SoilWater, status, environment, constants, context=nothing)
@@ -149,7 +149,7 @@ struct LAIModel{T} <: AbstractLai_DynamicModel
     end
 end
 
-PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=[-Inf],)
+PlantSimEngine.inputs_(::LAIModel) = (leaf_areas=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::LAIModel) = (lai=0.0, leaf_area=(-Inf))
 
 function PlantSimEngine.run!(m::LAIModel, status, environment, constants, context=nothing)
@@ -204,18 +204,18 @@ function SceneEB(
 end
 
 PlantSimEngine.inputs_(::SceneEB) = (
-    lai=0.0,
-    leaf_area=0.0,
-    leaf_areas=[0.0],
-    leaf_carbon=[0.0],
-    leaf_Ra_SW_f=[0.0],
-    leaf_aPPFD=[0.0],
-    Ψₗ=[0.0],
-    leaf_rn=[0.0],
-    leaf_lambda_e=[0.0],
-    leaf_h=[0.0],
-    leaf_a=[0.0],
-    psi_soil=-0.1,
+    lai=Required(Float64),
+    leaf_area=Required(Float64),
+    leaf_areas=Required(Vector{Float64}),
+    leaf_carbon=Required(Vector{Float64}),
+    leaf_Ra_SW_f=Required(Vector{Float64}),
+    leaf_aPPFD=Required(Vector{Float64}),
+    Ψₗ=Required(Vector{Float64}),
+    leaf_rn=Required(Vector{Float64}),
+    leaf_lambda_e=Required(Vector{Float64}),
+    leaf_h=Required(Vector{Float64}),
+    leaf_a=Required(Vector{Float64}),
+    psi_soil=Required(Float64),
 )
 PlantSimEngine.environment_inputs_(::SceneEB) = (
     T=0.0,
@@ -481,7 +481,7 @@ function PlantSimEngine.run!(m::SceneEB, status, environment, constants, context
     return nothing
 end
 
-alloc_inputs() = (leaf_carbon=[0.0],)
+alloc_inputs() = (leaf_carbon=Required(Vector{Float64}),)
 alloc_outputs() = (daily_growth=0.0, leaf_pool=0.0, wood_pool=0.0)
 
 function allocate!(status, leaf_fraction, wood_fraction)

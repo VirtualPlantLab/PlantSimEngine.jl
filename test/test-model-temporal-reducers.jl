@@ -14,7 +14,7 @@ PlantSimEngine.outputs_(::TemporalReducerSourceModel) = (signal=0.0,)
 function PlantSimEngine.run!(::TemporalReducerSourceModel, status, environment, constants, context)
     status.signal += 1
 end
-PlantSimEngine.inputs_(::Union{TemporalReducerOneArgModel,TemporalReducerTwoArgModel}) = (reduced=0.0,)
+PlantSimEngine.inputs_(::Union{TemporalReducerOneArgModel,TemporalReducerTwoArgModel}) = (reduced=Required(Float64),)
 PlantSimEngine.outputs_(::TemporalReducerOneArgModel) = (one_arg=0.0,)
 PlantSimEngine.outputs_(::TemporalReducerTwoArgModel) = (two_arg=0.0,)
 PlantSimEngine.run!(::TemporalReducerOneArgModel, status, environment, constants, context) =

@@ -15,7 +15,7 @@ end
 
 ToyInternodeCrazyEmergence(; TT_emergence=300.0) = ToyInternodeCrazyEmergence(TT_emergence)
 
-PlantSimEngine.inputs_(m::ToyInternodeCrazyEmergence) = (TT_cu=-Inf,)
+PlantSimEngine.inputs_(m::ToyInternodeCrazyEmergence) = (TT_cu=Required(Float64),)
 PlantSimEngine.outputs_(m::ToyInternodeCrazyEmergence) = (TT_cu_emergence=0.0,)
 
 function PlantSimEngine.run!(m::ToyInternodeCrazyEmergence, status, environment, constants=nothing, context=nothing)

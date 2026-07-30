@@ -37,7 +37,11 @@ function Fvcb(; Tᵣ=25.0, VcMaxRef=200.0, JMaxRef=250.0, RdRef=0.6, TPURef=9999
 end
 
 function PlantSimEngine.inputs_(::Fvcb)
-    (aPPFD=-Inf, Tₗ=-Inf, Cₛ=-Inf)
+    (
+        aPPFD=Required(Float64),
+        Tₗ=Required(Float64),
+        Cₛ=Required(Float64),
+    )
 end
 
 function PlantSimEngine.outputs_(::Fvcb)

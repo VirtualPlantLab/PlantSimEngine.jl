@@ -38,7 +38,7 @@ end
 ToyLAIModel(; max_lai=8.0, dd_incslope=800, inc_slope=110, dd_decslope=1500, dec_slope=20) = ToyLAIModel(max_lai, dd_incslope, inc_slope, dd_decslope, dec_slope)
 
 # Defining the inputs and outputs of the model:
-PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=-Inf,)
+PlantSimEngine.inputs_(::ToyLAIModel) = (TT_cu=Required(Float64),)
 PlantSimEngine.outputs_(::ToyLAIModel) = (LAI=-Inf,)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:
@@ -82,7 +82,7 @@ struct ToyLAIfromLeafAreaModel{T} <: AbstractLai_DynamicModel
 end
 
 # Defining the inputs and outputs of the model:
-PlantSimEngine.inputs_(::ToyLAIfromLeafAreaModel) = (plant_surfaces=[-Inf],)
+PlantSimEngine.inputs_(::ToyLAIfromLeafAreaModel) = (plant_surfaces=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::ToyLAIfromLeafAreaModel) = (LAI=-Inf, total_surface=-Inf)
 
 # Implementing the actual algorithm by adding a method to the run! function for our model:

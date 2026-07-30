@@ -39,7 +39,7 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyAssimModel)
-    (aPPFD=-Inf, soil_water_content=-Inf)
+    (aPPFD=Required(Float64), soil_water_content=Required(Float64))
 end
 
 # Define outputs:

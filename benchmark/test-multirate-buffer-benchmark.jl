@@ -14,7 +14,7 @@ end
 
 PlantSimEngine.@process "mrbenchconsumer4" verbose = false
 struct MRBenchConsumer4Model <: AbstractMrbenchconsumer4Model end
-PlantSimEngine.inputs_(::MRBenchConsumer4Model) = (X=[-Inf],)
+PlantSimEngine.inputs_(::MRBenchConsumer4Model) = (X=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::MRBenchConsumer4Model) = (Y4=-Inf,)
 function PlantSimEngine.run!(::MRBenchConsumer4Model, status, environment, constants=nothing, context=nothing)
     status.Y4 = sum(status.X)
@@ -22,7 +22,7 @@ end
 
 PlantSimEngine.@process "mrbenchconsumer24" verbose = false
 struct MRBenchConsumer24Model <: AbstractMrbenchconsumer24Model end
-PlantSimEngine.inputs_(::MRBenchConsumer24Model) = (X=[-Inf],)
+PlantSimEngine.inputs_(::MRBenchConsumer24Model) = (X=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::MRBenchConsumer24Model) = (Y24=-Inf,)
 function PlantSimEngine.run!(::MRBenchConsumer24Model, status, environment, constants=nothing, context=nothing)
     status.Y24 = sum(status.X)

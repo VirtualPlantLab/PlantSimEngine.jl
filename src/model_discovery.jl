@@ -74,7 +74,7 @@ function model_descriptor(::Type{T}) where {T<:AbstractModel}
         "package" => _model_package_name(module_),
         "process" => isnothing(process_name) ? nothing : string(process_name),
         "processType" => isnothing(process_type) ? nothing : string(process_type),
-        "inputs" => _model_var_descriptor(T, inputs_),
+        "inputs" => _model_input_descriptor(T),
         "outputs" => _model_var_descriptor(T, outputs_),
         "environmentInputs" => _model_var_descriptor(T, environment_inputs_),
         "environmentOutputs" => _model_var_descriptor(T, environment_outputs_),
@@ -192,6 +192,30 @@ function _model_var_descriptor(::Type{T}, accessor) where {T<:AbstractModel}
         return Dict{String,Any}("_error" => sprint(showerror, err))
     end
     return Dict(string(name) => _jsonable_model_value(value) for (name, value) in pairs(variables))
+end
+
+function _model_input_descriptor(::Type{T}) where {T<:AbstractModel}
+    instance = _try_zero_arg_model(T)
+    isnothing(instance) && (instance = _try_dummy_model(T))
+    isnothing(instance) && return Dict{String,Any}()
+    schema = try
+        _input_schema(instance)
+    catch err
+        return Dict{String,Any}("_error" => sprint(showerror, err))
+    end
+    return Dict(
+        string(name) => Dict{String,Any}(
+            "declaration" => declaration isa Required ? "required" : "defaulted",
+            "expectedType" => string(_input_expected_type(declaration)),
+            "default" => declaration isa Default ?
+                         _jsonable_model_value(declaration.value) :
+                         nothing,
+            "defaultJulia" => declaration isa Default ?
+                              repr(declaration.value) :
+                              nothing,
+        )
+        for (name, declaration) in pairs(schema)
+    )
 end
 
 function _safe_string_trait(::Type{T}, trait) where {T<:AbstractModel}

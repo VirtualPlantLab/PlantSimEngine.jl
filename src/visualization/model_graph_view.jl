@@ -261,8 +261,11 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     # A viewer must not mutate the user's editable or pre-run Composite model merely by
     # inspecting it, so all diagnostic compilation happens on a structural copy.
     initial_status_variables = Dict(
-        object.id => Set{Symbol}(
-            object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[],
+        object.id => setdiff(
+            Set{Symbol}(
+                object.status isa Status ? Symbol.(propertynames(object.status)) : Symbol[],
+            ),
+            get(model.input_default_status_variables, object.id, Set{Symbol}()),
         )
         for object in values(model.registry.objects)
     )
@@ -340,7 +343,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         )
     end
     _model_graph_phase!(diagnostics, :input_status, nothing) do
-        _prepare_model_bound_input_statuses!(model, applications, input_bindings)
+        _prepare_model_input_defaults!(model, applications)
         _wire_model_input_carriers!(model, input_bindings)
     end
 
@@ -511,22 +514,32 @@ function _model_graph_model_parameters(model)
     return parameters
 end
 
-function _model_graph_port(application, role::Symbol, variable, default)
+function _model_graph_port(application, role::Symbol, variable, declaration)
     name = Symbol(variable)
-    return Dict{String,Any}(
+    is_input = role == :input
+    default = is_input && declaration isa Required ? nothing :
+              is_input ? declaration.value :
+              declaration
+    expected_type = is_input ?
+                    _input_expected_type(declaration) :
+                    typeof(declaration)
+    port = Dict{String,Any}(
         "id" => _model_graph_port_id(application.id, role, name),
         "name" => string(name),
         "role" => string(role),
         "default" => _model_graph_json_value(default),
-        "defaultJulia" => repr(default),
-        "expectedType" => string(typeof(default)),
+        "defaultJulia" => isnothing(default) ? nothing : repr(default),
+        "expectedType" => string(expected_type),
     )
+    is_input && (port["declaration"] =
+        declaration isa Required ? "required" : "defaulted")
+    return port
 end
 
 function _model_graph_application_dict(composite_model, application)
     process_model = _application_default_model(application)
     spec = application.spec
-    inputs = inputs_(application.spec)
+    inputs = _input_schema(application.spec)
     outputs = outputs_(application.spec)
     environment_inputs = environment_inputs_(application.spec)
     environment_outputs = environment_outputs_(application.spec)
@@ -984,7 +997,7 @@ function _model_graph_initialization(report)
 
     rows = Dict{String,Any}[]
     for application in report.applications
-        model_inputs = inputs_(application.spec)
+        model_inputs = _input_schema(application.spec)
         model_outputs = outputs_(application.spec)
         model_environment_inputs = environment_inputs_(application.spec)
         model_environment_outputs = environment_outputs_(application.spec)
@@ -1011,20 +1024,35 @@ function _model_graph_initialization(report)
                     default,
                 ))
             end
-            for (variable_, default) in pairs(model_inputs)
+            for (variable_, declaration) in pairs(model_inputs)
                 variable = Symbol(variable_)
                 binding = get(bindings, (application.id, object_id, variable), nothing)
                 status_supplied = variable in get(supplied, object_id, Set{Symbol}())
-                disposition = if !isnothing(binding) && binding.policy isa PreviousTimeStep
-                    status_supplied ? :supplied : :unresolved
-                elseif !isnothing(binding)
+                binding_resolved =
+                    !isnothing(binding) &&
+                    !(binding.carrier_hint == :optional_default &&
+                      isnothing(binding.carrier))
+                disposition = if !isnothing(binding) &&
+                                 binding.policy isa PreviousTimeStep &&
+                                 !status_supplied &&
+                                 declaration isa Required
+                    :required
+                elseif binding_resolved
                     :producer_bound
                 elseif status_supplied
                     :supplied
+                elseif declaration isa Default
+                    :defaulted
                 else
-                    :unresolved
+                    :required
                 end
-                value = disposition == :supplied ? object.status[variable] : default
+                value = if status_supplied
+                    object.status[variable]
+                elseif declaration isa Default
+                    declaration.value
+                else
+                    nothing
+                end
                 row = _model_graph_initialization_row(
                     application.id,
                     object_id,
@@ -1032,7 +1060,9 @@ function _model_graph_initialization(report)
                     :input,
                     disposition,
                     value;
-                    binding=binding,
+                    binding=binding_resolved ? binding : nothing,
+                    declaration=declaration isa Required ? :required : :defaulted,
+                    expected_type=_input_expected_type(declaration),
                 )
                 push!(rows, row)
             end
@@ -1070,22 +1100,32 @@ function _model_graph_initialization_row(
     disposition,
     value;
     binding=nothing,
+    declaration=nothing,
+    expected_type=typeof(value),
 )
-    return Dict{String,Any}(
+    row = Dict{String,Any}(
         "applicationId" => string(application_id),
         "objectId" => _model_graph_json_value(object_id.value),
         "variable" => string(variable),
         "role" => string(role),
         "disposition" => string(disposition),
         "value" => _model_graph_json_value(value),
-        "valueJulia" => repr(value),
-        "expectedType" => string(typeof(value)),
+        "valueJulia" => isnothing(value) ? nothing : repr(value),
+        "expectedType" => string(expected_type),
         "sourceApplicationIds" => isnothing(binding) ? String[] : string.(binding.source_application_ids),
         "sourceObjectIds" => isnothing(binding) ? Any[] : [_model_graph_json_value(id.value) for id in binding.source_ids],
         "sourceVariable" => isnothing(binding) ? nothing : string(binding.source_var),
-        "origin" => isnothing(binding) ? string(disposition == :supplied ? :status : :missing) : string(binding.origin),
+        "origin" => isnothing(binding) ?
+                    string(
+                        disposition == :supplied ? :status :
+                        disposition == :defaulted ? :model_default :
+                        :missing,
+                    ) :
+                    string(binding.origin),
         "previousTimeStep" => !isnothing(binding) && binding.policy isa PreviousTimeStep,
     )
+    isnothing(declaration) || (row["declaration"] = string(declaration))
+    return row
 end
 
 function _model_graph_cycle_dict(report, component, index)
@@ -1199,7 +1239,10 @@ function _model_graph_view(report::CompositeModelCompilationReport, level)
         _model_graph_cycle_dict(report, component, index)
         for (index, component) in pairs(report.cycles)
     ]
-    unresolved = count(row -> row["disposition"] == "unresolved", initialization)
+    unresolved = count(
+        row -> row["disposition"] in ("required", "unresolved"),
+        initialization,
+    )
     metadata = Dict{String,Any}(
         "title" => "PlantSimEngine CompositeModel Graph",
         "modelRevision" => report.model.revision,

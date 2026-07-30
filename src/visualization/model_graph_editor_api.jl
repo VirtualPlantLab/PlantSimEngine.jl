@@ -454,7 +454,7 @@ end
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelInputBinding)
     edit.selector isa AbstractObjectMultiplicity || error("An input binding requires an object selector.")
     spec = _model_edit_spec(model, edit.application_id)
-    edit.input in Symbol.(keys(inputs_(spec))) || error(
+    edit.input in Symbol.(keys(_input_schema(spec))) || error(
         "Application `$(edit.application_id)` model has no input `$(edit.input)`.",
     )
     inputs = _model_edit_namedtuple_set(spec.inputs, edit.input, edit.selector)
@@ -655,6 +655,14 @@ function _set_model_object_status!(model, object_id, variable, value)
         values[index] = variable => value
     end
     object.status = Status((; values...))
+    delete!(
+        get!(
+            model.input_default_status_variables,
+            object_id,
+            Set{Symbol}(),
+        ),
+        variable,
+    )
     return model
 end
 
@@ -677,6 +685,14 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObject
         if first(pair) != edit.variable
     ]
     object.status = isempty(values) ? nothing : Status((; values...))
+    delete!(
+        get!(
+            model.input_default_status_variables,
+            edit.object_id,
+            Set{Symbol}(),
+        ),
+        edit.variable,
+    )
     return model
 end
 

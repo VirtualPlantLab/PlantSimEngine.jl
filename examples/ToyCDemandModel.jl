@@ -36,7 +36,7 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCDemandModel)
-    (TT=-Inf,)
+    (TT=Required(Float64),)
 end
 
 # Define outputs:

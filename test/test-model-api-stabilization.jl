@@ -24,7 +24,7 @@ PlantSimEngine.@process "stabilization_consumer" verbose = false
 
 struct StabilizationConsumerModel <: AbstractStabilization_ConsumerModel end
 
-PlantSimEngine.inputs_(::StabilizationConsumerModel) = (signal=0.0, supplied=0.0)
+PlantSimEngine.inputs_(::StabilizationConsumerModel) = (signal=Required(Float64), supplied=Required(Float64))
 PlantSimEngine.outputs_(::StabilizationConsumerModel) = (observed=0.0,)
 
 function PlantSimEngine.run!(
@@ -80,7 +80,7 @@ PlantSimEngine.@process "stabilization_lagged_sum" verbose = false
 struct StabilizationLaggedSumModel <: AbstractStabilization_Lagged_SumModel end
 
 PlantSimEngine.inputs_(::StabilizationLaggedSumModel) =
-    (previous_signals=[0.0],)
+    (previous_signals=Default([0.0]),)
 PlantSimEngine.outputs_(::StabilizationLaggedSumModel) = (lagged_total=0.0,)
 
 function PlantSimEngine.run!(
@@ -159,7 +159,7 @@ end
 
     unresolved_scene = CompositeModel(StabilizationConsumerModel())
     unresolved = filter(
-        row -> row.role == :input && row.disposition == :unresolved,
+        row -> row.role == :input && row.disposition == :required,
         explain_initialization(unresolved_scene),
     )
     @test Set(row.variable for row in unresolved) == Set((:signal, :supplied))

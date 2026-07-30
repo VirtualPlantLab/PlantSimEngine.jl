@@ -31,7 +31,11 @@ struct ToyCAllocationModel <: AbstractCarbon_AllocationModel end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyCAllocationModel)
-    (carbon_assimilation=[-Inf], Rm=-Inf, carbon_demand=[-Inf],)
+    (
+        carbon_assimilation=Required(Vector{Float64}),
+        Rm=Required(Float64),
+        carbon_demand=Required(Vector{Float64}),
+    )
 end
 
 # Define outputs:

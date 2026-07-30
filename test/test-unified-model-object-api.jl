@@ -8,7 +8,7 @@ PlantSimEngine.@process "model_object_default_input_consumer" verbose = false
 
 struct ModelObjectDefaultInputConsumerModel <: AbstractModel_Object_Default_Input_ConsumerModel end
 
-PlantSimEngine.inputs_(::ModelObjectDefaultInputConsumerModel) = (leaf_carbon=[0.0],)
+PlantSimEngine.inputs_(::ModelObjectDefaultInputConsumerModel) = (leaf_carbon=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::ModelObjectDefaultInputConsumerModel) = (plant_carbon=0.0,)
 PlantSimEngine.dep(::ModelObjectDefaultInputConsumerModel) = (
     leaf_carbon=Input(Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)),
@@ -35,7 +35,7 @@ PlantSimEngine.@process "model_object_leaf_energy" verbose = false
 
 struct ModelObjectLeafEnergyModel <: AbstractModel_Object_Leaf_EnergyModel end
 
-PlantSimEngine.inputs_(::ModelObjectLeafEnergyModel) = (leaf_areas=[0.0],)
+PlantSimEngine.inputs_(::ModelObjectLeafEnergyModel) = (leaf_areas=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::ModelObjectLeafEnergyModel) = (leaf_temperature=25.0,)
 PlantSimEngine.dep(::ModelObjectLeafEnergyModel) = (
     stomata=Call(process=:model_object_stomata),
@@ -45,7 +45,7 @@ PlantSimEngine.@process "model_object_carrier_consumer" verbose = false
 
 struct ModelObjectCarrierConsumerModel <: AbstractModel_Object_Carrier_ConsumerModel end
 
-PlantSimEngine.inputs_(::ModelObjectCarrierConsumerModel) = (leaf_areas=[0.0], leaf_tokens=Any[])
+PlantSimEngine.inputs_(::ModelObjectCarrierConsumerModel) = (leaf_areas=Required(Vector{Float64}), leaf_tokens=Required(Vector{Any}))
 PlantSimEngine.outputs_(::ModelObjectCarrierConsumerModel) = (carrier_total=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectCarrierConsumerModel, status, environment, constants=nothing, context=nothing)
@@ -311,7 +311,7 @@ PlantSimEngine.@process "model_object_plant_signal_sum" verbose = false
 
 struct ModelObjectPlantSignalSumModel <: AbstractModel_Object_Plant_Signal_SumModel end
 
-PlantSimEngine.inputs_(::ModelObjectPlantSignalSumModel) = (signals=[0.0],)
+PlantSimEngine.inputs_(::ModelObjectPlantSignalSumModel) = (signals=Default([0.0]),)
 PlantSimEngine.outputs_(::ModelObjectPlantSignalSumModel) = (signal_total=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectPlantSignalSumModel, status, environment, constants=nothing, context=nothing)
@@ -459,7 +459,7 @@ PlantSimEngine.@process "model_object_signal_consumer" verbose = false
 
 struct ModelObjectSignalConsumerModel <: AbstractModel_Object_Signal_ConsumerModel end
 
-PlantSimEngine.inputs_(::ModelObjectSignalConsumerModel) = (signal=0.0,)
+PlantSimEngine.inputs_(::ModelObjectSignalConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::ModelObjectSignalConsumerModel) = (observed_signal=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectSignalConsumerModel, status, environment, constants=nothing, context=nothing)
@@ -473,7 +473,7 @@ struct ModelObjectRenamedSignalConsumerModel <:
        AbstractModel_Object_Renamed_Signal_ConsumerModel end
 
 PlantSimEngine.inputs_(::ModelObjectRenamedSignalConsumerModel) =
-    (renamed_signal=0.0,)
+    (renamed_signal=Required(Float64),)
 PlantSimEngine.outputs_(::ModelObjectRenamedSignalConsumerModel) =
     (observed_renamed_signal=0.0,)
 
@@ -493,7 +493,7 @@ PlantSimEngine.@process "model_object_optional_input_consumer" verbose = false
 struct ModelObjectOptionalInputConsumerModel <:
        AbstractModel_Object_Optional_Input_ConsumerModel end
 
-PlantSimEngine.inputs_(::ModelObjectOptionalInputConsumerModel) = (optional_signal=7.0,)
+PlantSimEngine.inputs_(::ModelObjectOptionalInputConsumerModel) = (optional_signal=Default(7.0),)
 PlantSimEngine.outputs_(::ModelObjectOptionalInputConsumerModel) =
     (observed_optional_signal=0.0,)
 
@@ -533,7 +533,7 @@ PlantSimEngine.@process "model_object_cycle_a" verbose = false
 
 struct ModelObjectCycleAModel <: AbstractModel_Object_Cycle_AModel end
 
-PlantSimEngine.inputs_(::ModelObjectCycleAModel) = (cycle_b=0.0,)
+PlantSimEngine.inputs_(::ModelObjectCycleAModel) = (cycle_b=Required(Float64),)
 PlantSimEngine.outputs_(::ModelObjectCycleAModel) = (cycle_a=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectCycleAModel, status, environment, constants=nothing, context=nothing)
@@ -545,7 +545,7 @@ PlantSimEngine.@process "model_object_cycle_b" verbose = false
 
 struct ModelObjectCycleBModel <: AbstractModel_Object_Cycle_BModel end
 
-PlantSimEngine.inputs_(::ModelObjectCycleBModel) = (cycle_a=0.0,)
+PlantSimEngine.inputs_(::ModelObjectCycleBModel) = (cycle_a=Required(Float64),)
 PlantSimEngine.outputs_(::ModelObjectCycleBModel) = (cycle_b=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectCycleBModel, status, environment, constants=nothing, context=nothing)
@@ -557,7 +557,7 @@ PlantSimEngine.@process "model_object_temporal_sum" verbose = false
 
 struct ModelObjectTemporalSumModel <: AbstractModel_Object_Temporal_SumModel end
 
-PlantSimEngine.inputs_(::ModelObjectTemporalSumModel) = (signal_sum=0.0,)
+PlantSimEngine.inputs_(::ModelObjectTemporalSumModel) = (signal_sum=Required(Float64),)
 PlantSimEngine.outputs_(::ModelObjectTemporalSumModel) = (temporal_total=0.0,)
 
 function PlantSimEngine.run!(::ModelObjectTemporalSumModel, status, environment, constants=nothing, context=nothing)
@@ -769,7 +769,7 @@ PlantSimEngine.@process "model_object_dual_like_sum" verbose = false
 struct ModelObjectDualLikeSumModel <: AbstractModel_Object_Dual_Like_SumModel end
 
 PlantSimEngine.inputs_(::ModelObjectDualLikeSumModel) =
-    (values=ModelObjectDualLike{BigFloat}[],)
+    (values=Required(Vector{ModelObjectDualLike{BigFloat}}),)
 PlantSimEngine.outputs_(::ModelObjectDualLikeSumModel) =
     (total=zero(ModelObjectDualLike{BigFloat}),)
 
@@ -2382,10 +2382,31 @@ end
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_1, parent=:scene),
         Object(:axis_1; scale=:Axis, kind=:plant, species=:oil_palm, parent=:plant_1),
-        Object(:leaf_1; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_1),
-        Object(:leaf_2; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:axis_1),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            kind=:plant,
+            species=:oil_palm,
+            parent=:plant_1,
+            status=Status(leaf_area=0.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            kind=:plant,
+            species=:oil_palm,
+            parent=:axis_1,
+            status=Status(leaf_area=0.0),
+        ),
         Object(:plant_2; scale=:Plant, kind=:plant, species=:oil_palm, name=:palm_2, parent=:scene),
-        Object(:leaf_3; scale=:Leaf, kind=:plant, species=:oil_palm, parent=:plant_2),
+        Object(
+            :leaf_3;
+            scale=:Leaf,
+            kind=:plant,
+            species=:oil_palm,
+            parent=:plant_2,
+            status=Status(leaf_area=0.0),
+        ),
         Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
         applications=compiled_specs,
     )
@@ -2397,7 +2418,17 @@ end
     @test cached_a.revision == Advanced.model_revision(cache_scene)
     @test Advanced.refresh_bindings!(cache_scene) === cached_a
 
-    register_object!(cache_scene, Object(:leaf_4; scale=:Leaf, kind=:plant, species=:oil_palm); parent=:plant_2)
+    register_object!(
+        cache_scene,
+        Object(
+            :leaf_4;
+            scale=:Leaf,
+            kind=:plant,
+            species=:oil_palm,
+            status=Status(leaf_area=0.0),
+        );
+        parent=:plant_2,
+    )
     @test Advanced.bindings_dirty(cache_scene)
     @test isnothing(Advanced.compiled_bindings(cache_scene))
     cached_b = Advanced.refresh_bindings!(cache_scene)

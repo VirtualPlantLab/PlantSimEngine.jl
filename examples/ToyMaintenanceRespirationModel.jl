@@ -30,7 +30,7 @@ struct ToyMaintenanceRespirationModel{T} <: AbstractMaintenance_RespirationModel
     nitrogen_content::T
 end
 
-PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=0.0,)
+PlantSimEngine.inputs_(::ToyMaintenanceRespirationModel) = (carbon_biomass=Required(Float64),)
 PlantSimEngine.outputs_(::ToyMaintenanceRespirationModel) = (Rm=-Inf,)
 
 function PlantSimEngine.run!(m::ToyMaintenanceRespirationModel, status, environment, constants, context=nothing)
@@ -54,7 +54,7 @@ Total plant maintenance respiration based on the sum of `Rm_organs`, the mainten
 """
 struct ToyPlantRmModel <: AbstractMaintenance_RespirationModel end
 
-PlantSimEngine.inputs_(::ToyPlantRmModel) = (Rm_organs=[-Inf],)
+PlantSimEngine.inputs_(::ToyPlantRmModel) = (Rm_organs=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::ToyPlantRmModel) = (Rm=-Inf,)
 
 function PlantSimEngine.run!(::ToyPlantRmModel, status, environment, constants, context=nothing)

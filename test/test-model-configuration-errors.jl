@@ -16,7 +16,7 @@ PlantSimEngine.timestep_hint(::Type{<:InvalidTimestepHintProbeModel}) = "hourly"
 PlantSimEngine.inputs_(::ConfigurationProbeModel) = NamedTuple()
 PlantSimEngine.outputs_(::ConfigurationProbeModel) = (value=0.0,)
 PlantSimEngine.environment_inputs_(::ConfigurationProbeModel) = (T=0.0,)
-PlantSimEngine.inputs_(::ConfigurationConsumerModel) = (value=0.0,)
+PlantSimEngine.inputs_(::ConfigurationConsumerModel) = (value=Required(Float64),)
 PlantSimEngine.outputs_(::ConfigurationConsumerModel) = (observed=0.0,)
 
 function invalid_hint_scene(model)

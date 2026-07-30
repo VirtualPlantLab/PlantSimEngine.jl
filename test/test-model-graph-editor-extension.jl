@@ -4,11 +4,11 @@ PlantSimEngine.process_(::Type{AbstractEditorSourceModel}) = :editor_source
 PlantSimEngine.process_(::Type{AbstractEditorConsumerModel}) = :editor_consumer
 
 struct EditorSourceModel <: AbstractEditorSourceModel end
-PlantSimEngine.inputs_(::EditorSourceModel) = (driver=-Inf,)
+PlantSimEngine.inputs_(::EditorSourceModel) = (driver=Required(Float64),)
 PlantSimEngine.outputs_(::EditorSourceModel) = (signal=-Inf,)
 
 struct EditorConsumerModel <: AbstractEditorConsumerModel end
-PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=-Inf,)
+PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
 @testset "session lifecycle and edits" begin

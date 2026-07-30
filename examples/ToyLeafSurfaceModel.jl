@@ -27,7 +27,7 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyLeafSurfaceModel)
-    (carbon_biomass=-Inf,)
+    (carbon_biomass=Required(Float64),)
 end
 
 # Define outputs:
@@ -62,7 +62,7 @@ struct ToyPlantLeafSurfaceModel <: AbstractLeaf_SurfaceModel end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyPlantLeafSurfaceModel)
-    (leaf_surfaces=[-Inf],)
+    (leaf_surfaces=Required(Vector{Float64}),)
 end
 
 # Define outputs:

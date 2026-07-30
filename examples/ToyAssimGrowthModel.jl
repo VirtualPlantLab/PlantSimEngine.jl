@@ -41,7 +41,7 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyAssimGrowthModel)
-    (aPPFD=-Inf,)
+    (aPPFD=Required(Float64),)
 end
 
 # Define outputs:

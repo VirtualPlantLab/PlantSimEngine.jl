@@ -23,7 +23,7 @@ PlantSimEngine.@process "temporal_view_signal_consumer" verbose = false
 
 struct TemporalViewSignalConsumer <: AbstractTemporal_View_Signal_ConsumerModel end
 
-PlantSimEngine.inputs_(::TemporalViewSignalConsumer) = (signal=0.0, gain=1.0)
+PlantSimEngine.inputs_(::TemporalViewSignalConsumer) = (signal=Required(Float64), gain=Required(Float64))
 PlantSimEngine.outputs_(::TemporalViewSignalConsumer) = (observed_signal=0.0,)
 
 function PlantSimEngine.run!(
@@ -43,7 +43,7 @@ PlantSimEngine.@process "temporal_view_same_step_consumer" verbose = false
 struct TemporalViewSameStepConsumer <:
        AbstractTemporal_View_Same_Step_ConsumerModel end
 
-PlantSimEngine.inputs_(::TemporalViewSameStepConsumer) = (signal=0.0,)
+PlantSimEngine.inputs_(::TemporalViewSameStepConsumer) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::TemporalViewSameStepConsumer) =
     (observed_signal=0.0,)
 
@@ -62,7 +62,7 @@ PlantSimEngine.@process "temporal_view_many_consumer" verbose = false
 
 struct TemporalViewManyConsumer <: AbstractTemporal_View_Many_ConsumerModel end
 
-PlantSimEngine.inputs_(::TemporalViewManyConsumer) = (signals=[0.0],)
+PlantSimEngine.inputs_(::TemporalViewManyConsumer) = (signals=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::TemporalViewManyConsumer) = (signal_total=0.0,)
 
 function PlantSimEngine.run!(
@@ -83,9 +83,9 @@ PlantSimEngine.@process "temporal_view_cycle_b" verbose = false
 struct TemporalViewCycleA <: AbstractTemporal_View_Cycle_AModel end
 struct TemporalViewCycleB <: AbstractTemporal_View_Cycle_BModel end
 
-PlantSimEngine.inputs_(::TemporalViewCycleA) = (cycle_b=0.0,)
+PlantSimEngine.inputs_(::TemporalViewCycleA) = (cycle_b=Required(Float64),)
 PlantSimEngine.outputs_(::TemporalViewCycleA) = (cycle_a=0.0,)
-PlantSimEngine.inputs_(::TemporalViewCycleB) = (cycle_a=0.0,)
+PlantSimEngine.inputs_(::TemporalViewCycleB) = (cycle_a=Required(Float64),)
 PlantSimEngine.outputs_(::TemporalViewCycleB) = (cycle_b=0.0,)
 
 function PlantSimEngine.run!(
@@ -115,7 +115,7 @@ PlantSimEngine.@process "temporal_view_ambiguous_overlap" verbose = false
 struct TemporalViewAmbiguousOverlap <:
        AbstractTemporal_View_Ambiguous_OverlapModel end
 
-PlantSimEngine.inputs_(::TemporalViewAmbiguousOverlap) = (signal=0.0,)
+PlantSimEngine.inputs_(::TemporalViewAmbiguousOverlap) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::TemporalViewAmbiguousOverlap) = (signal=0.0,)
 
 function _temporal_view_source_spec(; target=One(scale=:Leaf))

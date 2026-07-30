@@ -3323,11 +3323,7 @@ function _targeted_new_object_call_targets(
             )
         end
     end
-    _prepare_model_bound_input_statuses!(
-        model,
-        callee_applications,
-        input_bindings,
-    )
+    _prepare_model_input_defaults!(model, callee_applications)
     _wire_model_input_carriers!(model, input_bindings)
     _validate_model_required_inputs!(
         model,

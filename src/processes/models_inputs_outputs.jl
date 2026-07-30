@@ -21,7 +21,7 @@ inputs(Process1Model(1.0))
 ```
 """
 function inputs(model::T) where {T<:AbstractModel}
-    keys(inputs_(model))
+    keys(_input_schema(model))
 end
 
 function inputs_(model::AbstractModel)
@@ -225,8 +225,9 @@ end
     variables(model)
     variables(model, models...)
 
-Returns a tuple with the name of the variables needed by a model, or a union of those
-variables for several models.
+Return the values PlantSimEngine can initialize without user input: genuine
+input defaults declared with `Default(value)` and initial output-state values.
+Required inputs have no initialization value and are therefore omitted.
 
 # Note
 
@@ -245,7 +246,7 @@ variables(Process1Model(1.0), Process2Model())
 
 # output
 
-(var1 = -Inf, var2 = -Inf, var3 = -Inf, var4 = -Inf, var5 = -Inf)
+(var3 = -Inf, var4 = -Inf, var5 = -Inf)
 ```
 
 # See also
@@ -253,7 +254,13 @@ variables(Process1Model(1.0), Process2Model())
 [`inputs`](@ref), [`outputs`](@ref) and [`variables_typed`](@ref)
 """
 function variables(m::T, ms...) where {T<:Union{Missing,AbstractModel}}
-    length((ms...,)) > 0 ? merge(variables(m), variables(ms...)) : merge(inputs_(m), outputs_(m))
+    if length((ms...,)) > 0
+        return merge(variables(m), variables(ms...))
+    end
+    input_defaults = m isa Missing ?
+                     NamedTuple() :
+                     _input_default_values(_input_schema(m))
+    return merge(input_defaults, outputs_(m))
 end
 
 """
@@ -285,7 +292,8 @@ end
 """
     init_variables(model)
 
-Return the merged default input and output values declared by `model`.
+Return the merged genuine input defaults and initial output-state values
+declared by `model`. Inputs declared with `Required(T)` are omitted.
 """
 init_variables(model::AbstractModel; verbose::Bool=true) = variables(model)
 init_variables(spec::ModelSpec; verbose::Bool=true) = init_variables(model_(spec); verbose=verbose)
@@ -321,8 +329,11 @@ PlantSimEngine.variables_typed(Process1Model(1.0), Process2Model())
 """
 function variables_typed(m::T) where {T<:AbstractModel}
 
-    in_vars = inputs_(m)
-    in_vars_type = Dict(zip(keys(in_vars), typeof(in_vars).types))
+    in_vars = _input_schema(m)
+    in_vars_type = Dict(
+        Symbol(name) => _input_expected_type(declaration)
+        for (name, declaration) in pairs(in_vars)
+    )
     out_vars = outputs_(m)
     out_vars_type = Dict(zip(keys(out_vars), typeof(out_vars).types))
 

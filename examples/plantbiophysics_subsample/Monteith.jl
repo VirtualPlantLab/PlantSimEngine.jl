@@ -434,7 +434,11 @@ function Monteith(; aₛₕ=2, aₛᵥ=1, ε=0.955, maxiter=10, ΔT=0.01)
 end
 
 function PlantSimEngine.inputs_(::Monteith)
-    (Ra_SW_f=-Inf, sky_fraction=-Inf, d=-Inf)
+    (
+        Ra_SW_f=Required(Float64),
+        sky_fraction=Required(Float64),
+        d=Required(Float64),
+    )
 end
 
 function PlantSimEngine.environment_inputs_(::Monteith)

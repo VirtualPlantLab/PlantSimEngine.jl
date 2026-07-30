@@ -233,6 +233,7 @@ mutable struct CompositeModel{R,A,E,I,SA}
     environment_bindings_dirty::Bool
     environment_dirty_objects::Union{Nothing,Set{ObjectId}}
     binding_dirty_objects::Union{Nothing,Set{ObjectId}}
+    input_default_status_variables::Dict{ObjectId,Set{Symbol}}
     revision::Int
     environment_revision::Int
 end
@@ -374,6 +375,7 @@ function CompositeModel(
         true,
         nothing,
         Set{ObjectId}(),
+        Dict{ObjectId,Set{Symbol}}(),
         0,
         0,
     )
@@ -906,6 +908,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
     _deindex_object!(model.registry, object)
     delete!(model.registry.objects, object.id)
     delete!(model.registry.ancestor_ids_by_object, object.id)
+    delete!(model.input_default_status_variables, object.id)
     _mark_bindings_dirty!(model)
     return object
 end
