@@ -1,3 +1,4 @@
+using BenchmarkTools
 using CSV
 using DataFrames
 using Dates
@@ -37,6 +38,34 @@ if benchmark_test_enabled("multirate benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("hard-call path benchmark API smoke")
+    @testset "hard-call path benchmark API smoke" begin
+        include(joinpath(@__DIR__, "..", "test-hard-call-path-benchmark.jl"))
+        expected_call_targets = Dict(
+            :zero => 0,
+            :sparse => 1,
+            :dense => 16,
+        )
+        for usage in (:zero, :sparse, :dense)
+            model, steps = setup_hard_call_path_benchmark(;
+                nobjects=16,
+                usage=usage,
+                steps=2,
+            )
+            summary = hard_call_path_summary(model)
+            @test summary.call_capable_targets ==
+                  expected_call_targets[usage]
+            @test summary.unrelated_no_call_targets == 16
+            simulation = benchmark_hard_call_path(model, steps)
+            @test current_step(simulation) == steps
+            @test all(
+                object.status.work == steps
+                for object in model_objects(model; scale=:Leaf)
+            )
+        end
+    end
+end
+
 if benchmark_test_enabled("PlantBiophysics benchmark API smoke")
     @testset "PlantBiophysics benchmark API smoke" begin
         include(joinpath(@__DIR__, "..", "test-plantbiophysics.jl"))
@@ -58,6 +87,10 @@ end
 if benchmark_test_enabled("XPalm staged performance profile smoke")
     @testset "XPalm staged performance profile smoke" begin
         include(joinpath(@__DIR__, "..", "performance_regression.jl"))
+        metadata = _performance_metadata(; warmup_policy="metadata smoke")
+        @test length(metadata.manifest_hash) == 64
+        @test length(metadata.fixture_hash) == 64
+        @test !isempty(metadata.hostname)
         result = run_xpalm_performance_profile(; profile=:smoke)
         @test result.no_output_state == result.reference_state
         @test result.reference_state.current_step == PERFORMANCE_SMOKE_STEPS
@@ -74,6 +107,43 @@ if benchmark_test_enabled("XPalm staged performance profile smoke")
                     row.metric == "wall_time",
             result.records,
         )
+        @test any(
+            row ->
+                row.stage == "simulation_reference_outputs" &&
+                    row.metric == "median_time",
+            result.records,
+        )
+        @test any(
+            row ->
+                row.stage == "simulation_reference_outputs" &&
+                    row.metric == "minimum_allocations",
+            result.records,
+        )
+        @test only(
+            row.value for row in result.records
+            if row.stage == "simulation_reference_outputs" &&
+               row.metric == "samples"
+        ) == PERFORMANCE_STATISTICAL_SAMPLES
+        trial = BenchmarkTools.@benchmark 1 + 1 samples = 2 evals = 1
+        group = BenchmarkTools.BenchmarkGroup()
+        group["tiny"] = trial
+        summary = _benchmark_summary_records(group, metadata)
+        @test length(summary) == 1
+        @test only(summary).benchmark == "tiny"
+        @test only(summary).samples == 2
+        @test only(summary).minimum_time_ns <= only(summary).median_time_ns
+        @test only(summary).median_allocations == 0
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("benchmark suite assembly smoke")
+    @testset "benchmark suite assembly smoke" begin
+        include(joinpath(@__DIR__, "..", "benchmarks.jl"))
+        suite = SUITE[suite_name]
+        @test haskey(suite, "PSE_hard_calls_zero")
+        @test haskey(suite, "PSE_hard_calls_sparse")
+        @test haskey(suite, "PSE_hard_calls_dense")
     end
 end
 

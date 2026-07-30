@@ -38,6 +38,17 @@ SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark
     nsteps,
 ) setup = ((model, requests, nsteps) = setup_multirate_buffer_benchmark())
 
+include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
+for usage in (:zero, :sparse, :dense)
+    SUITE[suite_name]["PSE_hard_calls_$(usage)"] =
+        @benchmarkable benchmark_hard_call_path(
+            model,
+            nsteps,
+        ) setup = ((model, nsteps) = setup_hard_call_path_benchmark(
+            usage=$usage,
+        ))
+end
+
 # "PBP benchmark"
 include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
 SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
@@ -47,6 +58,7 @@ SUITE[suite_name]["PBP_batch_run"] = @benchmarkable benchmark_plantbiophysics_ba
 
 # "XPalm benchmark" 
 include(joinpath(@__DIR__, "test-xpalm.jl"))
+include(joinpath(@__DIR__, "performance_regression.jl"))
 const XPALM_PR_BENCHMARK_STEPS = 100
 SUITE[suite_name]["XPalm_setup_100"] = @benchmarkable xpalm_default_param_create(
     nsteps=XPALM_PR_BENCHMARK_STEPS,
@@ -89,5 +101,10 @@ if abspath(PROGRAM_FILE) == @__FILE__
     )
     mkpath(dirname(output_path))
     BenchmarkTools.save(output_path, median(results))
-    @info "PlantSimEngine benchmark suite complete" output_path
+    summary_path = replace(output_path, r"\.[^.]+$" => "-summary.csv")
+    metadata = _performance_metadata(;
+        warmup_policy="BenchmarkTools tune plus per-benchmark setup",
+    )
+    write_benchmark_summary(summary_path, results, metadata)
+    @info "PlantSimEngine benchmark suite complete" output_path summary_path
 end

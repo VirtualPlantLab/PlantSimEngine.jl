@@ -25,7 +25,7 @@ const XPALM_REFERENCE_BENCHMARK_VARIABLES = Dict{Symbol,Any}(
 )
 
 function _xpalm_output_requests(model, vars)
-    applications = explain_applications(model)
+    applications = PlantSimEngine.Diagnostics.explain_applications(model)
     requests = OutputRequest[]
     for (scale, variables) in pairs(vars)
         for variable in variables
@@ -36,7 +36,9 @@ function _xpalm_output_requests(model, vars)
                 for row in applications
                 if (
                     scale_symbol in row.target_scales ||
-                    object_address(row.applies_to).scale == scale_symbol
+                    PlantSimEngine.Diagnostics.object_address(
+                        row.applies_to,
+                    ).scale == scale_symbol
                 ) && variable_symbol in row.outputs
             ]
             isempty(candidates) && error(

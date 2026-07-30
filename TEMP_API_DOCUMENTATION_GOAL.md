@@ -701,7 +701,7 @@ execution path.
       streams, retention, or constants change.
 - [x] Preserve nested calls, selective targets, transient environments,
       `publish=false`, accepted publication, and lifecycle-created call targets.
-- [ ] Benchmark a large scene with zero, sparse, and dense hard-call usage.
+- [x] Benchmark a large scene with zero, sparse, and dense hard-call usage.
 
 ### 6. Separate and preallocate retained outputs
 
@@ -724,7 +724,7 @@ execution path.
 - [x] Turn the existing BenchmarkTools suite into an executable, saved,
       comparable suite instead of leaving `tune!`, `run`, and result saving
       commented out.
-- [ ] Record source revisions, Julia version, manifest hash, fixture hash,
+- [x] Record source revisions, Julia version, manifest hash, fixture hash,
       machine identity, warm-up policy, median time, minimum time, memory, and
       allocations with every persisted result.
 - [ ] Add benchmarks for:
@@ -762,7 +762,7 @@ execution path.
 - [x] Demonstrate that adding one equivalent organ to a large scene constructs
       only the new and affected compiled targets. The benchmark and work
       counters must show delta scaling rather than whole-scene scaling.
-- [ ] Demonstrate that sparse hard-call declarations do not slow unrelated
+- [x] Demonstrate that sparse hard-call declarations do not slow unrelated
       applications onto the call-capable path.
 - [x] Demonstrate bounded temporal dependency memory when outputs are not
       retained.
