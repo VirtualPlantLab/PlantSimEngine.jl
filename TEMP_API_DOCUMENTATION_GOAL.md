@@ -752,6 +752,11 @@ execution path.
       lifecycle scaling, and a simulation prefix.
 - [ ] Run and persist the complete XPalm performance suite on a stable runner
       nightly, before releases, or on explicit performance workflows.
+      `.github/workflows/FullPerformance.yml` now provisions the pinned
+      Ubuntu 24.04 / Julia 1.12.1 runner, executes the complete correctness-first
+      profile on nightly, version-tag, and manual triggers, and retains both
+      the CSV measurements and resolved manifest for 90 days. Keep this item
+      open until the first remote artifact has completed successfully.
 - [x] Compare noisy wall-clock measurements with generous regression
       tolerances, but keep allocation and work-count regressions strict.
 - [x] Fail correctness before considering performance: every benchmark fixture
