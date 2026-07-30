@@ -1043,20 +1043,29 @@ documentation build pass.
 
 ### Model-developer journey
 
-- [ ] **Model 1:** implement a parameterized model with required inputs,
+- [x] **Model 1:** implement a parameterized model with required inputs,
       defaults, outputs, and the final one-step kernel.
-- [ ] **Model 2:** couple it automatically with another model on one object.
-- [ ] **Model 3:** prove the same kernel runs over several objects without an
+- [x] **Model 2:** couple it automatically with another model on one object.
+- [x] **Model 3:** prove the same kernel runs over several objects without an
       object loop inside the model.
-- [ ] **Model 4:** consume a scalar cross-object value.
-- [ ] **Model 5:** consume or produce a vector-like multiscale value.
-- [ ] **Model 6:** declare sampled environment inputs.
-- [ ] **Model 7:** declare cadence and output temporal semantics.
-- [ ] **Model 8:** declare and execute a hard dependency.
-- [ ] **Model 9:** produce and explicitly commit accepted mutable environment
+- [x] **Model 4:** consume a scalar cross-object value.
+- [x] **Model 5:** consume or produce a vector-like multiscale value.
+- [x] **Model 6:** declare sampled environment inputs.
+- [x] **Model 7:** declare cadence and output temporal semantics.
+- [x] **Model 8:** declare and execute a hard dependency.
+- [x] **Model 9:** produce and explicitly commit accepted mutable environment
       state.
-- [ ] Cross-link each model-developer page to the corresponding simulation-user
+- [x] Cross-link each model-developer page to the corresponding simulation-user
       journey, without forcing ordinary users through implementation details.
+
+The model-developer path starts from one parameterized
+`ToyDevelopmentModel`, first running it directly and then composing it on one
+and several objects. Separate pages introduce scalar and `RefVector`
+cross-object values, sampled environments and model-level clocks, model-author
+hard-call defaults, and accepted mutable-environment commits. Each page links
+back to the user journey where the same runtime concept first appears. All
+executable blocks pass in the full documentation build, and 195 focused checks
+cover the 22 reusable model declarations plus the nine developer compositions.
 
 ## Existing Model Reuse Inventory
 
@@ -1093,14 +1102,16 @@ Before using any of them:
 - [x] Ensure its numeric fields remain generic where scientifically possible.
 - [x] Add direct contract tests and at least one composition test.
 
-The reusable model audit now checks all sixteen teaching models directly. The
-environment-reading thermal-time, Beer, and maintenance-respiration models
-declare exactly the fields their kernels sample. The canonical coupled chain
-runs with `Float32` parameters and status against forcing containing only `T`,
-`Ri_PAR_f`, and the required timeline duration; omitting `Ri_PAR_f` fails
-environment validation. The focused contract/composition suite passes 71
-checks, and the six-part internal/downstream benchmark smoke suite passes all
-35 checks.
+The reusable model audit now checks all 22 teaching models directly, including
+the models introduced for environment control, advanced execution, and the
+model-developer path. Both environment input and environment output
+declarations are checked. The environment-reading thermal-time, Beer, and
+maintenance-respiration models declare exactly the fields their kernels
+sample. The canonical coupled chain runs with `Float32` parameters and status
+against forcing containing only `T`, `Ri_PAR_f`, and the required timeline
+duration; omitting `Ri_PAR_f` fails environment validation. The focused
+contract/composition suite passes 195 checks, and the six-part
+internal/downstream benchmark smoke suite passes all 35 checks.
 
 ## Documentation Navigation Target
 
@@ -1124,7 +1135,7 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
   2. mutable environments;
   3. hard calls and iterative execution;
   4. complete MAESPA-style example.
-- [ ] **Implement models**
+- [x] **Implement models**
   1. basic contract;
   2. composition;
   3. multiple objects;

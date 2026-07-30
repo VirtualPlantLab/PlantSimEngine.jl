@@ -41,6 +41,13 @@ function ToySelectiveCallControllerModel(
 end
 
 PlantSimEngine.inputs_(::ToySelectiveCallControllerModel) = NamedTuple()
+PlantSimEngine.dep(::ToySelectiveCallControllerModel) = (
+    readers=Call(Many(
+        scale=:Leaf,
+        process=:toy_environment_reader,
+        within=Subtree(),
+    )),
+)
 function PlantSimEngine.outputs_(model::ToySelectiveCallControllerModel)
     initial = zero(model.accepted_temperature)
     return (

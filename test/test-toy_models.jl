@@ -29,6 +29,16 @@ end
         ToyMaintenanceRespirationModel(2.0, 0.06, 25.0, 0.8, 0.02),
         ToyPlantRmModel(),
         ToySoilWaterModel(),
+        ToyEnvironmentReaderModel(),
+        ToyEnvironmentControllerModel(30.0, 22.0),
+        ToySelectiveCallControllerModel(
+            (28.0, 31.0),
+            22.0;
+            selected_object=:leaf,
+        ),
+        ToyStockWriterModel(4.0),
+        ToyDevelopmentModel(0.5),
+        ToyDailyDevelopmentModel(2.0),
     )
     expected_inputs = (
         (),
@@ -46,6 +56,12 @@ end
         (:aPPFD_larger_scale, :total_surface, :surface),
         (:carbon_biomass,),
         (:Rm_organs,),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (:TT, :stress),
         (),
     )
     expected_outputs = (
@@ -65,6 +81,12 @@ end
         (:Rm,),
         (:Rm,),
         (:soil_water_content,),
+        (:temperature_seen,),
+        (:trial_temperature_seen, :accepted_temperature_seen),
+        (:target_count, :trial_temperature_seen, :accepted_temperature_seen),
+        (:stock,),
+        (:growth,),
+        (:daily_growth,),
     )
     expected_environment_inputs = (
         (:T,),
@@ -83,18 +105,57 @@ end
         (:T,),
         (),
         (),
+        (:T,),
+        (),
+        (),
+        (),
+        (),
+        (),
+    )
+    expected_environment_outputs = (
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (),
+        (:T,),
+        (),
+        (),
+        (),
+        (),
     )
 
-    for (model, expected_input, expected_output, expected_environment_input) in zip(
+    for (
+        model,
+        expected_input,
+        expected_output,
+        expected_environment_input,
+        expected_environment_output,
+    ) in zip(
         models,
         expected_inputs,
         expected_outputs,
         expected_environment_inputs,
+        expected_environment_outputs,
     )
         @test Tuple(inputs(model)) == expected_input
         @test Tuple(outputs(model)) == expected_output
         @test Tuple(PlantSimEngine.environment_inputs(model)) ==
               expected_environment_input
+        @test Tuple(PlantSimEngine.environment_outputs(model)) ==
+              expected_environment_output
     end
 
     @test Tuple(PlantSimEngine.environment_inputs(Process2Model())) == (:T, :Wind, :Rh)
@@ -120,10 +181,14 @@ end
         Float32(0.8),
         Float32(0.02),
     )
+    development = ToyDevelopmentModel(Float32(0.5))
+    daily_development = ToyDailyDevelopmentModel(Float32(2))
 
     @test degree_days isa ToyDegreeDaysCumulModel{Float32}
     @test lai isa ToyLAIModel{Float32}
     @test respiration isa ToyMaintenanceRespirationModel{Float32}
+    @test development isa ToyDevelopmentModel{Float32}
+    @test daily_development isa ToyDailyDevelopmentModel{Float32}
     @test all(value -> value isa Float32, values(PlantSimEngine.outputs_(degree_days)))
     @test all(value -> value isa Float32, values(PlantSimEngine.outputs_(lai)))
     @test all(value -> value isa Float32, values(PlantSimEngine.outputs_(respiration)))
@@ -983,4 +1048,288 @@ end
     )
     @test stock_writer.application_ids ==
           [:initial_stock, :adjusted_stock]
+end
+
+@testset "Model-developer journey composition" begin
+    development = ToyDevelopmentModel(0.5)
+    @test PlantSimEngine.inputs_(development) == (
+        TT=Required(Real),
+        stress=Default(1.0),
+    )
+    @test PlantSimEngine.outputs_(development) == (growth=0.0,)
+    direct_status = Status(TT=8.0, stress=0.75, growth=0.0)
+    PlantSimEngine.run!(
+        development,
+        direct_status,
+        nothing,
+        nothing,
+        nothing,
+    )
+    @test direct_status.growth == 3.0
+
+    one_object = CompositeModel(
+        Object(:leaf; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                ToyDegreeDaysCumulModel(T_base=10.0);
+                name=:thermal_time,
+                on=One(scale=:Leaf),
+            ),
+            ModelSpec(
+                development;
+                name=:development,
+                on=One(scale=:Leaf),
+            ),
+        ),
+        environment=Atmosphere(
+            T=18.0,
+            Wind=1.0,
+            Rh=0.7,
+            duration=Dates.Day(1),
+        ),
+    )
+    one_simulation = run!(one_object)
+    @test final_state(one_simulation).TT == 8.0
+    @test final_state(one_simulation).stress == 1.0
+    @test final_state(one_simulation).growth == 4.0
+
+    several_objects = CompositeModel(
+        Object(:leaf_1; scale=:Leaf),
+        Object(:leaf_2; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                ToyDegreeDaysCumulModel(T_base=10.0);
+                name=:thermal_time,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                development;
+                name=:development,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=Atmosphere(
+            T=18.0,
+            Wind=1.0,
+            Rh=0.7,
+            duration=Dates.Day(1),
+        ),
+    )
+    several_states = final_state(
+        run!(several_objects),
+        Many(scale=:Leaf),
+    )
+    @test getproperty.(values(several_states), :growth) ==
+          fill(4.0, 2)
+
+    cross_object = CompositeModel(
+        Object(:soil; scale=:Soil, status=Status(stress=0.4)),
+        Object(:leaf; scale=:Leaf, status=Status(TT=10.0));
+        applications=(
+            ModelSpec(
+                development;
+                name=:development,
+                on=One(scale=:Leaf),
+                inputs=(
+                    :stress => One(
+                        scale=:Soil,
+                        within=SceneScope(),
+                        var=:stress,
+                        from_status=true,
+                    ),
+                ),
+            ),
+        ),
+    )
+    cross_simulation = run!(cross_object)
+    @test final_state(cross_simulation, :leaf).growth == 2.0
+    stress_binding = only(
+        row for row in Diagnostics.explain_bindings(cross_object)
+        if row.input == :stress
+    )
+    @test stress_binding.carrier_kind == :ref
+    @test stress_binding.source_ids == [:soil]
+
+    respiration = ToyMaintenanceRespirationModel(
+        2.0,
+        0.06,
+        25.0,
+        0.5,
+        0.02,
+    )
+    multiscale = CompositeModel(
+        Object(:plant; scale=:Plant),
+        Object(
+            :leaf_1;
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(carbon_biomass=10.0),
+        ),
+        Object(
+            :leaf_2;
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(carbon_biomass=20.0),
+        );
+        applications=(
+            ModelSpec(
+                respiration;
+                name=:maintenance,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ToyPlantRmModel();
+                name=:plant_maintenance,
+                on=One(scale=:Plant),
+                inputs=(
+                    :Rm_organs => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:maintenance,
+                        var=:Rm,
+                    ),
+                ),
+            ),
+        ),
+        environment=Atmosphere(
+            T=25.0,
+            Wind=1.0,
+            Rh=0.7,
+            duration=Dates.Hour(1),
+        ),
+    )
+    multiscale_simulation = run!(multiscale)
+    leaf_respiration = getproperty.(
+        values(final_state(
+            multiscale_simulation,
+            Many(scale=:Leaf),
+        )),
+        :Rm,
+    )
+    @test final_state(multiscale_simulation, :plant).Rm ≈
+          sum(leaf_respiration)
+    respiration_binding = only(
+        row for row in Diagnostics.explain_bindings(multiscale)
+        if row.application_id == :plant_maintenance
+    )
+    @test respiration_binding.carrier_kind == :ref_vector
+    @test PlantSimEngine.environment_inputs_(respiration) == (T=0.0,)
+
+    daily = ToyDailyDevelopmentModel(2.0)
+    @test PlantSimEngine.timespec(daily) ==
+          PlantSimEngine.ClockSpec(24.0, 1.0)
+    @test PlantSimEngine.output_policy(daily) ==
+          (daily_growth=HoldLast(),)
+    daily_model = CompositeModel(
+        Object(:plant; scale=:Plant);
+        applications=(
+            ModelSpec(
+                daily;
+                name=:daily_development,
+                on=One(scale=:Plant),
+            ),
+        ),
+        environment=[
+            (duration=Dates.Hour(1),)
+            for _ in 1:25
+        ],
+    )
+    daily_simulation =
+        run!(daily_model; steps=25, outputs=:all)
+    @test final_state(daily_simulation).daily_growth == 4.0
+    @test only(
+        row for row in Diagnostics.explain_outputs(daily_simulation)
+        if row.variable == :daily_growth
+    ).nsamples == 2
+
+    hard_call_environment = ToySpatialEnvironment(
+        Dict(
+            :sun => (T=26.0,),
+            :shade => (T=18.0,),
+        );
+        step_seconds=3600.0,
+    )
+    hard_call_model = CompositeModel(
+        Object(:plant; scale=:Plant),
+        Object(
+            :sun_leaf;
+            scale=:Leaf,
+            parent=:plant,
+            geometry=(cell=:sun,),
+        ),
+        Object(
+            :shade_leaf;
+            scale=:Leaf,
+            parent=:plant,
+            geometry=(cell=:shade,),
+        );
+        applications=(
+            ModelSpec(
+                ToyEnvironmentReaderModel();
+                name=:reader,
+                on=Many(scale=:Leaf),
+                environment=Environment(backend=hard_call_environment),
+            ),
+            ModelSpec(
+                ToySelectiveCallControllerModel(
+                    (28.0, 31.0),
+                    22.0;
+                    selected_object=:sun_leaf,
+                );
+                name=:controller,
+                on=One(scale=:Plant),
+            ),
+        ),
+    )
+    hard_call_row = only(
+        row for row in Diagnostics.explain_calls(hard_call_model)
+        if row.application_id == :controller
+    )
+    @test hard_call_row.origin == :model_default
+    @test hard_call_row.callee_object_ids ==
+          [:shade_leaf, :sun_leaf]
+    hard_call_simulation = run!(hard_call_model; outputs=:all)
+    @test final_state(
+        hard_call_simulation,
+        :plant,
+    ).accepted_temperature_seen == 22.0
+
+    mutable_environment = ToySpatialEnvironment(
+        Dict(:canopy => (T=20.0,));
+        step_seconds=3600.0,
+    )
+    mutable_model = CompositeModel(
+        Object(
+            :leaf;
+            scale=:Leaf,
+            geometry=(cell=:canopy,),
+        );
+        applications=(
+            ModelSpec(
+                ToyEnvironmentReaderModel();
+                name=:reader,
+                on=One(scale=:Leaf),
+                environment=Environment(backend=mutable_environment),
+            ),
+            ModelSpec(
+                ToyEnvironmentControllerModel(30.0, 22.0);
+                name=:controller,
+                on=One(scale=:Leaf),
+                environment=Environment(
+                    backend=mutable_environment,
+                    sink=:cells,
+                ),
+            ),
+        ),
+    )
+    mutable_call = only(
+        row for row in Diagnostics.explain_calls(mutable_model)
+        if row.application_id == :controller
+    )
+    @test mutable_call.origin == :model_default
+    mutable_simulation = run!(mutable_model; outputs=:all)
+    @test mutable_environment.cells[:canopy].T == 22.0
+    @test final_state(
+        mutable_simulation,
+    ).accepted_temperature_seen == 22.0
 end

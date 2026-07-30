@@ -73,6 +73,11 @@ makedocs(;
             "Advanced coupling and hard dependencies" => "./step_by_step/advanced_coupling.md",
         ],
         "Implement models" => [
+            "Basic contract and reuse" => "./journeys/modelers/basic_model.md",
+            "Cross-object values" => "./journeys/modelers/cross_object_values.md",
+            "Environment and cadence traits" => "./journeys/modelers/environment_and_cadence.md",
+            "Hard dependencies" => "./journeys/modelers/hard_dependencies.md",
+            "Mutable environment controllers" => "./journeys/modelers/mutable_environment.md",
             "Port an existing model" => "./guides/modelers/port_existing_model.md",
             "Implement a process" => "./step_by_step/implement_a_process.md",
             "Implement a model" => "./step_by_step/implement_a_model.md",

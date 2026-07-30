@@ -153,6 +153,9 @@ function ToyEnvironmentControllerModel(trial_temperature, accepted_temperature)
 end
 
 PlantSimEngine.inputs_(::ToyEnvironmentControllerModel) = NamedTuple()
+PlantSimEngine.dep(::ToyEnvironmentControllerModel) = (
+    reader=Call(One(process=:toy_environment_reader)),
+)
 function PlantSimEngine.outputs_(model::ToyEnvironmentControllerModel)
     initial = zero(model.accepted_temperature)
     return (
