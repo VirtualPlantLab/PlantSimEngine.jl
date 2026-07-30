@@ -227,6 +227,7 @@ mutable struct CompositeModel{R,A,E,I,SA}
     environment_bindings_dirty::Bool
     environment_dirty_objects::Union{Nothing,Set{ObjectId}}
     binding_dirty_objects::Union{Nothing,Set{ObjectId}}
+    binding_dirty_kind::Symbol
     input_default_status_variables::Dict{ObjectId,Set{Symbol}}
     revision::Int
     environment_revision::Int
@@ -369,6 +370,7 @@ function CompositeModel(
         true,
         nothing,
         Set{ObjectId}(),
+        :full,
         Dict{ObjectId,Set{Symbol}}(),
         0,
         0,
@@ -595,12 +597,29 @@ function _mark_environment_bindings_dirty!(model::CompositeModel, object_id::Uni
     return model
 end
 
-function _mark_bindings_dirty!(model::CompositeModel, object_id::Union{Nothing,ObjectId}=nothing)
+function _mark_bindings_dirty!(
+    model::CompositeModel,
+    object_id::Union{Nothing,ObjectId}=nothing;
+    kind::Symbol=:full,
+)
+    kind in (:addition, :structural, :full) || error(
+        "Unsupported binding dirty kind `$(kind)`.",
+    )
     if isnothing(object_id)
         model.binding_cache = nothing
         model.binding_dirty_objects = nothing
+        model.binding_dirty_kind = :full
     elseif !isnothing(model.binding_dirty_objects)
         push!(model.binding_dirty_objects, object_id)
+        model.binding_dirty_kind = if model.binding_dirty_kind == :full
+            :full
+        elseif model.binding_dirty_kind == :clean
+            kind
+        elseif model.binding_dirty_kind == kind
+            kind
+        else
+            :structural
+        end
     end
     model.bindings_dirty = true
     model.revision += 1
@@ -755,7 +774,7 @@ function register_object!(model::CompositeModel, object::Object; parent=object.p
         parent_object = registry.objects[object.parent]
         object.id in parent_object.children || push!(parent_object.children, object.id)
     end
-    _mark_bindings_dirty!(model, object.id)
+    _mark_bindings_dirty!(model, object.id; kind=:addition)
     return object
 end
 
@@ -902,7 +921,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
     delete!(model.registry.objects, object.id)
     delete!(model.registry.ancestor_ids_by_object, object.id)
     delete!(model.input_default_status_variables, object.id)
-    _mark_bindings_dirty!(model)
+    _mark_bindings_dirty!(model, object.id; kind=:structural)
     return object
 end
 
@@ -933,7 +952,9 @@ function reparent_object!(model::CompositeModel, id, new_parent)
         object.id,
         parent_ancestors,
     )
-    _mark_bindings_dirty!(model)
+    for dirty_id in _descendant_ids(model, object.id)
+        _mark_bindings_dirty!(model, dirty_id; kind=:structural)
+    end
     return object
 end
 
@@ -992,24 +1013,69 @@ function _geometry_inheriting_descendants(model::CompositeModel, root_id::Object
     return ids
 end
 
-function refresh_bindings!(model::CompositeModel, specs=model.applications; force::Bool=false)
+function refresh_bindings!(
+    model::CompositeModel,
+    specs=model.applications;
+    force::Bool=false,
+    performance=nothing,
+)
     uses_model_applications = specs === model.applications
     if !uses_model_applications
-        return compile_composite_model(model, specs)
+        return compile_composite_model(
+            model,
+            specs;
+            performance=performance,
+        )
     end
     if force || model.bindings_dirty || isnothing(model.binding_cache)
         can_extend = !force &&
                      !isnothing(model.binding_cache) &&
                      !isnothing(model.binding_dirty_objects) &&
                      !isempty(model.binding_dirty_objects)
-        model.binding_cache = can_extend ?
-                              _extend_compiled_scene(
-            model,
-            model.binding_cache,
-            model.binding_dirty_objects,
-        ) : compile_composite_model(model, model.applications)
+        if can_extend && model.binding_dirty_kind == :addition
+            model.binding_cache = _extend_compiled_scene(
+                model,
+                model.binding_cache,
+                model.binding_dirty_objects,
+                ;
+                performance=performance,
+            )
+        elseif can_extend && model.binding_dirty_kind == :structural
+            delta = _prepare_structural_compiled_delta(
+                model,
+                model.binding_cache,
+                model.binding_dirty_objects,
+                performance,
+            )
+            model.binding_cache = _extend_compiled_scene(
+                model,
+                delta.compiled,
+                model.binding_dirty_objects;
+                forced_input_binding_keys=delta.forced_input_binding_keys,
+                forced_call_target_keys=delta.forced_call_target_keys,
+                previous_temporal_sources_seed=delta.previous_temporal_sources,
+                changed_application_ids_seed=delta.changed_application_ids,
+                changed_target_ids_seed=delta.changed_target_ids,
+                application_graph_may_shrink=delta.graph_may_shrink,
+                recompute_call_owners=delta.call_graph_may_shrink,
+                pure_addition=false,
+                performance=performance,
+            )
+            _remove_stale_status_views!(
+                model.binding_cache,
+                delta.changed_target_ids,
+            )
+        else
+            model.binding_cache =
+                compile_composite_model(
+                    model,
+                    model.applications;
+                    performance=performance,
+                )
+        end
         model.bindings_dirty = false
         model.binding_dirty_objects = Set{ObjectId}()
+        model.binding_dirty_kind = :clean
     end
     return model.binding_cache
 end

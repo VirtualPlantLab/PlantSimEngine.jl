@@ -837,11 +837,27 @@ end
     @test performance.counts[:execution_batches_visited] == 3
     @test performance.counts[:execution_targets_visited] == 3
     @test performance.counts[:initial_status_views_constructed] == 1
+    @test performance.counts[:initial_input_bindings_constructed] == 0
+    @test performance.counts[:initial_call_bindings_constructed] == 0
+    @test performance.counts[:initial_environment_bindings_constructed] == 1
     @test performance.counts[:initial_execution_targets_constructed] == 1
     @test performance.counts[:initial_execution_batches_constructed] == 1
     @test performance.elapsed_seconds[:step_execution] >= 0.0
+    @test performance.elapsed_seconds[:initial_composite_compile] >= 0.0
     @test performance.elapsed_seconds[:initial_binding_compile] >= 0.0
+    @test performance.elapsed_seconds[:application_target_compile] >= 0.0
+    @test performance.elapsed_seconds[:call_binding_compile] >= 0.0
+    @test performance.elapsed_seconds[:input_binding_compile] >= 0.0
+    @test performance.elapsed_seconds[:application_order_compile] >= 0.0
+    @test performance.elapsed_seconds[:status_view_compile] >= 0.0
     @test performance.elapsed_seconds[:initial_execution_plan_compile] >= 0.0
+    @test performance.elapsed_seconds[
+        :initial_execution_plan_and_model_bundle_compile
+    ] >= 0.0
+    @test performance.elapsed_seconds[:temporal_input_materialization] >= 0.0
+    @test performance.elapsed_seconds[:environment_sampling] >= 0.0
+    @test performance.elapsed_seconds[:scientific_kernel_execution] >= 0.0
+    @test performance.elapsed_seconds[:output_publication] >= 0.0
 
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
@@ -852,11 +868,19 @@ end
     @test refreshed.counts[:binding_refreshes] == 1
     @test refreshed.counts[:dirty_binding_objects] == 1
     @test refreshed.counts[:status_views_constructed] == 1
+    @test refreshed.counts[:input_binding_targets_replaced] == 0
+    @test refreshed.counts[:call_binding_targets_replaced] == 0
+    @test refreshed.counts[:environment_bindings_replaced] == 1
     @test refreshed.counts[:output_retention_reuses] == 1
     @test !haskey(refreshed.counts, :output_retention_compiles)
     @test refreshed.counts[:execution_plan_compiles] == 1
     @test refreshed.counts[:execution_targets_constructed] == 1
     @test refreshed.counts[:execution_batches_constructed] == 1
+    @test refreshed.elapsed_seconds[:application_target_refresh] >= 0.0
+    @test refreshed.elapsed_seconds[:call_binding_refresh] >= 0.0
+    @test refreshed.elapsed_seconds[:input_binding_refresh] >= 0.0
+    @test refreshed.elapsed_seconds[:application_order_refresh] >= 0.0
+    @test refreshed.elapsed_seconds[:status_view_refresh] >= 0.0
     @test simulation.compiled.status_views_by_target[
         (:source, ObjectId(:leaf_1))
     ] === original_view
@@ -950,4 +974,154 @@ end
     @test performance.counts[:execution_groups_reused] == 1
     @test performance.counts[:execution_targets_constructed] == 1
     @test performance.counts[:execution_batches_constructed] == 1
+end
+
+function stabilization_lifecycle_scene(nleaves_per_plant)
+    objects = Object[
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:moving_leaf; scale=:Leaf, parent=:plant_a),
+        Object(:removed_leaf; scale=:Leaf, parent=:plant_a),
+        Object(
+            :geometry_leaf;
+            scale=:Leaf,
+            parent=:plant_b,
+            geometry=(cell=:sun,),
+        ),
+    ]
+    for plant in (:plant_a, :plant_b)
+        for index in 1:nleaves_per_plant
+            push!(
+                objects,
+                Object(
+                    Symbol(plant, :_leaf_, index);
+                    scale=:Leaf,
+                    parent=plant,
+                ),
+            )
+        end
+    end
+    return CompositeModel(
+        objects...;
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationLaggedSumModel();
+                name=:plant_sum,
+                on=Many(scale=:Plant),
+                inputs=(
+                    PreviousTimeStep(:previous_signals) => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(T=20.0, duration=Hour(1)),
+    )
+end
+
+function stabilization_lifecycle_work(nleaves_per_plant, operation)
+    model = stabilization_lifecycle_scene(nleaves_per_plant)
+    simulation = run!(
+        model;
+        steps=2,
+        outputs=:none,
+        performance=true,
+    )
+    unaffected_key = (
+        :source,
+        ObjectId(Symbol(:plant_b_leaf_, nleaves_per_plant)),
+    )
+    unaffected_view =
+        simulation.compiled.status_views_by_target[unaffected_key]
+
+    if operation == :add
+        register_object!(
+            model,
+            Object(:added_leaf; scale=:Leaf, parent=:plant_a),
+        )
+    elseif operation == :remove
+        remove_object!(model, :removed_leaf)
+    elseif operation == :reparent
+        reparent_object!(model, :moving_leaf, :plant_b)
+    elseif operation == :move
+        move_object!(model, :geometry_leaf, (cell=:shade,))
+    else
+        error("Unknown stabilization lifecycle operation `$(operation)`.")
+    end
+    continue!(simulation)
+
+    @test simulation.compiled.status_views_by_target[unaffected_key] ===
+          unaffected_view
+    performance = Advanced.runtime_performance(simulation)
+    return (
+        status_views=get(performance.counts, :status_views_constructed, 0),
+        execution_targets=get(
+            performance.counts,
+            :execution_targets_constructed,
+            0,
+        ),
+        execution_batches=get(
+            performance.counts,
+            :execution_batches_constructed,
+            0,
+        ),
+        binding_refreshes=get(performance.counts, :binding_refreshes, 0),
+        environment_refreshes=get(
+            performance.counts,
+            :environment_refreshes,
+            0,
+        ),
+    ), simulation
+end
+
+@testset "lifecycle work counts scale with the structural delta" begin
+    for operation in (:add, :remove, :reparent, :move)
+        small_work, small_simulation =
+            stabilization_lifecycle_work(8, operation)
+        large_work, large_simulation =
+            stabilization_lifecycle_work(256, operation)
+        @test small_work == large_work
+        @test small_work.status_views <= 3
+        @test small_work.execution_targets <= 3
+
+        if operation == :remove
+            @test !haskey(
+                small_simulation.compiled.status_views_by_target,
+                (:source, ObjectId(:removed_leaf)),
+            )
+            @test haskey(
+                outputs(small_simulation),
+                (:source, ObjectId(:removed_leaf), :signal),
+            )
+            @test all(
+                row.object_id != :removed_leaf
+                for row in Diagnostics.explain_environment_bindings(
+                    small_simulation,
+                )
+            )
+        elseif operation == :reparent
+            rows = Diagnostics.explain_bindings(small_simulation)
+            plant_a = only(
+                row for row in rows
+                if row.application_id == :plant_sum &&
+                   row.consumer_id == :plant_a
+            )
+            plant_b = only(
+                row for row in rows
+                if row.application_id == :plant_sum &&
+                   row.consumer_id == :plant_b
+            )
+            @test :moving_leaf ∉ plant_a.source_ids
+            @test :moving_leaf ∈ plant_b.source_ids
+        end
+    end
 end

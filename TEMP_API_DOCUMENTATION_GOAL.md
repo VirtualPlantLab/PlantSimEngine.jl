@@ -574,7 +574,7 @@ Current restoration checkpoints on the same staged XPalm fixture:
 
 ### 1. Add performance observability before redesign
 
-- [ ] Add opt-in runtime counters and coarse timers for:
+- [x] Add opt-in runtime counters and coarse timers for:
   - initial composite compilation;
   - selector and input/call binding compilation;
   - application-order compilation;
@@ -586,6 +586,13 @@ Current restoration checkpoints on the same staged XPalm fixture:
   - temporal input materialization and publication;
   - scientific kernel execution;
   - output collection.
+      `run!(...; performance=true)` now records these stages through
+      `Advanced.runtime_performance(simulation)`. Compilation timers separate
+      application targeting, input and call bindings, application ordering,
+      status views, environment bindings, execution plans/model bundles,
+      retention, runtime materialization/publication, kernels, and collection;
+      lifecycle counters report both constructed work and replaced or removed
+      binding targets.
 - [x] Count lifecycle refreshes, dirty objects, affected applications, status
       views constructed, execution targets constructed, bindings replaced, and
       batches rebuilt.
@@ -711,9 +718,12 @@ execution path.
       count where possible.
 - [x] Extend output storage incrementally when lifecycle changes introduce a
       newly requested object.
-- [ ] Avoid using the generic temporal-dependency stream representation for
+- [x] Avoid using the generic temporal-dependency stream representation for
       ordinary requested outputs when a typed columnar representation is
-      available.
+      available. Dependency-only values use the bounded
+      `TemporalDependencyBuffer`, while requested and `outputs=:all` histories
+      use preallocated `Vector{Tuple{Float64,T}}` streams; the unified runtime
+      suite asserts both representations.
 - [x] Preserve streams keyed by application, object, and variable and preserve
       resampling and removed-object history.
 - [x] Compare `outputs=:none`, a small explicit request, the XPalm regression

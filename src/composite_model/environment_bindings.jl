@@ -254,17 +254,22 @@ function _compiled_environment_bindings(
     )
 end
 
-function compile_environment_bindings(model::CompositeModel, compiled::CompiledCompositeModel=refresh_bindings!(model))
-    _update_model_environment_indices!(model, compiled)
-    bindings = _compile_environment_bindings(model, compiled)
-    _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
+function _index_environment_bindings(bindings)
     by_target = Dict(
         (binding.application_id, binding.object_id) => binding
         for binding in bindings
     )
     length(by_target) == length(bindings) || error(
-        "Environment binding compilation produced duplicate `(application_id, object_id)` targets."
+        "Environment binding compilation produced duplicate `(application_id, object_id)` targets.",
     )
+    return by_target
+end
+
+function compile_environment_bindings(model::CompositeModel, compiled::CompiledCompositeModel=refresh_bindings!(model))
+    _update_model_environment_indices!(model, compiled)
+    bindings = _compile_environment_bindings(model, compiled)
+    _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
+    by_target = _index_environment_bindings(bindings)
     return _compiled_environment_bindings(model, compiled, bindings, by_target)
 end
 
@@ -341,10 +346,7 @@ function _reconcile_environment_binding_metadata(
     end
     changed || return cached
     _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
-    by_target = Dict(
-        (binding.application_id, binding.object_id) => binding
-        for binding in bindings
-    )
+    by_target = _index_environment_bindings(bindings)
     return _compiled_environment_bindings(model, compiled, bindings, by_target)
 end
 
@@ -356,28 +358,19 @@ function _refresh_environment_bindings_for_objects(
 )
     _update_model_environment_indices!(model, compiled)
     dirty = Set(dirty_object_ids)
-    for application in compiled.applications
-        selected_ids = ObjectId[id for id in application.target_ids if id in dirty]
-        isempty(selected_ids) && continue
-        has_new_target = any(
-            object_id -> !haskey(cached.by_target, (application.id, object_id)),
-            selected_ids,
+    pure_addition = compiled.status_view_refresh_is_pure_addition
+    stale_targets = if pure_addition
+        Set{Tuple{Symbol,ObjectId}}()
+    else
+        valid_dirty_targets = Set{Tuple{Symbol,ObjectId}}(
+            (application.id, object_id)
+            for application in compiled.applications
+            for object_id in application.target_ids
+            if object_id in dirty
         )
-        has_new_target || continue
-        config = environment_config(application.spec)
-        backend = _environment_backend_from_config(model, config)
-        backend isa GlobalConstant && continue
-        bindings = _compile_environment_bindings(model, compiled)
-        _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
-        by_target = Dict(
-            (binding.application_id, binding.object_id) => binding
-            for binding in bindings
-        )
-        return _compiled_environment_bindings(
-            model,
-            compiled,
-            bindings,
-            by_target,
+        Set{Tuple{Symbol,ObjectId}}(
+            target for target in keys(cached.by_target)
+            if last(target) in dirty && !(target in valid_dirty_targets)
         )
     end
     replacements = Dict{Tuple{Symbol,ObjectId},CompiledEnvironmentBinding}()
@@ -399,14 +392,14 @@ function _refresh_environment_bindings_for_objects(
             replacements[(binding.application_id, binding.object_id)] = binding
         end
     end
-    added_targets = Tuple{Symbol,ObjectId}[
-        target for target in keys(replacements)
-        if !haskey(cached.by_target, target)
-    ]
-    if length(added_targets) == length(replacements)
+    _validate_model_environment_inputs!(
+        values(replacements),
+        compiled.applications_by_id,
+    )
+
+    if pure_addition
         append!(cached.bindings, values(replacements))
         merge!(cached.by_target, replacements)
-        _validate_model_environment_inputs!(values(replacements), compiled.applications_by_id)
         return _compiled_environment_bindings(
             model,
             compiled,
@@ -417,27 +410,29 @@ function _refresh_environment_bindings_for_objects(
             cached.sample_cache,
         )
     end
-    bindings = CompiledEnvironmentBinding[
-        get(replacements, (binding.application_id, binding.object_id), binding)
-        for binding in cached.bindings
-    ]
+
     cached_targets = Set(keys(cached.by_target))
-    append!(
-        bindings,
-        (
-            binding for (target, binding) in replacements
-            if !(target in cached_targets)
-        ),
-    )
-    _validate_model_environment_inputs!(bindings, compiled.applications_by_id)
-    by_target = Dict(
-        (binding.application_id, binding.object_id) => binding for binding in bindings
-    )
+    filter!(cached.bindings) do binding
+        !((binding.application_id, binding.object_id) in stale_targets)
+    end
+    for index in eachindex(cached.bindings)
+        binding = cached.bindings[index]
+        target = (binding.application_id, binding.object_id)
+        cached.bindings[index] = get(replacements, target, binding)
+    end
+    for (target, binding) in replacements
+        target in cached_targets && continue
+        push!(cached.bindings, binding)
+    end
+    for target in stale_targets
+        delete!(cached.by_target, target)
+    end
+    merge!(cached.by_target, replacements)
     return _compiled_environment_bindings(
         model,
         compiled,
-        bindings,
-        by_target,
+        cached.bindings,
+        cached.by_target,
         cached.samplers_by_application,
         cached.prepared_global_environment,
         cached.sample_cache,

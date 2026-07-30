@@ -179,20 +179,36 @@ Compile model applications, selectors, value bindings, hard calls, writer
 ordering, and schedules into the single Composite Model/Object runtime representation.
 Most callers can use [`run!`](@ref) directly, which compiles as needed.
 """
-function compile_composite_model(model::CompositeModel)
-    return compile_composite_model(model, model.applications)
+function compile_composite_model(model::CompositeModel; performance=nothing)
+    return compile_composite_model(
+        model,
+        model.applications;
+        performance=performance,
+    )
 end
 
-function compile_composite_model(model::CompositeModel, specs::Tuple)
-    return _compile_scene(model, specs)
+function compile_composite_model(
+    model::CompositeModel,
+    specs::Tuple;
+    performance=nothing,
+)
+    return _compile_scene(model, specs; performance=performance)
 end
 
-function compile_composite_model(model::CompositeModel, specs::AbstractVector)
-    return _compile_scene(model, Tuple(specs))
+function compile_composite_model(
+    model::CompositeModel,
+    specs::AbstractVector;
+    performance=nothing,
+)
+    return _compile_scene(model, Tuple(specs); performance=performance)
 end
 
-function compile_composite_model(model::CompositeModel, specs...)
-    return _compile_scene(model, specs)
+function compile_composite_model(
+    model::CompositeModel,
+    specs...;
+    performance=nothing,
+)
+    return _compile_scene(model, specs; performance=performance)
 end
 
 function _model_timeline(model::CompositeModel)
@@ -201,13 +217,31 @@ function _model_timeline(model::CompositeModel)
     return _timeline_context(backend)
 end
 
-function _compile_scene(model::CompositeModel, raw_specs; validate_required_inputs::Bool=true)
+function _compile_scene(
+    model::CompositeModel,
+    raw_specs;
+    validate_required_inputs::Bool=true,
+    performance=nothing,
+)
+    started_at = _runtime_performance_start(performance)
     timeline = _model_timeline(model)
     applications = _compile_model_applications(model, raw_specs, timeline)
+    _runtime_performance_finish!(
+        performance,
+        :application_target_compile,
+        started_at,
+    )
+    started_at = _runtime_performance_start(performance)
     call_bindings = _compile_model_call_bindings(model, applications)
     _validate_model_call_cadences!(applications, call_bindings, timeline)
+    _runtime_performance_finish!(
+        performance,
+        :call_binding_compile,
+        started_at,
+    )
     _validate_model_writers!(applications, call_bindings)
     _prepare_model_output_statuses!(model, applications)
+    started_at = _runtime_performance_start(performance)
     input_bindings = _compile_model_input_bindings(
         model,
         applications,
@@ -219,6 +253,11 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
     _wire_model_input_carriers!(model, input_bindings)
     validate_required_inputs &&
         _validate_model_required_inputs!(model, applications, input_bindings)
+    _runtime_performance_finish!(
+        performance,
+        :input_binding_compile,
+        started_at,
+    )
     # Lifecycle refresh may replace an initially empty `Many(...)` carrier
     # with a concrete carrier type. Keep the per-target index type-stable
     # across that replacement so an updated compiled scene can be stored in
@@ -231,6 +270,7 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         ),
     )
     call_bindings_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
+    started_at = _runtime_performance_start(performance)
     call_owners = _model_call_owners(call_bindings)
     application_children = _compile_model_application_children(
         applications,
@@ -241,13 +281,24 @@ function _compile_scene(model::CompositeModel, raw_specs; validate_required_inpu
         applications,
         application_children,
     )
+    _runtime_performance_finish!(
+        performance,
+        :application_order_compile,
+        started_at,
+    )
     applications_by_id = Dict(application.id => application for application in applications)
+    started_at = _runtime_performance_start(performance)
     status_views_by_target = _compile_model_status_views(
         model,
         applications,
         applications_by_id,
         input_bindings_by_target,
         application_order,
+    )
+    _runtime_performance_finish!(
+        performance,
+        :status_view_compile,
+        started_at,
     )
     return CompiledCompositeModel(
         model,
@@ -602,6 +653,7 @@ function _extend_model_status_views(
     rewired_consumer_ids,
     affected_temporal_keys,
     previous_temporal_sources,
+    previous_views=compiled.status_views_by_target,
 )
     views = compiled.status_views_by_target
     affected_keys = Set{Tuple{Symbol,ObjectId}}(affected_temporal_keys)
@@ -623,7 +675,7 @@ function _extend_model_status_views(
     for key in affected_keys
         application_id, object_id = key
         application = applications_by_id[application_id]
-        previous_view = get(compiled.status_views_by_target, key, nothing)
+        previous_view = get(previous_views, key, nothing)
         if !isnothing(previous_view)
             for temporal_input in previous_view.temporal_inputs
                 get!(
@@ -701,15 +753,198 @@ function _append_added_many_call_targets!(
     return true
 end
 
-function _extend_compiled_scene(model::CompositeModel, compiled::CompiledCompositeModel, added_objects)
+function _prepare_structural_compiled_delta(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    dirty_object_ids,
+    performance=nothing,
+)
+    started_at = _runtime_performance_start(performance)
+    dirty = Set{ObjectId}(dirty_object_ids)
+    removed_target_keys = Set{Tuple{Symbol,ObjectId}}()
+    changed_application_ids = Set{Symbol}()
+    for application in compiled.applications
+        for object_id in application.target_ids
+            object_id in dirty || continue
+            push!(removed_target_keys, (application.id, object_id))
+            push!(changed_application_ids, application.id)
+        end
+        filter!(object_id -> !(object_id in dirty), application.target_ids)
+    end
+
+    applications_by_object = compiled.applications_by_object
+    for object_id in dirty
+        delete!(applications_by_object, object_id)
+    end
+
+    removed_input_consumers = Set{Tuple{Symbol,ObjectId,Symbol}}()
+    input_bindings = CompiledModelInputBinding[]
+    sizehint!(input_bindings, length(compiled.input_bindings))
+    for binding in compiled.input_bindings
+        if binding.consumer_id in dirty
+            push!(
+                removed_input_consumers,
+                (binding.application_id, binding.consumer_id, binding.input),
+            )
+            continue
+        end
+        push!(input_bindings, binding)
+    end
+    forced_input_binding_keys = Set{Tuple{Symbol,ObjectId,Symbol}}()
+    previous_temporal_sources = Dict{
+        Tuple{Symbol,ObjectId,Symbol},
+        Vector{ObjectId},
+    }()
+    for binding in input_bindings
+        any(object_id -> object_id in dirty, binding.source_ids) || continue
+        key = (binding.application_id, binding.consumer_id, binding.input)
+        push!(forced_input_binding_keys, key)
+        if binding.carrier_hint == :temporal_stream
+            previous_temporal_sources[key] = copy(binding.source_ids)
+        end
+    end
+    input_bindings_by_target = Dict{Any,Any}(
+        _index_model_bindings(
+            input_bindings,
+            :application_id,
+            :consumer_id,
+        ),
+    )
+
+    removed_call_consumers = Set{Tuple{Symbol,ObjectId}}()
+    call_bindings = CompiledModelCallBinding[]
+    sizehint!(call_bindings, length(compiled.call_bindings))
+    for binding in compiled.call_bindings
+        key = (binding.application_id, binding.consumer_id)
+        if binding.consumer_id in dirty
+            push!(removed_call_consumers, key)
+            continue
+        end
+        push!(call_bindings, binding)
+    end
+    forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
+    for binding in call_bindings
+        any(object_id -> object_id in dirty, binding.callee_object_ids) ||
+            continue
+        push!(
+            forced_call_target_keys,
+            (binding.application_id, binding.consumer_id),
+        )
+    end
+    call_bindings_by_target = _index_model_bindings(
+        call_bindings,
+        :application_id,
+        :consumer_id,
+    )
+
+    stripped = CompiledCompositeModel(
+        model,
+        compiled.applications,
+        compiled.applications_by_id,
+        applications_by_object,
+        input_bindings,
+        call_bindings,
+        input_bindings_by_target,
+        call_bindings_by_target,
+        _index_dynamic_input_bindings(model, input_bindings),
+        _index_dynamic_call_bindings(model, call_bindings),
+        _many_input_binding_cache(model, input_bindings),
+        compiled.call_owners,
+        compiled.application_children,
+        compiled.status_views_by_target,
+        changed_application_ids,
+        removed_target_keys,
+        false,
+        compiled.application_order,
+        compiled.timeline,
+        model.revision,
+    )
+    result = (
+        compiled=stripped,
+        forced_input_binding_keys=forced_input_binding_keys,
+        forced_call_target_keys=forced_call_target_keys,
+        previous_temporal_sources=previous_temporal_sources,
+        changed_application_ids=changed_application_ids,
+        changed_target_ids=removed_target_keys,
+        graph_may_shrink=!isempty(removed_input_consumers),
+        call_graph_may_shrink=!isempty(removed_call_consumers),
+    )
+    _runtime_performance_finish!(
+        performance,
+        :structural_delta_prepare,
+        started_at,
+    )
+    return result
+end
+
+function _remove_stale_status_views!(
+    compiled::CompiledCompositeModel,
+    candidate_keys,
+)
+    for key in candidate_keys
+        application_id, object_id = key
+        application = compiled.applications_by_id[application_id]
+        object_id in application.target_ids && continue
+        delete!(compiled.status_views_by_target, key)
+    end
+    return compiled
+end
+
+function _extend_compiled_scene(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    added_objects;
+    forced_input_binding_keys=Set{Tuple{Symbol,ObjectId,Symbol}}(),
+    forced_call_target_keys=Set{Tuple{Symbol,ObjectId}}(),
+    previous_views=compiled.status_views_by_target,
+    previous_temporal_sources_seed=Dict{
+        Tuple{Symbol,ObjectId,Symbol},
+        Vector{ObjectId},
+    }(),
+    changed_application_ids_seed=Set{Symbol}(),
+    changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
+    application_graph_may_shrink::Bool=false,
+    recompute_call_owners::Bool=false,
+    pure_addition::Bool=true,
+    performance=nothing,
+)
     added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
-    isempty(added_ids) && return compile_composite_model(model, model.applications)
+    isempty(added_ids) &&
+        isempty(forced_input_binding_keys) &&
+        isempty(forced_call_target_keys) &&
+        isempty(changed_application_ids_seed) &&
+        !application_graph_may_shrink &&
+        !recompute_call_owners &&
+        return compile_composite_model(
+            model,
+            model.applications;
+            performance=performance,
+        )
+    started_at = _runtime_performance_start(performance)
     new_targets = _new_application_targets(model, compiled.applications, added_ids)
-    isnothing(new_targets) && return compile_composite_model(model, model.applications)
+    isnothing(new_targets) && return compile_composite_model(
+        model,
+        model.applications;
+        performance=performance,
+    )
 
     for application in compiled.applications
         append!(application.target_ids, get(new_targets, application.id, ObjectId[]))
         _sort_object_ids!(application.target_ids)
+        if application.id in changed_application_ids_seed
+            target_count = length(application.target_ids)
+            if application.applies_to isa One && target_count != 1
+                error(
+                    "Lifecycle refresh left application `$(application.id)` with ",
+                    "$(target_count) targets for a `One` selector.",
+                )
+            elseif application.applies_to isa OptionalOne && target_count > 1
+                error(
+                    "Lifecycle refresh left application `$(application.id)` with ",
+                    "$(target_count) targets for an `OptionalOne` selector.",
+                )
+            end
+        end
     end
     applications = compiled.applications
     applications_by_id = compiled.applications_by_id
@@ -719,7 +954,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             push!(get!(applications_by_object, object_id, Any[]), application)
         end
     end
+    _runtime_performance_finish!(
+        performance,
+        :application_target_refresh,
+        started_at,
+    )
 
+    started_at = _runtime_performance_start(performance)
     has_calls = any(applications) do application
         calls = model_calls(application.spec)
         calls isa NamedTuple && !isempty(keys(calls))
@@ -744,7 +985,8 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             ),
         )
     end
-    rebuilt_existing_call_targets = Set{Tuple{Symbol,ObjectId}}()
+    rebuilt_existing_call_targets =
+        Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     if has_calls
         candidate_call_binding_indices =
             Set(get(compiled.dynamic_call_binding_indices, nothing, Int[]))
@@ -770,7 +1012,9 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
                 default_scope=_default_dependency_scope(model, binding.consumer_id),
             ) || continue
             key = (binding.application_id, binding.consumer_id)
-            appended = _append_added_many_call_targets!(
+            appended = key in forced_call_target_keys ?
+                       false :
+                       _append_added_many_call_targets!(
                 model,
                 binding,
                 added_ids,
@@ -869,9 +1113,19 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         (replacement_call_bindings..., new_call_bindings...),
         timeline,
     )
-    _validate_model_writers!(added_applications, call_bindings)
+    if pure_addition
+        _validate_model_writers!(added_applications, call_bindings)
+    else
+        _validate_model_writers!(applications, call_bindings)
+    end
     _prepare_model_output_statuses!(model, added_applications)
+    _runtime_performance_finish!(
+        performance,
+        :call_binding_refresh,
+        started_at,
+    )
 
+    started_at = _runtime_performance_start(performance)
     manual_application_ids = _manual_call_application_ids(call_bindings)
     added_input_binding_capacity = sum(
         length(_model_input_names(application)) *
@@ -894,12 +1148,20 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     order_changed_bindings = CompiledModelInputBinding[]
     rewired_consumer_ids = Set{ObjectId}()
     affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
-    previous_temporal_sources =
-        Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
+    previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
-    application_edges_may_shrink = false
+    application_edges_may_shrink =
+        application_graph_may_shrink ||
+        !isempty(forced_input_binding_keys)
     candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
+    if !isempty(forced_input_binding_keys)
+        for (binding_index, binding) in pairs(input_bindings)
+            key = (binding.application_id, binding.consumer_id, binding.input)
+            key in forced_input_binding_keys &&
+                push!(candidate_binding_indices, binding_index)
+        end
+    end
     for object_id in added_ids
         object_scale = _model_object(model, object_id).scale
         isnothing(object_scale) || union!(
@@ -909,6 +1171,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     end
     for index in candidate_binding_indices
         binding = input_bindings[index]
+        force_rebuild =
+            !isempty(forced_input_binding_keys) &&
+            (
+                binding.application_id,
+                binding.consumer_id,
+                binding.input,
+            ) in forced_input_binding_keys
         if binding.multiplicity == :many && haskey(processed_many_sources, binding.source_ids)
             if binding.carrier_hint == :temporal_stream
                 key = (binding.application_id, binding.consumer_id)
@@ -928,20 +1197,26 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         binding.multiplicity == :many &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
         default_scope = _default_dependency_scope(model, binding.consumer_id)
-        _selector_matches_any_object_id(
-            model,
-            binding.selector,
-            added_ids;
-            context=binding.consumer_id,
-            default_to_context=true,
-            default_scope=default_scope,
-        ) || continue
-        appended_sources = _append_added_many_sources!(
-            model,
-            binding,
-            added_ids,
-            applications_by_object,
-        )
+        if !force_rebuild
+            _selector_matches_any_object_id(
+                model,
+                binding.selector,
+                added_ids;
+                context=binding.consumer_id,
+                default_to_context=true,
+                default_scope=default_scope,
+            ) || continue
+        end
+        appended_sources = if force_rebuild
+            false
+        else
+            _append_added_many_sources!(
+                model,
+                binding,
+                added_ids,
+                applications_by_object,
+            )
+        end
         if appended_sources
             previous_source_application_ids !=
             binding.source_application_ids &&
@@ -1040,9 +1315,45 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         end
     end
 
-    _prepare_model_input_defaults!(model, added_applications)
+    affected_input_applications = if pure_addition
+        Tuple(added_applications)
+    else
+        rewired_applications = CompiledModelApplication[]
+        for application in applications
+            target_ids = ObjectId[
+                object_id for object_id in application.target_ids
+                if object_id in rewired_consumer_ids
+            ]
+            isempty(target_ids) && continue
+            push!(
+                rewired_applications,
+                CompiledModelApplication(
+                    application.id,
+                    application.spec,
+                    application.process,
+                    application.name,
+                    target_ids,
+                    application.applies_to,
+                    application.timestep,
+                    application.clock,
+                    application.model_overrides,
+                ),
+            )
+        end
+        (added_applications..., rewired_applications...)
+    end
+    _prepare_model_input_defaults!(model, affected_input_applications)
     _wire_model_input_carriers!(model, changed_bindings)
-    _validate_model_required_inputs!(model, added_applications, changed_bindings)
+    _validate_model_required_inputs!(
+        model,
+        affected_input_applications,
+        changed_bindings,
+    )
+    _runtime_performance_finish!(
+        performance,
+        :input_binding_refresh,
+        started_at,
+    )
     call_bindings_by_target = compiled.call_bindings_by_target
     isempty(new_call_bindings) || merge!(
         call_bindings_by_target,
@@ -1052,8 +1363,13 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             :consumer_id,
         ),
     )
-    call_owners = compiled.call_owners
-    call_owners_changed = false
+    started_at = _runtime_performance_start(performance)
+    call_owners = !recompute_call_owners &&
+                  isempty(forced_call_target_keys) ?
+                  compiled.call_owners :
+                  _model_call_owners(call_bindings)
+    call_owners_changed =
+        recompute_call_owners || !isempty(forced_call_target_keys)
     for binding in call_bindings
         for callee_id in binding.callee_application_ids
             owners = get!(call_owners, callee_id, Set{Symbol}())
@@ -1090,6 +1406,11 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             application_children,
         )
     end
+    _runtime_performance_finish!(
+        performance,
+        :application_order_refresh,
+        started_at,
+    )
     if application_order != compiled.application_order
         for (key, view) in compiled.status_views_by_target
             isempty(view.temporal_inputs) && continue
@@ -1104,6 +1425,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
             end
         end
     end
+    started_at = _runtime_performance_start(performance)
     status_views_by_target = _extend_model_status_views(
         model,
         compiled,
@@ -1116,6 +1438,12 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         rewired_consumer_ids,
         affected_temporal_keys,
         previous_temporal_sources,
+        previous_views,
+    )
+    _runtime_performance_finish!(
+        performance,
+        :status_view_refresh,
+        started_at,
     )
     changed_execution_target_ids = Set{Tuple{Symbol,ObjectId}}(
         (application_id, object_id)
@@ -1126,6 +1454,7 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
         changed_execution_target_ids,
         affected_temporal_keys,
     )
+    union!(changed_execution_target_ids, changed_target_ids_seed)
     for object_id in rewired_consumer_ids
         union!(
             changed_execution_target_ids,
@@ -1138,7 +1467,11 @@ function _extend_compiled_scene(model::CompositeModel, compiled::CompiledComposi
     changed_execution_application_ids = Set(
         first(key) for key in changed_execution_target_ids
     )
-    status_view_refresh_is_pure_addition = true
+    union!(
+        changed_execution_application_ids,
+        changed_application_ids_seed,
+    )
+    status_view_refresh_is_pure_addition = pure_addition
     return CompiledCompositeModel(
         model,
         applications,

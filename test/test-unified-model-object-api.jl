@@ -2726,7 +2726,7 @@ end
     @test Advanced.bindings_dirty(environment_scene)
     @test Advanced.environment_bindings_dirty(environment_scene)
     refreshed_with_new_leaf = Advanced.refresh_environment_bindings!(environment_scene)
-    @test length(grid_backend.binds) == 14
+    @test length(grid_backend.binds) == 10
     @test length(grid_backend.index_updates) == 4
     @test any(entity -> entity.id == :leaf_3 && entity.geometry == (cell=:cell_d,), grid_backend.index_updates[4])
     @test only(row for row in explain_applications(Advanced.refresh_bindings!(environment_scene)) if row.application_id == :probe).target_ids ==
