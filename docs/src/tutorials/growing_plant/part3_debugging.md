@@ -3,7 +3,7 @@
 If an organ appears to spend resources before it exists, inspect activation
 timing and the compiled schedule. If two models intentionally update one stock,
 declare `Updates(:stock; after=:producer)`. If a parent must test several child
-states before accepting one, use `Calls` and publish only the accepted call.
+states before accepting one, use `calls` and publish only the accepted call.
 
 For cycles, choose a scientific meaning: lag one edge with
 `PreviousTimeStep`, put convergence under a parent-owned hard call, or

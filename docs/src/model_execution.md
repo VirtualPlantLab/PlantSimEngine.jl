@@ -4,18 +4,20 @@ This page describes how the native composite-model/object runtime executes model
 applications. Use this path for new multi-object, multi-plant, soil,
 microclimate, and multirate simulations.
 
-The public configuration surface is:
+The public configuration surface has one application constructor:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-AppliesTo
-Inputs
-Calls
-Updates
-TimeStep
-Environment
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 Scenarios start from `CompositeModel` and model applications.
@@ -44,12 +46,15 @@ The composite-model/object layer does not change that kernel contract. It adds a
 scenario-specific application around the kernel:
 
 ```julia
-ModelSpec(LeafEnergyBalance(); name=:leaf_energy) |>
-    AppliesTo(Many(kind=:plant, scale=:Leaf)) |>
-    Inputs(...) |>
-    Calls(...) |>
-    TimeStep(Dates.Hour(1)) |>
-    Environment(provider=:canopy)
+ModelSpec(
+    LeafEnergyBalance();
+    name=:leaf_energy,
+    on=Many(kind=:plant, scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(provider=:canopy),
+)
 ```
 
 `ModelSpec` decides where the model runs, where its inputs come from, which
@@ -61,13 +66,13 @@ provider is bound to it. The model implementation stays reusable.
 Before the timestep loop, PlantSimEngine compiles the model into concrete
 runtime carriers:
 
-1. `AppliesTo(...)` selectors are resolved to stable object ids.
-2. `Inputs(...)` selectors are resolved to source object/application ids.
+1. `ModelSpec(...; on=...)` selectors are resolved to stable object ids.
+2. `ModelSpec(...; inputs=...)` selectors are resolved to source object/application ids.
 3. Same-rate inputs are wired as shared `Ref`s, `RefVector`s, or
    heterogeneous object-reference vectors.
 4. Temporal inputs are compiled as stream lookups with a policy such as
    `HoldLast`, `Interpolate`, `Integrate`, or `Aggregate`.
-5. `Calls(...)` declarations are compiled to callable target lists.
+5. `ModelSpec(...; calls=...)` declarations are compiled to callable target lists.
 6. `Environment(...)` is bound to backend cells, layers, voxels, or global
    weather providers.
 7. The root application order is topologically sorted from value inputs and
@@ -97,20 +102,16 @@ manual-call targets that the runtime will use.
 ## Soft Dependencies With Inputs
 
 Soft dependencies are value dependencies. A consumer model reads a variable
-produced by another model through `Inputs(...)`.
+produced by another model through `ModelSpec(...; inputs=...)`.
 
 ```julia
-ModelSpec(SceneLAI(ground_area); name=:scene_lai) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(
-        :leaf_areas => Many(
+ModelSpec(SceneLAI(ground_area); name=:scene_lai, on=One(scale=:Scene), inputs=(:leaf_areas => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
             application=:leaf_state,
             var=:leaf_area,
-        ),
-    )
+        ),))
 ```
 
 For same-rate inputs, the runtime installs a reference carrier into the
@@ -119,7 +120,7 @@ therefore sees a `RefVector`-like object: reading pulls current values from
 source leaf statuses, and writing through the carrier mutates source refs when
 the carrier supports it.
 
-If an input is not explicitly declared with `Inputs(...)`, the compiler can
+If an input is not explicitly declared with `ModelSpec(...; inputs=...)`, the compiler can
 infer simple same-object bindings when exactly one producer on the same object
 outputs the same variable. Ambiguous producers are errors and should be
 disambiguated with `application=...` and, when names differ, `var=...`.
@@ -129,14 +130,11 @@ the previous sample instead of creating a same-timestep scheduling edge.
 
 ## Hard Calls With Calls
 
-Hard dependencies are manual calls. Use `Calls(...)` when a parent model must
+Hard dependencies are manual calls. Use `ModelSpec(...; calls=...)` when a parent model must
 control the call stack, for example during an iterative energy-balance solve.
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
-        :leaf_energy => Many(
+ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
@@ -147,9 +145,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             scale=:Soil,
             within=SceneScope(),
             application=:soil_water,
-        ),
-    ) |>
-    TimeStep(Dates.Hour(1))
+        ),), every=Dates.Hour(1))
 ```
 
 Inside `run!`, the parent can execute every resolved target directly. The
@@ -184,7 +180,7 @@ do not publish temporal samples or commit mutable environment updates. Use
 state through their compiled environment handles. Call `commit_environment!` and
 `run_call!(...; publish=true)` once for the accepted state.
 
-Applications selected only by `Calls(...)` are marked manual-call-only in
+Applications selected only by `ModelSpec(...; calls=...)` are marked manual-call-only in
 `explain_schedule(model)` and are skipped by the root `run!(model)` loop.
 
 ## Duplicate Writers With Updates
@@ -194,12 +190,9 @@ writer. If a scenario intentionally lets several models update the same
 variable, later writers must declare that order explicitly:
 
 ```julia
-ModelSpec(CarbonAllocation(); name=:carbon_allocation) |>
-    AppliesTo(Many(scale=:Leaf))
+ModelSpec(CarbonAllocation(); name=:carbon_allocation, on=Many(scale=:Leaf))
 
-ModelSpec(LeafPruning(); name=:leaf_pruning) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Updates(:leaf_biomass; after=:carbon_allocation)
+ModelSpec(LeafPruning(); name=:leaf_pruning, on=Many(scale=:Leaf), updates=Updates(:leaf_biomass; after=:carbon_allocation))
 ```
 
 This keeps ordinary duplicate outputs as errors while allowing cases such as
@@ -210,31 +203,24 @@ The `after` value is the canonical application identifier shown by
 
 ## Multirate Execution
 
-Use `TimeStep(...)` with `Dates.Period` values for model application clocks:
+Use `ModelSpec(...; every=...)` with `Dates.Period` values for model application clocks:
 
 ```julia
-ModelSpec(HourlyLeafAssimilation(); name=:leaf_assim) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    TimeStep(Dates.Hour(1))
+ModelSpec(HourlyLeafAssimilation(); name=:leaf_assim, on=Many(scale=:Leaf), every=Dates.Hour(1))
 
-ModelSpec(DailyPlantAllocation(); name=:allocation) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(
-        :leaf_assimilation => Many(
+ModelSpec(DailyPlantAllocation(); name=:allocation, on=Many(scale=:Plant), inputs=(:leaf_assimilation => Many(
             scale=:Leaf,
             within=Subtree(),
             application=:leaf_assim,
             var=:A,
             policy=Integrate(),
             window=Dates.Day(1),
-        ),
-    ) |>
-    TimeStep(Dates.Day(1))
+        ),), every=Dates.Day(1))
 ```
 
 Clock precedence is:
 
-1. explicit `TimeStep(...)` on the `ModelSpec`;
+1. explicit `ModelSpec(...; every=...)` on the `ModelSpec`;
 2. non-default `timespec(model)` trait;
 3. the model environment base step.
 
@@ -271,9 +257,7 @@ there is no `CalendarWindow` compatibility type.
 `Environment(...)` chooses a provider and optional source-variable remapping:
 
 ```julia
-ModelSpec(CO2Probe(); name=:co2_probe) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Environment(provider=:canopy, sources=(CO2=:Ca,))
+ModelSpec(CO2Probe(); name=:co2_probe, on=Many(scale=:Leaf), environment=Environment(provider=:canopy, sources=(CO2=:Ca,)))
 ```
 
 The compiler binds each application/object pair to the selected backend before
@@ -310,7 +294,7 @@ encode both routes in the handle, for example
 
 Model-level `environment_hint(...)` can provide default source bindings and
 aggregation rules. Scenario-level `Environment(...)` keeps precedence for
-source names, while explicit sampling policy on `Inputs(...)` controls
+source names, while explicit sampling policy on `ModelSpec(...; inputs=...)` controls
 model-to-model temporal values.
 
 ## Running And Outputs
@@ -425,11 +409,11 @@ The historical mapping runtime has been removed. Translate old code as follows:
 
 - `ModelMapping(...)` -> `CompositeModel(...)` plus object-local `ModelSpec(...)`
   applications;
-- `MultiScaleModel(...)` -> `Inputs(...)`;
-- `InputBindings(...)` -> selector fields inside `Inputs(...)`;
+- `MultiScaleModel(...)` -> `ModelSpec(...; inputs=...)`;
+- `InputBindings(...)` -> selector fields inside `ModelSpec(...; inputs=...)`;
 - `MeteoBindings(...)` / `MeteoWindow(...)` -> `Environment(...)`,
   `environment_hint(...)`, and model/application clocks;
-- `TimeStepModel(...)` -> `TimeStep(...)`.
+- `TimeStepModel(...)` -> `ModelSpec(...; every=...)`.
 
 See [Migrating To The CompositeModel/Object API](migration_composite_model.md) for worked
 translation patterns.

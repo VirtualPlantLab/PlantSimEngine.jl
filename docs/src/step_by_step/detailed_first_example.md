@@ -5,8 +5,8 @@ readers who are still getting comfortable with Julia and PlantSimEngine.
 
 If you only want examples to copy and modify, see [Quick examples](quick_and_dirty_examples.md). For
 multi-object and multi-plant simulations, the same API scales up: add objects,
-select them with `AppliesTo(...)`, connect values with `Inputs(...)`, and use
-`Calls(...)` when a parent model must manually run child models.
+select them with `ModelSpec(...; on=...)`, connect values with `ModelSpec(...; inputs=...)`, and use
+`ModelSpec(...; calls=...)` when a parent model must manually run child models.
 
 ```@setup detailed_scene
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
@@ -219,7 +219,7 @@ end
 ## Migration Note
 
 The previous mapping runtime has been removed. Simulations use `CompositeModel`,
-`Object`, `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`,
+`Object`, `ModelSpec`, `on`, `inputs`, `calls`, `Updates`, `every`,
 and `Environment`.
 
 See [Migrating To The CompositeModel/Object API](../migration_composite_model.md) for the

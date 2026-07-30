@@ -265,7 +265,7 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
         mounted_name = Symbol(instance.name, "__", base_name)
         target = applies_to(spec)
         isnothing(target) && error(
-            "Template application `$(base_name)` has no `AppliesTo(...)` selector."
+            "Template application `$(base_name)` has no `ModelSpec(...; on=...)` selector."
         )
         mounted_target = _selector_with_scope(target, Scope(instance.name))
         prefix_application = selector -> _selector_with_application_prefix(
@@ -289,11 +289,11 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
         end
         push!(
             mounted,
-            ModelSpec(
+            _replace_model_spec(
                 spec;
                 model=mounted_model,
                 name=mounted_name,
-                applies_to=mounted_target,
+                on=mounted_target,
                 inputs=mounted_inputs,
                 calls=mounted_calls,
             ),

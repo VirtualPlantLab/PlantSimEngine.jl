@@ -38,23 +38,16 @@ end
         Object(:plant_2_leaf_1; scale=:Leaf, parent=:plant_2, status=Status(rate=10.0)),
         Object(:plant_2_leaf_2; scale=:Leaf, parent=:plant_2, status=Status(rate=20.0));
         applications=(
-            ModelSpec(HourlyLeafFluxModel(); name=:hourly_flux) |>
-                AppliesTo(Many(scale=:Leaf)) |>
-                TimeStep(Hour(1)),
-            ModelSpec(DailyPlantFluxModel(); name=:daily_plant) |>
-                AppliesTo(Many(scale=:Plant)) |>
-                Inputs(:leaf_fluxes => Many(
+            ModelSpec(HourlyLeafFluxModel(); name=:hourly_flux, on=Many(scale=:Leaf), every=Hour(1)),
+            ModelSpec(DailyPlantFluxModel(); name=:daily_plant, on=Many(scale=:Plant), inputs=(:leaf_fluxes => Many(
                     scale=:Leaf,
                     within=Subtree(),
                     application=:hourly_flux,
                     var=:flux,
                     policy=Integrate(),
                     window=Day(1),
-                )) |>
-                TimeStep(Day(1)),
-            ModelSpec(DailySoilStateModel(); name=:daily_soil) |>
-                AppliesTo(One(scale=:Soil)) |>
-                TimeStep(Day(1)),
+                )), every=Day(1)),
+            ModelSpec(DailySoilStateModel(); name=:daily_soil, on=One(scale=:Soil), every=Day(1)),
         ),
         environment=[(duration=Hour(1),) for _ in 1:48],
     )

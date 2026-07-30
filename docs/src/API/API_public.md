@@ -9,13 +9,14 @@
   form and lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
 - `CompositeModelTemplate` and `ObjectInstance` reuse a model across instances.
-- `ModelSpec(model; name=...)` identifies one model application.
-- `AppliesTo(...)` selects its target objects.
+- `ModelSpec(model; name=..., on=..., inputs=..., calls=..., every=...,
+  environment=..., output_routing=..., updates=...)` is the one application
+  construction form.
 
 ### Coupling
 
-- `Inputs(...)` declares value dependencies.
-- `Calls(...)` declares manually executable child models.
+- `ModelSpec(...; inputs=...)` declares value dependencies.
+- `ModelSpec(...; calls=...)` declares manually executable child models.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
@@ -45,7 +46,7 @@
 
 ### Time and environment
 
-- `TimeStep(period)` sets an application cadence.
+- `ModelSpec(...; every=period)` sets an application cadence.
 - `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` define temporal
   input policies.
 - `Environment(...)` configures environment providers and source remapping.

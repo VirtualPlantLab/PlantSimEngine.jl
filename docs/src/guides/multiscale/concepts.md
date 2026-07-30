@@ -1,7 +1,8 @@
 # How Multiscale Composite Models Execute
 
-One application executes once for every object selected by `AppliesTo`. State
-belongs to the object, while topology and labels belong to the scenario.
+One application executes once for every object selected by its
+`ModelSpec(...; on=...)` selector. State belongs to the object, while topology
+and labels belong to the scenario.
 `Self()` is the current object, `SelfPlant()` is its plant-instance root, and
 `SceneScope()` is model-wide. Cardinality wrappers decide whether zero, one,
 or many matches are valid.
@@ -13,8 +14,8 @@ Canonical selector patterns are:
 
 | Relationship | Pattern |
 | --- | --- |
-| application targets every leaf | `AppliesTo(Many(scale=:Leaf))` |
-| input from this same object | omit `Inputs` when the producer is unique |
+| application targets every leaf | `ModelSpec(model; on=Many(scale=:Leaf))` |
+| input from this same object | omit `inputs` when the producer is unique |
 | input from one ancestor | `One(Ancestor(scale=:Plant))` |
 | input from this plant's leaves | `Many(scale=:Leaf, within=SelfPlant())` |
 | input from shared soil | `One(scale=:Soil, within=SceneScope())` |

@@ -97,5 +97,5 @@ growth_status = only(model_objects(growth_scene; scale=:Scene)).status
 ```
 
 Older examples used the removed mapping runtime for this workflow. New
-scenarios start from `CompositeModel`, `Object`, `ModelSpec`, `AppliesTo`, `Inputs`,
-`Calls`, and `TimeStep`.
+scenarios start from `CompositeModel`, `Object`, `ModelSpec`, `on`, `inputs`,
+`calls`, and `every`.

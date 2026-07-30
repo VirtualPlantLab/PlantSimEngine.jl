@@ -3,18 +3,20 @@
 This page is the shortest path to a native composite-model/object simulation.
 
 Use this API for new multiscale, multi-plant, soil, microclimate, and
-model-scale simulations:
+model-scale simulations. Applications use one direct constructor:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-AppliesTo
-Inputs
-Calls
-Updates
-TimeStep
-Environment
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 Scenarios are defined with `CompositeModel` and model applications. A model is a
@@ -47,7 +49,7 @@ The first model has one object, `:scene`, and three model applications:
 - `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
 The model implementations are ordinary PlantSimEngine kernels. The model
-application layer decides where they run. With no explicit `TimeStep`, these
+application layer decides where they run. With no explicit `every`, these
 applications use the environment cadence.
 
 ```@example model_object_quickstart
@@ -147,7 +149,7 @@ explain_output_retention(requested_sim)
 
 ## Many Objects As Inputs
 
-Use `Inputs(...)` when a model needs values from selected objects. This
+Use `ModelSpec(...; inputs=...)` when a model needs values from selected objects. This
 model-scale LAI model reads live references to the surface of every plant:
 
 ```@example model_object_quickstart
@@ -168,15 +170,11 @@ plant_scene = CompositeModel(
         status=Status(surface=8.0),
     );
     applications=(
-        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                :plant_surfaces => Many(
+        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai, on=One(scale=:Scene), inputs=(:plant_surfaces => Many(
                     scale=:Plant,
                     within=SceneScope(),
                     var=:surface,
-                ),
-            ),
+                ),)),
     ),
 )
 
@@ -204,14 +202,11 @@ must aggregate all matching objects.
 
 ## Manual Calls
 
-Use `Calls(...)` when a parent model must directly run selected child models.
+Use `ModelSpec(...; calls=...)` when a parent model must directly run selected child models.
 This is the mechanism for iterative solvers such as model energy balance:
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
-        :leaf_energy => Many(
+ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
@@ -222,9 +217,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             scale=:Soil,
             within=SceneScope(),
             application=:soil_water,
-        ),
-    ) |>
-    TimeStep(Hour(1))
+        ),), every=Hour(1))
 ```
 
 For a one-shot call, execute all targets directly:

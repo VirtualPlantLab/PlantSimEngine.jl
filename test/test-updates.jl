@@ -57,25 +57,19 @@ end
 @testset "ModelSpec Updates" begin
     @test_throws "Ambiguous canonical writers" Advanced.compile_composite_model(
         update_scene(
-            ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
-            ModelSpec(UpdateLeafPruningModel()) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(UpdateCarbonAllocationModel(); on=One(scale=:Leaf)),
+            ModelSpec(UpdateLeafPruningModel(); on=One(scale=:Leaf)),
         ),
     )
 
     model = update_scene(
-        ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
-        ModelSpec(UpdateLeafPruningModel()) |>
-        AppliesTo(One(scale=:Leaf)) |>
-        Updates(:leaf_biomass; after=:update_carbon_allocation),
-        ModelSpec(UpdateBiomassObserverModel()) |>
-        AppliesTo(One(scale=:Leaf)) |>
-        Inputs(
-            :leaf_biomass => One(
+        ModelSpec(UpdateCarbonAllocationModel(); on=One(scale=:Leaf)),
+        ModelSpec(UpdateLeafPruningModel(); on=One(scale=:Leaf), updates=Updates(:leaf_biomass; after=:update_carbon_allocation)),
+        ModelSpec(UpdateBiomassObserverModel(); on=One(scale=:Leaf), inputs=(:leaf_biomass => One(
                 scale=:Leaf,
                 application=:update_leaf_pruning,
                 var=:leaf_biomass,
-            ),
-        ),
+            ),)),
     )
     run!(model)
     leaf = only(model_objects(model; scale=:Leaf))
@@ -84,36 +78,22 @@ end
 
     @test_throws "without an ordering relation" Advanced.compile_composite_model(
         update_scene(
-            ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
-            ModelSpec(UpdateLeafPruningModel()) |>
-            AppliesTo(One(scale=:Leaf)) |>
-            Updates(:leaf_biomass; after=:update_carbon_allocation),
-            ModelSpec(UpdateLeafSenescenceModel()) |>
-            AppliesTo(One(scale=:Leaf)) |>
-            Updates(:leaf_biomass; after=:update_carbon_allocation),
+            ModelSpec(UpdateCarbonAllocationModel(); on=One(scale=:Leaf)),
+            ModelSpec(UpdateLeafPruningModel(); on=One(scale=:Leaf), updates=Updates(:leaf_biomass; after=:update_carbon_allocation)),
+            ModelSpec(UpdateLeafSenescenceModel(); on=One(scale=:Leaf), updates=Updates(:leaf_biomass; after=:update_carbon_allocation)),
         ),
     )
 
     ordered = update_scene(
-        ModelSpec(UpdateCarbonAllocationModel()) |> AppliesTo(One(scale=:Leaf)),
-        ModelSpec(UpdateLeafSenescenceModel()) |>
-        AppliesTo(One(scale=:Leaf)) |>
-        Updates(:leaf_biomass; after=:update_carbon_allocation),
-        ModelSpec(UpdateLeafPruningModel()) |>
-        AppliesTo(One(scale=:Leaf)) |>
-        Updates(
-            :leaf_biomass;
-            after=(:update_carbon_allocation, :update_leaf_senescence),
-        ),
-        ModelSpec(UpdateBiomassObserverModel()) |>
-        AppliesTo(One(scale=:Leaf)) |>
-        Inputs(
-            :leaf_biomass => One(
+        ModelSpec(UpdateCarbonAllocationModel(); on=One(scale=:Leaf)),
+        ModelSpec(UpdateLeafSenescenceModel(); on=One(scale=:Leaf), updates=Updates(:leaf_biomass; after=:update_carbon_allocation)),
+        ModelSpec(UpdateLeafPruningModel(); on=One(scale=:Leaf), updates=Updates(:leaf_biomass;
+            after=(:update_carbon_allocation, :update_leaf_senescence),)),
+        ModelSpec(UpdateBiomassObserverModel(); on=One(scale=:Leaf), inputs=(:leaf_biomass => One(
                 scale=:Leaf,
                 application=:update_leaf_pruning,
                 var=:leaf_biomass,
-            ),
-        ),
+            ),)),
     )
     run!(ordered)
     ordered_leaf = only(model_objects(ordered; scale=:Leaf))

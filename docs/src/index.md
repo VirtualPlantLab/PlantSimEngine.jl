@@ -18,8 +18,8 @@ Depth = 4
 
 !!! warning "Configuration API migration"
     New multiscale, multi-plant, soil, model, and microclimate scenarios should
-    use the unified `CompositeModel`/`Object` API with `AppliesTo`, `Inputs`, `Calls`,
-    `Updates`, `TimeStep`, and `Environment`. See
+    use the unified `CompositeModel`/`Object` API and direct `ModelSpec`
+    keywords. See
     [Migrating To The CompositeModel/Object API](migration_composite_model.md). Superseded
     mapping constructors and their implementation have been removed.
 
@@ -30,18 +30,20 @@ simulations from small process models. A modeler writes reusable kernels with
 `inputs_`, `outputs_`, optional dependency traits, and `run!`. A simulation
 author then assembles those kernels on objects in a `CompositeModel`.
 
-The current public scenario API is organized around:
+The public scenario API has one application-construction form:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-AppliesTo
-Inputs
-Calls
-Updates
-TimeStep
-Environment
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 ### Models And Applications
@@ -70,14 +72,14 @@ without changing the model implementation.
 
 - **Modular models**: each process model can be developed, tested, calibrated,
   and replaced independently.
-- **Explicit coupling**: `Inputs(...)` declares value dependencies, while
-  `Calls(...)` gives iterative parent solvers manual control over hard model
-  calls.
+- **Explicit coupling**: `ModelSpec(...; inputs=...)` declares value
+  dependencies, while `calls=...` gives iterative parent solvers manual
+  control over hard model calls.
 - **Object-based multiscale composite models**: scales are labels on objects, so a plant
   can be described as plants, axes, internodes, leaves, roots, voxels, or any
   topology the model requires.
-- **Multirate execution**: use `TimeStep(Dates.Hour(1))`,
-  `TimeStep(Dates.Day(1))`, and temporal policies such as `Integrate()` or
+- **Multirate execution**: use `every=Dates.Hour(1)` or
+  `every=Dates.Day(1)`, with temporal policies such as `Integrate()` or
   `HoldLast()` in the same model.
 - **Automatic environment binding**: global weather and spatial microclimate
   backends are bound through `Environment(...)`, model `environment_inputs_`, and
@@ -113,7 +115,7 @@ This example runs three existing toy models on one model object:
 3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
 The model kernels are unchanged; the model application layer says where they
-run. Since no `TimeStep` is specified, these applications use the daily
+run. Since no `every` is specified, these applications use the daily
 cadence of `meteo_day`.
 
 ```@example readme
@@ -172,7 +174,7 @@ fig
 
 ## Multi-Object Inputs
 
-Use `Inputs(...)` when a model needs values from selected objects. Here the
+Use `ModelSpec(...; inputs=...)` when a model needs values from selected objects. Here the
 model-scale LAI model reads live references to all plant surfaces in the model:
 
 ```@example readme
@@ -183,15 +185,11 @@ plant_scene = CompositeModel(
     Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
            status=Status(surface=8.0));
     applications=(
-        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                :plant_surfaces => Many(
+        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai, on=One(scale=:Scene), inputs=(:plant_surfaces => Many(
                     scale=:Plant,
                     within=SceneScope(),
                     var=:surface,
-                ),
-            ),
+                ),)),
     ),
 )
 
@@ -214,15 +212,12 @@ implement the same process or publish the same variable on different objects.
 
 ## Manual Calls For Iterative Solvers
 
-Use `Calls(...)` when a parent model must directly run another model, for
+Use `ModelSpec(...; calls=...)` when a parent model must directly run another model, for
 example a model energy-balance solver that iterates leaf temperatures until
 convergence:
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
-        :leaf_energy => Many(
+ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
@@ -233,9 +228,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             scale=:Soil,
             within=SceneScope(),
             application=:soil_water,
-        ),
-    ) |>
-    TimeStep(Hour(1))
+        ),), every=Hour(1))
 ```
 
 The same rule applies to manual calls: scenario wiring should select the

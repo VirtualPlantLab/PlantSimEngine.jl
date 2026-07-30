@@ -547,12 +547,10 @@ function _add_application_edit(session, command)
     name = Symbol(command["name"])
     selector = _selector_from_payload(command["selector"])
     timestep = _timestep_from_payload(get(command, "timestep", nothing))
-    spec = PlantSimEngine.ModelSpec(
-        model;
+    spec = PlantSimEngine.ModelSpec(model;
         name=name,
-        applies_to=selector,
-        timestep=timestep,
-    )
+        on=selector,
+        every=timestep,)
     return PlantSimEngine.AddModelApplication(spec)
 end
 
@@ -910,32 +908,44 @@ function _object_override_code(override)
 end
 
 function _application_code(spec)
-    code = "ModelSpec($(repr(PlantSimEngine.model_(spec))); name=$(repr(PlantSimEngine.application_name(spec))))"
+    options = String["name=$(repr(PlantSimEngine.application_name(spec)))"]
     selector = PlantSimEngine.applies_to(spec)
-    isnothing(selector) || (code *= " |> AppliesTo($(repr(selector)))")
+    isnothing(selector) || push!(options, "on=$(repr(selector))")
     isempty(keys(PlantSimEngine.value_inputs(spec))) ||
-        (code *= " |> Inputs($(repr(PlantSimEngine.value_inputs(spec))))")
+        push!(options, "inputs=$(repr(PlantSimEngine.value_inputs(spec)))")
     isempty(keys(PlantSimEngine.model_calls(spec))) ||
-        (code *= " |> Calls($(repr(PlantSimEngine.model_calls(spec))))")
+        push!(options, "calls=$(repr(PlantSimEngine.model_calls(spec)))")
     environment = PlantSimEngine.environment_config(spec)
     if !isnothing(environment)
         payload = environment isa PlantSimEngine.EnvironmentConfig ? environment.config : environment
-        code *= " |> Environment($(repr(payload)))"
+        push!(options, "environment=Environment($(repr(payload)))")
     end
-    isnothing(spec.timestep) || (code *= " |> TimeStep($(repr(spec.timestep)))")
+    isnothing(spec.timestep) || push!(options, "every=$(repr(spec.timestep))")
     if !isempty(keys(PlantSimEngine.environment_bindings(spec)))
-        code = "PlantSimEngine.with_environment_bindings($(code), $(repr(PlantSimEngine.environment_bindings(spec))))"
+        push!(
+            options,
+            "environment_bindings=$(repr(PlantSimEngine.environment_bindings(spec)))",
+        )
     end
     if !isnothing(PlantSimEngine.environment_window(spec))
-        code = "PlantSimEngine.with_environment_window($(code), $(repr(PlantSimEngine.environment_window(spec))))"
+        push!(
+            options,
+            "environment_window=$(repr(PlantSimEngine.environment_window(spec)))",
+        )
     end
     isempty(keys(PlantSimEngine.output_routing(spec))) ||
-        (code *= " |> OutputRouting($(repr(PlantSimEngine.output_routing(spec))))")
+        push!(options, "output_routing=$(repr(PlantSimEngine.output_routing(spec)))")
+    update_codes = String[]
     for update in PlantSimEngine.updates(spec)
         variables = join(repr.(collect(update.variables)), ", ")
-        code *= " |> Updates($(variables); after=$(repr(update.after)))"
+        push!(update_codes, "Updates($(variables); after=$(repr(update.after)))")
     end
-    return code
+    if length(update_codes) == 1
+        push!(options, "updates=$(only(update_codes))")
+    elseif !isempty(update_codes)
+        push!(options, "updates=($(join(update_codes, ", ")),)")
+    end
+    return "ModelSpec($(repr(PlantSimEngine.model_(spec))); $(join(options, ", ")))"
 end
 
 function _persist_model!(session)

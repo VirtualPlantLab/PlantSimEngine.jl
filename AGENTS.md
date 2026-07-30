@@ -42,19 +42,14 @@ Read the current model's parameters directly from `model`. `context` is a
 Use one configuration grammar:
 
 ```julia
-ModelSpec(model; name=:application) |>
-AppliesTo(selector) |>
-Inputs(...) |>
-Calls(...) |>
-TimeStep(Dates.Hour(1)) |>
-Environment(...)
+ModelSpec(model; name=:application, on=selector, inputs=(...), calls=(...), every=Dates.Hour(1), environment=Environment(...))
 ```
 
-- `AppliesTo` selects where the model runs.
-- `Inputs` declares value dependencies.
-- `Calls` declares manually executable hard dependencies.
+- `on` selects where the model runs.
+- `inputs` declares value dependencies.
+- `calls` declares manually executable hard dependencies.
 - `Updates(:x; after=:producer)` orders intentional duplicate writers.
-- `OutputRouting(; x=:stream_only)` excludes an output from canonical
+- `output_routing=(x=:stream_only,)` excludes an output from canonical
   ownership while retaining its stream.
 
 ## Selectors
@@ -80,7 +75,7 @@ itself that plant.
 
 ## Value Coupling
 
-The compiler resolves `Inputs(...)` to reference carriers:
+The compiler resolves `ModelSpec(...; inputs=...)` to reference carriers:
 
 - one source uses a shared `Ref`;
 - many homogeneous sources use `RefVector`;
@@ -91,13 +86,13 @@ Use `input_carrier`, `input_value`, `explain_bindings`, and
 `has_reference_carrier` instead of inspecting internal fields.
 
 Same-object input/output matches are inferred when unique. Cross-object
-coupling should be explicit with `Inputs(...)`.
+coupling should be explicit with `ModelSpec(...; inputs=...)`.
 
 ## Hard Calls
 
 Hard dependencies are parent-controlled:
 
-1. Declare them with model-level `Call(...)` or scenario-level `Calls(...)`.
+1. Declare them with model-level `Call(...)` or scenario-level `ModelSpec(...; calls=...)`.
 2. Execute all resolved targets with `run_call!(context, name)`. It always
    returns a vector-like `CallTargets` collection.
 3. For selective or iterative execution, inspect `call_targets(context, name)`
@@ -111,7 +106,7 @@ scheduler and do not receive inferred soft bindings.
 
 ## Time
 
-- `TimeStep(Dates.Period)` configures application cadence.
+- `ModelSpec(...; every=Dates.Period)` configures application cadence.
 - `timespec(model)` provides a model default.
 - `timestep_hint(model)` validates compatibility when cadence comes from the
   environment base step.

@@ -2984,7 +2984,7 @@ end
     call_targets(context::RunContext, name::Symbol; objects=nothing)
 
 Return a cached, non-executing vector-like view of the targets declared for
-`name` with `Calls(...)`. The collection is empty for an unresolved
+`name` with `ModelSpec(...; calls=...)`. The collection is empty for an unresolved
 `OptionalOne`, has one element for `One`, and contains every resolved target
 for `Many`.
 
@@ -3467,7 +3467,7 @@ function _environment_binding_for_current_context(context::RunContext)
             "Cannot commit environment state for `$(context.application.id)` on object ",
             "`$(context.object_id.value)`: no environment binding is configured. ",
             "Attach an environment with `CompositeModel(...; environment=...)` and ",
-            "`ModelSpec(model) |> Environment(...)`."
+            "`ModelSpec(model; environment=Environment(...))`."
         )
     end
     return binding

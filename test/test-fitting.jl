@@ -15,7 +15,7 @@ using Dates
     model = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(LAI=2.0));
         applications=(
-            ModelSpec(Beer(k)) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(Beer(k); on=One(scale=:Leaf)),
         ),
         environment=meteo,
     )

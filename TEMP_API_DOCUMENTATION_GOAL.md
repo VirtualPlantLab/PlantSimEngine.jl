@@ -71,7 +71,7 @@ Each later journey introduces one substantial concept at a time.
 - [x] Same-object value coupling can be inferred when unique.
 - [x] Cross-object coupling uses explicit `One`, `OptionalOne`, or `Many`
       selectors and scope.
-- [x] Hard dependencies are parent controlled through `Calls`,
+- [x] Hard dependencies are parent controlled through `calls`,
       `call_targets`, and `run_call!`.
 - [x] Runtime mutation refreshes affected selectors, carriers, schedules, and
       environment bindings between timesteps.
@@ -594,7 +594,7 @@ streams then use `deleteat!` or `filter!` during publication.
 
 ### 5. Restore the no-hard-call fast path per batch
 
-XPalm has only two `Calls(...)` declarations, but the presence of any compiled
+XPalm has only two `ModelSpec(...; calls=...)` declarations, but the presence of any compiled
 call binding currently sends every scheduled target through the call-capable
 execution path.
 

@@ -1,9 +1,10 @@
 # Manual Calls Across Objects
 
-Declare parent-owned execution with `Calls(:name => One(...))` or
-`Calls(:name => Many(...))`. In the kernel, execute every resolved target with
-`run_call!(context, :name)`. The returned `CallTargets` collection is always
-vector-like, including for `One` and `OptionalOne`. Use
+Declare parent-owned execution with
+`ModelSpec(model; calls=(:name => One(...),))` or a `Many(...)` selector. In
+the kernel, execute every resolved target with `run_call!(context, :name)`.
+The returned `CallTargets` collection is always vector-like, including for
+`One` and `OptionalOne`. Use
 `call_targets(context, :name)` followed by `run_call!(target)` for selective,
 per-target, or iterative execution. A target used only by calls is absent from
 root scheduling.

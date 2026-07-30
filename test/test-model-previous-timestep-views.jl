@@ -119,14 +119,11 @@ PlantSimEngine.inputs_(::TemporalViewAmbiguousOverlap) = (signal=Required(Float6
 PlantSimEngine.outputs_(::TemporalViewAmbiguousOverlap) = (signal=0.0,)
 
 function _temporal_view_source_spec(; target=One(scale=:Leaf))
-    return ModelSpec(TemporalViewSignalSource(); name=:signal_source) |>
-           AppliesTo(target)
+    return ModelSpec(TemporalViewSignalSource(); name=:signal_source, on=target)
 end
 
 function _temporal_view_consumer_spec(; target=One(scale=:Leaf), selector)
-    return ModelSpec(TemporalViewSignalConsumer(); name=:lagged_consumer) |>
-           AppliesTo(target) |>
-           Inputs(PreviousTimeStep(:signal) => selector)
+    return ModelSpec(TemporalViewSignalConsumer(); name=:lagged_consumer, on=target, inputs=(PreviousTimeStep(:signal) => selector))
 end
 
 function _materialization_allocations(
@@ -290,10 +287,8 @@ end
     unbroken_cycle = CompositeModel(
         Object(:leaf; scale=:Leaf, status=cycle_status);
         applications=(
-            ModelSpec(TemporalViewCycleA(); name=:cycle_a) |>
-            AppliesTo(One(scale=:Leaf)),
-            ModelSpec(TemporalViewCycleB(); name=:cycle_b) |>
-            AppliesTo(One(scale=:Leaf)),
+            ModelSpec(TemporalViewCycleA(); name=:cycle_a, on=One(scale=:Leaf)),
+            ModelSpec(TemporalViewCycleB(); name=:cycle_b, on=One(scale=:Leaf)),
         ),
     )
     @test_throws "dependency cycle" Advanced.refresh_bindings!(unbroken_cycle)
@@ -305,17 +300,12 @@ end
             status=Status(cycle_a=0.0, cycle_b=2.0),
         );
         applications=(
-            ModelSpec(TemporalViewCycleA(); name=:cycle_a) |>
-            AppliesTo(One(scale=:Leaf)) |>
-            Inputs(
-                PreviousTimeStep(:cycle_b) => One(
+            ModelSpec(TemporalViewCycleA(); name=:cycle_a, on=One(scale=:Leaf), inputs=(PreviousTimeStep(:cycle_b) => One(
                     within=Self(),
                     application=:cycle_b,
                     var=:cycle_b,
-                ),
-            ),
-            ModelSpec(TemporalViewCycleB(); name=:cycle_b) |>
-            AppliesTo(One(scale=:Leaf)),
+                ),)),
+            ModelSpec(TemporalViewCycleB(); name=:cycle_b, on=One(scale=:Leaf)),
         ),
     )
     opened_simulation = run!(opened_cycle; steps=3)
@@ -395,16 +385,12 @@ end
         );
         applications=(
             _temporal_view_source_spec(target=Many(scale=:Leaf)),
-            ModelSpec(TemporalViewManyConsumer(); name=:many_consumer) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                PreviousTimeStep(:signals) => Many(
+            ModelSpec(TemporalViewManyConsumer(); name=:many_consumer, on=One(scale=:Scene), inputs=(PreviousTimeStep(:signals) => Many(
                     scale=:Leaf,
                     within=SceneScope(),
                     application=:signal_source,
                     var=:signal,
-                ),
-            ),
+                ),)),
         ),
     )
     many_simulation = run!(
@@ -468,16 +454,12 @@ end
         );
         applications=(
             _temporal_view_source_spec(target=Many(scale=:Leaf)),
-            ModelSpec(TemporalViewManyConsumer(); name=:many_consumer) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                PreviousTimeStep(:signals) => Many(
+            ModelSpec(TemporalViewManyConsumer(); name=:many_consumer, on=One(scale=:Scene), inputs=(PreviousTimeStep(:signals) => Many(
                     scale=:Leaf,
                     within=SceneScope(),
                     application=:signal_source,
                     var=:signal,
-                ),
-            ),
+                ),)),
         ),
     )
     dynamic_simulation = run!(
@@ -518,11 +500,8 @@ end
     dynamic_same_step = CompositeModel(
         Object(:scene; scale=:Scene);
         applications=(
-            ModelSpec(
-                TemporalViewSameStepConsumer();
-                name=:same_step_consumer,
-            ) |>
-            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(TemporalViewSameStepConsumer();
+                name=:same_step_consumer, on=Many(scale=:Leaf)),
             _temporal_view_source_spec(target=Many(scale=:Leaf)),
         ),
     )
@@ -592,17 +571,11 @@ end
     ambiguous_overlap = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(signal=1.0));
         applications=(
-            ModelSpec(
-                TemporalViewAmbiguousOverlap();
-                name=:ambiguous_overlap,
-            ) |>
-            AppliesTo(One(scale=:Leaf)) |>
-            Inputs(
-                PreviousTimeStep(:signal) => One(
+            ModelSpec(TemporalViewAmbiguousOverlap();
+                name=:ambiguous_overlap, on=One(scale=:Leaf), inputs=(PreviousTimeStep(:signal) => One(
                     within=Self(),
                     var=:signal,
-                ),
-            ),
+                ),)),
         ),
     )
     @test_throws "both a temporal input and an output" Advanced.refresh_bindings!(

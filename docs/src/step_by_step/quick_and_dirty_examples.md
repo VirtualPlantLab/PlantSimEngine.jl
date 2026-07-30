@@ -6,7 +6,7 @@ If you want a slower explanation of the same ideas, see
 
 The examples use one model object, but the same pattern scales to plants,
 organs, soil objects, and microclimate grids by adding more `Object`s and
-selecting them with `AppliesTo(...)` and `Inputs(...)`.
+selecting them with `ModelSpec(...; on=...)` and `ModelSpec(...; inputs=...)`.
 
 ```@setup quick_model_examples
 using PlantSimEngine, PlantMeteo, Dates, DataFrames
@@ -113,7 +113,7 @@ first(collect_outputs(requested_sim, :biomass_daily), 5)
 
 The same composite-model/object API can host models from companion packages such as
 PlantBiophysics. A typical PlantBiophysics energy-balance setup uses
-`Calls(...)` so an iterative parent model can manually run photosynthesis and
+`ModelSpec(...; calls=...)` so an iterative parent model can manually run photosynthesis and
 stomatal-conductance models, then call `run_call!(target; publish=true)` once
 for the accepted solution.
 
@@ -123,5 +123,5 @@ the current multi-plant energy-balance acceptance example.
 ## Migration Note
 
 The previous mapping runtime has been removed. Simulations start from `CompositeModel`,
-`Object`, `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`,
+`Object`, `ModelSpec`, `on`, `inputs`, `calls`, `Updates`, `every`,
 and `Environment`.

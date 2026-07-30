@@ -201,7 +201,7 @@ function _model_graph_fallback_application(model, raw_spec, timeline)
     spec = as_model_spec(raw_spec)
     selector = applies_to(spec)
     selector isa AbstractObjectMultiplicity || error(
-        "Model application for process `$(process(spec))` has no valid `AppliesTo(...)` selector.",
+        "Model application for process `$(process(spec))` has no valid `ModelSpec(...; on=...)` selector.",
     )
     application_id = something(application_name(spec), process(spec))
     target_ids = resolve_object_ids(model, selector)
@@ -378,7 +378,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
                 nothing,
                 [
                     "Mark an eligible input as PreviousTimeStep to use its previous accepted value.",
-                    "Revise Inputs(...) or Updates(...) to remove the same-step dependency.",
+                    "Revise `ModelSpec(...; inputs=...)` or `updates=...` to remove the same-step dependency.",
                 ],
             ))
         end

@@ -27,8 +27,8 @@ end
     model = CompositeModel(
         Object(:object; scale=:Leaf, status=Status(supplied=40));
         applications=(
-            ModelSpec(InitializationSourceModel(); name=:source) |> AppliesTo(One(scale=:Leaf)),
-            ModelSpec(InitializationConsumerModel(); name=:consumer) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(InitializationSourceModel(); name=:source, on=One(scale=:Leaf)),
+            ModelSpec(InitializationConsumerModel(); name=:consumer, on=One(scale=:Leaf)),
         ),
     )
     compiled = Advanced.refresh_bindings!(model)
@@ -93,8 +93,7 @@ PlantSimEngine.outputs_(::GenericRequiredInitializationModel) = NamedTuple()
         Object(:leaf_1; scale=:Leaf),
         Object(:leaf_2; scale=:Leaf);
         applications=(
-            ModelSpec(DefaultVectorInitializationModel(); name=:default_vector) |>
-            AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(DefaultVectorInitializationModel(); name=:default_vector, on=Many(scale=:Leaf)),
         ),
     )
     Advanced.refresh_bindings!(private_defaults)
@@ -119,9 +118,7 @@ PlantSimEngine.outputs_(::GenericRequiredInitializationModel) = NamedTuple()
             status=Status(signal=1, supplied=2),
         );
         applications=(
-            ModelSpec(InitializationConsumerModel(); name=:consumer) |>
-            AppliesTo(One(scale=:Leaf)) |>
-            Inputs(:offset => OptionalOne(scale=:Soil, var=:offset)),
+            ModelSpec(InitializationConsumerModel(); name=:consumer, on=One(scale=:Leaf), inputs=(:offset => OptionalOne(scale=:Soil, var=:offset))),
         ),
     )
     optional_row = only(

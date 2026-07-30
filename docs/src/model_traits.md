@@ -1,8 +1,8 @@
 # Model Traits
 
 Model traits describe intrinsic model behavior. Scenario-specific coupling
-belongs in `ModelSpec` through `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
-`Environment`, `OutputRouting`, and `Updates`.
+belongs in `ModelSpec` through `on`, `inputs`, `calls`, `every`,
+`Environment`, `output_routing`, and `Updates`.
 
 ## Variables
 
@@ -52,7 +52,7 @@ PlantSimEngine.dep(::EnergyBalance) = (
 )
 ```
 
-The scenario binds the dependency with `Calls(...)`. The parent executes all
+The scenario binds the dependency with `ModelSpec(...; calls=...)`. The parent executes all
 resolved targets with `run_call!(context, :photosynthesis)`, which always returns
 a vector-like collection. Use `call_targets` plus `run_call!(target)` when the
 parent needs selective trials and accepted publication.
@@ -76,7 +76,7 @@ PlantSimEngine.output_policy(::Type{<:MyModel}) = (
 ```
 
 Unspecified outputs use `HoldLast()`. A scenario can select another clock with
-`TimeStep(...)` and another input policy in `Inputs(...)`.
+`ModelSpec(...; every=...)` and another input policy in `ModelSpec(...; inputs=...)`.
 
 `timestep_hint(model)` can declare required or preferred timestep constraints.
 `environment_hint(model)` can provide default environment sampling configuration.
@@ -118,6 +118,6 @@ for mutable environment state.
 
 Scenario configuration has precedence over model defaults:
 
-1. `Inputs(...)` policy, then producer `output_policy`, then `HoldLast()`.
-2. `TimeStep(...)`, then `timespec(model)`, then the environment base step.
+1. `ModelSpec(...; inputs=...)` policy, then producer `output_policy`, then `HoldLast()`.
+2. `ModelSpec(...; every=...)`, then `timespec(model)`, then the environment base step.
 3. `Environment(...)`, then `environment_hint(model)`, then backend defaults.

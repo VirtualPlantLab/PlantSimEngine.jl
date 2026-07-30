@@ -3,7 +3,7 @@
 @process "photosynthesis" verbose = false
 
 # Default policy for assimilation rates when consumed at coarser clocks.
-# An explicit model `Inputs(...)` policy overrides this default.
+# An explicit `ModelSpec(...; inputs=...)` policy overrides this default.
 PlantSimEngine.output_policy(::Type{<:AbstractPhotosynthesisModel}) = (A=PlantSimEngine.Integrate(PlantMeteo.DurationSumReducer()),)
 
 

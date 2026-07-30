@@ -1180,7 +1180,7 @@ function _validate_model_call_cadences!(applications, call_bindings, timeline)
                 "application `$(callee.id)` has incompatible cadence: caller=",
                 "$(caller_seconds) seconds (phase=$(caller.clock.phase)), target=",
                 "$(callee_seconds) seconds (phase=$(callee.clock.phase)). ",
-                "Use matching TimeStep declarations or omit TimeStep on the ",
+                "Use matching `ModelSpec(...; every=...)` declarations or omit `every` on the ",
                 "manual-call-only target so it inherits the parent call cadence."
             )
         end
@@ -1196,7 +1196,7 @@ initialized. `disposition` is one of:
 
 - `:supplied`: present on the object's status before compilation;
 - `:generated`: created from a model output declaration;
-- `:producer_bound`: connected through an explicit or inferred `Inputs` binding;
+- `:producer_bound`: connected through an explicit or inferred `inputs` binding;
 - `:environment_bound`: provided by the selected environment backend;
 - `:unresolved`: still requires user or scenario configuration.
 
@@ -1327,7 +1327,7 @@ function explain_initialization(model::CompositeModel)
                     default_value=default_value,
                     provided_type=provided_type,
                     detail=disposition == :required ?
-                           "Provide `$(variable)` on object `$(object_id.value)` Status or add `Inputs(:$(variable) => ...)` to application `$(application.id)`." :
+                           "Provide `$(variable)` on object `$(object_id.value)` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
                            nothing,
                 ))
             end
@@ -1387,10 +1387,10 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
     for spec in specs
         selector = applies_to(spec)
         isnothing(selector) && error(
-            "Model application for process `$(process(spec))` has no `AppliesTo(...)` selector."
+            "Model application for process `$(process(spec))` has no `ModelSpec(...; on=...)` selector."
         )
         selector isa AbstractObjectMultiplicity || error(
-            "`AppliesTo(...)` for process `$(process(spec))` must be an object selector such as `Many(scale=:Leaf)`."
+            "`ModelSpec(...; on=...)` for process `$(process(spec))` must use an object selector such as `Many(scale=:Leaf)`."
         )
         proc = process(spec)
         name = application_name(spec)
@@ -1440,7 +1440,11 @@ function _model_spec_with_environment_hints(model::CompositeModel, spec, scale::
     new_window = isnothing(current_window) && !isnothing(hint.window) ? hint.window : current_window
 
     (new_bindings === current_bindings && new_window === current_window) && return spec
-    return ModelSpec(spec; environment_bindings=new_bindings, environment_window=new_window)
+    return _replace_model_spec(
+        spec;
+        environment_bindings=new_bindings,
+        environment_window=new_window,
+    )
 end
 
 function _model_environment_bindings_with_environment_sources(spec, bindings)
@@ -1480,7 +1484,7 @@ function _compiled_object_model_overrides(spec, target_ids, application_id::Symb
     unmatched = ObjectId[id for id in keys(model.overrides) if !(id in target_set)]
     isempty(unmatched) || error(
         "Object override(s) `$([id.value for id in unmatched])` for application ",
-        "`$(application_id)` do not match its `AppliesTo(...)` target set."
+        "`$(application_id)` do not match its `on=...` target set."
     )
     return model.overrides
 end
@@ -1700,7 +1704,7 @@ function _model_selector_policy(selector::AbstractObjectMultiplicity, applicatio
     error(
         "Cannot infer default policy for model input from `$(source_var)` because ",
         "selector resolves several source applications `$(source_application_ids)` with ",
-        "different output policies. Add `policy=...` to `Inputs(...)`."
+        "different output policies. Add `policy=...` to the `inputs=...` selector."
     )
 end
 
@@ -2001,7 +2005,7 @@ function _temporal_source_application(
     error(
         "Temporal model input `$(binding.input)` from ",
         "`$(source_id.value).$(binding.source_var)` has ambiguous source ",
-        "applications `$(matches)`. Add `application=...` to `Inputs(...)`.",
+        "applications `$(matches)`. Add `application=...` to the `inputs=...` selector.",
     )
 end
 
@@ -2205,8 +2209,8 @@ function _compile_model_input_bindings(
                    !isnothing(_criteria_get(criteria(selector), :process, nothing)) &&
                    isnothing(_selector_application(selector))
                     Base.depwarn(
-                        "`process=` in scenario `Inputs` is deprecated; name the producer application and use `application=`.",
-                        :Inputs,
+                        "`process=` in scenario `ModelSpec(...; inputs=...)` is deprecated; name the producer application and use `application=`.",
+                        :ModelSpec,
                     )
                 end
                 _push_model_input_binding!(
@@ -2304,7 +2308,7 @@ function _push_model_input_binding!(
         error(
             "Input `$(input_sym)` on application `$(application.id)` matched several " *
             "source applications `$(source_application_ids)`. Add one of those canonical " *
-            "identifiers as `application=...` to `Inputs(...)`.",
+            "identifiers as `application=...` to the `inputs=...` selector.",
         )
     end
     if selector isa OptionalOne &&
@@ -2431,7 +2435,7 @@ function _append_inferred_model_input_bindings!(
             error(
                 "Input `$(input_sym)` on application `$(application.id)` for object `$(consumer_id.value)` ",
                 "has ambiguous same-object producers: `$([match.id for match in matches])`. ",
-                "Add `Inputs(:$(input_sym) => One(...))` to disambiguate."
+                "Add `inputs=(:$(input_sym) => One(...),)` to disambiguate."
             )
         end
         producer = only(matches)
@@ -2504,7 +2508,7 @@ function _validate_model_required_inputs!(model::CompositeModel, applications, i
     error(
         "Missing required composite-model/object input(s): ",
         details,
-        ". Provide the variable on object `Status`, add an `Inputs(...)` binding, ",
+        ". Provide the variable on object `Status`, add a `ModelSpec(...; inputs=...)` binding, ",
         "or add an unambiguous same-object producer."
     )
 end
@@ -2556,8 +2560,8 @@ function _compile_model_call_bindings(
                    !isnothing(_criteria_get(criteria(selector), :process, nothing)) &&
                    isnothing(_selector_application(selector))
                     Base.depwarn(
-                        "`process=` in scenario `Calls` is deprecated; name the callee application and use `application=`.",
-                        :Calls,
+                        "`process=` in scenario `ModelSpec(...; calls=...)` is deprecated; name the callee application and use `application=`.",
+                        :ModelSpec,
                     )
                 end
                 callee_object_ids = _dependency_object_ids(model, selector, consumer_id)
@@ -2685,7 +2689,7 @@ function _stable_topological_application_order(applications, children)
         remaining = Symbol[application_id for application_id in application_ids if indegree[application_id] > 0]
         error(
             "Composite model application dependency cycle detected among applications `$(remaining)`. ",
-            "Break the same-timestep cycle with a temporal policy or revise `Inputs(...)`/`Updates(...)`."
+            "Break the same-timestep cycle with a temporal policy or revise `inputs=...`/`updates=...`."
         )
     end
     return order

@@ -20,18 +20,21 @@ A modeler writes generic kernels with:
   `environment_outputs_` traits
 - `run!(model, status, environment, constants, context)`
 
-A simulation author assembles those kernels on objects in a model with:
+A simulation author assembles those kernels on objects with `CompositeModel`,
+`Object`, and one direct application constructor:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-AppliesTo
-Inputs
-Calls
-Updates
-TimeStep
-Environment
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 This is the package API for multiscale, multi-plant, soil, microclimate, and
@@ -97,9 +100,9 @@ select(
 
 ## Multi-Object Coupling
 
-Use `Inputs(...)` when a model needs values from selected objects. This
-model-scale LAI model reads live references to the surface of every plant in
-the model:
+Use the `inputs` keyword when a model needs values from selected objects. This
+model-scale LAI application reads live references to the surface of every
+plant in the model:
 
 ```julia
 plant_scene = CompositeModel(
@@ -109,15 +112,18 @@ plant_scene = CompositeModel(
     Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
            status=Status(surface=8.0));
     applications=(
-        ModelSpec(ToyLAIfromLeafAreaModel(100.0); name=:scene_lai) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
+        ModelSpec(
+            ToyLAIfromLeafAreaModel(100.0);
+            name=:scene_lai,
+            on=One(scale=:Scene),
+            inputs=(
                 :plant_surfaces => Many(
                     scale=:Plant,
                     within=SceneScope(),
                     var=:surface,
                 ),
             ),
+        ),
     ),
 )
 
@@ -132,13 +138,15 @@ allocation model summing only the leaves inside the current plant. Use
 
 ## Manual Calls
 
-Use `Calls(...)` when a parent model must directly run selected child models,
+Use the `calls` keyword when a parent model must directly run selected child models,
 for example a model energy-balance solver that iterates leaf temperatures:
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
+ModelSpec(
+    SceneEnergyBalance();
+    name=:scene_energy,
+    on=One(scale=:Scene),
+    calls=(
         :leaf_energy => Many(
             kind=:plant,
             scale=:Leaf,
@@ -151,14 +159,15 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             within=SceneScope(),
             application=:soil_water,
         ),
-    ) |>
-    TimeStep(Hour(1))
+    ),
+    every=Hour(1),
+)
 ```
 
-Scenario-level `Inputs(...)` and `Calls(...)` should usually name the concrete
-producer or callee with `application=...`. Use process identities in model-level
-contracts such as `dep(model)`, where the model author cannot know the
-application names chosen by future scenarios.
+Scenario-level `inputs` and `calls` should usually name the concrete producer
+or callee with `application=...`. Use process identities in model-level
+contracts such as `dep(model)`, where the model author cannot know application
+names chosen by future scenarios.
 
 Inside the parent model, `run_call!(context, :leaf_energy)` executes every target
 and returns a vector-like collection. For iterative control,

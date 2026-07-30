@@ -15,14 +15,17 @@ through an explicit model-wide selector. This avoids copying one stock into
 every organ and makes duplicate writers visible.
 
 ```julia
-Inputs(
-    :root_uptake => Many(
-        scale=:Root, within=Subtree(), application=:root_absorption,
-        var=:uptake, policy=Integrate(), window=Day(1),
-    ),
-    :soil_water => One(
-        scale=:Soil, within=SceneScope(), application=:soil_water,
-        var=:water,
+ModelSpec(
+    PlantWaterModel();
+    inputs=(
+        :root_uptake => Many(
+            scale=:Root, within=Subtree(), application=:root_absorption,
+            var=:uptake, policy=Integrate(), window=Day(1),
+        ),
+        :soil_water => One(
+            scale=:Soil, within=SceneScope(), application=:soil_water,
+            var=:water,
+        ),
     ),
 )
 ```

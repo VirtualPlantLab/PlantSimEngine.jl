@@ -65,43 +65,20 @@ function setup_heavier_model_benchmark()
 
     meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Day)
     applications = (
-        ModelSpec(ToyDegreeDaysCumulModel(); name=:scene_degree_days) |>
-            AppliesTo(One(scale=:Scene)),
-        ModelSpec(ToyLAIModel(); name=:plant_lai) |>
-            AppliesTo(Many(scale=:Plant)) |>
-            Inputs(:TT_cu => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT_cu)),
-        ModelSpec(PlantSimEngine.Examples.Beer(0.6); name=:plant_light) |>
-            AppliesTo(Many(scale=:Plant)),
-        ModelSpec(ToyPlantRmModel(); name=:plant_rm) |>
-            AppliesTo(Many(scale=:Plant)) |>
-            Inputs(:Rm_organs => Many(scale=(:Leaf, :Internode), within=Subtree(), var=:Rm)),
-        ModelSpec(ToyCAllocationModel(); name=:plant_allocation) |>
-            AppliesTo(Many(scale=:Plant)) |>
-            Inputs(
-                :carbon_assimilation => Many(scale=:Leaf, within=Subtree(), application=:leaf_assimilation, var=:carbon_assimilation),
-                :carbon_demand => Many(scale=(:Leaf, :Internode), within=Subtree(), var=:carbon_demand),
-            ),
-        ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0); name=:internode_demand) |>
-            AppliesTo(Many(scale=:Internode)) |>
-            Inputs(:TT => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT)),
-        ModelSpec(ToyInternodeCrazyEmergence(TT_emergence=1.0); name=:internode_emergence) |>
-            AppliesTo(Many(scale=:Internode)) |>
-            Inputs(:TT_cu => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT_cu)),
-        ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004); name=:internode_respiration) |>
-            AppliesTo(Many(scale=:Internode)),
-        ModelSpec(ToyAssimModel(); name=:leaf_assimilation) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            Inputs(
-                :soil_water_content => One(scale=:Soil, within=SceneScope(), application=:soil_water, var=:soil_water_content),
-                :aPPFD => One(scale=:Plant, within=Ancestor(scale=:Plant), application=:plant_light, var=:aPPFD),
-            ),
-        ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0); name=:leaf_demand) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            Inputs(:TT => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT)),
-        ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025); name=:leaf_respiration) |>
-            AppliesTo(Many(scale=:Leaf)),
-        ModelSpec(ToySoilWaterModel(); name=:soil_water) |>
-            AppliesTo(One(scale=:Soil)),
+        ModelSpec(ToyDegreeDaysCumulModel(); name=:scene_degree_days, on=One(scale=:Scene)),
+        ModelSpec(ToyLAIModel(); name=:plant_lai, on=Many(scale=:Plant), inputs=(:TT_cu => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT_cu))),
+        ModelSpec(PlantSimEngine.Examples.Beer(0.6); name=:plant_light, on=Many(scale=:Plant)),
+        ModelSpec(ToyPlantRmModel(); name=:plant_rm, on=Many(scale=:Plant), inputs=(:Rm_organs => Many(scale=(:Leaf, :Internode), within=Subtree(), var=:Rm))),
+        ModelSpec(ToyCAllocationModel(); name=:plant_allocation, on=Many(scale=:Plant), inputs=(:carbon_assimilation => Many(scale=:Leaf, within=Subtree(), application=:leaf_assimilation, var=:carbon_assimilation),
+                :carbon_demand => Many(scale=(:Leaf, :Internode), within=Subtree(), var=:carbon_demand),)),
+        ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0); name=:internode_demand, on=Many(scale=:Internode), inputs=(:TT => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT))),
+        ModelSpec(ToyInternodeCrazyEmergence(TT_emergence=1.0); name=:internode_emergence, on=Many(scale=:Internode), inputs=(:TT_cu => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT_cu))),
+        ModelSpec(ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004); name=:internode_respiration, on=Many(scale=:Internode)),
+        ModelSpec(ToyAssimModel(); name=:leaf_assimilation, on=Many(scale=:Leaf), inputs=(:soil_water_content => One(scale=:Soil, within=SceneScope(), application=:soil_water, var=:soil_water_content),
+                :aPPFD => One(scale=:Plant, within=Ancestor(scale=:Plant), application=:plant_light, var=:aPPFD),)),
+        ModelSpec(ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0); name=:leaf_demand, on=Many(scale=:Leaf), inputs=(:TT => One(scale=:Scene, within=SceneScope(), application=:scene_degree_days, var=:TT))),
+        ModelSpec(ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025); name=:leaf_respiration, on=Many(scale=:Leaf)),
+        ModelSpec(ToySoilWaterModel(); name=:soil_water, on=One(scale=:Soil)),
     )
 
     model = CompositeModel(

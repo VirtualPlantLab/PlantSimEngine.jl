@@ -47,8 +47,7 @@ end
         Object(:leaf_b; scale=:Leaf),
         Object(:leaf_a; scale=:Leaf);
         applications=(
-            ModelSpec(BoundaryCounterModel(); name=:leaf_counter) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(BoundaryCounterModel(); name=:leaf_counter, on=Many(scale=:Leaf)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -76,16 +75,11 @@ end
         Object(:scene; scale=:Scene),
         Object(:leaf; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(BoundaryManualControllerModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)) |>
-                Calls(
-                    :counter => One(
+            ModelSpec(BoundaryManualControllerModel(); name=:controller, on=One(scale=:Scene), calls=(:counter => One(
                         scale=:Leaf,
                         application=:manual_counter,
-                    ),
-                ),
-            ModelSpec(BoundaryManualCounterModel(); name=:manual_counter) |>
-                AppliesTo(One(scale=:Leaf)),
+                    ),)),
+            ModelSpec(BoundaryManualCounterModel(); name=:manual_counter, on=One(scale=:Leaf)),
         ),
         environment=[(duration=Hour(1),) for _ in 1:4],
     )
@@ -118,12 +112,8 @@ end
         Object(:leaf_1; scale=:Leaf),
         Object(:plant; scale=:Plant);
         applications=(
-            ModelSpec(BoundaryCounterModel(); name=:hourly_leaves) |>
-                AppliesTo(Many(scale=:Leaf)) |>
-                TimeStep(Hour(1)),
-            ModelSpec(BoundaryCounterModel(); name=:daily_plant) |>
-                AppliesTo(One(scale=:Plant)) |>
-                TimeStep(Day(1)),
+            ModelSpec(BoundaryCounterModel(); name=:hourly_leaves, on=Many(scale=:Leaf), every=Hour(1)),
+            ModelSpec(BoundaryCounterModel(); name=:daily_plant, on=One(scale=:Plant), every=Day(1)),
         ),
         environment=[(duration=Hour(1),) for _ in 1:48],
     )

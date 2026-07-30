@@ -3,7 +3,7 @@
 Use one hourly leaf application, a daily plant application with
 `Many(scale=:Leaf, within=Subtree(), policy=Integrate(), window=Day(1))`, and a
 weekly application consuming the daily stream. Each application remains a
-normal `ModelSpec`; only its `TimeStep` and input policy differ.
+normal `ModelSpec`; only its `every` value and input policy differ.
 
 Runtime dependency streams are retained because consumers need them. Output
 resampling is independent: create named `OutputRequest`s for hourly, daily,
@@ -36,14 +36,19 @@ model = CompositeModel(
     Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(rate=1.0)),
     Object(:leaf_2; scale=:Leaf, parent=:plant, status=Status(rate=2.0));
     applications=(
-        ModelSpec(DocsHourlyFlux(); name=:hourly) |>
-            AppliesTo(Many(scale=:Leaf)) |> TimeStep(Hour(1)),
-        ModelSpec(DocsDailyTotal(); name=:daily) |>
-            AppliesTo(One(scale=:Plant)) |>
-            Inputs(:fluxes => Many(
+        ModelSpec(DocsHourlyFlux(); name=:hourly, on=Many(scale=:Leaf), every=Hour(1)),
+        ModelSpec(
+            DocsDailyTotal();
+            name=:daily,
+            on=One(scale=:Plant),
+            inputs=(
+                :fluxes => Many(
                 scale=:Leaf, within=Subtree(), application=:hourly, var=:flux,
                 policy=Integrate(), window=Day(1),
-            )) |> TimeStep(Day(1)),
+                ),
+            ),
+            every=Day(1),
+        ),
     ),
     environment=[(duration=Hour(1),) for _ in 1:25],
 )
@@ -52,7 +57,7 @@ simulation = run!(model; steps=25)
              if object.id == ObjectId(:plant)) == 72.0
 ```
 
-A weekly consumer uses the same pattern with `TimeStep(Week(1))` and a
+A weekly consumer uses the same pattern with `every=Week(1)` and a
 seven-day window over the daily application. Keep `Integrate` for rates;
 choose `Aggregate(reducer)` for states or observations whose physical meaning
 is a mean, minimum, maximum, or custom statistic.

@@ -49,7 +49,8 @@ function _normalize_application_bindings(bindings::Tuple)
     pairs = Pair{Symbol,Any}[]
     for binding in bindings
         binding isa Pair || error(
-            "Expected `var => selector` pairs in `Inputs(...)` or `Calls(...)`, got `$(typeof(binding))`."
+            "Expected `var => selector` pairs in `ModelSpec(...; inputs=...)` or ",
+            "`ModelSpec(...; calls=...)`, got `$(typeof(binding))`."
         )
         key = first(binding)
         selector = last(binding)
@@ -64,7 +65,7 @@ function _normalize_application_bindings(bindings::Tuple)
             )
         else
             key isa Union{Symbol,AbstractString} || error(
-                "Binding names in `Inputs(...)` and `Calls(...)` must be symbols, ",
+                "Binding names in `ModelSpec` inputs and calls must be symbols, ",
                 "strings, or `PreviousTimeStep(:input)` markers."
             )
             push!(pairs, Symbol(key) => selector)

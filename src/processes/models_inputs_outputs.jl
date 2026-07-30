@@ -94,7 +94,8 @@ applies_to(spec::ModelSpec) = spec.applies_to
 """
     value_inputs(spec::ModelSpec)
 
-Unified composite-model/object value-input bindings declared with `Inputs(...)`.
+Unified composite-model/object value-input bindings declared with the
+`ModelSpec(...; inputs=...)` keyword.
 """
 value_inputs(spec::ModelSpec) = spec.inputs
 input_origins(spec::ModelSpec) = spec.input_origins
@@ -102,7 +103,8 @@ input_origins(spec::ModelSpec) = spec.input_origins
 """
     model_calls(spec::ModelSpec)
 
-Unified composite-model/object manual call bindings declared with `Calls(...)`.
+Unified composite-model/object manual call bindings declared with the
+`ModelSpec(...; calls=...)` keyword.
 """
 model_calls(spec::ModelSpec) = spec.calls
 call_origins(spec::ModelSpec) = spec.call_origins
@@ -110,7 +112,8 @@ call_origins(spec::ModelSpec) = spec.call_origins
 """
     environment_config(spec::ModelSpec)
 
-Optional composite-model/object environment configuration declared with `Environment(...)`.
+Optional composite-model/object environment configuration declared with
+`ModelSpec(...; environment=Environment(...))`.
 """
 environment_config(spec::ModelSpec) = spec.environment
 

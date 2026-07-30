@@ -119,8 +119,8 @@ end
     explicit_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene, name=:scene, status=Status(supplied=2.0));
         applications=(
-            ModelSpec(StabilizationSourceModel()) |> AppliesTo(One(name=:scene)),
-            ModelSpec(StabilizationConsumerModel()) |> AppliesTo(One(name=:scene)),
+            ModelSpec(StabilizationSourceModel(); on=One(name=:scene)),
+            ModelSpec(StabilizationConsumerModel(); on=One(name=:scene)),
         ),
     )
     concise_applications = explain_applications(model)
@@ -164,7 +164,7 @@ end
     )
     @test Set(row.variable for row in unresolved) == Set((:signal, :supplied))
     @test all(row -> row.origin == :missing, unresolved)
-    @test all(row -> occursin("add `Inputs", row.detail), unresolved)
+    @test all(row -> occursin("add `inputs=", row.detail), unresolved)
     @test_throws "Missing required composite-model/object input" run!(unresolved_scene)
 
     environment_scene = CompositeModel(
@@ -210,19 +210,37 @@ end
     end
     for removed_name in (
         :EnvironmentSupport,
+        :AppliesTo,
+        :Inputs,
+        :Calls,
+        :TimeStep,
+        :OutputRouting,
         :with_environment!,
         :update_environment!,
         :scatter!,
         :scatter_environment_outputs!,
     )
         @test removed_name ∉ public_names
+        @test !isdefined(PlantSimEngine, removed_name)
     end
+
+    @test_throws MethodError ModelSpec(
+        StabilizationSourceModel();
+        applies_to=One(scale=:Leaf),
+    )
+    @test_throws MethodError ModelSpec(
+        StabilizationSourceModel();
+        timestep=Dates.Hour(1),
+    )
+    @test_throws "environment=Environment" ModelSpec(
+        StabilizationEnvironmentModel();
+        environment=(provider=:global,),
+    )
 end
 
 @testset "composite model template constructor" begin
     template = CompositeModelTemplate((
-        ModelSpec(StabilizationSourceModel()) |>
-        AppliesTo(One(scale=:Leaf)),
+        ModelSpec(StabilizationSourceModel(); on=One(scale=:Leaf)),
     ); species=:test_species)
     root = Object(:plant; scale=:Plant)
     leaf = Object(:leaf; scale=:Leaf, parent=:plant)
@@ -309,10 +327,8 @@ end
     model = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(StabilizationSourceModel()) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(StabilizationSourceModel()) |>
-                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); on=One(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); on=One(scale=:Leaf)),
         ),
     )
 
@@ -321,11 +337,8 @@ end
     named_scene = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source_a) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(StabilizationSourceModel(); name=:source_b) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                OutputRouting(; signal=:stream_only),
+            ModelSpec(StabilizationSourceModel(); name=:source_a, on=One(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source_b, on=One(scale=:Leaf), output_routing=(signal=:stream_only,)),
         ),
     )
     @test getproperty.(explain_applications(named_scene), :application_id) ==
@@ -338,14 +351,9 @@ end
     ambiguous_process_scene = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(supplied=0.0));
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source_a) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(StabilizationSourceModel(); name=:source_b) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                OutputRouting(; signal=:stream_only),
-            ModelSpec(StabilizationConsumerModel(); name=:consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:signal => One(within=Self(), process=:stabilization_source)),
+            ModelSpec(StabilizationSourceModel(); name=:source_a, on=One(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source_b, on=One(scale=:Leaf), output_routing=(signal=:stream_only,)),
+            ModelSpec(StabilizationConsumerModel(); name=:consumer, on=One(scale=:Leaf), inputs=(:signal => One(within=Self(), process=:stabilization_source))),
         ),
     )
     @test_throws "matched several source applications `[:source_a, :source_b]`" explain_bindings(
@@ -355,16 +363,9 @@ end
     ordered_writer_scene = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(supplied=0.0));
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source_a) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(StabilizationSourceModel(); name=:source_b) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Updates(:signal; after=:source_a),
-            ModelSpec(StabilizationConsumerModel(); name=:consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(
-                    PreviousTimeStep(:signal) => One(within=Self(), var=:signal),
-                ),
+            ModelSpec(StabilizationSourceModel(); name=:source_a, on=One(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source_b, on=One(scale=:Leaf), updates=Updates(:signal; after=:source_a)),
+            ModelSpec(StabilizationConsumerModel(); name=:consumer, on=One(scale=:Leaf), inputs=(PreviousTimeStep(:signal) => One(within=Self(), var=:signal),)),
         ),
     )
     ordered_binding = only(
@@ -392,8 +393,7 @@ end
 
 @testset "instance roots are immutable lifecycle anchors" begin
     template = CompositeModelTemplate((
-        ModelSpec(StabilizationSourceModel(); name=:source) |>
-            AppliesTo(Many(scale=:Leaf)),
+        ModelSpec(StabilizationSourceModel(); name=:source, on=Many(scale=:Leaf)),
     ))
     instance = ObjectInstance(
         :plant_instance,
@@ -433,8 +433,7 @@ end
     model = CompositeModel(
         Object(:leaf_1; scale=:Leaf);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source, on=Many(scale=:Leaf)),
         ),
     )
     request = OutputRequest(
@@ -464,8 +463,7 @@ end
     model = CompositeModel(
         (Object(Symbol(:leaf_, i); scale=:Leaf) for i in 1:100)...;
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source, on=Many(scale=:Leaf)),
         ),
     )
 
@@ -484,8 +482,7 @@ end
     model = CompositeModel(
         Object(:leaf_1; scale=:Leaf);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:source, on=Many(scale=:Leaf)),
         ),
     )
     simulation = run!(
@@ -536,18 +533,13 @@ end
         Object(:plant; scale=:Plant),
         Object(:leaf_1; scale=:Leaf, parent=:plant);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(StabilizationLaggedSumModel(); name=:lagged_sum) |>
-                AppliesTo(One(scale=:Plant)) |>
-                Inputs(
-                    PreviousTimeStep(:previous_signals) => Many(
+            ModelSpec(StabilizationSourceModel(); name=:source, on=Many(scale=:Leaf)),
+            ModelSpec(StabilizationLaggedSumModel(); name=:lagged_sum, on=One(scale=:Plant), inputs=(PreviousTimeStep(:previous_signals) => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         application=:source,
                         var=:signal,
-                    ),
-                ),
+                    ),)),
         ),
     )
     simulation = run!(model; performance=true)
@@ -591,10 +583,8 @@ end
         Object(:scene; scale=:Scene),
         Object(:leaf_1; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(StabilizationSourceModel(); name=:leaf_source) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(StabilizationSourceModel(); name=:scene_source) |>
-                AppliesTo(One(scale=:Scene)),
+            ModelSpec(StabilizationSourceModel(); name=:leaf_source, on=Many(scale=:Leaf)),
+            ModelSpec(StabilizationSourceModel(); name=:scene_source, on=One(scale=:Scene)),
         ),
     )
     simulation = run!(model; performance=true)

@@ -575,25 +575,11 @@ end
 function _maespa_species_template(species; monteith, fvcb, tuzet, allocation)
     return CompositeModelTemplate(
         (
-            ModelSpec(monteith; name=:energy_balance) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            Calls(:photosynthesis => One(scale=:Leaf, application=:photosynthesis)) |>
-            Environment(provider=:canopy) |>
-            TimeStep(Dates.Hour(1)),
-            ModelSpec(fvcb; name=:photosynthesis) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            Calls(:stomatal_conductance => One(scale=:Leaf, application=:stomatal_conductance)) |>
-            TimeStep(Dates.Hour(1)),
-            ModelSpec(tuzet; name=:stomatal_conductance) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            TimeStep(Dates.Hour(1)),
-            ModelSpec(LeafState(); name=:leaf_state) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            TimeStep(Dates.Hour(1)),
-            ModelSpec(allocation; name=:allocation) |>
-            AppliesTo(One(scale=:Plant)) |>
-            Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)) |>
-            TimeStep(Dates.Day(1)),
+            ModelSpec(monteith; name=:energy_balance, on=Many(scale=:Leaf), calls=(:photosynthesis => One(scale=:Leaf, application=:photosynthesis)), environment=Environment(provider=:canopy), every=Dates.Hour(1)),
+            ModelSpec(fvcb; name=:photosynthesis, on=Many(scale=:Leaf), calls=(:stomatal_conductance => One(scale=:Leaf, application=:stomatal_conductance)), every=Dates.Hour(1)),
+            ModelSpec(tuzet; name=:stomatal_conductance, on=Many(scale=:Leaf), every=Dates.Hour(1)),
+            ModelSpec(LeafState(); name=:leaf_state, on=Many(scale=:Leaf), every=Dates.Hour(1)),
+            ModelSpec(allocation; name=:allocation, on=One(scale=:Plant), inputs=(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)), every=Dates.Day(1)),
         );
         kind=:plant,
         species=species,
@@ -659,22 +645,14 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), environment=
             d=0.028,
         );
         applications=(
-            ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                :leaf_areas => Many(
+            ModelSpec(LAIModel(ground_area); name=:lai_dynamic, on=One(scale=:Scene), inputs=(:leaf_areas => Many(
                     kind=:plant,
                     scale=:Leaf,
                     within=SceneScope(),
                     process=:leaf_state,
                     var=:leaf_area,
-                ),
-            ) |>
-            TimeStep(Dates.Day(1)),
-            ModelSpec(scene_model; name=:scene_eb) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Inputs(
-                :leaf_areas => Many(
+                ),), every=Dates.Day(1)),
+            ModelSpec(scene_model; name=:scene_eb, on=One(scale=:Scene), inputs=(:leaf_areas => Many(
                     kind=:plant,
                     scale=:Leaf,
                     within=SceneScope(),
@@ -739,18 +717,9 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), environment=
                     scale=:Soil,
                     application=:soil_water,
                     var=:psi_soil,
-                ),
-            ) |>
-            Calls(
-                :energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
-                :soil => One(kind=:soil, scale=:Soil, application=:soil_water),
-            ) |>
-            Environment(provider=:forcing, sink=:canopy) |>
-            TimeStep(Dates.Hour(1)),
-            ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water) |>
-            AppliesTo(One(kind=:soil, scale=:Soil)) |>
-            Inputs(
-                :transpiration => One(
+                ),), calls=(:energy_balance => Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+                :soil => One(kind=:soil, scale=:Soil, application=:soil_water),), environment=Environment(provider=:forcing, sink=:canopy), every=Dates.Hour(1)),
+            ModelSpec(SoilWater(0.45, -0.03, 4.4, 0.25, 0.75); name=:soil_water, on=One(kind=:soil, scale=:Soil), inputs=(:transpiration => One(
                     scale=:Scene,
                     within=SceneScope(),
                     application=:scene_eb,
@@ -761,9 +730,7 @@ function build_maespa_model(; scene_model=SceneEB(25, 0.03, 0.005), environment=
                     within=SceneScope(),
                     application=:scene_eb,
                     var=:scene_infiltration,
-                ),
-            ) |>
-            TimeStep(Dates.Hour(1)),
+                ),), every=Dates.Hour(1)),
         ),
         environment=environment,
     )

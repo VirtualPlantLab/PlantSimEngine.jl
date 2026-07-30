@@ -52,13 +52,13 @@ objects.
 
 `ModelSpec` configures one use of a model:
 
-- `AppliesTo(...)` selects target objects;
-- `Inputs(...)` selects producers for value dependencies;
-- `Calls(...)` binds manually controlled model calls;
-- `TimeStep(...)` selects the execution cadence;
+- `ModelSpec(...; on=...)` selects target objects;
+- `ModelSpec(...; inputs=...)` selects producers for value dependencies;
+- `ModelSpec(...; calls=...)` binds manually controlled model calls;
+- `ModelSpec(...; every=...)` selects the execution cadence;
 - `Environment(...)` configures environment sampling;
 - `Updates(...; after=:application_id)` orders intentional additional writers;
-- `OutputRouting(...)` controls output publication.
+- `ModelSpec(...; output_routing=...)` controls output publication.
 
 This keeps model implementations generic. Models do not need to know which
 model, object, timestep, or coupling scenario will use them.
@@ -66,12 +66,12 @@ model, object, timestep, or coupling scenario will use them.
 ## Soft And Manual Dependencies
 
 Ordinary dependencies are inferred by matching model inputs with outputs and
-are compiled into an acyclic execution order. `Inputs(...)` is used when the
+are compiled into an acyclic execution order. `ModelSpec(...; inputs=...)` is used when the
 source is cross-object, renamed, temporal, or otherwise ambiguous.
 
 Some algorithms need direct call-stack control. For example, a model energy
 balance may repeatedly call leaf energy-balance models until canopy
-microclimate converges. Such dependencies are bound with `Calls(...)`; the
+microclimate converges. Such dependencies are bound with `ModelSpec(...; calls=...)`; the
 parent invokes them with `run_call!`.
 
 ## Status And References

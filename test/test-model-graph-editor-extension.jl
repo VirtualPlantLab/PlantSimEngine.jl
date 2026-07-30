@@ -15,8 +15,7 @@ PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
         applications=(
-            ModelSpec(EditorSourceModel(); name=:source) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(EditorSourceModel(); name=:source, on=One(name=:leaf)),
         ),
     )
     session = edit_graph(model; port=0, open_browser=false, autosave=false)
@@ -39,8 +38,7 @@ PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
         @test static_view.status == 200
         @test occursin("pse-model-graph-data", String(static_view.body))
 
-        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer) |>
-                        AppliesTo(One(name=:leaf))
+        consumer_spec = ModelSpec(EditorConsumerModel(); name=:consumer, on=One(name=:leaf))
         apply_edit!(session, AddModelApplication(consumer_spec))
         @test length(current_model(session).applications) == 2
         @test !isempty(session.history)
@@ -179,7 +177,7 @@ end
             PlantSimEngine.as_model_spec(spec) for spec in current_model(session).applications
             if application_name(PlantSimEngine.as_model_spec(spec)) == :source
         )
-        @test environment_config(source_application).provider == :model
+        @test environment_config(source_application).config.provider == :model
 
         routing_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
@@ -297,10 +295,7 @@ end
     editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
     template = CompositeModelTemplate(
         (
-            ModelSpec(EditorSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)) |>
-                Environment((provider=:model,)) |>
-                OutputRouting((signal=:stream_only,)),
+            ModelSpec(EditorSourceModel(); name=:source, on=Many(scale=:Leaf), environment=Environment((provider=:model,)), output_routing=(signal=:stream_only,)),
         );
         kind=:plant,
         species=:test_species,
@@ -326,8 +321,8 @@ end
     @test occursin("template_1 = CompositeModelTemplate", code)
     @test occursin("instances = (", code)
     @test occursin("Override(", code)
-    @test occursin("Environment((provider = :model,))", code)
-    @test occursin("OutputRouting((signal = :stream_only,))", code)
+    @test occursin("environment=Environment((provider = :model,))", code)
+    @test occursin("output_routing=(signal = :stream_only,)", code)
     @test !occursin("ObjectModelOverrides", code)
 
     restored = Base.include_string(Main, code, "generated_model_editor_test.jl")
@@ -347,8 +342,7 @@ end
         scale=:Leaf,
         status=Status(driver=1.0),
         applications=(
-            ModelSpec(EditorSourceModel(); name=:local_source) |>
-                AppliesTo(One(name=:local_leaf)),
+            ModelSpec(EditorSourceModel(); name=:local_source, on=One(name=:local_leaf)),
         ),
     ))
     local_code = editor_extension._model_to_julia(local_model)

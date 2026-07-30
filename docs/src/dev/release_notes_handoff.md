@@ -19,7 +19,7 @@ Source details live in `code_cleanup_audit.md`.
 - Removed old multiscale output indexing helpers. Convert outputs explicitly
   before indexing.
 - Replaced mapping-specific same-scale rename sentinels with
-  `Inputs(:local => One(within=Self(), var=:source))`.
+  `inputs=(:local => One(within=Self(), var=:source),)`.
 - Removed unused parallel-executor traits after deleting the executor runtime.
 - Removed dead mapping-era wrappers and traits: `UninitializedVar`,
   `RefVariable`, `TreeAlike`, and `StatusView`.
@@ -53,7 +53,7 @@ Because this API was never released, there is no compatibility layer or user
 migration path for it.
 
 The reusable behavior now lives in the composite-model/object runtime: object selectors,
-compiled `Inputs(...)`, manual `Calls(...)`, `Dates`-based scheduling,
+compiled `ModelSpec(...; inputs=...)`, manual `ModelSpec(...; calls=...)`, `Dates`-based scheduling,
 environment backends, dynamic object lifecycle handling, and structured
 explanations.
 
@@ -75,7 +75,7 @@ for multi-plant model coupling.
 - Uses two plant instances with different parameters and shared scale names
   such as `:Plant` and `:Leaf`.
 - Uses a shared soil model.
-- Uses `SceneEB` with `ModelSpec(...) |> Calls(...)` to manually run leaf
+- Uses `SceneEB` with `ModelSpec(...; calls=(...))` to manually run leaf
   `:energy_balance` and soil `:soil_water` targets.
 - Ports MAESPA-style canopy air temperature and VPD update through the
   `canopy_air_update(...)` helper and `gbcanms`.
@@ -86,11 +86,11 @@ for multi-plant model coupling.
   `canopy_tair`, `canopy_vpd`, `canopy_rh`, `canopy_htot`, and
   `canopy_gcanop`.
 - Adds `LAIModel` and declares plant leaf-area materialization with
-  `ModelSpec(...) |> Inputs(...)`.
+  `ModelSpec(...; inputs=(...))`.
 - Computes plant allocation daily from plant-local `leaf_carbon` vectors.
 - Adds `run_call!` for manually executing compiled model call targets.
 - Adds model-level `Input(...)` and `Call(...)` dependency defaults through
-  `dep(model)`, with scenario-level `Inputs(...)` and `Calls(...)` overriding
+  `dep(model)`, with scenario-level `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)` overriding
   those defaults in `ModelSpec`.
 - Adds initial registry-backed model selector resolution with
   `resolve_object_ids` and `resolve_objects` for global, self-relative,
@@ -103,7 +103,7 @@ for multi-plant model coupling.
   such as `scale=:Leef` therefore suggest `:Leaf` instead of returning only a
   cardinality count.
 - `Relation(...)` now supports `:self`, `:parent`, `:children`, `:ancestors`,
-  `:descendants`, and `:siblings` in `AppliesTo`, `Inputs`, and `Calls`
+  `:descendants`, and `:siblings` in `on`, `inputs`, and `calls`
   selectors. Relation results are compiled to concrete object ids and may be
   constrained by an explicit scope.
 - `ObjectAddress` explanations now preserve positional selector criteria such
@@ -112,8 +112,8 @@ for multi-plant model coupling.
   `Advanced.CompiledCompositeModel`, `Advanced.CompiledModelApplication`, `Advanced.CompiledModelInputBinding`,
   `Advanced.CompiledModelCallBinding`, `explain_applications`,
   `explain_bindings`, and `explain_calls`.
-- The compiled model view resolves `AppliesTo(...)`, `Inputs(...)`, and
-  `Calls(...)` to object ids ahead of runtime, and reports temporal policy,
+- The compiled model view resolves `ModelSpec(...; on=...)`, `ModelSpec(...; inputs=...)`, and
+  `ModelSpec(...; calls=...)` to object ids ahead of runtime, and reports temporal policy,
   window, carrier hints, and callee application ids for agent-readable
   diagnostics.
 - Unscoped composite-model/object dependency selectors now infer scope from the consumer:
@@ -129,11 +129,11 @@ for multi-plant model coupling.
   missing bound input fields are compiler-generated without inventing
   canonical values for `Required(T)`, and repeated non-temporal input
   materialization is allocation-free.
-- Same-rate `Inputs(...)` carriers preserve arbitrary concrete value types.
+- Same-rate `ModelSpec(...; inputs=...)` carriers preserve arbitrary concrete value types.
   Regression coverage passes a dual-like `BigFloat` wrapper through a typed
   `RefVector`, model arithmetic, source mutation, and output publication
   without conversion to `Float64`.
-- Same-object variable renaming now uses normal `Inputs(...)` syntax instead of
+- Same-object variable renaming now uses normal `ModelSpec(...; inputs=...)` syntax instead of
   `SameScale()`. Renamed inputs share the producer reference and contribute the
   expected producer-to-consumer scheduling edge.
 - `explain_bindings` now reports stable carrier kind and copy/reference
@@ -177,33 +177,33 @@ for multi-plant model coupling.
   currently invalidate the model environment binding cache and leave room for
   finer-grained dirty tracking later.
 - Adds the first composite-model/object runtime with `run!(model; steps=...)`.
-  It materializes compiled `Inputs(...)` carriers, samples bound environment
+  It materializes compiled `ModelSpec(...; inputs=...)` carriers, samples bound environment
   inputs, and executes generic model kernels on object `Status` values.
 - CompositeModel/object compiler now infers simple same-object value bindings from
   `inputs_`/`outputs_` when one producer is unambiguous. `explain_bindings`
   reports each binding origin, including `:model_default`, `:model_spec`, and
   `:inferred_same_object`.
-- Compiled input bindings now validate `Inputs(...)` `process=`/`application=`
+- Compiled input bindings now validate `ModelSpec(...; inputs=...)` `process=`/`application=`
   filters when they are provided, and `explain_bindings` reports
   `source_application_ids`, `process`, and `application`.
 - `Advanced.compile_composite_model` now errors for required `inputs_(model)` variables that are
-  neither bound through `Inputs(...)`/inference nor present on the target object
+  neither bound through `ModelSpec(...; inputs=...)`/inference nor present on the target object
   `Status`.
 - `Advanced.compile_composite_model` now prepares model-owned status schemas automatically:
   model-targeted objects may omit `Status`, declared outputs and `Default`
   inputs are inserted from their initial values, and bound `Required` inputs
   are installed through their compiled carriers. External unbound `Required`
   inputs still need explicit initialization.
-- `Advanced.compile_composite_model` now rejects `Inputs(...)` entries whose receiving variable is
+- `Advanced.compile_composite_model` now rejects `ModelSpec(...; inputs=...)` entries whose receiving variable is
   not declared by the model's `inputs_`, making binding typos explicit at
   compile time.
-- `Advanced.compile_composite_model` now validates status-backed non-temporal `Inputs(...)`
+- `Advanced.compile_composite_model` now validates status-backed non-temporal `ModelSpec(...; inputs=...)`
   source availability, so bindings that select existing source objects but no
   source `Status` reference fail at compile time instead of becoming no-ops.
 - CompositeModel/object runtime now publishes model outputs to model-local temporal
-  streams and resolves temporal `Inputs(...)` with `HoldLast`, `Integrate`,
+  streams and resolves temporal `ModelSpec(...; inputs=...)` with `HoldLast`, `Integrate`,
   and `Aggregate` policies before consumer execution.
-- CompositeModel temporal `Inputs(...)` now use producer `output_policy(...)` traits as
+- CompositeModel temporal `ModelSpec(...; inputs=...)` now use producer `output_policy(...)` traits as
   the default when the selector omits `policy=...` and resolves to a unique
   source application. Explicit selector policies override the trait.
 - CompositeModel applications now infer model-author default environment source remaps
@@ -213,17 +213,17 @@ for multi-plant model coupling.
   for non-committing trial meteorology and `commit_environment!` for accepted
   mutable environment
   commits from model kernels.
-- CompositeModel/object root applications now honor `TimeStep(...)` values backed by
+- CompositeModel/object root applications now honor `ModelSpec(...; every=...)` values backed by
   `Dates.Period` scheduling. `explain_schedule` reports normalized clocks and
   whether an application is root-scheduled or manual-call-only.
 - CompositeModel/object root applications now also honor `timespec(...)` model traits
-  when no explicit `TimeStep(...)` is provided. Scenario-level `TimeStep(...)`
+  when no explicit `ModelSpec(...; every=...)` is provided. Scenario-level `ModelSpec(...; every=...)`
   remains the override.
 - CompositeModel/object root applications now validate `timestep_hint(...)` required
   bounds for clocks derived from the model base step. Hints remain
   compatibility constraints, not scheduling overrides.
 - CompositeModel/object execution now uses a stable topological application order
-  compiled from `Inputs(...)` producer edges and `Updates(...)` ordering.
+  compiled from `ModelSpec(...; inputs=...)` producer edges and `Updates(...)` ordering.
   Dependencies on manual-call-only applications are redirected to their parent
   caller, same-timestep cycles fail during compilation, and
   `explain_schedule` reports `execution_index`.
@@ -237,9 +237,9 @@ for multi-plant model coupling.
   application and object id, removing the model-wide binding scan from
   environment sampling and output scattering.
 - Adds `RunContext` and `CallTarget`; composite-model/object models can use
-  `run_call!(context, :name)` plus `call_targets(context, :name)` for fine-grained manual `Calls(...)`
+  `run_call!(context, :name)` plus `call_targets(context, :name)` for fine-grained manual `ModelSpec(...; calls=...)`
   execution.
-- Applications selected by `Calls(...)` are skipped by the root
+- Applications selected by `ModelSpec(...; calls=...)` are skipped by the root
   `run!(model)` loop and execute only through explicit `run_call!`, preserving
   parent-controlled hard-call execution.
 - Adds composite-model/object duplicate-writer validation in `Advanced.compile_composite_model`. A variable
@@ -286,7 +286,7 @@ for multi-plant model coupling.
 - `explain_calls(compiled)` now exposes the manual-call publication contract
   through `publication_policy`, `default_publish`, and `accepted_publish`
   fields.
-- `ModelSpec` now keeps provenance for `Inputs(...)` and `Calls(...)`.
+- `ModelSpec` now keeps provenance for `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)`.
   Declarations coming from `dep(model)` are `:model_default`, scenario-level
   declarations and overrides are `:model_spec`, and structured explanations
   expose these origins for release-note and migration diagnostics.
@@ -302,8 +302,8 @@ for multi-plant model coupling.
   call stack.
 - Adds `build_maespa_scene(...)` and `run_maespa_example(...)`.
   This unified composite-model/object MAESPA path uses `CompositeModelTemplate`,
-  `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`, and
-  `TimeStep(Dates.Period)` with two plant species, one shared soil object,
+  `ObjectInstance`, `on`, `inputs`, `calls`, and
+  `every=Dates.Period` with two plant species, one shared soil object,
   model LAI, and model energy balance.
 - `test/test-maespa-model-example.jl` verifies the unified composite-model/object
   MAESPA path.
@@ -322,7 +322,7 @@ for multi-plant model coupling.
   lifetimes by exporting each object only across its own sample interval. This
   now prunes retained streams at publisher level: `tracked_outputs=nothing`
   keeps all streams, explicit requests keep requested application/variable
-  streams plus streams required by temporal `Inputs(...)`, and
+  streams plus streams required by temporal `ModelSpec(...; inputs=...)`, and
   `tracked_outputs=OutputRequest[]` keeps no streams unless temporal
   dependencies require them. Dependency-only streams now have bounded
   policy-specific histories: latest-only for `HoldLast`, the required window
@@ -347,21 +347,21 @@ for multi-plant model coupling.
   application/object/output stream. Type changes fail explicitly, while
   generic values such as `BigFloat` remain typed through publication,
   interpolation, and integration.
-- CompositeModel temporal `Inputs(...)` now implement the complete `Interpolate(...)`
+- CompositeModel temporal `ModelSpec(...; inputs=...)` now implement the complete `Interpolate(...)`
   policy used by the existing multirate runtime: linear interpolation when
   samples bracket the requested time, online linear extrapolation from the
   last two samples, and configurable hold behavior. Interpolation modes are
   validated during model compilation, and arithmetic preserves generic value
   types such as `BigFloat` instead of coercing model values to `Float64`.
-- CompositeModel `Inputs(...)` accepts
+- CompositeModel `ModelSpec(...; inputs=...)` accepts
   `PreviousTimeStep(:input) => One(...)` or `Many(...)` for explicit lagged
   dependencies. These bindings read the previous model timestep, use the
   consumer status initialization before history exists, and are excluded from
   same-timestep dependency edges so feedback loops can be compiled.
-- CompositeModel `OutputRouting(; var=:stream_only)` is honored by canonical writer
+- CompositeModel `output_routing=(var=:stream_only,)` is honored by canonical writer
   validation and same-object input inference. Stream-only outputs are excluded
   from canonical ownership, but remain available in output streams and explicit
-  `Inputs(..., application=:name)` bindings.
+  `inputs=(... One(application=:name), ...)` bindings.
 - CompositeModel execution now refreshes dirty structural bindings between timesteps.
   Objects created, removed, or reparented by a model update application target
   sets, input carriers, call targets, writer validation, and scheduling before
@@ -383,7 +383,7 @@ for multi-plant model coupling.
   object. Heterogeneous object overrides split into ordered concrete batches.
 - Adds `explain_execution_plan(scene_or_simulation)` and a zero-allocation
   warmed 128-leaf inner-loop regression gate.
-- Manual `Calls(...)` handles now use the public
+- Manual `ModelSpec(...; calls=...)` handles now use the public
   vector-like `run_call!(context, name)` execute-all API, with
   `call_targets(context, name)` followed by `run_call!(target)` for fine-grained control.
 - Removed the unreleased intermediate authoring and runtime subsystem after
@@ -414,18 +414,18 @@ The completed public migration is:
 - replace historical tutorials with native composite-model/object tutorials where
   long-term coverage is still valuable;
 - model mappings should be described as model applications:
-  `ModelSpec(model; name=...) |> AppliesTo(...) |> Inputs(...) |> Calls(...)`;
-- `MultiScaleModel(...)` -> `Inputs(...)`.
+  `ModelSpec(model; name=..., on=..., inputs=(...), calls=(...))`;
+- `MultiScaleModel(...)` -> `ModelSpec(...; inputs=...)`.
 - `dep(model)` remains the model-level trait for default dependency intent:
   defaults can become `Input(...)` value bindings or `Call(...)` manual model
   calls, and scenario-level `ModelSpec` configuration overrides them.
-- model target scales -> `AppliesTo(...)` object selectors.
+- model target scales -> `ModelSpec(...; on=...)` object selectors.
 - `InputBindings(...)` -> source, policy, and window information on
-  `Inputs(...)`.
+  `ModelSpec(...; inputs=...)`.
 - `MeteoBindings(...)` and `MeteoWindow(...)` -> automatic environment
   binding plus `Environment(...)` provider/source overrides.
-- `OutputRouting(...)` -> model-application output policy.
-- `ScopeModel(...)` -> `AppliesTo(...)` plus selector scopes.
+- `ModelSpec(...; output_routing=...)` -> model-application output policy.
+- `ScopeModel(...)` -> `ModelSpec(...; on=...)` plus selector scopes.
 - `PreviousTimeStep(...)` remains supported as a temporal/cycle-breaking
   marker in the unified object-address graph.
 - explicit per-model environment wiring -> automatic environment resolver plus
@@ -441,27 +441,27 @@ kept in this release-note handoff and the user-facing migration guide.
   from historical mappings to the composite-model/object API.
 - Updated documentation navigation, home-page guidance, multiscale warnings,
   and the canonical repository agent skill to direct new
-  scenarios toward `CompositeModel`, `Object`, `AppliesTo`, `Inputs`, `Calls`,
-  `Updates`, `TimeStep`, and `Environment`.
+  scenarios toward `CompositeModel`, `Object`, `on`, `inputs`, `calls`,
+  `Updates`, `every`, and `Environment`.
 - Replaced the documentation home-page quickstart with executable
   composite-model/object examples. The page now introduces `CompositeModel`, `Object`,
-  `ModelSpec`, `AppliesTo`, `Inputs`, `TimeStep`, inferred same-object
-  bindings, multi-object `Many(...)` inputs, and manual `Calls(...)` syntax
+  `ModelSpec`, `on`, `inputs`, `every`, inferred same-object
+  bindings, multi-object `Many(...)` inputs, and manual `ModelSpec(...; calls=...)` syntax
   before linking to the migration guide.
 - Replaced the repository README examples with composite-model/object-first examples.
   The README now introduces `CompositeModel`, `Object`, model applications,
-  multi-object `Inputs(...)`, and `Calls(...)`.
+  multi-object `ModelSpec(...; inputs=...)`, and `ModelSpec(...; calls=...)`.
 - Added a native composite-model/object quickstart page to the main documentation
   navigation. It provides docs-tested examples for one-object model chaining,
-  inferred bindings, requested output retention, multi-object `Inputs(...)`,
-  reference carrier explanations, and manual `Calls(...)` syntax.
+  inferred bindings, requested output retention, multi-object `ModelSpec(...; inputs=...)`,
+  reference carrier explanations, and manual `ModelSpec(...; calls=...)` syntax.
 - Rewrote the model execution page as the current composite-model/object execution
-  guide. It now covers compilation, reference carriers, temporal `Inputs(...)`,
-  manual `Calls(...)`, `Updates(...)`, `TimeStep(...)`, environment binding,
+  guide. It now covers compilation, reference carriers, temporal `ModelSpec(...; inputs=...)`,
+  manual `ModelSpec(...; calls=...)`, `Updates(...)`, `ModelSpec(...; every=...)`, environment binding,
   retained outputs, lifecycle invalidation, and migration translations for
   historical mapping constructs.
 - Rewrote the detailed first simulation tutorial to use the composite-model/object API.
-  It now introduces `CompositeModel`, `Object`, `ModelSpec`, `AppliesTo`, `TimeStep`,
+  It now introduces `CompositeModel`, `Object`, `ModelSpec`, `on`, `every`,
   compiled applications, inferred same-object bindings, model outputs, and a
   migration note for historical examples.
 - Rewrote the quick examples page to use native composite-model/object snippets for
@@ -471,7 +471,7 @@ kept in this release-note handoff and the user-facing migration guide.
 - Rewrote the standard model coupling, model switching, and coupling more
   complex models tutorials around the composite-model/object API. These pages now show
   inferred same-object value bindings, switching one `ModelSpec` application,
-  execution-plan explanations, and `Calls(...)` manual-call wiring.
+  execution-plan explanations, and `ModelSpec(...; calls=...)` manual-call wiring.
 - Removed legacy mapping transforms and their runtime implementations:
   `MultiScaleModel`, `SameScale`, `TimeStepModel`, `InputBindings`,
   `MeteoBindings`, `MeteoWindow`, and `ScopeModel`.

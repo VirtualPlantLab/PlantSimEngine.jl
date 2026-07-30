@@ -22,24 +22,15 @@ Leaf applications use the copied PlantBiophysics subsample models:
 ## Coupling
 
 The model energy-balance application controls iterative canopy-air, leaf, and
-soil calls. `Calls(...)` expresses execution ownership only: the scene model
+soil calls. `ModelSpec(...; calls=...)` expresses execution ownership only: the scene model
 decides when subprocesses run.
 
 ```julia
-ModelSpec(scene_model; name=:scene_eb) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(
-        :psi_soil =>
-            One(kind=:soil, scale=:Soil, application=:soil_water, var=:psi_soil),
-    ) |>
-    Calls(
-        :energy_balance =>
+ModelSpec(scene_model; name=:scene_eb, on=One(scale=:Scene), inputs=(:psi_soil =>
+            One(kind=:soil, scale=:Soil, application=:soil_water, var=:psi_soil),), calls=(:energy_balance =>
             Many(kind=:plant, scale=:Leaf, process=:energy_balance),
         :soil =>
-            One(kind=:soil, scale=:Soil, application=:soil_water),
-    ) |>
-    Environment(provider=:forcing, sink=:canopy) |>
-    TimeStep(Dates.Hour(1))
+            One(kind=:soil, scale=:Soil, application=:soil_water),), environment=Environment(provider=:forcing, sink=:canopy), every=Dates.Hour(1))
 ```
 
 The scene receives above-canopy forcing from the `:forcing` provider and has
@@ -50,15 +41,12 @@ committing it. After convergence, the scene commits the accepted canopy
 atmosphere with `commit_environment!(context, accepted_environment)` and publishes one
 accepted leaf call against that committed environment.
 
-Scene/soil values are wired declaratively with `Inputs(...)`, not by manually
+Scene/soil values are wired declaratively with `ModelSpec(...; inputs=...)`, not by manually
 writing another object's status. The soil model receives accepted scene fluxes
 through live references:
 
 ```julia
-ModelSpec(SoilWater(...); name=:soil_water) |>
-    AppliesTo(One(kind=:soil, scale=:Soil)) |>
-    Inputs(
-        :transpiration =>
+ModelSpec(SoilWater(...); name=:soil_water, on=One(kind=:soil, scale=:Soil), inputs=(:transpiration =>
             One(
                 scale=:Scene,
                 within=SceneScope(),
@@ -71,9 +59,7 @@ ModelSpec(SoilWater(...); name=:soil_water) |>
                 within=SceneScope(),
                 application=:scene_eb,
                 var=:scene_infiltration,
-            ),
-    ) |>
-    TimeStep(Dates.Hour(1))
+            ),), every=Dates.Hour(1))
 ```
 
 This creates a parent-controlled feedback loop: the scene reads mapped
@@ -87,18 +73,13 @@ the scene input.
 CompositeModel LAI receives live references to every leaf area:
 
 ```julia
-ModelSpec(LAIModel(ground_area); name=:lai_dynamic) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(
-        :leaf_areas => Many(
+ModelSpec(LAIModel(ground_area); name=:lai_dynamic, on=One(scale=:Scene), inputs=(:leaf_areas => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
             process=:leaf_state,
             var=:leaf_area,
-        ),
-    ) |>
-    TimeStep(Dates.Day(1))
+        ),), every=Dates.Day(1))
 ```
 
 The scene energy-balance model uses the same mapping mechanism for leaf-scale
@@ -109,10 +90,7 @@ those vectors, while the referenced leaf statuses remain the single source of
 truth.
 
 ```julia
-ModelSpec(scene_model; name=:scene_eb) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(
-        :leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
+ModelSpec(scene_model; name=:scene_eb, on=One(scale=:Scene), inputs=(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
         :leaf_carbon => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_carbon),
         :leaf_Ra_SW_f => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:Ra_SW_f),
         :leaf_aPPFD => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:aPPFD),
@@ -120,8 +98,7 @@ ModelSpec(scene_model; name=:scene_eb) |>
         :leaf_rn => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:Rn),
         :leaf_lambda_e => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:λE),
         :leaf_h => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:H),
-        :leaf_a => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:A),
-    )
+        :leaf_a => Many(kind=:plant, scale=:Leaf, within=SceneScope(), policy=HoldLast(), var=:A),))
 ```
 
 `HoldLast()` is intentional for the leaf flux vectors: it asks the compiler for
@@ -131,10 +108,7 @@ iterate hard-call trial states without materializing temporal streams.
 Allocation is plant-local because its leaf selector uses `within=Subtree()`:
 
 ```julia
-ModelSpec(allocation; name=:allocation) |>
-    AppliesTo(One(scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)) |>
-    TimeStep(Dates.Day(1))
+ModelSpec(allocation; name=:allocation, on=One(scale=:Plant), inputs=(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)), every=Dates.Day(1))
 ```
 
 ## Meteorology

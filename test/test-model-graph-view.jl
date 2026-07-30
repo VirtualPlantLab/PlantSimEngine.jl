@@ -54,10 +54,8 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, kind=:organ, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source) |>
-                AppliesTo(One(name=:leaf)),
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:leaf)),
         ),
     )
 
@@ -102,8 +100,7 @@ end
 @testset "CompositeModel graph instances and overrides" begin
     template = CompositeModelTemplate(
         (
-            ModelSpec(ModelGraphSourceModel(); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),
         );
         kind=:plant,
         species=:test_species,
@@ -148,10 +145,8 @@ end
     cyclic_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a) |>
-                AppliesTo(One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
         ),
     )
     report = compile_model_report(cyclic_scene)
@@ -170,11 +165,8 @@ end
     broken_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(y=0.0));
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a) |>
-                AppliesTo(One(name=:leaf)) |>
-                Inputs(PreviousTimeStep(:y) => One(within=Self(), var=:y)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf), inputs=(PreviousTimeStep(:y) => One(within=Self(), var=:y))),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
         ),
     )
     broken_view = model_graph_view(broken_scene)
@@ -186,8 +178,7 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:leaf)),
         ),
     )
     view = model_graph_view(model)
@@ -201,8 +192,7 @@ end
 
 @testset "CompositeModel graph edits are transactional" begin
     model = CompositeModel(Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0)))
-    source_spec = ModelSpec(ModelGraphSourceModel(); name=:source) |>
-                  AppliesTo(One(name=:leaf))
+    source_spec = ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf))
     with_source = apply_model_graph_edit(model, AddModelApplication(source_spec))
     @test isempty(model.applications)
     @test length(with_source.applications) == 1
@@ -238,10 +228,8 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(y=0.0));
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a) |>
-                AppliesTo(One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
         ),
     )
     @test model_graph_view(model).metadata["cyclic"]
@@ -263,10 +251,8 @@ end
     initialized_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status());
         applications=(
-            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a) |>
-                AppliesTo(One(name=:leaf)),
-            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphCycleAModel(); name=:cycle_a, on=One(name=:leaf)),
+            ModelSpec(ModelGraphCycleBModel(); name=:cycle_b, on=One(name=:leaf)),
         ),
     )
     lagged_without_initial_value = apply_model_graph_edit(
@@ -291,8 +277,7 @@ end
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, kind=:organ, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
         ),
     )
 
@@ -309,7 +294,8 @@ end
         SetModelUpdateOrdering(:source, (Updates(:signal; after=:driver),)),
     )
     spec = only(configured.applications)
-    @test environment_config(spec) == (provider=:model, sources=(T=:temperature,))
+    @test environment_config(spec).config ==
+          (provider=:model, sources=(T=:temperature,))
     @test output_routing(spec) == (signal=:stream_only,)
     @test only(updates(spec)).variables == (:signal,)
     configured_application = only(model_graph_view(configured).applications)
@@ -323,11 +309,8 @@ end
     ordered_writers = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
         applications=(
-            ModelSpec(ModelGraphSourceModel(1.0); name=:first_writer) |>
-                AppliesTo(One(name=:leaf)),
-            ModelSpec(ModelGraphSourceModel(2.0); name=:second_writer) |>
-                AppliesTo(One(name=:leaf)) |>
-                Updates(:signal; after=:first_writer),
+            ModelSpec(ModelGraphSourceModel(1.0); name=:first_writer, on=One(name=:leaf)),
+            ModelSpec(ModelGraphSourceModel(2.0); name=:second_writer, on=One(name=:leaf), updates=Updates(:signal; after=:first_writer)),
         ),
     )
     update_edge = only(
@@ -341,9 +324,7 @@ end
     environment_scene = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf);
         applications=(
-            ModelSpec(ModelGraphEnvironmentModel(); name=:environment_user) |>
-                AppliesTo(One(name=:leaf)) |>
-                Environment(provider=:forcing, sink=:canopy),
+            ModelSpec(ModelGraphEnvironmentModel(); name=:environment_user, on=One(name=:leaf), environment=Environment(provider=:forcing, sink=:canopy)),
         ),
     )
     environment_edges = [
@@ -383,10 +364,8 @@ end
         Object(:source_object; name=:source_object, scale=:Leaf, status=Status(driver=1.0)),
         Object(:consumer_object; name=:consumer_object, scale=:Plant);
         applications=(
-            ModelSpec(ModelGraphSourceModel(); name=:source) |>
-                AppliesTo(One(name=:source_object)),
-            ModelSpec(ModelGraphConsumerModel(); name=:consumer) |>
-                AppliesTo(One(name=:consumer_object)),
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:source_object)),
+            ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=One(name=:consumer_object)),
         ),
     )
 
@@ -477,8 +456,7 @@ end
 function model_graph_override_fixture()
     template = CompositeModelTemplate(
         (
-            ModelSpec(ModelGraphSourceModel(1.0); name=:source) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(ModelGraphSourceModel(1.0); name=:source, on=Many(scale=:Leaf)),
         );
         kind=:plant,
         species=:test_species,

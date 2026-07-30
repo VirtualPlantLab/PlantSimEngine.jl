@@ -325,7 +325,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::ReplaceModelAppli
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; model=edit.model),
+        _replace_model_spec(spec; model=edit.model),
     )
 end
 
@@ -347,12 +347,12 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelApplic
     _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(
+        _replace_model_spec(
             spec;
             model=edit.model,
             name=edit.name,
-            applies_to=edit.selector,
-            timestep=edit.timestep,
+            on=edit.selector,
+            every=edit.timestep,
         ),
     )
     edit.name == edit.application_id || _rewrite_model_application_references!(
@@ -371,7 +371,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RenameModelApplic
     _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; name=edit.name),
+        _replace_model_spec(spec; name=edit.name),
     )
     _rewrite_model_application_references!(model, edit.application_id, edit.name)
     return model
@@ -407,11 +407,11 @@ function _rewrite_model_application_references!(model::CompositeModel, old_id::S
             )
             for update in spec.updates
         )
-        model.applications[index] = ModelSpec(
+        model.applications[index] = _replace_model_spec(
             spec;
             inputs=inputs,
             calls=calls,
-            applies_to=target,
+            on=target,
             updates=updates_,
         )
     end
@@ -426,7 +426,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicati
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; applies_to=edit.selector),
+        _replace_model_spec(spec; on=edit.selector),
     )
 end
 
@@ -462,7 +462,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelInputBind
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; inputs=inputs, input_origins=origins),
+        _replace_model_spec(spec; inputs=inputs, input_origins=origins),
     )
 end
 
@@ -473,7 +473,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelInputB
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; inputs=inputs, input_origins=origins),
+        _replace_model_spec(spec; inputs=inputs, input_origins=origins),
     )
 end
 
@@ -485,7 +485,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelCallBindi
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; calls=calls, call_origins=origins),
+        _replace_model_spec(spec; calls=calls, call_origins=origins),
     )
 end
 
@@ -496,7 +496,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelCallBi
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; calls=calls, call_origins=origins),
+        _replace_model_spec(spec; calls=calls, call_origins=origins),
     )
 end
 
@@ -505,7 +505,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicati
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; timestep=edit.timestep),
+        _replace_model_spec(spec; every=edit.timestep),
     )
 end
 
@@ -514,7 +514,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicati
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; environment=edit.configuration),
+        _replace_model_spec(spec; environment=Environment(edit.configuration)),
     )
 end
 
@@ -530,7 +530,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; output_routing=routing),
+        _replace_model_spec(spec; output_routing=routing),
     )
 end
 
@@ -539,7 +539,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelUpdateOrd
     return _replace_model_edit_spec!(
         model,
         edit.application_id,
-        ModelSpec(spec; updates=edit.updates),
+        _replace_model_spec(spec; updates=edit.updates),
     )
 end
 
@@ -801,7 +801,7 @@ function _model_edit_rebuild_instances(
         application_id in replace_mounted_ids && continue
         old_spec = old_mounted[application_id]
         new_spec = as_model_spec(application)
-        rebuilt.applications[index] = ModelSpec(old_spec; model=model_(new_spec))
+        rebuilt.applications[index] = _replace_model_spec(old_spec; model=model_(new_spec))
     end
     return rebuilt
 end
@@ -827,11 +827,11 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelTempla
     edit.selector isa AbstractObjectMultiplicity || error(
         "Template application targets must use One(...), OptionalOne(...), or Many(...).",
     )
-    template_specs[index] = ModelSpec(
+    template_specs[index] = _replace_model_spec(
         original;
         model=edit.model,
-        applies_to=edit.selector,
-        timestep=edit.timestep,
+        on=edit.selector,
+        every=edit.timestep,
     )
     replacement_template = CompositeModelTemplate(
         Tuple(template_specs);

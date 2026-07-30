@@ -79,8 +79,8 @@ Current cleanup evidence:
   notes that record their removal from this unreleased branch;
 - ignored `.DS_Store` files were removed from the working tree outside `.git`.
 - `ModelSpec` pipe-helper boilerplate was consolidated behind shared internal
-  helpers while keeping the public `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
-  `Environment`, `Updates`, and `OutputRouting` grammar unchanged.
+  helpers while keeping the public `on`, `inputs`, `calls`, `every`,
+  `Environment`, `Updates`, and `output_routing` grammar unchanged.
 - the duplicate `Advanced.TimeStepTable` export was removed from the PlantMeteo
   re-export block; `Advanced.TimeStepTable` remains exported once from the core status
   export list.

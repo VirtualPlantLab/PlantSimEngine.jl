@@ -14,9 +14,9 @@ gives agents the package-specific conventions they need for:
 
 - building object graphs with `CompositeModel`, `Object`, `CompositeModelTemplate`, and
   `ObjectInstance`;
-- applying models with `ModelSpec` and `AppliesTo`;
-- coupling values and manual model calls with `Inputs` and `Calls`;
-- configuring multirate simulations with `TimeStep`, `Dates.Period` values,
+- applying models with `ModelSpec` and `on`;
+- coupling values and manual model calls with `inputs` and `calls`;
+- configuring multirate simulations with `every`, `Dates.Period` values,
   and temporal policies;
 - binding global or spatial microclimate through `Environment`;
 - reasoning about model-clock weather aggregation, `environment_hint` reducers, and

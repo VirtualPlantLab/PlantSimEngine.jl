@@ -127,17 +127,9 @@ end
         Object(:middle; scale=:Plant, name=:middle, parent=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:middle);
         applications=(
-            ModelSpec(NestedCallRootModel(); name=:root) |>
-                AppliesTo(One(name=:scene)) |>
-                Calls(:middle => One(name=:middle, within=Subtree(), application=:middle)) |>
-                TimeStep(Hour(1)),
-            ModelSpec(NestedCallMiddleModel(); name=:middle) |>
-                AppliesTo(One(name=:middle)) |>
-                Calls(:leaf => One(name=:leaf, within=Subtree(), application=:leaf)) |>
-                TimeStep(Hour(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf) |>
-                AppliesTo(One(name=:leaf)) |>
-                TimeStep(Hour(1)),
+            ModelSpec(NestedCallRootModel(); name=:root, on=One(name=:scene), calls=(:middle => One(name=:middle, within=Subtree(), application=:middle)), every=Hour(1)),
+            ModelSpec(NestedCallMiddleModel(); name=:middle, on=One(name=:middle), calls=(:leaf => One(name=:leaf, within=Subtree(), application=:leaf)), every=Hour(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf, on=One(name=:leaf), every=Hour(1)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -169,18 +161,13 @@ end
         Object(:leaf_b; scale=:Leaf, name=:leaf_b, parent=:scene),
         Object(:leaf_a; scale=:Leaf, name=:leaf_a, parent=:scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(name=:scene)) |>
-                Calls(
-                    :one => One(name=:leaf_a, application=:leaf_calls),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(name=:scene), calls=(:one => One(name=:leaf_a, application=:leaf_calls),
                     :optional => OptionalOne(
                         name=:missing,
                         application=:leaf_calls,
                     ),
-                    :many => Many(scale=:Leaf, application=:leaf_calls),
-                ),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(Many(scale=:Leaf)),
+                    :many => Many(scale=:Leaf, application=:leaf_calls),)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=Many(scale=:Leaf)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -217,8 +204,7 @@ end
     undeclared = CompositeModel(
         Object(:scene; scale=:Scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -227,9 +213,7 @@ end
     zero_one = CompositeModel(
         Object(:scene; scale=:Scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)) |>
-                Calls(:one => One(scale=:Leaf, application=:leaf_calls)),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:one => One(scale=:Leaf, application=:leaf_calls))),
         ),
     )
     @test_throws "Expected exactly one object" Advanced.refresh_bindings!(zero_one)
@@ -239,11 +223,8 @@ end
         Object(:leaf_a; scale=:Leaf, parent=:scene),
         Object(:leaf_b; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)) |>
-                Calls(:one => One(scale=:Leaf, application=:leaf_calls)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:one => One(scale=:Leaf, application=:leaf_calls))),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=Many(scale=:Leaf)),
         ),
     )
     @test_throws "Expected exactly one object" Advanced.refresh_bindings!(multiple_one)
@@ -252,13 +233,9 @@ end
         Object(:scene; scale=:Scene),
         Object(:leaf; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)) |>
-                Calls(:one => One(scale=:Leaf, process=:nested_call_leaf)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b) |>
-                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:one => One(scale=:Leaf, process=:nested_call_leaf))),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a, on=One(scale=:Leaf)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b, on=One(scale=:Leaf)),
         ),
     )
     @test_throws "expected one callee application" Advanced.refresh_bindings!(
@@ -269,18 +246,12 @@ end
         Object(:scene; scale=:Scene),
         Object(:leaf; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller) |>
-                AppliesTo(One(scale=:Scene)) |>
-                Calls(
-                    :optional => OptionalOne(
+            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:optional => OptionalOne(
                         scale=:Leaf,
                         process=:nested_call_leaf,
-                    ),
-                ),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b) |>
-                AppliesTo(One(scale=:Leaf)),
+                    ),)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a, on=One(scale=:Leaf)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b, on=One(scale=:Leaf)),
         ),
     )
     @test_throws "expected zero or one callee application" Advanced.refresh_bindings!(
@@ -294,17 +265,12 @@ end
         Object(:leaf_b; scale=:Leaf, parent=:scene),
         Object(:leaf_a; scale=:Leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller) |>
-                AppliesTo(One(name=:scene)) |>
-                Calls(
-                    :children => Many(
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => Many(
                         scale=:Leaf,
                         within=SceneScope(),
                         application=:leaf_calls,
-                    ),
-                ),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(Many(scale=:Leaf)),
+                    ),)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=Many(scale=:Leaf)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -346,17 +312,12 @@ end
         Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
         Object(:leaf; scale=:Leaf, parent=:plant_b);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller) |>
-                AppliesTo(One(name=:plant_a)) |>
-                Calls(
-                    :children => Many(
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:plant_a), calls=(:children => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         application=:leaf_calls,
-                    ),
-                ),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(Many(scale=:Leaf)),
+                    ),)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=Many(scale=:Leaf)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -384,13 +345,8 @@ end
         Object(:scene; scale=:Scene, name=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller) |>
-                AppliesTo(One(name=:scene)) |>
-                Calls(:children => One(name=:leaf, application=:leaf_calls)) |>
-                TimeStep(Day(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(One(name=:leaf)) |>
-                TimeStep(Hour(1)),
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => One(name=:leaf, application=:leaf_calls)), every=Day(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(name=:leaf), every=Hour(1)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -400,12 +356,8 @@ end
         Object(:scene; scale=:Scene, name=:scene),
         Object(:leaf; scale=:Leaf, name=:leaf, parent=:scene);
         applications=(
-            ModelSpec(ManyCallControllerModel(); name=:controller) |>
-                AppliesTo(One(name=:scene)) |>
-                Calls(:children => One(name=:leaf, application=:leaf_calls)) |>
-                TimeStep(Day(1)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls) |>
-                AppliesTo(One(name=:leaf)),
+            ModelSpec(ManyCallControllerModel(); name=:controller, on=One(name=:scene), calls=(:children => One(name=:leaf, application=:leaf_calls)), every=Day(1)),
+            ModelSpec(NestedCallLeafModel(); name=:leaf_calls, on=One(name=:leaf)),
         ),
         environment=(duration=Hour(1),),
     )

@@ -20,9 +20,12 @@ function PlantSimEngine.run!(::TimeValidationOverrideHintModel, status, environm
 end
 
 function time_validation_scene(environment; cadence=nothing)
-    spec = ModelSpec(TimeValidationCounterModel(); name=:counter) |>
-           AppliesTo(One(scale=:Scene))
-    isnothing(cadence) || (spec = spec |> TimeStep(cadence))
+    spec = ModelSpec(
+        TimeValidationCounterModel();
+        name=:counter,
+        on=One(scale=:Scene),
+        every=cadence,
+    )
     return CompositeModel(
         Object(:scene; scale=:Scene);
         applications=(spec,),
@@ -71,8 +74,7 @@ end
 
 @testset "object overrides preserve timestep hints" begin
     template = CompositeModelTemplate((
-        ModelSpec(TimeValidationOverrideHintModel(); name=:counter) |>
-            AppliesTo(Many(scale=:Leaf)),
+        ModelSpec(TimeValidationOverrideHintModel(); name=:counter, on=Many(scale=:Leaf)),
     ))
     instance = ObjectInstance(
         :plant,

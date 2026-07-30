@@ -26,10 +26,8 @@ end
         (T=20.0, CO2=410.0, duration=Dates.Hour(1))
     ) === nothing
 
-    bound_spec = ModelSpec(
-        EnvironmentTraitConsumerModel();
-        environment_bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),
-    )
+    bound_spec = ModelSpec(EnvironmentTraitConsumerModel();
+        environment_bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),)
     bound_specs = Dict(:Leaf => Dict(:environment_trait_consumer => bound_spec))
 
     @test_throws "Ca" PlantSimEngine.validate_environment_inputs(
@@ -44,7 +42,7 @@ end
     model = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(environment_seen=0.0));
         applications=(
-            ModelSpec(EnvironmentTraitConsumerModel()) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(EnvironmentTraitConsumerModel(); on=One(scale=:Leaf)),
         ),
         environment=(T=20.0, CO2=410.0, duration=Dates.Hour(1)),
     )

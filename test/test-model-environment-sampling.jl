@@ -54,10 +54,7 @@ end
         model = CompositeModel(
             Object(:leaf; scale=:Leaf);
             applications=(
-                ModelSpec(EnvironmentSamplingProbeModel(); name=:probe) |>
-                    AppliesTo(One(scale=:Leaf)) |>
-                    TimeStep(Hour(2)) |>
-                    Environment(provider=:global),
+                ModelSpec(EnvironmentSamplingProbeModel(); name=:probe, on=One(scale=:Leaf), every=Hour(2), environment=Environment(provider=:global)),
             ),
             environment=weather,
         )
@@ -78,10 +75,7 @@ end
         @test values(:radiation_energy) ≈ [0.36, 1.8]
 
         template = CompositeModelTemplate((
-            ModelSpec(EnvironmentSamplingProbeModel(); name=:probe) |>
-                AppliesTo(Many(scale=:Leaf)) |>
-                TimeStep(Hour(2)) |>
-                Environment(provider=:global),
+            ModelSpec(EnvironmentSamplingProbeModel(); name=:probe, on=Many(scale=:Leaf), every=Hour(2), environment=Environment(provider=:global)),
         ))
         instance = ObjectInstance(
             :plant,

@@ -10,16 +10,17 @@ concepts in the final design.
 The target public surface should be centered on a small set of concepts:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-
-AppliesTo(...)
-Inputs(...)
-Calls(...)
-Updates(...)
-TimeStep(...)
-Environment(...)
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 This is the API memory target for users, modelers, and agents. Additional
@@ -27,9 +28,8 @@ types should be selectors, model traits, or internal compiled carriers.
 
 ## Implementation Progress
 
-- Started Phase 0 by adding the public API vocabulary as real typed metadata:
-  `AppliesTo(...)`, `Inputs(...)`, `Calls(...)`, `TimeStep(...)`, and
-  `Environment(...)` can now be applied to `ModelSpec`.
+- Started Phase 0 by adding typed application metadata, now constructed
+  directly with `ModelSpec` keywords.
 - Added `ModelSpec(model; name=...)` application names and getters:
   `application_name`, `applies_to`, `value_inputs`, `model_calls`, and
   `environment_config`.
@@ -55,22 +55,22 @@ types should be selectors, model traits, or internal compiled carriers.
 - `Relation(...)` selectors now resolve `:self`, `:parent`, `:children`,
   `:ancestors`, `:descendants`, and `:siblings` relative to the consuming
   object. Explicit scopes constrain relation results, default dependency scopes
-  do not erase parent/sibling queries, and compiled `Inputs(...)` can use these
+  do not erase parent/sibling queries, and compiled `ModelSpec(...; inputs=...)` can use these
   relations without runtime selector resolution.
 - `ObjectAddress(selector)` now normalizes positional `Kind`, `Species`,
   `Scale`, scope, and `Relation` selectors instead of recording only keyword
   criteria.
 - Started the object-address compiler with `Advanced.compile_composite_model(model, specs)` and
   compiled model application/binding carriers. The compiler now resolves
-  `AppliesTo(...)` target object ids, object-relative `Inputs(...)` source
-  object ids, and object-relative `Calls(...)` callee object/application ids
+  `ModelSpec(...; on=...)` target object ids, object-relative `ModelSpec(...; inputs=...)` source
+  object ids, and object-relative `ModelSpec(...; calls=...)` callee object/application ids
   before runtime.
 - Added `explain_applications`, `explain_bindings`, and `explain_calls`
   for the compiled model view. These explanations expose application ids,
   processes, target ids, input source ids, call callee ids, temporal policy,
   window, and carrier hints.
 - Added status-backed compiled input carriers. When source objects already
-  hold `Status` values, `Inputs(...)` bindings now precompile a scalar shared
+  hold `Status` values, `ModelSpec(...; inputs=...)` bindings now precompile a scalar shared
   `Ref`, a homogeneous `RefVector`, or an `Advanced.ObjectRefVector` fallback for
   heterogeneous reference-preserving vectors. `input_carrier`, `input_value`,
   and `has_reference_carrier` expose these carriers, and `explain_bindings`
@@ -78,16 +78,16 @@ types should be selectors, model traits, or internal compiled carriers.
   availability.
 - Added conservative same-object input inference in the model compiler. When a
   model declares an `inputs_` variable that is not covered by explicit/default
-  `Inputs(...)`, and exactly one other application on the same object outputs
+  `ModelSpec(...; inputs=...)`, and exactly one other application on the same object outputs
   the same variable, `Advanced.compile_composite_model` creates an inferred reference binding.
   `explain_bindings` now reports binding `origin` values such as
   `:model_default`, `:model_spec`, and `:inferred_same_object`.
-- Compiled input bindings now carry producer metadata. When an `Inputs(...)`
+- Compiled input bindings now carry producer metadata. When an `ModelSpec(...; inputs=...)`
   selector uses `process=` or `application=`, `Advanced.compile_composite_model` validates that a
   matching source application exists for the selected source objects.
   `explain_bindings` reports `source_application_ids`, `process`, and
   `application` for agent-readable dependency diagnostics.
-- Dependency selectors in `Inputs(...)` and `Calls(...)` now infer a default
+- Dependency selectors in `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)` now infer a default
   scope from the consumer object when no explicit `within=...` is provided:
   model objects default to `SceneScope()`, while non-model objects default to
   `Self()`. Shared model/soil dependencies from organs should therefore use
@@ -102,20 +102,20 @@ types should be selectors, model traits, or internal compiled carriers.
   `Default(value)` inputs from their initial values, and installs explicitly or
   implicitly bound input carriers. Unbound `Required(T)` inputs remain
   compilation errors.
-- `Advanced.compile_composite_model` now rejects `Inputs(...)` declarations whose left-hand
+- `Advanced.compile_composite_model` now rejects `ModelSpec(...; inputs=...)` declarations whose left-hand
   variable is not declared by the target model's `inputs_`. This catches
   misspelled or stale scenario bindings before they create silent unused
   metadata.
 - `Advanced.compile_composite_model` now validates source availability for status-backed
-  non-temporal `Inputs(...)` bindings. When selected source objects already
+  non-temporal `ModelSpec(...; inputs=...)` bindings. When selected source objects already
   have `Status` values, the requested source variable must resolve to
   references instead of silently compiling to an unused/no-op binding.
 - Carrier compilation preserves source `Status` references and arbitrary value
   types; tests cover scalar refs, heterogeneous many-object vectors, and a
   homogeneous dual-like `BigFloat` value through `RefVector`, model arithmetic,
   source mutation, and typed output publication.
-- Same-object renaming is supported directly by `Inputs(...)`, for example
-  `Inputs(:renamed_signal => One(within=Self(), var=:signal))`. The compiler
+- Same-object renaming is supported directly by `ModelSpec(...; inputs=...)`, for example
+  `inputs=(:renamed_signal => One(within=Self(), var=:signal),)`. The compiler
   aliases the source `Ref`, records the renamed source variable in
   `explain_bindings`, and schedules the producer before the consumer.
 - Same-rate input carriers are installed directly into consumer `Status`
@@ -192,15 +192,15 @@ types should be selectors, model traits, or internal compiled carriers.
   geometry are invalidated as part of the same object-scoped refresh.
 - Started composite-model/object execution with `run!(model; steps=...)`.
   The runtime refreshes compiled object bindings and environment bindings,
-  materializes precompiled `Inputs(...)` carriers into consumer `Status`
+  materializes precompiled `ModelSpec(...; inputs=...)` carriers into consumer `Status`
   fields, samples the bound environment backend, and calls generic model
   kernels through the existing `run!` contract.
 - CompositeModel/object execution now publishes model outputs to model-local temporal
-  streams. Compiled `Inputs(...)` bindings marked as `:temporal_stream` can
+  streams. Compiled `ModelSpec(...; inputs=...)` bindings marked as `:temporal_stream` can
   materialize `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate` values
   before the consumer runs, using selector source ids, source variables,
   windows, and the model base timestep.
-- CompositeModel temporal `Inputs(...)` now honor producer `output_policy(...)` traits
+- CompositeModel temporal `ModelSpec(...; inputs=...)` now honor producer `output_policy(...)` traits
   when the selector omits `policy=...` and resolves to a unique source
   application. Explicit selector policies remain scenario-level overrides.
 - CompositeModel `Interpolate(...)` matches the established multirate runtime:
@@ -210,7 +210,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `extrapolation=:hold` are supported, invalid modes fail during model
   compilation, and interpolation arithmetic preserves generic numeric value
   types without converting model values to `Float64`.
-- Unified `Inputs(...)` now supports explicit lagged dependencies with
+- Unified `ModelSpec(...; inputs=...)` now supports explicit lagged dependencies with
   `PreviousTimeStep(:input) => selector`. Lagged bindings use temporal streams,
   read source samples at or before `t - 1`, preserve the initialized consumer
   status value until history exists, and do not add a same-timestep scheduling
@@ -222,21 +222,21 @@ types should be selectors, model traits, or internal compiled carriers.
   `run_call!(context, name; environment=trial_state)`.
   Meteorological state stays in the environment backend instead of being staged
   through same-named status values.
-- Added root application scheduling from `TimeStep(...)` using `Dates.Period`
+- Added root application scheduling from `ModelSpec(...; every=...)` using `Dates.Period`
   values and the model environment base step. `explain_schedule` on a
   `Advanced.CompiledCompositeModel` now reports each application clock, phase, timestep in base
   steps, timestep duration in seconds, and whether the application is scheduled
   as a root application or is manual-call-only.
 - CompositeModel application scheduling now also honors a model's `timespec(...)` trait
-  when `TimeStep(...)` is omitted. Scenario-level `TimeStep(...)` keeps
+  when `ModelSpec(...; every=...)` is omitted. Scenario-level `ModelSpec(...; every=...)` keeps
   precedence over the model trait, matching the established multirate runtime.
 - CompositeModel application scheduling now validates `timestep_hint(...)` required
   bounds for base-step-derived clocks. Hints remain compatibility constraints;
-  they do not override explicit `TimeStep(...)` or non-default `timespec(...)`.
+  they do not override explicit `ModelSpec(...; every=...)` or non-default `timespec(...)`.
 - `Advanced.compile_composite_model` now computes a stable topological application order from
-  resolved `Inputs(...)` producer edges and `Updates(...)` writer-order edges.
+  resolved `ModelSpec(...; inputs=...)` producer edges and `Updates(...)` writer-order edges.
   Inputs produced by manual-call-only applications are redirected to the parent
-  application that owns the `Calls(...)` call stack. `run!(model)` uses this
+  application that owns the `ModelSpec(...; calls=...)` call stack. `run!(model)` uses this
   precompiled order instead of user declaration order, cycles fail at compile
   time, and `explain_schedule` reports `execution_index`.
 - `Advanced.CompiledCompositeModel` now pre-indexes input and call bindings by
@@ -251,10 +251,10 @@ types should be selectors, model traits, or internal compiled carriers.
   output scattering use direct lookup instead of scanning all environment
   bindings for every model invocation.
 - Added `RunContext` and `CallTarget`. Models can retrieve manual
-  `Calls(...)` targets with `call_targets(context, :name)` and execute
+  `ModelSpec(...; calls=...)` targets with `call_targets(context, :name)` and execute
   them with `run_call!`, preserving explicit call-stack control in the
   composite-model/object runtime. Manual calls execute immediately under the parent call
-  stack; applications selected by `Calls(...)` are skipped by the root
+  stack; applications selected by `ModelSpec(...; calls=...)` are skipped by the root
   `run!(model)` loop and only execute through `run_call!`.
 - Added composite-model/object duplicate-writer validation. During `Advanced.compile_composite_model`, each
   `(object, output variable)` now has one canonical writer unless later
@@ -267,27 +267,27 @@ types should be selectors, model traits, or internal compiled carriers.
   `Updates(...)` declarations used to validate ordered updates.
 - Extended `explain_model_specs` rows with application name, target selector,
   value inputs, manual calls, and environment metadata.
-- Started Phase 3 by compiling simple `Inputs(...)` declarations to typed
+- Started Phase 3 by compiling simple `ModelSpec(...; inputs=...)` declarations to typed
   scale/variable carriers, for example
-  `Inputs(:x => Many(scale=:Leaf, var=:y))`.
+  `inputs=(:x => Many(scale=:Leaf, var=:y),)`.
 - Added model-level `Input(...)` defaults from `dep(model)` into
-  `ModelSpec` value inputs. Scenario-level `ModelSpec(...) |> Inputs(...)`
+  `ModelSpec` value inputs. Scenario-level `ModelSpec(...; inputs=(...))`
   overrides those defaults before the native binding is compiled.
 - Removed the intermediate scenario bridge after the composite-model/object compiler
-  gained native `Inputs(...)` support. Manual value-transfer carriers are not
+  gained native `ModelSpec(...; inputs=...)` support. Manual value-transfer carriers are not
   retained as user-authored API.
-- Removed the intermediate dependency resolver after `Calls(...)` became
+- Removed the intermediate dependency resolver after `ModelSpec(...; calls=...)` became
   native composite-model/object metadata. Manual model execution now goes through
   `CallTargets`, `call_targets`, and `run_call!`.
 - Added model-level `Call(...)` defaults from `dep(model)` into
   `ModelSpec` manual-call metadata. Scenario-level
-  `ModelSpec(...) |> Calls(...)` overrides those defaults, and
+  `ModelSpec(...; calls=(...))` overrides those defaults, and
   `dep(::ModelSpec)` excludes raw `Call(...)` trait entries so default calls
   are normalized through the same bridge as explicit calls.
 - Migrated the MAESPA example's model energy-balance hard calls to
-  scenario-level `ModelSpec(scene_model) |> Calls(...)`.
+  scenario-level `ModelSpec(scene_model; calls=(...))`.
 - Migrated the MAESPA example's model LAI leaf-area transfer to consumer-side
-  `ModelSpec(LAIModel(...)) |> Inputs(...)`.
+  `ModelSpec(LAIModel(...); inputs=(...))`.
 - Started Phase 5 with `CompositeModelTemplate` and `ObjectInstance`. A template stores
   reusable composite-model/object `ModelSpec`s plus default object labels, and an
   instance mounts those specs inside one named object subtree.
@@ -296,7 +296,7 @@ types should be selectors, model traits, or internal compiled carriers.
   an object supplied separately to the model.
 - Mounted template applications receive stable instance-prefixed application
   names and an implicit `Scope(instance_name)` on unqualified
-  `AppliesTo(...)` selectors. Their `Inputs(...)`, `Calls(...)`, scheduling,
+  `ModelSpec(...; on=...)` selectors. Their `ModelSpec(...; inputs=...)`, `ModelSpec(...; calls=...)`, scheduling,
   writer validation, and execution use the normal compiled composite-model/object path.
 - Instance overrides can replace one template application by application name
   or process. Overrides must be unambiguous and preserve process identity.
@@ -346,8 +346,8 @@ types should be selectors, model traits, or internal compiled carriers.
   the same object status inside their parent call stack.
 - Added a unified composite-model/object MAESPA example path:
   `build_maespa_scene(...)` and `run_maespa_example(...)`.
-  It uses `CompositeModelTemplate`, `ObjectInstance`, `AppliesTo`, `Inputs`, `Calls`,
-  and `TimeStep(Dates.Period)` with two plant species, one shared soil object,
+  It uses `CompositeModelTemplate`, `ObjectInstance`, `on`, `inputs`, `calls`,
+  and `every=Dates.Period` with two plant species, one shared soil object,
   model LAI, and model energy balance.
 - `test/test-maespa-model-example.jl` verifies the unified composite-model/object
   MAESPA path.
@@ -371,7 +371,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `tracked_outputs=nothing`, the model runtime retains all output streams for
   historical inspection. With explicit `tracked_outputs`, including an empty
   request vector, it retains only requested publisher streams plus streams
-  required by temporal `Inputs(...)`. Dependency-only streams are pruned after
+  required by temporal `ModelSpec(...; inputs=...)`. Dependency-only streams are pruned after
   publication to the compiled policy horizon: latest-only for `HoldLast`, the
   input window for `Integrate`/`Aggregate`, and enough source history for
   `Interpolate`/`PreviousTimeStep`. Explicitly requested streams retain their
@@ -398,13 +398,13 @@ types should be selectors, model traits, or internal compiled carriers.
   selected from its first published value rather than boxing all values as
   `Any`. Output type changes fail explicitly, and `Interpolate`/`Integrate`
   tests verify `BigFloat` histories and reduced values remain `BigFloat`.
-- CompositeModel `OutputRouting(; var=:stream_only)` now matches the unified graph
+- CompositeModel `output_routing=(var=:stream_only,)` now matches the unified graph
   semantics: stream-only outputs are excluded from canonical writer validation
   and same-object input inference, while remaining available in output streams
-  and explicit `Inputs(..., application=:name)` selections.
+  and explicit `inputs=(... One(application=:name), ...)` selections.
 - `run!(model; steps=...)` now refreshes dirty structural bindings at timestep
   boundaries. Objects created, removed, or reparented by a model during one
-  timestep update `AppliesTo(...)` target sets, input carriers, call targets,
+  timestep update `ModelSpec(...; on=...)` target sets, input carriers, call targets,
   writer validation, and scheduling before the next timestep.
 - Geometry-only mutations refresh environment bindings at the next timestep
   without recompiling structural bindings. The returned `Simulation`
@@ -449,11 +449,11 @@ Goal: decide the small public vocabulary before implementing internals.
 Define:
 
 - `ModelSpec(model; name=nothing)` as the model-application wrapper.
-- `AppliesTo(selector)` as the target object-set declaration.
-- `Inputs(...)` for value dependencies.
-- `Calls(...)` for manual call-stack dependencies.
+- `ModelSpec(...; on=selector)` as the target object-set declaration.
+- `ModelSpec(...; inputs=...)` for value dependencies.
+- `ModelSpec(...; calls=...)` for manual call-stack dependencies.
 - `Updates(...)` for rare ordered duplicate writers.
-- `TimeStep(period::Dates.Period)` and related multirate policies.
+- `every=period::Dates.Period` and related multirate policies.
 - `Environment(...)` for optional environment resolver/backend overrides.
 
 Rules:
@@ -529,7 +529,7 @@ Many(selector...)
 Selectors must normalize to `ObjectAddress` objects with enough context to be
 resolved relative to a consuming object.
 
-Implement `AppliesTo(...)` using the same selector system. The target object
+Implement `ModelSpec(...; on=...)` using the same selector system. The target object
 set of a model application must never be hidden inside a mapping key or
 implicit scale table.
 
@@ -558,30 +558,26 @@ Acceptance tests:
 - plant allocation on four oil palms reads only leaves under each plant;
 - model LAI reads leaves across all plant objects;
 - a species-specific model model can read only `species=:oil_palm` leaves;
-- a model application target set declared with `AppliesTo(...)` produces stable
+- a model application target set declared with `ModelSpec(...; on=...)` produces stable
   application/object pairs;
 - selector errors report available labels and near matches.
 
 ## Phase 3: Unified Value Inputs
 
-Goal: use `Inputs(...)` as the only user-facing value-dependency declaration.
+Goal: use `ModelSpec(...; inputs=...)` as the only user-facing value-dependency declaration.
 Historical `MultiScaleModel(...)` mappings are migration sources only.
 
 Target API:
 
 ```julia
-ModelSpec(AllocationModel()) |>
-    AppliesTo(Many(kind=:plant, scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
+ModelSpec(AllocationModel(); on=Many(kind=:plant, scale=:Plant), inputs=(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)))
 
-ModelSpec(LAIModel(area)) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area))
+ModelSpec(LAIModel(area); on=One(scale=:Scene), inputs=(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area)))
 ```
 
 Implement:
 
-- `Inputs(...)` as `ModelSpec` configuration.
+- `ModelSpec(...; inputs=...)` as `ModelSpec` configuration.
 - `Input(...)` or an equivalent internal wrapper that lets `dep(model)`
   provide default value-input bindings.
 - normalized input bindings from target variable to `ObjectAddress`.
@@ -600,7 +596,7 @@ Rules:
   inputs come from;
 - `dep(model)` may provide defaults for common value-input bindings in
   composite-model/object composition;
-- scenario-level `ModelSpec(...) |> Inputs(...)` always wins over `dep(model)`
+- scenario-level `ModelSpec(...; inputs=(...))` always wins over `dep(model)`
   defaults;
 - same-rate local links should keep reference semantics where possible;
 - cross-rate links always go through temporal state;
@@ -626,36 +622,41 @@ Carrier expectations:
 
 Acceptance tests:
 
-- the MAESPA model LAI cross-object input is declared with `Inputs(...)` and
+- the MAESPA model LAI cross-object input is declared with `ModelSpec(...; inputs=...)` and
   produces the same `lai` and `leaf_area`;
 - historical plant allocation `MultiScaleModel([:leaf_carbon => [:Leaf => :leaf_carbon]])`
-  becomes `Inputs(...)` and remains plant-local;
+  becomes `ModelSpec(...; inputs=...)` and remains plant-local;
 - a same-scale rename currently expressed with `SameScale()` works through
-  `Inputs(...)`;
+  `ModelSpec(...; inputs=...)`;
 - multi-rate value inputs integrate object streams by object id.
 - same-rate many-object bindings do not allocate per timestep in a benchmarked
   hot loop beyond unavoidable model work.
-- unitful or dual-number status values survive `Inputs(...)` without forced
+- unitful or dual-number status values survive `ModelSpec(...; inputs=...)` without forced
   conversion to `Float64`.
 
 ## Phase 4: Unified Model Calls
 
-Goal: use `Calls(...)` as the only user-facing manual model-call declaration.
+Goal: use `ModelSpec(...; calls=...)` as the only user-facing manual model-call declaration.
 The same mechanism must also be usable from `dep(model)` so hard-dependency
 traits become default call declarations.
 
 Target API:
 
 ```julia
-ModelSpec(SceneEB()) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(:leaf_energy => Many(kind=:plant, scale=:Leaf, process=:energy_balance)) |>
-    Calls(:soil => One(kind=:soil, application=:soil_water))
+ModelSpec(
+    SceneEB();
+    on=One(scale=:Scene),
+    calls=(
+        :leaf_energy =>
+            Many(kind=:plant, scale=:Leaf, process=:energy_balance),
+        :soil => One(kind=:soil, application=:soil_water),
+    ),
+)
 ```
 
 Implement:
 
-- `Calls(...)` as `ModelSpec` configuration.
+- `ModelSpec(...; calls=...)` as `ModelSpec` configuration.
 - `Call(...)` or an equivalent internal wrapper that lets `dep(model)` provide
   default manual-call dependencies.
 - call resolution from `ObjectAddress` to concrete `ModelCall` handles, or an
@@ -673,14 +674,14 @@ Rules:
 - calls are manual call-stack dependencies and are not independently
   scheduled under the parent;
 - `dep(model)` call defaults are model-author defaults, not final wiring;
-- scenario-level `ModelSpec(...) |> Calls(...)` overrides `dep(model)` defaults;
+- scenario-level `ModelSpec(...; calls=(...))` overrides `dep(model)` defaults;
 - hard target outputs still participate in dependency graph compilation through
   the owning parent when needed;
 - call selection must be visible through explanation helpers.
 
 Acceptance tests:
 
-- MAESPA model energy balance uses `Calls(...)` and still controls iterative
+- MAESPA model energy balance uses `ModelSpec(...; calls=...)` and still controls iterative
   leaf energy calls;
 - missing call selectors report `kind`, `scale`, `process`, and available
   matches;
@@ -701,7 +702,7 @@ Implemented:
   `accepted_publish=true` for every compiled call edge.
 - `ModelSpec` now retains per-binding provenance for value inputs and manual
   calls. Bindings from `dep(model)` are reported as `:model_default`,
-  scenario-level `Inputs(...)` and `Calls(...)` are reported as `:model_spec`,
+  scenario-level `ModelSpec(...; inputs=...)` and `ModelSpec(...; calls=...)` are reported as `:model_spec`,
   and compiler-created same-object value links are reported as
   `:inferred_same_object`. `explain_bindings`, `explain_calls`, and
   `explain_model_specs` expose these origins for agent-readable diagnostics.
@@ -787,7 +788,7 @@ Rules:
 
 - topology and geometry changes do not silently leave stale carriers;
 - object creation should bind the new object to model applications selected by
-  `AppliesTo(...)` before the next timestep;
+  `ModelSpec(...; on=...)` before the next timestep;
 - moving an object should refresh environment bindings without rebuilding
   unrelated model bindings unless the move changes object relations or labels.
 
@@ -870,8 +871,8 @@ Implement:
 - materialization and multiscale reference wiring as internal carriers;
 - object/scope dependency scheduling;
 - writer validation through the same graph, including `Updates(...)`;
-- model application scheduling from `AppliesTo(...)` target sets;
-- multirate scheduling based on `Dates.Period` values in `TimeStep(...)` and
+- model application scheduling from `ModelSpec(...; on=...)` target sets;
+- multirate scheduling based on `Dates.Period` values in `ModelSpec(...; every=...)` and
   input windows;
 - typed compiled bindings that avoid selector resolution in timestep hot loops;
 - typed homogeneous execution batches that move dynamic dispatch outside the
@@ -885,11 +886,11 @@ Implement:
 
 Acceptance tests:
 
-- old `MultiScaleModel` examples rewritten with `Inputs(...)` produce matching
+- old `MultiScaleModel` examples rewritten with `ModelSpec(...; inputs=...)` produce matching
   outputs;
-- historical cross-object examples rewritten with `Inputs(...)` produce
+- historical cross-object examples rewritten with `ModelSpec(...; inputs=...)` produce
   matching outputs;
-- MAESPA hard-call example rewritten with `Calls(...)` produces matching
+- MAESPA hard-call example rewritten with `ModelSpec(...; calls=...)` produces matching
   outputs;
 - explanation helpers include enough concrete object ids, scales, processes,
   and variables for an AI agent to repair bad mappings.
@@ -914,19 +915,19 @@ Removed:
 
 Write migration notes:
 
-- `MultiScaleModel([:x => [:Leaf => :y]])` -> `Inputs(:x => Many(scale=:Leaf, var=:y))`;
-- cross-object value declarations -> consumer `Inputs(...)`;
-- manual dependency declarations -> `Calls(...)`;
+- `MultiScaleModel([:x => [:Leaf => :y]])` -> `inputs=(:x => Many(scale=:Leaf, var=:y),)`;
+- cross-object value declarations -> consumer `ModelSpec(...; inputs=...)`;
+- manual dependency declarations -> `ModelSpec(...; calls=...)`;
 - repeated species assemblies -> `CompositeModelTemplate` plus `ObjectInstance`;
 - explicit environment wiring -> environment resolver/binding backend.
 - `InputBindings(...)` -> source and temporal policy information inside
-  `Inputs(...)`;
+  `ModelSpec(...; inputs=...)`;
 - `MeteoBindings(...)` and `MeteoWindow(...)` -> `Environment(...)` and
   environment sampling/window policy;
-- `OutputRouting(...)` -> model-application output policy;
+- `ModelSpec(...; output_routing=...)` -> model-application output policy;
 - `PreviousTimeStep(...)` -> temporal policy/cycle-breaking marker in the
   unified graph;
-- `ScopeModel(...)` -> `AppliesTo(...)` plus selector scope.
+- `ScopeModel(...)` -> `ModelSpec(...; on=...)` plus selector scope.
 
 Regression tests must cover all migrated examples before removal.
 
@@ -939,18 +940,18 @@ Migration documentation progress:
 - Documentation navigation and the home page now identify the composite-model/object API
   as the target for new multiscale and multi-plant work.
 - The documentation home page now uses executable composite-model/object examples as the
-  primary quickstart. It shows `CompositeModel`, `Object`, `ModelSpec`, `AppliesTo`,
-  `Inputs`, `TimeStep`, automatic same-object binding inference, multi-object
-  `Many(...)` inputs, and manual `Calls(...)` syntax.
+  primary quickstart. It shows `CompositeModel`, `Object`, `ModelSpec`, `on`,
+  `inputs`, `every`, automatic same-object binding inference, multi-object
+  `Many(...)` inputs, and manual `ModelSpec(...; calls=...)` syntax.
 - The repository README now mirrors the composite-model/object entry point instead of
   teaching `ModelMapping` first. It includes smoke-tested `CompositeModel`/`Object`
-  quickstart code, `Inputs(...)` multi-object coupling, conceptual
-  `Calls(...)` syntax, and links to the migration guide.
+  quickstart code, `ModelSpec(...; inputs=...)` multi-object coupling, conceptual
+  `ModelSpec(...; calls=...)` syntax, and links to the migration guide.
 - Added `docs/src/composite_model/quickstart.md` as the first native
   composite-model/object tutorial page and promoted it in the documentation navigation.
   The page contains docs-tested examples for one-object model chaining,
   inferred same-object bindings, `OutputRequest` retention, multi-object
-  `Inputs(...)`, `RefVector` carrier explanations, and manual `Calls(...)`
+  `ModelSpec(...; inputs=...)`, `RefVector` carrier explanations, and manual `ModelSpec(...; calls=...)`
   syntax.
 - The repository agent skill teaches the unified public vocabulary.
 - The public API page now starts with curated composite-model/object groups for scenario
@@ -978,7 +979,7 @@ Current removal audit:
   retaining them as migration reference.
 - The model execution page has been rewritten as a composite-model/object-first guide.
   It now documents compilation, same-rate reference carriers, temporal
-  `Inputs(...)`, manual `Calls(...)`, `Updates(...)`, `TimeStep(...)`,
+  `ModelSpec(...; inputs=...)`, manual `ModelSpec(...; calls=...)`, `Updates(...)`, `ModelSpec(...; every=...)`,
   environment binding, output retention, lifecycle cache invalidation, and
   compatibility translations from the historical mapping runtime.
 - The detailed first simulation tutorial now starts from the composite-model/object API
@@ -991,8 +992,8 @@ Current removal audit:
   compatibility note.
 - The standard model coupling, model switching, and coupling more complex
   models step-by-step tutorials now teach `CompositeModel`, `Object`, `ModelSpec`,
-  `AppliesTo`, `TimeStep`, inferred soft `Inputs(...)`, and manual
-  `Calls(...)` first. Historical `PlantSimEngine.ModelMapping(...)` appears
+  `on`, `every`, inferred soft `ModelSpec(...; inputs=...)`, and manual
+  `ModelSpec(...; calls=...)` first. Historical `PlantSimEngine.ModelMapping(...)` appears
   only in compatibility notes on those pages.
 - The home page has been replaced by native composite-model/object examples. The
   repository README has also been replaced by native composite-model/object examples,
@@ -1006,21 +1007,21 @@ Current removal audit:
   missing environment variables, explicit `Environment(; sources=...)`
   remapping, model-author `environment_hint` source defaults, and validation against
   an explicit replacement environment object/backend.
-- Test code uses the canonical `TimeStep(...)` spelling and composite-model/object
+- Test code uses the canonical `ModelSpec(...; every=...)` spelling and composite-model/object
   modifiers. Legacy transform tests were removed with the old compatibility
   constructors.
-- The unified MAESPA path is implemented and tested through `AppliesTo`,
-  `Inputs`, `Calls`, `call_targets`, and `run_call!`.
+- The unified MAESPA path is implemented and tested through `on`,
+  `inputs`, `calls`, `call_targets`, and `run_call!`.
 
 ## Resolved API Decisions
 
 - `SceneScope`, `Self`, `SelfPlant`, `Kind`, `Species`, and `Scale` are the
   public selector names.
-- `Inputs(...)` is the preferred pipeable modifier. `ModelSpec(...; inputs=...)`
-  is also accepted for programmatic construction.
-- `TimeStep(...)` is the canonical timestep configuration.
+- `ModelSpec(...; inputs=...)` is the only scenario-level value-binding
+  construction form.
+- `ModelSpec(...; every=...)` is the canonical timestep configuration.
 - `Environment(...)` owns provider/resolver/source configuration. Temporal
-  value windows belong to the consuming `Inputs(...)` selector.
+  value windows belong to the consuming `ModelSpec(...; inputs=...)` selector.
 - Object templates own reusable model applications and parameters, not plant
   topology construction. They consume explicit object trees or MTGs adapted
   through `objects_from_mtg`.

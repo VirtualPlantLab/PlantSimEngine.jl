@@ -1,6 +1,6 @@
 ---
 name: plantsimengine
-description: Use PlantSimEngine.jl to compose models with the unified Composite Model/Object API, AppliesTo, Inputs, Calls, TimeStep, Environment, and to implement or wrap generic model kernels with inputs_, outputs_, dep, environment traits, and run!.
+description: Use PlantSimEngine.jl to compose models with the unified Composite Model/Object API and direct ModelSpec keywords, and to implement or wrap generic model kernels with inputs_, outputs_, dep, environment traits, and run!.
 ---
 
 # PlantSimEngine Skill
@@ -12,8 +12,7 @@ or implementing and wrapping models.
 PlantSimEngine has two main user roles:
 
 - **Users** compose existing models. They mostly need `CompositeModel`, `Object`,
-  `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `Updates`, `TimeStep`, and
-  `Environment`.
+  `ModelSpec`, `Updates`, and `Environment`.
 - **Modelers** implement or wrap generic kernels. They need process identity,
   `inputs_`, `outputs_`, `dep`, `environment_inputs_`, `environment_outputs_`, `run!`,
   model traits, and focused tests.
@@ -85,15 +84,13 @@ Rules:
 ### Apply models
 
 Wrap each scenario application in `ModelSpec` and select its target objects
-with `AppliesTo`.
+with `on`.
 
 ```julia
 applications = (
-    ModelSpec(LeafModel(); name=:leaf_model) |>
-    AppliesTo(Many(scale=:Leaf)),
+    ModelSpec(LeafModel(); name=:leaf_model, on=Many(scale=:Leaf)),
 
-    ModelSpec(SoilModel(); name=:soil_model) |>
-    AppliesTo(One(scale=:Soil)),
+    ModelSpec(SoilModel(); name=:soil_model, on=One(scale=:Soil)),
 )
 
 model = CompositeModel(model_objects...; applications=applications, environment=backend)
@@ -104,21 +101,24 @@ same object set. Singular producer references use `application=`. A
 `Many(process=...)` filter is reserved for explicit discovery across several
 applications, such as mounted template instances.
 
-### Couple values with Inputs
+### Couple values with `inputs`
 
-Declare each consumer's value source with `Inputs`.
+Declare each consumer's value source with the `inputs` keyword.
 
 ```julia
-ModelSpec(AllocationModel(); name=:allocation) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(
+ModelSpec(
+    AllocationModel();
+    name=:allocation,
+    on=Many(scale=:Plant),
+    inputs=(
         :leaf_carbon => Many(
             scale=:Leaf,
             within=Subtree(),
             application=:leaf_carbon,
             var=:leaf_carbon,
         ),
-    )
+    ),
+)
 ```
 
 Semantics:
@@ -131,25 +131,28 @@ Semantics:
   vectors where possible.
 - Cross-rate values use typed temporal streams.
 - Rename variables with
-  `Inputs(:local_name => One(within=Self(), var=:source_name))`.
+  `inputs=(:local_name => One(within=Self(), var=:source_name),)`.
 - Use `PreviousTimeStep(:x) => selector` for an explicit lag and cycle break.
 - An unresolved `OptionalOne` input keeps its `inputs_` default.
 
 ### Control manual model calls
 
-Use `Calls` when the parent model must own the call stack, such as an iterative
+Use `calls` when the parent model must own the call stack, such as an iterative
 energy balance.
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
+ModelSpec(
+    SceneEnergyBalance();
+    name=:scene_energy,
+    on=One(scale=:Scene),
+    calls=(
         :leaf_energy => Many(
             scale=:Leaf,
             within=SceneScope(),
             process=:energy_balance,
         ),
-    )
+    ),
+)
 ```
 
 Inside `run!`, execute all targets with `run_call!(context, :name)`, which always
@@ -163,9 +166,11 @@ iterations. Use `publish=true` once for the accepted state.
 Use `Dates.Period` values directly:
 
 ```julia
-ModelSpec(DailyPlantModel(); name=:daily_plant) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(
+ModelSpec(
+    DailyPlantModel();
+    name=:daily_plant,
+    on=Many(scale=:Plant),
+    inputs=(
         :leaf_fluxes => Many(
             scale=:Leaf,
             within=Subtree(),
@@ -173,12 +178,13 @@ ModelSpec(DailyPlantModel(); name=:daily_plant) |>
             policy=Integrate(),
             window=Dates.Day(1),
         ),
-    ) |>
-    TimeStep(Dates.Day(1))
+    ),
+    every=Dates.Day(1),
+)
 ```
 
 Policies are `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate`. When an
-`Inputs(...)` selector omits `policy=...`, a unique producer's
+`ModelSpec(...; inputs=...)` selector omits `policy=...`, a unique producer's
 `output_policy(::Type{<:Model})` trait supplies the default policy; explicit
 selector policies override the trait.
 Environment variables come from `environment_inputs_` and `environment_outputs_`.
@@ -190,9 +196,9 @@ compiled clock using the `environment_hint` reducer/window. An
 `Environment(; sources=...)` override changes the source but preserves that
 reducer, and all objects in one application reuse the same sampled row for a
 given timestep. Spatial backends define their own temporal sampling semantics.
-When no `TimeStep(...)` is provided, the model scheduler honors
-`timespec(::Type{<:Model})`; an explicit `TimeStep(...)` remains the
-scenario-level override. If the clock falls back to the model base step,
+When no `every` value is provided, the model scheduler honors
+`timespec(::Type{<:Model})`; an explicit `every` remains the scenario-level
+override. If the clock falls back to the model base step,
 `timestep_hint(::Type{<:Model})` required bounds are validated as compatibility
 constraints.
 
@@ -277,7 +283,7 @@ When wrapping an external or existing model:
 ### Hard dependencies
 
 Use a `Call(...)` dependency default when a parent model directly calls a
-required submodel inside its own `run!`. Scenario-level `Calls(...)` can
+required submodel inside its own `run!`. Scenario-level `ModelSpec(...; calls=...)` can
 override the default selector without changing the kernel.
 
 ```julia
@@ -294,9 +300,7 @@ end
 The scenario decides the concrete target objects:
 
 ```julia
-ModelSpec(ParentModel()) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(:child => Many(scale=:Leaf, process=:child_process))
+ModelSpec(ParentModel(); on=One(scale=:Scene), calls=(:child => Many(scale=:Leaf, process=:child_process)))
 ```
 
 Hard calls are never automatically executed for the parent. Trial
@@ -357,9 +361,9 @@ For model implementations:
 
 - Unit-test `inputs_`, `outputs_`, and a direct `run!` call with a minimal `Status`.
 - Test model composition when the model is meant to couple by variable name.
-- Test `Inputs(...)` when the model expects scalar refs, `RefVector` inputs, or
+- Test `ModelSpec(...; inputs=...)` when the model expects scalar refs, `RefVector` inputs, or
   renamed variables.
-- Test multirate behavior when `TimeStep`, temporal policies, windows, or
+- Test multirate behavior when `every`, temporal policies, windows, or
   output routing matter.
 - Check hard dependencies by proving the parent actually calls the child and uses the child's outputs.
 

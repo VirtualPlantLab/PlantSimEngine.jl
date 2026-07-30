@@ -2,7 +2,7 @@ using Dates
 
 function toy_scene(status, models...; environment=nothing)
     applications = map(models) do model
-        ModelSpec(model) |> AppliesTo(One(scale=:Plant))
+        ModelSpec(model; on=One(scale=:Plant))
     end
     CompositeModel(
         Object(:plant; scale=:Plant, kind=:plant, status=status);

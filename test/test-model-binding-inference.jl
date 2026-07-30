@@ -33,14 +33,10 @@ end
         Object(:soil; scale=:Soil, parent=:scene),
         Object(:leaf; scale=:Leaf, parent=:plant);
         applications=(
-            ModelSpec(LineageSourceModel(1.0); name=:plant_source) |>
-                AppliesTo(One(scale=:Plant)),
-            ModelSpec(LineageSourceModel(2.0); name=:soil_source) |>
-                AppliesTo(One(scale=:Soil)),
-            ModelSpec(LineageSourceModel(3.0); name=:leaf_source) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(LineageConsumerModel(); name=:leaf_consumer) |>
-                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(LineageSourceModel(1.0); name=:plant_source, on=One(scale=:Plant)),
+            ModelSpec(LineageSourceModel(2.0); name=:soil_source, on=One(scale=:Soil)),
+            ModelSpec(LineageSourceModel(3.0); name=:leaf_source, on=One(scale=:Leaf)),
+            ModelSpec(LineageConsumerModel(); name=:leaf_consumer, on=One(scale=:Leaf)),
         ),
     )
     binding = only(
@@ -59,17 +55,13 @@ end
         Object(:soil; scale=:Soil, parent=:scene),
         Object(:leaf; scale=:Leaf, parent=:plant);
         applications=(
-            ModelSpec(LineageSourceModel(1.0); name=:plant_source) |>
-                AppliesTo(One(scale=:Plant)),
-            ModelSpec(LineageSourceModel(2.0); name=:soil_source) |>
-                AppliesTo(One(scale=:Soil)),
-            ModelSpec(LineageConsumerModel(); name=:leaf_consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:signal => One(
+            ModelSpec(LineageSourceModel(1.0); name=:plant_source, on=One(scale=:Plant)),
+            ModelSpec(LineageSourceModel(2.0); name=:soil_source, on=One(scale=:Soil)),
+            ModelSpec(LineageConsumerModel(); name=:leaf_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                     within=SceneScope(),
                     process=:lineage_source,
                     var=:signal,
-                )),
+                ))),
         ),
     )
     error = try
@@ -88,18 +80,14 @@ end
         Object(:soil; scale=:Soil, parent=:scene),
         Object(:leaf; scale=:Leaf, parent=:plant);
         applications=(
-            ModelSpec(LineageSourceModel(1.0); name=:plant_source) |>
-                AppliesTo(One(scale=:Plant)),
-            ModelSpec(LineageSourceModel(2.0); name=:soil_source) |>
-                AppliesTo(One(scale=:Soil)),
-            ModelSpec(LineageConsumerModel(); name=:leaf_consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:signal => One(
+            ModelSpec(LineageSourceModel(1.0); name=:plant_source, on=One(scale=:Plant)),
+            ModelSpec(LineageSourceModel(2.0); name=:soil_source, on=One(scale=:Soil)),
+            ModelSpec(LineageConsumerModel(); name=:leaf_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                     scale=:Plant,
                     within=Ancestor(scale=:Plant),
                     application=:plant_source,
                     var=:signal,
-                )),
+                ))),
         ),
     )
     explicit_binding = only(explain_bindings(Advanced.refresh_bindings!(explicit)))
@@ -112,18 +100,13 @@ end
     scalar = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(signal=4.0));
         applications=(
-            ModelSpec(LineageConsumerModel(); name=:status_consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(
-                    :signal => One(
+            ModelSpec(LineageConsumerModel(); name=:status_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                         within=Self(),
                         var=:signal,
                         from_status=true,
                         after=:later_source,
-                    ),
-                ),
-            ModelSpec(LineageSourceModel(10.0); name=:later_source) |>
-                AppliesTo(One(scale=:Leaf)),
+                    ),)),
+            ModelSpec(LineageSourceModel(10.0); name=:later_source, on=One(scale=:Leaf)),
         ),
     )
     scalar_compiled = Advanced.refresh_bindings!(scalar)
@@ -142,18 +125,13 @@ end
         Object(:plant; scale=:Plant, status=Status(total=0.0)),
         Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(signal=1.0));
         applications=(
-            ModelSpec(LineageSumModel(); name=:status_sum) |>
-                AppliesTo(One(scale=:Plant)) |>
-                Inputs(
-                    :signals => Many(
+            ModelSpec(LineageSumModel(); name=:status_sum, on=One(scale=:Plant), inputs=(:signals => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         var=:signal,
                         from_status=true,
-                    ),
-                ),
-            ModelSpec(LineageSourceModel(5.0); name=:later_sources) |>
-                AppliesTo(Many(scale=:Leaf)),
+                    ),)),
+            ModelSpec(LineageSourceModel(5.0); name=:later_sources, on=Many(scale=:Leaf)),
         ),
     )
     simulation = run!(dynamic_many; outputs=:none)
@@ -169,16 +147,12 @@ end
     invalid = CompositeModel(
         Object(:leaf; scale=:Leaf, status=Status(signal=1.0));
         applications=(
-            ModelSpec(LineageConsumerModel(); name=:invalid_status_consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(
-                    :signal => One(
+            ModelSpec(LineageConsumerModel(); name=:invalid_status_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                         within=Self(),
                         var=:signal,
                         application=:missing,
                         from_status=true,
-                    ),
-                ),
+                    ),)),
         ),
     )
     @test_throws "`from_status=true` cannot be combined with `application=`" Advanced.refresh_bindings!(

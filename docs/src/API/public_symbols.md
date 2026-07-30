@@ -8,8 +8,7 @@ and cache controls are intentionally listed separately under
 
 - CompositeModel structure: `CompositeModel`, `Object`, `ObjectId`, `CompositeModelTemplate`,
   `ObjectInstance`, `Override`.
-- Applications: `ModelSpec`, `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
-  `Environment`, `Updates`, `OutputRouting`.
+- Applications: `ModelSpec`, `Environment`, and `Updates`.
 - Application inspection: `application_name`, `applies_to`, `value_inputs`,
   `model_calls`, `environment_config`, `output_routing`, `updates`.
 - Dependency defaults: `Input`, `Call`, `PreviousTimeStep`.

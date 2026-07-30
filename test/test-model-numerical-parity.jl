@@ -90,10 +90,10 @@ parity_weather = [
 
 function parity_applications(selector)
     return (
-        ModelSpec(ParityForcingModel(); name=:forcing) |> AppliesTo(selector),
-        ModelSpec(ParityStageOneModel(1.0); name=:stage_one) |> AppliesTo(selector),
-        ModelSpec(ParityStageTwoModel(); name=:stage_two) |> AppliesTo(selector),
-        ModelSpec(ParityStageThreeModel(); name=:stage_three) |> AppliesTo(selector),
+        ModelSpec(ParityForcingModel(); name=:forcing, on=selector),
+        ModelSpec(ParityStageOneModel(1.0); name=:stage_one, on=selector),
+        ModelSpec(ParityStageTwoModel(); name=:stage_two, on=selector),
+        ModelSpec(ParityStageThreeModel(); name=:stage_three, on=selector),
     )
 end
 
@@ -165,24 +165,14 @@ end
         Object(:internode_2; scale=:Internode, parent=:internode_1),
         Object(:leaf_2; scale=:Leaf, parent=:internode_2, status=Status(var2=1.03));
         applications=(
-            ModelSpec(ParitySoilModel(); name=:soil_source) |>
-                AppliesTo(One(scale=:Soil)),
-            ModelSpec(ParityForcingModel(); name=:forcing) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityStageOneModel(1.0); name=:stage_one) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityStageTwoModel(); name=:stage_two) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityStageThreeModel(); name=:stage_three) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityStageFiveModel(); name=:stage_five) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityStageSixModel(); name=:stage_six) |>
-                AppliesTo(Many(scale=:Leaf)),
-            ModelSpec(ParityGatherModel(); name=:plant_gather) |>
-                AppliesTo(One(scale=:Plant)) |>
-                Inputs(
-                    :leaf_values => Many(
+            ModelSpec(ParitySoilModel(); name=:soil_source, on=One(scale=:Soil)),
+            ModelSpec(ParityForcingModel(); name=:forcing, on=Many(scale=:Leaf)),
+            ModelSpec(ParityStageOneModel(1.0); name=:stage_one, on=Many(scale=:Leaf)),
+            ModelSpec(ParityStageTwoModel(); name=:stage_two, on=Many(scale=:Leaf)),
+            ModelSpec(ParityStageThreeModel(); name=:stage_three, on=Many(scale=:Leaf)),
+            ModelSpec(ParityStageFiveModel(); name=:stage_five, on=Many(scale=:Leaf)),
+            ModelSpec(ParityStageSixModel(); name=:stage_six, on=Many(scale=:Leaf)),
+            ModelSpec(ParityGatherModel(); name=:plant_gather, on=One(scale=:Plant), inputs=(:leaf_values => Many(
                         scale=:Leaf,
                         within=Subtree(),
                         application=:stage_six,
@@ -193,24 +183,19 @@ end
                         within=SceneScope(),
                         application=:soil_source,
                         var=:soil_value,
-                    ),
-                ),
-            ModelSpec(ParityReceiverModel(); name=:leaf_receiver) |>
-                AppliesTo(Many(scale=:Leaf)) |>
-                Inputs(:shared => One(
+                    ),)),
+            ModelSpec(ParityReceiverModel(); name=:leaf_receiver, on=Many(scale=:Leaf), inputs=(:shared => One(
                     scale=:Plant,
                     within=Ancestor(scale=:Plant),
                     application=:plant_gather,
                     var=:scattered,
-                )),
-            ModelSpec(ParityReceiverModel(); name=:internode_receiver) |>
-                AppliesTo(Many(scale=:Internode)) |>
-                Inputs(:shared => One(
+                ))),
+            ModelSpec(ParityReceiverModel(); name=:internode_receiver, on=Many(scale=:Internode), inputs=(:shared => One(
                     scale=:Plant,
                     within=Ancestor(scale=:Plant),
                     application=:plant_gather,
                     var=:scattered,
-                )),
+                ))),
         ),
         environment=[
             (forcing=1.01, T=20.0, Wind=1.0, Rh=0.65, duration=Hour(1)),

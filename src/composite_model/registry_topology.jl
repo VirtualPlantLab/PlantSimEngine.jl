@@ -41,7 +41,7 @@ end
     CompositeModelTemplate(applications=(); kind=nothing, species=nothing, parameters=NamedTuple())
 
 Reusable model-application bundle for one kind of model object, such as a plant
-species. Each mounted `ObjectInstance` scopes unqualified `AppliesTo(...)`
+species. Each mounted `ObjectInstance` scopes unqualified `ModelSpec(...; on=...)`
 selectors to its own object subtree. Model objects are shared between instances
 unless an instance supplies an override.
 
@@ -479,8 +479,7 @@ function CompositeModel(
     end
     selector = isnothing(object_name) ? One(scale=scale) : One(name=object_name)
     applications = map((model, models...)) do application_model
-        application = ModelSpec(application_model) |> AppliesTo(selector)
-        isnothing(timestep) ? application : application |> TimeStep(timestep)
+        ModelSpec(application_model; on=selector, every=timestep)
     end
     return CompositeModel(
         Object(

@@ -16,12 +16,12 @@ energy-balance model may call photosynthesis and stomatal-conductance models
 several times while it iterates leaf temperature.
 
 That second case is a manual call dependency. In the composite-model/object API it is
-declared with `Calls(...)`.
+declared with `ModelSpec(...; calls=...)`.
 
 ## Soft inputs and manual calls
 
-Use `Inputs(...)` or inferred same-object bindings when a model only needs a
-value. Use `Calls(...)` when the parent model must directly run another model
+Use `ModelSpec(...; inputs=...)` or inferred same-object bindings when a model only needs a
+value. Use `ModelSpec(...; calls=...)` when the parent model must directly run another model
 inside its own `run!` method.
 
 The example process models in `examples/dummy.jl` contain both patterns:
@@ -35,10 +35,10 @@ The example process models in `examples/dummy.jl` contain both patterns:
 
 ## Declaring manual calls in the scenario
 
-`Calls(...)` is scenario-level wiring. The model kernel remains generic; the
+`ModelSpec(...; calls=...)` is scenario-level wiring. The model kernel remains generic; the
 scenario decides which concrete application is called.
 
-Use `application=...` in scenario-level `Calls(...)` and `Inputs(...)` when you
+Use `application=...` in scenario-level `ModelSpec(...; calls=...)` and `ModelSpec(...; inputs=...)` when you
 know which mounted model application should provide the value or be called. Use
 process identities in model-level contracts such as `dep(model)`, where the
 model author only declares that a compatible process is required and cannot know
@@ -53,35 +53,19 @@ selector should name the application that has the intended role.
 complex_scene = CompositeModel(
     Object(:scene; scale=:Scene, kind=:scene, status=Status(var0=2.0));
     applications=(
-        ModelSpec(Process4Model(); name=:prepare_inputs) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process4Model(); name=:prepare_inputs, on=One(scale=:Scene), every=Day(1)),
 
-        ModelSpec(Process1Model(2.0); name=:process1) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process1Model(2.0); name=:process1, on=One(scale=:Scene), every=Day(1)),
 
-        ModelSpec(Process2Model(); name=:process2) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Calls(:process1 => One(scale=:Scene, application=:process1)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process2Model(); name=:process2, on=One(scale=:Scene), calls=(:process1 => One(scale=:Scene, application=:process1)), every=Day(1)),
 
-        ModelSpec(Process3Model(); name=:process3) |>
-            AppliesTo(One(scale=:Scene)) |>
-            Calls(:process2 => One(scale=:Scene, application=:process2)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process3Model(); name=:process3, on=One(scale=:Scene), calls=(:process2 => One(scale=:Scene, application=:process2)), every=Day(1)),
 
-        ModelSpec(Process5Model(); name=:process5) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process5Model(); name=:process5, on=One(scale=:Scene), every=Day(1)),
 
-        ModelSpec(Process7Model(); name=:process7) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process7Model(); name=:process7, on=One(scale=:Scene), every=Day(1)),
 
-        ModelSpec(Process6Model(); name=:process6) |>
-            AppliesTo(One(scale=:Scene)) |>
-            TimeStep(Day(1)),
+        ModelSpec(Process6Model(); name=:process6, on=One(scale=:Scene), every=Day(1)),
     ),
     environment=meteo_day,
 )
@@ -96,7 +80,7 @@ select(
 )
 ```
 
-Applications selected by `Calls(...)` are not scheduled as independent root
+Applications selected by `ModelSpec(...; calls=...)` are not scheduled as independent root
 applications under their caller. They run only when the parent calls them.
 This gives the parent full call-stack control.
 
@@ -179,5 +163,5 @@ The MAESPA-style example uses the same mechanism: a model energy-balance model
 calls all selected leaf energy-balance models and the shared soil model while
 it solves canopy microclimate.
 
-Scenario wiring uses `Calls(...)`. Model authors should keep kernels generic
+Scenario wiring uses `ModelSpec(...; calls=...)`. Model authors should keep kernels generic
 and only require manual calls when the model really needs call-stack control.

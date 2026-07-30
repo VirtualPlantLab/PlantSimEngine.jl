@@ -15,7 +15,7 @@ implementations for a process without changing the engine or the other model
 kernels.
 
 In the composite-model/object API, the switch happens at the model-application layer:
-replace the model inside a `ModelSpec`, keep the same `AppliesTo(...)`
+replace the model inside a `ModelSpec`, keep the same `ModelSpec(...; on=...)`
 selector, and keep the same input contract when the replacement model needs the
 same variables.
 
@@ -29,21 +29,13 @@ function plant_model_with_growth(growth_model; growth_name=:growth)
     CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene);
         applications=(
-            ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days) |>
-                AppliesTo(One(scale=:Scene)) |>
-                TimeStep(Day(1)),
+            ModelSpec(ToyDegreeDaysCumulModel(); name=:degree_days, on=One(scale=:Scene), every=Day(1)),
 
-            ModelSpec(ToyLAIModel(); name=:lai) |>
-                AppliesTo(One(scale=:Scene)) |>
-                TimeStep(Day(1)),
+            ModelSpec(ToyLAIModel(); name=:lai, on=One(scale=:Scene), every=Day(1)),
 
-            ModelSpec(Beer(0.5); name=:light_interception) |>
-                AppliesTo(One(scale=:Scene)) |>
-                TimeStep(Day(1)),
+            ModelSpec(Beer(0.5); name=:light_interception, on=One(scale=:Scene), every=Day(1)),
 
-            ModelSpec(growth_model; name=growth_name) |>
-                AppliesTo(One(scale=:Scene)) |>
-                TimeStep(Day(1)),
+            ModelSpec(growth_model; name=growth_name, on=One(scale=:Scene), every=Day(1)),
         ),
         environment=meteo_day,
     )

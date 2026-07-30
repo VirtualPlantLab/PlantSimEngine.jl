@@ -15,16 +15,17 @@ temporal stream, materialized value, or callable model handle.
 The public API should be simple enough to remember as:
 
 ```julia
-CompositeModel
-Object
-ModelSpec
-
-AppliesTo(...)
-Inputs(...)
-Calls(...)
-Updates(...)
-TimeStep(...)
-Environment(...)
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Dates.Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
 ```
 
 Everything else should either be a selector, a trait declared by the model
@@ -203,11 +204,7 @@ The scenario owns those decisions through `ModelSpec`.
 Target shape:
 
 ```julia
-ModelSpec(LeafEnergyBalance(); name=:leaf_energy) |>
-    AppliesTo(Many(kind=:plant, scale=:Leaf)) |>
-    Inputs(...) |>
-    Calls(...) |>
-    TimeStep(Hour(1))
+ModelSpec(LeafEnergyBalance(); name=:leaf_energy, on=Many(kind=:plant, scale=:Leaf), inputs=(...), calls=(...), every=Hour(1))
 ```
 
 Application names are optional but important when the same process appears more
@@ -222,18 +219,15 @@ is replaced by explicit value inputs and callable model calls.
 
 ### Applies To
 
-Use `AppliesTo(...)` to declare the object set where a model application runs.
+Use `ModelSpec(...; on=...)` to declare the object set where a model application runs.
 This should be first-class, not inferred from a container or mapping key.
 
 ```julia
-ModelSpec(LeafState()) |>
-    AppliesTo(Many(kind=:plant, scale=:Leaf))
+ModelSpec(LeafState(); on=Many(kind=:plant, scale=:Leaf))
 
-ModelSpec(AllocationModel()) |>
-    AppliesTo(Many(kind=:plant, scale=:Plant))
+ModelSpec(AllocationModel(); on=Many(kind=:plant, scale=:Plant))
 
-ModelSpec(SceneEB()) |>
-    AppliesTo(One(scale=:Scene))
+ModelSpec(SceneEB(); on=One(scale=:Scene))
 ```
 
 The same model kernel can be applied several times with different selectors,
@@ -253,7 +247,7 @@ The rule is:
 - `outputs_(model)` declares the variables the model computes;
 - `dep(model)` declares default value sources or manual model calls when the
   model author knows a sensible coupling pattern;
-- `ModelSpec(...) |> Inputs(...)` and `ModelSpec(...) |> Calls(...)` override
+- `ModelSpec(...; inputs=(...))` and `ModelSpec(...; calls=(...))` override
   or specialize those defaults for a specific simulation.
 
 For example, a plant allocation model can provide a plant-local default:
@@ -290,19 +284,16 @@ are errors, not incidental fallback behavior.
 
 ### Value Inputs
 
-Use `Inputs(...)` when a model needs values before its `run!` method executes:
+Use `ModelSpec(...; inputs=...)` when a model needs values before its `run!` method executes:
 
 ```julia
-ModelSpec(LAIModel(ground_area)) |>
-    Inputs(:leaf_areas => Many(scale=:Leaf, within=SceneScope(), var=:leaf_area))
+ModelSpec(LAIModel(ground_area); inputs=(:leaf_areas => Many(scale=:Leaf, within=SceneScope(), var=:leaf_area)))
 ```
 
 Reusable plant allocation:
 
 ```julia
-ModelSpec(AllocationModel()) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon))
+ModelSpec(AllocationModel(); on=Many(scale=:Plant), inputs=(:leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon)))
 ```
 
 The same declaration must compile to:
@@ -316,10 +307,10 @@ The same declaration must compile to:
 
 The important user rule is:
 
-- `Inputs(...)` means "give this model values"; the runtime schedules or
+- `ModelSpec(...; inputs=...)` means "give this model values"; the runtime schedules or
   samples producers;
 - the receiving model never manually calls the producer because of an
-  `Inputs(...)` declaration.
+  `ModelSpec(...; inputs=...)` declaration.
 
 ### Carrier And Copy Semantics
 
@@ -347,28 +338,25 @@ and value type are known at initialization.
 
 ### Multirate Inputs
 
-Multirate must be supported by the same `Inputs(...)` declaration, not a
+Multirate must be supported by the same `ModelSpec(...; inputs=...)` declaration, not a
 separate mapping language. The public time language should remain `Dates`
 periods.
 
 Example:
 
 ```julia
-ModelSpec(PlantAllocation()) |>
-    AppliesTo(Many(kind=:plant, scale=:Plant)) |>
-    Inputs(:leaf_assimilation => Many(
+ModelSpec(PlantAllocation(); on=Many(kind=:plant, scale=:Plant), inputs=(:leaf_assimilation => Many(
         scale=:Leaf,
         within=Subtree(),
         var=:assimilation,
         policy=Integrate(),
         window=Day(1),
-    )) |>
-    TimeStep(Day(1))
+    )), every=Day(1))
 ```
 
 Policy precedence should stay explicit:
 
-1. input-level policy in `Inputs(...)`;
+1. input-level policy in `ModelSpec(...; inputs=...)`;
 2. producer `output_policy(model)`;
 3. default `HoldLast()`.
 
@@ -378,14 +366,11 @@ that could otherwise be reference-wired.
 Same-timestep feedback cycles are broken explicitly on the receiving input:
 
 ```julia
-ModelSpec(CarbonState()) |>
-    Inputs(
-        PreviousTimeStep(:carbon_biomass) => One(
+ModelSpec(CarbonState(); inputs=(PreviousTimeStep(:carbon_biomass) => One(
             scale=:Plant,
             process=:carbon_allocation,
             var=:carbon_biomass,
-        ),
-    )
+        ),))
 ```
 
 `PreviousTimeStep(:x)` removes the producer-to-consumer edge from the current
@@ -396,19 +381,17 @@ instead of silently inventing a zero value.
 
 ### Model Calls
 
-Use `Calls(...)` when a model must manually run selected models, typically
+Use `ModelSpec(...; calls=...)` when a model must manually run selected models, typically
 inside an iterative solver. This is the required public API name and must be
 implemented as part of the unified composite-model/object redesign, not left as a later
 rename.
 
 ```julia
-ModelSpec(SceneEB()) |>
-    Calls(:leaf_energy => Many(
+ModelSpec(SceneEB(); calls=(:leaf_energy => Many(
         kind=:plant,
         scale=:Leaf,
         process=:energy_balance,
-    )) |>
-    Calls(:soil => One(kind=:soil, application=:soil_water))
+    )), calls=(:soil => One(kind=:soil, application=:soil_water)))
 ```
 
 Inside `run!`, the model model receives call handles and calls
@@ -419,7 +402,7 @@ checks but do not append temporal samples or write environment outputs.
 
 The important user rule is:
 
-- `Calls(...)` means "give this model callable model handles";
+- `ModelSpec(...; calls=...)` means "give this model callable model handles";
 - the parent model owns the call stack and can iterate, reject, or accept trial
   calls;
 - call outputs are published only according to the call publication contract.
@@ -434,7 +417,7 @@ came from:
 - `origin=:inferred_same_object` for compiler-inferred value dependencies;
 - `origin=:model_default` for `Input(...)` or `Call(...)` declarations coming
   from `dep(model)`;
-- `origin=:model_spec` for scenario-level `Inputs(...)` or `Calls(...)`,
+- `origin=:model_spec` for scenario-level `ModelSpec(...; inputs=...)` or `ModelSpec(...; calls=...)`,
   including declarations that override a model default.
 
 ### Multiplicity
@@ -481,7 +464,7 @@ construct it manually.
 Growth, pruning, organ creation, reparenting, and moving organs must all update
 the same compiled caches:
 
-- object selections used by `AppliesTo`, `Inputs`, and `Calls`;
+- object selections used by `on`, `inputs`, and `calls`;
 - `RefVector` or equivalent many-object carriers;
 - temporal stream ownership;
 - writer validation;
@@ -517,9 +500,7 @@ variable is intentionally updated by several models, the scenario should say so
 where the model applications are assembled:
 
 ```julia
-ModelSpec(PruningModel()) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Updates(:leaf_biomass; after=:carbon_allocation)
+ModelSpec(PruningModel(); on=Many(scale=:Leaf), updates=Updates(:leaf_biomass; after=:carbon_allocation))
 ```
 
 `Updates(...)` should be rare and explicit. It is a scenario-level ordering
@@ -585,9 +566,7 @@ Scenario-level environment source remapping belongs on `Environment(...)`, for
 example:
 
 ```julia
-ModelSpec(LeafGasExchange(); name=:gas_exchange) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Environment(provider=:global, sources=(CO2=:Ca,))
+ModelSpec(LeafGasExchange(); name=:gas_exchange, on=Many(scale=:Leaf), environment=Environment(provider=:global, sources=(CO2=:Ca,)))
 ```
 
 Here the model reads `environment.CO2` because that is its declared generic
@@ -597,7 +576,7 @@ backend can enumerate variables, and explanations report both
 `required_inputs` and `source_inputs`.
 
 Global tabular meteorology follows the model application's compiled
-`TimeStep(...)`. PlantMeteo samples the table with the reducer and window from
+`ModelSpec(...; every=...)`. PlantMeteo samples the table with the reducer and window from
 `environment_hint(...)` when the model runs more slowly than the weather base step.
 An `Environment(; sources=...)` override replaces only the source variable; it
 does not discard the model-author reducer. The prepared weather sampler is
@@ -652,8 +631,8 @@ Before each timestep, dirty bindings are refreshed in batch.
 The compiler should build one global dependency graph over object addresses.
 The graph includes:
 
-- value dependencies from `Inputs(...)`;
-- callable dependencies from `Calls(...)`;
+- value dependencies from `ModelSpec(...; inputs=...)`;
+- callable dependencies from `ModelSpec(...; calls=...)`;
 - model update edges from `Updates(...)`;
 - temporal policy edges;
 - environment reads and writes;
@@ -728,4 +707,4 @@ variables, and suggested fixes.
 This is a breaking design. Model kernels use
 `run!(model, status, environment, constants, context)` while the scenario
 configuration surface uses `CompositeModel`, `Object`, `ModelSpec`, selectors,
-`Inputs(...)`, `Calls(...)`, `TimeStep(...)`, and `Environment(...)`.
+`ModelSpec(...; inputs=...)`, `ModelSpec(...; calls=...)`, `ModelSpec(...; every=...)`, and `Environment(...)`.

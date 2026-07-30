@@ -42,31 +42,23 @@ end
 function setup_multirate_buffer_benchmark(; nleaves=2000, ndays=30)
     objects = _build_multirate_benchmark_objects(nleaves)
     applications = (
-        ModelSpec(MRBenchSourceModel(Ref(0)); name=:hourly_source) |>
-            AppliesTo(Many(scale=:Leaf)) |>
-            TimeStep(Hour(1)),
-        ModelSpec(MRBenchConsumer4Model(); name=:four_hour_consumer) |>
-            AppliesTo(One(scale=:Plant)) |>
-            Inputs(:X => Many(
+        ModelSpec(MRBenchSourceModel(Ref(0)); name=:hourly_source, on=Many(scale=:Leaf), every=Hour(1)),
+        ModelSpec(MRBenchConsumer4Model(); name=:four_hour_consumer, on=One(scale=:Plant), inputs=(:X => Many(
                 scale=:Leaf,
                 within=Subtree(),
                 application=:hourly_source,
                 var=:X,
                 policy=Integrate(),
                 window=Hour(4),
-            )) |>
-            TimeStep(Hour(4)),
-        ModelSpec(MRBenchConsumer24Model(); name=:daily_consumer) |>
-            AppliesTo(One(scale=:Plant)) |>
-            Inputs(:X => Many(
+            )), every=Hour(4)),
+        ModelSpec(MRBenchConsumer24Model(); name=:daily_consumer, on=One(scale=:Plant), inputs=(:X => Many(
                 scale=:Leaf,
                 within=Subtree(),
                 application=:hourly_source,
                 var=:X,
                 policy=Integrate(),
                 window=Day(1),
-            )) |>
-            TimeStep(Day(1)),
+            )), every=Day(1)),
     )
 
     nsteps = 24 * ndays

@@ -1,14 +1,32 @@
 """
-    ModelSpec(model; name=nothing, applies_to=nothing, inputs=NamedTuple(),
-              calls=NamedTuple(), environment=nothing, timestep=nothing,
+    ModelSpec(model; name=nothing, on=nothing, inputs=NamedTuple(),
+              calls=NamedTuple(), environment=nothing, every=nothing,
               environment_bindings=NamedTuple(), environment_window=nothing,
               output_routing=NamedTuple(), updates=())
 
 Configuration for one model application in a `CompositeModel`.
 
-`ModelSpec` keeps model implementation and scenario-specific usage metadata in one place.
-This allows modelers to publish reusable models while users decide how models are coupled in
-their simulation setup.
+`ModelSpec` is the single scenario-construction form. `on` selects the target
+objects, `inputs` and `calls` declare coupling, `every` selects application
+cadence, and `environment` accepts an [`Environment`](@ref) configuration.
+Output routing and intentional duplicate-writer ordering are declared directly
+with `output_routing` and `updates`.
+
+# Example
+
+```julia
+ModelSpec(
+    model;
+    name=:leaf_energy,
+    on=Many(scale=:Leaf),
+    inputs=(:soil_water => One(scale=:Soil, var=:water),),
+    calls=(:stomata => One(within=Self(), application=:stomata),),
+    every=Dates.Hour(1),
+    environment=Environment(provider=:canopy),
+    output_routing=(temperature=:stream_only,),
+    updates=Updates(:temperature; after=:radiation),
+)
+```
 """
 struct ModelSpec{M,N,AT,IN,IO,CA,CO,EV,TS,MB,MW,OR,UP}
     model::M
@@ -81,20 +99,46 @@ end
 function ModelSpec(
     model::AbstractModel;
     name=nothing,
-    applies_to=nothing,
+    on=nothing,
+    inputs=NamedTuple(),
+    calls=NamedTuple(),
+    environment=nothing,
+    every=nothing,
+    environment_bindings=NamedTuple(),
+    environment_window=nothing,
+    output_routing=NamedTuple(),
+    updates=(),
+)
+    return _build_model_spec(
+        model;
+        name=name,
+        on=on,
+        inputs=inputs,
+        calls=calls,
+        environment=environment,
+        every=every,
+        environment_bindings=environment_bindings,
+        environment_window=environment_window,
+        output_routing=output_routing,
+        updates=updates,
+    )
+end
+
+function _build_model_spec(
+    base_model::AbstractModel;
+    name=nothing,
+    on=nothing,
     inputs=NamedTuple(),
     input_origins=nothing,
     calls=NamedTuple(),
     call_origins=nothing,
     environment=nothing,
-    timestep=nothing,
+    every=nothing,
     environment_bindings=NamedTuple(),
     environment_window=nothing,
     output_routing=NamedTuple(),
-    updates=()
+    updates=(),
 )
-    base_model = model
-
     normalized_name = _normalize_application_name(name)
     default_inputs = _model_default_value_inputs(base_model)
     explicit_inputs = _normalize_application_bindings(inputs)
@@ -108,20 +152,21 @@ function ModelSpec(
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
                               _normalize_binding_origins(call_origins, normalized_calls)
+    normalized_environment = _normalize_model_environment(environment)
     normalized_environment_bindings = _normalize_environment_bindings(environment_bindings)
     normalized_environment_window = _normalize_environment_window(environment_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(applies_to),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(environment),typeof(timestep),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
         base_model,
         normalized_name,
-        applies_to,
+        on,
         normalized_inputs,
         normalized_input_origins,
         normalized_calls,
         normalized_call_origins,
-        environment,
-        timestep,
+        normalized_environment,
+        every,
         normalized_environment_bindings,
         normalized_environment_window,
         normalized_output_routing,
@@ -129,132 +174,41 @@ function ModelSpec(
     )
 end
 
-function ModelSpec(
+function _replace_model_spec(
     spec::ModelSpec;
     model=spec.model,
     name=spec.name,
-    applies_to=spec.applies_to,
+    on=spec.applies_to,
     inputs=spec.inputs,
     input_origins=spec.input_origins,
     calls=spec.calls,
     call_origins=spec.call_origins,
     environment=spec.environment,
-    timestep=spec.timestep,
+    every=spec.timestep,
     environment_bindings=spec.environment_bindings,
     environment_window=spec.environment_window,
     output_routing=spec.output_routing,
-    updates=spec.updates
+    updates=spec.updates,
 )
-    ModelSpec(model; name=name, applies_to=applies_to, inputs=inputs, input_origins=input_origins, calls=calls, call_origins=call_origins, environment=environment, timestep=timestep, environment_bindings=environment_bindings, environment_window=environment_window, output_routing=output_routing, updates=updates)
+    return _build_model_spec(
+        model;
+        name=name,
+        on=on,
+        inputs=inputs,
+        input_origins=input_origins,
+        calls=calls,
+        call_origins=call_origins,
+        environment=environment,
+        every=every,
+        environment_bindings=environment_bindings,
+        environment_window=environment_window,
+        output_routing=output_routing,
+        updates=updates,
+    )
 end
 
 as_model_spec(spec::ModelSpec) = spec
 as_model_spec(model::AbstractModel) = ModelSpec(model)
-
-function _with_spec(model_or_spec; kwargs...)
-    return ModelSpec(as_model_spec(model_or_spec); kwargs...)
-end
-
-function _with_spec_bindings(model_or_spec, bindings, defaults)
-    spec = as_model_spec(model_or_spec)
-    explicit = _normalize_application_bindings(bindings)
-    origins = _binding_origins(defaults(model_(spec)), explicit)
-    return spec, explicit, origins
-end
-
-"""
-    with_name(model_or_spec, name)
-
-Return a `ModelSpec` with an explicit model-application name.
-"""
-function with_name(model_or_spec, name)
-    return _with_spec(model_or_spec; name=_normalize_application_name(name))
-end
-
-"""
-    with_applies_to(model_or_spec, selector)
-
-Return a `ModelSpec` with an explicit model-application target selector.
-"""
-function with_applies_to(model_or_spec, selector)
-    return _with_spec(model_or_spec; applies_to=selector)
-end
-
-"""
-    with_inputs(model_or_spec, bindings)
-
-Return a `ModelSpec` with unified composite-model/object value-input bindings.
-"""
-function with_inputs(model_or_spec, bindings)
-    spec, explicit, origins =
-        _with_spec_bindings(model_or_spec, bindings, _model_default_value_inputs)
-    return ModelSpec(spec; inputs=explicit, input_origins=origins)
-end
-
-"""
-    with_calls(model_or_spec, bindings)
-
-Return a `ModelSpec` with unified composite-model/object manual model-call bindings.
-"""
-function with_calls(model_or_spec, bindings)
-    spec, explicit, origins =
-        _with_spec_bindings(model_or_spec, bindings, _model_default_model_calls)
-    return ModelSpec(spec; calls=explicit, call_origins=origins)
-end
-
-"""
-    with_environment(model_or_spec, environment)
-
-Return a `ModelSpec` with composite-model/object environment configuration metadata.
-"""
-function with_environment(model_or_spec, environment)
-    return _with_spec(model_or_spec; environment=environment)
-end
-
-"""
-    with_timestep(model_or_spec, timestep)
-
-Return a `ModelSpec` with an explicit user-selected timestep.
-"""
-function with_timestep(model_or_spec, timestep)
-    return _with_spec(model_or_spec; timestep=timestep)
-end
-
-"""
-    with_environment_bindings(model_or_spec, bindings)
-
-Return a `ModelSpec` with explicit environment aggregation bindings.
-"""
-with_environment_bindings(model_or_spec, bindings) =
-    _with_spec(model_or_spec; environment_bindings=_normalize_environment_bindings(bindings))
-
-"""
-    with_environment_window(model_or_spec, window)
-
-Return a `ModelSpec` with explicit weather-window selection strategy.
-"""
-with_environment_window(model_or_spec, window) =
-    _with_spec(model_or_spec; environment_window=_normalize_environment_window(window))
-
-"""
-    with_output_routing(model_or_spec, routing)
-
-Return a `ModelSpec` with explicit user-defined output routing.
-"""
-with_output_routing(model_or_spec, routing) =
-    _with_spec(model_or_spec; output_routing=_normalize_output_routing(routing))
-
-"""
-    with_updates(model_or_spec, updates)
-
-Return a `ModelSpec` with explicit variable-update metadata.
-"""
-function with_updates(model_or_spec, updates)
-    spec = as_model_spec(model_or_spec)
-    return ModelSpec(spec; updates=(spec.updates..., _normalize_updates(updates)...))
-end
-
-(updates::Updates)(model_or_spec) = with_updates(model_or_spec, updates)
 
 function _normalize_environment_binding(binding)
     if binding isa DataType
@@ -321,84 +275,31 @@ function _normalize_output_routing(routing::NamedTuple)
 end
 
 function _normalize_output_routing(routing)
-    error("Unsupported OutputRouting value `$(routing)` of type `$(typeof(routing))`. Use a NamedTuple, e.g. `OutputRouting(; x=:stream_only)`.")
+    error(
+        "Unsupported output routing value `$(routing)` of type `$(typeof(routing))`. ",
+        "Use a NamedTuple, e.g. `output_routing=(x=:stream_only,)`.",
+    )
 end
-
-"""
-    AppliesTo(selector)
-
-Pipe-style transform that sets the object selector where a model application
-runs in the unified composite-model/object API.
-"""
-AppliesTo(selector) = x -> with_applies_to(x, selector)
-
-"""
-    Inputs(bindings...)
-    Inputs(; kwargs...)
-
-Pipe-style transform that sets value-input bindings in the unified
-composite-model/object API.
-"""
-Inputs(bindings::Pair...) = x -> with_inputs(x, bindings)
-Inputs(bindings::NamedTuple) = x -> with_inputs(x, bindings)
-Inputs(; kwargs...) = Inputs((; kwargs...))
-
-"""
-    Calls(bindings...)
-    Calls(; kwargs...)
-
-Pipe-style transform that sets manual model-call bindings in the unified
-composite-model/object API.
-"""
-Calls(bindings::Pair...) = x -> with_calls(x, bindings)
-Calls(bindings::NamedTuple) = x -> with_calls(x, bindings)
-Calls(; kwargs...) = Calls((; kwargs...))
-
-"""
-    TimeStep(timestep)
-
-Pipe-style transform that sets a user-selected timestep for a model
-application.
-"""
-TimeStep(timestep) = x -> with_timestep(x, timestep)
 
 """
     Environment(config)
     Environment(; kwargs...)
 
-Pipe-style transform that stores composite-model/object environment configuration
-metadata on a `ModelSpec`.
+Environment configuration for a [`ModelSpec`](@ref).
+
+Pass the result directly with `environment=Environment(...)`.
 """
-Environment(config) = x -> with_environment(x, config isa EnvironmentConfig ? config : EnvironmentConfig(config))
+Environment(config) = config isa EnvironmentConfig ? config : EnvironmentConfig(config)
 Environment(; kwargs...) = Environment((; kwargs...))
 
-"""
-    OutputRouting(routing)
-    OutputRouting(; kwargs...)
-
-Pipe-style transform that sets output publication mode for a model.
-
-This is mainly used to disambiguate publishers in multi-rate runs when several
-models write variables with the same name.
-
-# Arguments
-- `routing::NamedTuple`: maps output variable symbols to routing mode.
-- `kwargs...`: keyword shorthand equivalent to a `NamedTuple`.
-
-Allowed routing values:
-- `:canonical` (default): output is considered canonical at that scale and can
-  be auto-selected as source/export publisher.
-- `:stream_only`: output is kept only in temporal streams and excluded from
-  canonical publisher resolution.
-
-# Example
-```julia
-ModelSpec(AltSourceModel()) |>
-OutputRouting(; C=:stream_only)
-```
-"""
-OutputRouting(routing) = x -> with_output_routing(x, routing)
-OutputRouting(; kwargs...) = OutputRouting((; kwargs...))
+_normalize_model_environment(::Nothing) = nothing
+_normalize_model_environment(config::EnvironmentConfig) = config
+function _normalize_model_environment(config)
+    error(
+        "Unsupported model environment configuration `$(config)` of type ",
+        "`$(typeof(config))`. Use `environment=Environment(...)`.",
+    )
+end
 
 model_(m::ModelSpec) = m.model
 process(m::ModelSpec) = process(model_(m))

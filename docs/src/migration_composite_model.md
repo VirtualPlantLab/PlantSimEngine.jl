@@ -18,8 +18,8 @@ explicit:
 `tracked_outputs` remains a targeted deprecation bridge. It maps `nothing` to
 `outputs=:all`, an empty request vector to `outputs=:none`, and requests to the
 equivalent `outputs` value. `process=` in `OutputRequest` is likewise a bridge
-to application-qualified requests. Singular scenario-level `Inputs` and
-`Calls` also deprecate process-only filters; model-authored `Input`/`Call`
+to application-qualified requests. Singular scenario-level `inputs` and
+`calls` also deprecate process-only filters; model-authored `Input`/`Call`
 defaults may still discover a process because they cannot know scenario
 application names. `Many(process=...)` remains an explicit discovery query for
 collecting several applications, such as the mounted applications from several
@@ -47,11 +47,7 @@ New scenario code should be organized around:
 CompositeModel
 Object
 ModelSpec
-AppliesTo
-Inputs
-Calls
 Updates
-TimeStep
 Environment
 ```
 
@@ -112,11 +108,9 @@ model = CompositeModel(
     Object(:leaf_1; scale=:Leaf, kind=:plant, parent=:plant_1),
     Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
     applications=(
-        ModelSpec(LeafModel(); name=:leaf_model) |>
-        AppliesTo(Many(scale=:Leaf)),
+        ModelSpec(LeafModel(); name=:leaf_model, on=Many(scale=:Leaf)),
 
-        ModelSpec(SoilModel(); name=:soil_model) |>
-        AppliesTo(One(scale=:Soil)),
+        ModelSpec(SoilModel(); name=:soil_model, on=One(scale=:Soil)),
     ),
     environment=(T=25.0, Rh=0.6, Wind=1.0),
 )
@@ -149,7 +143,7 @@ the adapter uses MTG node ids and scales, and reuses an existing
 ## Multiscale Inputs
 
 Replace `MultiScaleModel(...)` variable mappings with consumer-side
-`Inputs(...)`.
+`ModelSpec(...; inputs=...)`.
 
 Legacy:
 
@@ -163,15 +157,18 @@ MultiScaleModel(
 Unified:
 
 ```julia
-ModelSpec(AllocationModel(); name=:allocation) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(
+ModelSpec(
+    AllocationModel();
+    name=:allocation,
+    on=Many(scale=:Plant),
+    inputs=(
         :leaf_carbon => Many(
             scale=:Leaf,
             within=Subtree(),
             var=:leaf_carbon,
         ),
-    )
+    ),
+)
 ```
 
 `Self()` selects only the object where the consumer runs. A plant-scale
@@ -182,11 +179,14 @@ nearest containing plant and its subtree from an organ.
 Same-object renaming uses the same syntax:
 
 ```julia
-Inputs(
-    :consumer_name => One(
-        within=Self(),
-        application=:producer,
-        var=:producer_name,
+ModelSpec(
+    ConsumerModel();
+    inputs=(
+        :consumer_name => One(
+            within=Self(),
+            application=:producer,
+            var=:producer_name,
+        ),
     ),
 )
 ```
@@ -199,17 +199,13 @@ Cross-rate bindings use typed temporal streams.
 Use an input selector on the consuming application:
 
 ```julia
-ModelSpec(SceneWaterBalance(); name=:scene_water) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Inputs(
-        :leaf_transpiration => Many(
+ModelSpec(SceneWaterBalance(); name=:scene_water, on=One(scale=:Scene), inputs=(:leaf_transpiration => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
             application=:transpiration,
             var=:transpiration,
-        ),
-    )
+        ),))
 ```
 
 The compiler chooses the carrier. Scenario authors declare the source objects,
@@ -217,13 +213,10 @@ source variable, and temporal policy rather than a route implementation.
 
 ## Manual Hard Calls
 
-Use `Calls(...)` when a parent model must control child execution.
+Use `ModelSpec(...; calls=...)` when a parent model must control child execution.
 
 ```julia
-ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
-    AppliesTo(One(scale=:Scene)) |>
-    Calls(
-        :leaf_energy => Many(
+ModelSpec(SceneEnergyBalance(); name=:scene_energy, on=One(scale=:Scene), calls=(:leaf_energy => Many(
             kind=:plant,
             scale=:Leaf,
             within=SceneScope(),
@@ -234,8 +227,7 @@ ModelSpec(SceneEnergyBalance(); name=:scene_energy) |>
             scale=:Soil,
             within=SceneScope(),
             application=:soil_water,
-        ),
-    )
+        ),))
 ```
 
 The parent model controls execution:
@@ -269,18 +261,13 @@ Represent repeated plant configurations with `CompositeModelTemplate` and
 ```julia
 oil_palm = CompositeModelTemplate(
     (
-        ModelSpec(LeafEnergy()) |>
-        AppliesTo(Many(scale=:Leaf)),
+        ModelSpec(LeafEnergy(); on=Many(scale=:Leaf)),
 
-        ModelSpec(Allocation()) |>
-        AppliesTo(One(scale=:Plant)) |>
-        Inputs(
-            :leaf_carbon => Many(
+        ModelSpec(Allocation(); on=One(scale=:Plant), inputs=(:leaf_carbon => Many(
                 scale=:Leaf,
                 within=Subtree(),
                 var=:leaf_carbon,
-            ),
-        ),
+            ),)),
     );
     kind=:plant,
     species=:oil_palm,
@@ -312,27 +299,20 @@ overrides for one plant and `Override(...)` for exceptional organs.
 
 ## Multirate Inputs
 
-Replace `TimeStepModel(...)` with `TimeStep(...)`. Put temporal policy and
-window information on the consuming `Inputs(...)` selector.
+Replace `TimeStepModel(...)` with `ModelSpec(...; every=...)`. Put temporal policy and
+window information on the consuming `ModelSpec(...; inputs=...)` selector.
 
 ```julia
-ModelSpec(HourlyLeafModel(); name=:leaf_flux) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    TimeStep(Hour(1))
+ModelSpec(HourlyLeafModel(); name=:leaf_flux, on=Many(scale=:Leaf), every=Hour(1))
 
-ModelSpec(DailyPlantModel(); name=:daily_plant) |>
-    AppliesTo(Many(scale=:Plant)) |>
-    Inputs(
-        :leaf_fluxes => Many(
+ModelSpec(DailyPlantModel(); name=:daily_plant, on=Many(scale=:Plant), inputs=(:leaf_fluxes => Many(
             scale=:Leaf,
             within=Subtree(),
             application=:leaf_flux,
             var=:flux,
             policy=Integrate(),
             window=Day(1),
-        ),
-    ) |>
-    TimeStep(Day(1))
+        ),), every=Day(1))
 ```
 
 Use `HoldLast()`, `Interpolate()`, `Integrate()`, or `Aggregate()` according to
@@ -344,8 +324,8 @@ producer's `output_policy(...)` trait for the selected source variable when the
 publisher is unique. An explicit selector policy always wins over the trait.
 
 If a model defines `timespec(::Type{<:MyModel})`, the model scheduler uses that
-cadence when the application has no explicit `TimeStep(...)`. A scenario-level
-`TimeStep(...)` always wins over the model trait.
+cadence when the application has no explicit `ModelSpec(...; every=...)`. A scenario-level
+`ModelSpec(...; every=...)` always wins over the model trait.
 
 If the clock falls back to the model base step, `timestep_hint(...)` required
 bounds are validated against that base step. The hint is a compatibility
@@ -357,12 +337,9 @@ When several models intentionally write the same variable, declare the order
 on the later application:
 
 ```julia
-ModelSpec(CarbonAllocation(); name=:allocation) |>
-    AppliesTo(Many(scale=:Leaf))
+ModelSpec(CarbonAllocation(); name=:allocation, on=Many(scale=:Leaf))
 
-ModelSpec(LeafPruning(); name=:pruning) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Updates(:leaf_biomass; after=:allocation)
+ModelSpec(LeafPruning(); name=:pruning, on=Many(scale=:Leaf), updates=Updates(:leaf_biomass; after=:allocation))
 ```
 
 Do not encode this coupling in either model implementation. The scenario owns
@@ -374,9 +351,7 @@ Models declare sampled environment variables with `environment_inputs_`. The sce
 binds each object/application to the active environment backend:
 
 ```julia
-ModelSpec(LeafEnergy(); name=:leaf_energy) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Environment(provider=:grid)
+ModelSpec(LeafEnergy(); name=:leaf_energy, on=Many(scale=:Leaf), environment=Environment(provider=:grid))
 ```
 
 Spatial bindings are cached. The default resolver uses the object's geometry,
@@ -386,9 +361,7 @@ Changing geometry invalidates only affected environment bindings.
 Per-model source remapping also moves to `Environment(...)`:
 
 ```julia
-ModelSpec(LeafGasExchange(); name=:gas_exchange) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    Environment(provider=:global, sources=(CO2=:Ca,))
+ModelSpec(LeafGasExchange(); name=:gas_exchange, on=Many(scale=:Leaf), environment=Environment(provider=:global, sources=(CO2=:Ca,)))
 ```
 
 The model still declares and reads `CO2`; the model samples `Ca` from the
@@ -403,7 +376,7 @@ source for the same variable. `Environment(; sources=...)` remains the
 scenario-level override.
 
 For global `Weather` tables, sampling follows the application's
-`TimeStep(...)`. A slower model receives a PlantMeteo windowed sample using its
+`ModelSpec(...; every=...)`. A slower model receives a PlantMeteo windowed sample using its
 `environment_hint` reducer and window instead of receiving only the current raw
 weather row. A scenario source override preserves that reducer:
 
@@ -412,10 +385,7 @@ environment_hint(::Type{<:GasExchange}) = (
     bindings=(CO2=(source=:Ca, reducer=MeanReducer()),),
 )
 
-ModelSpec(GasExchange()) |>
-    AppliesTo(Many(scale=:Leaf)) |>
-    TimeStep(Hour(2)) |>
-    Environment(provider=:global, sources=(CO2=:canopy_CO2,))
+ModelSpec(GasExchange(); on=Many(scale=:Leaf), every=Hour(2), environment=Environment(provider=:global, sources=(CO2=:canopy_CO2,)))
 ```
 
 Every leaf still reads `environment.CO2`; the two-hour mean is computed from
@@ -486,7 +456,7 @@ If several model applications implement the same process, add
 way to request a named `:stream_only` publisher.
 `outputs=:none` retains no user streams. Passing explicit requests retains only
 their application/variable streams plus streams needed by temporal
-`Inputs(...)`. Use `explain_output_retention(sim)`
+`ModelSpec(...; inputs=...)`. Use `explain_output_retention(sim)`
 to inspect why each retained stream was kept. Dependency-only streams retain a
 bounded policy-specific horizon, while requested streams keep complete
 histories for post-run export. Export is not yet a fully online path.
@@ -516,12 +486,12 @@ targets. They are intended for both users and coding agents.
 | Legacy configuration | CompositeModel/object replacement |
 | --- | --- |
 | `ModelMapping` scale assembly | `CompositeModel` objects plus model applications |
-| `MultiScaleModel(...)` | consumer `Inputs(...)` |
-| `TimeStepModel(...)` | `TimeStep(...)` |
-| `InputBindings(...)` | source, policy, and window on `Inputs(...)` |
+| `MultiScaleModel(...)` | consumer `ModelSpec(...; inputs=...)` |
+| `TimeStepModel(...)` | `ModelSpec(...; every=...)` |
+| `InputBindings(...)` | source, policy, and window on `ModelSpec(...; inputs=...)` |
 | `MeteoBindings(...)` | automatic environment binding or `Environment(...)` |
-| `ScopeModel(...)` | `AppliesTo(...)` and selector scopes |
-| `SameScale()` rename | `Inputs(:local => One(within=Self(), var=:source))` |
+| `ScopeModel(...)` | `ModelSpec(...; on=...)` and selector scopes |
+| `SameScale()` rename | `inputs=(:local => One(within=Self(), var=:source),)` |
 
 The executable MAESPA migration in
 `examples/maespa_model_example.jl` demonstrates two plant species, shared

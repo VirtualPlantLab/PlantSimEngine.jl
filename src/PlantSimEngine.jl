@@ -140,9 +140,9 @@ export explain_execution_plan, explain_output_retention
 export explain_environment_bindings
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Kind, Species, Scale, Relation
 export One, OptionalOne, Many, ObjectAddress, object_address
-export Input, Call, AppliesTo, Inputs, Calls, TimeStep, Environment
+export Input, Call, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
-export ModelSpec, Updates, OutputRouting
+export ModelSpec, Updates
 export call_targets, run_call!, commit_environment!, explain_schedule
 export RMSE, NRMSE, EF, dr
 export Status

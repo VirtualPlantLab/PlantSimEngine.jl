@@ -31,29 +31,21 @@ PlantSimEngine.run!(::TemporalReducerTwoArgModel, status, environment, constants
     model = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(TemporalReducerSourceModel(); name=:source) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                TimeStep(Hour(1)),
-            ModelSpec(TemporalReducerOneArgModel(); name=:one_arg) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:reduced => One(
+            ModelSpec(TemporalReducerSourceModel(); name=:source, on=One(scale=:Leaf), every=Hour(1)),
+            ModelSpec(TemporalReducerOneArgModel(); name=:one_arg, on=One(scale=:Leaf), inputs=(:reduced => One(
                     scale=:Leaf,
                     application=:source,
                     var=:signal,
                     policy=Aggregate(one_arg),
                     window=Hour(3),
-                )) |>
-                TimeStep(Hour(3)),
-            ModelSpec(TemporalReducerTwoArgModel(); name=:two_arg) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:reduced => One(
+                )), every=Hour(3)),
+            ModelSpec(TemporalReducerTwoArgModel(); name=:two_arg, on=One(scale=:Leaf), inputs=(:reduced => One(
                     scale=:Leaf,
                     application=:source,
                     var=:signal,
                     policy=Aggregate(two_arg),
                     window=Hour(3),
-                )) |>
-                TimeStep(Hour(3)),
+                )), every=Hour(3)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -66,16 +58,13 @@ PlantSimEngine.run!(::TemporalReducerTwoArgModel, status, environment, constants
     invalid_scene = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(TemporalReducerSourceModel(); name=:source) |>
-                AppliesTo(One(scale=:Leaf)),
-            ModelSpec(TemporalReducerOneArgModel(); name=:consumer) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:reduced => One(
+            ModelSpec(TemporalReducerSourceModel(); name=:source, on=One(scale=:Leaf)),
+            ModelSpec(TemporalReducerOneArgModel(); name=:consumer, on=One(scale=:Leaf), inputs=(:reduced => One(
                     scale=:Leaf,
                     application=:source,
                     var=:signal,
                     policy=Aggregate(invalid),
-                )),
+                ))),
         ),
     )
     @test_throws "must accept values or values and durations" Advanced.refresh_bindings!(invalid_scene)
@@ -94,29 +83,21 @@ end
     model = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(TemporalReducerSourceModel(); name=:source) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                TimeStep(Hour(2)),
-            ModelSpec(TemporalReducerTwoArgModel(); name=:integral) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:reduced => One(
+            ModelSpec(TemporalReducerSourceModel(); name=:source, on=One(scale=:Leaf), every=Hour(2)),
+            ModelSpec(TemporalReducerTwoArgModel(); name=:integral, on=One(scale=:Leaf), inputs=(:reduced => One(
                     scale=:Leaf,
                     application=:source,
                     var=:signal,
                     policy=Aggregate(integral),
                     window=Hour(4),
-                )) |>
-                TimeStep(Hour(4)),
-            ModelSpec(TemporalReducerOneArgModel(); name=:weighted_mean) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Inputs(:reduced => One(
+                )), every=Hour(4)),
+            ModelSpec(TemporalReducerOneArgModel(); name=:weighted_mean, on=One(scale=:Leaf), inputs=(:reduced => One(
                     scale=:Leaf,
                     application=:source,
                     var=:signal,
                     policy=Aggregate(weighted_mean),
                     window=Hour(4),
-                )) |>
-                TimeStep(Hour(4)),
+                )), every=Hour(4)),
         ),
         environment=(duration=Hour(1),),
     )

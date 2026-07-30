@@ -15,8 +15,7 @@ function runtime_matrix_scene(environment)
     return CompositeModel(
         Object(:probe; scale=:Leaf);
         applications=(
-            ModelSpec(RuntimeMatrixProbeModel(); name=:probe) |>
-                AppliesTo(One(scale=:Leaf)),
+            ModelSpec(RuntimeMatrixProbeModel(); name=:probe, on=One(scale=:Leaf)),
         ),
         environment=environment,
     )
@@ -55,8 +54,7 @@ end
         Object(:sun_leaf; scale=:Leaf, kind=:sun),
         Object(:shade_leaf; scale=:Leaf, kind=:shade);
         applications=(
-            ModelSpec(RuntimeMatrixProbeModel(); name=:probe) |>
-                AppliesTo(Many(scale=:Leaf)),
+            ModelSpec(RuntimeMatrixProbeModel(); name=:probe, on=Many(scale=:Leaf)),
         ),
         environment=(T=16.0, duration=Hour(1)),
     )

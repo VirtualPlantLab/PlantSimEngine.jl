@@ -23,7 +23,7 @@ function invalid_hint_scene(model)
     return CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(model; name=:invalid_hint) |> AppliesTo(One(scale=:Leaf)),
+            ModelSpec(model; name=:invalid_hint, on=One(scale=:Leaf)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -34,9 +34,7 @@ end
     monthly_scene = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(InvalidTimestepHintProbeModel(); name=:monthly) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                TimeStep(Month(1)),
+            ModelSpec(InvalidTimestepHintProbeModel(); name=:monthly, on=One(scale=:Leaf), every=Month(1)),
         ),
         environment=(duration=Hour(1),),
     )
@@ -50,9 +48,7 @@ end
     invalid_environment = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(
-            ModelSpec(ConfigurationProbeModel(); name=:probe) |>
-                AppliesTo(One(scale=:Leaf)) |>
-                Environment(provider=:global, sources=42),
+            ModelSpec(ConfigurationProbeModel(); name=:probe, on=One(scale=:Leaf), environment=Environment(provider=:global, sources=42)),
         ),
         environment=(T=20.0, duration=Hour(1)),
     )
@@ -62,15 +58,12 @@ end
         Object(:source; scale=:Leaf, name=:source),
         Object(:consumer; scale=:Leaf, name=:consumer);
         applications=(
-            ModelSpec(ConfigurationProbeModel(); name=:source) |>
-                AppliesTo(One(name=:source)),
-            ModelSpec(ConfigurationConsumerModel(); name=:consumer) |>
-                AppliesTo(One(name=:consumer)) |>
-                Inputs(:value => One(
+            ModelSpec(ConfigurationProbeModel(); name=:source, on=One(name=:source)),
+            ModelSpec(ConfigurationConsumerModel(); name=:consumer, on=One(name=:consumer), inputs=(:value => One(
                     name=:source,
                     within=SceneScope(),
                     policy=:latest,
-                )),
+                ))),
         ),
         environment=(T=20.0, duration=Hour(1)),
     )
