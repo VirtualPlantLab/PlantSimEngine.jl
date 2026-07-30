@@ -37,6 +37,10 @@ SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark
     requests,
     nsteps,
 ) setup = ((model, requests, nsteps) = setup_multirate_buffer_benchmark())
+SUITE[suite_name]["PSE_multirate_no_output_run"] = @benchmarkable benchmark_multirate_no_output_run(
+    model,
+    nsteps,
+) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
 
 include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
 for usage in (:zero, :sparse, :dense)
@@ -48,6 +52,33 @@ for usage in (:zero, :sparse, :dense)
             usage=$usage,
         ))
 end
+SUITE[suite_name]["PSE_lifecycle_small"] =
+    @benchmarkable benchmark_lifecycle_event(
+        simulation,
+        new_index,
+    ) setup = ((simulation, new_index) =
+        setup_lifecycle_hard_call_benchmark(
+            nobjects=32,
+            usage=:zero,
+        ))
+SUITE[suite_name]["PSE_lifecycle_large"] =
+    @benchmarkable benchmark_lifecycle_event(
+        simulation,
+        new_index,
+    ) setup = ((simulation, new_index) =
+        setup_lifecycle_hard_call_benchmark(
+            nobjects=5000,
+            usage=:zero,
+        ))
+SUITE[suite_name]["PSE_lifecycle_immediate_hard_call"] =
+    @benchmarkable benchmark_lifecycle_event(
+        simulation,
+        new_index,
+    ) setup = ((simulation, new_index) =
+        setup_lifecycle_hard_call_benchmark(
+            nobjects=1000,
+            usage=:dense,
+        ))
 
 # "PBP benchmark"
 include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
@@ -86,6 +117,23 @@ SUITE[suite_name]["XPalm_no_outputs_100"] = @benchmarkable xpalm_reference_param
     nsteps;
     outputs=:none,
 ) setup = ((model, requests, nsteps) = xpalm_reference_param_create(;
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+))
+
+SUITE[suite_name]["XPalm_small_outputs_100"] = @benchmarkable xpalm_reference_param_run(
+    model,
+    requests,
+    nsteps,
+) setup = ((model, requests, nsteps) = xpalm_small_param_create(;
+    nsteps=XPALM_PR_BENCHMARK_STEPS,
+))
+
+SUITE[suite_name]["XPalm_all_outputs_100"] = @benchmarkable xpalm_reference_param_run(
+    model,
+    OutputRequest[],
+    nsteps;
+    outputs=:all,
+) setup = ((model, nsteps) = xpalm_reference_model_create(;
     nsteps=XPALM_PR_BENCHMARK_STEPS,
 ))
 

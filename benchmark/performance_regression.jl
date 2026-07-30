@@ -448,6 +448,65 @@ function run_xpalm_performance_profile(;
     metadata = _performance_metadata(; warmup_policy=warmup_policy)
     records = NamedTuple[]
 
+    compile_model, _ = xpalm_reference_model_create(; nsteps=nsteps)
+    initial_compilation = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :initial_scene_compilation,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        sample_factory=() -> begin
+            sample_model, _ =
+                xpalm_reference_model_create(; nsteps=nsteps)
+            return () ->
+                PlantSimEngine.Advanced.refresh_bindings!(sample_model)
+        end,
+    ) do
+        PlantSimEngine.Advanced.refresh_bindings!(compile_model)
+    end
+    _performance_record!(
+        records,
+        metadata,
+        normalized_profile,
+        :initial_scene_compilation,
+        :application_count,
+        length(initial_compilation.applications),
+        :count,
+    )
+
+    steady_model, _ = xpalm_reference_model_create(; nsteps=2)
+    steady_simulation = xpalm_reference_param_run(
+        steady_model,
+        OutputRequest[],
+        1;
+        outputs=:none,
+    )
+    steady_simulation = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :clean_steady_state_step,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        sample_factory=() -> begin
+            sample_model, _ =
+                xpalm_reference_model_create(; nsteps=2)
+            sample_simulation = xpalm_reference_param_run(
+                sample_model,
+                OutputRequest[],
+                1;
+                outputs=:none,
+            )
+            return () -> continue!(sample_simulation)
+        end,
+    ) do
+        continue!(steady_simulation)
+    end
+    current_step(steady_simulation) == 2 || error(
+        "XPalm clean-step benchmark did not advance to step two.",
+    )
+
     no_output_setup = _measure_performance_stage!(
         records,
         metadata,
@@ -494,6 +553,50 @@ function run_xpalm_performance_profile(;
         no_output_simulation,
     )
     _checkpoint_performance_records(checkpoint_path, records)
+
+    small_setup = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :scene_and_request_compile_small_outputs,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+    ) do
+        xpalm_small_param_create(; nsteps=nsteps)
+    end
+    small_model, small_requests, small_steps = small_setup
+    small_simulation = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :simulation_small_outputs,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        sample_factory=() -> begin
+            sample_model, sample_requests, sample_steps =
+                xpalm_small_param_create(; nsteps=nsteps)
+            return () -> xpalm_reference_param_run(
+                sample_model,
+                sample_requests,
+                sample_steps;
+                performance=true,
+            )
+        end,
+    ) do
+        xpalm_reference_param_run(
+            small_model,
+            small_requests,
+            small_steps;
+            performance=true,
+        )
+    end
+    _record_runtime_performance!(
+        records,
+        metadata,
+        normalized_profile,
+        :simulation_small_outputs,
+        small_simulation,
+    )
 
     reference_setup = _measure_performance_stage!(
         records,
@@ -549,8 +652,56 @@ function run_xpalm_performance_profile(;
         reference_simulation,
     )
 
+    all_output_setup = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :scene_construction_all_outputs,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+    ) do
+        xpalm_reference_model_create(; nsteps=nsteps)
+    end
+    all_output_model, all_output_steps = all_output_setup
+    all_output_simulation = _measure_performance_stage!(
+        records,
+        metadata,
+        normalized_profile,
+        :simulation_all_outputs,
+        checkpoint_path,
+        samples=PERFORMANCE_STATISTICAL_SAMPLES,
+        sample_factory=() -> begin
+            sample_model, sample_steps =
+                xpalm_reference_model_create(; nsteps=nsteps)
+            return () -> xpalm_reference_param_run(
+                sample_model,
+                OutputRequest[],
+                sample_steps;
+                outputs=:all,
+                performance=true,
+            )
+        end,
+    ) do
+        xpalm_reference_param_run(
+            all_output_model,
+            OutputRequest[],
+            all_output_steps;
+            outputs=:all,
+            performance=true,
+        )
+    end
+    _record_runtime_performance!(
+        records,
+        metadata,
+        normalized_profile,
+        :simulation_all_outputs,
+        all_output_simulation,
+    )
+
     no_output_state = xpalm_reference_final_state(no_output_simulation)
+    small_state = xpalm_reference_final_state(small_simulation)
     reference_state = xpalm_reference_final_state(reference_simulation)
+    all_output_state = xpalm_reference_final_state(all_output_simulation)
     _record_xpalm_state!(
         records,
         metadata,
@@ -565,10 +716,25 @@ function run_xpalm_performance_profile(;
         :final_state_reference_outputs,
         reference_state,
     )
+    _record_xpalm_state!(
+        records,
+        metadata,
+        normalized_profile,
+        :final_state_small_outputs,
+        small_state,
+    )
+    _record_xpalm_state!(
+        records,
+        metadata,
+        normalized_profile,
+        :final_state_all_outputs,
+        all_output_state,
+    )
     _checkpoint_performance_records(checkpoint_path, records)
-    no_output_state == reference_state || error(
-        "XPalm performance fixtures diverged between `outputs=:none` and reference outputs: ",
-        "$(no_output_state) != $(reference_state).",
+    no_output_state == small_state == reference_state == all_output_state || error(
+        "XPalm performance fixtures diverged across output-retention modes: ",
+        "none=$(no_output_state), small=$(small_state), ",
+        "reference=$(reference_state), all=$(all_output_state).",
     )
     isempty(reference_outputs) && error(
         "XPalm performance reference output collection returned no tables.",
@@ -598,7 +764,9 @@ function run_xpalm_performance_profile(;
     return (
         records=records,
         no_output_state=no_output_state,
+        small_state=small_state,
         reference_state=reference_state,
+        all_output_state=all_output_state,
     )
 end
 

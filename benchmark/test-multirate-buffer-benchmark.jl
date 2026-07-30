@@ -80,3 +80,7 @@ end
 function benchmark_multirate_output_request_run(model, reqs, nsteps)
     return run!(model; steps=nsteps, outputs=reqs)
 end
+
+function benchmark_multirate_no_output_run(model, nsteps)
+    return run!(model; steps=nsteps, outputs=:none)
+end

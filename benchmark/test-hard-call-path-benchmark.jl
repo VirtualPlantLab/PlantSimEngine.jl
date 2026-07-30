@@ -126,3 +126,36 @@ function hard_call_path_summary(model)
         ); init=0),
     )
 end
+
+function setup_lifecycle_hard_call_benchmark(;
+    nobjects=1000,
+    usage=:zero,
+)
+    model, _ = setup_hard_call_path_benchmark(;
+        nobjects=nobjects,
+        usage=usage,
+        steps=1,
+    )
+    simulation = run!(
+        model;
+        steps=1,
+        outputs=:none,
+        performance=true,
+    )
+    return simulation, nobjects + 1
+end
+
+function benchmark_lifecycle_event(simulation, new_index)
+    new_id = Symbol(:leaf_, new_index)
+    register_object!(
+        simulation.model,
+        Object(
+            new_id;
+            scale=:Leaf,
+            name=new_id,
+            parent=:scene,
+        ),
+    )
+    continue!(simulation)
+    return simulation
+end

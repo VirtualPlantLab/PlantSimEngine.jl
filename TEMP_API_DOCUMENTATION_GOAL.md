@@ -716,7 +716,7 @@ execution path.
       available.
 - [x] Preserve streams keyed by application, object, and variable and preserve
       resampling and removed-object history.
-- [ ] Compare `outputs=:none`, a small explicit request, the XPalm regression
+- [x] Compare `outputs=:none`, a small explicit request, the XPalm regression
       request, and `outputs=:all`.
 
 ### Performance benchmark and regression matrix
@@ -727,7 +727,7 @@ execution path.
 - [x] Record source revisions, Julia version, manifest hash, fixture hash,
       machine identity, warm-up policy, median time, minimum time, memory, and
       allocations with every persisted result.
-- [ ] Add benchmarks for:
+- [x] Add benchmarks for:
   1. initial XPalm scene compilation;
   2. a clean steady-state step;
   3. 100 and 1,000 clean steps;
@@ -742,7 +742,7 @@ execution path.
       lifecycle scaling, and a simulation prefix.
 - [ ] Run and persist the complete XPalm performance suite on a stable runner
       nightly, before releases, or on explicit performance workflows.
-- [ ] Compare noisy wall-clock measurements with generous regression
+- [x] Compare noisy wall-clock measurements with generous regression
       tolerances, but keep allocation and work-count regressions strict.
 - [x] Fail correctness before considering performance: every benchmark fixture
       must verify final state or selected checkpoints.

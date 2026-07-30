@@ -24,6 +24,10 @@ const XPALM_REFERENCE_BENCHMARK_VARIABLES = Dict{Symbol,Any}(
     :Soil => (:ftsw, :root_depth),
 )
 
+const XPALM_SMALL_BENCHMARK_VARIABLES = Dict{Symbol,Any}(
+    :Scene => (:lai,),
+)
+
 function _xpalm_output_requests(model, vars)
     applications = PlantSimEngine.Diagnostics.explain_applications(model)
     requests = OutputRequest[]
@@ -101,6 +105,13 @@ function xpalm_default_param_create(; nsteps=nothing)
         :Male => (:Rm,),
     )
     return _xpalm_benchmark_scene(vars; nsteps=nsteps)
+end
+
+function xpalm_small_param_create(; nsteps=nothing)
+    return _xpalm_benchmark_scene(
+        XPALM_SMALL_BENCHMARK_VARIABLES;
+        nsteps=nsteps,
+    )
 end
 
 function xpalm_reference_param_create(; nsteps=nothing)

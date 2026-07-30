@@ -35,6 +35,70 @@ if benchmark_test_enabled("multirate benchmark API smoke")
             benchmark_multirate_output_request_run(model, requests, nsteps)
         @test current_step(simulation) == nsteps
         @test !isempty(collect_outputs(simulation; sink=nothing))
+        no_output_model, _, no_output_steps =
+            setup_multirate_buffer_benchmark(; ndays=1, nleaves=4)
+        no_output_simulation =
+            benchmark_multirate_no_output_run(
+                no_output_model,
+                no_output_steps,
+            )
+        @test current_step(no_output_simulation) == no_output_steps
+        retention =
+            PlantSimEngine.Diagnostics.explain_output_retention(
+                no_output_simulation,
+            )
+        @test all(
+            row.reasons == (:temporal_dependency,)
+            for row in retention
+        )
+        @test maximum(
+            length,
+            values(outputs(no_output_simulation)),
+        ) <= 25
+    end
+end
+
+if benchmark_test_enabled("lifecycle benchmark API smoke")
+    @testset "lifecycle benchmark API smoke" begin
+        isdefined(@__MODULE__, :BenchmarkCallSourceModel) ||
+            include(
+                joinpath(
+                    @__DIR__,
+                    "..",
+                    "test-hard-call-path-benchmark.jl",
+                ),
+            )
+        for (nobjects, usage) in (
+            (8, :zero),
+            (64, :zero),
+            (16, :dense),
+        )
+            simulation, new_index =
+                setup_lifecycle_hard_call_benchmark(;
+                    nobjects=nobjects,
+                    usage=usage,
+                )
+            benchmark_lifecycle_event(simulation, new_index)
+            new_id = Symbol(:leaf_, new_index)
+            new_object = only(
+                object for object in model_objects(
+                    simulation.model;
+                    scale=:Leaf,
+                )
+                if object.id == ObjectId(new_id)
+            )
+            @test current_step(simulation) == 2
+            @test new_object.status.work == 1
+            @test new_object.status.signal == 1
+            if usage == :dense
+                @test new_object.status.called_signal == 1
+            end
+            performance =
+                PlantSimEngine.Advanced.runtime_performance(simulation)
+            @test performance.counts[
+                :execution_target_rebuild_new
+            ] <= 3
+        end
     end
 end
 
@@ -93,12 +157,38 @@ if benchmark_test_enabled("XPalm staged performance profile smoke")
         @test !isempty(metadata.hostname)
         result = run_xpalm_performance_profile(; profile=:smoke)
         @test result.no_output_state == result.reference_state
+        @test result.small_state == result.reference_state
+        @test result.all_output_state == result.reference_state
         @test result.reference_state.current_step == PERFORMANCE_SMOKE_STEPS
         @test any(
             row ->
                 row.stage == "simulation_reference_outputs" &&
                     row.metric == "steps_executed" &&
                     row.value == PERFORMANCE_SMOKE_STEPS,
+            result.records,
+        )
+        @test any(
+            row ->
+                row.stage == "initial_scene_compilation" &&
+                    row.metric == "median_time",
+            result.records,
+        )
+        @test any(
+            row ->
+                row.stage == "clean_steady_state_step" &&
+                    row.metric == "median_time",
+            result.records,
+        )
+        @test any(
+            row ->
+                row.stage == "simulation_small_outputs" &&
+                    row.metric == "median_time",
+            result.records,
+        )
+        @test any(
+            row ->
+                row.stage == "simulation_all_outputs" &&
+                    row.metric == "median_time",
             result.records,
         )
         @test any(
@@ -144,6 +234,15 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         @test haskey(suite, "PSE_hard_calls_zero")
         @test haskey(suite, "PSE_hard_calls_sparse")
         @test haskey(suite, "PSE_hard_calls_dense")
+        @test haskey(suite, "PSE_lifecycle_small")
+        @test haskey(suite, "PSE_lifecycle_large")
+        @test haskey(
+            suite,
+            "PSE_lifecycle_immediate_hard_call",
+        )
+        @test haskey(suite, "PSE_multirate_no_output_run")
+        @test haskey(suite, "XPalm_small_outputs_100")
+        @test haskey(suite, "XPalm_all_outputs_100")
     end
 end
 
