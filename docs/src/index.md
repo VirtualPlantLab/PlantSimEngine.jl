@@ -248,8 +248,8 @@ once.
   selectors, lifecycle hooks, and explanation helpers.
 - [Model traits](model_traits.md) explains `inputs_`, `outputs_`, `dep`,
   `timespec`, `output_policy`, and `environment_inputs_`.
-- Existing projects using the removed mapping runtime can use the separate
-  [migration guide](migration_composite_model.md).
+- [Migration guide](migration_composite_model.md) covers upgrades from earlier
+  PlantSimEngine releases.
 
 ## Performance
 

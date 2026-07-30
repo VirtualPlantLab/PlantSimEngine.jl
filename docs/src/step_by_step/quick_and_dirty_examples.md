@@ -119,9 +119,3 @@ for the accepted solution.
 
 See [MAESPA-style model example handoff](../dev/maespa_model_handoff.md) for
 the current multi-plant energy-balance acceptance example.
-
-## Migration Note
-
-The previous mapping runtime has been removed. Simulations start from `CompositeModel`,
-`Object`, `ModelSpec`, `on`, `inputs`, `calls`, `Updates`, `every`,
-and `Environment`.

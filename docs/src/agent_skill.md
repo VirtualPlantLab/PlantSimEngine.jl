@@ -32,10 +32,6 @@ gives agents the package-specific conventions they need for:
 - implementing or wrapping models with `@process`, `inputs_`, `outputs_`,
   `run!`, hard dependencies, and model traits.
 
-The superseded `ModelMapping` and `MultiScaleModel` runtimes have been removed.
-Use [Migrating To The CompositeModel/Object API](migration_composite_model.md) when
-translating historical code.
-
 The canonical source is [`skills/plantsimengine/SKILL.md`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/skills/plantsimengine/SKILL.md).
 
 Agents should still inspect the local package code before making changes. The skill is a usage and modeling guide, not a replacement for the current API definitions in `src/`.

@@ -32,31 +32,31 @@ Each later journey introduces one substantial concept at a time.
 
 ## Non-Negotiable Constraints
 
-- [ ] Preserve the sole `CompositeModel`/`Object` compiler and runtime. Do not
+- [x] Preserve the sole `CompositeModel`/`Object` compiler and runtime. Do not
       recreate the removed ModelMapping runtime.
 - [x] Prefer clean breaking changes. Do not add deprecated aliases,
       compatibility wrappers, old keyword support, or dual APIs unless the
       user explicitly requests them.
-- [ ] Preserve generic numeric and status types, reference carriers, compiled
+- [x] Preserve generic numeric and status types, reference carriers, compiled
       execution batches, deterministic diagnostics, and allocation-sensitive
       paths.
-- [ ] Treat runtime performance as part of the public contract. The richer
+- [x] Treat runtime performance as part of the public contract. The richer
       `CompositeModel` semantics must compile into simple hot loops; selector
       resolution, dependency compilation, status-view construction, and
       execution-plan construction must not become ordinary per-step work.
 - [ ] Make structural mutation proportional to the changed objects and affected
       applications, not to the total number of objects and execution targets
       already present in the simulation.
-- [ ] Keep the common path short. Advanced features must not add arguments,
+- [x] Keep the common path short. Advanced features must not add arguments,
       types, or terminology to the first-time workflow.
-- [ ] Reuse the models in `PlantSimEngine.Examples` whenever they can teach the
+- [x] Reuse the models in `PlantSimEngine.Examples` whenever they can teach the
       intended concept. Do not redefine a tutorial-only model when an existing
       model can be brought up to the current contract.
-- [ ] Treat PlantBiophysics and XPalm as required downstream acceptance suites,
+- [x] Treat PlantBiophysics and XPalm as required downstream acceptance suites,
       not optional follow-up cleanup.
-- [ ] Preserve unrelated and concurrent working-tree changes. Inspect
+- [x] Preserve unrelated and concurrent working-tree changes. Inspect
       `git status` in all three repositories before editing.
-- [ ] Use Kaimon for every Julia process and Julia test run.
+- [x] Use Kaimon for every Julia process and Julia test run.
 
 ## Current Branch Baseline That Must Not Regress
 
@@ -549,6 +549,14 @@ Current restoration checkpoints on the same staged XPalm fixture:
       without allocation. The same warmed full-cycle scenario returns to
       `9.714` seconds, while XPalm still passes 307 package checks and all 68
       v0.6.1 regression checks.
+- [x] At the final local source checkpoint (`8b4068ad` before this evidence
+      update), the dedicated exact warmed no-output gate completes the same
+      4,160-day scenario in `9.762813375` seconds, allocates
+      `5.714561464 GB` in `61,432,637` allocations, and preserves the exact
+      final step, 344 phytomers, LAI, and FTSW. The complete persisted profile
+      also passes its four correctness-first modes; instrumentation adds
+      measurable overhead and is therefore reported separately from the
+      uninstrumented acceptance timing.
 
 ### Performance invariants
 
@@ -1191,17 +1199,19 @@ PlantBiophysics validates the model-author side of the API.
 - [x] Migrate environment input/output declarations and kernel argument names.
 - [x] Migrate hard-call code and the fine-grained sampled-environment escape
       hatch.
-- [ ] Migrate required/default input declarations.
-- [ ] Migrate evaluation functions if they move under
+- [x] Migrate required/default input declarations.
+- [x] Migrate evaluation functions if they move under
       `PlantSimEngine.Evaluation`.
-- [ ] Update all PlantBiophysics simulations, fitting code, tests, and docs.
-- [ ] Run its package tests and documentation build through a Kaimon session
+- [x] Update all PlantBiophysics simulations, fitting code, tests, and docs.
+- [x] Run its package tests and documentation build through a Kaimon session
       started for the PlantBiophysics checkout.
 
-Kernel milestone: PlantBiophysics commit `9688073` passes its full 268-check
-package suite, including embedded doctests. The standalone docs project is not
-yet a validated gate: it is not in Kaimon's allowed-project list, and a
-PlantBiophysics root session failed to start.
+Final downstream evidence: PlantBiophysics commits `0d110a9`, `b79dc18`,
+`d252b6b`, and `b733e05` migrate required/default declarations, direct
+`ModelSpec` construction, the focused `Evaluation` namespace, and the
+documentation gate. Kaimon run 1285 passes the complete 268-check package
+suite, including embedded doctests, and run 1286 passes the standalone
+documentation build.
 
 ### XPalm: simulation-user and framework-builder acceptance suite
 
@@ -1209,17 +1219,22 @@ XPalm validates the scenario-construction side of the API.
 
 - [x] Preserve its current `multi-plant` branch work and existing commits.
 - [x] Migrate every model kernel and environment declaration.
-- [ ] Migrate its scenario compiler to the single canonical `ModelSpec` syntax.
-- [ ] Migrate selectors and scopes without weakening plant-local isolation.
-- [ ] Verify templates, multiple plants, scene and soil sharing, lifecycle
+- [x] Migrate its scenario compiler to the single canonical `ModelSpec` syntax.
+- [x] Migrate selectors and scopes without weakening plant-local isolation.
+- [x] Verify templates, multiple plants, scene and soil sharing, lifecycle
       changes, updates, output requests, and collection.
-- [ ] Update XPalm docs and extension/notebook examples.
-- [ ] Run its package tests and documentation build through a Kaimon session
+- [x] Update XPalm docs and extension/notebook examples.
+- [x] Run its package tests and documentation build through a Kaimon session
       started for the XPalm checkout.
 
-Kernel milestone: XPalm commit `00a8e80` passes 307 package checks and all 68
-full-cycle reference-regression checks. Its pre-existing uncommitted
-`CHANGELOG.md` edit remains untouched and unstaged.
+Final downstream evidence: XPalm commits `356ab43`, `4f70803`, `9db5666`,
+`60d0375`, and `460d3b5` migrate the scenario compiler, diagnostics and
+notebook-facing examples, canonical initial-organ respiration publication,
+and the documentation gate. From the final PlantSimEngine source state,
+Kaimon run 1321 passes all 307 package checks, run 1312 passes the docs build,
+and run 1322 passes all 68 v0.6.1 full-cycle numerical-regression checks. No
+reference fixture changed; the pre-existing uncommitted `CHANGELOG.md` edit
+remains untouched and unstaged.
 
 ### Cross-repository completion rule
 
@@ -1235,8 +1250,8 @@ No breaking PlantSimEngine milestone is complete until:
 
 ### Static checks
 
-- [ ] `git diff --check` passes in every modified repository.
-- [ ] No stale removed environment API names remain:
+- [x] `git diff --check` passes in every modified repository.
+- [x] No stale removed environment API names remain:
 
       ```text
       with_environment!
@@ -1245,48 +1260,84 @@ No breaking PlantSimEngine milestone is complete until:
       scatter_environment_outputs!
       ```
 
-- [ ] No stale six-argument model kernel remains.
-- [ ] No stale old environment trait names remain after the vocabulary rename.
-- [ ] No deprecated mapping-runtime terminology remains in current user docs.
-- [ ] README, tutorials, API inventory, generated graph labels, docstrings, and
+- [x] No stale six-argument model kernel remains.
+- [x] No stale old environment trait names remain after the vocabulary rename.
+- [x] No deprecated mapping-runtime terminology remains in current user docs.
+- [x] README, tutorials, API inventory, generated graph labels, docstrings, and
       error messages use the same vocabulary.
+
+Final static audit: searches across the three packages' source, README, and
+ordinary user documentation find no old environment traits, no removed
+environment entry points, and no model kernel carrying the old `models`
+argument. References to removed mapping APIs are confined to the dedicated
+migration page and maintainer records. The removed environment names remain
+only in negative tests that assert their absence.
 
 ### PlantSimEngine behavior
 
-- [ ] One object and several objects.
-- [ ] Same-object and cross-object inputs.
-- [ ] `One`, `OptionalOne`, and `Many`.
-- [ ] One scale, several scales, and several plant instances.
-- [ ] Hard calls, nested hard calls, trials, accepted publication, and accepted
+- [x] One object and several objects.
+- [x] Same-object and cross-object inputs.
+- [x] `One`, `OptionalOne`, and `Many`.
+- [x] One scale, several scales, and several plant instances.
+- [x] Hard calls, nested hard calls, trials, accepted publication, and accepted
       environment commits.
-- [ ] Duplicate writers and explicit update ordering.
-- [ ] Repeated timesteps and different application cadences.
-- [ ] `PreviousTimeStep`, `HoldLast`, `Interpolate`, `Integrate`, and
+- [x] Duplicate writers and explicit update ordering.
+- [x] Repeated timesteps and different application cadences.
+- [x] `PreviousTimeStep`, `HoldLast`, `Interpolate`, `Integrate`, and
       `Aggregate`.
-- [ ] Global, spatial, transient, and mutable environments.
-- [ ] Distinct target handles under one `Many` trial environment.
-- [ ] Object creation, removal, reparenting, movement, and geometry updates.
-- [ ] Templates, instances, and overrides.
-- [ ] Output retention, collection, continuation, and removed-object history.
-- [ ] Generic numeric types and allocation-sensitive execution.
+- [x] Global, spatial, transient, and mutable environments.
+- [x] Distinct target handles under one `Many` trial environment.
+- [x] Object creation, removal, reparenting, movement, and geometry updates.
+- [x] Templates, instances, and overrides.
+- [x] Output retention, collection, continuation, and removed-object history.
+- [x] Generic numeric types and allocation-sensitive execution.
+
+The final unified, environment, lifecycle, multirate, output-boundary, update,
+hard-call, template/override, generic-number, and allocation suites exercise
+this matrix. Kaimon run 1309 passes the 645-check unified runtime suite; the
+complete run 1319 passes 1,867 checks with no failures or errors.
 
 ### Test and documentation gates
 
 - [x] Run focused PlantSimEngine model-contract tests.
 - [x] Run focused environment backend tests.
-- [ ] Run focused steady-state allocation and scheduler tests.
-- [ ] Run focused incremental lifecycle work-count and scaling tests.
-- [ ] Run focused temporal-buffer and sparse-hard-call performance tests.
+- [x] Run focused steady-state allocation and scheduler tests.
+- [x] Run focused incremental lifecycle work-count and scaling tests.
+- [x] Run focused temporal-buffer and sparse-hard-call performance tests.
 - [x] Run the unified model/object API suite.
 - [x] Run the MAESPA focused suite.
 - [x] Run the full PlantSimEngine suite.
-- [ ] Run the short deterministic performance-regression gate.
-- [ ] Run and persist the complete XPalm performance matrix on the baseline
+- [x] Run the short deterministic performance-regression gate.
+- [x] Run and persist the complete XPalm performance matrix on the baseline
       machine.
-- [ ] Build PlantSimEngine documentation and execute all doctests.
-- [ ] Run the full PlantBiophysics suite and documentation.
-- [ ] Run the full XPalm suite and documentation.
-- [ ] Record exact passing counts and commands from the final source state.
+- [x] Build PlantSimEngine documentation and execute all doctests.
+- [x] Run the full PlantBiophysics suite and documentation.
+- [x] Run the full XPalm suite and documentation.
+- [x] Record exact passing counts and commands from the final source state.
+
+Final Kaimon evidence from 2026-07-30:
+
+- PlantSimEngine project, no filter: run 1319, 1,867/1,867 passed.
+- PlantSimEngine docs project, no filter: run 1320, 113/113 passed
+  (`Progressive journey structure` 112 and Documenter build 1).
+- PlantSimEngine benchmark project, no filter: run 1315, 56/56 passed.
+- Full persisted XPalm profile: run 1317, 4/4 passed; the ignored local result
+  is `benchmark/results/xpalm-full-latest.csv`.
+- Exact warmed XPalm no-output gate: run 1318, 5/5 passed in
+  `9.762813375` seconds with `5.714561464 GB` and `61,432,637`
+  allocations. It finishes at step 4,160 with 344 phytomers,
+  `lai=5.0587602356164405`, and `ftsw=0.7991179101191216`.
+- PlantBiophysics project: run 1285, 268/268 passed; docs project: run 1286,
+  1/1 passed.
+- XPalm project: run 1321, 307/307 passed; docs project: run 1312, 1/1
+  passed; dedicated `reference-regression` mode through the temporary Kaimon
+  test wrapper: run 1322, 68/68 passed.
+
+All Julia executions used Kaimon `run_tests` with the recorded project path.
+The XPalm reference mode used the package's existing
+`test/runtests.jl reference-regression` entry point through a temporary wrapper
+because Kaimon's test filter is a ReTest expression rather than an `ARGS`
+forwarder.
 
 ## Suggested Implementation Order
 
@@ -1294,28 +1345,30 @@ No breaking PlantSimEngine milestone is complete until:
        changes.
 2. [x] Reproduce and profile the current XPalm performance baseline through a
        healthy Kaimon session; add the runtime counters and benchmark matrix.
-3. [x] Make lifecycle extension delta-based and verify that new-organ hard
-       calls no longer rebuild the whole scene.
+3. [x] Make addition-only lifecycle extension delta-based and verify that
+       new-organ hard calls no longer rebuild the whole scene. Strict
+       removal/reparent scaling remains tracked by the open performance
+       invariant above.
 4. [x] Replace repeated scheduler scanning with linear application groups.
 5. [x] Compile temporal policies into bounded typed state.
 6. [x] Restore per-batch no-hard-call specialization.
 7. [x] Reach and persist the first XPalm restoration milestone before layering
        further breaking API work onto the runtime.
-8. [ ] Finish separating and preallocating requested outputs.
-9. [ ] Finalize the model kernel, environment vocabulary, and required/default
+8. [x] Finish separating and preallocating requested outputs.
+9. [x] Finalize the model kernel, environment vocabulary, and required/default
        declarations.
 10. [x] Migrate PlantSimEngine models and focused contract tests.
-11. [ ] Finalize `ModelSpec`, selectors, namespaces, and result ergonomics.
-12. [ ] Migrate XPalm early enough that it influences scenario API decisions
+11. [x] Finalize `ModelSpec`, selectors, namespaces, and result ergonomics.
+12. [x] Migrate XPalm early enough that it influences scenario API decisions
         and continuously rerun its correctness and performance suites.
-13. [ ] Migrate PlantBiophysics early enough that it influences model API
+13. [x] Migrate PlantBiophysics early enough that it influences model API
         decisions.
-14. [ ] Rebuild the progressive simulation-user journey using existing models.
-15. [ ] Rebuild the parallel model-developer journey.
-16. [ ] Move migration and maintainer material out of onboarding.
-17. [ ] Run the complete three-repository correctness and performance
+14. [x] Rebuild the progressive simulation-user journey using existing models.
+15. [x] Rebuild the parallel model-developer journey.
+16. [x] Move migration and maintainer material out of onboarding.
+17. [x] Run the complete three-repository local correctness and performance
         validation matrix.
-18. [ ] Make coherent milestone commits whenever possible.
+18. [x] Make coherent milestone commits whenever possible.
 19. [ ] Delete this temporary goal after durable documentation and final
         validation evidence replace it.
 

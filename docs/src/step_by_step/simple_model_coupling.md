@@ -95,7 +95,3 @@ growth_sim = run!(growth_scene; steps=5)
 growth_status = final_state(growth_sim)
 (LAI=growth_status.LAI, aPPFD=growth_status.aPPFD, biomass=growth_status.biomass)
 ```
-
-Older examples used the removed mapping runtime for this workflow. New
-scenarios start from `CompositeModel`, `Object`, `ModelSpec`, `on`, `inputs`,
-`calls`, and `every`.

@@ -402,18 +402,3 @@ validation, schedules, and output-request matches are refreshed at the next
 timestep boundary. Geometry-only mutations refresh affected environment
 bindings at that boundary; already published streams remain available for
 removed objects.
-
-## Historical API Translation
-
-The historical mapping runtime has been removed. Translate old code as follows:
-
-- `ModelMapping(...)` -> `CompositeModel(...)` plus object-local `ModelSpec(...)`
-  applications;
-- `MultiScaleModel(...)` -> `ModelSpec(...; inputs=...)`;
-- `InputBindings(...)` -> selector fields inside `ModelSpec(...; inputs=...)`;
-- `MeteoBindings(...)` / `MeteoWindow(...)` -> `Environment(...)`,
-  `environment_hint(...)`, and model/application clocks;
-- `TimeStepModel(...)` -> `ModelSpec(...; every=...)`.
-
-See [Migrating To The CompositeModel/Object API](migration_composite_model.md) for worked
-translation patterns.

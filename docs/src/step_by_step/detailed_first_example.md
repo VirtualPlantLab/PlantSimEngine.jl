@@ -216,15 +216,6 @@ catch err
 end
 ```
 
-## Migration Note
-
-The previous mapping runtime has been removed. Simulations use `CompositeModel`,
-`Object`, `ModelSpec`, `on`, `inputs`, `calls`, `Updates`, `every`,
-and `Environment`.
-
-See [Migrating To The CompositeModel/Object API](../migration_composite_model.md) for the
-translation from the historical mapping API.
-
 ## Next Steps
 
 - [Standard model coupling](@ref) shows more coupling patterns.

@@ -96,6 +96,3 @@ This is the same principle used in larger composite models: switch one process
 implementation by replacing one `ModelSpec` or by using an
 `ObjectInstance(...; overrides=...)` when the change applies to one plant
 instance or one organ.
-
-The removed mapping runtime expressed the same idea differently. New scenario
-code expresses model switching through model model applications.
