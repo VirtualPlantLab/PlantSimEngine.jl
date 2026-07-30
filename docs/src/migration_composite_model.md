@@ -15,16 +15,13 @@ explicit:
 | calling `run!(model)` again implicitly looked like continuation | use `continue!(simulation)` or `step!(simulation)` |
 | compiler/cache types imported from the default namespace | qualify them through `PlantSimEngine.Advanced` |
 
-`tracked_outputs` remains a targeted deprecation bridge. It maps `nothing` to
-`outputs=:all`, an empty request vector to `outputs=:none`, and requests to the
-equivalent `outputs` value. `process=` in `OutputRequest` is likewise a bridge
-to application-qualified requests. Singular scenario-level `inputs` and
-`calls` also deprecate process-only filters; model-authored `Input`/`Call`
-defaults may still discover a process because they cannot know scenario
-application names. `Many(process=...)` remains an explicit discovery query for
-collecting several applications, such as the mounted applications from several
-instances. New singular scenario references should use `application=`. The
-deprecated bridges are scheduled for removal in PlantSimEngine 0.15.
+`tracked_outputs` has been removed. Use `outputs=:all`, `outputs=:none`, or
+`outputs=requests` directly. Singular scenario `inputs` and `calls`,
+`OutputRequest`, object overrides, and `Updates(...; after=...)` now identify
+the target by canonical `application=...` or application ID. Model-authored
+`Input`/`Call` defaults may still discover a process because they cannot know
+scenario application names, and `Many(process=...)` remains an explicit
+multi-application discovery query.
 
 Calling `run!(model; ...)` always creates a fresh result timeline starting at
 step one, even when object status has already been mutated by an earlier run.

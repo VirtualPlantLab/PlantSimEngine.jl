@@ -151,6 +151,11 @@ function _build_model_spec(
     normalized_input_origins = isnothing(input_origins) ?
                                _binding_origins(default_inputs, explicit_inputs) :
                                _normalize_binding_origins(input_origins, normalized_inputs)
+    _validate_scenario_application_references!(
+        normalized_inputs,
+        normalized_input_origins,
+        :inputs,
+    )
     default_calls = _model_default_model_calls(base_model)
     explicit_calls = _normalize_application_bindings(calls)
     normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
@@ -160,6 +165,11 @@ function _build_model_spec(
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
                               _normalize_binding_origins(call_origins, normalized_calls)
+    _validate_scenario_application_references!(
+        normalized_calls,
+        normalized_call_origins,
+        :calls,
+    )
     normalized_environment = _normalize_model_environment(environment)
     normalized_environment_bindings = _normalize_environment_bindings(environment_bindings)
     normalized_environment_window = _normalize_environment_window(environment_window)
@@ -180,6 +190,29 @@ function _build_model_spec(
         normalized_output_routing,
         normalized_updates
     )
+end
+
+function _validate_scenario_application_references!(
+    bindings::NamedTuple,
+    origins::NamedTuple,
+    field::Symbol,
+)
+    for (name, selector) in pairs(bindings)
+        getproperty(origins, name) == :model_spec || continue
+        selector isa Union{One,OptionalOne} || continue
+        selector_criteria = criteria(selector)
+        isnothing(_criteria_get(selector_criteria, :process, nothing)) &&
+            continue
+        isnothing(_criteria_get(selector_criteria, :application, nothing)) ||
+            continue
+        error(
+            "`process=` in scenario `ModelSpec(...; $(field)=...)` is not ",
+            "supported for `One` or `OptionalOne`. Name the target ",
+            "application and use `application=...`; model-authored `Input` ",
+            "and `Call` defaults may still use `process=...`.",
+        )
+    end
+    return nothing
 end
 
 function _replace_model_spec(

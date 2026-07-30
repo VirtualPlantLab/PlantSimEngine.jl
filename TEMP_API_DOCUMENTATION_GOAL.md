@@ -34,7 +34,7 @@ Each later journey introduces one substantial concept at a time.
 
 - [ ] Preserve the sole `CompositeModel`/`Object` compiler and runtime. Do not
       recreate the removed ModelMapping runtime.
-- [ ] Prefer clean breaking changes. Do not add deprecated aliases,
+- [x] Prefer clean breaking changes. Do not add deprecated aliases,
       compatibility wrappers, old keyword support, or dual APIs unless the
       user explicitly requests them.
 - [ ] Preserve generic numeric and status types, reference carriers, compiled

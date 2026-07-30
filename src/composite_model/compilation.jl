@@ -1533,18 +1533,8 @@ function _application_match_labels(application::CompiledModelApplication)
     return labels
 end
 
-function _update_matches_application(label::Symbol, application::CompiledModelApplication)
-    label == application.id && return true
-    if label == application.process || (!isnothing(application.name) && label == application.name)
-        Base.depwarn(
-            "Matching `Updates(...; after=$(repr(label)))` by process or local name is deprecated. " *
-            "Use the canonical application identifier `$(application.id)`.",
-            :Updates,
-        )
-        return true
-    end
-    return false
-end
+_update_matches_application(label::Symbol, application::CompiledModelApplication) =
+    label == application.id
 
 function _update_variables(update)
     return Tuple(Symbol(variable) for variable in getproperty(update, :variables))
@@ -2205,14 +2195,6 @@ function _compile_model_input_bindings(
                 selector isa AbstractObjectMultiplicity || error(
                     "Input binding `$(input_sym)` on application `$(application.id)` must use an object selector."
                 )
-                if origin == :model_spec && !(selector isa Many) &&
-                   !isnothing(_criteria_get(criteria(selector), :process, nothing)) &&
-                   isnothing(_selector_application(selector))
-                    Base.depwarn(
-                        "`process=` in scenario `ModelSpec(...; inputs=...)` is deprecated; name the producer application and use `application=`.",
-                        :ModelSpec,
-                    )
-                end
                 _push_model_input_binding!(
                     bindings,
                     model,
@@ -2556,14 +2538,6 @@ function _compile_model_call_bindings(
                 selector isa AbstractObjectMultiplicity || error(
                     "Call binding `$(call_sym)` on application `$(application.id)` must use an object selector."
                 )
-                if origin == :model_spec && !(selector isa Many) &&
-                   !isnothing(_criteria_get(criteria(selector), :process, nothing)) &&
-                   isnothing(_selector_application(selector))
-                    Base.depwarn(
-                        "`process=` in scenario `ModelSpec(...; calls=...)` is deprecated; name the callee application and use `application=`.",
-                        :ModelSpec,
-                    )
-                end
                 callee_object_ids = _dependency_object_ids(model, selector, consumer_id)
                 proc = _criteria_get(criteria(selector), :process, nothing)
                 app_name = _selector_application(selector)

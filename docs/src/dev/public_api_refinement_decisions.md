@@ -55,9 +55,8 @@ The default is `outputs=:none`. Temporal dependency streams required by the
 runtime are still retained with bounded histories; they are not user-retained
 outputs.
 
-`tracked_outputs` is deprecated. During the deprecation period,
-`tracked_outputs=nothing` maps to `outputs=:all`, an empty request vector maps
-to `outputs=:none`, and other values map to `outputs=value`.
+The former `tracked_outputs` keyword has been removed. Use `outputs` directly;
+there is no dual spelling.
 
 An `OutputRequest` contains an object selector, a variable, an optional
 application identifier, a unique result name, and optional temporal resampling
@@ -100,9 +99,7 @@ promise that ordinary users should depend on it.
 ## Compatibility policy
 
 - Removed legacy mapping/executor APIs are not restored.
-- Current CompositeModel/Object spellings receive targeted deprecations only when they
-  have a clear replacement.
-- New canonical spellings are implemented and tested before deprecated aliases
-  are removed.
+- Superseded CompositeModel/Object spellings are removed rather than retained
+  as aliases or fallback methods.
 - Benchmarks, examples, documentation, PlantBiophysics, and XPalm target the
-  canonical API rather than deprecated compatibility paths.
+  canonical API.

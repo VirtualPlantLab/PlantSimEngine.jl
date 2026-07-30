@@ -1159,8 +1159,8 @@ end
         applications=(
             ModelSpec(ModelObjectSignalSourceModel(); name=:plant_signal, on=One(scale=:Plant)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:leaf_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
-                    Relation(:parent),
-                    process=:model_object_signal_source,
+                Relation(:parent),
+                    application=:plant_signal,
                     var=:signal,
                 ),)),
         ),
@@ -1215,7 +1215,7 @@ end
         plant_template;
         root=Object(:templated_plant_2; scale=:Plant, parent=:scene, status=Status(signals=[0.0], signal_total=0.0)),
         objects=(Object(:templated_leaf_2; scale=:Leaf, parent=:templated_plant_2, status=Status(signal=0.0)),),
-        overrides=(model_object_signal_source=palm_2_override,),
+        overrides=(signal_source=palm_2_override,),
     )
     palm_3 = ObjectInstance(
         :palm_3,
@@ -1301,7 +1301,6 @@ end
     @test palm_1_instance_row.object_overrides == [
         (
             object_id=:templated_leaf_1_exception,
-            process=nothing,
             application=:signal_source,
             model_type=typeof(palm_1_leaf_override),
         ),
@@ -1335,7 +1334,7 @@ end
             :invalid_palm,
             plant_template;
             root=Object(:invalid_plant; scale=:Plant, parent=:scene),
-            overrides=(missing_process=shared_signal_model,),
+            overrides=(missing_application=shared_signal_model,),
         ),
     )
     @test_throws ErrorException CompositeModel(
@@ -1378,7 +1377,7 @@ end
                 ),
                 Override(
                     object=:invalid_leaf,
-                    process=:model_object_signal_source,
+                    application=:signal_source,
                     model=shared_signal_model,
                 ),
             ),
@@ -1518,7 +1517,7 @@ end
         :leaf_area,
     )
     spec = ModelSpec(m; name=:leaf_energy, on=Many(kind=:plant, scale=:Leaf), inputs=(:leaf_areas => Many(kind=:plant, scale=:Leaf, within=SceneScope(), var=:leaf_area),
-               :leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon, policy=Integrate(), window=Day(1)),), calls=(:stomata => One(scale=:Leaf, process=:stomatal_conductance)), every=Hour(1), environment=Environment(provider=:global))
+               :leaf_carbon => Many(scale=:Leaf, within=Subtree(), var=:leaf_carbon, policy=Integrate(), window=Day(1)),), calls=(:stomata => One(scale=:Leaf, application=:stomata)), every=Hour(1), environment=Environment(provider=:global))
 
     @test PlantSimEngine.model_(spec) === m
     @test application_name(spec) == :leaf_energy
@@ -1531,7 +1530,7 @@ end
     @test value_inputs(spec).leaf_carbon.criteria.window == Day(1)
     @test model_calls(spec).stomata isa One
     @test PlantSimEngine.call_origins(spec).stomata == :model_spec
-    @test object_address(model_calls(spec).stomata).process == :stomatal_conductance
+    @test object_address(model_calls(spec).stomata).application == :stomata
     @test isempty(dep(spec))
     @test PlantSimEngine.timestep(spec) == Hour(1)
     @test environment_config(spec) isa PlantSimEngine.EnvironmentConfig
@@ -1603,11 +1602,25 @@ end
     @test model_calls(default_call_spec).stomata.criteria.process == :stomatal_conductance
     @test isempty(dep(default_call_spec))
 
-    override_call_spec = ModelSpec(ModelObjectDefaultCallConsumerModel(); calls=(:stomata => One(scale=:Internode, process=:water_status)))
+    @test_throws "`process=` in scenario" ModelSpec(
+        ModelObjectDefaultCallConsumerModel();
+        calls=(
+            :stomata =>
+                One(scale=:Internode, process=:water_status),
+        ),
+    )
+    override_call_spec = ModelSpec(
+        ModelObjectDefaultCallConsumerModel();
+        calls=(
+            :stomata =>
+                One(scale=:Internode, application=:water_status),
+        ),
+    )
     @test model_calls(override_call_spec).stomata.criteria.scale == :Internode
     @test PlantSimEngine.call_origins(override_call_spec).stomata ==
           :model_spec
-    @test model_calls(override_call_spec).stomata.criteria.process == :water_status
+    @test model_calls(override_call_spec).stomata.criteria.application ==
+          :water_status
     @test isempty(dep(override_call_spec))
 
     manual_child_scene = CompositeModel(
@@ -1812,7 +1825,7 @@ end
     disambiguated_call_specs = (
         ModelSpec(ModelObjectStomataModel(); name=:sunlit_stomata, on=Many(scale=:Leaf)),
         ModelSpec(ModelObjectStomataModel(); name=:shaded_stomata, on=Many(scale=:Leaf), updates=Updates(:gs; after=:sunlit_stomata)),
-        ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)), calls=(:stomata => One(process=:model_object_stomata, application=:sunlit_stomata))),
+        ModelSpec(ModelObjectLeafEnergyModel(); name=:leaf_energy, on=Many(scale=:Leaf), inputs=(:leaf_areas => Many(scale=:Leaf, within=SelfPlant(), var=:leaf_area)), calls=(:stomata => One(application=:sunlit_stomata))),
     )
     disambiguated = Advanced.compile_composite_model(selector_scene, disambiguated_call_specs)
     disambiguated_call = only(row for row in explain_calls(disambiguated) if row.consumer_id == :leaf_2)
@@ -1837,14 +1850,14 @@ end
                 name=:optional_input_consumer, on=One(scale=:Scene), inputs=(:optional_signal => OptionalOne(
                     scale=:Leaf,
                     within=SceneScope(),
-                    process=:missing_optional_source,
+                    application=:missing_optional_source,
                     var=:optional_signal,
                 ),)),
             ModelSpec(ModelObjectOptionalCallConsumerModel();
                 name=:optional_call_consumer, on=One(scale=:Scene), calls=(:optional_source => OptionalOne(
                     scale=:Leaf,
                     within=SceneScope(),
-                    process=:missing_optional_source,
+                    application=:missing_optional_source,
                 ),)),
         ),
     )
@@ -2043,7 +2056,7 @@ end
         applications=(
             ModelSpec(ModelObjectCycleAModel(); name=:cycle_a, on=One(scale=:Leaf), inputs=(PreviousTimeStep(:cycle_b) => One(
                     scale=:Leaf,
-                    process=:model_object_cycle_b,
+                    application=:cycle_b,
                     var=:cycle_b,
                 ),)),
             ModelSpec(ModelObjectCycleBModel(); name=:cycle_b, on=One(scale=:Leaf)),
@@ -2124,7 +2137,7 @@ end
         applications=(
             ModelSpec(ModelObjectCycleAModel(); name=:cycle_a, on=One(scale=:Leaf), inputs=(:cycle_b => One(
                     scale=:Leaf,
-                    process=:model_object_cycle_b,
+                    application=:cycle_b,
                     var=:cycle_b,
                     policy=PreviousTimeStep(:other),
                 ),)),
@@ -2153,12 +2166,12 @@ end
 
     filtered_input_specs = (
         ModelSpec(ModelObjectSignalSourceModel(); name=:signal_source, on=One(scale=:Leaf)),
-        ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, process=:model_object_signal_source, application=:signal_source))),
+        ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(scale=:Leaf, var=:signal, application=:signal_source))),
     )
     filtered_binding = only(explain_bindings(Advanced.compile_composite_model(inferred_input_scene, filtered_input_specs)))
     @test filtered_binding.origin == :model_spec
     @test filtered_binding.source_application_ids == [:signal_source]
-    @test filtered_binding.process == :model_object_signal_source
+    @test isnothing(filtered_binding.process)
     @test filtered_binding.application == :signal_source
     @test_throws ErrorException Advanced.compile_composite_model(
         inferred_input_scene,
@@ -2802,7 +2815,7 @@ end
         );
         applications=(
             ModelSpec(ModelObjectEnvironmentUpdateModel(); name=:temperature_update_runtime, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid)),
-            ModelSpec(ModelObjectEnvironmentUpdateCallerModel(); name=:temperature_update_caller, on=One(scale=:Leaf), environment=Environment(provider=:grid), calls=(:updater => One(scale=:Leaf, process=:model_object_environment_update))),
+            ModelSpec(ModelObjectEnvironmentUpdateCallerModel(); name=:temperature_update_caller, on=One(scale=:Leaf), environment=Environment(provider=:grid), calls=(:updater => One(scale=:Leaf, application=:temperature_update_runtime))),
         ),
         environment=trial_update_backend,
     )
@@ -2902,7 +2915,7 @@ end
         );
         applications=(
             ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source, on=One(scale=:Leaf), environment=Environment(provider=:grid)),
-            ModelSpec(ModelObjectEnvironmentCallControllerModel(31.5, false); name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, process=:model_object_environment_call_source))),
+            ModelSpec(ModelObjectEnvironmentCallControllerModel(31.5, false); name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, application=:environment_source))),
         ),
         environment=hard_call_environment_backend,
     )
@@ -2973,7 +2986,7 @@ end
         );
         applications=(
             ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source, on=One(scale=:Leaf), environment=Environment(provider=:grid)),
-            ModelSpec(ModelObjectEnvironmentCallControllerModel(32.5, true); name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, process=:model_object_environment_call_source))),
+            ModelSpec(ModelObjectEnvironmentCallControllerModel(32.5, true); name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, application=:environment_source))),
         ),
         environment=publish_hard_call_environment_backend,
     )
@@ -3000,7 +3013,7 @@ end
         applications=(
             ModelSpec(ModelObjectEnvironmentCallSourceModel(); name=:environment_source, on=One(scale=:Leaf), environment=Environment(provider=:grid)),
             ModelSpec(ModelObjectIterativeEnvironmentCallControllerModel((30.0, 31.0), 32.0);
-                name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, process=:model_object_environment_call_source))),
+                name=:environment_controller, on=One(scale=:Leaf), environment=Environment(provider=:grid, sink=:grid), calls=(:source => One(scale=:Leaf, application=:environment_source))),
         ),
         environment=iterative_hard_call_backend,
     )
@@ -3091,7 +3104,7 @@ end
         :Leaf,
         :signal;
         name=:signal_two_hour,
-        process=:model_object_signal_source,
+        application=:hourly_signal,
         policy=Integrate(),
         clock=Hour(2),
     )
@@ -3207,7 +3220,7 @@ end
         :Scene,
         :temporal_total;
         name=:temporal_total_two_hour,
-        process=:model_object_temporal_sum,
+        application=:scene_temporal_sum,
         policy=HoldLast(),
         clock=Hour(2),
     )
@@ -3400,7 +3413,7 @@ end
             ModelSpec(ModelObjectTimeSignalModel(big"0.0"); name=:big_signal, on=One(scale=:Leaf), every=Hour(1)),
             ModelSpec(ModelObjectTemporalSumModel(); name=:big_integral, on=One(scale=:Scene), inputs=(:signal_sum => One(
                     scale=:Leaf,
-                    process=:model_object_signal_source,
+                    application=:big_signal,
                     var=:signal,
                     policy=Integrate(),
                     window=Hour(2),
@@ -3434,7 +3447,7 @@ end
             ModelSpec(ModelObjectTimeSignalModel(big"0.0"); name=:slow_signal, on=One(scale=:Leaf), every=Hour(2)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:fast_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                     scale=:Leaf,
-                    process=:model_object_signal_source,
+                    application=:slow_signal,
                     var=:signal,
                     policy=Interpolate(),
                 ),), every=Hour(1)),
@@ -3481,7 +3494,7 @@ end
             ModelSpec(ModelObjectTimeSignalModel(0.0); name=:slow_signal, on=One(scale=:Leaf), every=Hour(2)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:fast_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                     scale=:Leaf,
-                    process=:model_object_signal_source,
+                    application=:slow_signal,
                     var=:signal,
                     policy=Interpolate(; mode=:hold, extrapolation=:hold),
                 ),), every=Hour(1)),
@@ -3512,7 +3525,7 @@ end
             ModelSpec(ModelObjectTimeSignalModel(0.0); name=:signal_source, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectSignalConsumerModel(); name=:signal_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
                     scale=:Leaf,
-                    process=:model_object_signal_source,
+                    application=:signal_source,
                     var=:signal,
                     policy=Interpolate(:spline),
                 ),)),
@@ -3606,14 +3619,11 @@ end
             application=:missing_signal,
         ),
     )
-    @test_throws "Ambiguous model output publishers" run!(
-        stream_only_scene;
-        outputs=OutputRequest(
-            :Leaf,
-            :signal;
-            name=:ambiguous_signal_request,
-            process=:model_object_signal_source,
-        ),
+    @test_throws MethodError OutputRequest(
+        :Leaf,
+        :signal;
+        name=:removed_process_filter,
+        process=:model_object_signal_source,
     )
 
     writer_scene = CompositeModel(
@@ -3635,6 +3645,18 @@ end
                 name=:leaf_pruning,
                 on=One(scale=:Leaf),
                 updates=Updates(:biomass; after=:water_status),
+            ),
+        ),
+    )
+    @test_throws ErrorException Advanced.compile_composite_model(
+        writer_scene,
+        (
+            biomass_source,
+            ModelSpec(
+                ModelObjectBiomassPrunerModel();
+                name=:leaf_pruning,
+                on=One(scale=:Leaf),
+                updates=Updates(:biomass; after=:model_object_biomass_source),
             ),
         ),
     )
@@ -3672,6 +3694,45 @@ end
     )
     run!(writer_runtime_scene)
     @test only(model_objects(writer_runtime_scene; scale=:Leaf)).status.biomass == 0.0
+
+    writer_template = CompositeModelTemplate((
+        ModelSpec(
+            ModelObjectBiomassSourceModel();
+            name=:carbon_allocation,
+            on=One(scale=:Leaf),
+        ),
+        ModelSpec(
+            ModelObjectBiomassPrunerModel();
+            name=:leaf_pruning,
+            on=One(scale=:Leaf),
+            updates=Updates(:biomass; after=:carbon_allocation),
+        ),
+    ))
+    mounted_writer_scene = CompositeModel(
+        Object(:scene; scale=:Scene),
+        ObjectInstance(
+            :palm,
+            writer_template;
+            root=Object(:plant; scale=:Plant, parent=:scene),
+            objects=(
+                Object(
+                    :leaf;
+                    scale=:Leaf,
+                    parent=:plant,
+                    status=Status(biomass=-1.0),
+                ),
+            ),
+        ),
+    )
+    mounted_writer_compiled = Advanced.compile_composite_model(mounted_writer_scene)
+    mounted_writer_row = only(
+        row for row in explain_writers(mounted_writer_compiled)
+        if row.variable == :biomass
+    )
+    @test mounted_writer_row.application_ids ==
+          [:palm__carbon_allocation, :palm__leaf_pruning]
+    @test mounted_writer_row.update_after ==
+          [:palm__leaf_pruning => [:palm__carbon_allocation]]
 
     empty_many_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -3813,7 +3874,7 @@ end
         :Leaf,
         :signal;
         name=:leaf_signal_hourly,
-        process=:model_object_signal_source,
+        application=:leaf_signal,
         policy=HoldLast(),
         clock=Hour(1),
     )

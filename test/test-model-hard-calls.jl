@@ -229,33 +229,20 @@ end
     )
     @test_throws "Expected exactly one object" Advanced.refresh_bindings!(multiple_one)
 
-    ambiguous_applications = CompositeModel(
-        Object(:scene; scale=:Scene),
-        Object(:leaf; scale=:Leaf, parent=:scene);
-        applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:one => One(scale=:Leaf, process=:nested_call_leaf))),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a, on=One(scale=:Leaf)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b, on=One(scale=:Leaf)),
+    @test_throws "`process=` in scenario" ModelSpec(
+        CallReturnShapeModel();
+        name=:controller,
+        on=One(scale=:Scene),
+        calls=(:one => One(scale=:Leaf, process=:nested_call_leaf),),
+    )
+    @test_throws "`process=` in scenario" ModelSpec(
+        CallReturnShapeModel();
+        name=:controller,
+        on=One(scale=:Scene),
+        calls=(
+            :optional =>
+                OptionalOne(scale=:Leaf, process=:nested_call_leaf),
         ),
-    )
-    @test_throws "expected one callee application" Advanced.refresh_bindings!(
-        ambiguous_applications,
-    )
-
-    ambiguous_optional = CompositeModel(
-        Object(:scene; scale=:Scene),
-        Object(:leaf; scale=:Leaf, parent=:scene);
-        applications=(
-            ModelSpec(CallReturnShapeModel(); name=:controller, on=One(scale=:Scene), calls=(:optional => OptionalOne(
-                        scale=:Leaf,
-                        process=:nested_call_leaf,
-                    ),)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_a, on=One(scale=:Leaf)),
-            ModelSpec(NestedCallLeafModel(); name=:leaf_calls_b, on=One(scale=:Leaf)),
-        ),
-    )
-    @test_throws "expected zero or one callee application" Advanced.refresh_bindings!(
-        ambiguous_optional,
     )
 end
 

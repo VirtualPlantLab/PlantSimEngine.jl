@@ -161,7 +161,7 @@ ObjectInstance(:palm_2, oil_palm; overrides=(
 
 Override(
     object=:leaf_12,
-    process=:photosynthesis,
+    application=:photosynthesis,
     model=Fvcb(; VcMaxRef=90.0),
 )
 ```
@@ -209,10 +209,10 @@ Target shape:
 ModelSpec(LeafEnergyBalance(); name=:leaf_energy, on=Many(kind=:plant, scale=:Leaf), inputs=(...), calls=(...), every=Hour(1))
 ```
 
-Application names are optional but important when the same process appears more
-than once in the same object set. Other declarations can target either
-`process=:photosynthesis` or `name=:sunlit_photosynthesis` when a process alone
-is ambiguous.
+Application names are optional when a process occurs only once. Scenario
+declarations identify singular producers and call targets with
+`application=:sunlit_photosynthesis`; `process=...` is reserved for explicit
+discovery queries such as `Many(process=:photosynthesis)`.
 
 ## Unified Model Configuration
 
@@ -370,7 +370,7 @@ Same-timestep feedback cycles are broken explicitly on the receiving input:
 ```julia
 ModelSpec(CarbonState(); inputs=(PreviousTimeStep(:carbon_biomass) => One(
             scale=:Plant,
-            process=:carbon_allocation,
+            application=:carbon_allocation,
             var=:carbon_biomass,
         ),))
 ```

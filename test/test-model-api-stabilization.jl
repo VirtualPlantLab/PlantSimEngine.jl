@@ -519,6 +519,15 @@ end
         StabilizationSourceModel();
         timestep=Dates.Hour(1),
     )
+    @test_throws MethodError run!(
+        CompositeModel(StabilizationSourceModel());
+        tracked_outputs=nothing,
+    )
+    @test_throws UndefKeywordError Override(
+        object=:leaf,
+        process=:stabilization_source,
+        model=StabilizationSourceModel(),
+    )
     @test_throws "environment=Environment" ModelSpec(
         StabilizationEnvironmentModel();
         environment=(provider=:global,),
@@ -683,10 +692,10 @@ end
         applications=(
             ModelSpec(StabilizationSourceModel(); name=:source_a, on=One(scale=:Leaf)),
             ModelSpec(StabilizationSourceModel(); name=:source_b, on=One(scale=:Leaf), output_routing=(signal=:stream_only,)),
-            ModelSpec(StabilizationConsumerModel(); name=:consumer, on=One(scale=:Leaf), inputs=(:signal => One(within=Self(), process=:stabilization_source))),
+            ModelSpec(StabilizationConsumerModel(); name=:consumer, on=One(scale=:Leaf), inputs=(:signal => One(within=Self(), application=:source))),
         ),
     )
-    @test_throws "matched several source applications `[:source_a, :source_b]`" explain_bindings(
+    @test_throws "application `source`, but no matching source application was found" explain_bindings(
         ambiguous_process_scene,
     )
 

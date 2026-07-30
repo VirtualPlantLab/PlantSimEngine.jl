@@ -2897,10 +2897,7 @@ end
 
 function explain_output_retention(model::CompositeModel; outputs=:none)
     compiled = refresh_bindings!(model)
-    output_requests, retain_all = _model_output_selection(
-        outputs,
-        _UNSPECIFIED_SCENE_OUTPUTS,
-    )
+    output_requests, retain_all = _model_output_selection(outputs)
     plan = compile_model_output_retention(
         compiled,
         output_requests;
@@ -3890,34 +3887,13 @@ function run_call!(
     )
 end
 
-struct _UnspecifiedModelOutputs end
-const _UNSPECIFIED_SCENE_OUTPUTS = _UnspecifiedModelOutputs()
-
-function _model_output_selection(outputs, tracked_outputs)
-    outputs_specified = !(outputs isa _UnspecifiedModelOutputs)
-    tracked_specified = !(tracked_outputs isa _UnspecifiedModelOutputs)
-    outputs_specified && tracked_specified && error(
-        "Use `outputs=...`; do not pass both `outputs` and deprecated `tracked_outputs`.",
+function _model_output_selection(outputs)
+    outputs === :all && return (OutputRequest[], true)
+    outputs === :none && return (OutputRequest[], false)
+    outputs isa Symbol && error(
+        "Unsupported output selection `$(outputs)`. Use `:all`, `:none`, an `OutputRequest`, or a vector of requests.",
     )
-
-    selection = if tracked_specified
-        Base.depwarn(
-            "`tracked_outputs` is deprecated; use `outputs=:all`, `outputs=:none`, or `outputs=requests`.",
-            :run!,
-        )
-        isnothing(tracked_outputs) ? :all : tracked_outputs
-    elseif outputs_specified
-        outputs
-    else
-        :none
-    end
-
-    selection === :all && return (OutputRequest[], true)
-    selection === :none && return (OutputRequest[], false)
-    selection isa Symbol && error(
-        "Unsupported output selection `$(selection)`. Use `:all`, `:none`, an `OutputRequest`, or a vector of requests.",
-    )
-    requests = _normalize_output_requests(selection)
+    requests = _normalize_output_requests(outputs)
     return requests, false
 end
 
@@ -4323,8 +4299,7 @@ function run!(
     model::CompositeModel;
     steps::Integer=1,
     constants=PlantMeteo.Constants(),
-    outputs=_UNSPECIFIED_SCENE_OUTPUTS,
-    tracked_outputs=_UNSPECIFIED_SCENE_OUTPUTS,
+    outputs=:none,
     performance::Bool=false,
 )
     performance_counters = performance ? RuntimePerformanceCounters() : nothing
@@ -4348,7 +4323,7 @@ function run!(
         started_at,
     )
     empty!(env_bindings.sample_cache)
-    output_requests, retain_all = _model_output_selection(outputs, tracked_outputs)
+    output_requests, retain_all = _model_output_selection(outputs)
     started_at = _runtime_performance_start(performance_counters)
     output_retention = compile_model_output_retention(
         compiled,
@@ -4475,7 +4450,6 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
     candidates = CompiledModelApplication[]
     for application in compiled.applications
         request.var in keys(outputs_(application.spec)) || continue
-        isnothing(request.process) || application.process == request.process || continue
         isnothing(request.application) ||
             application.id == request.application ||
             application.name == request.application ||
@@ -4484,8 +4458,7 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
         scale_match = !isnothing(declared_scale) &&
                       _model_application_matches_scale(model, application, declared_scale)
         (target_match || scale_match) || continue
-        if isnothing(request.process) &&
-           isnothing(request.application) &&
+        if isnothing(request.application) &&
            _publish_mode_for_output(application.spec, request.var) == :stream_only
             continue
         end
@@ -4495,7 +4468,7 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
         error(
             "No model output publisher found for selector `$(request.selector)` and variable `$(request.var)`",
             isnothing(request.application) ?
-            (isnothing(request.process) ? "." : " from process `$(request.process)`.") :
+            "." :
             " from application `$(request.application)`.",
         )
     elseif length(candidates) > 1

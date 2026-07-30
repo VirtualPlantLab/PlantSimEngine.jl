@@ -246,20 +246,20 @@ function _mounted_application_name(spec, index::Int)
     return isnothing(name) ? process(spec) : name
 end
 
-function _instance_override_matches(spec, key::Symbol)
-    name = application_name(spec)
-    return key == process(spec) || (!isnothing(name) && key == name)
-end
-
 function _instance_override_models(instance::ObjectInstance, specs)
     selected = Dict{Int,AbstractModel}()
     for (key, replacement) in pairs(instance.overrides)
         replacement isa AbstractModel || error(
             "Override `$(key)` for instance `$(instance.name)` must be an `AbstractModel`, got `$(typeof(replacement))`."
         )
-        matches = findall(spec -> _instance_override_matches(spec, Symbol(key)), specs)
+        matches = findall(
+            index ->
+                Symbol(key) ==
+                _mounted_application_name(specs[index], index),
+            eachindex(specs),
+        )
         isempty(matches) && error(
-            "Override `$(key)` for instance `$(instance.name)` does not match a template application name or process."
+            "Override `$(key)` for instance `$(instance.name)` does not match a template application name."
         )
         length(matches) == 1 || error(
             "Override `$(key)` for instance `$(instance.name)` matches several template applications; use a unique application name."
@@ -299,14 +299,6 @@ function _validate_model_override_contract!(base, replacement; description)
     )
 end
 
-function _object_override_matches(spec, override::Override)
-    process_match = isnothing(override.process) || process(spec) == override.process
-    name = application_name(spec)
-    application_match = isnothing(override.application) ||
-                        (!isnothing(name) && name == override.application)
-    return process_match && application_match
-end
-
 function _object_override_models(instance::ObjectInstance, specs, instance_ids)
     entries = Dict{Int,Vector{Pair{ObjectId,AbstractModel}}}()
     valid_ids = Set(instance_ids)
@@ -314,14 +306,19 @@ function _object_override_models(instance::ObjectInstance, specs, instance_ids)
         override.object in valid_ids || error(
             "Object override for `$(override.object.value)` does not belong to instance `$(instance.name)`."
         )
-        matches = findall(spec -> _object_override_matches(spec, override), specs)
+        matches = findall(
+            index ->
+                override.application ==
+                _mounted_application_name(specs[index], index),
+            eachindex(specs),
+        )
         isempty(matches) && error(
             "Object override for `$(override.object.value)` in instance `$(instance.name)` ",
             "does not match a template application."
         )
         length(matches) == 1 || error(
             "Object override for `$(override.object.value)` in instance `$(instance.name)` ",
-            "matches several template applications; add `application=...`."
+            "matches several template applications."
         )
         index = only(matches)
         object_models = get!(entries, index, Pair{ObjectId,AbstractModel}[])
@@ -364,6 +361,19 @@ function _map_selector_bindings(bindings::NamedTuple, f)
     return (; mapped...)
 end
 
+function _mount_updates(updates, instance_name::Symbol, base_names)
+    return Tuple(
+        Updates(
+            update.variables...;
+            after=Tuple(
+                label in base_names ? Symbol(instance_name, "__", label) : label
+                for label in update.after
+            ),
+        )
+        for update in updates
+    )
+end
+
 function _mount_object_instance_applications(instance::ObjectInstance, instance_ids)
     specs = Tuple(as_model_spec(application) for application in instance.template.applications)
     base_names = Set(_mounted_application_name(spec, index) for (index, spec) in pairs(specs))
@@ -385,6 +395,7 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
         )
         mounted_inputs = _map_selector_bindings(value_inputs(spec), prefix_application)
         mounted_calls = _map_selector_bindings(model_calls(spec), prefix_application)
+        mounted_updates = _mount_updates(updates(spec), instance.name, base_names)
         mounted_model = get(instance_overrides, index, model_(spec))
         if haskey(object_overrides, index)
             object_models = object_overrides[index]
@@ -406,6 +417,7 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
                 on=mounted_target,
                 inputs=mounted_inputs,
                 calls=mounted_calls,
+                updates=mounted_updates,
             ),
         )
     end

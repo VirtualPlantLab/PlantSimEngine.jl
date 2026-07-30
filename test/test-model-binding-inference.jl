@@ -49,30 +49,16 @@ end
     run!(same_object)
     @test only(model_objects(same_object; scale=:Leaf)).status.observed == 3.0
 
-    ambiguous = CompositeModel(
-        Object(:scene; scale=:Scene),
-        Object(:plant; scale=:Plant, parent=:scene),
-        Object(:soil; scale=:Soil, parent=:scene),
-        Object(:leaf; scale=:Leaf, parent=:plant);
-        applications=(
-            ModelSpec(LineageSourceModel(1.0); name=:plant_source, on=One(scale=:Plant)),
-            ModelSpec(LineageSourceModel(2.0); name=:soil_source, on=One(scale=:Soil)),
-            ModelSpec(LineageConsumerModel(); name=:leaf_consumer, on=One(scale=:Leaf), inputs=(:signal => One(
-                    within=SceneScope(),
-                    process=:lineage_source,
-                    var=:signal,
-                ))),
-        ),
+    @test_throws "`process=` in scenario" ModelSpec(
+        LineageConsumerModel();
+        name=:leaf_consumer,
+        on=One(scale=:Leaf),
+        inputs=(:signal => One(
+                within=SceneScope(),
+                process=:lineage_source,
+                var=:signal,
+            ),),
     )
-    error = try
-        Advanced.refresh_bindings!(ambiguous)
-        nothing
-    catch exception
-        sprint(showerror, exception)
-    end
-    @test occursin("Expected exactly one object", error)
-    @test occursin("plant", error)
-    @test occursin("soil", error)
 
     explicit = CompositeModel(
         Object(:scene; scale=:Scene),

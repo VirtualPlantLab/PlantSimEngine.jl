@@ -75,35 +75,22 @@ function CompositeModelTemplate(
 end
 
 """
-    Override(; object, model, process=nothing, application=nothing)
+    Override(; object, application, model)
 
 Replace one template model application on one exceptional object. Select the
-template application by its process, explicit application name, or both.
-The replacement must implement the same process and variable contract.
+template application by its application name. The replacement must implement
+the same process and variable contract.
 """
 struct Override{M<:AbstractModel}
     object::ObjectId
-    process::Union{Nothing,Symbol}
-    application::Union{Nothing,Symbol}
+    application::Symbol
     model::M
 end
 
-function Override(; object, model::AbstractModel, process=nothing, application=nothing)
-    normalized_process = _maybe_symbol(process)
-    normalized_application = _maybe_symbol(application)
-    if isnothing(normalized_process) && isnothing(normalized_application)
-        error("`Override(...)` requires `process=...`, `application=...`, or both.")
-    end
-    if !isnothing(normalized_process) && isnothing(normalized_application)
-        Base.depwarn(
-            "Process-only `Override` selection is deprecated; name the template application and use `application=`.",
-            :Override,
-        )
-    end
+function Override(; object, application, model::AbstractModel)
     return Override(
         ObjectId(object),
-        normalized_process,
-        normalized_application,
+        Symbol(application),
         model,
     )
 end
@@ -115,9 +102,9 @@ Mount a `CompositeModelTemplate` on one concrete object subtree.
 
 `root` may be an `Object` owned by the instance or the id of an object supplied
 separately to `CompositeModel`. `objects` contains additional owned descendants.
-`overrides` maps one template application name or process to a replacement
-model implementing the same process. `object_overrides` contains `Override`
-entries for exceptional organs.
+`overrides` maps one template application name to a replacement model
+implementing the same process. `object_overrides` contains `Override` entries
+for exceptional organs.
 """
 struct ObjectInstance{T,R,O,OV,OOV}
     name::Symbol
@@ -142,7 +129,7 @@ function ObjectInstance(
         "`ObjectInstance(...; objects=...)` must contain `Object` values."
     )
     overrides isa NamedTuple || error(
-        "`ObjectInstance(...; overrides=...)` must be a NamedTuple keyed by application name or process."
+        "`ObjectInstance(...; overrides=...)` must be a NamedTuple keyed by application name."
     )
     all(override -> override isa Override, normalized_object_overrides) || error(
         "`ObjectInstance(...; object_overrides=...)` must contain `Override` values."
@@ -1133,7 +1120,6 @@ function explain_instances(model::CompositeModel)
             object_overrides=[
                 (
                     object_id=override.object.value,
-                    process=override.process,
                     application=override.application,
                     model_type=typeof(override.model),
                 )

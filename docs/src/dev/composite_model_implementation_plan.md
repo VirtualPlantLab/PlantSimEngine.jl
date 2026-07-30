@@ -306,7 +306,7 @@ types should be selectors, model traits, or internal compiled carriers.
   `Scope(...)`. Tests cover four instances, plant-local aggregation, shared
   model storage, and one process-level model override.
 - Added explicit exceptional-organ overrides with
-  `Override(object=..., application=... or process=..., model=...)` through
+  `Override(object=..., application=..., model=...)` through
   `ObjectInstance(...; object_overrides=...)`. The override must resolve to one
   template application, belong to the instance subtree, and preserve process,
   input, output, and environment-variable declarations.

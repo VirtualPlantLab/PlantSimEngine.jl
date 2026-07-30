@@ -9,11 +9,10 @@ The first form accepts the same `One`, `OptionalOne`, or `Many` selector used
 by `ModelSpec` selectors/bindings and object queries. Passing a scale is a
 convenience for `Many(scale=scale)`.
 """
-struct OutputRequest{S<:AbstractObjectMultiplicity,P<:Union{Nothing,Symbol},A<:Union{Nothing,Symbol},CT,POL<:SchedulePolicy,C}
+struct OutputRequest{S<:AbstractObjectMultiplicity,A<:Union{Nothing,Symbol},CT,POL<:SchedulePolicy,C}
     selector::S
     var::Symbol
     name::Symbol
-    process::P
     application::A
     context::CT
     policy::POL
@@ -24,22 +23,14 @@ function OutputRequest(
     selector::AbstractObjectMultiplicity,
     var::Symbol;
     name::Symbol=var,
-    process=nothing,
     application=nothing,
     context=nothing,
     policy::SchedulePolicy=HoldLast(),
     clock=nothing,
 )
     _validate_selector_context(selector, :output_request)
-    if !isnothing(process)
-        Base.depwarn(
-            "`process=` in `OutputRequest` is deprecated; name the model application and use `application=`.",
-            :OutputRequest,
-        )
-    end
-    proc = isnothing(process) ? nothing : Symbol(process)
     app = isnothing(application) ? nothing : Symbol(application)
-    return OutputRequest(selector, var, name, proc, app, context, policy, clock)
+    return OutputRequest(selector, var, name, app, context, policy, clock)
 end
 
 OutputRequest(scale::Union{Symbol,AbstractString}, var::Symbol; kwargs...) =
