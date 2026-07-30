@@ -22,72 +22,89 @@ const INCLUDE_DOWNSTREAM_BENCHMARKS = get(
     "PSE_BENCHMARK_INCLUDE_DOWNSTREAM",
     get(ENV, "GITHUB_ACTIONS", "false") == "true" ? "false" : "true",
 ) == "true"
+_supports_composite_object_benchmarks(engine) =
+    isdefined(engine, :CompositeModel) &&
+    isdefined(engine, :Object) &&
+    isdefined(engine, :RunContext)
+const SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS =
+    get(ENV, "PSE_BENCHMARK_FORCE_LEGACY_BASELINE", "false") != "true" &&
+    _supports_composite_object_benchmarks(PlantSimEngine)
 SUITE[suite_name] = BenchmarkGroup(
-    INCLUDE_DOWNSTREAM_BENCHMARKS ? ["PSE", "PBP", "XPalm"] : ["PSE"],
+    INCLUDE_DOWNSTREAM_BENCHMARKS &&
+    SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS ?
+    ["PSE", "PBP", "XPalm"] : ["PSE"],
 )
+SUITE[suite_name]["PSE_status_read_write"] = @benchmarkable begin
+    status.value += 1.0
+    status.value
+end setup = (status = PlantSimEngine.Status(value=0.0))
 
-# "PSE benchmark"
-include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
-SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
-    model,
-    requests,
-    nsteps,
-) setup = ((model, requests, nsteps) = setup_heavier_model_benchmark())
+if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
+    # Composite-model benchmarks cannot be constructed while AirspeedVelocity
+    # evaluates this script against a pre-CompositeModel baseline revision.
+    include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
+    SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
+        model,
+        requests,
+        nsteps,
+    ) setup = ((model, requests, nsteps) = setup_heavier_model_benchmark())
 
-include(joinpath(@__DIR__, "test-multirate-buffer-benchmark.jl"))
-SUITE[suite_name]["PSE_multirate_retain_all_run"] = @benchmarkable benchmark_multirate_retain_all_run(
-    model,
-    nsteps,
-) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
-SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run(
-    model,
-    requests,
-    nsteps,
-) setup = ((model, requests, nsteps) = setup_multirate_buffer_benchmark())
-SUITE[suite_name]["PSE_multirate_no_output_run"] = @benchmarkable benchmark_multirate_no_output_run(
-    model,
-    nsteps,
-) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
+    include(joinpath(@__DIR__, "test-multirate-buffer-benchmark.jl"))
+    SUITE[suite_name]["PSE_multirate_retain_all_run"] = @benchmarkable benchmark_multirate_retain_all_run(
+        model,
+        nsteps,
+    ) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
+    SUITE[suite_name]["PSE_multirate_output_request_run"] = @benchmarkable benchmark_multirate_output_request_run(
+        model,
+        requests,
+        nsteps,
+    ) setup = ((model, requests, nsteps) = setup_multirate_buffer_benchmark())
+    SUITE[suite_name]["PSE_multirate_no_output_run"] = @benchmarkable benchmark_multirate_no_output_run(
+        model,
+        nsteps,
+    ) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
 
-include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
-for usage in (:zero, :sparse, :dense)
-    SUITE[suite_name]["PSE_hard_calls_$(usage)"] =
-        @benchmarkable benchmark_hard_call_path(
-            model,
-            nsteps,
-        ) setup = ((model, nsteps) = setup_hard_call_path_benchmark(
-            usage=$usage,
-        ))
+    include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
+    for usage in (:zero, :sparse, :dense)
+        SUITE[suite_name]["PSE_hard_calls_$(usage)"] =
+            @benchmarkable benchmark_hard_call_path(
+                model,
+                nsteps,
+            ) setup = ((model, nsteps) = setup_hard_call_path_benchmark(
+                usage=$usage,
+            ))
+    end
+    SUITE[suite_name]["PSE_lifecycle_small"] =
+        @benchmarkable benchmark_lifecycle_event(
+            simulation,
+            new_index,
+        ) setup = ((simulation, new_index) =
+            setup_lifecycle_hard_call_benchmark(
+                nobjects=32,
+                usage=:zero,
+            ))
+    SUITE[suite_name]["PSE_lifecycle_large"] =
+        @benchmarkable benchmark_lifecycle_event(
+            simulation,
+            new_index,
+        ) setup = ((simulation, new_index) =
+            setup_lifecycle_hard_call_benchmark(
+                nobjects=5000,
+                usage=:zero,
+            ))
+    SUITE[suite_name]["PSE_lifecycle_immediate_hard_call"] =
+        @benchmarkable benchmark_lifecycle_event(
+            simulation,
+            new_index,
+        ) setup = ((simulation, new_index) =
+            setup_lifecycle_hard_call_benchmark(
+                nobjects=1000,
+                usage=:dense,
+            ))
 end
-SUITE[suite_name]["PSE_lifecycle_small"] =
-    @benchmarkable benchmark_lifecycle_event(
-        simulation,
-        new_index,
-    ) setup = ((simulation, new_index) =
-        setup_lifecycle_hard_call_benchmark(
-            nobjects=32,
-            usage=:zero,
-        ))
-SUITE[suite_name]["PSE_lifecycle_large"] =
-    @benchmarkable benchmark_lifecycle_event(
-        simulation,
-        new_index,
-    ) setup = ((simulation, new_index) =
-        setup_lifecycle_hard_call_benchmark(
-            nobjects=5000,
-            usage=:zero,
-        ))
-SUITE[suite_name]["PSE_lifecycle_immediate_hard_call"] =
-    @benchmarkable benchmark_lifecycle_event(
-        simulation,
-        new_index,
-    ) setup = ((simulation, new_index) =
-        setup_lifecycle_hard_call_benchmark(
-            nobjects=1000,
-            usage=:dense,
-        ))
 
-if INCLUDE_DOWNSTREAM_BENCHMARKS
+if INCLUDE_DOWNSTREAM_BENCHMARKS &&
+   SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
     # "PBP benchmark"
     include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
     SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
@@ -165,7 +182,8 @@ if abspath(PROGRAM_FILE) == @__FILE__
     )
     mkpath(dirname(output_path))
     BenchmarkTools.save(output_path, median(results))
-    if INCLUDE_DOWNSTREAM_BENCHMARKS
+    if INCLUDE_DOWNSTREAM_BENCHMARKS &&
+       SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
         summary_path = replace(output_path, r"\.[^.]+$" => "-summary.csv")
         metadata = _performance_metadata(;
             warmup_policy="BenchmarkTools tune plus per-benchmark setup",
