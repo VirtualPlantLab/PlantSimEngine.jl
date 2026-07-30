@@ -356,20 +356,43 @@ Validation evidence:
 
 ### 6. Public namespace
 
-- [ ] Reduce the default exported API to the ordinary model-developer and
+- [x] Reduce the default exported API to the ordinary model-developer and
       simulation-user workflow.
-- [ ] Move structured `explain_*` and carrier inspection tools under
+- [x] Move structured `explain_*` and carrier inspection tools under
       `PlantSimEngine.Diagnostics`.
-- [ ] Move graph DTOs, graph edits, and editor sessions under
+- [x] Move graph DTOs, graph edits, and editor sessions under
       `PlantSimEngine.GraphEditor`.
-- [ ] Move backend extension protocol symbols under
+- [x] Move backend extension protocol symbols under
       `PlantSimEngine.EnvironmentAPI`.
-- [ ] Move fitting metrics and generic evaluation functions under
+- [x] Move fitting metrics and generic evaluation functions under
       `PlantSimEngine.Evaluation`.
-- [ ] Avoid re-exporting the complete PlantMeteo reducer vocabulary when users
+- [x] Avoid re-exporting the complete PlantMeteo reducer vocabulary when users
       can access it from PlantMeteo directly.
-- [ ] Generate or test the public symbol inventory so it cannot drift from
+- [x] Generate or test the public symbol inventory so it cannot drift from
       actual exports.
+
+Validation evidence:
+
+- PlantSimEngine commit `ef464b34` limits the root namespace to the ordinary
+  modeling and simulation workflow and introduces the focused
+  `Diagnostics`, `GraphEditor`, `EnvironmentAPI`, and `Evaluation`
+  namespaces;
+- the namespace-boundary test compares the exact root, `Advanced`,
+  `Diagnostics`, `GraphEditor`, `EnvironmentAPI`, and `Evaluation` public-name
+  sets with explicit inventories; the focused API stabilization file passes
+  239 checks;
+- `inputs_`, `outputs_`, `environment_inputs_`, and `environment_outputs_`
+  remain available as qualified extension functions but are not imported by
+  `using PlantSimEngine`;
+- PlantMeteo reducers are no longer re-exported; `Atmosphere`, `Constants`,
+  and `Weather` remain the three root conveniences;
+- the complete Documenter build, including runnable Markdown examples: pass;
+- XPalm commit `4f70803`: 307 package checks and 68 XPalm v0.6.1 full-cycle
+  numerical regression checks pass;
+- PlantBiophysics commit `d252b6b`: 268 checks pass, including the migrated
+  `Evaluation.fit` extensions, evaluation regressions, and doctests;
+- no reference fixture was changed, and XPalm's unrelated `CHANGELOG.md`
+  modification remains untouched.
 
 ### 7. Simulation results
 
