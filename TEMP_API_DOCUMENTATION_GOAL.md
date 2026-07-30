@@ -273,8 +273,8 @@ Milestone validation:
 `ModelSpec` currently has both a direct constructor and a pipe DSL. There
 should be one normal spelling.
 
-- [ ] Choose one canonical `ModelSpec` construction form and remove the other.
-- [ ] Prefer a concise direct keyword form along these lines:
+- [x] Choose one canonical `ModelSpec` construction form and remove the other.
+- [x] Prefer a concise direct keyword form along these lines:
 
       ```julia
       ModelSpec(
@@ -288,11 +288,33 @@ should be one normal spelling.
       )
       ```
 
-- [ ] Preserve `Updates` and output-routing semantics, but place them in the
+- [x] Preserve `Updates` and output-routing semantics, but place them in the
       same canonical configuration form.
-- [ ] Remove the pipe helpers if direct keywords are selected; do not document
+- [x] Remove the pipe helpers if direct keywords are selected; do not document
       both as equal alternatives.
-- [ ] Migrate XPalm's scenario compiler as a primary design test.
+- [x] Migrate XPalm's scenario compiler as a primary design test.
+
+Milestone validation:
+
+- PlantSimEngine commit `e00febda` makes
+  `ModelSpec(model; name, on, inputs, calls, every, environment,
+  output_routing, updates)` the only scenario-construction form;
+- `AppliesTo`, `Inputs`, `Calls`, `TimeStep`, `OutputRouting`, their callable
+  behavior, and the public `ModelSpec(spec; ...)` copy constructor are removed;
+- namespace-boundary tests verify that every removed builder is undefined;
+- unified model/object API tests: 614 pass;
+- API stabilization tests: 166 pass;
+- graph-view tests: 117 pass; graph-editor source round-trip tests: 74 pass;
+- MAESPA example tests: 170 pass; every other changed focused test file passes;
+- the complete Documenter build, including runnable Markdown examples: pass;
+- PlantBiophysics commit `b79dc18`: 268 pass;
+- XPalm commit `356ab43`: 307 package checks and 68 v0.6.1 full-cycle
+  regression checks pass;
+- the warmed XPalm full cycle is 9.840 seconds after the migration, compared
+  with 9.714 seconds before it and 7.501 seconds for the historical
+  XPalm v0.6.1 / PlantSimEngine v0.14.1 baseline;
+- no reference fixture was changed, and XPalm's unrelated `CHANGELOG.md`
+  modification remains untouched.
 
 ### 5. Selectors
 
