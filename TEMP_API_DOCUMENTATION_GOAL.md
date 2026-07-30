@@ -44,7 +44,7 @@ Each later journey introduces one substantial concept at a time.
       `CompositeModel` semantics must compile into simple hot loops; selector
       resolution, dependency compilation, status-view construction, and
       execution-plan construction must not become ordinary per-step work.
-- [ ] Make structural mutation proportional to the changed objects and affected
+- [x] Make structural mutation proportional to the changed objects and affected
       applications, not to the total number of objects and execution targets
       already present in the simulation.
 - [x] Keep the common path short. Advanced features must not add arguments,
@@ -541,6 +541,14 @@ Current restoration checkpoints on the same staged XPalm fixture:
       warmed full-cycle run takes `9.962219` seconds and allocates `6.049 GB`.
       It preserves the same exact 4,160-day final state; XPalm passes 307
       package checks and all 68 reference-regression checks.
+- [x] At `346e6168`, removal, reparenting, and movement update application
+      targets, live `Many` carriers, status views, environment indexes, spatial
+      handles, and execution groups in place. Across scenes with 8 and 8,192
+      leaves per plant, the full removal refresh allocates `32.1-33.5 KB` and
+      the full reparent refresh allocates `44.0-45.8 KB`; the corresponding
+      minimum refresh times remain below `0.31 ms`. The permanent gate compares
+      8 and 2,048 leaves and permits at most `16 KB` additional allocation for
+      one removal, reparent, or movement delta.
 - [x] The first explicit-input implementation accidentally formatted
       diagnostics and allocated an invalid-declaration vector on every valid
       schema lookup. That raised the warmed XPalm full cycle to
@@ -549,14 +557,15 @@ Current restoration checkpoints on the same staged XPalm fixture:
       without allocation. The same warmed full-cycle scenario returns to
       `9.714` seconds, while XPalm still passes 307 package checks and all 68
       v0.6.1 regression checks.
-- [x] At the final local source checkpoint (`8b4068ad` before this evidence
-      update), the dedicated exact warmed no-output gate completes the same
-      4,160-day scenario in `9.762813375` seconds, allocates
-      `5.714561464 GB` in `61,432,637` allocations, and preserves the exact
-      final step, 344 phytomers, LAI, and FTSW. The complete persisted profile
-      also passes its four correctness-first modes; instrumentation adds
-      measurable overhead and is therefore reported separately from the
-      uninstrumented acceptance timing.
+- [x] At the final local source checkpoint (`346e6168`), the dedicated exact
+      warmed no-output gate completes the same 4,160-day scenario in
+      `8.830646833` seconds, allocates `4.205151272 GB` in `44,848,098`
+      allocations, and preserves the exact final step, 344 phytomers, LAI, and
+      FTSW. This is `49.77x` faster than the initial regression and only `1.18x`
+      slower than PlantSimEngine v0.14.1. The complete persisted profile also
+      passes its four correctness-first modes; instrumentation adds measurable
+      overhead and is therefore reported separately from the uninstrumented
+      acceptance timing.
 
 ### Performance invariants
 
@@ -568,7 +577,7 @@ Current restoration checkpoints on the same staged XPalm fixture:
 - [x] Adding objects extends or replaces only affected compiled structures.
       Unaffected targets retain their status views, temporal storage, reference
       carriers, call bindings, environment handles, and execution batches.
-- [ ] Lifecycle extension cost scales with the number of added, removed,
+- [x] Lifecycle extension cost scales with the number of added, removed,
       reparented, or moved objects and the applications affected by that delta.
 - [x] Temporal dependency state is distinct from user-retained output history.
 - [x] Dynamic dispatch remains at compiled batch boundaries, not inside the
@@ -1294,8 +1303,8 @@ only in negative tests that assert their absence.
 
 The final unified, environment, lifecycle, multirate, output-boundary, update,
 hard-call, template/override, generic-number, and allocation suites exercise
-this matrix. Kaimon run 1309 passes the 645-check unified runtime suite; the
-complete run 1319 passes 1,867 checks with no failures or errors.
+this matrix. Kaimon run 1352 passes the expanded 660-check unified runtime
+suite; the complete run 1358 passes 1,895 checks with no failures or errors.
 
 ### Test and documentation gates
 
@@ -1317,21 +1326,24 @@ complete run 1319 passes 1,867 checks with no failures or errors.
 
 Final Kaimon evidence from 2026-07-30:
 
-- PlantSimEngine project, no filter: run 1319, 1,867/1,867 passed.
-- PlantSimEngine docs project, no filter: run 1320, 113/113 passed
+- PlantSimEngine project, no filter: run 1358, 1,895/1,895 passed.
+- PlantSimEngine docs project, no filter: run 1359, 113/113 passed
   (`Progressive journey structure` 112 and Documenter build 1).
-- PlantSimEngine benchmark project, no filter: run 1315, 56/56 passed.
-- Full persisted XPalm profile: run 1317, 4/4 passed; the ignored local result
+- PlantSimEngine benchmark project, no filter: run 1360, 56/56 passed.
+- Focused lifecycle scaling: run 1351, 319/319 passed; unified runtime: run
+  1352, 660/660 passed; the 8-to-8,192-leaf allocation profile: run 1357,
+  4/4 passed.
+- Full persisted XPalm profile: run 1367, 4/4 passed; the ignored local result
   is `benchmark/results/xpalm-full-latest.csv`.
-- Exact warmed XPalm no-output gate: run 1318, 5/5 passed in
-  `9.762813375` seconds with `5.714561464 GB` and `61,432,637`
+- Exact warmed XPalm no-output gate: run 1364, 5/5 passed in
+  `8.830646833` seconds with `4.205151272 GB` and `44,848,098`
   allocations. It finishes at step 4,160 with 344 phytomers,
   `lai=5.0587602356164405`, and `ftsw=0.7991179101191216`.
-- PlantBiophysics project: run 1285, 268/268 passed; docs project: run 1286,
+- PlantBiophysics project: run 1365, 268/268 passed; docs project: run 1366,
   1/1 passed.
-- XPalm project: run 1321, 307/307 passed; docs project: run 1312, 1/1
+- XPalm project: run 1361, 307/307 passed; docs project: run 1362, 1/1
   passed; dedicated `reference-regression` mode through the temporary Kaimon
-  test wrapper: run 1322, 68/68 passed.
+  test wrapper: run 1363, 68/68 passed.
 
 All Julia executions used Kaimon `run_tests` with the recorded project path.
 The XPalm reference mode used the package's existing
@@ -1345,10 +1357,9 @@ forwarder.
        changes.
 2. [x] Reproduce and profile the current XPalm performance baseline through a
        healthy Kaimon session; add the runtime counters and benchmark matrix.
-3. [x] Make addition-only lifecycle extension delta-based and verify that
-       new-organ hard calls no longer rebuild the whole scene. Strict
-       removal/reparent scaling remains tracked by the open performance
-       invariant above.
+3. [x] Make lifecycle extension delta-based and verify that additions,
+       removals, reparenting, movement, and new-organ hard calls do not rebuild
+       the whole scene.
 4. [x] Replace repeated scheduler scanning with linear application groups.
 5. [x] Compile temporal policies into bounded typed state.
 6. [x] Restore per-batch no-hard-call specialization.
