@@ -29,12 +29,15 @@ function PlantSimEngine.run!(::MRBenchConsumer24Model, status, environment, cons
 end
 
 function _build_multirate_benchmark_objects(nleaves::Int)
-    objects = Object[
-        Object(:plant; scale=:Plant),
+    objects = PlantSimEngine.Object[
+        PlantSimEngine.Object(:plant; scale=:Plant),
     ]
     append!(
         objects,
-        [Object(Symbol(:leaf_, i); scale=:Leaf, parent=:plant) for i in 1:nleaves],
+        [
+            PlantSimEngine.Object(Symbol(:leaf_, i); scale=:Leaf, parent=:plant) for
+            i in 1:nleaves
+        ],
     )
     return objects
 end

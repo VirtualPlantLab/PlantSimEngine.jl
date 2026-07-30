@@ -60,11 +60,11 @@ function setup_hard_call_path_benchmark(;
         "Unsupported hard-call benchmark usage `$(usage)`. Use `:zero`, ",
         "`:sparse`, or `:dense`.",
     )
-    objects = Any[Object(:scene; scale=:Scene)]
+    objects = Any[PlantSimEngine.Object(:scene; scale=:Scene)]
     append!(
         objects,
         (
-            Object(
+            PlantSimEngine.Object(
                 Symbol(:leaf_, index);
                 scale=:Leaf,
                 name=Symbol(:leaf_, index),
@@ -149,7 +149,7 @@ function benchmark_lifecycle_event(simulation, new_index)
     new_id = Symbol(:leaf_, new_index)
     register_object!(
         simulation.model,
-        Object(
+        PlantSimEngine.Object(
             new_id;
             scale=:Leaf,
             name=new_id,

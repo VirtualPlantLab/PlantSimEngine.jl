@@ -163,6 +163,7 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             benchmark_module,
             :(include(path) = Base.include(@__MODULE__, path)),
         )
+        Core.eval(benchmark_module, :(const Object = Nothing))
         include_error = try
             withenv(
                 "GITHUB_ACTIONS" => "true",
