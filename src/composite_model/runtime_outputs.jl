@@ -4766,6 +4766,14 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
             " from application `$(request.application)`.",
         )
     elseif length(candidates) > 1
+        if isnothing(request.application)
+            manual_application_ids = _manual_call_application_ids(compiled)
+            root_candidates = filter(
+                application -> !(application.id in manual_application_ids),
+                candidates,
+            )
+            length(root_candidates) == 1 && return only(root_candidates)
+        end
         error(
             "Ambiguous model output publishers for selector `$(request.selector)` and variable `$(request.var)`: ",
             join((application.id for application in candidates), ", "),

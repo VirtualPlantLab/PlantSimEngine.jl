@@ -106,6 +106,30 @@ end
     ] == [(2.0, 1)]
 end
 
+@testset "implicit output request prefers the root-scheduled publisher" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(BoundaryManualControllerModel(); name=:controller, on=One(scale=:Scene), calls=(:counter => One(
+                        scale=:Leaf,
+                        application=:manual_counter,
+                    ),)),
+            ModelSpec(BoundaryManualCounterModel(); name=:scheduled_counter, on=One(scale=:Leaf)),
+            ModelSpec(BoundaryManualCounterModel(); name=:manual_counter, on=One(scale=:Leaf)),
+        ),
+        environment=[(duration=Hour(1),) for _ in 1:2],
+    )
+    simulation = run!(
+        model;
+        steps=2,
+        outputs=OutputRequest(:Leaf, :count; name=:scheduled_count),
+    )
+    requested = collect_outputs(simulation, :scheduled_count; sink=nothing)
+    @test length(requested) == 2
+    @test unique(getproperty.(requested, :application_id)) == [:scheduled_counter]
+end
+
 @testset "object count multiplied by cadence" begin
     model = CompositeModel(
         Object(:leaf_2; scale=:Leaf),
