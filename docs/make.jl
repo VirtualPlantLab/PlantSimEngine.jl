@@ -58,7 +58,7 @@ makedocs(;
         ],
         "Environment and time" => [
             "Read an environment" => "./journeys/users/environments.md",
-            "Understanding cadence" => "./guides/time/multirate_concepts.md",
+            "Different model cadences" => "./journeys/users/cadences.md",
             "Hourly, daily, and weekly" => "./guides/time/hourly_daily_weekly.md",
             "Advanced configuration" => "./guides/time/advanced_time_environment.md",
         ],

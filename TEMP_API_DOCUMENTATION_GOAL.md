@@ -920,15 +920,23 @@ Repeated execution of the whole composite was already introduced in Journey 1.
 This journey introduces a different concept: applications with different
 cadences.
 
-- [ ] Reuse the same thermal-time, LAI, light, and growth models where
+- [x] Reuse the same thermal-time, LAI, light, and growth models where
       scientifically coherent.
-- [ ] Introduce one daily application into an otherwise hourly simulation.
-- [ ] Start with `HoldLast`.
-- [ ] Introduce `Integrate` or `Aggregate` in a separate subsection with a
+- [x] Introduce one daily application into an otherwise hourly simulation.
+- [x] Start with `HoldLast`.
+- [x] Introduce `Integrate` or `Aggregate` in a separate subsection with a
       physical-units explanation.
-- [ ] Explain `PreviousTimeStep` only when breaking a real same-step cycle.
-- [ ] Do not combine multirate, growth, and mutable environment changes in the
+- [x] Explain `PreviousTimeStep` only when breaking a real same-step cycle.
+- [x] Do not combine multirate, growth, and mutable environment changes in the
       first multirate example.
+
+The cadence journey keeps the existing thermal-time/LAI/Beer chain, changing
+only application clocks and the LAI binding. `HoldLast` exposes a daily state
+to 25 hourly light executions. A separate two-leaf rate example explains why
+`Integrate` yields `(1 + 2) × 24 × 3600 = 259200` rate-seconds and contrasts it
+with `Aggregate`. Because neither example contains feedback, the page
+explicitly defers `PreviousTimeStep` to a real cycle. The focused tutorial,
+multirate integration, and full docs gates all pass.
 
 #### Journey 7: Modify plant structure
 
@@ -1060,7 +1068,7 @@ checks, and the six-part internal/downstream benchmark smoke suite passes all
   2. several plants;
   3. templates and overrides;
   4. MTG import.
-- [ ] **Environment and time**
+- [x] **Environment and time**
   1. read an environment;
   2. spatial environments;
   3. different model cadences;

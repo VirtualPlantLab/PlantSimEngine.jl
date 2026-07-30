@@ -579,3 +579,63 @@ end
     )
     @test handles == Dict(:sun_leaf => :sun, :shade_leaf => :shade)
 end
+
+@testset "Cadence tutorial composition" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant, kind=:plant);
+        applications=(
+            ModelSpec(
+                ToyDegreeDaysCumulModel();
+                name=:degree_days,
+                on=One(scale=:Plant),
+                every=Day(1),
+            ),
+            ModelSpec(
+                ToyLAIModel();
+                name=:lai,
+                on=One(scale=:Plant),
+                every=Day(1),
+            ),
+            ModelSpec(
+                Beer(0.6);
+                name=:light,
+                on=One(scale=:Plant),
+                inputs=(
+                    :LAI => One(
+                        within=Self(),
+                        application=:lai,
+                        var=:LAI,
+                        policy=HoldLast(),
+                        window=Day(1),
+                    ),
+                ),
+                every=Hour(1),
+            ),
+        ),
+        environment=[
+            (T=20.0, Ri_PAR_f=300.0, duration=Hour(1))
+            for _ in 1:25
+        ],
+    )
+    simulation = run!(model; steps=25, outputs=:all)
+    schedule = Dict(
+        row.application_id => row
+        for row in Diagnostics.explain_schedule(model)
+    )
+    @test schedule[:degree_days].dt_steps == 24.0
+    @test schedule[:lai].dt_steps == 24.0
+    @test schedule[:light].dt_steps == 1.0
+    hold_binding = only(
+        row for row in Diagnostics.explain_bindings(model)
+        if row.application_id == :light
+    )
+    @test hold_binding.policy isa HoldLast
+    @test hold_binding.carrier_kind == :temporal_stream
+    summaries = Dict(
+        (row.application_id, row.variable) => row.nsamples
+        for row in Diagnostics.explain_outputs(simulation)
+    )
+    @test summaries[(:degree_days, :TT_cu)] == 2
+    @test summaries[(:lai, :LAI)] == 2
+    @test summaries[(:light, :aPPFD)] == 25
+end
