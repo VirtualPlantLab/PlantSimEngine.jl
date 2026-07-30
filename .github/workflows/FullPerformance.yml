@@ -79,6 +79,11 @@ jobs:
         shell: julia --project=benchmark --color=yes {0}
         run: |
           using Pkg
+
+          benchmark_project = joinpath(pwd(), "benchmark", "Project.toml")
+          include(joinpath(pwd(), "benchmark", "prepare_full_performance_project.jl"))
+          prepare_full_performance_project!(benchmark_project)
+          Pkg.activate(joinpath(pwd(), "benchmark"))
           Pkg.develop([
               PackageSpec(path=pwd()),
               PackageSpec(path=joinpath(pwd(), "downstream", "XPalm")),

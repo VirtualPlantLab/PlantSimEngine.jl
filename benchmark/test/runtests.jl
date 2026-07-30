@@ -9,12 +9,38 @@ using PlantSimEngine.Examples
 using Profile
 using Statistics
 using Test
+using TOML
 
 const BENCHMARK_TEST_PATTERN =
     isempty(ARGS) ? nothing : Regex(only(ARGS), "i")
 benchmark_test_enabled(name) =
     isnothing(BENCHMARK_TEST_PATTERN) ||
     occursin(BENCHMARK_TEST_PATTERN, name)
+
+if benchmark_test_enabled("full-performance project bootstrap smoke")
+    @testset "full-performance project bootstrap smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "prepare_full_performance_project.jl",
+            ),
+        )
+        mktempdir() do directory
+            project_path = joinpath(directory, "Project.toml")
+            cp(
+                joinpath(@__DIR__, "..", "Project.toml"),
+                project_path,
+            )
+            prepare_full_performance_project!(project_path)
+            project = TOML.parsefile(project_path)
+            @test !haskey(project, "sources")
+            @test haskey(project["deps"], "PlantSimEngine")
+            @test haskey(project["deps"], "XPalm")
+            @test haskey(project["deps"], "PlantBiophysics")
+        end
+    end
+end
 
 if benchmark_test_enabled("PlantSimEngine benchmark API smoke")
     @testset "PlantSimEngine benchmark API smoke" begin
