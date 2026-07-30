@@ -24,14 +24,21 @@ Scenarios start from `CompositeModel` and model applications.
 
 A model kernel is still an ordinary PlantSimEngine model:
 
-- `inputs_(model)` declares required status variables;
-- `outputs_(model)` declares variables the model computes;
+- `inputs_(model)` declares each status input as `Required(T)` or
+  `Default(value)`;
+- `outputs_(model)` declares variables the model computes and their initial
+  output-state values;
 - `environment_inputs_(model)` declares environment variables it reads;
 - `commit_environment!(context, state)` commits accepted mutable environment
   state when the model intentionally controls microclimate;
 - `dep(model)` may declare model-author defaults;
 - `run!(model, status, environment, constants, context)` contains the model
-  equations.
+equations.
+
+`Required(T)` has no initialization value: object state or a producer
+application must satisfy it. `Default(value)` is installed only when the target
+does not already have the input. Plain input literals are rejected because
+they are ambiguous.
 
 The composite-model/object layer does not change that kernel contract. It adds a
 scenario-specific application around the kernel:

@@ -92,14 +92,16 @@ types should be selectors, model traits, or internal compiled carriers.
   model objects default to `SceneScope()`, while non-model objects default to
   `Self()`. Shared model/soil dependencies from organs should therefore use
   `within=SceneScope()` explicitly.
-- `Advanced.compile_composite_model` now validates required status inputs from `inputs_(model)`.
-  Each required input must either have a compiled binding or already exist on
-  the target object `Status`; otherwise compilation errors with the concrete
-  application id, object id, and input variable.
+- `Advanced.compile_composite_model` now validates `Required(T)` status inputs
+  from `inputs_(model)`. Each required input must either have a compiled
+  binding or already exist on the target object `Status`; otherwise
+  compilation errors with the concrete application id, object id, and input
+  variable.
 - CompositeModel compilation creates an empty `Status` for model-targeted
-  objects when status is omitted, inserts missing `outputs_` fields from model
-  defaults, and inserts explicitly or implicitly bound input fields from
-  `inputs_` defaults. Unbound external inputs remain compilation errors.
+  objects when status is omitted, inserts missing `outputs_` fields and
+  `Default(value)` inputs from their initial values, and installs explicitly or
+  implicitly bound input carriers. Unbound `Required(T)` inputs remain
+  compilation errors.
 - `Advanced.compile_composite_model` now rejects `Inputs(...)` declarations whose left-hand
   variable is not declared by the target model's `inputs_`. This catches
   misspelled or stale scenario bindings before they create silent unused

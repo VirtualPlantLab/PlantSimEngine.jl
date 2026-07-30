@@ -72,7 +72,8 @@ model = CompositeModel(
     status=(LAI=2.0,),
     environment=meteo_day,
     timestep=Day(1),
-)
+);
+nothing
 ```
 
 The concise constructor creates one ordinary model object and one application
@@ -120,6 +121,7 @@ Run the model with [`run!`](@ref):
 
 ```@example detailed_scene
 sim = run!(model; steps=3)
+nothing
 ```
 
 The object status stores the latest value:
@@ -186,15 +188,17 @@ coupled_status = only(model_objects(coupled_scene; scale=:Scene)).status
 
 ## What Needs Initialization?
 
-Model `inputs_(...)` lists every variable a model may need, but not all of
-those variables need user initialization. In a coupled model, some inputs are
-computed by upstream models.
+Model `inputs_(...)` explicitly distinguishes `Required(T)` from
+`Default(value)`. A required input needs user state or a producer binding; a
+defaulted input needs neither. In a coupled model, an upstream application can
+satisfy a required input.
 
 Use the compiler explanations to distinguish the two cases:
 
-- a variable already present on object `Status` is user-provided state;
-- a row in `explain_bindings(...)` is compiler-owned coupling;
-- a compile error means a required input is neither initialized nor bound.
+- `:supplied` means the object `Status` already provides the value;
+- `:producer_bound` means another application supplies it;
+- `:defaulted` means `Default(value)` initialized it;
+- `:required` means it still has no source and compilation will fail.
 
 For example, if we remove `TT_cu` from the model status, compilation fails
 because no model in this model computes it before `ToyLAIModel` reads it:

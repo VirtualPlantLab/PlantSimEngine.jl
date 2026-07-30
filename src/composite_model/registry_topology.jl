@@ -11,6 +11,13 @@ Base.getindex(v::ObjectRefVector, i::Int) = v.refs[i][]
 Base.setindex!(v::ObjectRefVector, value, i::Int) = (v.refs[i][] = value)
 Base.parent(v::ObjectRefVector) = v.refs
 
+"""
+    ObjectId(value)
+
+Stable identity of one [`Object`](@ref) in a [`CompositeModel`](@ref).
+Strings are normalized to symbols; an existing `ObjectId` is returned
+unchanged.
+"""
 struct ObjectId{T}
     value::T
 end

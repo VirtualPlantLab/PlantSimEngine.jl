@@ -32,9 +32,9 @@ Source details live in `code_cleanup_audit.md`.
 - Added `runtime_model(runtime)` as the sanctioned live-model accessor for
   `RunContext` and `Simulation`; kernels no longer need to inspect
   `context.compiled.model`.
-- Added `explain_initialization(model)` with structured `:supplied`,
-  `:generated`, `:producer_bound`, `:environment_bound`, and `:unresolved`
-  dispositions.
+- Added `explain_initialization(model)` with structured `:required`,
+  `:defaulted`, `:supplied`, `:generated`, `:producer_bound`, and
+  `:environment_bound` dispositions.
 - Added `CompositeModel(model, models...; status=...)` as a thin one-object constructor
   that lowers to the normal object and `ModelSpec` representation.
 - Calendar-aligned windows remain unsupported. Temporal windows use
@@ -126,8 +126,9 @@ for multi-plant model coupling.
   them for tests, diagnostics, and future runtime execution.
 - Same-rate model inputs are now wired into consumer `Status` references once
   during compilation. Scalar and `Many(...)` inputs remain live references,
-  missing bound input fields are compiler-generated, and repeated non-temporal
-  input materialization is allocation-free.
+  missing bound input fields are compiler-generated without inventing
+  canonical values for `Required(T)`, and repeated non-temporal input
+  materialization is allocation-free.
 - Same-rate `Inputs(...)` carriers preserve arbitrary concrete value types.
   Regression coverage passes a dual-like `BigFloat` wrapper through a typed
   `RefVector`, model arithmetic, source mutation, and output publication
@@ -189,10 +190,10 @@ for multi-plant model coupling.
   neither bound through `Inputs(...)`/inference nor present on the target object
   `Status`.
 - `Advanced.compile_composite_model` now prepares model-owned status schemas automatically:
-  model-targeted objects may omit `Status`, declared model/environment outputs
-  are inserted from trait defaults, and bound consumer inputs are generated
-  from `inputs_` defaults. External unbound inputs still require explicit
-  initialization.
+  model-targeted objects may omit `Status`, declared outputs and `Default`
+  inputs are inserted from their initial values, and bound `Required` inputs
+  are installed through their compiled carriers. External unbound `Required`
+  inputs still need explicit initialization.
 - `Advanced.compile_composite_model` now rejects `Inputs(...)` entries whose receiving variable is
   not declared by the model's `inputs_`, making binding typos explicit at
   compile time.

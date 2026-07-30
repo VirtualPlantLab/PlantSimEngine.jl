@@ -15,7 +15,7 @@ inside an unpublished ancestor trial. `explain_calls` and `explain_schedule`
 show call-only targets and ordering.
 
 `explain_initialization(model)` classifies values as supplied, generated,
-producer-bound, environment-bound, or unresolved before execution.
+producer-bound, defaulted, required, or environment-bound before execution.
 
 ## Value coupling
 

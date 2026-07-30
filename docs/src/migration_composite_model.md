@@ -69,6 +69,34 @@ run!(model, status, environment, constants, context)
 This page maps the legacy configuration concepts to their composite-model/object
 equivalents.
 
+## Explicit Input Initialization
+
+Input literals no longer double as ambiguous placeholder values. Declare
+whether each model input is required or genuinely has a fallback:
+
+```julia
+# Old, ambiguous
+inputs_(::GrowthModel) = (
+    temperature=-Inf,
+    efficiency=0.8,
+)
+
+# Current
+inputs_(::GrowthModel) = (
+    temperature=Required(Float64),
+    efficiency=Default(0.8),
+)
+```
+
+`Required(T)` means object state or another application must supply the value.
+`Default(value)` means PlantSimEngine may initialize it when absent. Output
+literals remain initial output-state values. Plain input literals are rejected;
+there is no compatibility interpretation of `-Inf` or another sentinel.
+
+Replace helpers that previously merged every input literal into initial state
+with `init_variables(model)`. It returns only real input defaults and output
+initial values, omitting required inputs.
+
 ## Scenario Structure
 
 Legacy simulations split configuration between `ModelMapping` and

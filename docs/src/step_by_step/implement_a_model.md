@@ -30,11 +30,11 @@ Declare the `inputs_` and `outputs_` methods for that model (note the '_', these
 
 ```@example usepkg
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Float64),)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+    (aPPFD=0.0,)
 end
 ```
 
@@ -141,26 +141,45 @@ Parameterized types are practical because they let the user choose the type of t
 
 ### Inputs and outputs
 
-When implementing a new model, it is necessary to declare what variables will be required, whether provided as an input to our model or computed for every timestep as an output. Input variables will either be initialized by the user in a `Status` object, or provided by another model. Output variables may be global simulation outputs and/or used by other models.
+When implementing a new model, it is necessary to declare what variables it
+reads and what variables it computes. Every input declaration must say whether
+the input is required or has a genuine model default. A required input is
+initialized by the user in a `Status` object or bound from another model. A
+defaulted input needs neither. Output variables may be retained as simulation
+outputs and/or used by other models.
 
 In our case, the `Beer` model, computing light interception, has one input variable and one output variable:
 
 - Inputs: `:LAI`, the leaf area index (m² m⁻²)
 - Outputs: `:aPPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
 
-We declare these inputs/outputs by adding a method for the [`inputs`](@ref) and [`outputs`](@ref) functions. These functions take the type of the model as argument, and return a `NamedTuple` with the names of the variables as keys, and their default values as values:
+We declare these inputs/outputs by adding methods for the underscore extension
+functions. `inputs_` returns a `NamedTuple` whose values are `Required(T)` or
+`Default(value)` declarations. `outputs_` returns a `NamedTuple` whose values
+are the initial output state:
 
 ```@example usepkg
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Float64),)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+    (aPPFD=0.0,)
 end
 ```
 
-These functions are internal, and end with an "\_". Users instead use [`inputs`](@ref) and [`outputs`](@ref) to query model variables.
+`LAI` has no scientifically meaningful fallback, so it is required. If the
+model instead had an optional efficiency of `0.8`, it would declare
+`efficiency=Default(0.8)`. Do not use sentinel values such as `-Inf` to mean
+"required": they are ordinary values and hide the model contract.
+
+`Required(Float64)` is an expected type, not an initialization value. A model
+that supports a broader or parameterized type can declare that type instead.
+PlantSimEngine does not convert status values to `Float64`.
+
+These extension functions end with an "\_". Simulation users instead use
+[`inputs`](@ref), [`outputs`](@ref), [`init_variables`](@ref), and
+[`explain_initialization`](@ref) to inspect the contract.
 
 ### The run! method
 
@@ -201,7 +220,10 @@ end
 
 ### Additional notes
 
-To use this model, users will have to make sure that the variables for that model are defined in the [`Status`](@ref) object, the meteorology, and the `Constants` object.
+To use this model, simulation users must supply or bind every `Required` status
+input. Inputs declared with `Default` are initialized automatically. Required
+environment variables and constants must also be available through their
+respective contracts.
 
 !!! Note
     [`Status`](@ref) objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.

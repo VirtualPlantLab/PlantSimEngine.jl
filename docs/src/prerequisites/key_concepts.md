@@ -8,7 +8,8 @@ implementation of a process.
 
 Models subtype `AbstractModel` and declare:
 
-- `inputs_`: values read from object status;
+- `inputs_`: values read from object status, each declared as `Required(T)` or
+  `Default(value)`;
 - `outputs_`: values written to object status;
 - `environment_inputs_`: values sampled from the environment;
 - `environment_outputs_`: environment variables a controller may commit;
@@ -21,6 +22,11 @@ The numerical kernel is implemented with:
 ```julia
 PlantSimEngine.run!(model, status, environment, constants, context)
 ```
+
+`Required(T)` describes an input that must be supplied by object state or
+another application. `Default(value)` is a true model fallback that
+PlantSimEngine can initialize automatically. Output literals are initial
+output-state values.
 
 ## Composite Models And Objects
 

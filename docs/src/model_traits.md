@@ -6,15 +6,40 @@ belongs in `ModelSpec` through `AppliesTo`, `Inputs`, `Calls`, `TimeStep`,
 
 ## Variables
 
-Implement `inputs_(model)` and `outputs_(model)` with default values:
+Implement `inputs_(model)` with an explicit declaration for every status input:
 
 ```julia
-PlantSimEngine.inputs_(::MyModel) = (leaf_area=0.0,)
+PlantSimEngine.inputs_(::MyModel) = (
+    leaf_area=Required(Float64),
+    efficiency=Default(0.8),
+)
 PlantSimEngine.outputs_(::MyModel) = (assimilation=0.0,)
 ```
 
-The declarations are used for status initialization, dependency inference,
-validation, and type construction.
+`Required(T)` means the value must be present on the target object's `Status`
+or bound from another application. `T` is an expected type, not a placeholder
+value. It may be abstract or parametric, so use the scientific type contract
+instead of forcing `Float64`.
+
+`Default(value)` means the model can run without user initialization or a
+producer for that input. PlantSimEngine installs a private copy of `value` on
+each target object when the value is absent. Mutable defaults are therefore
+not shared between objects.
+
+Output literals remain initial output-state values. In the example,
+`assimilation` starts at `0.0` before the first accepted model call.
+
+These declarations are used for status initialization, dependency inference,
+validation, and type construction. Plain input literals are rejected because
+they do not say whether the value is required or genuinely optional.
+
+Use `init_variables(model)` to inspect only values PlantSimEngine can
+initialize by itself: `Default` input values and output initial values.
+Required inputs are intentionally omitted.
+
+Before running a scenario, `explain_initialization(model)` classifies inputs as
+`:required`, `:defaulted`, `:supplied`, or `:producer_bound`. A
+`:required` row must be resolved before compilation can succeed.
 
 ## Manual Dependencies
 

@@ -165,16 +165,16 @@ end
     return nothing
 end
 
+struct NoEnvironmentOverride end
+const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
+
 """
     RunContext
 
 Runtime context passed as the final argument to model kernels. Use
-`runtime_model`, `call_targets`, and `run_call!` instead of inspecting its
-fields.
+[`runtime_model`](@ref), [`call_targets`](@ref), and [`run_call!`](@ref)
+instead of inspecting its fields.
 """
-struct NoEnvironmentOverride end
-const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
-
 mutable struct RunContext{CS,A,CT,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings

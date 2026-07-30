@@ -23,6 +23,18 @@
 - `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
 
+### Model input schema
+
+- `Required(T)` declares an input that object state or another application must
+  supply. `T` is an expected type and may be generic.
+- `Default(value)` declares a true model fallback that needs no user
+  initialization.
+- `inputs_(model)` uses only these explicit declarations; plain literals are
+  rejected.
+- `outputs_(model)` literals remain initial output-state values.
+- `init_variables(model)` returns only genuine input defaults and initial
+  output values.
+
 ### Selectors
 
 - Multiplicity: `One(...)`, `OptionalOne(...)`, and `Many(...)`.

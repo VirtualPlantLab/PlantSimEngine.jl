@@ -52,7 +52,8 @@ and cache controls are intentionally listed separately under
 ## Model-author contract
 
 - Model identity: `AbstractModel`, `@process`, `process`.
-- State: `Status`, `init_variables`, `dep`.
+- State schema and initialization: `Status`, `Required`, `Default`,
+  `init_variables`, `dep`.
 - Model IO: `inputs`, `outputs`, `variables`, `environment_inputs`,
   `environment_inputs_`, `environment_outputs`, `environment_outputs_`,
   `validate_environment_inputs`.
@@ -62,8 +63,10 @@ and cache controls are intentionally listed separately under
 The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`, and
 `environment_outputs_` are extension functions model authors implement with
 qualified definitions such as `PlantSimEngine.inputs_(model) = ...`. `inputs_`
-and `outputs_` remain intentionally unexported to avoid collisions with common
-user functions.
+must return explicit `Required(T)` or `Default(value)` declarations.
+`outputs_` continues to return initial output-state values. The underscore
+functions remain intentionally unexported to avoid collisions with common user
+functions.
 
 ## Time and reducers
 

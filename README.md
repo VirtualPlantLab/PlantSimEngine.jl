@@ -14,7 +14,7 @@ simulations from reusable process models.
 
 A modeler writes generic kernels with:
 
-- `inputs_`
+- `inputs_` declarations using `Required(T)` or `Default(value)`
 - `outputs_`
 - optional `dep`, `timespec`, `output_policy`, `environment_inputs_`, and
   `environment_outputs_` traits

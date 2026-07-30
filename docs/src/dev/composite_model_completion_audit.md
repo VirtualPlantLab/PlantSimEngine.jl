@@ -56,7 +56,7 @@ Evidence:
 | Growth, pruning, reparenting, and movement | Central lifecycle APIs, structural/environment cache invalidation, dynamic target/carrier rebuilding, removed-object output history, and object-scoped geometry refresh tests |
 | Automatic meteorology and microclimate | `environment_inputs_`, global and spatial backends, ancestor geometry fallback, source remapping, model hints, tabular aggregation, cached opaque handles, `run_call!(...; environment=trial_state)` trial sampling, and `commit_environment!` accepted mutable commits |
 | Structured agent explanations | Object, instance, scope, application, binding, call, model-bundle, environment, schedule, writer, execution-plan, output, and retention explanations returning structured rows |
-| Initialization workflow | `explain_initialization` classifies supplied, generated, producer-bound, environment-bound, and unresolved variables without failing solely on unresolved values |
+| Initialization workflow | `Required(T)` and `Default(value)` make the input contract explicit; `explain_initialization` classifies required, defaulted, supplied, generated, producer-bound, and environment-bound variables before strict compilation |
 | Runtime model access | `runtime_model` is the public accessor used by lifecycle-capable kernels and accepts `CompositeModel`, `RunContext`, and `Simulation` |
 | One-object ergonomics | `CompositeModel(model, models...; status=...)` lowers to the same object/application compiler and runtime as explicit construction |
 | Output ownership and retention | Application-qualified streams, `OutputRouting`, `OutputRequest(application=...)`, dynamic-object exports, and bounded policy-specific dependency histories |

@@ -22,11 +22,11 @@ PlantSimEngine.@process "docs_hourly_flux" verbose = false
 PlantSimEngine.@process "docs_daily_total" verbose = false
 struct DocsHourlyFlux <: AbstractDocs_Hourly_FluxModel end
 struct DocsDailyTotal <: AbstractDocs_Daily_TotalModel end
-PlantSimEngine.inputs_(::DocsHourlyFlux) = (rate=0.0,)
+PlantSimEngine.inputs_(::DocsHourlyFlux) = (rate=Required(Float64),)
 PlantSimEngine.outputs_(::DocsHourlyFlux) = (flux=0.0,)
 PlantSimEngine.run!(::DocsHourlyFlux, status, environment, constants, context) =
     (status.flux = status.rate)
-PlantSimEngine.inputs_(::DocsDailyTotal) = (fluxes=[0.0],)
+PlantSimEngine.inputs_(::DocsDailyTotal) = (fluxes=Required(Vector{Float64}),)
 PlantSimEngine.outputs_(::DocsDailyTotal) = (total=0.0,)
 PlantSimEngine.run!(::DocsDailyTotal, status, environment, constants, context) =
     (status.total = sum(status.fluxes))

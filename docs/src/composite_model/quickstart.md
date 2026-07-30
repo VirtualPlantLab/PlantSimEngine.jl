@@ -78,8 +78,8 @@ scene_status = only(model_objects(model; scale=:Scene)).status
 ## Inspect The Compiled Bindings
 
 Before running, `explain_initialization(model)` classifies each variable as
-`:supplied`, `:generated`, `:producer_bound`, `:environment_bound`, or
-`:unresolved`. The report remains available when ordinary required values are
+`:required`, `:defaulted`, `:supplied`, `:producer_bound`, `:generated`, or
+`:environment_bound`. The report remains available when required values are
 missing, so it can be used to finish configuring a model.
 
 The compiler infers unambiguous same-object dependencies from declared model

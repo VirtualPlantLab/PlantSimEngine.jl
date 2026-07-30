@@ -13,7 +13,7 @@ PlantSimEngine.@process "docs_lai_growth" verbose = false
 struct DocsLAIGrowth{T} <: AbstractDocs_Lai_GrowthModel
     rate::T
 end
-PlantSimEngine.inputs_(::DocsLAIGrowth) = (lai=0.0,)
+PlantSimEngine.inputs_(::DocsLAIGrowth) = (lai=Required(Float64),)
 PlantSimEngine.outputs_(::DocsLAIGrowth) = (lai_next=0.0,)
 PlantSimEngine.environment_inputs_(::DocsLAIGrowth) = (T=0.0,)
 function PlantSimEngine.run!(m::DocsLAIGrowth, status, environment, constants, context)
@@ -34,6 +34,10 @@ and finally the same model through a model. These three levels separate a
 scientific error from a model-contract error and a scenario-binding error.
 `explain_initialization(model)` should show `lai` as supplied, `T` as
 environment-bound, and `lai_next` as generated.
+
+Use `Default(value)` only when the scientific model really defines a fallback.
+Do not translate an old sentinel such as `-Inf` into a default: use
+`Required(T)` when the value must come from the scenario.
 
 The concise constructor lowers to the ordinary CompositeModel compiler; it is not a
 separate runtime. Move to explicit `Object` and `ModelSpec` construction only

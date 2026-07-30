@@ -60,12 +60,16 @@ end
 
 PlantSimEngine.@process "invalid_initialization_schema" verbose = false
 PlantSimEngine.@process "default_vector_initialization" verbose = false
+PlantSimEngine.@process "generic_required_initialization" verbose = false
 struct InvalidInitializationSchemaModel <: AbstractInvalid_Initialization_SchemaModel end
 struct DefaultVectorInitializationModel <: AbstractDefault_Vector_InitializationModel end
+struct GenericRequiredInitializationModel <: AbstractGeneric_Required_InitializationModel end
 PlantSimEngine.inputs_(::InvalidInitializationSchemaModel) = (legacy_literal=0.0,)
 PlantSimEngine.outputs_(::InvalidInitializationSchemaModel) = NamedTuple()
 PlantSimEngine.inputs_(::DefaultVectorInitializationModel) = (buffer=Default(Int[]),)
 PlantSimEngine.outputs_(::DefaultVectorInitializationModel) = NamedTuple()
+PlantSimEngine.inputs_(::GenericRequiredInitializationModel) = (value=Required(Real),)
+PlantSimEngine.outputs_(::GenericRequiredInitializationModel) = NamedTuple()
 
 @testset "explicit input declarations" begin
     @test inputs(InitializationConsumerModel()) == (:signal, :supplied, :offset)
@@ -94,6 +98,15 @@ PlantSimEngine.outputs_(::DefaultVectorInitializationModel) = NamedTuple()
     @test buffers[1] !== buffers[2]
     push!(buffers[1], 1)
     @test isempty(buffers[2])
+
+    generic_required = CompositeModel(
+        GenericRequiredInitializationModel();
+        status=(value=big"1.25",),
+    )
+    Advanced.refresh_bindings!(generic_required)
+    generic_status = only(model_objects(generic_required)).status
+    @test generic_status.value isa BigFloat
+    @test PlantSimEngine.variables_typed(GenericRequiredInitializationModel()).value === Real
 
     optional_default = CompositeModel(
         Object(
