@@ -73,13 +73,16 @@ _private_initial_value(value) = deepcopy(value)
     error("Invalid input schema.")
 end
 
-@inline function _input_schema(model)
-    schema = inputs_(model)
-    schema isa NamedTuple || return _invalid_input_schema_error(model, schema)
+@inline _input_schema(model) = _validated_input_schema(model, inputs_(model))
+
+@inline function _validated_input_schema(model, schema::NamedTuple)
     _has_only_input_declarations(schema) ||
         return _invalid_input_schema_error(model, schema)
     return schema
 end
+
+@noinline _validated_input_schema(model, schema) =
+    _invalid_input_schema_error(model, schema)
 
 function _input_default_values(schema::NamedTuple)
     pairs_ = Pair{Symbol,Any}[]
