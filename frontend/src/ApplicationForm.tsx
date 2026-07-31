@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { Check, Eye, X } from "lucide-react";
 import type { ApplicationGraphNode, ModelConstructorField, ModelDescriptor, ObjectGraphNode, SelectorDescriptor, TargetPreview } from "./types";
 
@@ -54,11 +54,12 @@ export function ApplicationForm({
   const [dt, setDt] = useState("1.0");
   const [phase, setPhase] = useState("0.0");
 
-  useEffect(() => {
-    const selected = models.find((item) => item.type === modelType) ?? null;
+  const selectModelType = (nextModelType: string) => {
+    const selected = models.find((item) => item.type === nextModelType) ?? null;
+    setModelType(nextModelType);
     setParameters(parameterDefaults(selected, mode === "update" ? application : undefined));
     if (mode === "add") setName(defaultApplicationName(selected));
-  }, [application, mode, modelType, models]);
+  };
 
   const options = useMemo(() => ({
     scales: unique(objects.map((object) => object.scale)),
@@ -98,7 +99,7 @@ export function ApplicationForm({
       <section className="overlay-panel application-form" onMouseDown={(event) => event.stopPropagation()} data-testid="application-form">
         <header><div><strong>{mode === "add" ? "Add application" : `Update ${application?.applicationId}`}</strong><span>A configured use of a model on selected scene objects</span></div><button onClick={onClose}><X size={17} /></button></header>
         <div className="overlay-content application-form-content">
-          <label>Model<select value={modelType} onChange={(event) => setModelType(event.target.value)} data-testid="application-model-select">{models.map((item) => <option value={item.type} key={item.type}>{item.package ? `${item.package} · ` : ""}{item.name} ({item.process})</option>)}</select></label>
+          <label>Model<select value={modelType} onChange={(event) => selectModelType(event.target.value)} data-testid="application-model-select">{models.map((item) => <option value={item.type} key={item.type}>{item.package ? `${item.package} · ` : ""}{item.name} ({item.process})</option>)}</select></label>
           <label>Application name<input value={name} disabled={nameReadOnly} onChange={(event) => setName(event.target.value)} data-testid="application-name" /></label>
 
           {model && model.constructor.fields.length > 0 && <fieldset><legend>Model parameters</legend><ParameterFields fields={model.constructor.fields} values={parameters} onChange={setParameters} /></fieldset>}

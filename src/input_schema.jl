@@ -23,10 +23,15 @@ struct Default{T}
 end
 
 _is_input_declaration(value) = value isa Union{Required,Default}
-@inline _has_only_input_declarations(::Tuple{}) = true
-@inline function _has_only_input_declarations(declarations::Tuple)
-    return _is_input_declaration(first(declarations)) &&
-           _has_only_input_declarations(Base.tail(declarations))
+@generated function _has_only_input_declarations(
+    declarations::NamedTuple{names},
+) where {names}
+    checks = [
+        :(_is_input_declaration(getfield(declarations, $index)))
+        for index in eachindex(names)
+    ]
+    isempty(checks) && return :(true)
+    return foldr((left, right) -> :($left && $right), checks)
 end
 
 _input_expected_type(::Required{T}) where {T} = T
@@ -69,7 +74,7 @@ end
 @inline function _input_schema(model)
     schema = inputs_(model)
     schema isa NamedTuple || return _invalid_input_schema_error(model, schema)
-    _has_only_input_declarations(values(schema)) ||
+    _has_only_input_declarations(schema) ||
         return _invalid_input_schema_error(model, schema)
     return schema
 end

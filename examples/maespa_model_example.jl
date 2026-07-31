@@ -6,7 +6,7 @@ include(joinpath(@__DIR__, "plantbiophysics_subsample", "Tuzet.jl"))
 include(joinpath(@__DIR__, "plantbiophysics_subsample", "FvCB.jl"))
 include(joinpath(@__DIR__, "plantbiophysics_subsample", "Monteith.jl"))
 
-PlantSimEngine.@process "soil_water" verbose = false
+PlantSimEngine.@process "maespa_soil_water" verbose = false
 PlantSimEngine.@process "scene_eb" verbose = false
 PlantSimEngine.@process "leaf_state" verbose = false
 PlantSimEngine.@process "lai_dynamic" verbose = false
@@ -114,7 +114,7 @@ function PlantSimEngine.EnvironmentAPI.commit_environment!(
     return nothing
 end
 
-struct SoilWater{T} <: AbstractSoil_WaterModel
+struct SoilWater{T} <: AbstractMaespa_Soil_WaterModel
     theta_sat::T
     psi_e::T
     b::T

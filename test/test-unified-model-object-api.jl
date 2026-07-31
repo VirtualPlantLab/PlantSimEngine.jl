@@ -1736,17 +1736,21 @@ end
     PlantSimEngine._run_model_execution_batch!(
         homogeneous_batch,
         batch_compiled,
-        batch_environment;
-        time=1,
-        temporal_streams=nothing,
+        batch_environment,
+        1,
+        nothing,
+        nothing,
+        nothing,
     )
     @test @allocated(
         PlantSimEngine._run_model_execution_batch!(
             homogeneous_batch,
             batch_compiled,
-            batch_environment;
-            time=1,
-            temporal_streams=nothing,
+            batch_environment,
+            1,
+            nothing,
+            nothing,
+            nothing,
         )
     ) == 0
     @test batch_counter[] == 256
