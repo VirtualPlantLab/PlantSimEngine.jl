@@ -16,8 +16,8 @@ export async function layoutGraph(nodes: Node<RuntimeNode>[], edges: Edge<ModelG
       width: width(node.data),
       height: height(node.data),
       ports: node.data.nodeKind === "application" ? [
-        ...node.data.inputs.map((port, index) => portDescriptor(port.id, "WEST", index)),
-        ...node.data.outputs.map((port, index) => portDescriptor(port.id, "EAST", index)),
+        ...applicationInputPorts(node.data).map((port, index) => portDescriptor(port.id, "WEST", index)),
+        ...applicationOutputPorts(node.data).map((port, index) => portDescriptor(port.id, "EAST", index)),
       ] : [
         ...(node.data.inputPortIds ?? []).map((id, index) => portDescriptor(id, "WEST", index)),
         ...(node.data.outputPortIds ?? []).map((id, index) => portDescriptor(id, "EAST", index)),
@@ -66,5 +66,15 @@ function width(data: RuntimeNode) {
 function height(data: RuntimeNode) {
   if (data.nodeKind !== "application") return 112;
   if (data.detailMode === "overview") return 108;
-  return Math.max(178, 142 + Math.max(data.inputs.length, data.outputs.length) * 27);
+  const modelPortRows = Math.max(data.inputs.length, data.outputs.length);
+  const environmentPortRows = Math.max(data.environmentInputs.length, data.environmentOutputs.length);
+  return Math.max(178, 142 + modelPortRows * 27 + (environmentPortRows > 0 ? 32 + environmentPortRows * 27 : 0));
+}
+
+export function applicationInputPorts(data: RuntimeApplicationNode) {
+  return [...data.inputs, ...data.environmentInputs];
+}
+
+export function applicationOutputPorts(data: RuntimeApplicationNode) {
+  return [...data.outputs, ...data.environmentOutputs];
 }

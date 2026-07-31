@@ -1,6 +1,7 @@
 import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
 import { Box, Clock3, Layers3, Plus, Scissors } from "lucide-react";
 import type { GraphPort, RuntimeApplicationNode, RuntimeEntityNode } from "./types";
+import { applicationInputPorts, applicationOutputPorts } from "./layout";
 import { nodeWidth } from "./nodeSizing";
 
 type ApplicationFlowNode = Node<RuntimeApplicationNode, "application">;
@@ -20,7 +21,7 @@ export function ApplicationNode({ data, selected }: NodeProps<ApplicationFlowNod
       data-testid={`application-node-${data.applicationId}`}
       style={{ width: nodeWidth(data) }}
     >
-      {overview && <OverviewHandles inputs={data.inputs} outputs={data.outputs} />}
+      {overview && <OverviewHandles inputs={applicationInputPorts(data)} outputs={applicationOutputPorts(data)} />}
       <header className="node-header">
         <div>
           <div className="process">{data.name || data.applicationId}</div>
