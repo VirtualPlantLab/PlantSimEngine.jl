@@ -402,6 +402,37 @@ for multi-plant model coupling.
   the reducer. Prepared samplers are shared, and one sampled row is cached per
   application/timestep for all selected objects.
 
+## Downstream and Performance Validation
+
+The first complete remote XPalm performance artifact passed on 31 July 2026 in
+[GitHub Actions run 30617676544](https://github.com/VirtualPlantLab/PlantSimEngine.jl/actions/runs/30617676544).
+The Ubuntu 24.04 / Julia 1.12.1 single-threaded job resolved the four
+path-developed repositories, then passed all four correctness assertions in
+the complete 4,160-step profile. The correctness matrix took 12 minutes
+10 seconds; the full job, including resolution and precompilation, took
+16 minutes 55 seconds.
+
+The retained artifact is
+`xpalm-full-performance-30617676544-1` (artifact id `8788421206`, 90-day
+retention). It contains the resolved `Manifest.toml` and 363 CSV measurement
+rows covering all 16 stages. Every output-retention mode reached the same
+committed final state: step 4,160, 344 phytomers, LAI
+`5.0587602356164405`, and FTSW `0.7991179101191218`.
+
+The CSV records these exact source revisions:
+
+- PlantSimEngine: `a715e2bf4407870f7dcae5fedaca7eab00f2a826`
+- XPalm: `460d3b5161732a195517d5be9a4bdbb4cfc41846`
+- PlantBiophysics: `b733e05032cde9b60e527cc2b33a472281c995fb`
+- PlantGeom: `f53e5633da1a56d546c4a4433e6d1cd3a898ecf9`
+
+On that runner, the minimum complete-cycle measurements were 20.255 seconds
+with no retained outputs, 22.492 seconds with the small request, 23.246 seconds
+with the reference request, 61.324 seconds with all outputs, and 15.650 seconds
+for the historical end-to-end helper. These runner-specific measurements are a
+persisted comparison baseline, not a replacement for the faster local
+acceptance-machine targets.
+
 ## Compatibility Boundary
 
 The composite-model/object runtime and its MAESPA acceptance path are implemented.
