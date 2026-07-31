@@ -37,6 +37,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.goto(server.url);
     await openAddApplication(page, "Beer");
     await page.getByTestId("application-name").fill("light");
+    await page.getByTestId("application-param-k").fill("0.5");
     await page.getByTestId("application-target-preview").click();
     await expect(page.getByTestId("application-target-preview-result")).toContainText("1 target object");
     await page.getByTestId("application-submit").click();
