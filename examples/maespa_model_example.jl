@@ -9,7 +9,7 @@ include(joinpath(@__DIR__, "plantbiophysics_subsample", "Monteith.jl"))
 PlantSimEngine.@process "maespa_soil_water" verbose = false
 PlantSimEngine.@process "scene_eb" verbose = false
 PlantSimEngine.@process "leaf_state" verbose = false
-PlantSimEngine.@process "lai_dynamic" verbose = false
+PlantSimEngine.@process "maespa_lai_dynamic" verbose = false
 PlantSimEngine.@process "alloc_a" verbose = false
 PlantSimEngine.@process "alloc_b" verbose = false
 
@@ -147,7 +147,7 @@ PlantSimEngine.run!(::LeafState, status, environment, constants, context) = noth
 
 Compute model leaf area and leaf area index from all selected leaves.
 """
-struct LAIModel{T} <: AbstractLai_DynamicModel
+struct LAIModel{T} <: AbstractMaespa_Lai_DynamicModel
     area::T
 
     function LAIModel(area::T) where {T}

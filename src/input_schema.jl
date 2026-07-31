@@ -24,9 +24,11 @@ end
 
 _is_input_declaration(value) = value isa Union{Required,Default}
 @generated function _has_only_input_declarations(
-    declarations::NamedTuple{names},
-) where {names}
+    declarations::NamedTuple{names,types},
+) where {names,types}
     checks = [
+        fieldtype(types, index) <: Union{Required,Default} ?
+        :(true) :
         :(_is_input_declaration(getfield(declarations, $index)))
         for index in eachindex(names)
     ]
