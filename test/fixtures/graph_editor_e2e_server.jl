@@ -20,7 +20,7 @@ struct E2EConsumer <: AbstractE2EConsumerModel end
 PlantSimEngine.inputs_(::E2EConsumer) = (aPPFD=Required(Float64),)
 PlantSimEngine.outputs_(::E2EConsumer) = (consumed=-Inf,)
 
-session = edit_graph(; port=0, open_browser=false, autosave=false)
+session = PlantSimEngine.GraphEditor.edit_graph(; port=0, open_browser=false, autosave=false)
 atexit(() -> try
     close(session)
 catch
