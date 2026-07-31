@@ -78,7 +78,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("application-submit").click();
 
     let state = await waitForState(request, server.url, (value) => value.graph.metadata.cyclic === true);
-    expect(state.graph.edges.filter((edge) => edge.cycle)).toHaveLength(2);
+    expect(state.graph.edges.filter((edge) => edge.cycle && edge.projection === "applications")).toHaveLength(2);
     await expect(page.getByTestId("cycle-callout")).toBeVisible();
 
     await page.getByTestId("choose-cycle-break").click();
