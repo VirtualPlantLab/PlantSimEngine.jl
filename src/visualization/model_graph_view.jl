@@ -594,7 +594,7 @@ function _model_graph_application_dict(composite_model, application)
         "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
         "environmentWindow" => _model_graph_json_value(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
-        "updates" => [
+        "updates" => Dict{String,Any}[
             Dict(
                 "variables" => collect(string.(_update_variables(update))),
                 "after" => collect(string.(_update_after(update))),

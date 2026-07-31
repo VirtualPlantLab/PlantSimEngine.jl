@@ -120,8 +120,10 @@ end
     @test source_application["outputs"] isa Vector
     @test source_application["environmentInputs"] isa Vector
     @test source_application["environmentOutputs"] isa Vector
+    @test source_application["updates"] isa Vector
     @test isempty(source_application["environmentInputs"])
     @test isempty(source_application["environmentOutputs"])
+    @test isempty(source_application["updates"])
     @test any(
         edge -> edge["kind"] in ("value_binding", "inferred_same_object") &&
                 edge["sourceVariable"] == "signal" &&
