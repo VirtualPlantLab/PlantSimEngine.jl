@@ -140,7 +140,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     const savePath = testInfo.outputPath("model.jl");
     await page.getByTestId("save-model").click();
     await page.getByPlaceholder("/absolute/path/to/model.jl").fill(savePath);
-    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.locator(".model-file-dialog").getByRole("button", { name: "Save", exact: true }).click();
     state = await waitForState(request, server.url, (value) => value.savePath === savePath);
     expect(state.recentPaths).toContain(savePath);
   });
