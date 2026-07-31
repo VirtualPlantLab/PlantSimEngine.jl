@@ -18,6 +18,11 @@ on:
         required: true
         default: master
         type: string
+      plantgeom_ref:
+        description: PlantGeom branch, tag, or commit
+        required: true
+        default: plantsimengine-multi-plant
+        type: string
   workflow_call:
     inputs:
       xpalm_ref:
@@ -29,6 +34,11 @@ on:
         description: PlantBiophysics branch, tag, or commit
         required: false
         default: master
+        type: string
+      plantgeom_ref:
+        description: PlantGeom branch, tag, or commit
+        required: false
+        default: plantsimengine-multi-plant
         type: string
 
 permissions:
@@ -67,6 +77,13 @@ jobs:
           ref: ${{ inputs.plantbiophysics_ref || 'master' }}
           path: downstream/PlantBiophysics
 
+      - name: Check out PlantGeom
+        uses: actions/checkout@v6
+        with:
+          repository: VEZY/PlantGeom.jl
+          ref: ${{ inputs.plantgeom_ref || 'plantsimengine-multi-plant' }}
+          path: downstream/PlantGeom
+
       - name: Set up Julia
         uses: julia-actions/setup-julia@v3
         with:
@@ -88,6 +105,7 @@ jobs:
               PackageSpec(path=pwd()),
               PackageSpec(path=joinpath(pwd(), "downstream", "XPalm")),
               PackageSpec(path=joinpath(pwd(), "downstream", "PlantBiophysics")),
+              PackageSpec(path=joinpath(pwd(), "downstream", "PlantGeom")),
           ])
           Pkg.resolve()
           Pkg.instantiate()

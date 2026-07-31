@@ -260,6 +260,7 @@ if benchmark_test_enabled("XPalm staged performance profile smoke")
         @test length(metadata.manifest_hash) == 64
         @test length(metadata.fixture_hash) == 64
         @test !isempty(metadata.hostname)
+        @test !isempty(metadata.plantgeom_revision)
         result = run_xpalm_performance_profile(; profile=:smoke)
         @test result.no_output_state == result.reference_state
         @test result.small_state == result.reference_state

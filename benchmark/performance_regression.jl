@@ -75,6 +75,10 @@ function _performance_metadata(; warmup_policy)
     plantbiophysics_root = isnothing(plantbiophysics_source) ?
                            nothing :
                            dirname(dirname(plantbiophysics_source))
+    plantgeom_source = Base.find_package("PlantGeom")
+    plantgeom_root = isnothing(plantgeom_source) ?
+                     nothing :
+                     dirname(dirname(plantgeom_source))
     manifest_path = joinpath(pse_root, "benchmark", "Manifest.toml")
     return (
         recorded_at=Dates.format(Dates.now(), dateformat"yyyy-mm-ddTHH:MM:SS.sss"),
@@ -90,6 +94,9 @@ function _performance_metadata(; warmup_policy)
                                   _performance_git_revision(
             plantbiophysics_root,
         ),
+        plantgeom_revision=isnothing(plantgeom_root) ?
+                           "unavailable" :
+                           _performance_git_revision(plantgeom_root),
         xpalm_revision=_performance_git_revision(xpalm_root),
         manifest_hash=_performance_path_hash(manifest_path),
         fixture_hash=_performance_fixture_hash(xpalm_root),

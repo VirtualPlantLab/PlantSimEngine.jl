@@ -42,3 +42,4 @@ jobs:
     with:
       xpalm_ref: codex/xpalm-release-regression
       plantbiophysics_ref: multi-plant
+      plantgeom_ref: plantsimengine-multi-plant
