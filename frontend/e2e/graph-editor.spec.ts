@@ -49,8 +49,8 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("application-node-light").click();
     await page.getByRole("button", { name: "Edit application" }).click();
     await page.getByTestId("application-param-k").fill("0.8");
-    await page.locator(".application-form label", { hasText: "Mode" }).getByRole("combobox").selectOption("clock");
-    await page.locator(".application-form label", { hasText: "Step" }).getByRole("textbox").fill("2.0");
+    await page.getByTestId("application-timestep-mode").selectOption("clock");
+    await page.getByTestId("application-timestep-step").fill("2.0");
     await page.getByTestId("application-submit").click();
 
     state = await waitForState(request, server.url, (value) => findApplication(value, "light").modelParameters.k?.value === 0.8);
