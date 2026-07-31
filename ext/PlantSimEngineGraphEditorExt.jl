@@ -4,6 +4,7 @@ import HTTP
 import JSON
 import PlantSimEngine
 import PlantSimEngine.GraphEditor: edit_graph, current_model, apply_edit!, undo!, redo!
+import Random
 
 mutable struct GraphEditorSession <: PlantSimEngine.GraphEditor.AbstractModelGraphEditorSession
     model::PlantSimEngine.CompositeModel
@@ -78,7 +79,7 @@ function edit_graph(
     handler = stream -> _handle_http(session_ref[], stream)
     server = HTTP.listen!(handler, host, port; listenany=true, verbose=false)
     actual_port = HTTP.port(server)
-    token = _session_token(server)
+    token = _session_token()
     autosave_file = autosave ? _normalized_path(
         isnothing(autosave_path) ? _default_autosave_path() : autosave_path,
     ) : nothing
@@ -130,8 +131,7 @@ function redo!(session::GraphEditorSession)
     return session.model
 end
 
-_session_token(server) = string(hash((time_ns(), getpid(), objectid(server))); base=16) *
-                         string(hash((objectid(server), time_ns(), getpid())); base=16)
+_session_token() = bytes2hex(rand(Random.RandomDevice(), UInt8, 16))
 
 function _is_loopback_host(host)
     return lowercase(strip(String(host))) in (
