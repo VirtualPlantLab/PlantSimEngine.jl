@@ -36,7 +36,8 @@ export function ApplicationForm({
   onSubmit: (value: ApplicationFormValue) => void;
   onClose: () => void;
 }) {
-  const initialType = application?.modelType || initialModelType || models[0]?.type || "";
+  const applicationModel = application ? modelDescriptorForApplication(models, application) : null;
+  const initialType = applicationModel?.type || initialModelType || models[0]?.type || "";
   const [modelType, setModelType] = useState(initialType);
   const model = models.find((item) => item.type === modelType) ?? null;
   const [name, setName] = useState(application?.name || application?.applicationId || defaultApplicationName(model));
@@ -125,6 +126,15 @@ export function ApplicationForm({
       </section>
     </div>
   );
+}
+
+export function modelDescriptorForApplication(
+  models: ModelDescriptor[],
+  application: ApplicationGraphNode,
+) {
+  return models.find((item) => item.type === application.modelType) ??
+    models.find((item) => item.name === application.modelName && item.module === application.module) ??
+    null;
 }
 
 export function ParameterFields({ fields, values, onChange }: { fields: ModelConstructorField[]; values: Record<string, { type: string; value: string }>; onChange: (value: Record<string, { type: string; value: string }>) => void }) {
