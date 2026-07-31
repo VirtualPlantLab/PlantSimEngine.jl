@@ -23,17 +23,10 @@ struct Default{T}
 end
 
 _is_input_declaration(value) = value isa Union{Required,Default}
-@generated function _has_only_input_declarations(
-    declarations::NamedTuple{names,types},
-) where {names,types}
-    checks = [
-        fieldtype(types, index) <: Union{Required,Default} ?
-        :(true) :
-        :(_is_input_declaration(getfield(declarations, $index)))
-        for index in eachindex(names)
-    ]
-    isempty(checks) && return :(true)
-    return foldr((left, right) -> :($left && $right), checks)
+@inline _has_only_input_declarations(::Tuple{}) = true
+@inline function _has_only_input_declarations(declarations::Tuple)
+    return _is_input_declaration(first(declarations)) &&
+           _has_only_input_declarations(Base.tail(declarations))
 end
 
 _input_expected_type(::Required{T}) where {T} = T
@@ -73,16 +66,13 @@ _private_initial_value(value) = deepcopy(value)
     error("Invalid input schema.")
 end
 
-@inline _input_schema(model) = _validated_input_schema(model, inputs_(model))
-
-@inline function _validated_input_schema(model, schema::NamedTuple)
-    _has_only_input_declarations(schema) ||
+@inline function _input_schema(model)
+    schema = inputs_(model)
+    schema isa NamedTuple || return _invalid_input_schema_error(model, schema)
+    _has_only_input_declarations(values(schema)) ||
         return _invalid_input_schema_error(model, schema)
     return schema
 end
-
-@noinline _validated_input_schema(model, schema) =
-    _invalid_input_schema_error(model, schema)
 
 function _input_default_values(schema::NamedTuple)
     pairs_ = Pair{Symbol,Any}[]
