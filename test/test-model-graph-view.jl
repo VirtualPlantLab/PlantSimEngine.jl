@@ -112,6 +112,16 @@ end
     @test view.metadata["executionCount"] == 2
     @test !view.metadata["cyclic"]
     @test any(application -> application["applicationId"] == "source", view.applications)
+    source_application = only(
+        application for application in view.applications
+        if application["applicationId"] == "source"
+    )
+    @test source_application["inputs"] isa Vector
+    @test source_application["outputs"] isa Vector
+    @test source_application["environmentInputs"] isa Vector
+    @test source_application["environmentOutputs"] isa Vector
+    @test isempty(source_application["environmentInputs"])
+    @test isempty(source_application["environmentOutputs"])
     @test any(
         edge -> edge["kind"] in ("value_binding", "inferred_same_object") &&
                 edge["sourceVariable"] == "signal" &&

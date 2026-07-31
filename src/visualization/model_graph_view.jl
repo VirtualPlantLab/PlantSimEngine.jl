@@ -566,10 +566,22 @@ function _model_graph_application_dict(composite_model, application)
         ])),
         "timestep" => _model_graph_json_value(application.timestep),
         "clock" => _model_graph_json_value(application.clock),
-        "inputs" => [_model_graph_port(application, :input, name, value) for (name, value) in pairs(inputs)],
-        "outputs" => [_model_graph_port(application, :output, name, value) for (name, value) in pairs(outputs)],
-        "environmentInputs" => [_model_graph_port(application, :environment_input, name, value) for (name, value) in pairs(environment_inputs)],
-        "environmentOutputs" => [_model_graph_port(application, :environment_output, name, value) for (name, value) in pairs(environment_outputs)],
+        "inputs" => Dict{String,Any}[
+            _model_graph_port(application, :input, name, value)
+            for (name, value) in pairs(inputs)
+        ],
+        "outputs" => Dict{String,Any}[
+            _model_graph_port(application, :output, name, value)
+            for (name, value) in pairs(outputs)
+        ],
+        "environmentInputs" => Dict{String,Any}[
+            _model_graph_port(application, :environment_input, name, value)
+            for (name, value) in pairs(environment_inputs)
+        ],
+        "environmentOutputs" => Dict{String,Any}[
+            _model_graph_port(application, :environment_output, name, value)
+            for (name, value) in pairs(environment_outputs)
+        ],
         "inputBindings" => Dict(
             string(name) => _model_graph_selector_dict(selector)
             for (name, selector) in pairs(value_inputs(spec))
