@@ -127,7 +127,7 @@ translations from removed APIs.
 - `GraphEditor.model_graph_view(model; level=:applications)` returns the typed graph view.
 - `GraphEditor.model_graph_view_json(model)` serializes the same DTO used by the browser.
 - `GraphEditor.write_model_graph_view(path, model)` writes a self-contained static viewer.
-- `GraphEditor.edit_graph(model)` starts the optional HTTP editor after `using HTTP`.
+- `GraphEditor.edit_graph(model; templates=..., environments=...)` starts the optional HTTP editor after `using HTTP` and keeps catalog values authoritative in Julia.
 - `GraphEditor.current_model(session)`, `GraphEditor.undo!(session)`,
   `GraphEditor.redo!(session)`, and `close(session)` control an interactive
   session from Julia.

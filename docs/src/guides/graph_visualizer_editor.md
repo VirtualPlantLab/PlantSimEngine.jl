@@ -53,8 +53,8 @@ The default **Applications** projection groups all concrete executions of one
 application into one card. Use **Objects** to inspect topology and **Executions**
 to inspect concrete `(application, object)` pairs. Search, diagnostics,
 initialization, selectors, parameters, and resolved edge details remain
-available in the static viewer. The topology projection includes model and
-instance containers; selecting an instance or object subtree scopes the
+available in the static viewer. The topology projection includes model,
+template, and instance containers; selecting an instance or object subtree scopes the
 application and execution projections until the filter is cleared.
 
 ## Write A Static Viewer
@@ -117,6 +117,104 @@ close(session)
 Call `GraphEditor.edit_graph()` without a CompositeModel to start from an empty scenario. Use
 `open_browser=false` on remote machines or when a test controls the browser.
 
+## Templates And Several Plants
+
+A template is a reusable set of already coupled applications. Mounting the same
+template twice creates two instance-local application sets. Unqualified selectors
+remain inside their own plant, so a model in `plant_a` does not accidentally read
+values from `plant_b`.
+
+```julia
+using Dates
+
+plant_template = CompositeModelTemplate((
+    ModelSpec(
+        ToyDegreeDaysCumulModel();
+        name=:degree_days,
+        on=Many(scale=:Plant),
+        every=Hour(1),
+    ),
+    ModelSpec(
+        ToyLAIModel();
+        name=:leaf_area,
+        on=Many(scale=:Plant),
+    ),
+); kind=:plant, species=:oil_palm)
+
+plant_a = ObjectInstance(
+    :plant_a,
+    plant_template;
+    root=Object(:plant_a; name=:plant_a, scale=:Plant),
+)
+plant_b = ObjectInstance(
+    :plant_b,
+    plant_template;
+    root=Object(:plant_b; name=:plant_b, scale=:Plant),
+)
+
+model = CompositeModel(plant_a, plant_b)
+session = GraphEditor.edit_graph(
+    model;
+    templates=(oil_palm=plant_template,),
+)
+```
+
+The **Add instance** wizard can mount a catalog template on an existing unclaimed
+root and its descendants, or create a minimal root and mount the template in one
+transaction. Preview the claimed subtree and resolved application targets before
+committing. Unmounting removes the applications but keeps the object subtree.
+
+Catalog templates are presets. The first edit to a mounted preset creates a
+model-local replacement shared by all instances that currently use it. The original
+preset remains available when adding another instance. Template application names
+are fixed because they are part of the template contract.
+
+## Overrides
+
+Use an override when one plant or organ needs a different parameterization without
+changing the shared template:
+
+```julia
+plant_b = ObjectInstance(
+    :plant_b,
+    plant_template;
+    root=Object(:plant_b; name=:plant_b, scale=:Plant),
+    overrides=(
+        degree_days=ToyDegreeDaysCumulModel(T_base=12.0),
+    ),
+)
+```
+
+The editor offers the same operation at instance or object scope. Julia checks that
+the replacement implements the same process and variable contract.
+
+## Environment Catalogs And Routing
+
+Environment values remain in Julia. Give the editor a named catalog rather than
+serializing backends to the browser:
+
+```julia
+session = GraphEditor.edit_graph(
+    model;
+    templates=(oil_palm=plant_template,),
+    environments=(
+        weather=weather,
+        canopy=canopy_backend,
+    ),
+)
+```
+
+The scene environment can be replaced from this catalog. Each application can use
+the scene backend or a catalog backend and can configure `provider`, model-facing
+input-to-source mappings, `sink`, and backend-specific typed options. The editor
+shows `environment_hint(model)` and the effective compiled bindings read-only, then
+asks Julia to validate the candidate routing before it is committed.
+
+Application cadence and temporal windows use `Dates.Second`, `Dates.Minute`,
+`Dates.Hour`, or `Dates.Day`. Whole-scene targeting is also explicit:
+`SceneScope()` must be selected deliberately. Omitting the scope keeps a template
+application local to each mounted instance.
+
 ## What Can Be Edited
 
 The editor supports:
@@ -124,7 +222,8 @@ The editor supports:
 - model objects, metadata, status initialization, and parent topology;
 - model applications, constructor parameters, target selectors, and cadence;
 - explicit value bindings, hard calls, output routing, and update ordering;
-- shared template applications plus instance-level and object-level overrides;
+- template catalogs, transactional instance mounting, shared template edits, and overrides;
+- named scene and application environment backends, providers, sources, and sinks;
 - dependency cycles through an explicit `PreviousTimeStep` break action;
 - undo, redo, temporary recovery autosaves, and readable Julia CompositeModel scripts.
 
@@ -179,4 +278,17 @@ that file. The editor also keeps a temporary recovery file and lists recent
 CompositeModel scripts in **Open**.
 
 Generated code is best effort for arbitrary Julia values and external runtime
-resources. Review the code and keep important scenario scripts under Git.
+resources. Templates and instances are written inline. Named environment values are
+referenced through an `editor_environments` named tuple, and the generated header
+lists the keys that must be supplied when reopening the file:
+
+```julia
+session = GraphEditor.edit_graph(
+    ;
+    recover_path="model.jl",
+    environments=(weather=weather, canopy=canopy_backend),
+)
+```
+
+Missing environment keys fail while the file is opened. Review the generated code
+and keep important scenario scripts under Git.
