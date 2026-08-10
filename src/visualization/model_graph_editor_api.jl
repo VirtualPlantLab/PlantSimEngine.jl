@@ -1,113 +1,159 @@
 abstract type AbstractModelGraphEdit end
 
+"""
+    ModelApplicationRef(scope, application_id; instance=nothing)
+    GlobalApplicationRef(application_id)
+    TemplateApplicationRef(instance, application_id)
+
+Identify the declaration that owns an editable model application. Global
+applications are owned directly by the `CompositeModel`; template applications
+are owned by the shared `CompositeModelTemplate` mounted by `instance`.
+
+Compiled mounted ids such as `plant_a__leaf_area` are deliberately not accepted
+as declaration identities. The graph DTO carries both the compiled id and this
+owner reference.
+"""
+struct ModelApplicationRef
+    scope::Symbol
+    application_id::Symbol
+    instance::Union{Nothing,Symbol}
+
+    function ModelApplicationRef(scope, application_id; instance=nothing)
+        normalized_scope = Symbol(scope)
+        normalized_scope in (:global, :template) || error(
+            "Application scope must be `:global` or `:template`, got `$(normalized_scope)`.",
+        )
+        normalized_instance = isnothing(instance) ? nothing : Symbol(instance)
+        normalized_scope == :global && !isnothing(normalized_instance) && error(
+            "A global application reference cannot name a template instance.",
+        )
+        normalized_scope == :template && isnothing(normalized_instance) && error(
+            "A template application reference requires a representative instance.",
+        )
+        return new(normalized_scope, Symbol(application_id), normalized_instance)
+    end
+end
+
+GlobalApplicationRef(application_id) =
+    ModelApplicationRef(:global, application_id)
+TemplateApplicationRef(instance, application_id) =
+    ModelApplicationRef(:template, application_id; instance=instance)
+
 struct AddModelApplication{S} <: AbstractModelGraphEdit
     spec::S
 end
 
 struct RemoveModelApplication <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
 end
-
-struct RemoveModelTemplateApplication <: AbstractModelGraphEdit
-    instance::Symbol
-    application_id::Symbol
-end
-
-RemoveModelTemplateApplication(
-    instance::Union{Symbol,AbstractString},
-    application_id::Union{Symbol,AbstractString},
-) =
-    RemoveModelTemplateApplication(Symbol(instance), Symbol(application_id))
 
 struct ReplaceModelApplicationModel{M<:AbstractModel} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     model::M
 end
 
 struct UpdateModelApplication{M<:AbstractModel,S,T} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     model::M
     name::Symbol
     selector::S
-    timestep::T
-end
-
-struct UpdateModelTemplateApplication{M<:AbstractModel,S,T} <: AbstractModelGraphEdit
-    instance::Symbol
-    application_id::Symbol
-    model::M
-    selector::S
-    timestep::T
+    cadence::T
 end
 
 struct RenameModelApplication <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     name::Symbol
 end
 
 struct SetModelApplicationTargets{S} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     selector::S
 end
 
 struct SetModelInputBinding{S} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     input::Symbol
     selector::S
 end
 
 struct RemoveModelInputBinding <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     input::Symbol
 end
 
 struct SetModelCallBinding{S} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     call::Symbol
     selector::S
 end
 
 struct RemoveModelCallBinding <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     call::Symbol
 end
 
-struct SetModelApplicationTimeStep{T} <: AbstractModelGraphEdit
-    application_id::Symbol
-    timestep::T
+struct SetModelApplicationCadence{T} <: AbstractModelGraphEdit
+    application::ModelApplicationRef
+    cadence::T
 end
 
 struct SetModelApplicationEnvironment{C} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     configuration::C
 end
 
 struct SetModelOutputRouting <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     output::Symbol
     route::Symbol
 end
 
 struct SetModelUpdateOrdering{U} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     updates::U
 end
 
 struct MarkModelPreviousTimeStep <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     input::Symbol
 end
 
 struct UnmarkModelPreviousTimeStep <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     input::Symbol
 end
 
 struct BreakModelCycle{V} <: AbstractModelGraphEdit
-    application_id::Symbol
+    application::ModelApplicationRef
     input::Symbol
     initialize_missing::Bool
     initial_value::V
+end
+
+struct AddModelInstance{T<:CompositeModelTemplate,O} <: AbstractModelGraphEdit
+    name::Symbol
+    template::T
+    root_id::ObjectId
+    root_object::O
+end
+
+function AddModelInstance(name, template::CompositeModelTemplate, root_id; root_object=nothing)
+    return AddModelInstance(
+        Symbol(name),
+        template,
+        ObjectId(root_id),
+        root_object,
+    )
+end
+
+struct RemoveModelInstance <: AbstractModelGraphEdit
+    name::Symbol
+end
+
+RemoveModelInstance(name::Union{Symbol,AbstractString}) = RemoveModelInstance(Symbol(name))
+
+struct SetCompositeModelEnvironment{E} <: AbstractModelGraphEdit
+    environment::E
 end
 
 struct AddModelObject <: AbstractModelGraphEdit
@@ -220,15 +266,29 @@ RemoveModelObjectOverride(
     RemoveModelObjectOverride(Symbol(instance), ObjectId(object_id), Symbol(application_id))
 
 """
-    apply_model_graph_edit(model, edit)
+    apply_model_graph_edit(model, edit; preserve=())
 
 Apply one declarative graph edit transactionally. The input model is not
 modified; a deep-copied, cache-invalidated CompositeModel is returned. Configuration
 that is temporarily incomplete or cyclic is retained so the editor can display
-and repair it. Structural edit errors leave the original model unchanged.
+and repair it. Structural edit errors leave the original model unchanged. Values
+listed in `preserve` retain their identity inside the copy; editor sessions use
+this for server-side template and environment catalogs.
 """
-function apply_model_graph_edit(model::CompositeModel, edit::AbstractModelGraphEdit)
-    candidate = deepcopy(model)
+function _model_graph_deepcopy(model::CompositeModel, preserve=())
+    stack = IdDict{Any,Any}()
+    for value in preserve
+        stack[value] = value
+    end
+    return Base.deepcopy_internal(model, stack)
+end
+
+function apply_model_graph_edit(
+    model::CompositeModel,
+    edit::AbstractModelGraphEdit;
+    preserve=(),
+)
+    candidate = _model_graph_deepcopy(model, preserve)
     candidate = _apply_model_graph_edit!(candidate, edit)
     _mark_bindings_dirty!(candidate)
     return candidate
@@ -240,7 +300,25 @@ function _model_edit_application_id(spec)
     return isnothing(name) ? process(normalized) : name
 end
 
-function _model_edit_application_index(model::CompositeModel, application_id::Symbol)
+function _model_edit_global_application_ids(model::CompositeModel)
+    mounted_ids = Set{Symbol}()
+    for instance in model.instances
+        union!(mounted_ids, _instance_application_ids(model, instance))
+    end
+    return Set(
+        _model_edit_application_id(spec) for spec in model.applications
+        if _model_edit_application_id(spec) ∉ mounted_ids
+    )
+end
+
+function _model_edit_application_index(model::CompositeModel, application::ModelApplicationRef)
+    application.scope == :global || error(
+        "Application `$(application.application_id)` is owned by a template.",
+    )
+    application_id = application.application_id
+    application_id in _model_edit_global_application_ids(model) || error(
+        "CompositeModel has no global application `$(application_id)`.",
+    )
     matches = Int[
         index for (index, spec) in pairs(model.applications)
         if _model_edit_application_id(spec) == application_id
@@ -252,12 +330,21 @@ function _model_edit_application_index(model::CompositeModel, application_id::Sy
     return only(matches)
 end
 
-function _model_edit_spec(model::CompositeModel, application_id::Symbol)
-    return as_model_spec(model.applications[_model_edit_application_index(model, application_id)])
+function _model_edit_spec(model::CompositeModel, application::ModelApplicationRef)
+    if application.scope == :template
+        _, instance = _model_edit_instance(model, something(application.instance))
+        return _model_edit_template_application_spec(instance, application.application_id)[2]
+    end
+    return as_model_spec(model.applications[_model_edit_application_index(model, application)])
 end
 
-function _replace_model_edit_spec!(model::CompositeModel, application_id::Symbol, spec)
-    index = _model_edit_application_index(model, application_id)
+function _replace_model_edit_spec!(model::CompositeModel, application::ModelApplicationRef, spec)
+    application.scope == :template && return _model_edit_replace_template_spec(
+        model,
+        application,
+        spec,
+    )
+    index = _model_edit_application_index(model, application)
     model.applications[index] = spec
     return model
 end
@@ -273,13 +360,20 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelApplicati
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelApplication)
-    deleteat!(model.applications, _model_edit_application_index(model, edit.application_id))
+    edit.application.scope == :template && return _model_edit_remove_template_application(
+        model,
+        edit.application,
+    )
+    deleteat!(model.applications, _model_edit_application_index(model, edit.application))
     return model
 end
 
-function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelTemplateApplication)
-    _, selected_instance = _model_edit_instance(model, edit.instance)
-    base_name = _model_edit_template_application_id(selected_instance, edit.application_id)
+function _model_edit_remove_template_application(
+    model::CompositeModel,
+    application::ModelApplicationRef,
+)
+    _, selected_instance = _model_edit_instance(model, something(application.instance))
+    base_name = _model_edit_template_application_id(selected_instance, application.application_id)
     template = selected_instance.template
     template_specs = Any[as_model_spec(item) for item in template.applications]
     indexes = Int[
@@ -316,65 +410,74 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelTempla
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::ReplaceModelApplicationModel)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     _validate_model_override_contract!(
         model_(spec),
         edit.model;
-        description="Replacement model for application `$(edit.application_id)`",
+        description="Replacement model for application `$(edit.application.application_id)`",
     )
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; model=edit.model),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelApplication)
-    spec = _model_edit_spec(model, edit.application_id)
+    application_id = edit.application.application_id
+    spec = _model_edit_spec(model, edit.application)
     _validate_model_override_contract!(
         model_(spec),
         edit.model;
-        description="Updated model for application `$(edit.application_id)`",
+        description="Updated model for application `$(application_id)`",
     )
     edit.selector isa AbstractObjectMultiplicity || error(
         "Application targets must use One(...), OptionalOne(...), or Many(...).",
     )
-    if edit.name != edit.application_id
+    edit.application.scope == :template && edit.name != application_id && error(
+        "Template application names are fixed in the graph editor.",
+    )
+    if edit.application.scope == :global && edit.name != application_id
         any(item -> _model_edit_application_id(item) == edit.name, model.applications) && error(
             "CompositeModel application `$(edit.name)` already exists.",
         )
     end
-    _replace_model_edit_spec!(
+    model = _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(
             spec;
             model=edit.model,
             name=edit.name,
             on=edit.selector,
-            every=edit.timestep,
+            every=edit.cadence,
         ),
     )
-    edit.name == edit.application_id || _rewrite_model_application_references!(
+    return edit.name == application_id ? model : _rewrite_model_application_references!(
         model,
-        edit.application_id,
+        application_id,
         edit.name,
     )
-    return model
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RenameModelApplication)
+    edit.application.scope == :global || error(
+        "Template application names are fixed in the graph editor.",
+    )
     any(item -> _model_edit_application_id(item) == edit.name, model.applications) && error(
         "CompositeModel application `$(edit.name)` already exists.",
     )
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; name=edit.name),
     )
-    _rewrite_model_application_references!(model, edit.application_id, edit.name)
-    return model
+    return _rewrite_model_application_references!(
+        model,
+        edit.application.application_id,
+        edit.name,
+    )
 end
 
 function _rewrite_model_selector_application(selector, old_id::Symbol, new_id::Symbol)
@@ -388,44 +491,97 @@ function _rewrite_model_selector_application(selector, old_id::Symbol, new_id::S
     return _rebuild_selector(selector, rewritten)
 end
 
+function _model_edit_spec_references_application(spec, application_id::Symbol)
+    normalized = as_model_spec(spec)
+    selectors = (
+        applies_to(normalized),
+        values(value_inputs(normalized))...,
+        values(model_calls(normalized))...,
+    )
+    selector_reference = any(selectors) do selector
+        selector isa AbstractObjectMultiplicity || return false
+        haskey(criteria(selector), :application) || return false
+        return criteria(selector).application == application_id
+    end
+    update_reference = any(
+        application_id in _update_after(update) for update in updates(normalized)
+    )
+    return selector_reference || update_reference
+end
+
+function _rewrite_model_spec_application_references(spec, old_id::Symbol, new_id::Symbol)
+    normalized = as_model_spec(spec)
+    inputs = (; (
+        Symbol(name) => _rewrite_model_selector_application(selector, old_id, new_id)
+        for (name, selector) in pairs(value_inputs(normalized))
+    )...)
+    calls = (; (
+        Symbol(name) => _rewrite_model_selector_application(selector, old_id, new_id)
+        for (name, selector) in pairs(model_calls(normalized))
+    )...)
+    target = _rewrite_model_selector_application(applies_to(normalized), old_id, new_id)
+    updates_ = Tuple(
+        Updates(
+            _update_variables(update)...;
+            after=Tuple(item == old_id ? new_id : item for item in _update_after(update)),
+        )
+        for update in updates(normalized)
+    )
+    return _replace_model_spec(
+        normalized;
+        inputs=inputs,
+        calls=calls,
+        on=target,
+        updates=updates_,
+    )
+end
+
 function _rewrite_model_application_references!(model::CompositeModel, old_id::Symbol, new_id::Symbol)
     for (index, raw_spec) in pairs(model.applications)
-        spec = as_model_spec(raw_spec)
-        inputs = (; (
-            Symbol(name) => _rewrite_model_selector_application(selector, old_id, new_id)
-            for (name, selector) in pairs(spec.inputs)
-        )...)
-        calls = (; (
-            Symbol(name) => _rewrite_model_selector_application(selector, old_id, new_id)
-            for (name, selector) in pairs(spec.calls)
-        )...)
-        target = _rewrite_model_selector_application(spec.applies_to, old_id, new_id)
-        updates_ = Tuple(
-            Updates(
-                _update_variables(update)...;
-                after=Tuple(item == old_id ? new_id : item for item in _update_after(update)),
-            )
-            for update in spec.updates
-        )
-        model.applications[index] = _replace_model_spec(
-            spec;
-            inputs=inputs,
-            calls=calls,
-            on=target,
-            updates=updates_,
+        _model_edit_spec_references_application(raw_spec, old_id) || continue
+        model.applications[index] = _rewrite_model_spec_application_references(
+            raw_spec,
+            old_id,
+            new_id,
         )
     end
-    return model
+    replacements = IdDict{Any,Any}()
+    for instance in model.instances
+        template = instance.template
+        haskey(replacements, template) && continue
+        any(
+            spec -> _model_edit_spec_references_application(spec, old_id),
+            template.applications,
+        ) || continue
+        replacements[template] = CompositeModelTemplate(
+            Tuple(
+                _rewrite_model_spec_application_references(spec, old_id, new_id)
+                for spec in template.applications
+            );
+            kind=template.kind,
+            species=template.species,
+            parameters=template.parameters,
+        )
+    end
+    isempty(replacements) && return model
+    instances = Tuple(
+        _model_edit_normalize_instance(
+            instance;
+            template=get(replacements, instance.template, instance.template),
+        )
+        for instance in model.instances
+    )
+    return _model_edit_rebuild_instances(model, instances)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicationTargets)
     edit.selector isa AbstractObjectMultiplicity || error(
         "Application targets must use One(...), OptionalOne(...), or Many(...).",
     )
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; on=edit.selector),
     )
 end
@@ -453,68 +609,69 @@ end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelInputBinding)
     edit.selector isa AbstractObjectMultiplicity || error("An input binding requires an object selector.")
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     edit.input in Symbol.(keys(_input_schema(spec))) || error(
-        "Application `$(edit.application_id)` model has no input `$(edit.input)`.",
+        "Application `$(edit.application.application_id)` model has no input `$(edit.input)`.",
     )
     inputs = _model_edit_namedtuple_set(spec.inputs, edit.input, edit.selector)
     origins = _model_edit_origins_set(spec.input_origins, edit.input, :model_spec)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; inputs=inputs, input_origins=origins),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelInputBinding)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     inputs = _model_edit_namedtuple_remove(spec.inputs, edit.input)
     origins = _model_edit_namedtuple_remove(spec.input_origins, edit.input)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; inputs=inputs, input_origins=origins),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelCallBinding)
     edit.selector isa AbstractObjectMultiplicity || error("A call binding requires an object selector.")
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     calls = _model_edit_namedtuple_set(spec.calls, edit.call, edit.selector)
     origins = _model_edit_origins_set(spec.call_origins, edit.call, :model_spec)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; calls=calls, call_origins=origins),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelCallBinding)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     calls = _model_edit_namedtuple_remove(spec.calls, edit.call)
     origins = _model_edit_namedtuple_remove(spec.call_origins, edit.call)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; calls=calls, call_origins=origins),
     )
 end
 
-function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicationTimeStep)
-    spec = _model_edit_spec(model, edit.application_id)
+function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicationCadence)
+    spec = _model_edit_spec(model, edit.application)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
-        _replace_model_spec(spec; every=edit.timestep),
+        edit.application,
+        _replace_model_spec(spec; every=edit.cadence),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelApplicationEnvironment)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
+    configuration = isnothing(edit.configuration) ? nothing : Environment(edit.configuration)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
-        _replace_model_spec(spec; environment=Environment(edit.configuration)),
+        edit.application,
+        _replace_model_spec(spec; environment=configuration),
     )
 end
 
@@ -522,44 +679,86 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelOutputRou
     edit.route in (:canonical, :stream_only) || error(
         "Output route must be `:canonical` or `:stream_only`.",
     )
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     edit.output in Symbol.(keys(outputs_(spec))) || error(
-        "Application `$(edit.application_id)` model has no output `$(edit.output)`.",
+        "Application `$(edit.application.application_id)` model has no output `$(edit.output)`.",
     )
     routing = _model_edit_namedtuple_set(spec.output_routing, edit.output, edit.route)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; output_routing=routing),
     )
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelUpdateOrdering)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     return _replace_model_edit_spec!(
         model,
-        edit.application_id,
+        edit.application,
         _replace_model_spec(spec; updates=edit.updates),
     )
 end
 
+function _model_edit_compiled_application_ids(
+    model::CompositeModel,
+    application::ModelApplicationRef,
+)
+    application.scope == :global && return Set((application.application_id,))
+    _, selected_instance = _model_edit_instance(model, something(application.instance))
+    base_name = _model_edit_template_application_id(
+        selected_instance,
+        application.application_id,
+    )
+    template = selected_instance.template
+    return Set(
+        Symbol(instance.name, "__", base_name) for instance in model.instances
+        if instance.template === template
+    )
+end
+
+function _model_edit_unmount_selector(
+    selector::AbstractObjectMultiplicity,
+    instance::ObjectInstance,
+)
+    selector_criteria = pairs(criteria(selector))
+    prefix = string(instance.name, "__")
+    values = Pair{Symbol,Any}[]
+    for (key_, value_) in selector_criteria
+        key = Symbol(key_)
+        value = value_
+        key == :within && value isa Scope && value.name == instance.name && continue
+        if key == :application && startswith(string(value), prefix)
+            value = Symbol(chopprefix(string(value), prefix))
+        end
+        push!(values, key => value)
+    end
+    return _rebuild_selector(selector, (; values...))
+end
+
 function _apply_model_graph_edit!(model::CompositeModel, edit::MarkModelPreviousTimeStep)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     selector = if haskey(spec.inputs, edit.input)
         getproperty(spec.inputs, edit.input)
     else
         report = compile_model_report(model)
+        compiled_ids = _model_edit_compiled_application_ids(model, edit.application)
         selectors = Any[
             binding.selector for binding in report.input_bindings
-            if binding.application_id == edit.application_id && binding.input == edit.input
+            if binding.application_id in compiled_ids && binding.input == edit.input
         ]
         isempty(selectors) && error(
-            "Application `$(edit.application_id)` has no resolved selector for input `$(edit.input)`. Add an input binding first.",
+            "Application `$(edit.application.application_id)` has no resolved selector for input `$(edit.input)`. Add an input binding first.",
         )
-        first(selectors)
+        if edit.application.scope == :template
+            _, instance = _model_edit_instance(model, something(edit.application.instance))
+            _model_edit_unmount_selector(first(selectors), instance)
+        else
+            first(selectors)
+        end
     end
     selector isa AbstractObjectMultiplicity || error(
-        "Input `$(edit.input)` on application `$(edit.application_id)` does not use an object selector.",
+        "Input `$(edit.input)` on application `$(edit.application.application_id)` does not use an object selector.",
     )
     previous_selector = _selector_with_previous_timestep(
         selector,
@@ -567,7 +766,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::MarkModelPrevious
     )
     return _apply_model_graph_edit!(
         model,
-        SetModelInputBinding(edit.application_id, edit.input, previous_selector),
+        SetModelInputBinding(edit.application, edit.input, previous_selector),
     )
 end
 
@@ -581,18 +780,18 @@ function _model_selector_without_previous_timestep(selector::AbstractObjectMulti
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::UnmarkModelPreviousTimeStep)
-    spec = _model_edit_spec(model, edit.application_id)
+    spec = _model_edit_spec(model, edit.application)
     haskey(spec.inputs, edit.input) || error(
-        "Application `$(edit.application_id)` has no input binding `$(edit.input)`.",
+        "Application `$(edit.application.application_id)` has no input binding `$(edit.input)`.",
     )
     selector = getproperty(spec.inputs, edit.input)
     _selector_policy(selector) isa PreviousTimeStep || error(
-        "Input `$(edit.input)` on application `$(edit.application_id)` is not marked PreviousTimeStep.",
+        "Input `$(edit.input)` on application `$(edit.application.application_id)` is not marked PreviousTimeStep.",
     )
     return _apply_model_graph_edit!(
         model,
         SetModelInputBinding(
-            edit.application_id,
+            edit.application,
             edit.input,
             _model_selector_without_previous_timestep(selector),
         ),
@@ -602,22 +801,24 @@ end
 function _apply_model_graph_edit!(model::CompositeModel, edit::BreakModelCycle)
     _apply_model_graph_edit!(
         model,
-        MarkModelPreviousTimeStep(edit.application_id, edit.input),
+        MarkModelPreviousTimeStep(edit.application, edit.input),
     )
     edit.initialize_missing || return model
     report = compile_model_report(model)
+    compiled_ids = _model_edit_compiled_application_ids(model, edit.application)
     applications = [
         application for application in report.applications
-        if application.id == edit.application_id
+        if application.id in compiled_ids
     ]
     isempty(applications) && error(
-        "Application `$(edit.application_id)` could not be resolved after breaking its cycle.",
+        "Application `$(edit.application.application_id)` could not be resolved after breaking its cycle.",
     )
-    application = only(applications)
-    for object_id in application.target_ids
-        object = _model_object(model, object_id)
-        supplied = object.status isa Status && edit.input in Symbol.(propertynames(object.status))
-        supplied || _set_model_object_status!(model, object_id, edit.input, edit.initial_value)
+    for application in applications
+        for object_id in application.target_ids
+            object = _model_object(model, object_id)
+            supplied = object.status isa Status && edit.input in Symbol.(propertynames(object.status))
+            supplied || _set_model_object_status!(model, object_id, edit.input, edit.initial_value)
+        end
     end
     return model
 end
@@ -628,12 +829,23 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelObject)
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObject)
+    removed_ids = edit.recursive ? Set(_descendant_ids(model, edit.object_id)) : Set((edit.object_id,))
+    mounted_roots = Dict(_instance_root_id(instance) => instance.name for instance in model.instances)
+    protected = intersect(removed_ids, Set(keys(mounted_roots)))
+    isempty(protected) || error(
+        "Unmount object instance `$(mounted_roots[first(protected)])` before removing its root object.",
+    )
     remove_object!(model, edit.object_id; recursive=edit.recursive)
     return model
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::ReparentModelObject)
+    before = _object_instance_name(model, edit.object_id)
     reparent_object!(model, edit.object_id, edit.parent_id)
+    after = _object_instance_name(model, edit.object_id)
+    before != after && (!isnothing(before) || !isnothing(after)) && error(
+        "Object reparenting cannot cross an instance ownership boundary (`$(before)` to `$(after)`).",
+    )
     return model
 end
 
@@ -701,6 +913,18 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
     allowed = Set((:scale, :kind, :species, :name, :geometry, :parent))
     unknown = setdiff(Set(Symbol.(keys(edit.configuration))), allowed)
     isempty(unknown) || error("Unsupported object metadata fields: $(sort!(collect(unknown); by=string)).")
+    if haskey(edit.configuration, :name)
+        instance = findfirst(
+            item -> _instance_root_id(item) == object.id,
+            model.instances,
+        )
+        if !isnothing(instance)
+            required_name = model.instances[instance].name
+            edit.configuration.name == required_name || error(
+                "Instance root `$(object.id.value)` must keep the instance name `$(required_name)`.",
+            )
+        end
+    end
     _deindex_object!(model.registry, object)
     for (key_, value) in pairs(edit.configuration)
         key = Symbol(key_)
@@ -713,7 +937,14 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelObjectMet
         end
     end
     _index_object!(model.registry, object)
-    haskey(edit.configuration, :parent) && reparent_object!(model, object.id, edit.configuration.parent)
+    if haskey(edit.configuration, :parent)
+        before = _object_instance_name(model, object.id)
+        reparent_object!(model, object.id, edit.configuration.parent)
+        after = _object_instance_name(model, object.id)
+        before != after && (!isnothing(before) || !isnothing(after)) && error(
+            "Object reparenting cannot cross an instance ownership boundary (`$(before)` to `$(after)`).",
+        )
+    end
     _mark_environment_bindings_dirty!(model, object.id)
     return model
 end
@@ -807,9 +1038,16 @@ function _model_edit_rebuild_instances(
 end
 
 
-function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelTemplateApplication)
-    _, selected_instance = _model_edit_instance(model, edit.instance)
-    base_name = _model_edit_template_application_id(selected_instance, edit.application_id)
+function _model_edit_replace_template_spec(
+    model::CompositeModel,
+    application::ModelApplicationRef,
+    replacement_spec,
+)
+    _, selected_instance = _model_edit_instance(model, something(application.instance))
+    base_name = _model_edit_template_application_id(
+        selected_instance,
+        application.application_id,
+    )
     template = selected_instance.template
     template_specs = Any[as_model_spec(item) for item in template.applications]
     matches = Int[
@@ -818,21 +1056,11 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelTempla
     ]
     isempty(matches) && error("Template application `$(base_name)` was not found.")
     index = only(matches)
-    original = template_specs[index]
-    _validate_model_override_contract!(
-        model_(original),
-        edit.model;
-        description="Updated shared template application `$(base_name)`",
+    replacement_name = _mounted_application_name(as_model_spec(replacement_spec), index)
+    replacement_name == base_name || error(
+        "Template application names are fixed in the graph editor.",
     )
-    edit.selector isa AbstractObjectMultiplicity || error(
-        "Template application targets must use One(...), OptionalOne(...), or Many(...).",
-    )
-    template_specs[index] = _replace_model_spec(
-        original;
-        model=edit.model,
-        on=edit.selector,
-        every=edit.timestep,
-    )
+    template_specs[index] = replacement_spec
     replacement_template = CompositeModelTemplate(
         Tuple(template_specs);
         kind=template.kind,
@@ -853,6 +1081,56 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::UpdateModelTempla
         model,
         Tuple(instances);
         replace_mounted_ids=affected,
+    )
+end
+
+function _apply_model_graph_edit!(model::CompositeModel, edit::AddModelInstance)
+    any(instance -> instance.name == edit.name, model.instances) && error(
+        "CompositeModel already has an object instance `$(edit.name)`.",
+    )
+    if !isnothing(edit.root_object)
+        edit.root_object isa Object || error("A new instance root must be an Object.")
+        edit.root_object.id == edit.root_id || error(
+            "The new root object id must match the requested instance root id.",
+        )
+        haskey(model.registry.objects, edit.root_id) && error(
+            "CompositeModel already has object `$(edit.root_id.value)`.",
+        )
+        register_object!(model, edit.root_object)
+    end
+    haskey(model.registry.objects, edit.root_id) || error(
+        "Object instance `$(edit.name)` refers to missing root `$(edit.root_id.value)`.",
+    )
+    root = _model_object(model, edit.root_id)
+    !isnothing(root.name) && root.name != edit.name && error(
+        "Instance name `$(edit.name)` conflicts with root name `$(root.name)`.",
+    )
+    instance = ObjectInstance(edit.name, edit.template; root=edit.root_id)
+    return _model_edit_rebuild_instances(model, (model.instances..., instance))
+end
+
+function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelInstance)
+    index, _ = _model_edit_instance(model, edit.name)
+    instances = Any[model.instances...]
+    deleteat!(instances, index)
+    return _model_edit_rebuild_instances(model, Tuple(instances))
+end
+
+function _apply_model_graph_edit!(model::CompositeModel, edit::SetCompositeModelEnvironment)
+    mounted_ids = Set{Symbol}()
+    for instance in model.instances
+        union!(mounted_ids, _instance_application_ids(model, instance))
+    end
+    global_applications = Tuple(
+        application for application in model.applications
+        if _model_edit_application_id(application) ∉ mounted_ids
+    )
+    return CompositeModel(
+        (deepcopy(object) for object in model_objects(model))...;
+        applications=global_applications,
+        instances=Tuple(_model_edit_normalize_instance(instance) for instance in model.instances),
+        environment=edit.environment,
+        source_adapter=model.source_adapter,
     )
 end
 

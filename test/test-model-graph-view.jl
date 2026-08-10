@@ -1,4 +1,8 @@
 abstract type AbstractModelGraphSourceModel <: PlantSimEngine.AbstractModel end
+import Dates
+
+model_graph_global(application_id) = GlobalApplicationRef(application_id)
+model_graph_template(instance, application_id) = TemplateApplicationRef(instance, application_id)
 abstract type AbstractModelGraphConsumerModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphCycleAModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphCycleBModel <: PlantSimEngine.AbstractModel end
@@ -36,6 +40,13 @@ PlantSimEngine.outputs_(::ModelGraphEnvironmentModel) = (result=-Inf,)
 PlantSimEngine.environment_inputs_(::ModelGraphEnvironmentModel) = (T=-Inf,)
 PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temperature=-Inf,)
 
+struct ModelGraphWeatherBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
+struct ModelGraphCanopyBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
+PlantSimEngine.EnvironmentAPI.environment_variables(::ModelGraphWeatherBackend) = (:T, :RH)
+PlantSimEngine.EnvironmentAPI.environment_variables(::ModelGraphCanopyBackend) = (:T, :wind)
+PlantSimEngine.EnvironmentAPI.base_step_seconds(::Union{ModelGraphWeatherBackend,ModelGraphCanopyBackend}) = 3600.0
+PlantSimEngine.EnvironmentAPI.get_nsteps(::Union{ModelGraphWeatherBackend,ModelGraphCanopyBackend}) = 1
+
 @testset "CompositeModel graph discovery" begin
     @test AbstractModelGraphSourceModel in available_processes()
     @test ModelGraphSourceModel in available_models(:model_graph_source)
@@ -62,7 +73,7 @@ end
         application=:sunlit_energy,
         var=:temperature,
         policy=Integrate(),
-        window=2.0,
+        window=Dates.Hour(2),
         from_status=true,
         after=("radiation", :water),
     )
@@ -89,6 +100,8 @@ end
     )
     @test payload["within"] == Dict("type" => "SceneScope")
     @test payload["after"] == ["radiation", "water"]
+    @test payload["window"]["mode"] == "period"
+    @test payload["window"]["unit"] == "Hour"
 end
 
 @testset "CompositeModel graph application and resolved views" begin
@@ -121,6 +134,13 @@ end
     @test source_application["environmentInputs"] isa Vector
     @test source_application["environmentOutputs"] isa Vector
     @test source_application["updates"] isa Vector
+    @test source_application["owner"] == Dict(
+        "scope" => "global",
+        "instance" => nothing,
+        "applicationId" => "source",
+        "templateId" => nothing,
+    )
+    @test source_application["cadence"]["mode"] == "default"
     @test isempty(source_application["environmentInputs"])
     @test isempty(source_application["environmentOutputs"])
     @test isempty(source_application["updates"])
@@ -138,6 +158,7 @@ end
     json = model_graph_view_json(view)
     @test occursin("\"applications\"", json)
     @test occursin("ModelGraphSourceModel", json)
+    @test JSON.parse(json)["schemaVersion"] == 2
 
     path = write_model_graph_view(
         joinpath(mktempdir(), "model-graph.html"),
@@ -175,7 +196,11 @@ end
     view = model_graph_view(model)
 
     @test view.metadata["instanceCount"] == 2
+    @test length(view.templates) == 1
+    @test only(view.templates)["source"] == "model"
+    @test Set(only(view.templates)["mountedInstances"]) == Set(["plant_a", "plant_b"])
     @test Set(instance["name"] for instance in view.instances) == Set(["plant_a", "plant_b"])
+    @test all(instance["templateId"] == only(view.templates)["id"] for instance in view.instances)
     @test Set(application["applicationId"] for application in view.applications) ==
           Set(["plant_a__source", "plant_b__source"])
     plant_b_application = only(
@@ -184,6 +209,126 @@ end
     )
     @test plant_b_application["modelParameters"]["coefficient"]["value"] == 3.0
     @test plant_b_application["targetIds"] == ["leaf_b"]
+    @test plant_b_application["owner"]["scope"] == "template"
+    @test plant_b_application["owner"]["applicationId"] == "source"
+    @test any(edge -> edge["kind"] == "template_mount", view.edges)
+end
+
+@testset "CompositeModel graph schema v2 catalogs and environments" begin
+    template = CompositeModelTemplate((
+        ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf), every=Dates.Hour(1)),
+    ); kind=:plant, species=:test_species)
+    weather = ModelGraphWeatherBackend()
+    model = CompositeModel(
+        ObjectInstance(
+            :plant,
+            template;
+            root=Object(:plant; name=:plant, scale=:Plant),
+            objects=(Object(:leaf; scale=:Leaf, parent=:plant, status=Status(driver=1.0)),),
+        );
+        environment=weather,
+    )
+    view = model_graph_view(
+        model;
+        templates=(oil_palm=template,),
+        environments=(weather=weather, canopy=ModelGraphCanopyBackend()),
+    )
+
+    @test view.metadata["sceneEnvironmentId"] == "environment:weather"
+    @test only(view.instances)["templateId"] == "catalog:oil_palm"
+    @test only(view.templates)["source"] == "catalog"
+    @test Set(environment["id"] for environment in view.environments) ==
+          Set(["environment:weather", "environment:canopy"])
+    active = only(environment for environment in view.environments if environment["active"])
+    @test active["variables"] == ["RH", "T"]
+    application = only(view.applications)
+    @test application["owner"]["applicationId"] == "source"
+    @test application["cadence"]["mode"] == "period"
+    @test application["cadence"]["unit"] == "Hour"
+    @test application["cadence"]["value"] == 1
+end
+
+@testset "CompositeModel template bindings stay instance-local" begin
+    template = CompositeModelTemplate((
+        ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),
+        ModelSpec(ModelGraphConsumerModel(); name=:consumer, on=Many(scale=:Leaf)),
+    ))
+    model = CompositeModel(
+        ObjectInstance(
+            :plant_a,
+            template;
+            root=Object(:plant_a; name=:plant_a, scale=:Plant),
+            objects=(Object(:leaf_a; scale=:Leaf, parent=:plant_a, status=Status(driver=1.0)),),
+        ),
+        ObjectInstance(
+            :plant_b,
+            template;
+            root=Object(:plant_b; name=:plant_b, scale=:Plant),
+            objects=(Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),),
+        ),
+    )
+    report = compile_model_report(model)
+    bindings = [binding for binding in report.input_bindings if binding.input == :signal]
+
+    @test length(bindings) == 2
+    @test all(length(binding.source_ids) == 1 for binding in bindings)
+    @test Set((binding.consumer_id.value, only(binding.source_ids).value) for binding in bindings) ==
+          Set([(:leaf_a, :leaf_a), (:leaf_b, :leaf_b)])
+    @test Set(only(binding.source_application_ids) for binding in bindings) ==
+          Set([:plant_a__source, :plant_b__source])
+end
+
+@testset "CompositeModel graph resolves selector multiplicity globally and per template" begin
+    global_model = CompositeModel(
+        Object(:plant; name=:plant, scale=:Plant, status=Status(driver=1.0)),
+        Object(:leaf_1; scale=:Leaf, parent=:plant, status=Status(driver=1.0)),
+        Object(:leaf_2; scale=:Leaf, parent=:plant, status=Status(driver=1.0));
+        applications=(
+            ModelSpec(ModelGraphSourceModel(); name=:one, on=One(scale=:Plant)),
+            ModelSpec(ModelGraphSourceModel(); name=:optional, on=OptionalOne(scale=:Flower)),
+            ModelSpec(ModelGraphSourceModel(); name=:many, on=Many(scale=:Leaf)),
+        ),
+    )
+    global_counts = Dict(
+        application["applicationId"] => application["targetCount"]
+        for application in model_graph_view(global_model).applications
+    )
+    @test global_counts == Dict("one" => 1, "optional" => 0, "many" => 2)
+
+    template = CompositeModelTemplate((
+        ModelSpec(ModelGraphSourceModel(); name=:one, on=One(scale=:Plant)),
+        ModelSpec(ModelGraphSourceModel(); name=:optional, on=OptionalOne(scale=:Flower)),
+        ModelSpec(ModelGraphSourceModel(); name=:many, on=Many(scale=:Leaf)),
+    ))
+    template_model = CompositeModel(
+        ObjectInstance(
+            :plant_a,
+            template;
+            root=Object(:plant_a; name=:plant_a, scale=:Plant, status=Status(driver=1.0)),
+            objects=(
+                Object(:leaf_a_1; scale=:Leaf, parent=:plant_a, status=Status(driver=1.0)),
+                Object(:leaf_a_2; scale=:Leaf, parent=:plant_a, status=Status(driver=1.0)),
+            ),
+        ),
+        ObjectInstance(
+            :plant_b,
+            template;
+            root=Object(:plant_b; name=:plant_b, scale=:Plant, status=Status(driver=1.0)),
+            objects=(Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),),
+        ),
+    )
+    template_counts = Dict(
+        application["applicationId"] => application["targetCount"]
+        for application in model_graph_view(template_model).applications
+    )
+    @test template_counts == Dict(
+        "plant_a__one" => 1,
+        "plant_a__optional" => 0,
+        "plant_a__many" => 2,
+        "plant_b__one" => 1,
+        "plant_b__optional" => 0,
+        "plant_b__many" => 1,
+    )
 end
 
 @testset "CompositeModel graph invalid and cyclic reports" begin
@@ -257,7 +402,7 @@ end
 
     changed_model = apply_model_graph_edit(
         with_source,
-        ReplaceModelApplicationModel(:source, ModelGraphSourceModel(4.0)),
+        ReplaceModelApplicationModel(model_graph_global(:source), ModelGraphSourceModel(4.0)),
     )
     changed_view = model_graph_view(changed_model)
     changed_application = only(changed_view.applications)
@@ -272,7 +417,7 @@ end
 
     removed = apply_model_graph_edit(
         changed_status,
-        RemoveModelApplication(:source),
+        RemoveModelApplication(model_graph_global(:source)),
     )
     @test isempty(removed.applications)
 end
@@ -289,7 +434,7 @@ end
 
     broken = apply_model_graph_edit(
         model,
-        MarkModelPreviousTimeStep(:cycle_a, :y),
+        MarkModelPreviousTimeStep(model_graph_global(:cycle_a), :y),
     )
     broken_view = model_graph_view(broken)
     @test !broken_view.metadata["cyclic"]
@@ -297,7 +442,7 @@ end
 
     restored = apply_model_graph_edit(
         broken,
-        UnmarkModelPreviousTimeStep(:cycle_a, :y),
+        UnmarkModelPreviousTimeStep(model_graph_global(:cycle_a), :y),
     )
     @test model_graph_view(restored).metadata["cyclic"]
 
@@ -310,7 +455,7 @@ end
     )
     lagged_without_initial_value = apply_model_graph_edit(
         initialized_scene,
-        MarkModelPreviousTimeStep(:cycle_a, :y),
+        MarkModelPreviousTimeStep(model_graph_global(:cycle_a), :y),
     )
     lagged_row = only(
         row for row in model_graph_view(lagged_without_initial_value).initialization
@@ -320,7 +465,7 @@ end
     @test lagged_row["disposition"] == "required"
     initialized_break = apply_model_graph_edit(
         initialized_scene,
-        BreakModelCycle(:cycle_a, :y, true, 0.25),
+        BreakModelCycle(model_graph_global(:cycle_a), :y, true, 0.25),
     )
     @test !model_graph_view(initialized_break).metadata["cyclic"]
     @test only(model_objects(initialized_break)).status.y == 0.25
@@ -336,15 +481,15 @@ end
 
     configured = apply_model_graph_edit(
         model,
-        SetModelApplicationEnvironment(:source, (provider=:model, sources=(T=:temperature,))),
+        SetModelApplicationEnvironment(model_graph_global(:source), (provider=:model, sources=(T=:temperature,))),
     )
     configured = apply_model_graph_edit(
         configured,
-        SetModelOutputRouting(:source, :signal, :stream_only),
+        SetModelOutputRouting(model_graph_global(:source), :signal, :stream_only),
     )
     configured = apply_model_graph_edit(
         configured,
-        SetModelUpdateOrdering(:source, (Updates(:signal; after=:driver),)),
+        SetModelUpdateOrdering(model_graph_global(:source), (Updates(:signal; after=:driver),)),
     )
     spec = only(configured.applications)
     @test environment_config(spec).config ==
@@ -424,12 +569,12 @@ end
 
     configured = apply_model_graph_edit(
         model,
-        SetModelApplicationTargets(:consumer, OptionalOne(name=:consumer_object)),
+        SetModelApplicationTargets(model_graph_global(:consumer), OptionalOne(name=:consumer_object)),
     )
     configured = apply_model_graph_edit(
         configured,
         SetModelInputBinding(
-            :consumer,
+            model_graph_global(:consumer),
             :signal,
             One(name=:source_object, application=:source, var=:signal),
         ),
@@ -437,25 +582,25 @@ end
     configured = apply_model_graph_edit(
         configured,
         SetModelCallBinding(
-            :consumer,
+            model_graph_global(:consumer),
             :source_call,
             One(name=:source_object, application=:source),
         ),
     )
     configured = apply_model_graph_edit(
         configured,
-        SetModelApplicationTimeStep(:consumer, ClockSpec(2.0)),
+        SetModelApplicationCadence(model_graph_global(:consumer), Dates.Hour(2)),
     )
     configured = apply_model_graph_edit(
         configured,
-        SetModelUpdateOrdering(:consumer, (Updates(:result; after=:source),)),
+        SetModelUpdateOrdering(model_graph_global(:consumer), (Updates(:result; after=:source),)),
     )
 
-    consumer = PlantSimEngine._model_edit_spec(configured, :consumer)
+    consumer = PlantSimEngine._model_edit_spec(configured, model_graph_global(:consumer))
     @test applies_to(consumer) isa OptionalOne
     @test PlantSimEngine.criteria(value_inputs(consumer).signal).application == :source
     @test PlantSimEngine.criteria(model_calls(consumer).source_call).application == :source
-    @test consumer.timestep == ClockSpec(2.0)
+    @test consumer.timestep == Dates.Hour(2)
     consumer_view = only(
         application for application in model_graph_view(configured).applications
         if application["applicationId"] == "consumer"
@@ -463,26 +608,26 @@ end
     @test haskey(consumer_view["inputBindings"], "signal")
     @test haskey(consumer_view["callBindings"], "source_call")
 
-    renamed = apply_model_graph_edit(configured, RenameModelApplication(:source, :driver_source))
-    renamed_consumer = PlantSimEngine._model_edit_spec(renamed, :consumer)
+    renamed = apply_model_graph_edit(configured, RenameModelApplication(model_graph_global(:source), :driver_source))
+    renamed_consumer = PlantSimEngine._model_edit_spec(renamed, model_graph_global(:consumer))
     @test PlantSimEngine.criteria(value_inputs(renamed_consumer).signal).application == :driver_source
     @test PlantSimEngine.criteria(model_calls(renamed_consumer).source_call).application == :driver_source
     @test PlantSimEngine._update_after(only(updates(renamed_consumer))) == (:driver_source,)
     @test_throws "already exists" apply_model_graph_edit(
         renamed,
-        RenameModelApplication(:driver_source, :consumer),
+        RenameModelApplication(model_graph_global(:driver_source), :consumer),
     )
 
     without_input = apply_model_graph_edit(
         renamed,
-        RemoveModelInputBinding(:consumer, :signal),
+        RemoveModelInputBinding(model_graph_global(:consumer), :signal),
     )
-    @test isempty(value_inputs(PlantSimEngine._model_edit_spec(without_input, :consumer)))
+    @test isempty(value_inputs(PlantSimEngine._model_edit_spec(without_input, model_graph_global(:consumer))))
     without_call = apply_model_graph_edit(
         without_input,
-        RemoveModelCallBinding(:consumer, :source_call),
+        RemoveModelCallBinding(model_graph_global(:consumer), :source_call),
     )
-    @test isempty(model_calls(PlantSimEngine._model_edit_spec(without_call, :consumer)))
+    @test isempty(model_calls(PlantSimEngine._model_edit_spec(without_call, model_graph_global(:consumer))))
 
     with_objects = apply_model_graph_edit(
         without_call,
@@ -529,6 +674,41 @@ function model_graph_override_fixture()
         ),
     )
 end
+
+
+@testset "CompositeModel global rename rewrites shared template declarations" begin
+    template = CompositeModelTemplate((
+        ModelSpec(
+            ModelGraphConsumerModel();
+            name=:consumer,
+            on=Many(scale=:Leaf),
+            inputs=(signal=One(within=SceneScope(), application=:source, var=:signal),),
+        ),
+    ))
+    model = CompositeModel(
+        ObjectInstance(
+            :plant,
+            template;
+            root=Object(:plant; name=:plant, scale=:Plant),
+            objects=(Object(:leaf; scale=:Leaf, parent=:plant, status=Status(driver=1.0)),),
+        );
+        applications=(
+            ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),
+        ),
+    )
+    renamed = apply_model_graph_edit(
+        model,
+        RenameModelApplication(model_graph_global(:source), :renamed_source),
+    )
+    template_spec = as_model_spec(only(only(renamed.instances).template.applications))
+    @test criteria(value_inputs(template_spec).signal).application == :renamed_source
+    mounted_spec = PlantSimEngine._model_edit_spec(
+        renamed,
+        model_graph_template(:plant, :consumer),
+    )
+    @test criteria(value_inputs(mounted_spec).signal).application == :renamed_source
+end
+
 
 @testset "CompositeModel graph instance override edit" begin
     model = model_graph_override_fixture()
@@ -603,12 +783,12 @@ end
     model = model_graph_override_fixture()
     updated = apply_model_graph_edit(
         model,
-        UpdateModelTemplateApplication(
-            :plant_a,
-            :plant_a__source,
+        UpdateModelApplication(
+            model_graph_template(:plant_a, :source),
             ModelGraphSourceModel(4.0),
+            :source,
             Many(scale=:Leaf),
-            ClockSpec(2.0),
+            Dates.Hour(2),
         ),
     )
     applications = model_graph_view(updated).applications
@@ -619,9 +799,91 @@ end
         for application in applications
     )
     @test all(application["targetCount"] == 1 for application in applications)
-    @test all(!isnothing(application["timestep"]) for application in applications)
+    @test all(
+        application["cadence"]["mode"] == "period" &&
+        application["cadence"]["unit"] == "Hour" &&
+        application["cadence"]["value"] == 2
+        for application in applications
+    )
     @test all(
         application["modelParameters"]["coefficient"]["value"] == 1.0
         for application in model_graph_view(model).applications
     )
+
+    preset_view = model_graph_view(updated; templates=(preset=first(model.instances).template,))
+    @test Set(template["source"] for template in preset_view.templates) == Set(["catalog", "model"])
+    @test isempty(only(template for template in preset_view.templates if template["source"] == "catalog")["mountedInstances"])
+    @test Set(only(template for template in preset_view.templates if template["source"] == "model")["mountedInstances"]) ==
+          Set(["plant_a", "plant_b"])
+end
+
+
+@testset "CompositeModel graph instance transactions retain object subtrees" begin
+    template = CompositeModelTemplate((
+        ModelSpec(ModelGraphSourceModel(); name=:source, on=Many(scale=:Leaf)),
+    ))
+    base = CompositeModel(
+        Object(:plant; name=:plant, scale=:Plant),
+        Object(:leaf; scale=:Leaf, parent=:plant, status=Status(driver=1.0)),
+    )
+    mounted = apply_model_graph_edit(base, AddModelInstance(:plant, template, :plant))
+    @test length(mounted.instances) == 1
+    @test Set(object.id for object in model_objects(mounted)) == Set([ObjectId(:plant), ObjectId(:leaf)])
+    @test only(model_graph_view(mounted).applications)["targetIds"] == ["leaf"]
+    @test isempty(base.instances)
+
+    atomic = apply_model_graph_edit(
+        CompositeModel(),
+        AddModelInstance(
+            :new_plant,
+            template,
+            :new_plant;
+            root_object=Object(:new_plant; name=:new_plant, scale=:Plant, kind=:plant),
+        ),
+    )
+    @test only(atomic.instances).name == :new_plant
+    @test ObjectId(:new_plant) in object_ids(atomic)
+
+    unmounted = apply_model_graph_edit(mounted, RemoveModelInstance(:plant))
+    @test isempty(unmounted.instances)
+    @test isempty(unmounted.applications)
+    @test Set(object.id for object in model_objects(unmounted)) == Set([ObjectId(:plant), ObjectId(:leaf)])
+    @test_throws "Unmount object instance" apply_model_graph_edit(
+        mounted,
+        RemoveModelObject(:plant),
+    )
+    @test_throws "must keep the instance name" apply_model_graph_edit(
+        mounted,
+        SetModelObjectMetadata(:plant; name=:renamed_root),
+    )
+
+    @test_throws Exception apply_model_graph_edit(
+        mounted,
+        AddModelInstance(:overlap, template, :leaf),
+    )
+    @test length(mounted.instances) == 1
+
+    two_plants = model_graph_override_fixture()
+    @test_throws "ownership boundary" apply_model_graph_edit(
+        two_plants,
+        ReparentModelObject(:leaf_a, :plant_b),
+    )
+    @test PlantSimEngine._model_object(two_plants, ObjectId(:leaf_a)).parent == ObjectId(:plant_a)
+end
+
+
+@testset "CompositeModel graph replaces scene environment transactionally" begin
+    model = CompositeModel(
+        Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
+        applications=(ModelSpec(ModelGraphSourceModel(); name=:source, on=One(name=:leaf)),),
+        environment=ModelGraphWeatherBackend(),
+    )
+    changed = apply_model_graph_edit(
+        model,
+        SetCompositeModelEnvironment(ModelGraphCanopyBackend()),
+    )
+    @test changed.environment isa ModelGraphCanopyBackend
+    @test model.environment isa ModelGraphWeatherBackend
+    @test length(changed.applications) == 1
+    @test length(model_objects(changed)) == 1
 end

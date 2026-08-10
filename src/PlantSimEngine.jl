@@ -175,19 +175,20 @@ import ..PlantSimEngine:
     model_graph_view_html,
     write_model_graph_view,
     AbstractModelGraphEdit,
+    ModelApplicationRef,
+    GlobalApplicationRef,
+    TemplateApplicationRef,
     AddModelApplication,
     RemoveModelApplication,
-    RemoveModelTemplateApplication,
     ReplaceModelApplicationModel,
     UpdateModelApplication,
-    UpdateModelTemplateApplication,
     RenameModelApplication,
     SetModelApplicationTargets,
     SetModelInputBinding,
     RemoveModelInputBinding,
     SetModelCallBinding,
     RemoveModelCallBinding,
-    SetModelApplicationTimeStep,
+    SetModelApplicationCadence,
     SetModelApplicationEnvironment,
     SetModelOutputRouting,
     SetModelUpdateOrdering,
@@ -205,6 +206,9 @@ import ..PlantSimEngine:
     RemoveModelInstanceOverride,
     SetModelObjectOverride,
     RemoveModelObjectOverride,
+    AddModelInstance,
+    RemoveModelInstance,
+    SetCompositeModelEnvironment,
     apply_model_graph_edit,
     AbstractModelGraphEditorSession,
     edit_graph,
@@ -218,19 +222,21 @@ export model_descriptor, model_constructor_descriptor
 export ModelGraphDiagnostic, CompositeModelCompilationReport, ModelGraphView
 export compile_model_report, compile_model_graph, model_graph_view
 export model_graph_view_json, model_graph_view_html, write_model_graph_view
-export AbstractModelGraphEdit, AddModelApplication, RemoveModelApplication
-export RemoveModelTemplateApplication, ReplaceModelApplicationModel
-export UpdateModelApplication, UpdateModelTemplateApplication
+export AbstractModelGraphEdit, ModelApplicationRef
+export GlobalApplicationRef, TemplateApplicationRef
+export AddModelApplication, RemoveModelApplication, ReplaceModelApplicationModel
+export UpdateModelApplication
 export RenameModelApplication, SetModelApplicationTargets
 export SetModelInputBinding, RemoveModelInputBinding
 export SetModelCallBinding, RemoveModelCallBinding
-export SetModelApplicationTimeStep, SetModelApplicationEnvironment
+export SetModelApplicationCadence, SetModelApplicationEnvironment
 export SetModelOutputRouting, SetModelUpdateOrdering
 export MarkModelPreviousTimeStep, UnmarkModelPreviousTimeStep, BreakModelCycle
 export AddModelObject, RemoveModelObject, ReparentModelObject
 export SetModelObjectStatus, SetModelObjectStatuses, RemoveModelObjectStatus
 export SetModelObjectMetadata, SetModelInstanceOverride, RemoveModelInstanceOverride
 export SetModelObjectOverride, RemoveModelObjectOverride, apply_model_graph_edit
+export AddModelInstance, RemoveModelInstance, SetCompositeModelEnvironment
 export AbstractModelGraphEditorSession, edit_graph, current_model
 export apply_edit!, undo!, redo!
 end

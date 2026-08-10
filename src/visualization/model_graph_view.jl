@@ -48,11 +48,13 @@ struct ModelGraphView
     level::Symbol
     metadata::Dict{String,Any}
     objects::Vector{Dict{String,Any}}
+    templates::Vector{Dict{String,Any}}
     instances::Vector{Dict{String,Any}}
     applications::Vector{Dict{String,Any}}
     executions::Vector{Dict{String,Any}}
     edges::Vector{Dict{String,Any}}
     model_library::Vector{Dict{String,Any}}
+    environments::Vector{Dict{String,Any}}
     initialization::Vector{Dict{String,Any}}
     diagnostics::Vector{Dict{String,Any}}
     cycles::Vector{Dict{String,Any}}
@@ -322,6 +324,17 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         nothing,
     )
 
+    _model_graph_phase!(diagnostics, :environment_bindings, nothing) do
+        environment_bindings = _compile_environment_bindings_for_applications(
+            model,
+            applications,
+        )
+        _validate_model_environment_inputs!(
+            environment_bindings,
+            Dict(application.id => application for application in applications),
+        )
+    end
+
     call_bindings = _model_graph_phase!(diagnostics, :calls, CompiledModelCallBinding[]) do
         _compile_model_call_bindings(model, applications)
     end
@@ -421,6 +434,88 @@ _model_graph_execution_node_id(application_id, object_id) =
 _model_graph_port_id(application_id, role, variable) =
     string(_model_graph_application_node_id(application_id), ":", role, ":", variable)
 
+function _model_graph_catalog_pairs(catalog, label)
+    catalog isa NamedTuple && return Pair{Symbol,Any}[
+        Symbol(name) => value for (name, value) in pairs(catalog)
+    ]
+    catalog isa AbstractDict || error("$(label) catalog must be a NamedTuple or dictionary.")
+    result = Pair{Symbol,Any}[]
+    seen = Set{Symbol}()
+    for (name_, value) in pairs(catalog)
+        name_ isa Symbol || error("$(label) catalog names must be symbols, got `$(repr(name_))`.")
+        name = name_
+        name in seen && error("$(label) catalog contains duplicate name `$(name)`.")
+        push!(seen, name)
+        push!(result, name => value)
+    end
+    return result
+end
+
+function _model_graph_template_id(model, template, template_catalog)
+    for (name, candidate) in _model_graph_catalog_pairs(template_catalog, "Template")
+        candidate === template && return string("catalog:", name)
+    end
+    unique_templates = Any[]
+    for instance in model.instances
+        any(entry -> last(entry) === instance.template, _model_graph_catalog_pairs(template_catalog, "Template")) &&
+            continue
+        any(candidate -> candidate === instance.template, unique_templates) ||
+            push!(unique_templates, instance.template)
+    end
+    index = findfirst(candidate -> candidate === template, unique_templates)
+    isnothing(index) && return nothing
+    return string("model:", index)
+end
+
+function _model_graph_application_owner(model, application_id, template_catalog)
+    for instance in model.instances
+        specs = Tuple(as_model_spec(item) for item in instance.template.applications)
+        for (index, spec) in pairs(specs)
+            base_name = _mounted_application_name(spec, index)
+            Symbol(instance.name, "__", base_name) == application_id || continue
+            return Dict{String,Any}(
+                "scope" => "template",
+                "instance" => string(instance.name),
+                "applicationId" => string(base_name),
+                "templateId" => _model_graph_template_id(
+                    model,
+                    instance.template,
+                    template_catalog,
+                ),
+            )
+        end
+    end
+    return Dict{String,Any}(
+        "scope" => "global",
+        "instance" => nothing,
+        "applicationId" => string(application_id),
+        "templateId" => nothing,
+    )
+end
+
+function _model_graph_period_dict(period)
+    isnothing(period) && return Dict{String,Any}(
+        "mode" => "default",
+        "value" => nothing,
+        "unit" => nothing,
+        "julia" => "nothing",
+    )
+    if period isa Dates.FixedPeriod
+        return Dict{String,Any}(
+            "mode" => "period",
+            "value" => Dates.value(period),
+            "unit" => string(nameof(typeof(period))),
+            "julia" => repr(period),
+        )
+    end
+    return Dict{String,Any}(
+        "mode" => "custom",
+        "value" => nothing,
+        "unit" => string(typeof(period)),
+        "julia" => repr(period),
+    )
+end
+
 function _model_graph_json_value(value)
     value === nothing && return nothing
     value === missing && return nothing
@@ -481,6 +576,8 @@ function _model_graph_selector_criteria(selector::AbstractObjectMultiplicity)
             _model_graph_selector_atom(value)
         elseif key == :policy
             _model_graph_policy_dict(value)
+        elseif key == :window
+            _model_graph_period_dict(value)
         else
             _model_graph_json_value(value)
         end
@@ -533,7 +630,45 @@ function _model_graph_port(application, role::Symbol, variable, declaration)
     return port
 end
 
-function _model_graph_application_dict(composite_model, application)
+function _model_graph_environment_catalog_id(value, environment_catalog)
+    for (name, candidate) in _model_graph_catalog_pairs(environment_catalog, "Environment")
+        candidate === value && return string("environment:", name)
+    end
+    return nothing
+end
+
+function _model_graph_application_environment(payload, environment_catalog)
+    isnothing(payload) && return nothing
+    payload isa NamedTuple || return Dict{String,Any}(
+        "backendId" => nothing,
+        "provider" => _model_graph_json_value(payload),
+        "sources" => Dict{String,Any}(),
+        "sink" => nothing,
+        "extra" => Dict{String,Any}(),
+    )
+    backend = haskey(payload, :backend) ? payload.backend : nothing
+    common = Set((:backend, :provider, :sources, :sink))
+    return Dict{String,Any}(
+        "backendId" => isnothing(backend) ? "scene" : _model_graph_environment_catalog_id(
+            backend,
+            environment_catalog,
+        ),
+        "provider" => haskey(payload, :provider) ? _model_graph_json_value(payload.provider) : nothing,
+        "sources" => haskey(payload, :sources) ? _model_graph_json_value(payload.sources) : Dict{String,Any}(),
+        "sink" => haskey(payload, :sink) ? _model_graph_json_value(payload.sink) : nothing,
+        "extra" => Dict(
+            string(key) => _model_graph_json_value(value) for (key, value) in pairs(payload)
+            if Symbol(key) ∉ common
+        ),
+    )
+end
+
+function _model_graph_application_dict(
+    composite_model,
+    application,
+    template_catalog,
+    environment_catalog,
+)
     process_model = _application_default_model(application)
     spec = application.spec
     inputs = _input_schema(application.spec)
@@ -546,6 +681,11 @@ function _model_graph_application_dict(composite_model, application)
     return Dict{String,Any}(
         "id" => _model_graph_application_node_id(application.id),
         "applicationId" => string(application.id),
+        "owner" => _model_graph_application_owner(
+            composite_model,
+            application.id,
+            template_catalog,
+        ),
         "name" => isnothing(application.name) ? nothing : string(application.name),
         "process" => string(application.process),
         "modelType" => string(typeof(process_model)),
@@ -564,7 +704,7 @@ function _model_graph_application_dict(composite_model, application)
             for instance in (_object_instance_name(composite_model, id),)
             if !isnothing(instance)
         ])),
-        "timestep" => _model_graph_json_value(application.timestep),
+        "cadence" => _model_graph_period_dict(application.timestep),
         "clock" => _model_graph_json_value(application.clock),
         "inputs" => Dict{String,Any}[
             _model_graph_port(application, :input, name, value)
@@ -590,9 +730,12 @@ function _model_graph_application_dict(composite_model, application)
             string(name) => _model_graph_selector_dict(selector)
             for (name, selector) in pairs(model_calls(spec))
         ),
-        "environment" => _model_graph_json_value(environment_payload),
+        "environment" => _model_graph_application_environment(
+            environment_payload,
+            environment_catalog,
+        ),
         "environmentBindings" => _model_graph_json_value(environment_bindings(spec)),
-        "environmentWindow" => _model_graph_json_value(environment_window(spec)),
+        "environmentWindow" => _model_graph_period_dict(environment_window(spec)),
         "outputRouting" => _model_graph_json_value(output_routing(spec)),
         "updates" => Dict{String,Any}[
             Dict(
@@ -630,10 +773,87 @@ function _model_graph_object_dict(row)
     )
 end
 
-function _model_graph_instance_dict(row)
+function _model_graph_template_application_dict(spec, index)
+    model = model_(spec)
+    return Dict{String,Any}(
+        "applicationId" => string(_mounted_application_name(spec, index)),
+        "process" => string(process(spec)),
+        "modelType" => string(typeof(model)),
+        "modelName" => string(nameof(typeof(model))),
+        "selector" => isnothing(applies_to(spec)) ? nothing : _model_graph_selector_dict(applies_to(spec)),
+        "cadence" => _model_graph_period_dict(timestep(spec)),
+    )
+end
+
+function _model_graph_template_descriptor(
+    model,
+    template,
+    id,
+    name,
+    source,
+)
+    mounted_instances = String[
+        string(instance.name) for instance in model.instances
+        if instance.template === template
+    ]
+    specs = Tuple(as_model_spec(item) for item in template.applications)
+    return Dict{String,Any}(
+        "id" => id,
+        "name" => name,
+        "source" => source,
+        "kind" => _model_graph_json_value(template.kind),
+        "species" => _model_graph_json_value(template.species),
+        "parameters" => _model_graph_json_value(template.parameters),
+        "parametersJulia" => repr(template.parameters),
+        "applications" => [
+            _model_graph_template_application_dict(spec, index)
+            for (index, spec) in pairs(specs)
+        ],
+        "mountedInstances" => mounted_instances,
+    )
+end
+
+function _model_graph_templates(model, template_catalog)
+    descriptors = Dict{String,Any}[]
+    catalog_templates = _model_graph_catalog_pairs(template_catalog, "Template")
+    for (name, template) in catalog_templates
+        template isa CompositeModelTemplate || error(
+            "Template catalog entry `$(name)` is not a CompositeModelTemplate.",
+        )
+        push!(descriptors, _model_graph_template_descriptor(
+            model,
+            template,
+            string("catalog:", name),
+            string(name),
+            "catalog",
+        ))
+    end
+    local_templates = Any[]
+    for instance in model.instances
+        any(entry -> last(entry) === instance.template, catalog_templates) && continue
+        any(candidate -> candidate === instance.template, local_templates) ||
+            push!(local_templates, instance.template)
+    end
+    for (index, template) in pairs(local_templates)
+        label_parts = filter(!isnothing, (template.kind, template.species))
+        label = isempty(label_parts) ? "model template $(index)" : join(string.(label_parts), " / ")
+        push!(descriptors, _model_graph_template_descriptor(
+            model,
+            template,
+            string("model:", index),
+            label,
+            "model",
+        ))
+    end
+    return descriptors
+end
+
+function _model_graph_instance_dict(model, row, template_catalog)
+    instance = only(item for item in model.instances if item.name == row.name)
     return Dict{String,Any}(
         "id" => _model_graph_instance_node_id(row.name),
         "name" => string(row.name),
+        "templateId" => _model_graph_template_id(model, instance.template, template_catalog),
         "rootId" => _model_graph_json_value(row.root_id),
         "kind" => _model_graph_json_value(row.kind),
         "species" => _model_graph_json_value(row.species),
@@ -643,6 +863,42 @@ function _model_graph_instance_dict(row)
         "objectOverrides" => _model_graph_json_value(row.object_overrides),
         "parametersType" => string(row.parameters_type),
     )
+end
+
+function _model_graph_environment_descriptor(name, value; active=false, source="catalog")
+    variables = try
+        available = environment_variables(environment_backend(value))
+        isnothing(available) ? String[] : sort!(string.(collect(available)))
+    catch
+        String[]
+    end
+    return Dict{String,Any}(
+        "id" => string("environment:", name),
+        "name" => string(name),
+        "source" => source,
+        "type" => string(typeof(value)),
+        "variables" => variables,
+        "active" => active,
+    )
+end
+
+function _model_graph_environments(model, environment_catalog)
+    descriptors = Dict{String,Any}[]
+    matched = false
+    for (name, value) in _model_graph_catalog_pairs(environment_catalog, "Environment")
+        active = value === model.environment
+        matched |= active
+        push!(descriptors, _model_graph_environment_descriptor(name, value; active=active))
+    end
+    if !isnothing(model.environment) && !matched
+        push!(descriptors, _model_graph_environment_descriptor(
+            :current,
+            model.environment;
+            active=true,
+            source="model",
+        ))
+    end
+    return descriptors
 end
 
 function _model_graph_execution_dict(application, object_id)
@@ -845,7 +1101,7 @@ function _model_graph_environment_routes(config, backend)
     return provider, sink
 end
 
-function _model_graph_environment_edges(report, level)
+function _model_graph_environment_edges(report, level, environment_catalog)
     environment_bindings = try
         _compile_environment_bindings_for_applications(report.model, report.applications)
     catch
@@ -878,8 +1134,16 @@ function _model_graph_environment_edges(report, level)
             binding.config,
             binding.backend,
         )
-        provider_id = string("environment:", provider)
-        sink_id = string("environment:", sink)
+        payload = _environment_config_payload(binding.config)
+        environment_value = payload isa NamedTuple && haskey(payload, :backend) ?
+                            payload.backend : report.model.environment
+        environment_id = _model_graph_environment_catalog_id(
+            environment_value,
+            environment_catalog,
+        )
+        isnothing(environment_id) && (environment_id = "environment:current")
+        provider_id = environment_id
+        sink_id = environment_id
         target_id = level == :resolved ?
                     _model_graph_execution_node_id(binding.application_id, binding.object_id) :
                     _model_graph_application_node_id(binding.application_id)
@@ -949,8 +1213,19 @@ function _model_graph_environment_edges(report, level)
     return collect(values(edges))
 end
 
-function _model_graph_structure_edges(model, applications)
+function _model_graph_structure_edges(model, applications, template_catalog)
     edges = Dict{String,Any}[]
+    for instance in model.instances
+        template_id = _model_graph_template_id(model, instance.template, template_catalog)
+        push!(edges, Dict{String,Any}(
+            "id" => string("template-mount:", template_id, ":", instance.name),
+            "source" => string("template:", template_id),
+            "target" => _model_graph_instance_node_id(instance.name),
+            "kind" => "template_mount",
+            "projection" => "topology",
+            "cycle" => false,
+        ))
+    end
     for object in values(model.registry.objects)
         if !isnothing(object.parent)
             push!(edges, Dict{String,Any}(
@@ -1185,17 +1460,36 @@ function _normalize_model_graph_level(level)
 end
 
 """
-    compile_model_graph(model; level=:applications, strict=false)
-    compile_model_graph(compiled::CompiledCompositeModel; level=:applications)
+    compile_model_graph(model; level=:applications, strict=false,
+                        templates=NamedTuple(), environments=NamedTuple())
+    compile_model_graph(compiled::CompiledCompositeModel; level=:applications,
+                        templates=NamedTuple(), environments=NamedTuple())
 
 Build a renderer-independent graph view from a Composite model or an existing compiled
-model.
+model. Named template and environment catalogs add schema-v2 descriptors without
+serializing runtime environment values.
 """
-function compile_model_graph(model::CompositeModel; level=:applications, strict::Bool=false)
-    return _model_graph_view(compile_model_report(model; strict=strict), level)
+function compile_model_graph(
+    model::CompositeModel;
+    level=:applications,
+    strict::Bool=false,
+    templates=NamedTuple(),
+    environments=NamedTuple(),
+)
+    return _model_graph_view(
+        compile_model_report(model; strict=strict),
+        level;
+        template_catalog=templates,
+        environment_catalog=environments,
+    )
 end
 
-function compile_model_graph(compiled::CompiledCompositeModel; level=:applications)
+function compile_model_graph(
+    compiled::CompiledCompositeModel;
+    level=:applications,
+    templates=NamedTuple(),
+    environments=NamedTuple(),
+)
     children = _model_graph_dependency_children(
         compiled.applications,
         compiled.input_bindings,
@@ -1218,14 +1512,36 @@ function compile_model_graph(compiled::CompiledCompositeModel; level=:applicatio
         ModelGraphDiagnostic[],
         compiled,
     )
-    return _model_graph_view(report, level)
+    return _model_graph_view(
+        report,
+        level;
+        template_catalog=templates,
+        environment_catalog=environments,
+    )
 end
 
-function _model_graph_view(report::CompositeModelCompilationReport, level)
+function _model_graph_view(
+    report::CompositeModelCompilationReport,
+    level;
+    template_catalog=NamedTuple(),
+    environment_catalog=NamedTuple(),
+)
     level = _normalize_model_graph_level(level)
     objects = [_model_graph_object_dict(row) for row in explain_objects(report.model)]
-    instances = [_model_graph_instance_dict(row) for row in explain_instances(report.model)]
-    applications = [_model_graph_application_dict(report.model, application) for application in report.applications]
+    templates = _model_graph_templates(report.model, template_catalog)
+    instances = [
+        _model_graph_instance_dict(report.model, row, template_catalog)
+        for row in explain_instances(report.model)
+    ]
+    applications = [
+        _model_graph_application_dict(
+            report.model,
+            application,
+            template_catalog,
+            environment_catalog,
+        )
+        for application in report.applications
+    ]
     executions = [
         _model_graph_execution_dict(application, object_id)
         for application in report.applications
@@ -1237,9 +1553,9 @@ function _model_graph_view(report::CompositeModelCompilationReport, level)
         _model_graph_call_edges(report, :applications),
         _model_graph_call_edges(report, :resolved),
         _model_graph_update_edges(report),
-        _model_graph_environment_edges(report, :applications),
-        _model_graph_environment_edges(report, :resolved),
-        _model_graph_structure_edges(report.model, report.applications),
+        _model_graph_environment_edges(report, :applications, environment_catalog),
+        _model_graph_environment_edges(report, :resolved, environment_catalog),
+        _model_graph_structure_edges(report.model, report.applications, template_catalog),
     )
     sort!(edges; by=edge -> edge["id"])
     initialization = _model_graph_initialization(report)
@@ -1264,16 +1580,25 @@ function _model_graph_view(report::CompositeModelCompilationReport, level)
         "unresolvedInitializationCount" => unresolved,
         "cyclic" => !isempty(cycles),
         "strictlyCompiled" => !isnothing(report.compiled),
+        "sceneEnvironmentId" => _model_graph_environment_catalog_id(
+            report.model.environment,
+            environment_catalog,
+        ),
     )
+    environments = _model_graph_environments(report.model, environment_catalog)
+    isnothing(metadata["sceneEnvironmentId"]) && !isnothing(report.model.environment) &&
+        (metadata["sceneEnvironmentId"] = "environment:current")
     return ModelGraphView(
         level,
         metadata,
         objects,
+        templates,
         instances,
         applications,
         executions,
         edges,
         _model_graph_model_library(),
+        environments,
         initialization,
         diagnostics,
         cycles,
@@ -1284,6 +1609,8 @@ function _model_graph_view(report::CompositeModelCompilationReport, level)
             "add_application",
             "connect_binding",
             "break_cycle",
+            "add_instance",
+            "configure_environment",
         ],
     )
 end
@@ -1292,15 +1619,17 @@ model_graph_view(scene_or_compiled; kwargs...) = compile_model_graph(scene_or_co
 
 function _model_graph_view_dict(view::ModelGraphView)
     return Dict{String,Any}(
-        "schemaVersion" => 1,
+        "schemaVersion" => 2,
         "level" => string(view.level),
         "metadata" => view.metadata,
         "objects" => view.objects,
+        "templates" => view.templates,
         "instances" => view.instances,
         "applications" => view.applications,
         "executions" => view.executions,
         "edges" => view.edges,
         "modelLibrary" => view.model_library,
+        "environments" => view.environments,
         "initialization" => view.initialization,
         "diagnostics" => view.diagnostics,
         "cycles" => view.cycles,
