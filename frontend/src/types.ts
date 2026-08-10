@@ -23,9 +23,35 @@ export type ModelParameter = {
   juliaType: string;
 };
 
+export type ApplicationRef = {
+  scope: "global" | "template";
+  applicationId: string;
+  instance: string | null;
+};
+
+export type ApplicationOwner = ApplicationRef & {
+  templateId: string | null;
+};
+
+export type PeriodDescriptor = {
+  mode: "default" | "period" | "custom";
+  value: number | null;
+  unit: string | null;
+  julia: string;
+};
+
+export type ApplicationEnvironment = {
+  backendId: string | null;
+  provider: string | null;
+  sources: Record<string, string>;
+  sink: string | null;
+  extra: Record<string, unknown>;
+};
+
 export type ApplicationGraphNode = {
   id: string;
   applicationId: string;
+  owner: ApplicationOwner;
   name: string | null;
   process: string;
   modelType: string;
@@ -40,7 +66,7 @@ export type ApplicationGraphNode = {
   targetKinds: string[];
   targetSpecies: string[];
   targetInstances: string[];
-  timestep: unknown;
+  cadence: PeriodDescriptor;
   clock: unknown;
   inputs: GraphPort[];
   outputs: GraphPort[];
@@ -48,9 +74,9 @@ export type ApplicationGraphNode = {
   environmentOutputs: GraphPort[];
   inputBindings: Record<string, SelectorDescriptor>;
   callBindings: Record<string, SelectorDescriptor>;
-  environment: Record<string, unknown> | null;
-  meteoBindings: Record<string, unknown>;
-  meteoWindow: unknown;
+  environment: ApplicationEnvironment | null;
+  environmentBindings: Record<string, unknown>;
+  environmentWindow: PeriodDescriptor;
   outputRouting: Record<string, string>;
   updates: Array<{ variables: string[]; after: string[] }>;
   modelStorage: "shared_application" | "per_object_override";
@@ -74,6 +100,7 @@ export type ObjectGraphNode = {
 export type InstanceDescriptor = {
   id: string;
   name: string;
+  templateId: string;
   rootId: unknown;
   kind: string | null;
   species: string | null;
@@ -82,6 +109,36 @@ export type InstanceDescriptor = {
   instanceOverrides: string[];
   objectOverrides: Array<Record<string, unknown>>;
   parametersType: string;
+};
+
+export type TemplateApplicationDescriptor = {
+  applicationId: string;
+  process: string;
+  modelType: string;
+  modelName: string;
+  selector: SelectorDescriptor | null;
+  cadence: PeriodDescriptor;
+};
+
+export type TemplateDescriptor = {
+  id: string;
+  name: string;
+  source: "catalog" | "model";
+  kind: string | null;
+  species: string | null;
+  parameters: unknown;
+  parametersJulia: string;
+  applications: TemplateApplicationDescriptor[];
+  mountedInstances: string[];
+};
+
+export type EnvironmentDescriptor = {
+  id: string;
+  name: string;
+  source: "catalog" | "model";
+  type: string;
+  variables: string[];
+  active: boolean;
 };
 
 export type ExecutionGraphNode = {
@@ -186,7 +243,7 @@ export type ModelDescriptor = {
   environmentOutputs: Record<string, unknown>;
   timespec?: string | null;
   timestepHint?: string | null;
-  meteoHint?: string | null;
+  environmentHint?: string | null;
   outputPolicy?: string | null;
   constructor: {
     fields: ModelConstructorField[];
@@ -211,13 +268,16 @@ export type ModelGraphView = {
     unresolvedInitializationCount: number;
     cyclic: boolean;
     strictlyCompiled: boolean;
+    sceneEnvironmentId: string | null;
   };
   objects: ObjectGraphNode[];
+  templates: TemplateDescriptor[];
   instances: InstanceDescriptor[];
   applications: ApplicationGraphNode[];
   executions: ExecutionGraphNode[];
   edges: ModelGraphEdge[];
   modelLibrary: ModelDescriptor[];
+  environments: EnvironmentDescriptor[];
   initialization: InitializationDescriptor[];
   diagnostics: GraphDiagnostic[];
   cycles: CycleDescriptor[];
@@ -242,13 +302,13 @@ export type RuntimeApplicationNode = ApplicationGraphNode & {
 };
 
 export type RuntimeEntityNode = {
-  nodeKind: "model" | "instance" | "object" | "execution" | "environment";
+  nodeKind: "model" | "template" | "instance" | "object" | "execution" | "environment";
   title: string;
   subtitle: string;
   badges: string[];
   inputPortIds?: string[];
   outputPortIds?: string[];
-  detail: ModelRootDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode;
+  detail: ModelRootDescriptor | TemplateDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentDescriptor | EnvironmentGraphNode;
 };
 
 export type EnvironmentGraphNode = {
@@ -275,10 +335,11 @@ export type EditorState = {
   recentPaths?: string[];
   selectorPreview?: SelectorPreview;
   targetPreview?: TargetPreview;
+  instancePreview?: InstancePreview;
 };
 
 export type SelectorPreview = {
-  applicationId: string;
+  applicationRef: ApplicationRef;
   input: string;
   consumerObjectIds: unknown[];
   sourceObjectIds: unknown[];
@@ -290,4 +351,12 @@ export type SelectorPreview = {
 export type TargetPreview = {
   objectIds: unknown[];
   count: number;
+  groups: Array<{ instance: string; objectIds: unknown[] }>;
+};
+
+export type InstancePreview = {
+  name: string;
+  objectIds: unknown[];
+  applications: Array<{ applicationId: string; targetIds: unknown[] }>;
+  diagnostics: string[];
 };

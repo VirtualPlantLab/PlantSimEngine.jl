@@ -41,7 +41,7 @@ export function ApplicationNode({ data, selected }: NodeProps<ApplicationFlowNod
             <span className="meta-chip" title={data.selector.julia}>
               <Box size={13} /> {scope}
             </span>
-            <span className="meta-chip" title={String(data.clock ?? "Default scene cadence")}>
+            <span className="meta-chip" title={data.cadence.julia}>
               <Clock3 size={13} /> {rateLabel(data)}
             </span>
           </div>
@@ -234,6 +234,7 @@ function scopeLabel(data: RuntimeApplicationNode) {
 }
 
 function rateLabel(data: RuntimeApplicationNode) {
-  if (data.timestep === null || data.timestep === undefined) return "default rate";
-  return String(data.timestep);
+  if (data.cadence.mode === "default") return "default rate";
+  if (data.cadence.mode === "period") return `${data.cadence.value} ${data.cadence.unit}`;
+  return data.cadence.julia;
 }

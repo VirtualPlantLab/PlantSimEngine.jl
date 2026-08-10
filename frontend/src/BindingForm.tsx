@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { Eye, Link2, X } from "lucide-react";
-import type { ApplicationGraphNode, GraphPort, ObjectGraphNode, SelectorDescriptor, SelectorPreview } from "./types";
+import type { ApplicationGraphNode, ApplicationOwner, GraphPort, ObjectGraphNode, PeriodDescriptor, SelectorDescriptor, SelectorPreview } from "./types";
 
 export type BindingFormValue = {
-  applicationId: string;
+  applicationRef: ApplicationOwner;
   input: string;
   selector: SelectorDescriptor;
 };
@@ -28,7 +28,7 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
   const sameTargets = sameValues(endpoints.sourceApplication.targetIds, endpoints.targetApplication.targetIds);
   const [multiplicity, setMultiplicity] = useState<SelectorDescriptor["multiplicity"]>(endpoints.sourceApplication.targetCount > 1 && endpoints.targetApplication.targetCount === 1 ? "many" : "one");
   const [relation, setRelation] = useState(sameTargets ? "self" : "");
-  const [scope, setScope] = useState("scene");
+  const [scope, setScope] = useState("local");
   const [scopeName, setScopeName] = useState("");
   const [ancestorScale, setAncestorScale] = useState("");
   const [scale, setScale] = useState(onlyOrEmpty(endpoints.sourceApplication.targetScales));
@@ -37,7 +37,8 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
   const [sourceName, setSourceName] = useState("");
   const [sourceFilter, setSourceFilter] = useState<"application" | "process">("application");
   const [policy, setPolicy] = useState("automatic");
-  const [window, setWindow] = useState("");
+  const [windowValue, setWindowValue] = useState("");
+  const [windowUnit, setWindowUnit] = useState("Hour");
   const scales = unique(objects.map((object) => object.scale));
   const kinds = unique(objects.map((object) => object.kind));
   const speciesOptions = unique(objects.map((object) => object.species));
@@ -49,7 +50,7 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
       var: endpoints.sourcePort.name,
     };
     criteria[sourceFilter] = sourceFilter === "application"
-      ? endpoints.sourceApplication.applicationId
+      ? endpoints.sourceApplication.owner.applicationId
       : endpoints.sourceApplication.process;
     const within = scopeDescriptor(scope, scopeName, ancestorScale);
     if (within) criteria.within = within;
@@ -59,12 +60,12 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
     if (species) criteria.species = species;
     if (sourceName) criteria.name = sourceName;
     if (policy !== "automatic") criteria.policy = { type: policyType(policy) };
-    if (window.trim()) {
-      const parsed = Number(window);
-      if (Number.isFinite(parsed)) criteria.window = parsed;
+    if (windowValue.trim()) {
+      const window = bindingWindowDescriptor(windowValue, windowUnit);
+      if (window) criteria.window = window;
     }
     return {
-      applicationId: endpoints.targetApplication.applicationId,
+      applicationRef: endpoints.targetApplication.owner,
       input: endpoints.targetPort.name,
       selector: { type: selectorType(multiplicity), multiplicity, criteria, julia: "" },
     };
@@ -77,7 +78,7 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
         <div className="binding-route"><div><small>Producer</small><strong>{endpoints.sourceApplication.applicationId}</strong><code>{endpoints.sourcePort.name}</code></div><Link2 size={22} /><div><small>Consumer</small><strong>{endpoints.targetApplication.applicationId}</strong><code>{endpoints.targetPort.name}</code></div></div>
         <fieldset><legend>Source object selector</legend><div className="form-grid">
           <label>Multiplicity<select value={multiplicity} onChange={(event) => setMultiplicity(event.target.value as SelectorDescriptor["multiplicity"])}><option value="one">One</option><option value="optional_one">Optional one</option><option value="many">Many</option></select></label>
-          <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="scene">Whole scene</option><option value="self">Consumer object</option><option value="subtree">Consumer subtree</option><option value="self_plant">Consumer plant</option><option value="ancestor">Ancestor subtree</option><option value="named_scope">Named object subtree</option></select></label>
+          <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="self">Consumer object</option><option value="subtree">Consumer subtree</option><option value="self_plant">Consumer plant</option><option value="ancestor">Ancestor subtree</option><option value="named_scope">Named object subtree</option></select></label>
           {scope === "ancestor" && <Criterion label="Ancestor scale" value={ancestorScale} options={scales} onChange={setAncestorScale} />}
           {scope === "named_scope" && <Criterion label="Scope root" value={scopeName} options={names} onChange={setScopeName} />}
           <label>Relation<select value={relation} onChange={(event) => setRelation(event.target.value)}><option value="">Any relation</option><option value="self">Same object</option><option value="parent">Parent</option><option value="children">Children</option><option value="ancestors">Ancestors</option><option value="descendants">Descendants</option><option value="siblings">Siblings</option></select></label>
@@ -87,7 +88,8 @@ export function BindingForm({ endpoints, objects, preview, onPreview, onSubmit, 
           <Criterion label="Species" value={species} options={speciesOptions} onChange={setSpecies} />
           <Criterion label="Object name" value={sourceName} options={names} onChange={setSourceName} />
           <label>Temporal policy<select value={policy} onChange={(event) => setPolicy(event.target.value)}><option value="automatic">Automatic</option><option value="hold_last">Hold last</option><option value="interpolate">Interpolate</option><option value="integrate">Integrate</option><option value="aggregate">Aggregate</option></select></label>
-          <label>Window (scene steps)<input type="number" min="0" step="1" value={window} onChange={(event) => setWindow(event.target.value)} placeholder="Automatic" /></label>
+          <label>Window value<input type="number" min="1" step="1" value={windowValue} onChange={(event) => setWindowValue(event.target.value)} placeholder="Automatic" data-testid="binding-window-value" /></label>
+          <label>Window unit<select value={windowUnit} onChange={(event) => setWindowUnit(event.target.value)} disabled={!windowValue.trim()} data-testid="binding-window-unit"><option>Second</option><option>Minute</option><option>Hour</option><option>Day</option></select></label>
         </div></fieldset>
         {preview && <section className="selector-preview" data-testid="binding-preview">
           <strong>{preview.bindingCount} resolved binding{preview.bindingCount === 1 ? "" : "s"}</strong>
@@ -111,6 +113,7 @@ function selectorType(value: SelectorDescriptor["multiplicity"]) { return value 
 function unique(values: Array<string | null>) { return [...new Set(values.filter((value): value is string => Boolean(value)))].sort(); }
 function policyType(value: string) { return value === "hold_last" ? "HoldLast" : value === "interpolate" ? "Interpolate" : value === "integrate" ? "Integrate" : "Aggregate"; }
 function scopeDescriptor(scope: string, name: string, scale: string) {
+  if (scope === "local") return null;
   if (scope === "scene") return { type: "SceneScope" };
   if (scope === "self") return { type: "Self" };
   if (scope === "subtree") return { type: "Subtree" };
@@ -118,4 +121,15 @@ function scopeDescriptor(scope: string, name: string, scale: string) {
   if (scope === "ancestor") return { type: "Ancestor", scale: scale || null };
   if (scope === "named_scope" && name) return { type: "Scope", name };
   return null;
+}
+
+export function bindingWindowDescriptor(value: string, unit: string): PeriodDescriptor | null {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return {
+    mode: "period",
+    value: parsed,
+    unit,
+    julia: `Dates.${unit}(${parsed})`,
+  };
 }

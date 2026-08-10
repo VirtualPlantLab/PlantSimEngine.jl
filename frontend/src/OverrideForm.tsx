@@ -1,13 +1,13 @@
 import { Check, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 import { ParameterFields, parameterDefaults } from "./ApplicationForm";
-import type { ApplicationGraphNode, InstanceDescriptor, ModelDescriptor } from "./types";
+import type { ApplicationGraphNode, ApplicationOwner, InstanceDescriptor, ModelDescriptor } from "./types";
 
 export type OverrideFormValue = {
   scope: "instance" | "object";
   instance: string;
   objectId?: unknown;
-  applicationId: string;
+  applicationRef: ApplicationOwner;
   modelType: string;
   parameters: Record<string, { type: string; value: string }>;
 };
@@ -39,7 +39,7 @@ export function OverrideForm({
   const [modelType, setModelType] = useState(application.modelType);
   const model = matchingModels.find((item) => item.type === modelType) || matchingModels[0] || null;
   const [parameters, setParameters] = useState(() => parameterDefaults(model, application));
-  const baseApplicationId = mountedApplicationName(application.applicationId, instanceName);
+  const baseApplicationId = application.owner.applicationId;
   const hasInstanceOverride = Boolean(instance?.instanceOverrides.includes(baseApplicationId));
   const hasObjectOverride = Boolean(instance?.objectOverrides.some((entry) => {
     const record = entry as Record<string, unknown>;
@@ -75,12 +75,7 @@ export function OverrideForm({
         {model && model.constructor.fields.length > 0 && <fieldset><legend>Model parameters</legend><ParameterFields fields={model.constructor.fields} values={parameters} onChange={setParameters} /></fieldset>}
         <div className="override-warning"><strong>{scope === "instance" ? `Override ${instanceName}` : `Override object ${String(objectId)}`}</strong><span>Julia validates that the replacement keeps the same process and declared variable contract.</span></div>
       </div>
-      <footer><button onClick={onClose}>Cancel</button>{canRemove && <button className="danger" data-testid="remove-override" onClick={() => onRemove({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationId: application.applicationId, modelType, parameters })}><Trash2 size={15} /> Remove override</button>}<button className="primary" disabled={!instanceName || !modelType || (scope === "object" && !String(objectId))} onClick={() => onSubmit({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationId: application.applicationId, modelType, parameters })}><Check size={15} /> Apply override</button></footer>
+      <footer><button onClick={onClose}>Cancel</button>{canRemove && <button className="danger" data-testid="remove-override" onClick={() => onRemove({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationRef: application.owner, modelType, parameters })}><Trash2 size={15} /> Remove override</button>}<button className="primary" disabled={!instanceName || !modelType || (scope === "object" && !String(objectId))} onClick={() => onSubmit({ scope, instance: instanceName, objectId: scope === "object" ? objectId : undefined, applicationRef: application.owner, modelType, parameters })}><Check size={15} /> Apply override</button></footer>
     </section>
   </div>;
-}
-
-function mountedApplicationName(applicationId: string, instance: string) {
-  const prefix = `${instance}__`;
-  return applicationId.startsWith(prefix) ? applicationId.slice(prefix.length) : applicationId;
 }

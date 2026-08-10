@@ -1,14 +1,14 @@
 import { useMemo, useState } from "react";
 import { Check, Eye, X } from "lucide-react";
-import type { ApplicationGraphNode, ModelConstructorField, ModelDescriptor, ObjectGraphNode, SelectorDescriptor, TargetPreview } from "./types";
+import type { ApplicationGraphNode, ApplicationOwner, ModelConstructorField, ModelDescriptor, ObjectGraphNode, PeriodDescriptor, SelectorDescriptor, TargetPreview } from "./types";
 
 export type ApplicationFormValue = {
-  applicationId?: string;
+  applicationRef?: ApplicationOwner;
   modelType: string;
   name: string;
   parameters: Record<string, { type: string; value: string }>;
   selector: SelectorDescriptor;
-  timestep: { mode: "default" } | { mode: "clock"; dt: string; phase: string };
+  cadence: PeriodDescriptor;
 };
 
 export function ApplicationForm({
@@ -49,11 +49,14 @@ export function ApplicationForm({
   const [species, setSpecies] = useState(stringCriterion(initialSelector, "species"));
   const [objectName, setObjectName] = useState(stringCriterion(initialSelector, "name"));
   const initialWithin = structuredCriterion(initialSelector, "within");
-  const [scope, setScope] = useState(initialWithin?.type === "Scope" ? "named_scope" : "scene");
-  const [scopeName, setScopeName] = useState(initialWithin?.type === "Scope" ? String(initialWithin.name || "") : "");
-  const [timestepMode, setTimestepMode] = useState<"default" | "clock">(application?.timestep ? "clock" : "default");
-  const [dt, setDt] = useState("1.0");
-  const [phase, setPhase] = useState("0.0");
+  const mountedLocalScope = application?.owner.scope === "template" &&
+    initialWithin?.type === "Scope" &&
+    String(initialWithin.name || "") === application.owner.instance;
+  const [scope, setScope] = useState(initialWithin?.type === "Scope" && !mountedLocalScope ? "named_scope" : initialWithin?.type === "SceneScope" ? "scene" : "local");
+  const [scopeName, setScopeName] = useState(initialWithin?.type === "Scope" && !mountedLocalScope ? String(initialWithin.name || "") : "");
+  const [cadenceMode, setCadenceMode] = useState<"default" | "period">(application?.cadence.mode === "period" ? "period" : "default");
+  const [periodValue, setPeriodValue] = useState(String(application?.cadence.value ?? 1));
+  const [periodUnit, setPeriodUnit] = useState(application?.cadence.unit || "Hour");
 
   const selectModelType = (nextModelType: string) => {
     const selected = models.find((item) => item.type === nextModelType) ?? null;
@@ -71,12 +74,14 @@ export function ApplicationForm({
 
   const targetSummary = useMemo(() => {
     const clauses = [scale && `scale ${scale}`, kind && `kind ${kind}`, species && `species ${species}`, objectName && `name ${objectName}`].filter(Boolean);
-    return clauses.length ? clauses.join(", ") : "all scene objects";
-  }, [kind, objectName, scale, species]);
+    const base = clauses.length ? clauses.join(", ") : "matching objects";
+    return scope === "scene" ? `${base} in the whole scene` : scope === "named_scope" ? `${base} below ${scopeName || "the named root"}` : `${base} in the local instance scope`;
+  }, [kind, objectName, scale, scope, scopeName, species]);
 
   const selector = (): SelectorDescriptor => {
     const criteria: Record<string, unknown> = { selectors: [] };
-    criteria.within = scope === "named_scope" && scopeName ? { type: "Scope", name: scopeName } : { type: "SceneScope" };
+    if (scope === "named_scope" && scopeName) criteria.within = { type: "Scope", name: scopeName };
+    if (scope === "scene") criteria.within = { type: "SceneScope" };
     if (scale) criteria.scale = scale;
     if (kind) criteria.kind = kind;
     if (species) criteria.species = species;
@@ -86,12 +91,14 @@ export function ApplicationForm({
 
   const submit = () => {
     onSubmit({
-      applicationId: application?.applicationId,
+      applicationRef: application?.owner,
       modelType,
       name: name.trim(),
       parameters,
       selector: selector(),
-      timestep: timestepMode === "clock" ? { mode: "clock", dt, phase } : { mode: "default" },
+      cadence: cadenceMode === "period"
+        ? { mode: "period", value: Number(periodValue), unit: periodUnit, julia: `Dates.${periodUnit}(${periodValue})` }
+        : { mode: "default", value: null, unit: null, julia: "nothing" },
     });
   };
 
@@ -108,7 +115,7 @@ export function ApplicationForm({
           <fieldset><legend>Target selector</legend>
             <div className="form-grid">
               <label>Multiplicity<select value={multiplicity} onChange={(event) => setMultiplicity(event.target.value as SelectorDescriptor["multiplicity"])}><option value="one">One</option><option value="optional_one">Optional one</option><option value="many">Many</option></select></label>
-              <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="scene">Whole scene</option><option value="named_scope">Named object subtree</option></select></label>
+              <label>Scope<select value={scope} onChange={(event) => setScope(event.target.value)}><option value="local">Default / instance local</option><option value="scene">Explicit whole scene</option><option value="named_scope">Named object subtree</option></select></label>
               {scope === "named_scope" && <SelectCriterion label="Scope root" value={scopeName} options={options.names} onChange={setScopeName} />}
               <SelectCriterion label="Scale" value={scale} options={options.scales} onChange={setScale} />
               <SelectCriterion label="Kind" value={kind} options={options.kinds} onChange={setKind} />
@@ -117,12 +124,12 @@ export function ApplicationForm({
             </div>
             <p className="selector-summary">Julia will resolve <strong>{multiplicity.replace("_", " ")}</strong> target from {targetSummary}.</p>
             <button className="selector-preview-button" type="button" onClick={() => onPreview(selector())} data-testid="application-target-preview"><Eye size={15} /> Preview targets in Julia</button>
-            {preview && <section className="selector-preview" data-testid="application-target-preview-result"><strong>{preview.count} target object{preview.count === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(String).join(", ") || "No targets"}</code></section>}
+            {preview && <section className="selector-preview" data-testid="application-target-preview-result"><strong>{preview.count} target object{preview.count === 1 ? "" : "s"}</strong><code>{preview.objectIds.map(String).join(", ") || "No targets"}</code>{preview.groups.map((group) => <div key={group.instance}><span>{group.instance}</span><code>{group.objectIds.map(String).join(", ") || "No targets"}</code></div>)}</section>}
           </fieldset>
 
-          <fieldset><legend>Timestep</legend><div className="form-grid"><label>Mode<select value={timestepMode} onChange={(event) => setTimestepMode(event.target.value as "default" | "clock")} data-testid="application-timestep-mode"><option value="default">Model or environment default</option><option value="clock">Explicit clock</option></select></label>{timestepMode === "clock" && <><label>Step<input value={dt} onChange={(event) => setDt(event.target.value)} data-testid="application-timestep-step" /></label><label>Phase<input value={phase} onChange={(event) => setPhase(event.target.value)} /></label></>}</div></fieldset>
+          <fieldset><legend>Cadence</legend><div className="form-grid"><label>Mode<select value={cadenceMode} onChange={(event) => setCadenceMode(event.target.value as "default" | "period")} data-testid="application-cadence-mode"><option value="default">Model or environment default</option><option value="period">Explicit period</option></select></label>{cadenceMode === "period" && <><label>Value<input type="number" min="1" step="1" value={periodValue} onChange={(event) => setPeriodValue(event.target.value)} data-testid="application-cadence-value" /></label><label>Unit<select value={periodUnit} onChange={(event) => setPeriodUnit(event.target.value)} data-testid="application-cadence-unit"><option>Second</option><option>Minute</option><option>Hour</option><option>Day</option></select></label></>}</div></fieldset>
         </div>
-        <footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={!modelType || !name.trim()} onClick={submit} data-testid="application-submit"><Check size={15} /> {mode === "add" ? "Add application" : "Apply changes"}</button></footer>
+        <footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={!modelType || !name.trim() || (cadenceMode === "period" && (!Number.isInteger(Number(periodValue)) || Number(periodValue) <= 0))} onClick={submit} data-testid="application-submit"><Check size={15} /> {mode === "add" ? "Add application" : "Apply changes"}</button></footer>
       </section>
     </div>
   );

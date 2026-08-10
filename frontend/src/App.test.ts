@@ -44,8 +44,8 @@ describe("object topology scoping", () => {
   it("includes the selected object and all descendants", () => {
     const objects: ObjectGraphNode[] = [
       object("plant", null),
-      object("leaf", "plant"),
-      object("cell", "leaf"),
+      object("leaf", "object:plant"),
+      object("cell", "object:leaf"),
       object("soil", null),
     ];
     expect(new Set(objectSubtreeIds(objects, "plant"))).toEqual(new Set(["plant", "leaf", "cell"]));
@@ -54,10 +54,10 @@ describe("object topology scoping", () => {
 
 function application(id: string, inputs: GraphPort[], outputs: GraphPort[], targetIds: unknown[]): ApplicationGraphNode {
   return {
-    id: `application:${id}`, applicationId: id, name: id, process: id, modelType: id, modelName: id, module: "Main", package: null,
+    id: `application:${id}`, applicationId: id, owner: { scope: "global", applicationId: id, instance: null, templateId: null }, name: id, process: id, modelType: id, modelName: id, module: "Main", package: null,
     modelParameters: {}, selector: { type: "One", multiplicity: "one", criteria: { selectors: [], scale: "Leaf" }, julia: "" },
-    targetIds, targetCount: targetIds.length, targetScales: ["Leaf"], targetKinds: [], targetSpecies: [], targetInstances: [], timestep: null, clock: null,
-    inputs, outputs, environmentInputs: [], environmentOutputs: [], inputBindings: {}, callBindings: {}, environment: null, meteoBindings: {}, meteoWindow: null, outputRouting: {}, updates: [], modelStorage: "shared_application", objectOverrides: [],
+    targetIds, targetCount: targetIds.length, targetScales: ["Leaf"], targetKinds: [], targetSpecies: [], targetInstances: [], cadence: { mode: "default", value: null, unit: null, julia: "nothing" }, clock: null,
+    inputs, outputs, environmentInputs: [], environmentOutputs: [], inputBindings: {}, callBindings: {}, environment: null, environmentBindings: {}, environmentWindow: { mode: "default", value: null, unit: null, julia: "nothing" }, outputRouting: {}, updates: [], modelStorage: "shared_application", objectOverrides: [],
   };
 }
 
@@ -71,7 +71,7 @@ function object(id: string, parent: string | null): ObjectGraphNode {
 
 function graphView(applications: ApplicationGraphNode[], modelLibrary: ModelDescriptor[]): ModelGraphView {
   return {
-    schemaVersion: 1, level: "applications", metadata: { title: "", modelRevision: 0, objectCount: 1, instanceCount: 0, applicationCount: applications.length, executionCount: applications.length, bindingCount: 0, callCount: 0, unresolvedInitializationCount: 0, cyclic: false, strictlyCompiled: true },
-    objects: [], instances: [], applications, executions: [], edges: [], modelLibrary, initialization: [], diagnostics: [], cycles: [], availableActions: [],
+    schemaVersion: 2, level: "applications", metadata: { title: "", modelRevision: 0, objectCount: 1, instanceCount: 0, applicationCount: applications.length, executionCount: applications.length, bindingCount: 0, callCount: 0, unresolvedInitializationCount: 0, cyclic: false, strictlyCompiled: true, sceneEnvironmentId: null },
+    objects: [], templates: [], instances: [], applications, executions: [], edges: [], modelLibrary, environments: [], initialization: [], diagnostics: [], cycles: [], availableActions: [],
   };
 }

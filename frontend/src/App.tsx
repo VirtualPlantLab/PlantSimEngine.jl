@@ -32,6 +32,8 @@ import {
 import { ApplicationForm, type ApplicationFormValue } from "./ApplicationForm";
 import { ApplicationConfigurationForm } from "./ApplicationConfigurationForm";
 import { BindingForm, type BindingEndpoints, type BindingFormValue } from "./BindingForm";
+import { EnvironmentForm } from "./EnvironmentForm";
+import { InstanceForm, type InstanceFormValue } from "./InstanceForm";
 import { ObjectForm, type ObjectFormValue } from "./ObjectForm";
 import { OverrideForm, type OverrideFormValue } from "./OverrideForm";
 import { ApplicationNode, EntityNode } from "./ModelNode";
@@ -42,11 +44,13 @@ import type {
   ApplicationGraphNode,
   DetailMode,
   EditorState,
+  EnvironmentDescriptor,
   EnvironmentGraphNode,
   ExecutionGraphNode,
   GraphPort,
   GraphViewMode,
   InstanceDescriptor,
+  InstancePreview,
   ModelDescriptor,
   ObjectGraphNode,
   RuntimeApplicationNode,
@@ -55,6 +59,7 @@ import type {
   ModelGraphView,
   ModelRootDescriptor,
   SelectorPreview,
+  TemplateDescriptor,
   TargetPreview,
 } from "./types";
 import "./styles.css";
@@ -63,12 +68,10 @@ type FlowNode = Node<RuntimeApplicationNode | RuntimeEntityNode>;
 type FlowEdge = Edge<ModelGraphEdge>;
 type CandidatePopover = { port: GraphPort; application: ApplicationGraphNode; x: number; y: number };
 type CycleBreakSelection = { application: ApplicationGraphNode; port: GraphPort };
-type InspectorSelection = ApplicationGraphNode | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentGraphNode | ModelRootDescriptor | ModelGraphEdge | null;
+type InspectorSelection = ApplicationGraphNode | TemplateDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentDescriptor | EnvironmentGraphNode | ModelRootDescriptor | ModelGraphEdge | null;
 type GraphScopeFilter = { label: string; objectIds: unknown[] };
 type ApplicationFormState = {
   mode: "add" | "update";
-  scope?: "application" | "template";
-  instance?: string;
   application?: ApplicationGraphNode;
   initialModelType?: string;
   suggestedSelector?: ApplicationGraphNode["selector"];
@@ -103,6 +106,9 @@ export default function App() {
   const [feedback, setFeedback] = useState<string | null>(null);
   const [applicationForm, setApplicationForm] = useState<ApplicationFormState | null>(null);
   const [targetPreview, setTargetPreview] = useState<TargetPreview | null>(null);
+  const [showInstanceForm, setShowInstanceForm] = useState(false);
+  const [instancePreview, setInstancePreview] = useState<InstancePreview | null>(null);
+  const [showEnvironmentForm, setShowEnvironmentForm] = useState(false);
   const [objectForm, setObjectForm] = useState<ObjectFormState | null>(null);
   const [overrideApplication, setOverrideApplication] = useState<ApplicationGraphNode | null>(null);
   const [configurationApplicationId, setConfigurationApplicationId] = useState<string | null>(null);
@@ -159,9 +165,11 @@ export default function App() {
       setRecentPaths(payload.recentPaths ?? []);
       if (payload.selectorPreview) setBindingPreview(payload.selectorPreview);
       if (payload.targetPreview) setTargetPreview(payload.targetPreview);
+      if (payload.instancePreview) setInstancePreview(payload.instancePreview);
       if (payload.ok === false) {
         setBindingPreview(null);
         setTargetPreview(null);
+        setInstancePreview(null);
       }
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
@@ -256,12 +264,21 @@ export default function App() {
     }
     sendCommand({
       action: "edit",
-      kind: value.applicationId ? applicationForm?.scope === "template" ? "update_template_application" : "update_application" : "add_application",
-      instance: applicationForm?.instance,
+      kind: value.applicationRef ? "update_application" : "add_application",
       ...value,
     });
     setApplicationForm(null);
-  }, [applicationForm?.instance, applicationForm?.scope, connected, sendCommand]);
+  }, [connected, sendCommand]);
+
+  const submitInstance = useCallback((value: InstanceFormValue) => {
+    if (!connected) {
+      setFeedback("Adding a template instance requires an interactive Julia editor session.");
+      return;
+    }
+    sendCommand({ action: "edit", kind: "add_instance", ...value });
+    setShowInstanceForm(false);
+    setInstancePreview(null);
+  }, [connected, sendCommand]);
 
   const submitBinding = useCallback((value: BindingFormValue) => {
     if (!connected) {
@@ -380,6 +397,8 @@ export default function App() {
           )}
           {editorConfig && <button data-testid="add-application" onClick={() => { setTargetPreview(null); setApplicationForm({ mode: "add" }); }}><Plus size={15} /> Add application</button>}
           {editorConfig && <button data-testid="add-object" onClick={() => setObjectForm({ mode: "add" })}><Plus size={15} /> Add object</button>}
+          {editorConfig && graph.templates.length > 0 && <button data-testid="add-instance" onClick={() => { setInstancePreview(null); setShowInstanceForm(true); }}><Plus size={15} /> Add instance</button>}
+          {editorConfig && <button data-testid="configure-environment" onClick={() => setShowEnvironmentForm(true)}>Environment</button>}
           {editorConfig && <button disabled={!canUndo} onClick={() => sendCommand({ action: "undo" })} aria-label="Undo"><Undo2 size={15} /></button>}
           {editorConfig && <button disabled={!canRedo} onClick={() => sendCommand({ action: "redo" })} aria-label="Redo"><Redo2 size={15} /></button>}
           <button onClick={() => setShowModelCode(true)}><Code2 size={15} /> Model code</button>
@@ -442,19 +461,17 @@ export default function App() {
             setTargetPreview(null);
             setApplicationForm({
               mode: "update",
-              scope: application.targetInstances.length > 0 ? "template" : "application",
-              instance: application.targetInstances[0],
               application,
             });
           }}
           onRemoveApplication={(application) => sendCommand({
             action: "edit",
-            kind: application.targetInstances.length > 0 ? "remove_template_application" : "remove_application",
-            instance: application.targetInstances[0],
-            applicationId: application.applicationId,
+            kind: "remove_application",
+            applicationRef: application.owner,
           })}
           onConfigureApplication={(application) => setConfigurationApplicationId(application.applicationId)}
           onOverrideApplication={setOverrideApplication}
+          onRemoveInstance={(instance) => sendCommand({ action: "edit", kind: "remove_instance", name: instance.name })}
           onEditObject={(object) => setObjectForm({ mode: "update", object })}
           onRemoveObject={(object) => sendCommand({ action: "edit", kind: "remove_object", objectId: object.objectId, recursive: true })}
         />
@@ -487,9 +504,9 @@ export default function App() {
           application={applicationForm.application}
           initialModelType={applicationForm.initialModelType}
           suggestedSelector={applicationForm.suggestedSelector}
-          nameReadOnly={applicationForm.scope === "template"}
+          nameReadOnly={applicationForm.application?.owner.scope === "template"}
           preview={targetPreview}
-          onPreview={(selector) => { setTargetPreview(null); sendCommand({ action: "preview_application_targets", selector }); }}
+          onPreview={(selector) => { setTargetPreview(null); sendCommand({ action: "preview_application_targets", selector, applicationRef: applicationForm.application?.owner }); }}
           onSubmit={submitApplication}
           onClose={() => { setApplicationForm(null); setTargetPreview(null); }}
         />
@@ -507,11 +524,17 @@ export default function App() {
       {objectForm && (
         <ObjectForm mode={objectForm.mode} objects={graph.objects} object={objectForm.object} onSubmit={submitObject} onClose={() => setObjectForm(null)} />
       )}
+      {showInstanceForm && (
+        <InstanceForm templates={graph.templates} instances={graph.instances} objects={graph.objects} preview={instancePreview} onPreview={(value) => { setInstancePreview(null); sendCommand({ action: "preview_instance", ...value }); }} onSubmit={submitInstance} onClose={() => { setShowInstanceForm(false); setInstancePreview(null); }} />
+      )}
+      {showEnvironmentForm && (
+        <EnvironmentForm environments={graph.environments} activeId={graph.metadata.sceneEnvironmentId} onSubmit={(environmentId) => { sendCommand({ action: "edit", kind: "set_model_environment", environmentId }); setShowEnvironmentForm(false); }} onClose={() => setShowEnvironmentForm(false)} />
+      )}
       {overrideApplication && (
         <OverrideForm application={overrideApplication} models={graph.modelLibrary} instances={graph.instances} onSubmit={submitOverride} onRemove={removeOverride} onClose={() => setOverrideApplication(null)} />
       )}
       {configurationApplicationId && applicationById.get(configurationApplicationId) && (
-        <ApplicationConfigurationForm application={applicationById.get(configurationApplicationId)!} applications={graph.applications} onCommand={sendCommand} onClose={() => setConfigurationApplicationId(null)} />
+        <ApplicationConfigurationForm application={applicationById.get(configurationApplicationId)!} applications={graph.applications} environments={graph.environments} models={graph.modelLibrary} onCommand={sendCommand} onClose={() => setConfigurationApplicationId(null)} />
       )}
       {cycleBreakSelection && (
         <CycleBreakDialog
@@ -521,7 +544,7 @@ export default function App() {
             sendCommand({
               action: "edit",
               kind: "break_cycle",
-              applicationId: cycleBreakSelection.application.applicationId,
+              applicationRef: cycleBreakSelection.application.owner,
               input: cycleBreakSelection.port.name,
               initializeMissing,
               initialValue,
@@ -586,6 +609,18 @@ function buildNodes({
         detail: modelDetail,
       },
     };
+    const templateNodes: FlowNode[] = graph.templates.filter(matches).map((template) => ({
+      id: `template:${template.id}`,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "template",
+        title: template.name,
+        subtitle: template.source === "catalog" ? "template preset" : "model-local template",
+        badges: [`${template.applications.length} applications`, `${template.mountedInstances.length} mounts`],
+        detail: template,
+      },
+    }));
     const instanceNodes: FlowNode[] = graph.instances.filter(matches).map((instance) => ({
       id: instance.id,
       type: "entity",
@@ -610,7 +645,7 @@ function buildNodes({
         detail: object,
       },
     }));
-    return [modelNode, ...instanceNodes, ...objectNodes];
+    return [modelNode, ...templateNodes, ...instanceNodes, ...objectNodes];
   }
   if (view === "resolved") {
     const applications = new Map(graph.applications.map((application) => [application.applicationId, application]));
@@ -664,6 +699,7 @@ function environmentNodes(graph: ModelGraphView, projection: "applications" | "r
   const ids = new Set(relevant.flatMap((edge) => [edge.source, edge.target]).filter((id) => id.startsWith("environment:")));
   return [...ids].map((id) => {
     const provider = id.slice("environment:".length);
+    const descriptor = graph.environments.find((environment) => environment.id === id);
     const inputs = uniqueStrings(relevant.filter((edge) => edge.target === id).map((edge) => edge.targetPort).filter(Boolean) as string[]);
     const outputs = uniqueStrings(relevant.filter((edge) => edge.source === id).map((edge) => edge.sourcePort).filter(Boolean) as string[]);
     return {
@@ -672,12 +708,12 @@ function environmentNodes(graph: ModelGraphView, projection: "applications" | "r
       position: { x: 0, y: 0 },
       data: {
         nodeKind: "environment",
-        title: provider,
-        subtitle: "environment provider",
+        title: descriptor?.name || provider,
+        subtitle: descriptor?.active ? "active scene environment" : "environment backend",
         badges: [`${outputs.length} inputs`, `${inputs.length} outputs`],
         inputPortIds: inputs,
         outputPortIds: outputs,
-        detail: { provider },
+        detail: descriptor || { provider },
       },
     };
   });
@@ -709,15 +745,17 @@ function buildEdges(graph: ModelGraphView, view: GraphViewMode): FlowEdge[] {
 function topologyContainerEdges(graph: ModelGraphView): ModelGraphEdge[] {
   const edges: ModelGraphEdge[] = [];
   const instanceObjectIds = new Set(graph.instances.flatMap((instance) => instance.objectIds.map(objectKey)));
-  for (const instance of graph.instances) {
+  for (const template of graph.templates) {
     edges.push({
-      id: `topology:model:${instance.id}`,
+      id: `topology:model:template:${template.id}`,
       source: "model:root",
-      target: instance.id,
+      target: `template:${template.id}`,
       kind: "object_topology",
       projection: "topology",
       cycle: false,
     });
+  }
+  for (const instance of graph.instances) {
     edges.push({
       id: `topology:${instance.id}:object:${String(instance.rootId)}`,
       source: instance.id,
@@ -763,11 +801,14 @@ export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): u
   return result;
 }
 
-function objectKey(value: unknown) { return String(value); }
+function objectKey(value: unknown) {
+  const text = String(value);
+  return text.startsWith("object:") ? text.slice("object:".length) : text;
+}
 
 function edgeProjectionMatches(edge: ModelGraphEdge, view: GraphViewMode) {
   const projection = (edge as ModelGraphEdge & { projection?: string }).projection;
-  if (view === "topology") return edge.kind === "object_topology";
+  if (view === "topology") return edge.kind === "object_topology" || edge.kind === "template_mount";
   if (view === "resolved") return projection === "resolved";
   return projection === "applications" || (!projection && !["object_topology", "application_target"].includes(edge.kind));
 }
@@ -871,15 +912,17 @@ export function endpointsForCandidate(candidate: CandidatePopover, application: 
   return { sourceApplication: candidate.application, sourcePort: candidate.port, targetApplication: application, targetPort };
 }
 
-function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: ModelGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
+function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onRemoveInstance, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: ModelGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onRemoveInstance: (instance: InstanceDescriptor) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
   const application = selection && "applicationId" in selection && "selector" in selection ? selection as ApplicationGraphNode : null;
   const object = selection && "objectId" in selection && !("applicationId" in selection) ? selection as ObjectGraphNode : null;
+  const instance = selection && "templateId" in selection && "objectIds" in selection ? selection as InstanceDescriptor : null;
   return (
     <aside className="model-inspector">
       <header><strong>Inspector</strong>{selection && <span>{selectionLabel(selection)}</span>}</header>
       {!selection && <div className="empty-inspector"><Boxes size={28} /><p>Select an application, object, execution, or relationship.</p></div>}
       {selection && <pre>{JSON.stringify(selection, null, 2)}</pre>}
-      {application && interactive && <div className="inspector-actions"><button onClick={() => onEditApplication(application)}>{application.targetInstances.length > 0 ? "Edit shared template" : "Edit application"}</button>{application.targetInstances.length === 0 && <button data-testid="configure-application" onClick={() => onConfigureApplication(application)}>Configure coupling</button>}{application.targetInstances.length > 0 && <button onClick={() => onOverrideApplication(application)}>Create override</button>}<button className="danger" onClick={() => onRemoveApplication(application)}>{application.targetInstances.length > 0 ? "Remove from shared template" : "Remove application"}</button></div>}
+      {application && interactive && <div className="inspector-actions"><button onClick={() => onEditApplication(application)}>{application.owner.scope === "template" ? "Edit shared template" : "Edit application"}</button><button data-testid="configure-application" onClick={() => onConfigureApplication(application)}>Configure coupling</button>{application.owner.scope === "template" && <button onClick={() => onOverrideApplication(application)}>Create override</button>}<button className="danger" onClick={() => onRemoveApplication(application)}>{application.owner.scope === "template" ? "Remove from shared template" : "Remove application"}</button></div>}
+      {instance && interactive && <div className="inspector-actions"><button className="danger" onClick={() => onRemoveInstance(instance)}>Unmount instance</button><small>The object subtree is retained.</small></div>}
       {object && interactive && <div className="inspector-actions"><button onClick={() => onEditObject(object)}>Edit object</button><button className="danger" onClick={() => onRemoveObject(object)}>Remove object and descendants</button></div>}
       {port && <section><h4>Selected variable</h4><code>{port.name}</code><p>{port.expectedType}</p></section>}
       {selection && initialization.length > 0 && (
@@ -892,7 +935,7 @@ function Inspector({ selection, port, initialization, interactive, onEditApplica
 function DiagnosticsPanel({ graph, onClose, sendCommand, interactive }: { graph: ModelGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
   return <Overlay title="Diagnostics and cycles" onClose={onClose}>
     {graph.diagnostics.map((diagnostic) => <article className="diagnostic-card" key={`${diagnostic.code}:${diagnostic.message}`}><strong>{diagnostic.code}</strong><p>{diagnostic.message}</p>{diagnostic.suggestions.map((suggestion) => <small key={suggestion}>{suggestion}</small>)}</article>)}
-    {graph.cycles.map((cycle) => <article className="cycle-card" key={cycle.id}><strong>{cycle.applicationIds.join(" → ")}</strong><p>Choose an input to read from the previous timestep.</p>{cycle.breakCandidates.map((candidate) => <button disabled={!interactive} key={`${candidate.applicationId}:${candidate.objectId}:${candidate.input}`} onClick={() => sendCommand({ action: "edit", kind: "mark_previous_timestep", applicationId: candidate.applicationId, input: candidate.input })}>{candidate.applicationId}.{candidate.input}</button>)}</article>)}
+    {graph.cycles.map((cycle) => <article className="cycle-card" key={cycle.id}><strong>{cycle.applicationIds.join(" → ")}</strong><p>Choose an input to read from the previous timestep.</p>{cycle.breakCandidates.map((candidate) => { const owner = graph.applications.find((application) => application.applicationId === candidate.applicationId)?.owner; return <button disabled={!interactive || !owner} key={`${candidate.applicationId}:${candidate.objectId}:${candidate.input}`} onClick={() => owner && sendCommand({ action: "edit", kind: "mark_previous_timestep", applicationRef: owner, input: candidate.input })}>{candidate.applicationId}.{candidate.input}</button>; })}</article>)}
     {graph.diagnostics.length === 0 && graph.cycles.length === 0 && <p>No diagnostics.</p>}
   </Overlay>;
 }
@@ -981,6 +1024,7 @@ function selectionLabel(selection: Exclude<InspectorSelection, null>) {
   if ("objectIds" in selection) return selection.name;
   if ("entity" in selection) return "Composite model";
   if ("provider" in selection) return selection.provider;
+  if ("name" in selection) return selection.name;
   return selection.kind.replaceAll("_", " ");
 }
 

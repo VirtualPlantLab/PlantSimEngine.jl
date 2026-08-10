@@ -2678,6 +2678,38 @@ h1 {
   background: #f3fafb;
 }
 
+.entity-node.template {
+  border-color: #9a8bc0;
+  background: #f8f5fd;
+}
+
+.instance-form { width: min(780px, 100%); }
+.instance-form-content { display: grid; gap: 14px; }
+.environment-form { width: min(560px, 100%); }
+.environment-summary,
+.effective-environment {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #d4dfdb;
+  border-radius: 5px;
+  background: #f4f9f6;
+}
+.environment-summary span,
+.environment-hint { color: #655f58; font-size: 12px; }
+.environment-sources input,
+.configuration-list > div > input,
+.configuration-list > div > select {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid #cdbda8;
+  border-radius: 5px;
+  background: #fffdf8;
+  color: #302923;
+}
+.compact-actions { display: flex; justify-content: flex-end; gap: 8px; }
+.compact-actions button { display: inline-flex; align-items: center; gap: 5px; }
+
 .application-configuration-form { width: min(820px, 100%); }
 .application-configuration-content { display: grid; gap: 14px; }
 .application-configuration-content fieldset { margin: 0; padding: 12px; border: 1px solid #ded2c2; border-radius: 5px; }
