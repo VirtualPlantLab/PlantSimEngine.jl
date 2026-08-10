@@ -11,6 +11,25 @@ struct EditorConsumerModel <: AbstractEditorConsumerModel end
 PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
+struct EditorEnvironmentBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
+    name::Symbol
+end
+PlantSimEngine.EnvironmentAPI.environment_variables(::EditorEnvironmentBackend) = (:T, :RH)
+PlantSimEngine.EnvironmentAPI.base_step_seconds(::EditorEnvironmentBackend) = 3600.0
+PlantSimEngine.EnvironmentAPI.get_nsteps(::EditorEnvironmentBackend) = 1
+
+editor_global_ref(application_id) = Dict(
+    "scope" => "global",
+    "applicationId" => string(application_id),
+    "instance" => nothing,
+)
+
+editor_template_ref(instance, application_id) = Dict(
+    "scope" => "template",
+    "applicationId" => string(application_id),
+    "instance" => string(instance),
+)
+
 @testset "session lifecycle and edits" begin
     model = CompositeModel(
         Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
@@ -52,6 +71,195 @@ PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
     end
 end
 
+
+@testset "template and environment catalogs drive transactional commands" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    template = CompositeModelTemplate((
+        ModelSpec(EditorSourceModel(); name=:source, on=Many(scale=:Leaf)),
+    ); kind=:plant, species=:test_species)
+    weather = EditorEnvironmentBackend(:weather)
+    canopy = EditorEnvironmentBackend(:canopy)
+    model = CompositeModel(
+        Object(:plant_a; name=:plant_a, scale=:Plant),
+        Object(:leaf_a; scale=:Leaf, parent=:plant_a, status=Status(driver=1.0)),
+        Object(:plant_b; name=:plant_b, scale=:Plant),
+        Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),
+    )
+    @test_throws "catalog names must be symbols" edit_graph(
+        model;
+        templates=Dict("plant" => template),
+        port=0,
+        open_browser=false,
+        autosave=false,
+    )
+    @test_throws "must be a CompositeModelTemplate" edit_graph(
+        model;
+        templates=(invalid=EditorSourceModel(),),
+        port=0,
+        open_browser=false,
+        autosave=false,
+    )
+    output_path = joinpath(mktempdir(), "catalog-model.jl")
+    session = edit_graph(
+        model;
+        templates=(plant=template,),
+        environments=(weather=weather, canopy=canopy),
+        save_path=output_path,
+        port=0,
+        open_browser=false,
+        autosave=false,
+    )
+    try
+        preview = editor_extension._handle_command!(session, Dict(
+            "action" => "preview_instance",
+            "name" => "plant_a",
+            "templateId" => "catalog:plant",
+            "rootId" => "plant_a",
+        ))
+        @test preview["ok"]
+        @test Set(preview["instancePreview"]["objectIds"]) == Set(["plant_a", "leaf_a"])
+        @test only(preview["instancePreview"]["applications"])["targetIds"] == ["leaf_a"]
+        @test isempty(session.history)
+
+        for plant in ("plant_a", "plant_b")
+            response = editor_extension._handle_command!(session, Dict(
+                "action" => "edit",
+                "kind" => "add_instance",
+                "name" => plant,
+                "templateId" => "catalog:plant",
+                "rootId" => plant,
+            ))
+            response["ok"] || error(join(response["diagnostics"], "\n"))
+        end
+        @test length(current_model(session).instances) == 2
+        mounted_state = editor_extension._state_payload(session)["graph"]
+        @test Set(application["owner"]["applicationId"] for application in mounted_state["applications"]) == Set(["source"])
+        @test length(mounted_state["templates"]) == 1
+        @test only(mounted_state["templates"])["source"] == "catalog"
+
+        shared_preview = editor_extension._handle_command!(session, Dict(
+            "action" => "preview_application_targets",
+            "applicationRef" => editor_template_ref(:plant_a, :source),
+            "selector" => Dict(
+                "multiplicity" => "many",
+                "criteria" => Dict("selectors" => Any[], "scale" => "Leaf"),
+            ),
+        ))
+        @test shared_preview["ok"]
+        @test shared_preview["targetPreview"]["count"] == 2
+        @test Set(group["instance"] for group in shared_preview["targetPreview"]["groups"]) ==
+              Set(["plant_a", "plant_b"])
+
+        shared_update = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "update_application",
+            "applicationRef" => editor_template_ref(:plant_a, :source),
+            "name" => "source",
+            "modelType" => string(EditorSourceModel),
+            "parameters" => Dict(),
+            "selector" => Dict(
+                "multiplicity" => "many",
+                "criteria" => Dict("selectors" => Any[], "scale" => "Leaf"),
+            ),
+            "cadence" => Dict("mode" => "period", "value" => 2, "unit" => "Hour"),
+        ))
+        shared_update["ok"] || error(join(shared_update["diagnostics"], "\n"))
+        @test all(application["cadence"]["value"] == 2 for application in shared_update["graph"]["applications"])
+        @test Set(template["source"] for template in shared_update["graph"]["templates"]) == Set(["catalog", "model"])
+
+        environment_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_model_environment",
+            "environmentId" => "environment:weather",
+        ))
+        environment_response["ok"] || error(join(environment_response["diagnostics"], "\n"))
+        @test current_model(session).environment === weather
+        @test environment_response["graph"]["metadata"]["sceneEnvironmentId"] == "environment:weather"
+
+        application_environment = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_application_environment",
+            "applicationRef" => editor_template_ref(:plant_a, :source),
+            "configuration" => Dict(
+                "backendId" => "environment:canopy",
+                "provider" => "canopy_cells",
+                "sources" => Dict(),
+                "sink" => "canopy_state",
+                "extra" => Dict("layer" => Dict("type" => "integer", "value" => "2")),
+            ),
+        ))
+        application_environment["ok"] || error(join(application_environment["diagnostics"], "\n"))
+        @test all(
+            application["environment"]["backendId"] == "environment:canopy"
+            for application in application_environment["graph"]["applications"]
+        )
+
+        code = read(output_path, String)
+        @test occursin("Requires `editor_environments`", code)
+        @test occursin("editor_environments.weather", code)
+        @test occursin("editor_environments.canopy", code)
+        portable_template = CompositeModelTemplate((
+            ModelSpec(PlantSimEngine.Examples.ToyPlantRmModel(); name=:maintenance, on=Many(scale=:Leaf)),
+        ))
+        portable_model = CompositeModel(
+            ObjectInstance(
+                :portable_plant,
+                portable_template;
+                root=Object(:portable_plant; name=:portable_plant, scale=:Plant),
+                objects=(Object(:portable_leaf; scale=:Leaf, parent=:portable_plant),),
+            );
+            environment=weather,
+        )
+        portable_path = joinpath(mktempdir(), "portable-catalog-model.jl")
+        portable_session = edit_graph(
+            portable_model;
+            environments=(weather=weather, canopy=canopy),
+            save_path=portable_path,
+            port=0,
+            open_browser=false,
+            autosave=false,
+        )
+        close(portable_session)
+        @test_throws "requires environment catalog keys" edit_graph(
+            ;
+            recover_path=portable_path,
+            port=0,
+            open_browser=false,
+            autosave=false,
+        )
+        reopened = edit_graph(
+            ;
+            environments=(weather=weather, canopy=canopy),
+            recover_path=portable_path,
+            port=0,
+            open_browser=false,
+            autosave=false,
+        )
+        try
+            @test reopened.model.environment === weather
+            @test length(reopened.model.instances) == 1
+            @test only(reopened.model.instances).name == :portable_plant
+        finally
+            close(reopened)
+        end
+
+        remove_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "remove_instance",
+            "name" => "plant_b",
+        ))
+        @test remove_response["ok"]
+        @test ObjectId(:plant_b) in object_ids(current_model(session))
+        @test ObjectId(:leaf_b) in object_ids(current_model(session))
+        undo!(session)
+        @test length(current_model(session).instances) == 2
+        redo!(session)
+        @test length(current_model(session).instances) == 1
+    finally
+        close(session)
+    end
+end
+
 @testset "empty session and automatic save" begin
     output_path = joinpath(mktempdir(), "model.generated.jl")
     session = edit_graph(
@@ -76,7 +284,7 @@ end
         @test output_path in session.recent_paths
 
         snapshot_path = joinpath(mktempdir(), "saved-model.jl")
-        write(snapshot_path, Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)._model_to_julia(current_model(session)))
+        write(snapshot_path, Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)._model_to_julia(session))
         apply_edit!(session, AddModelObject(Object(:soil; name=:soil, scale=:Soil)))
         @test length(model_objects(current_model(session))) == 2
         response = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)._handle_command!(session, Dict(
@@ -163,15 +371,21 @@ end
                     "scale" => "Leaf",
                 ),
             ),
-            "timestep" => Dict("mode" => "default"),
+            "cadence" => Dict("mode" => "default"),
         ))
         @test source_response["ok"]
 
         environment_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
-            "kind" => "set_environment_provider",
-            "applicationId" => "source",
-            "provider" => "model",
+            "kind" => "set_application_environment",
+            "applicationRef" => editor_global_ref(:source),
+            "configuration" => Dict(
+                "backendId" => "scene",
+                "provider" => "model",
+                "sources" => Dict(),
+                "sink" => nothing,
+                "extra" => Dict(),
+            ),
         ))
         @test environment_response["ok"]
         source_application = only(
@@ -183,7 +397,7 @@ end
         routing_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
             "kind" => "set_output_routing",
-            "applicationId" => "source",
+            "applicationRef" => editor_global_ref(:source),
             "output" => "signal",
             "route" => "stream_only",
         ))
@@ -203,7 +417,7 @@ end
                 "multiplicity" => "one",
                 "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
             ),
-            "timestep" => Dict("mode" => "clock", "dt" => "2.0", "phase" => "0.0"),
+            "cadence" => Dict("mode" => "period", "value" => 2, "unit" => "Hour"),
         ))
         @test consumer_response["ok"]
 
@@ -218,7 +432,7 @@ end
         call_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
             "kind" => "set_call_binding",
-            "applicationId" => "consumer",
+            "applicationRef" => editor_global_ref(:consumer),
             "call" => "source_call",
             "selector" => call_selector,
         ))
@@ -227,14 +441,14 @@ end
         remove_call_response = editor_extension._handle_command!(session, Dict(
             "action" => "edit",
             "kind" => "remove_call_binding",
-            "applicationId" => "consumer",
+            "applicationRef" => editor_global_ref(:consumer),
             "call" => "source_call",
         ))
         @test remove_call_response["ok"]
         @test remove_call_response["graph"]["metadata"]["callCount"] == 0
 
         binding_command = Dict(
-            "applicationId" => "consumer",
+            "applicationRef" => editor_global_ref(:consumer),
             "input" => "signal",
             "selector" => Dict(
                 "multiplicity" => "one",
@@ -317,7 +531,12 @@ end
             object_overrides=(Override(object=:leaf_b, application=:source, model=EditorSourceModel()),),
         ),
     )
-    code = editor_extension._model_to_julia(original)
+    session = edit_graph(original; port=0, open_browser=false, autosave=false)
+    code = try
+        editor_extension._model_to_julia(session)
+    finally
+        close(session)
+    end
     @test occursin("defined in Main", code)
     @test occursin("template_1 = CompositeModelTemplate", code)
     @test occursin("instances = (", code)
@@ -346,7 +565,12 @@ end
             ModelSpec(EditorSourceModel(); name=:local_source, on=One(name=:local_leaf)),
         ),
     ))
-    local_code = editor_extension._model_to_julia(local_model)
+    local_session = edit_graph(local_model; port=0, open_browser=false, autosave=false)
+    local_code = try
+        editor_extension._model_to_julia(local_session)
+    finally
+        close(local_session)
+    end
     @test occursin("applications=(ModelSpec", local_code)
     restored_local = Base.include_string(Main, local_code, "generated_local_model_editor_test.jl")
     restored_local_application = only(only(model_objects(restored_local)).applications)
