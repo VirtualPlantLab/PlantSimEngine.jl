@@ -689,6 +689,15 @@ function _model_object(model::CompositeModel, id)
     return model.registry.objects[oid]
 end
 
+"""
+    model_object(model::CompositeModel, id) -> Object
+
+Return the single object registered under `id`. The identifier may be either
+an [`ObjectId`](@ref) or the value used to construct one. An error is raised
+when the registry contains no matching object.
+"""
+model_object(model::CompositeModel, id) = _model_object(model, id)
+
 function _object_ancestor_ids(
     registry::ObjectRegistry,
     object_id::ObjectId,
@@ -839,15 +848,18 @@ function add_organ!(
     _model_object(model, parent_id)
     root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
+        # `max_node_id` is initialized from the complete source MTG and is
+        # updated for every explicit insertion, so the next automatic id is
+        # unique without an O(n) tree lookup.
         adapter.max_node_id[] += 1
     else
         explicit_id = Int(id)
         adapter.max_node_id[] = max(adapter.max_node_id[], explicit_id)
+        isnothing(MultiScaleTreeGraph.get_node(root, explicit_id)) || error(
+            "MTG node id `$(explicit_id)` already exists."
+        )
         explicit_id
     end
-    isnothing(MultiScaleTreeGraph.get_node(root, node_id)) || error(
-        "MTG node id `$(node_id)` already exists."
-    )
 
     node = MultiScaleTreeGraph.Node(
         node_id,

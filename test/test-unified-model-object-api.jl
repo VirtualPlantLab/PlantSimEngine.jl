@@ -988,6 +988,9 @@ end
     )
     @test new_leaf_object.status === new_leaf_status
     @test new_leaf_object.parent == ObjectId(:plant_2)
+    @test model_object(mtg_scene, :leaf_4) === new_leaf_object
+    @test model_object(mtg_scene, ObjectId(:leaf_4)) === new_leaf_object
+    @test_throws ErrorException model_object(mtg_scene, :absent_leaf)
     @test Advanced.bindings_dirty(mtg_scene)
 
     child_count = length(MultiScaleTreeGraph.children(mtg_plant))
