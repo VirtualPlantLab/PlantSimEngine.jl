@@ -870,11 +870,15 @@ end
         performance.elapsed_seconds,
         :output_request_target_refresh,
     )
+    @test simulation.runtime_revision == model.runtime_revision
 
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
+    previous_runtime_revision = model.runtime_revision
     register_object!(model, Object(:leaf_2; scale=:Leaf))
+    @test model.runtime_revision == previous_runtime_revision + 1
     continue!(simulation)
+    @test simulation.runtime_revision == model.runtime_revision
     refreshed = Advanced.runtime_performance(simulation)
     @test refreshed.counts[:steps_executed] == 4
     @test refreshed.counts[:binding_refreshes] == 1

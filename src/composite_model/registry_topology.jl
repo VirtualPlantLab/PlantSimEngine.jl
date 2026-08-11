@@ -229,6 +229,7 @@ mutable struct CompositeModel{R,A,E,I,SA}
     binding_dirty_objects::Union{Nothing,Set{ObjectId}}
     binding_dirty_kind::Symbol
     input_default_status_variables::Dict{ObjectId,Set{Symbol}}
+    runtime_revision::Int
     revision::Int
     environment_revision::Int
 end
@@ -372,6 +373,7 @@ function CompositeModel(
         Set{ObjectId}(),
         :full,
         Dict{ObjectId,Set{Symbol}}(),
+        0,
         0,
         0,
     )
@@ -594,6 +596,7 @@ function _mark_environment_bindings_dirty!(model::CompositeModel, object_id::Uni
     end
     model.environment_bindings_dirty = true
     model.environment_revision += 1
+    model.runtime_revision += 1
     return model
 end
 

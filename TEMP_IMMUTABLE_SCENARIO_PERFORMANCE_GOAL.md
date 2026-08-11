@@ -284,7 +284,7 @@ lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
 
 - [x] Evaluate cadence once per application execution group, not once per
   heterogeneous batch.
-- [ ] Replace the four-condition dirty check after each application with one
+- [x] Replace the four-condition dirty check after each application with one
   safe mutation-generation comparison or an equivalent single cheap signal.
 - [ ] Preserve immediate refresh after an application mutates structure.
 - [ ] Preserve the rule that newly activated applications may run only if they

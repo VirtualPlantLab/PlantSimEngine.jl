@@ -147,6 +147,7 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
             @test performance.counts[:application_groups_visited] == 52
             @test performance.counts[:execution_batches_visited] == 52
             @test performance.counts[:execution_targets_visited] == 199
+            @test performance.counts[:runtime_dirty_checks] == 52
             @test !haskey(
                 performance.counts,
                 :output_request_target_refreshes,

@@ -484,6 +484,7 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     output_requests::R
     output_request_targets::RT
     output_request_model_revision::Int
+    runtime_revision::Int
     current_step::Int
     constants::C
     performance::P
@@ -4861,16 +4862,16 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             execution_refresh.groups_reused,
         )
     end
+    simulation.runtime_revision = model.runtime_revision
     return simulation
 end
 
 function _simulation_runtime_dirty(simulation::Simulation)
-    model = simulation.model
-    return bindings_dirty(model) ||
-           simulation.compiled.revision != model_revision(model) ||
-           environment_bindings_dirty(model) ||
-           simulation.environment_bindings.environment_revision !=
-           environment_revision(model)
+    _runtime_performance_count!(
+        simulation.performance,
+        :runtime_dirty_checks,
+    )
+    return simulation.runtime_revision != simulation.model.runtime_revision
 end
 
 function _run_model_execution_step!(simulation::Simulation, step::Integer)
@@ -5242,6 +5243,7 @@ function run!(
         output_requests,
         output_request_targets,
         model_revision(model),
+        model.runtime_revision,
         0,
         constants,
         performance_counters,
