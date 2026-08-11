@@ -17,8 +17,8 @@ end
 """
 Object-dependent runtime state for one compiled application.
 """
-struct CompiledModelApplication{P}
-    plan::P
+mutable struct CompiledModelApplication{P}
+    const plan::P
     target_ids::Vector{ObjectId}
 end
 
@@ -34,44 +34,138 @@ end
 Base.propertynames(application::CompiledModelApplication) =
     (:plan, :target_ids, propertynames(application.plan)...)
 
+"""Immutable authored input declaration for one application."""
+struct CompiledModelInputPlan{SEL,OA,W}
+    slot::Int
+    application_slot::Int
+    application_id::Symbol
+    input::Symbol
+    selector::SEL
+    origin::Symbol
+    order_after_application_ids::OA
+    source_var::Symbol
+    process::Union{Nothing,Symbol}
+    application::Union{Nothing,Symbol}
+    multiplicity::Symbol
+    window::W
+end
+
+"""Immutable authored hard-call declaration for one application."""
+struct CompiledModelCallPlan{NAME,SEL}
+    slot::Int
+    application_slot::Int
+    application_id::Symbol
+    call::Symbol
+    selector::SEL
+    origin::Symbol
+    process::Union{Nothing,Symbol}
+    application::Union{Nothing,Symbol}
+    multiplicity::Symbol
+end
+
+function CompiledModelCallPlan(
+    slot,
+    application_slot,
+    application_id,
+    call::Symbol,
+    selector,
+    origin,
+    process,
+    application,
+    multiplicity,
+)
+    return CompiledModelCallPlan{call,typeof(selector)}(
+        slot,
+        application_slot,
+        application_id,
+        call,
+        selector,
+        origin,
+        process,
+        application,
+        multiplicity,
+    )
+end
+
+_compiled_call_name(::CompiledModelCallPlan{NAME}) where {NAME} = NAME
+
 """
-Immutable application and timeline metadata shared by every lifecycle refresh
-of a compiled scenario.
+Immutable application, dependency-declaration, and timeline metadata shared by
+every lifecycle refresh of a compiled scenario.
 """
-struct CompiledScenarioPlan{AP,AI,TL}
+struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,TL}
     applications::AP
     applications_by_id::AI
+    input_plans::IP
+    input_plans_by_application::IPI
+    call_plans::CP
+    call_plans_by_application::CPI
     timeline::TL
 end
 
-function _compiled_scenario_plan(applications, timeline)
+function _plans_by_application(applications, plans)
+    application_ids = Tuple(application.id for application in applications)
+    grouped = Tuple(
+        Tuple(plan for plan in plans if plan.application_id == application.id)
+        for application in applications
+    )
+    return NamedTuple{application_ids}(grouped)
+end
+
+function _applications_by_id(applications)
+    application_ids = Tuple(application.id for application in applications)
+    return NamedTuple{application_ids}(Tuple(applications))
+end
+
+function _compiled_scenario_plan(applications, input_plans, call_plans, timeline)
     application_plans = Tuple(application.plan for application in applications)
     application_ids = Tuple(plan.id for plan in application_plans)
     return CompiledScenarioPlan(
         application_plans,
         NamedTuple{application_ids}(application_plans),
+        Tuple(input_plans),
+        _plans_by_application(applications, input_plans),
+        Tuple(call_plans),
+        _plans_by_application(applications, call_plans),
         timeline,
     )
 end
 
-struct CompiledModelInputBinding{SEL,P,W,C}
-    application_id::Symbol
+struct CompiledModelInputBinding{PL,P,C}
+    plan::PL
     consumer_id::ObjectId
-    input::Symbol
-    selector::SEL
-    origin::Symbol
     source_ids::Vector{ObjectId}
     source_application_ids::Vector{Symbol}
-    order_after_application_ids::Vector{Symbol}
-    source_var::Symbol
-    process::Union{Nothing,Symbol}
-    application::Union{Nothing,Symbol}
-    multiplicity::Symbol
     policy::P
-    window::W
     carrier_hint::Symbol
     carrier::C
 end
+
+@inline function Base.getproperty(
+    binding::CompiledModelInputBinding,
+    name::Symbol,
+)
+    name === :plan && return getfield(binding, :plan)
+    name === :consumer_id && return getfield(binding, :consumer_id)
+    name === :source_ids && return getfield(binding, :source_ids)
+    name === :source_application_ids &&
+        return getfield(binding, :source_application_ids)
+    name === :policy && return getfield(binding, :policy)
+    name === :carrier_hint && return getfield(binding, :carrier_hint)
+    name === :carrier && return getfield(binding, :carrier)
+    return getproperty(getfield(binding, :plan), name)
+end
+
+Base.propertynames(binding::CompiledModelInputBinding) = (
+    :plan,
+    :consumer_id,
+    :source_ids,
+    :source_application_ids,
+    :policy,
+    :carrier_hint,
+    :carrier,
+    propertynames(binding.plan)...,
+)
 
 struct CompiledTemporalInput{B,S,I,R}
     binding::B
@@ -87,46 +181,35 @@ struct CompiledModelStatusView{S,C,T,P}
     private_outputs::P
 end
 
-struct CompiledModelCallBinding{NAME,SEL}
-    application_id::Symbol
+struct CompiledModelCallBinding{P}
+    plan::P
     consumer_id::ObjectId
-    call::Symbol
-    selector::SEL
-    origin::Symbol
     callee_object_ids::Vector{ObjectId}
     callee_application_ids::Vector{Symbol}
-    process::Union{Nothing,Symbol}
-    application::Union{Nothing,Symbol}
-    multiplicity::Symbol
 end
 
-function CompiledModelCallBinding(
-    application_id,
-    consumer_id,
-    call::Symbol,
-    selector,
-    origin,
-    callee_object_ids,
-    callee_application_ids,
-    process,
-    application,
-    multiplicity,
+@inline function Base.getproperty(
+    binding::CompiledModelCallBinding,
+    name::Symbol,
 )
-    return CompiledModelCallBinding{call,typeof(selector)}(
-        application_id,
-        consumer_id,
-        call,
-        selector,
-        origin,
-        callee_object_ids,
-        callee_application_ids,
-        process,
-        application,
-        multiplicity,
-    )
+    name === :plan && return getfield(binding, :plan)
+    name === :consumer_id && return getfield(binding, :consumer_id)
+    name === :callee_object_ids && return getfield(binding, :callee_object_ids)
+    name === :callee_application_ids &&
+        return getfield(binding, :callee_application_ids)
+    return getproperty(getfield(binding, :plan), name)
 end
 
-_compiled_call_name(::CompiledModelCallBinding{NAME}) where {NAME} = NAME
+Base.propertynames(binding::CompiledModelCallBinding) = (
+    :plan,
+    :consumer_id,
+    :callee_object_ids,
+    :callee_application_ids,
+    propertynames(binding.plan)...,
+)
+
+@inline _compiled_call_name(binding::CompiledModelCallBinding) =
+    _compiled_call_name(binding.plan)
 
 struct CompiledEnvironmentBinding{B,H,C}
     application_id::Symbol
@@ -271,13 +354,25 @@ function _compile_scene(
     started_at = _runtime_performance_start(performance)
     timeline = _model_timeline(model)
     applications = _compile_model_applications(model, raw_specs, timeline)
+    input_plans = _compile_model_input_plans(applications)
+    call_plans = _compile_model_call_plans(applications)
+    scenario_plan = _compiled_scenario_plan(
+        applications,
+        input_plans,
+        call_plans,
+        timeline,
+    )
     _runtime_performance_finish!(
         performance,
         :application_target_compile,
         started_at,
     )
     started_at = _runtime_performance_start(performance)
-    call_bindings = _compile_model_call_bindings(model, applications)
+    call_bindings = _compile_model_call_bindings(
+        model,
+        applications;
+        plans_by_application=scenario_plan.call_plans_by_application,
+    )
     _validate_model_call_cadences!(applications, call_bindings, timeline)
     _runtime_performance_finish!(
         performance,
@@ -291,6 +386,7 @@ function _compile_scene(
         model,
         applications,
         _manual_call_application_ids(call_bindings),
+        scenario_plan.input_plans_by_application,
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
@@ -331,7 +427,7 @@ function _compile_scene(
         :application_order_compile,
         started_at,
     )
-    applications_by_id = Dict(application.id => application for application in applications)
+    applications_by_id = _applications_by_id(applications)
     started_at = _runtime_performance_start(performance)
     status_views_by_target = _compile_model_status_views(
         model,
@@ -347,7 +443,7 @@ function _compile_scene(
     )
     return CompiledCompositeModel(
         model,
-        _compiled_scenario_plan(applications, timeline),
+        scenario_plan,
         applications,
         applications_by_id,
         _applications_by_object(applications),
@@ -435,38 +531,55 @@ function _compile_added_consumer_bindings!(
     model,
     application,
     consumer_id,
+    input_plans,
     manual_application_ids,
     applications_by_object,
     applications_by_id,
 )
-    declared_inputs = value_inputs(application.spec)
-    declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
-    for (input_name, selector) in pairs(declared_inputs)
-        input_sym = Symbol(input_name)
-        origin = get(input_origins(application.spec), input_sym, :model_spec)
-        _validate_declared_model_input_name!(application, input_sym)
+    for plan in input_plans
+        plan.origin == :inferred_same_object && continue
         _push_model_input_binding!(
             bindings,
             model,
             application,
             consumer_id,
-            input_sym,
-            selector,
-            origin,
+            plan,
             applications_by_object,
             applications_by_id,
         )
     end
     application.id in manual_application_ids && return bindings
-    _append_inferred_model_input_bindings!(
-        bindings,
-        model,
-        application,
-        consumer_id,
-        declared_inputs,
-        applications_by_object,
-        applications_by_id,
-    )
+    processed_inputs = Set{Symbol}()
+    for plan in input_plans
+        plan.origin == :inferred_same_object || continue
+        plan.input in processed_inputs && continue
+        push!(processed_inputs, plan.input)
+        matches = CompiledModelInputPlan[
+            candidate for candidate in input_plans
+            if candidate.origin == :inferred_same_object &&
+               candidate.input == plan.input &&
+               consumer_id in
+               applications_by_id[candidate.application].target_ids
+        ]
+        isempty(matches) && continue
+        if length(matches) > 1
+            error(
+                "Input `$(plan.input)` on application `$(application.id)` for object `$(consumer_id.value)` ",
+                "has ambiguous same-object producers: `$([match.application for match in matches])`. ",
+                "Add `inputs=(:$(plan.input) => One(...),)` to disambiguate."
+            )
+        end
+        _push_model_input_binding!(
+            bindings,
+            model,
+            application,
+            consumer_id,
+            only(matches),
+            applications_by_object,
+            applications_by_id,
+            ObjectId[consumer_id],
+        )
+    end
     return bindings
 end
 
@@ -516,20 +629,11 @@ function _binding_with_shared_many_sources(
     canonical::CompiledModelInputBinding,
 )
     return CompiledModelInputBinding(
-        binding.application_id,
+        binding.plan,
         binding.consumer_id,
-        binding.input,
-        binding.selector,
-        binding.origin,
         canonical.source_ids,
         canonical.source_application_ids,
-        binding.order_after_application_ids,
-        binding.source_var,
-        binding.process,
-        binding.application,
-        binding.multiplicity,
         binding.policy,
-        binding.window,
         binding.carrier_hint,
         canonical.carrier,
     )
@@ -1122,10 +1226,7 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    has_calls = any(applications) do application
-        calls = model_calls(application.spec)
-        calls isa NamedTuple && !isempty(keys(calls))
-    end
+    has_calls = !isempty(compiled.scenario_plan.call_plans)
     timeline = compiled.scenario_plan.timeline
     added_applications = CompiledModelApplication[]
     for application in applications
@@ -1187,6 +1288,7 @@ function _extend_compiled_scene(
         applications,
         ;
         by_object=applications_by_object,
+        plans_by_application=compiled.scenario_plan.call_plans_by_application,
     ) : CompiledModelCallBinding[]
     affected_call_applications = CompiledModelApplication[]
     if !isempty(rebuilt_existing_call_targets)
@@ -1213,6 +1315,7 @@ function _extend_compiled_scene(
             affected_call_applications,
             applications;
             by_object=applications_by_object,
+            plans_by_application=compiled.scenario_plan.call_plans_by_application,
         )
     replacement_call_bindings_by_target = _index_model_bindings(
         replacement_call_bindings,
@@ -1406,9 +1509,7 @@ function _extend_compiled_scene(
             model,
             application,
             binding.consumer_id,
-            binding.input,
-            binding.selector,
-            binding.origin,
+            binding.plan,
             applications_by_object,
             applications_by_id,
         )
@@ -1453,6 +1554,10 @@ function _extend_compiled_scene(
                 model,
                 application,
                 consumer_id,
+                _application_plans(
+                    compiled.scenario_plan.input_plans_by_application,
+                    application.id,
+                ),
                 manual_application_ids,
                 applications_by_object,
                 applications_by_id,
@@ -2787,6 +2892,127 @@ function _matching_input_source_applications(
     return matches
 end
 
+function _compiled_model_input_plan(
+    plans,
+    application,
+    input::Symbol,
+    selector,
+    origin::Symbol,
+    applications_by_id,
+)
+    source_var = _selector_var(selector, input)
+    process_filter = _criteria_get(criteria(selector), :process, nothing)
+    application_filter = _selector_application(selector)
+    order_after_application_ids = _validate_from_status_selector!(
+        selector,
+        process_filter,
+        application_filter,
+        applications_by_id,
+        application.id,
+    )
+    return CompiledModelInputPlan(
+        length(plans) + 1,
+        application.plan.slot,
+        application.id,
+        input,
+        selector,
+        origin,
+        Tuple(order_after_application_ids),
+        source_var,
+        process_filter,
+        application_filter,
+        multiplicity(selector),
+        _selector_window(selector),
+    )
+end
+
+function _compile_model_input_plans(applications)
+    plans = CompiledModelInputPlan[]
+    applications_by_id = Dict(
+        application.id => application for application in applications
+    )
+    for application in applications
+        declared_inputs = value_inputs(application.spec)
+        declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
+        declared_names = Set(Symbol.(keys(declared_inputs)))
+        for (input_name, selector) in pairs(declared_inputs)
+            input = Symbol(input_name)
+            _validate_declared_model_input_name!(application, input)
+            selector isa AbstractObjectMultiplicity || error(
+                "Input binding `$(input)` on application `$(application.id)` must use an object selector."
+            )
+            push!(
+                plans,
+                _compiled_model_input_plan(
+                    plans,
+                    application,
+                    input,
+                    selector,
+                    get(input_origins(application.spec), input, :model_spec),
+                    applications_by_id,
+                ),
+            )
+        end
+        for input in _model_input_names(application)
+            input in declared_names && continue
+            for producer in applications
+                producer.id == application.id && continue
+                input in _model_canonical_output_names(producer) || continue
+                selector = One(
+                    within=Self(),
+                    process=producer.process,
+                    application=producer.id,
+                    var=input,
+                )
+                push!(
+                    plans,
+                    _compiled_model_input_plan(
+                        plans,
+                        application,
+                        input,
+                        selector,
+                        :inferred_same_object,
+                        applications_by_id,
+                    ),
+                )
+            end
+        end
+    end
+    return plans
+end
+
+function _compile_model_call_plans(applications)
+    plans = CompiledModelCallPlan[]
+    for application in applications
+        calls = model_calls(application.spec)
+        calls isa NamedTuple || continue
+        for (call_name, selector) in pairs(calls)
+            call = Symbol(call_name)
+            selector isa AbstractObjectMultiplicity || error(
+                "Call binding `$(call)` on application `$(application.id)` must use an object selector."
+            )
+            push!(
+                plans,
+                CompiledModelCallPlan(
+                    length(plans) + 1,
+                    application.plan.slot,
+                    application.id,
+                    call,
+                    selector,
+                    get(call_origins(application.spec), call, :model_spec),
+                    _criteria_get(criteria(selector), :process, nothing),
+                    _selector_application(selector),
+                    multiplicity(selector),
+                ),
+            )
+        end
+    end
+    return plans
+end
+
+_application_plans(plans_by_application, application_id::Symbol) =
+    getproperty(plans_by_application, application_id)
+
 function _potential_input_source_applications(
     applications_by_id,
     source_var::Symbol,
@@ -2826,44 +3052,26 @@ function _compile_model_input_bindings(
     model::CompositeModel,
     applications,
     manual_application_ids=Set{Symbol}(),
+    plans_by_application=nothing,
 )
+    if isnothing(plans_by_application)
+        plans_by_application = _plans_by_application(
+            applications,
+            _compile_model_input_plans(applications),
+        )
+    end
     bindings = CompiledModelInputBinding[]
     by_object = _applications_by_object(applications)
     by_id = Dict(application.id => application for application in applications)
     for application in applications
         for consumer_id in application.target_ids
-            declared_inputs = value_inputs(application.spec)
-            declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
-            for (input_name, selector) in pairs(declared_inputs)
-                input_sym = Symbol(input_name)
-                origin = get(
-                    input_origins(application.spec),
-                    input_sym,
-                    :model_spec,
-                )
-                _validate_declared_model_input_name!(application, input_sym)
-                selector isa AbstractObjectMultiplicity || error(
-                    "Input binding `$(input_sym)` on application `$(application.id)` must use an object selector."
-                )
-                _push_model_input_binding!(
-                    bindings,
-                    model,
-                    application,
-                    consumer_id,
-                    input_sym,
-                    selector,
-                    origin,
-                    by_object,
-                    by_id,
-                )
-            end
-            application.id in manual_application_ids && continue
-            _append_inferred_model_input_bindings!(
+            _compile_added_consumer_bindings!(
                 bindings,
                 model,
                 application,
                 consumer_id,
-                declared_inputs,
+                _application_plans(plans_by_application, application.id),
+                manual_application_ids,
                 by_object,
                 by_id,
             )
@@ -2877,26 +3085,18 @@ function _push_model_input_binding!(
     model::CompositeModel,
     application::CompiledModelApplication,
     consumer_id::ObjectId,
-    input_sym::Symbol,
-    selector::AbstractObjectMultiplicity,
-    origin::Symbol,
+    plan::CompiledModelInputPlan,
     applications_by_object,
     applications_by_id,
     source_ids_override=nothing,
 )
+    input_sym = plan.input
+    selector = plan.selector
+    source_var = plan.source_var
+    process_filter = plan.process
+    application_filter = plan.application
     source_ids = isnothing(source_ids_override) ? _dependency_object_ids(model, selector, consumer_id) : source_ids_override
     selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
-    window = _selector_window(selector)
-    source_var = _selector_var(selector, input_sym)
-    process_filter = _criteria_get(criteria(selector), :process, nothing)
-    application_filter = _selector_application(selector)
-    order_after_application_ids = _validate_from_status_selector!(
-        selector,
-        process_filter,
-        application_filter,
-        applications_by_id,
-        application.id,
-    )
     source_application_ids = if _selector_from_status(selector)
         Symbol[]
     else
@@ -2986,7 +3186,7 @@ function _push_model_input_binding!(
     elseif stream_only_source
         :temporal_stream
     else
-        _carrier_hint(selector, policy, window)
+        _carrier_hint(selector, policy, plan.window)
     end
     _validate_model_input_source!(
         model,
@@ -3001,20 +3201,11 @@ function _push_model_input_binding!(
     push!(
         bindings,
         CompiledModelInputBinding(
-            application.id,
+            plan,
             consumer_id,
-            input_sym,
-            selector,
-            origin,
             source_ids,
             source_application_ids,
-            order_after_application_ids,
-            source_var,
-            process_filter,
-            application_filter,
-            multiplicity(selector),
             policy,
-            window,
             carrier_hint,
             carrier,
         ),
@@ -3057,55 +3248,6 @@ function _validate_declared_model_input_name!(application::CompiledModelApplicat
         "`inputs_` for process `$(application.process)`. Declared model inputs are ",
         "`$(sort!(collect(input_names)))`."
     )
-end
-
-function _same_object_output_applications(applications_by_object, application::CompiledModelApplication, object_id::ObjectId, variable::Symbol)
-    matches = CompiledModelApplication[]
-    for candidate in get(applications_by_object, object_id, Any[])
-        candidate.id == application.id && continue
-        variable in _model_canonical_output_names(candidate) || continue
-        push!(matches, candidate)
-    end
-    return matches
-end
-
-function _append_inferred_model_input_bindings!(
-    bindings,
-    model::CompositeModel,
-    application::CompiledModelApplication,
-    consumer_id::ObjectId,
-    declared_inputs,
-    applications_by_object,
-    applications_by_id,
-)
-    declared_names = declared_inputs isa NamedTuple ? Set(Symbol.(keys(declared_inputs))) : Set{Symbol}()
-    for input_sym in _model_input_names(application)
-        input_sym in declared_names && continue
-        matches = _same_object_output_applications(applications_by_object, application, consumer_id, input_sym)
-        isempty(matches) && continue
-        if length(matches) > 1
-            error(
-                "Input `$(input_sym)` on application `$(application.id)` for object `$(consumer_id.value)` ",
-                "has ambiguous same-object producers: `$([match.id for match in matches])`. ",
-                "Add `inputs=(:$(input_sym) => One(...),)` to disambiguate."
-            )
-        end
-        producer = only(matches)
-        selector = One(within=Self(), process=producer.process, application=producer.id, var=input_sym)
-        _push_model_input_binding!(
-            bindings,
-            model,
-            application,
-            consumer_id,
-            input_sym,
-            selector,
-            :inferred_same_object,
-            applications_by_object,
-            applications_by_id,
-            ObjectId[consumer_id],
-        )
-    end
-    return bindings
 end
 
 function _bound_model_inputs(input_bindings)
@@ -3191,26 +3333,27 @@ function _compile_model_call_bindings(
     lookup_applications=applications,
     ;
     by_object=nothing,
+    plans_by_application=nothing,
 )
     isnothing(by_object) && (by_object = _applications_by_object(lookup_applications))
+    if isnothing(plans_by_application)
+        plans_by_application = _plans_by_application(
+            applications,
+            _compile_model_call_plans(applications),
+        )
+    end
     bindings = CompiledModelCallBinding[]
     for application in applications
-        calls = model_calls(application.spec)
-        calls isa NamedTuple || continue
         for consumer_id in application.target_ids
-            for (call_name, selector) in pairs(calls)
-                call_sym = Symbol(call_name)
-                origin = get(
-                    call_origins(application.spec),
-                    call_sym,
-                    :model_spec,
-                )
-                selector isa AbstractObjectMultiplicity || error(
-                    "Call binding `$(call_sym)` on application `$(application.id)` must use an object selector."
-                )
+            for plan in _application_plans(
+                plans_by_application,
+                application.id,
+            )
+                call_sym = plan.call
+                selector = plan.selector
                 callee_object_ids = _dependency_object_ids(model, selector, consumer_id)
-                proc = _criteria_get(criteria(selector), :process, nothing)
-                app_name = _selector_application(selector)
+                proc = plan.process
+                app_name = plan.application
                 callee_application_ids = Symbol[]
                 for object_id in callee_object_ids
                     append!(
@@ -3240,16 +3383,10 @@ function _compile_model_call_bindings(
                 push!(
                     bindings,
                     CompiledModelCallBinding(
-                        application.id,
+                        plan,
                         consumer_id,
-                        call_sym,
-                        selector,
-                        origin,
                         callee_object_ids,
                         callee_application_ids,
-                        proc,
-                        app_name,
-                        multiplicity(selector),
                     ),
                 )
             end
@@ -3372,6 +3509,18 @@ function explain_applications(compiled::CompiledCompositeModel)
             application_id=application.id,
             process=application.process,
             name=application.name,
+            input_plan_count=length(
+                _application_plans(
+                    compiled.scenario_plan.input_plans_by_application,
+                    application.id,
+                ),
+            ),
+            call_plan_count=length(
+                _application_plans(
+                    compiled.scenario_plan.call_plans_by_application,
+                    application.id,
+                ),
+            ),
             current_target_count=length(application.target_ids),
             target_ids=[id.value for id in application.target_ids],
             target_scales=sort!(unique!(Symbol[
@@ -3465,6 +3614,8 @@ end
 function explain_bindings(compiled::CompiledCompositeModel)
     return [
         (
+            input_plan_slot=binding.plan.slot,
+            application_slot=binding.plan.application_slot,
             application_id=binding.application_id,
             consumer_id=binding.consumer_id.value,
             input=binding.input,
@@ -3494,6 +3645,8 @@ explain_bindings(model::CompositeModel) = explain_bindings(refresh_bindings!(mod
 function explain_calls(compiled::CompiledCompositeModel)
     return [
         (
+            call_plan_slot=binding.plan.slot,
+            application_slot=binding.plan.application_slot,
             application_id=binding.application_id,
             consumer_id=binding.consumer_id.value,
             call=binding.call,

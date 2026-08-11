@@ -98,7 +98,7 @@ end
     scalar_compiled = Advanced.refresh_bindings!(scalar)
     scalar_binding = only(explain_bindings(scalar_compiled))
     @test isempty(scalar_binding.source_application_ids)
-    @test scalar_binding.order_after_application_ids == [:later_source]
+    @test scalar_binding.order_after_application_ids == (:later_source,)
     @test scalar_binding.carrier_kind == :ref
     @test getproperty.(explain_schedule(scalar_compiled), :application_id) ==
           [:later_source, :status_consumer]

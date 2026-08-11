@@ -1078,9 +1078,10 @@ function _model_duration_steps(duration, timeline)
 end
 
 function _model_input_window_steps(binding::CompiledModelInputBinding, application::CompiledModelApplication, timeline)
-    explicit = _model_duration_steps(binding.window, timeline)
+    explicit = _model_duration_steps(getfield(binding, :plan).window, timeline)
     !isnothing(explicit) && return explicit
-    binding.policy isa Union{Integrate,Aggregate} && return float(application.clock.dt)
+    getfield(binding, :policy) isa Union{Integrate,Aggregate} &&
+        return float(application.clock.dt)
     return 1.0
 end
 
@@ -1157,7 +1158,7 @@ function _model_assign_private_temporal_value!(
             resize!(current, length(value))
         end
         axes(current) == axes(value) || error(
-            "Temporal input `$(temporal_input.binding.input)` changed shape from ",
+            "Temporal input `$(getfield(temporal_input.binding, :plan).input)` changed shape from ",
             "`$(axes(current))` to ",
             "`$(axes(value))`; use a stable vector shape or a `Many(...)` binding.",
         )
@@ -1177,37 +1178,40 @@ function _materialize_model_temporal_input!(
     timeline,
 )
     binding = temporal_input.binding
+    plan = getfield(binding, :plan)
+    source_ids = getfield(binding, :source_ids)
+    policy = getfield(binding, :policy)
     window_steps = _model_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
-    if binding.multiplicity == :many
+    if plan.multiplicity == :many
         storage = temporal_input.reference[]
         storage isa AbstractVector || error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` has non-vector private storage ",
+            "Temporal `Many` input `$(plan.input)` on application ",
+            "`$(plan.application_id)` has non-vector private storage ",
             "`$(typeof(storage))`.",
         )
-        length(storage) == length(binding.source_ids) || error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` has $(length(storage)) private values for ",
-            "$(length(binding.source_ids)) resolved source objects. Refresh the ",
+        length(storage) == length(source_ids) || error(
+            "Temporal `Many` input `$(plan.input)` on application ",
+            "`$(plan.application_id)` has $(length(storage)) private values for ",
+            "$(length(source_ids)) resolved source objects. Refresh the ",
             "compiled lifecycle bindings before execution.",
         )
-        for index in eachindex(binding.source_ids)
+        for index in eachindex(source_ids)
             value = _model_temporal_source_value(
                 streams,
                 temporal_input.source_applications[index],
-                binding.source_ids[index],
-                binding.source_var,
+                source_ids[index],
+                plan.source_var,
                 time,
-                binding.policy,
+                policy,
                 t_start,
                 timeline,
             )
             if isnothing(value)
-                binding.policy isa PreviousTimeStep || error(
+                policy isa PreviousTimeStep || error(
                     "No temporal model value available for input ",
-                    "`$(binding.input)` from ",
-                    "`$(binding.source_ids[index].value).$(binding.source_var)` ",
+                    "`$(plan.input)` from ",
+                    "`$(source_ids[index].value).$(plan.source_var)` ",
                     "at t=$(time).",
                 )
                 value = temporal_input.initial[index]
@@ -1216,21 +1220,21 @@ function _materialize_model_temporal_input!(
         end
         return status
     end
-    source_id = only(binding.source_ids)
+    source_id = only(source_ids)
     value = _model_temporal_source_value(
         streams,
         only(temporal_input.source_applications),
         source_id,
-        binding.source_var,
+        plan.source_var,
         time,
-        binding.policy,
+        policy,
         t_start,
         timeline,
     )
     if isnothing(value)
-        binding.policy isa PreviousTimeStep || error(
-            "No temporal model value available for input `$(binding.input)` from ",
-            "`$(source_id.value).$(binding.source_var)` at t=$(time).",
+        policy isa PreviousTimeStep || error(
+            "No temporal model value available for input `$(plan.input)` from ",
+            "`$(source_id.value).$(plan.source_var)` at t=$(time).",
         )
         value = temporal_input.initial
     end
@@ -1253,7 +1257,7 @@ function _materialize_model_temporal_input!(
         streams,
         time,
         timeline,
-        runtime_input.compiled.binding.policy,
+        getfield(runtime_input.compiled.binding, :policy),
     )
 end
 
@@ -1292,7 +1296,7 @@ end
     storage = temporal_input.reference[]
     initial = temporal_input.initial
     @boundscheck length(storage) == length(source_streams) || error(
-        "Temporal `Many` input `$(temporal_input.binding.input)` has ",
+        "Temporal `Many` input `$(getfield(temporal_input.binding, :plan).input)` has ",
         "$(length(storage)) private values for $(length(source_streams)) ",
         "compiled source streams. Refresh the compiled lifecycle bindings ",
         "before execution.",
@@ -1329,7 +1333,7 @@ end
         temporal_input,
         runtime_input.source_streams,
         time,
-        temporal_input.binding.selector,
+        getfield(temporal_input.binding, :plan).selector,
     )
     return status
 end
@@ -1345,34 +1349,37 @@ function _materialize_model_temporal_input!(
 )
     temporal_input = runtime_input.compiled
     binding = temporal_input.binding
+    plan = getfield(binding, :plan)
+    source_ids = getfield(binding, :source_ids)
+    policy = getfield(binding, :policy)
     window_steps = _model_input_window_steps(binding, application, timeline)
     t_start = float(time) - float(window_steps) + 1.0
-    if binding.multiplicity == :many
+    if plan.multiplicity == :many
         storage = temporal_input.reference[]
         storage isa AbstractVector || error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` has non-vector private storage ",
+            "Temporal `Many` input `$(plan.input)` on application ",
+            "`$(plan.application_id)` has non-vector private storage ",
             "`$(typeof(storage))`.",
         )
-        length(storage) == length(binding.source_ids) || error(
-            "Temporal `Many` input `$(binding.input)` on application ",
-            "`$(binding.application_id)` has $(length(storage)) private values for ",
-            "$(length(binding.source_ids)) resolved source objects. Refresh the ",
+        length(storage) == length(source_ids) || error(
+            "Temporal `Many` input `$(plan.input)` on application ",
+            "`$(plan.application_id)` has $(length(storage)) private values for ",
+            "$(length(source_ids)) resolved source objects. Refresh the ",
             "compiled lifecycle bindings before execution.",
         )
-        for index in eachindex(binding.source_ids)
+        for index in eachindex(source_ids)
             value = _model_temporal_sample_value(
                 runtime_input.source_streams[index],
                 time,
-                binding.policy,
+                policy,
                 t_start,
                 timeline,
             )
             if isnothing(value)
-                binding.policy isa PreviousTimeStep || error(
+                policy isa PreviousTimeStep || error(
                     "No temporal model value available for input ",
-                    "`$(binding.input)` from ",
-                    "`$(binding.source_ids[index].value).$(binding.source_var)` ",
+                    "`$(plan.input)` from ",
+                    "`$(source_ids[index].value).$(plan.source_var)` ",
                     "at t=$(time).",
                 )
                 value = temporal_input.initial[index]
@@ -1381,18 +1388,18 @@ function _materialize_model_temporal_input!(
         end
         return status
     end
-    source_id = only(binding.source_ids)
+    source_id = only(source_ids)
     value = _model_temporal_sample_value(
         runtime_input.source_streams,
         time,
-        binding.policy,
+        policy,
         t_start,
         timeline,
     )
     if isnothing(value)
-        binding.policy isa PreviousTimeStep || error(
-            "No temporal model value available for input `$(binding.input)` from ",
-            "`$(source_id.value).$(binding.source_var)` at t=$(time).",
+        policy isa PreviousTimeStep || error(
+            "No temporal model value available for input `$(plan.input)` from ",
+            "`$(source_id.value).$(plan.source_var)` at t=$(time).",
         )
         value = temporal_input.initial
     end
@@ -3999,6 +4006,10 @@ function _targeted_new_object_call_targets(
                 model,
                 application,
                 object_id,
+                _application_plans(
+                    compiled.scenario_plan.input_plans_by_application,
+                    application.id,
+                ),
                 targeted_runtime.manual_application_ids,
                 applications_by_object,
                 compiled.applications_by_id,
@@ -4114,16 +4125,10 @@ function _current_topology_call_targets(
         "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
     )
     selected_binding = CompiledModelCallBinding(
-        resolved_binding.application_id,
+        resolved_binding.plan,
         resolved_binding.consumer_id,
-        resolved_binding.call,
-        resolved_binding.selector,
-        resolved_binding.origin,
         requested_ids,
         resolved_binding.callee_application_ids,
-        resolved_binding.process,
-        resolved_binding.application,
-        resolved_binding.multiplicity,
     )
     return CallTargets(
         compiled,

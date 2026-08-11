@@ -159,7 +159,7 @@ function _model_graph_compiled(
     diagnostics,
 )
     isempty(diagnostics) || return nothing
-    applications_by_id = Dict(application.id => application for application in applications)
+    applications_by_id = _applications_by_id(applications)
     input_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
     call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
     status_views = _compile_model_status_views(
@@ -178,7 +178,12 @@ function _model_graph_compiled(
     timeline = _model_timeline(model)
     return CompiledCompositeModel(
         model,
-        _compiled_scenario_plan(applications, timeline),
+        _compiled_scenario_plan(
+            applications,
+            _compile_model_input_plans(applications),
+            _compile_model_call_plans(applications),
+            timeline,
+        ),
         applications,
         applications_by_id,
         _applications_by_object(applications),

@@ -190,6 +190,42 @@ end
     )
 
     simulation = run!(model)
+    scenario_plan = simulation.compiled.scenario_plan
+    call_plans = scenario_plan.call_plans
+    @test getproperty.(call_plans, :slot) == (1, 2, 3)
+    @test getproperty.(call_plans, :application_slot) == (1, 1, 1)
+    @test getproperty.(call_plans, :application_id) ==
+          (:controller, :controller, :controller)
+    @test getproperty.(call_plans, :call) == (:one, :optional, :many)
+    @test all(
+        plan -> plan ===
+                only(
+            candidate for candidate in
+            scenario_plan.call_plans_by_application.controller
+            if candidate.call == plan.call
+        ),
+        call_plans,
+    )
+    @test isempty(scenario_plan.call_plans_by_application.leaf_calls)
+    one_binding = only(
+        binding for binding in simulation.compiled.call_bindings
+        if binding.call == :one
+    )
+    one_plan = only(plan for plan in call_plans if plan.call == :one)
+    @test fieldnames(typeof(one_binding)) == (
+        :plan,
+        :consumer_id,
+        :callee_object_ids,
+        :callee_application_ids,
+    )
+    @test one_binding.plan === one_plan
+    @test one_binding.application_id == :controller
+    @test one_binding.multiplicity == :one
+    one_call_row = only(
+        row for row in explain_calls(simulation.compiled) if row.call == :one
+    )
+    @test one_call_row.call_plan_slot == 1
+    @test one_call_row.application_slot == 1
     controller = only(model_objects(model; scale=:Scene)).status
     @test controller.one_count == 1
     @test controller.optional_count == 0
@@ -217,6 +253,8 @@ end
     cached_execution_target =
         only(only(one_call_view.execution_batches).targets)
     continue!(simulation)
+    @test simulation.compiled.scenario_plan === scenario_plan
+    @test simulation.compiled.scenario_plan.call_plans === call_plans
     continued_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
     @test continued_call_view === one_call_view
     @test only(only(continued_call_view.execution_batches).targets) ===

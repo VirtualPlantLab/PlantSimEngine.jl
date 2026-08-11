@@ -291,7 +291,9 @@ end
         :CompiledEnvironmentBinding,
         :CompiledEnvironmentBindings,
         :CompiledModelApplication,
+        :CompiledModelCallPlan,
         :CompiledModelCallBinding,
+        :CompiledModelInputPlan,
         :CompiledModelInputBinding,
         :CompiledScenarioPlan,
         :ObjectRefVector,
@@ -490,6 +492,8 @@ end
     for internal_name in (
         :ObjectRegistry,
         :CompiledApplicationPlan,
+        :CompiledModelInputPlan,
+        :CompiledModelCallPlan,
         :CompiledScenarioPlan,
         :CompiledCompositeModel,
         :CompiledModelApplication,
@@ -743,6 +747,9 @@ end
 
     @test !ismutabletype(typeof(scenario_plan))
     @test !ismutabletype(typeof(application_plan))
+    @test ismutabletype(typeof(application))
+    @test isconst(typeof(application), :plan)
+    @test compiled.applications_by_id isa NamedTuple
     @test fieldnames(typeof(application)) == (:plan, :target_ids)
     @test only(scenario_plan.applications) === application_plan
     @test scenario_plan.applications_by_id[:leaf_source] === application_plan
@@ -764,6 +771,126 @@ end
     @test only(removed.applications).plan === application_plan
     @test isempty(only(removed.applications).target_ids)
     @test only(explain_applications(removed)).current_target_count == 0
+end
+
+@testset "declared input plans are consumer independent" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:leaf_source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationConsumerModel();
+                name=:leaf_consumer,
+                on=Many(scale=:Leaf),
+                inputs=(
+                    :signal => One(
+                        within=Self(),
+                        application=:leaf_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    compiled = Advanced.refresh_bindings!(model)
+    scenario_plan = compiled.scenario_plan
+    input_plan = only(scenario_plan.input_plans)
+    @test input_plan.slot == 1
+    @test input_plan.application_slot == 2
+    @test input_plan.application_id == :leaf_consumer
+    @test input_plan.input == :signal
+    @test input_plan.origin == :model_spec
+    @test isempty(scenario_plan.input_plans_by_application.leaf_source)
+    @test only(scenario_plan.input_plans_by_application.leaf_consumer) ===
+          input_plan
+    @test isempty(compiled.input_bindings)
+    application_rows = Dict(
+        row.application_id => row for row in explain_applications(compiled)
+    )
+    @test application_rows[:leaf_source].input_plan_count == 0
+    @test application_rows[:leaf_consumer].input_plan_count == 1
+    @test application_rows[:leaf_consumer].call_plan_count == 0
+    @test application_rows[:leaf_consumer].current_target_count == 0
+
+    register_object!(
+        model,
+        Object(
+            :leaf;
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(supplied=2.0),
+        ),
+    )
+    refreshed = Advanced.refresh_bindings!(model)
+    binding = only(refreshed.input_bindings)
+    @test refreshed.scenario_plan === scenario_plan
+    @test only(refreshed.scenario_plan.input_plans) === input_plan
+    @test fieldnames(typeof(binding)) == (
+        :plan,
+        :consumer_id,
+        :source_ids,
+        :source_application_ids,
+        :policy,
+        :carrier_hint,
+        :carrier,
+    )
+    @test binding.plan === input_plan
+    @test binding.application_id == :leaf_consumer
+    @test binding.consumer_id == ObjectId(:leaf)
+    @test binding.selector === input_plan.selector
+    @test binding.source_ids == ObjectId[ObjectId(:leaf)]
+    @test binding.source_application_ids == [:leaf_source]
+    binding_row = only(explain_bindings(refreshed))
+    @test binding_row.input_plan_slot == 1
+    @test binding_row.application_slot == 2
+end
+
+@testset "same-object inference is compiled before objects exist" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:leaf_source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationConsumerModel();
+                name=:leaf_consumer,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+    )
+
+    compiled = Advanced.refresh_bindings!(model)
+    inferred_plan = only(compiled.scenario_plan.input_plans)
+    @test inferred_plan.origin == :inferred_same_object
+    @test inferred_plan.application_id == :leaf_consumer
+    @test inferred_plan.application == :leaf_source
+    @test inferred_plan.input == :signal
+    @test isempty(compiled.input_bindings)
+
+    register_object!(
+        model,
+        Object(
+            :leaf;
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(supplied=2.0),
+        ),
+    )
+    refreshed = Advanced.refresh_bindings!(model)
+    binding = only(refreshed.input_bindings)
+    @test binding.plan === inferred_plan
+    @test binding.origin == :inferred_same_object
+    @test binding.consumer_id == ObjectId(:leaf)
+    @test binding.source_ids == ObjectId[ObjectId(:leaf)]
+    @test binding.source_application_ids == [:leaf_source]
 end
 
 @testset "invalid reparenting is atomic" begin

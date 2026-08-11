@@ -85,6 +85,8 @@ module Advanced
 import ..PlantSimEngine:
     ObjectRegistry,
     CompiledApplicationPlan,
+    CompiledModelInputPlan,
+    CompiledModelCallPlan,
     CompiledScenarioPlan,
     CompiledCompositeModel,
     CompiledModelApplication,
@@ -108,7 +110,8 @@ import ..PlantSimEngine:
     runtime_performance
 
 export ObjectRegistry
-export CompiledApplicationPlan, CompiledScenarioPlan
+export CompiledApplicationPlan, CompiledModelInputPlan, CompiledModelCallPlan
+export CompiledScenarioPlan
 export CompiledCompositeModel, CompiledModelApplication
 export CompiledModelInputBinding, CompiledModelCallBinding
 export CompiledEnvironmentBinding, CompiledEnvironmentBindings

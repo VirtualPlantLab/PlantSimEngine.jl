@@ -322,18 +322,18 @@ objects cannot leak samples from periods when they were outside the selector.
 ## Phase 3: Compile A Truly Immutable Scenario Plan
 
 - [x] Introduce a scenario-level plan that owns immutable application metadata.
-- [ ] Split fixed declaration fields from the mutable `target_ids`,
+- [x] Split fixed declaration fields from the mutable `target_ids`,
   `source_ids`, `source_application_ids`, `callee_object_ids`, and
   `callee_application_ids` currently stored in `CompiledModelApplication`,
   `CompiledModelInputBinding`, and `CompiledModelCallBinding`.
 - [x] Compile application identifiers to stable internal indices while keeping
   public symbolic identifiers unchanged.
-- [ ] Compile input-binding templates independently of current consumer objects.
-- [ ] Represent potential producer applications even when source or consumer
+- [x] Compile input-binding templates independently of current consumer objects.
+- [x] Represent potential producer applications even when source or consumer
   selectors currently match zero objects.
 - [ ] Preserve explicit `PreviousTimeStep` semantics: it must not add a
   same-step or reverse scheduler edge.
-- [ ] Compile same-object inference as an application-level template plus
+- [x] Compile same-object inference as an application-level template plus
   object-instantiation validation. New objects must not create new graph
   definitions.
 - [x] Establish cached homogeneous hard-call execution batches and the warmed
@@ -351,7 +351,7 @@ objects cannot leak samples from periods when they were outside the selector.
 - [ ] Store ordered application plans directly rather than rebuilding an
   ordered vector through symbolic dictionary lookups.
 - [ ] Ensure lifecycle refresh cannot rebuild or mutate the application DAG.
-- [ ] Add diagnostics that separately expose immutable application plans and
+- [x] Add diagnostics that separately expose immutable application plans and
   current object target counts.
 - [x] Test applications that start with zero targets and acquire objects later.
 - [ ] Test ambiguity and cycle errors at the earliest sound validation point.
@@ -365,6 +365,17 @@ object-target vector, and lifecycle additions/removals reuse the exact same
 scenario/application plan objects. Focused coverage starts an application at
 zero leaf targets, adds a matching object, removes it again, and checks that
 only the target vector and diagnostic target count change.
+
+Authored inputs, potential same-object inference, and hard calls are now
+compiled into consumer-independent `CompiledModelInputPlan` and
+`CompiledModelCallPlan` values. Runtime input/call bindings retain only their
+plan, consumer id, resolved object/application membership, carrier/policy
+state, and call-target membership. New objects instantiate those existing
+plans rather than rereading `ModelSpec`; potential same-object producers are
+present even when both applications initially have zero targets. The runtime
+application id index is an immutable `NamedTuple` of mutable application-state
+references, which also preserves the existing warmed temporal allocation
+gate after the plan split.
 
 ## Phase 4: Compile An Event-Driven Multirate Schedule
 
