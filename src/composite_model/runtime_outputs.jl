@@ -276,7 +276,7 @@ Retrieving it does not allocate a replacement collection. Obtain it with
 [`call_targets`](@ref) or as the result of
 [`run_call!(::RunContext, ::Symbol)`](@ref).
 """
-mutable struct CallTargets{CS,EB,B,TS,OR,C,E} <: AbstractVector{CallTarget}
+mutable struct CallTargets{CS,EB,B,TS,OR,C,E,BT} <: AbstractVector{CallTarget}
     compiled::CS
     environment_bindings::EB
     binding::B
@@ -286,7 +286,7 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,E} <: AbstractVector{CallTarget}
     constants::C
     publication_allowed::Bool
     environment::E
-    execution_targets::Dict{Tuple{Symbol,ObjectId},Any}
+    execution_batches::BT
 end
 
 function CallTargets(
@@ -300,6 +300,14 @@ function CallTargets(
     publication_allowed,
     environment,
 )
+    execution_batches = _compiled_call_execution_batches(
+        compiled,
+        environment_bindings,
+        binding,
+        temporal_streams,
+        output_retention,
+        constants,
+    )
     return CallTargets(
         compiled,
         environment_bindings,
@@ -310,7 +318,7 @@ function CallTargets(
         constants,
         publication_allowed,
         environment,
-        Dict{Tuple{Symbol,ObjectId},Any}(),
+        execution_batches,
     )
 end
 
@@ -381,13 +389,6 @@ end
     environment,
 )
     targets = first(calls)
-    runtime_changed =
-        targets.compiled !== compiled ||
-        targets.environment_bindings !== environment_bindings ||
-        targets.temporal_streams !== temporal_streams ||
-        targets.output_retention !== output_retention ||
-        targets.constants !== constants
-    runtime_changed && empty!(targets.execution_targets)
     targets.compiled = compiled
     targets.environment_bindings = environment_bindings
     targets.temporal_streams = temporal_streams
@@ -431,8 +432,19 @@ mutable struct CompiledExecutionTarget{M,S,CS,IB,OB,CB,EB,RC}
     input_bindings::IB
     output_bindings::OB
     call_bindings::CB
+    call_bindings_signature::UInt
     environment_binding::EB
     context::RC
+end
+
+function _call_bindings_signature(call_bindings)
+    signature = hash(length(call_bindings))
+    for binding in call_bindings
+        signature = hash(_compiled_call_name(binding), signature)
+        signature = hash(Tuple(binding.callee_application_ids), signature)
+        signature = hash(Tuple(binding.callee_object_ids), signature)
+    end
+    return signature
 end
 
 struct CompiledExecutionBatch{A,T<:AbstractVector,MP} <: AbstractExecutionBatch
@@ -2368,6 +2380,7 @@ function _compiled_model_execution_target(
         ),
         output_bindings,
         call_bindings,
+        _call_bindings_signature(call_bindings),
         environment_binding,
         context,
     )
@@ -2455,6 +2468,44 @@ function _append_model_execution_batches!(
         ),
     )
     return batches
+end
+
+function _compiled_call_execution_batches(
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    binding,
+    temporal_streams,
+    output_retention,
+    constants,
+)
+    batches = AbstractExecutionBatch[]
+    for application_id in binding.callee_application_ids
+        application = _compiled_application_by_id(compiled, application_id)
+        targets = Any[]
+        for object_id in binding.callee_object_ids
+            _call_binding_target_matches(binding, application, object_id) ||
+                continue
+            push!(
+                targets,
+                _compiled_model_execution_target(
+                    compiled,
+                    env_bindings,
+                    application,
+                    object_id,
+                    temporal_streams,
+                    output_retention,
+                    constants,
+                ),
+            )
+        end
+        _append_model_execution_batches!(
+            batches,
+            env_bindings,
+            application,
+            targets,
+        )
+    end
+    return Tuple(batches)
 end
 
 function compile_model_execution_plan(
@@ -2569,6 +2620,9 @@ function _model_execution_target_change_reason(
     ) || return :output_bindings
     target.call_bindings ===
     get(compiled.call_bindings_by_target, key, ()) ||
+        return :call_bindings
+    target.call_bindings_signature ==
+    _call_bindings_signature(target.call_bindings) ||
         return :call_bindings
     target.environment_binding === _environment_binding_for(
         env_bindings,
@@ -3346,63 +3400,68 @@ Base.@constprop :aggressive function _model_call_targets(
     return found
 end
 
-function _call_target_matches(targets::CallTargets, application, object_id::ObjectId)
-    binding = targets.binding
+function _call_binding_target_matches(binding, application, object_id::ObjectId)
     return (binding.multiplicity != :many &&
             length(binding.callee_application_ids) == 1) ||
            object_id in application.target_ids
 end
 
+_call_target_matches(targets::CallTargets, application, object_id::ObjectId) =
+    _call_binding_target_matches(targets.binding, application, object_id)
+
 function Base.length(targets::CallTargets)
     count = 0
-    for application_id in targets.binding.callee_application_ids
-        application = _compiled_application_by_id(targets.compiled, application_id)
-        for object_id in targets.binding.callee_object_ids
-            _call_target_matches(targets, application, object_id) && (count += 1)
-        end
+    for batch in targets.execution_batches
+        count += length(batch.targets)
     end
     return count
 end
 
 Base.size(targets::CallTargets) = (length(targets),)
 
-function _materialize_call(targets::CallTargets, application, object_id::ObjectId)
-    status_view = _model_status_view_for_application(
-        targets.compiled,
-        application,
-        object_id,
-    )
-    call_bindings = get(
-        targets.compiled.call_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
-    calls = _runtime_call_targets(
-        targets.compiled,
-        targets.environment_bindings,
-        call_bindings,
-        targets.temporal_streams,
-        targets.output_retention,
-        targets.time,
-        targets.constants,
-        targets.publication_allowed,
-        targets.environment,
-    )
+function _materialize_call(
+    targets::CallTargets,
+    application,
+    target::CompiledExecutionTarget,
+)
+    context = target.context
+    calls = if context isa RunContext
+        _prepare_runtime_call_targets!(
+            context.calls,
+            targets.compiled,
+            targets.environment_bindings,
+            targets.temporal_streams,
+            targets.output_retention,
+            targets.time,
+            targets.constants,
+            targets.publication_allowed,
+            targets.environment,
+        )
+        context.calls
+    else
+        _runtime_call_targets(
+            targets.compiled,
+            targets.environment_bindings,
+            target.call_bindings,
+            targets.temporal_streams,
+            targets.output_retention,
+            targets.time,
+            targets.constants,
+            targets.publication_allowed,
+            targets.environment,
+        )
+    end
     return CallTarget(
         targets.compiled,
         targets.environment_bindings,
         application,
-        object_id,
-        _application_model(application, object_id),
-        status_view.status,
-        status_view.canonical_status,
-        status_view.temporal_inputs,
+        target.object_id,
+        target.model,
+        target.status,
+        target.canonical_status,
+        target.input_bindings,
         calls,
-        _environment_binding_for(
-            targets.environment_bindings,
-            application.id,
-            object_id,
-        ),
+        target.environment_binding,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -3415,37 +3474,29 @@ end
 function Base.getindex(targets::CallTargets, requested::Int)
     checkbounds(targets, requested)
     current = 0
-    for application_id in targets.binding.callee_application_ids
-        application = _compiled_application_by_id(targets.compiled, application_id)
-        for object_id in targets.binding.callee_object_ids
-            _call_target_matches(targets, application, object_id) || continue
+    for batch in targets.execution_batches
+        for target in batch.targets
             current += 1
-            current == requested && return _materialize_call(targets, application, object_id)
+            current == requested &&
+                return _materialize_call(targets, batch.application, target)
         end
     end
     throw(BoundsError(targets, requested))
 end
 
 function Base.iterate(targets::CallTargets, state::Tuple{Int,Int}=(1, 1))
-    application_index, object_index = state
-    application_ids = targets.binding.callee_application_ids
-    object_ids = targets.binding.callee_object_ids
-    while application_index <= length(application_ids)
-        application = _compiled_application_by_id(
-            targets.compiled,
-            application_ids[application_index],
-        )
-        while object_index <= length(object_ids)
-            object_id = object_ids[object_index]
-            object_index += 1
-            _call_target_matches(targets, application, object_id) || continue
+    batch_index, target_index = state
+    while batch_index <= length(targets.execution_batches)
+        batch = targets.execution_batches[batch_index]
+        if target_index <= length(batch.targets)
+            target = batch.targets[target_index]
             return (
-                _materialize_call(targets, application, object_id),
-                (application_index, object_index),
+                _materialize_call(targets, batch.application, target),
+                (batch_index, target_index + 1),
             )
         end
-        application_index += 1
-        object_index = 1
+        batch_index += 1
+        target_index = 1
     end
     return nothing
 end
@@ -4105,38 +4156,14 @@ function run_call!(
     )
 end
 
-@inline function _compiled_call_execution_target(
-    targets::CallTargets,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-)
-    key = (application.id, object_id)
-    return get!(targets.execution_targets, key) do
-        _compiled_model_execution_target(
-            targets.compiled,
-            targets.environment_bindings,
-            application,
-            object_id,
-            targets.temporal_streams,
-            targets.output_retention,
-            targets.constants,
-        )
-    end
-end
-
 @inline function _run_compiled_call_target!(
     targets::CallTargets,
     application::CompiledModelApplication,
-    object_id::ObjectId,
+    target::CompiledExecutionTarget,
     publish::Bool,
     sampled_environment,
     environment,
 )
-    target = _compiled_call_execution_target(
-        targets,
-        application,
-        object_id,
-    )
     status = _materialize_model_inputs!(
         target.status,
         target.input_bindings,
@@ -4162,7 +4189,7 @@ end
         targets.compiled,
         targets.environment_bindings,
         application,
-        object_id,
+        target.object_id,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -4182,12 +4209,64 @@ end
         _model_publish_outputs!(
             targets.temporal_streams,
             application,
-            object_id,
+            target.object_id,
             status,
             targets.time,
             targets.output_retention,
         )
     end
+    return nothing
+end
+
+@inline function _run_compiled_call_batch!(
+    targets::CallTargets,
+    batch::CompiledExecutionBatch,
+    publish::Bool,
+    sampled_environment,
+    environment,
+)
+    for target in batch.targets
+        _run_compiled_call_target!(
+            targets,
+            batch.application,
+            target,
+            publish,
+            sampled_environment,
+            environment,
+        )
+    end
+    return nothing
+end
+
+@inline _run_compiled_call_batches!(
+    targets::CallTargets,
+    ::Tuple{},
+    publish::Bool,
+    sampled_environment,
+    environment,
+) = nothing
+
+@inline function _run_compiled_call_batches!(
+    targets::CallTargets,
+    batches::Tuple,
+    publish::Bool,
+    sampled_environment,
+    environment,
+)
+    _run_compiled_call_batch!(
+        targets,
+        first(batches),
+        publish,
+        sampled_environment,
+        environment,
+    )
+    _run_compiled_call_batches!(
+        targets,
+        Base.tail(batches),
+        publish,
+        sampled_environment,
+        environment,
+    )
     return nothing
 end
 
@@ -4197,21 +4276,13 @@ function _run_call_targets!(
     sampled_environment,
     environment,
 )
-    for application_id in targets.binding.callee_application_ids
-        application =
-            _compiled_application_by_id(targets.compiled, application_id)
-        for object_id in targets.binding.callee_object_ids
-            _call_target_matches(targets, application, object_id) || continue
-            _run_compiled_call_target!(
-                targets,
-                application,
-                object_id,
-                publish,
-                sampled_environment,
-                environment,
-            )
-        end
-    end
+    _run_compiled_call_batches!(
+        targets,
+        targets.execution_batches,
+        publish,
+        sampled_environment,
+        environment,
+    )
     return targets
 end
 

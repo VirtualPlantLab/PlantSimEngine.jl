@@ -1104,6 +1104,8 @@ function _extend_compiled_scene(
     end
     rebuilt_existing_call_targets =
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
+    changed_call_target_keys =
+        Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     if has_calls
         candidate_call_binding_indices =
             Set(get(compiled.dynamic_call_binding_indices, nothing, Int[]))
@@ -1129,6 +1131,7 @@ function _extend_compiled_scene(
                 default_scope=_default_dependency_scope(model, binding.consumer_id),
             ) || continue
             key = (binding.application_id, binding.consumer_id)
+            push!(changed_call_target_keys, key)
             appended = key in forced_call_target_keys ?
                        false :
                        _append_added_many_call_targets!(
@@ -1589,6 +1592,7 @@ function _extend_compiled_scene(
         affected_temporal_keys,
     )
     union!(changed_execution_target_ids, changed_target_ids_seed)
+    union!(changed_execution_target_ids, changed_call_target_keys)
     for object_id in rewired_consumer_ids
         union!(
             changed_execution_target_ids,

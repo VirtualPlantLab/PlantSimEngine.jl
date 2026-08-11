@@ -184,12 +184,13 @@ end
     call_lookup_allocations(context)
     @test call_lookup_allocations(context) == 0
     one_call_view = call_targets(context, :one)
-    @test length(one_call_view.execution_targets) == 1
-    cached_execution_target = only(values(one_call_view.execution_targets))
+    @test length(one_call_view.execution_batches) == 1
+    cached_execution_target =
+        only(only(one_call_view.execution_batches).targets)
     continue!(simulation)
     continued_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
     @test continued_call_view === one_call_view
-    @test only(values(continued_call_view.execution_targets)) ===
+    @test only(only(continued_call_view.execution_batches).targets) ===
           cached_execution_target
     register_object!(
         model,
@@ -197,7 +198,7 @@ end
     )
     continue!(simulation)
     refreshed_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
-    @test only(values(refreshed_call_view.execution_targets)) !==
+    @test only(only(refreshed_call_view.execution_batches).targets) !==
           cached_execution_target
     @test_throws ArgumentError run_call!(nothing, :one)
 

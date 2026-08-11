@@ -74,6 +74,25 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
                 usage=$usage,
             ))
     end
+    for (kind, repeats, target_count) in (
+        (:singular, 1, 1),
+        (:repeated, 8, 1),
+        (:nested, 1, 1),
+        (:many, 1, 1000),
+        (:heterogeneous, 1, 2),
+        (:published, 1, 1),
+    )
+        SUITE[suite_name]["PSE_compiled_hard_call_$(kind)"] =
+            @benchmarkable benchmark_compiled_hard_call(
+                model,
+                nsteps,
+            ) setup = ((model, nsteps) =
+                setup_compiled_hard_call_benchmark(
+                    kind=$kind,
+                    repeats=$repeats,
+                    target_count=$target_count,
+                ))
+    end
     SUITE[suite_name]["PSE_lifecycle_small"] =
         @benchmarkable benchmark_lifecycle_event(
             simulation,

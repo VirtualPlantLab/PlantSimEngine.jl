@@ -2,11 +2,21 @@ using PlantSimEngine
 
 PlantSimEngine.@process "benchmark_call_source" verbose = false
 PlantSimEngine.@process "benchmark_call_controller" verbose = false
+PlantSimEngine.@process "benchmark_bulk_call_controller" verbose = false
 PlantSimEngine.@process "benchmark_unrelated_work" verbose = false
 
 struct BenchmarkCallSourceModel <: AbstractBenchmark_Call_SourceModel end
+struct BenchmarkAlternateCallSourceModel <: AbstractBenchmark_Call_SourceModel end
 struct BenchmarkCallControllerModel <: AbstractBenchmark_Call_ControllerModel end
+struct BenchmarkBulkCallControllerModel{P,C} <:
+       AbstractBenchmark_Bulk_Call_ControllerModel
+    repeats::Int
+    publish::P
+    capture_context::C
+end
 struct BenchmarkUnrelatedWorkModel <: AbstractBenchmark_Unrelated_WorkModel end
+
+const BENCHMARK_BULK_CALL_CONTEXT = Ref{Any}()
 
 PlantSimEngine.inputs_(::BenchmarkCallSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::BenchmarkCallSourceModel) = (signal=0,)
@@ -22,6 +32,20 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.inputs_(::BenchmarkAlternateCallSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::BenchmarkAlternateCallSourceModel) = (signal=0,)
+
+function PlantSimEngine.run!(
+    ::BenchmarkAlternateCallSourceModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.signal += 2
+    return nothing
+end
+
 PlantSimEngine.inputs_(::BenchmarkCallControllerModel) = NamedTuple()
 PlantSimEngine.outputs_(::BenchmarkCallControllerModel) = (called_signal=0,)
 
@@ -34,6 +58,24 @@ function PlantSimEngine.run!(
 )
     target = only(run_call!(context, :source; publish=false))
     status.called_signal = target.status.signal
+    return nothing
+end
+
+PlantSimEngine.inputs_(::BenchmarkBulkCallControllerModel) = NamedTuple()
+PlantSimEngine.outputs_(::BenchmarkBulkCallControllerModel) = (executions=0,)
+
+function PlantSimEngine.run!(
+    model::BenchmarkBulkCallControllerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    for _ in 1:model.repeats
+        run_call!(context, :source; publish=model.publish)
+    end
+    model.capture_context && (BENCHMARK_BULK_CALL_CONTEXT[] = context)
+    status.executions += model.repeats
     return nothing
 end
 
@@ -106,6 +148,200 @@ end
 
 function benchmark_hard_call_path(model, steps)
     return run!(model; steps=steps, outputs=:none)
+end
+
+function setup_compiled_hard_call_benchmark(;
+    kind=:singular,
+    target_count=1000,
+    repeats=1,
+    publish=false,
+    steps=100,
+)
+    kind in (
+        :singular,
+        :repeated,
+        :nested,
+        :many,
+        :heterogeneous,
+        :published,
+    ) ||
+        error("Unsupported compiled hard-call benchmark kind `$(kind)`.")
+    if kind == :heterogeneous
+        template = CompositeModelTemplate(
+            (
+                ModelSpec(
+                    BenchmarkCallSourceModel();
+                    name=:source,
+                    on=Many(scale=:Leaf),
+                ),
+                ModelSpec(
+                    BenchmarkBulkCallControllerModel(1, false, true);
+                    name=:controller,
+                    on=One(scale=:Plant),
+                    calls=(
+                        :source => Many(
+                            scale=:Leaf,
+                            within=Subtree(),
+                            application=:source,
+                        ),
+                    ),
+                ),
+            );
+            kind=:plant,
+        )
+        instance = ObjectInstance(
+            :benchmark_plant,
+            template;
+            root=PlantSimEngine.Object(
+                :plant;
+                scale=:Plant,
+                parent=:scene,
+            ),
+            objects=(
+                PlantSimEngine.Object(
+                    :leaf_1;
+                    scale=:Leaf,
+                    parent=:plant,
+                ),
+                PlantSimEngine.Object(
+                    :leaf_2;
+                    scale=:Leaf,
+                    parent=:plant,
+                ),
+            ),
+            object_overrides=(
+                Override(
+                    object=:leaf_2,
+                    application=:source,
+                    model=BenchmarkAlternateCallSourceModel(),
+                ),
+            ),
+        )
+        return (
+            CompositeModel(
+                PlantSimEngine.Object(:scene; scale=:Scene),
+                instance,
+            ),
+            Int(steps),
+        )
+    end
+    leaf_count = kind == :many ? target_count : 1
+    objects = Any[PlantSimEngine.Object(:scene; scale=:Scene, name=:scene)]
+    if kind == :nested
+        push!(
+            objects,
+            PlantSimEngine.Object(
+                :middle;
+                scale=:Plant,
+                name=:middle,
+                parent=:scene,
+            ),
+        )
+    end
+    append!(
+        objects,
+        (
+            PlantSimEngine.Object(
+                Symbol(:leaf_, index);
+                scale=:Leaf,
+                name=Symbol(:leaf_, index),
+                parent=kind == :nested ? :middle : :scene,
+            )
+            for index in 1:leaf_count
+        ),
+    )
+
+    source = ModelSpec(
+        BenchmarkCallSourceModel();
+        name=:source,
+        on=Many(scale=:Leaf),
+    )
+    if kind == :nested
+        middle = ModelSpec(
+            BenchmarkBulkCallControllerModel(1, false, false);
+            name=:middle,
+            on=One(name=:middle),
+            calls=(
+                :source => One(
+                    name=:leaf_1,
+                    within=Subtree(),
+                    application=:source,
+                ),
+            ),
+        )
+        root = ModelSpec(
+            BenchmarkBulkCallControllerModel(1, false, true);
+            name=:root,
+            on=One(name=:scene),
+            calls=(
+                :source => One(
+                    name=:middle,
+                    within=Subtree(),
+                    application=:middle,
+                ),
+            ),
+        )
+        applications = (source, middle, root)
+    else
+        selector = kind == :many ?
+                   Many(scale=:Leaf, application=:source) :
+                   One(name=:leaf_1, application=:source)
+        effective_repeats = kind == :repeated ? repeats : 1
+        effective_publish = kind == :published ? true : publish
+        controller = ModelSpec(
+            BenchmarkBulkCallControllerModel(
+                effective_repeats,
+                effective_publish,
+                true,
+            );
+            name=:controller,
+            on=One(name=:scene),
+            calls=(:source => selector,),
+        )
+        applications = (source, controller)
+    end
+    return (
+        CompositeModel(objects...; applications=applications),
+        Int(steps),
+    )
+end
+
+benchmark_compiled_hard_call(model, steps) =
+    run!(model; steps=steps, outputs=:none)
+
+function setup_compiled_hard_call_step(; kwargs...)
+    model, _ = setup_compiled_hard_call_benchmark(; steps=1, kwargs...)
+    return run!(model; steps=1, outputs=:none)
+end
+
+benchmark_compiled_hard_call_step(simulation) = step!(simulation)
+
+function benchmark_compiled_hard_call_invocation(
+    context::T;
+    repeats=1,
+    publish=false,
+) where {T}
+    for _ in 1:repeats
+        run_call!(context, :source; publish=publish)
+    end
+    return nothing
+end
+
+function compiled_hard_call_invocation_allocations(
+    context::T;
+    repeats=1,
+    publish=false,
+) where {T}
+    benchmark_compiled_hard_call_invocation(
+        context;
+        repeats=repeats,
+        publish=publish,
+    )
+    return @allocated benchmark_compiled_hard_call_invocation(
+        context;
+        repeats=repeats,
+        publish=publish,
+    )
 end
 
 function hard_call_path_summary(model)

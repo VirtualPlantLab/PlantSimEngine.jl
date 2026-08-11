@@ -78,6 +78,23 @@ same temporary comparison harness. A checked-in pinned release runner remains
 to be added so the comparison can be repeated without reconstructing that
 temporary environment.
 
+### First typed-batch milestone
+
+After replacing per-call `Dict{...,Any}` lookup and repeated target
+reconstruction with typed `CompiledExecutionBatch` tuples, the same fresh
+current benchmark process measured:
+
+| Current output policy | Median total | Median per step | Allocations | Allocated bytes | Release ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `outputs=:none` | 44.961 ms | 5.132 us | 393,374 | 86,500,304 | 0.37x |
+| `outputs=:all` | 54.910 ms | 6.268 us | 973,795 | 108,409,248 | 0.45x |
+
+The focused singular, repeated, nested, `Many`, and heterogeneous override
+invocations allocate zero bytes after warm-up when unpublished. Accepted
+publication currently allocates 192 bytes in the minimal gate. Construction
+and the one-step fan-out workload remain separate and were 17.542 ms and 15.524
+ms respectively at this milestone.
+
 ## Phase 1: Lock Down Baselines And Regression Tests
 
 - [x] Record the exact branch, commit, Julia version, thread count, CPU context, package versions, benchmark parameters, output policy, sample count, and warm-up policy for every baseline.
@@ -99,36 +116,36 @@ temporary environment.
   - homogeneous and heterogeneous/override targets;
   - pre-sampled environments;
   - unpublished trials and accepted publication.
-- [ ] Add warmed allocation gates that isolate framework overhead from model-kernel allocations.
+- [x] Add warmed allocation gates that isolate framework overhead from model-kernel allocations.
 - [x] Record the current baseline before changing the runtime.
 - [ ] Commit the benchmark harness and regression tests as the first coherent slice.
 
 ## Phase 2: Compile Immutable Hard-Call Plans
 
-- [ ] Define a compiled hard-call plan that owns immutable call metadata and does not contain timestep-varying state.
-- [ ] Compile call plans once with the rest of the dependency graph.
-- [ ] Store calls in a type-stable structure keyed by their compile-time names, preferably a typed tuple or `NamedTuple` that can constant-propagate literal symbols.
-- [ ] Reuse the existing `CompiledExecutionTarget` and homogeneous batch concepts where possible instead of maintaining a second execution design.
-- [ ] Remove `Dict{Tuple{Symbol,ObjectId},Any}` from the steady-state hard-call execution path.
-- [ ] Ensure concrete model, status, input-binding, environment-binding, nested-call, and context types are visible inside each homogeneous batch loop.
-- [ ] Add a specialization/function barrier for any unavoidable heterogeneous lookup so dynamic dispatch occurs once per batch, never once per object field access or kernel operation.
-- [ ] Keep heavy target materialization only for explicit diagnostics or introspection, not for normal execution.
-- [ ] Validate the focused correctness and allocation tests.
+- [x] Define a compiled hard-call plan that owns immutable call metadata and does not contain timestep-varying state.
+- [x] Compile call plans once with the rest of the dependency graph.
+- [x] Store calls in a type-stable structure keyed by their compile-time names, preferably a typed tuple or `NamedTuple` that can constant-propagate literal symbols.
+- [x] Reuse the existing `CompiledExecutionTarget` and homogeneous batch concepts where possible instead of maintaining a second execution design.
+- [x] Remove `Dict{Tuple{Symbol,ObjectId},Any}` from the steady-state hard-call execution path.
+- [x] Ensure concrete model, status, input-binding, environment-binding, nested-call, and context types are visible inside each homogeneous batch loop.
+- [x] Add a specialization/function barrier for any unavoidable heterogeneous lookup so dynamic dispatch occurs once per batch, never once per object field access or kernel operation.
+- [x] Keep heavy target materialization only for explicit diagnostics or introspection, not for normal execution.
+- [x] Validate the focused correctness and allocation tests.
 - [ ] Commit the immutable-plan implementation as a coherent slice.
 
 ## Phase 3: Add Lifecycle-Maintained Target Buffers
 
-- [ ] Give each compiled hard-call plan a stable runtime buffer of currently resolved execution targets.
-- [ ] Group targets into homogeneous typed batches; create separate batches for overrides or genuinely different runtime types.
-- [ ] Build reverse indices that identify which applications and call plans can be affected by object creation, removal, or reparenting.
-- [ ] Update only affected buffers during the existing structural refresh barrier after the lifecycle-mutating application completes.
-- [ ] Do not mutate a target buffer while it is being iterated. Stage updates and swap or patch buffers safely at the refresh barrier.
-- [ ] Preserve stable ordering by object id and existing selector semantics.
-- [ ] Revalidate `One` and `OptionalOne` multiplicity whenever a lifecycle change affects their target buffers.
-- [ ] Ensure new objects can run applications that remain later in the same timestep, while never rerunning applications that already completed.
+- [x] Give each compiled hard-call plan a stable runtime buffer of currently resolved execution targets.
+- [x] Group targets into homogeneous typed batches; create separate batches for overrides or genuinely different runtime types.
+- [x] Build reverse indices that identify which applications and call plans can be affected by object creation, removal, or reparenting.
+- [x] Update only affected buffers during the existing structural refresh barrier after the lifecycle-mutating application completes.
+- [x] Do not mutate a target buffer while it is being iterated. Stage updates and swap or patch buffers safely at the refresh barrier.
+- [x] Preserve stable ordering by object id and existing selector semantics.
+- [x] Revalidate `One` and `OptionalOne` multiplicity whenever a lifecycle change affects their target buffers.
+- [x] Ensure new objects can run applications that remain later in the same timestep, while never rerunning applications that already completed.
 - [ ] Ensure removed objects retain their historical output samples.
-- [ ] Prove that an ordinary timestep after a lifecycle event performs no graph rebuild or selector resolution for unchanged call plans.
-- [ ] Test creation, removal, reparenting, templates, instances, overrides, and nested hard calls.
+- [x] Prove that an ordinary timestep after a lifecycle event performs no graph rebuild or selector resolution for unchanged call plans.
+- [x] Test creation, removal, reparenting, templates, instances, overrides, and nested hard calls.
 - [ ] Commit lifecycle target-buffer maintenance as a coherent slice.
 
 ## Phase 4: Provide Allocation-Free Public Execution Paths

@@ -153,6 +153,68 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
                 for object in model_objects(model; scale=:Leaf)
             )
         end
+        for (kind, repeats, target_count, expected_signal) in (
+            (:singular, 1, 1, 2),
+            (:repeated, 8, 1, 16),
+            (:nested, 1, 1, 2),
+            (:many, 1, 8, 2),
+            (:published, 1, 1, 2),
+        )
+            model, steps = setup_compiled_hard_call_benchmark(;
+                kind=kind,
+                repeats=repeats,
+                target_count=target_count,
+                steps=2,
+            )
+            simulation = benchmark_compiled_hard_call(model, steps)
+            @test current_step(simulation) == steps
+            leaves = model_objects(model; scale=:Leaf)
+            @test length(leaves) == target_count
+            @test all(
+                leaf.status.signal == expected_signal for leaf in leaves
+            )
+        end
+        heterogeneous_model, heterogeneous_steps =
+            setup_compiled_hard_call_benchmark(;
+                kind=:heterogeneous,
+                steps=2,
+            )
+        heterogeneous_simulation = benchmark_compiled_hard_call(
+            heterogeneous_model,
+            heterogeneous_steps,
+        )
+        heterogeneous_leaves = sort!(
+            model_objects(heterogeneous_model; scale=:Leaf);
+            by=object -> string(object.id.value),
+        )
+        @test current_step(heterogeneous_simulation) == 2
+        @test getproperty.(getproperty.(heterogeneous_leaves, :status), :signal) ==
+              [2, 4]
+        for (kind, repeats, target_count) in (
+            (:singular, 1, 1),
+            (:repeated, 8, 1),
+            (:nested, 1, 1),
+            (:many, 1, 8),
+            (:heterogeneous, 1, 2),
+        )
+            setup_compiled_hard_call_step(;
+                kind=kind,
+                repeats=repeats,
+                target_count=target_count,
+            )
+            context = BENCHMARK_BULK_CALL_CONTEXT[]
+            @test compiled_hard_call_invocation_allocations(
+                context;
+                repeats=repeats,
+                publish=false,
+            ) == 0
+        end
+        setup_compiled_hard_call_step(; kind=:published)
+        published_context = BENCHMARK_BULK_CALL_CONTEXT[]
+        @test compiled_hard_call_invocation_allocations(
+            published_context;
+            publish=true,
+        ) <= 256
     end
 end
 
@@ -416,6 +478,12 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         @test haskey(suite, "PSE_hard_calls_zero")
         @test haskey(suite, "PSE_hard_calls_sparse")
         @test haskey(suite, "PSE_hard_calls_dense")
+        @test haskey(suite, "PSE_compiled_hard_call_singular")
+        @test haskey(suite, "PSE_compiled_hard_call_repeated")
+        @test haskey(suite, "PSE_compiled_hard_call_nested")
+        @test haskey(suite, "PSE_compiled_hard_call_many")
+        @test haskey(suite, "PSE_compiled_hard_call_heterogeneous")
+        @test haskey(suite, "PSE_compiled_hard_call_published")
         @test haskey(suite, "PSE_lifecycle_small")
         @test haskey(suite, "PSE_lifecycle_large")
         @test haskey(
