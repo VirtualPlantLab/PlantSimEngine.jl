@@ -234,6 +234,24 @@ end
     @test runtime_temporal_input.compiled === only(status_view.temporal_inputs)
     @test runtime_temporal_input.source_streams === dependency_stream
     @test isempty(execution_target.output_bindings)
+    PlantSimEngine._materialize_model_inputs!(
+        execution_target.status,
+        execution_target.input_bindings,
+        simulation.compiled,
+        simulation.compiled.applications_by_id[:lagged_consumer],
+        simulation.temporal_streams,
+        4,
+    )
+    @test @allocated(
+        PlantSimEngine._materialize_model_inputs!(
+            execution_target.status,
+            execution_target.input_bindings,
+            simulation.compiled,
+            simulation.compiled.applications_by_id[:lagged_consumer],
+            simulation.temporal_streams,
+            4,
+        )
+    ) == 0
     source_execution_target = only(
         only(
             batch.targets for batch in simulation.execution_plan.batches
@@ -419,6 +437,30 @@ end
     many_view = many_simulation.compiled.status_views_by_target[
         (:many_consumer, ObjectId(:scene))
     ]
+    many_execution_target = only(
+        only(
+            batch.targets for batch in many_simulation.execution_plan.batches
+            if batch.application.id == :many_consumer
+        ),
+    )
+    PlantSimEngine._materialize_model_inputs!(
+        many_execution_target.status,
+        many_execution_target.input_bindings,
+        many_simulation.compiled,
+        many_simulation.compiled.applications_by_id[:many_consumer],
+        many_simulation.temporal_streams,
+        3,
+    )
+    @test @allocated(
+        PlantSimEngine._materialize_model_inputs!(
+            many_execution_target.status,
+            many_execution_target.input_bindings,
+            many_simulation.compiled,
+            many_simulation.compiled.applications_by_id[:many_consumer],
+            many_simulation.temporal_streams,
+            3,
+        )
+    ) <= 512
     many_storage = many_view.status.signals
     PlantSimEngine._materialize_model_inputs!(
         many_view.status,

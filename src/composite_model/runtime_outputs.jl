@@ -1238,6 +1238,101 @@ function _materialize_model_temporal_input!(
     time::Real,
     timeline,
 )
+    return _materialize_model_temporal_input!(
+        status,
+        runtime_input,
+        application,
+        streams,
+        time,
+        timeline,
+        runtime_input.compiled.binding.policy,
+    )
+end
+
+@inline function _previous_time_step_sample(samples, time::Real)
+    return _model_latest_sample(samples, float(time) - 1.0)
+end
+
+@inline function _previous_time_step_sample(
+    samples::TemporalDependencyBuffer,
+    time::Real,
+)
+    remaining = samples.sample_count
+    remaining == 0 && return nothing
+    capacity = length(samples.times)
+    slot = samples.first_slot + remaining - 1
+    slot > capacity && (slot -= capacity)
+    requested_time = float(time) - 1.0
+    while remaining > 0
+        sample_time = @inbounds samples.times[slot]
+        sample_time <= requested_time &&
+            return @inbounds samples.values[slot]
+        slot = slot == 1 ? capacity : slot - 1
+        remaining -= 1
+    end
+    return nothing
+end
+
+@inline function _materialize_previous_time_step_input!(
+    temporal_input,
+    source_streams,
+    time::Real,
+    ::Many,
+)
+    storage = temporal_input.reference[]
+    initial = temporal_input.initial
+    @boundscheck length(storage) == length(source_streams) || error(
+        "Temporal `Many` input `$(temporal_input.binding.input)` has ",
+        "$(length(storage)) private values for $(length(source_streams)) ",
+        "compiled source streams. Refresh the compiled lifecycle bindings ",
+        "before execution.",
+    )
+    @inbounds for index in eachindex(source_streams)
+        value = _previous_time_step_sample(source_streams[index], time)
+        storage[index] = isnothing(value) ? initial[index] : value
+    end
+    return temporal_input
+end
+
+@inline function _materialize_previous_time_step_input!(
+    temporal_input,
+    source_stream,
+    time::Real,
+    selector,
+)
+    value = _previous_time_step_sample(source_stream, time)
+    isnothing(value) && (value = temporal_input.initial)
+    return _model_assign_private_temporal_value!(temporal_input, value)
+end
+
+@inline function _materialize_model_temporal_input!(
+    status::Status,
+    runtime_input::RuntimeTemporalInput,
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+    ::PreviousTimeStep,
+)
+    temporal_input = runtime_input.compiled
+    _materialize_previous_time_step_input!(
+        temporal_input,
+        runtime_input.source_streams,
+        time,
+        temporal_input.binding.selector,
+    )
+    return status
+end
+
+function _materialize_model_temporal_input!(
+    status::Status,
+    runtime_input::RuntimeTemporalInput,
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+    policy,
+)
     temporal_input = runtime_input.compiled
     binding = temporal_input.binding
     window_steps = _model_input_window_steps(binding, application, timeline)
