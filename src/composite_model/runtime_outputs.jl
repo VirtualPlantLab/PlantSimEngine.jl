@@ -1253,6 +1253,8 @@ end
     return _model_latest_sample(samples, float(time) - 1.0)
 end
 
+@inline _previous_time_step_sample(::Nothing, time::Real) = nothing
+
 @inline function _previous_time_step_sample(
     samples::TemporalDependencyBuffer,
     time::Real,

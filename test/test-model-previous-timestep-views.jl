@@ -482,6 +482,27 @@ end
           Base.summarysize(many_view.status) +
           Base.summarysize(many_view.temporal_inputs)
 
+    external_status_many = CompositeModel(
+        Object(
+            :scene;
+            scale=:Scene,
+            status=Status(signals=[4.0, 6.0], signal_total=0.0),
+        ),
+        Object(:leaf_1; scale=:Leaf, parent=:scene, status=Status(signal=4.0)),
+        Object(:leaf_2; scale=:Leaf, parent=:scene, status=Status(signal=6.0));
+        applications=(
+            ModelSpec(TemporalViewManyConsumer();
+                name=:many_consumer, on=One(scale=:Scene), inputs=(PreviousTimeStep(:signals) => Many(
+                    scale=:Leaf,
+                    within=SceneScope(),
+                    var=:signal,
+                ),)),
+        ),
+    )
+    run!(external_status_many; steps=2)
+    @test only(model_objects(external_status_many; scale=:Scene)).status.signal_total ==
+          10.0
+
     dynamic_object = CompositeModel(
         Object(
             :scene;
