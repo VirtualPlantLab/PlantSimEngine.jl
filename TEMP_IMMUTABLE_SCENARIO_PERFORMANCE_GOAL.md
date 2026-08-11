@@ -139,6 +139,16 @@ goal, not as work to repeat:
   acceptance record. `355e143c` then removed the completed temporary hard-call
   goal.
 
+The final follow-up in that task clarified an important lifecycle invariant:
+"preallocated" temporal storage is stable only between structural changes, not
+permanently fixed-size. At a lifecycle refresh barrier, a newly created organ
+must be added to affected execution targets, hard-call buffers, temporal status
+views, and `Many` storage. Applications still remaining in the current
+timestep may then run on it; applications already completed are not rerun. If
+the new organ has no previous source sample, `PreviousTimeStep` must use its
+compiled initial value for that first read and use the normal temporal buffer
+on subsequent timesteps.
+
 The accepted local comparison used PlantSimEngine `d5480c50`,
 PlantBiophysics `dbd04e0`, and XPalm `192e43f7`:
 
@@ -421,6 +431,10 @@ gate after the plan split.
 - [ ] Avoid incrementing model/environment revisions once per descendant.
 - [ ] Preserve object-id ordering, multiplicity checks, removed-object history,
   template/instance rules, and MTG identifier bookkeeping.
+- [ ] Test organ creation after temporal buffers already exist: resize or
+  replace affected `Many` storage at the lifecycle barrier, use the compiled
+  initial value when the new organ has no previous sample, and read its normal
+  temporal buffer from the following timestep onward.
 - [ ] Prove that lifecycle refresh work is proportional to the affected delta
   and selector dependencies, not total objects or applications.
 - [ ] Commit lifecycle journaling and bulk refresh as a coherent slice.
@@ -596,6 +610,9 @@ This goal is complete only when all of the following are true:
   precompiled steady-state schedule.
 - [ ] New objects can activate existing application relationships without
   constructing new application-level dependency definitions.
+- [ ] Temporal scalar references and `Many` storage remain allocation-stable
+  between lifecycle events while still admitting newly created organs at the
+  refresh barrier with correct first-sample fallback semantics.
 - [ ] The root runtime and hard-call runtime consume the same lifecycle delta
   and immutable scenario ownership model.
 - [ ] Homogeneous execution loops retain concrete model, status, carrier,
