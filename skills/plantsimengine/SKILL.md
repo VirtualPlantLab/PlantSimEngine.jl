@@ -163,12 +163,24 @@ ModelSpec(
 ```
 
 Inside `run!`, execute all targets with `run_call!(context, :name)`, which
-always returns a vector-like `CallTargets` collection. For selective or
-iterative control, retrieve the cached collection with
-`call_targets(context, :name)` and execute individual targets. `run_call!`
-defaults to `publish=false` for trial iterations. Use `publish=true` once for
-the accepted state. Applications used only as call targets are not scheduled
-independently and do not receive inferred soft bindings.
+always returns a vector-like `CallTargets` collection. Pass
+`sampled_environment=value` to the same bulk call when the caller already has
+one model-facing environment for all targets. This uses the cached typed
+execution batches directly. Use `call_model(context, :name)` when a singular
+dependency's concrete model must guide dispatch or parameter access.
+
+Reserve `call_targets(context, :name)` and individual `run_call!(target)` calls
+for object selection, custom ordering, target status inspection, or a distinct
+sampled environment per target. `run_call!` defaults to `publish=false` for
+trial iterations. Use `publish=true` once for the accepted state. Applications
+used only as call targets are not scheduled independently and do not receive
+inferred soft bindings.
+
+Keep `environment=trial_state` distinct from
+`sampled_environment=model_facing_value`. A transient backend state is sampled
+through each target's compiled environment handle and inherited by nested hard
+calls; an already sampled value is forwarded directly and is not treated as a
+backend state.
 
 ### Configure rates and environment
 
@@ -220,10 +232,14 @@ Use `register_object!` only when the caller already owns a fully initialized
 `move_object!`, `update_geometry!`, and
 `mark_environment_binding_dirty!` invalidate spatial bindings.
 
-Structural changes made inside a kernel refresh applications, value carriers,
-hard-call targets, writers, and schedules after that application. New objects
-may run applications still remaining in the same timestep, but never ones that
-already completed. Removed objects keep retained output history.
+The hard-dependency definition is immutable after scenario compilation: call
+names, applications, selectors, multiplicity, ordering, and batching rules do
+not change at runtime. Structural changes made inside a kernel refresh only the
+affected application targets, value carriers, hard-call target buffers,
+writers, and schedules after that application. New objects may run
+applications still remaining in the same timestep, but never ones that already
+completed. Removed objects keep retained output history. Ordinary timesteps
+then return to the cached plan without selector resolution or graph rebuild.
 
 ### Validate the compiled scenario
 
@@ -370,7 +386,14 @@ future parallel implementation.
 - Preserve reference carriers instead of copying same-rate values.
 - Keep dynamic dispatch at compiled batch boundaries, not inside the per-object
   kernel loop.
-- Preserve cached hard-call targets and homogeneous execution batches.
+- Preserve immutable hard-call plans, lifecycle-maintained target buffers, and
+  homogeneous execution batches.
+- Use bulk `run_call!(context, name; sampled_environment=value)` in repeated
+  iterative loops. Do not enumerate `CallTarget` wrappers merely to execute all
+  targets.
+- Use `call_model(context, name)` for allocation-free singular model access;
+  use public target materialization only when status or per-target control is
+  actually required.
 - After a lifecycle event, the ordinary steady-state path should return to the
   precompiled schedule rather than rebuilding the whole scene each step.
 - Add allocation checks for hot loops over many organs, and separate scene

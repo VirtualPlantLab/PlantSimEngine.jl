@@ -564,7 +564,8 @@ function PlantSimEngine.run!(model::Monteith, status, environment, constants, co
 
         # Update A, Gₛ, Cᵢ through the declared photosynthesis call:
         PlantSimEngine.run_call!(
-            only(PlantSimEngine.call_targets(context, :photosynthesis));
+            context,
+            :photosynthesis;
             sampled_environment=environment,
             publish=false,
         )

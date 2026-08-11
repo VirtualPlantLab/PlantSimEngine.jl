@@ -6,10 +6,14 @@ explicit `One`, `OptionalOne`, or `Many` selector. Inspect the resolved
 references with `Diagnostics.explain_bindings`.
 
 Use `calls` only when a parent algorithm owns child execution or iteration.
-Use `run_call!(context, :name)` to execute every resolved target. For selective
-or iterative execution, retrieve the vector-like collection with
-`call_targets(context, :name)` and execute individual targets. Trial calls use
-`publish=false`; accepted state is published once.
+Use `run_call!(context, :name)` to execute every resolved target. Pass
+`sampled_environment=value` to this bulk path when the caller already has one
+model-facing environment for all targets. Use `call_model(context, :name)` to
+inspect a singular dependency model without materializing a public target. For
+selection, target status access, custom ordering, or distinct environments,
+retrieve the vector-like collection with `call_targets(context, :name)` and
+execute individual targets. Trial calls use `publish=false`; accepted state is
+published once.
 Nested calls inherit publication suppression, so a descendant cannot publish
 inside an unpublished ancestor trial. `Diagnostics.explain_calls` and `Diagnostics.explain_schedule`
 show call-only targets and ordering.

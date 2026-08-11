@@ -36,6 +36,72 @@ jobs:
           julia-version: ${{ matrix.version }}
           bench-on: ${{ github.event.pull_request.head.sha }}
 
+  plantbiophysics:
+    if: ${{ github.event_name != 'workflow_dispatch' || !inputs.full_performance }}
+    name: PlantBiophysics multi-timestep
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      JULIA_NUM_THREADS: "1"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_STEPS: "1000"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_SAMPLES: "5"
+      PSE_PLANTBIOPHYSICS_FANOUT_SCENES: "20"
+    steps:
+      - name: Check out PlantSimEngine
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Check out PlantBiophysics
+        uses: actions/checkout@v7
+        with:
+          repository: VEZY/PlantBiophysics.jl
+          ref: multi-plant
+          path: downstream/PlantBiophysics
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.12.1"
+
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v3
+
+      - name: Resolve the PlantBiophysics benchmark environment
+        shell: julia --project=benchmark --color=yes {0}
+        run: |
+          using Pkg
+
+          benchmark_project = joinpath(pwd(), "benchmark", "Project.toml")
+          include(joinpath(pwd(), "benchmark", "prepare_full_performance_project.jl"))
+          prepare_plantbiophysics_performance_project!(benchmark_project)
+          Pkg.activate(joinpath(pwd(), "benchmark"))
+          Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), "downstream", "PlantBiophysics")),
+          ])
+          Pkg.resolve()
+          Pkg.instantiate()
+          Pkg.precompile()
+
+      - name: Run the warmed multi-timestep benchmark
+        run: >-
+          julia --project=benchmark --color=yes
+          benchmark/test/runtests.jl
+          "PlantBiophysics benchmark (API smoke|performance)"
+
+      - name: Persist measurements
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: plantbiophysics-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: benchmark/results/plantbiophysics-full-latest.csv
+          if-no-files-found: warn
+          retention-days: 30
+
   full-performance:
     if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_performance }}
     uses: ./.github/workflows/FullPerformance.yml

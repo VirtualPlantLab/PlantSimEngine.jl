@@ -136,8 +136,13 @@ filter(
 
 Use `run_call!(context, name; environment=trial_state)` when every target
 should sample the same provider-aware trial state through its own compiled
-handle. Use `call_targets` and `run_call!(target; sampled_environment=...)`
-for selection, custom order, or distinct already-sampled environments.
+handle. If the caller has already sampled the model-facing environment, use
+`run_call!(context, name; sampled_environment=value)` to execute all targets
+through cached typed batches. Use `call_targets` and
+`run_call!(target; sampled_environment=...)` only for selection, custom order,
+status inspection, or distinct already-sampled environments. For one target,
+`call_model(context, name)` provides allocation-free access to its concrete
+model when an algorithm must dispatch on model type or read its parameters.
 
 ## Order intentional duplicate writers
 

@@ -16,6 +16,8 @@ gives agents the package-specific conventions they need for:
   `ObjectInstance`;
 - applying models with `ModelSpec` and `on`;
 - coupling values and manual model calls with `inputs` and `calls`;
+- using cached hard-call plans through bulk `run_call!`, singular `call_model`,
+  and lifecycle-maintained object target buffers;
 - configuring multirate simulations with `every`, `Dates.Period` values,
   and temporal policies;
 - binding global or spatial microclimate through `Environment`;

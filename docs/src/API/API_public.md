@@ -21,6 +21,10 @@
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
   target and always returns a vector-like `CallTargets` collection.
+- `run_call!(context, :name; sampled_environment=value)` forwards one already
+  sampled model-facing environment through cached typed execution batches.
+- `call_model(context, :name)` returns the concrete model when a call resolves
+  to exactly one target.
 - `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
 

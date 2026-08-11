@@ -39,6 +39,44 @@ if benchmark_test_enabled("full-performance project bootstrap smoke")
             @test haskey(project["deps"], "XPalm")
             @test haskey(project["deps"], "PlantBiophysics")
         end
+        mktempdir() do directory
+            project_path = joinpath(directory, "Project.toml")
+            cp(
+                joinpath(@__DIR__, "..", "Project.toml"),
+                project_path,
+            )
+            prepare_plantbiophysics_performance_project!(project_path)
+            project = TOML.parsefile(project_path)
+            @test !haskey(project, "sources")
+            @test haskey(project["deps"], "PlantSimEngine")
+            @test haskey(project["deps"], "PlantBiophysics")
+            @test !haskey(project["deps"], "XPalm")
+        end
+
+        release_root = joinpath(@__DIR__, "..", "release_baselines")
+        release_projects = Dict(
+            :plantbiophysics => TOML.parsefile(
+                joinpath(release_root, "plantbiophysics", "Project.toml"),
+            ),
+            :xpalm => TOML.parsefile(
+                joinpath(release_root, "xpalm", "Project.toml"),
+            ),
+        )
+        @test release_projects[:plantbiophysics]["sources"][
+            "PlantBiophysics"
+        ]["rev"] == "9f39af4ffd48bab234e5d80b89cd52c67b9f3f82"
+        @test release_projects[:plantbiophysics]["sources"][
+            "PlantSimEngine"
+        ]["rev"] == "503af98c3709a0b1207407e3741b7cb09ebfbcf7"
+        @test release_projects[:xpalm]["sources"]["XPalm"]["rev"] ==
+              "a0dbf2e8d6fa9e21f8e8ced3220da184b3ee3f4c"
+        @test release_projects[:xpalm]["sources"][
+            "PlantSimEngine"
+        ]["rev"] == "503af98c3709a0b1207407e3741b7cb09ebfbcf7"
+        for downstream in keys(release_projects)
+            runner = joinpath(release_root, String(downstream), "run.jl")
+            @test Meta.parseall(read(runner, String)) isa Expr
+        end
     end
 end
 

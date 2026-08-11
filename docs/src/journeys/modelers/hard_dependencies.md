@@ -117,6 +117,44 @@ simulation = run!(model; outputs=:all)
 scenario can replace it with `ModelSpec(...; calls=...)` when application
 identity or target selection differs.
 
+## Keep the common path bulk and concrete
+
+The selective example above intentionally materializes one public target
+because it chooses an object and gives each trial its own sampled value. If the
+algorithm executes every resolved target with the same already-sampled
+environment, use the bulk path instead:
+
+```julia
+run_call!(
+    context,
+    :readers;
+    sampled_environment=environment,
+    publish=false,
+)
+```
+
+This executes the compiler's cached typed batches directly. It avoids creating
+or indexing `CallTarget` wrappers inside a timestep loop.
+
+Some iterative algorithms must inspect a singular dependency model before
+executing it. Keep that dispatch concrete with `call_model`, then execute the
+same declared call in bulk:
+
+```julia
+reader_model = call_model(context, :reader)
+trial = prepare_trial(reader_model, status, environment)
+run_call!(context, :reader; sampled_environment=trial, publish=false)
+```
+
+`call_model` requires exactly one resolved target. Use `call_targets` when the
+algorithm also needs target status, object selection, a custom order, or
+several distinct sampled environments.
+
+The dependency definition is immutable after compilation, while its selected
+objects are not. Growth, removal, and reparenting refresh the affected target
+buffers once at the lifecycle barrier; normal timesteps continue through the
+same compiled plan.
+
 ## Model-author recap
 
 - **You implemented:** a process-level `Call` requirement and explicit
@@ -125,5 +163,5 @@ identity or target selection differs.
   context, and publication boundaries.
 - **The scenario author keeps explicit:** application overrides and any
   architecture-specific target choice.
-- **New API names:** `dep`, `Call`, `call_targets`, `CallTargets`,
-  `run_call!`, `sampled_environment`, and `publish`.
+- **New API names:** `dep`, `Call`, `call_model`, `call_targets`,
+  `CallTargets`, `run_call!`, `sampled_environment`, and `publish`.

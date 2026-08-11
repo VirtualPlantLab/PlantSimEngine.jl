@@ -230,10 +230,13 @@ requirements in `dep(model)` when they declare generic dependencies, because
 they cannot know the application names that a user will choose later.
 
 Inside `run!`, use `run_call!(context, :leaf_energy)` to execute every target and
-receive a vector-like collection. Iterative parents use
-`call_targets(context, :leaf_energy)` and `run_call!(target; publish=false)` for
-trial iterations. The accepted state uses `run_call!(target; publish=true)`
-once, so temporal outputs and mutable environment writes are published exactly
+receive a vector-like collection. Pass `sampled_environment=value` to the same
+bulk call when the parent has already sampled one environment for all targets.
+Use `call_model(context, :leaf_energy)` when a singular call's concrete model
+must guide an iterative algorithm. Reserve `call_targets` and
+`run_call!(target; publish=false)` for selection, custom ordering, target status
+inspection, or different per-target environments. Publish the accepted state
+once, so temporal outputs and mutable environment writes are recorded exactly
 once.
 
 ## Where To Go Next

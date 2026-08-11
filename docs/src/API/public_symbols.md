@@ -38,8 +38,8 @@ explicitly imports one of those submodules.
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
-- Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_targets`,
-  `run_call!`.
+- Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_model`,
+  `call_targets`, `run_call!`.
 
 ## Diagnostics namespace
 

@@ -112,9 +112,8 @@ function PlantSimEngine.run!(m::Fvcb, status, environment, constants, context)
     Vⱼ = J / 4
 
     # Stomatal conductance (mol[CO₂] m-2 s-1), dispatched on type of first argument (gs_closure):
-    stomatal_target =
-        only(PlantSimEngine.call_targets(context, :stomatal_conductance))
-    stomatal_model = PlantSimEngine.runtime_model(stomatal_target)
+    stomatal_model =
+        PlantSimEngine.call_model(context, :stomatal_conductance)
     st_closure =
         gs_closure(stomatal_model, status, environment, constants, context)
 
@@ -146,7 +145,8 @@ function PlantSimEngine.run!(m::Fvcb, status, environment, constants, context)
 
     # Stomatal conductance (mol[CO₂] m-2 s-1)
     PlantSimEngine.run_call!(
-        only(PlantSimEngine.call_targets(context, :stomatal_conductance));
+        context,
+        :stomatal_conductance;
         sampled_environment=st_closure,
         publish=false,
     )
