@@ -4,6 +4,8 @@ using DataFrames
 using XPalm
 
 const SAMPLES = parse(Int, get(ENV, "PSE_RELEASE_BASELINE_SAMPLES", "5"))
+const TIME_BUDGET_SECONDS =
+    parse(Float64, get(ENV, "PSE_RELEASE_BASELINE_SECONDS", "120"))
 const REFERENCE_VARIABLES = Dict{Symbol,Any}(
     :Scene => (:lai, :leaf_area, :aPPFD),
     :Plant => (
@@ -50,7 +52,7 @@ run_workload(warm_meteo[1:100, :], warm_palm)
 
 trial = @benchmark run_workload(meteo, palm) setup = (
     (meteo, palm) = setup_workload()
-) samples = SAMPLES evals = 1
+) samples = SAMPLES evals = 1 seconds = TIME_BUDGET_SECONDS
 estimate = BenchmarkTools.median(trial)
 
 check_meteo, check_palm = setup_workload()
