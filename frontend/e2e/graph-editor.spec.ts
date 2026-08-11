@@ -1,4 +1,5 @@
 import { expect, test, type APIRequestContext, type Locator, type Page } from "@playwright/test";
+import { copyFile } from "node:fs/promises";
 import type { ApplicationGraphNode, EditorState } from "../src/types";
 import { startGraphEditorServer, type GraphEditorServer } from "./graphEditorServer";
 
@@ -113,8 +114,8 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByTestId("call-target").selectOption("consumer");
     await page.getByTestId("add-call-binding").click();
     await waitForState(request, server.url, (value) => value.graph.metadata.callCount === 1);
-    await page.getByTestId("environment-provider").fill("model");
     await page.getByTestId("environment-backend").selectOption("scene");
+    await page.getByTestId("environment-provider").fill("model");
     await page.getByTestId("apply-environment").click();
     let state = await waitForState(request, server.url, (value) => findApplication(value, "light").environment?.provider === "model");
     expect(state.graph.edges.some((edge) => edge.kind === "manual_call" && edge.call === "consumer_call")).toBe(true);
@@ -200,6 +201,8 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await page.getByPlaceholder("/absolute/path/to/model.jl").fill(savePath);
     await page.locator(".model-file-dialog").getByRole("button", { name: "Save", exact: true }).click();
     await waitForState(request, server.url, (value) => value.savePath === savePath);
+    const reopenPath = testInfo.outputPath("multi-plant-reopen-model.jl");
+    await copyFile(savePath, reopenPath);
 
     await page.getByRole("button", { name: "Objects" }).click();
     await page.locator(".entity-node.instance", { hasText: "plant_b" }).click();
@@ -207,7 +210,7 @@ test.describe.serial("PlantSimEngine model graph editor", () => {
     await waitForState(request, server.url, (value) => value.graph.instances.length === 1);
 
     await page.getByTestId("open-model").click();
-    await page.getByPlaceholder("/absolute/path/to/model.jl").fill(savePath);
+    await page.getByPlaceholder("/absolute/path/to/model.jl").fill(reopenPath);
     await page.locator(".model-file-dialog").getByRole("button", { name: "Open", exact: true }).click();
     await waitForState(request, server.url, (value) => value.graph.instances.length === 2);
     await page.getByRole("button", { name: "Undo" }).click();

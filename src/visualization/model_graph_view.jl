@@ -860,7 +860,14 @@ function _model_graph_instance_dict(model, row, template_catalog)
         "objectIds" => [_model_graph_json_value(id) for id in row.object_ids],
         "applicationIds" => string.(row.application_ids),
         "instanceOverrides" => string.(row.instance_overrides),
-        "objectOverrides" => _model_graph_json_value(row.object_overrides),
+        "objectOverrides" => Dict{String,Any}[
+            Dict(
+                "objectId" => _model_graph_json_value(override.object_id),
+                "applicationId" => _model_graph_json_value(override.application),
+                "modelType" => string(override.model_type),
+            )
+            for override in row.object_overrides
+        ],
         "parametersType" => string(row.parameters_type),
     )
 end

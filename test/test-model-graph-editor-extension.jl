@@ -1,3 +1,5 @@
+using Dates
+
 abstract type AbstractEditorSourceModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractEditorConsumerModel <: PlantSimEngine.AbstractModel end
 PlantSimEngine.process_(::Type{AbstractEditorSourceModel}) = :editor_source
@@ -510,7 +512,7 @@ end
     editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
     template = CompositeModelTemplate(
         (
-            ModelSpec(EditorSourceModel(); name=:source, on=Many(scale=:Leaf), environment=Environment((provider=:model,)), output_routing=(signal=:stream_only,)),
+            ModelSpec(EditorSourceModel(); name=:source, on=Many(scale=:Leaf), environment=Environment((provider=:model,)), output_routing=(signal=:stream_only,), every=Dates.Hour(2)),
         );
         kind=:plant,
         species=:test_species,
@@ -538,10 +540,13 @@ end
         close(session)
     end
     @test occursin("defined in Main", code)
+    @test occursin("using Dates", code)
+    @test occursin("every=Hour(2)", code)
     @test occursin("template_1 = CompositeModelTemplate", code)
     @test occursin("instances = (", code)
     @test occursin("Override(", code)
-    @test occursin("environment=Environment((provider = :model,))", code)
+    @test occursin("environment=Environment(", code)
+    @test occursin("provider=:model", code)
     @test occursin("output_routing=(signal = :stream_only,)", code)
     @test !occursin("ObjectModelOverrides", code)
 
@@ -555,6 +560,7 @@ end
     restored_source = PlantSimEngine.as_model_spec(first(first(restored.instances).template.applications))
     @test environment_config(restored_source).config == (provider=:model,)
     @test output_routing(restored_source) == (signal=:stream_only,)
+    @test restored_source.timestep == Dates.Hour(2)
 
     local_model = CompositeModel(Object(
         :local_leaf;

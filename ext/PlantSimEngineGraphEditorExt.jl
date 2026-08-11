@@ -372,11 +372,17 @@ function _preview_instance_payload(session, command)
     payload = _state_payload(session)
     payload["instancePreview"] = Dict{String,Any}(
         "name" => string(name),
-        "objectIds" => [id.value for id in PlantSimEngine._instance_object_ids(candidate, instance)],
+        "objectIds" => [
+            PlantSimEngine._model_graph_json_value(id.value)
+            for id in PlantSimEngine._instance_object_ids(candidate, instance)
+        ],
         "applications" => [
             Dict(
                 "applicationId" => string(application.id),
-                "targetIds" => [id.value for id in application.target_ids],
+                "targetIds" => [
+                    PlantSimEngine._model_graph_json_value(id.value)
+                    for id in application.target_ids
+                ],
             )
             for application in report.applications if application.id in application_ids
         ],
@@ -1023,6 +1029,7 @@ function _model_to_julia(session::GraphEditorSession)
     for module_name in sort!(collect(modules))
         println(io, "using $(module_name)")
     end
+    println(io, "using Dates")
     println(io)
     if !isnothing(model.source_adapter)
         push!(diagnostics, "The Composite model source_adapter is runtime-specific and is not reconstructed by generated code.")

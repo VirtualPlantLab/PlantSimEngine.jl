@@ -201,6 +201,7 @@ end
     @test Set(only(view.templates)["mountedInstances"]) == Set(["plant_a", "plant_b"])
     @test Set(instance["name"] for instance in view.instances) == Set(["plant_a", "plant_b"])
     @test all(instance["templateId"] == only(view.templates)["id"] for instance in view.instances)
+    @test all(instance["objectOverrides"] isa Vector for instance in view.instances)
     @test Set(application["applicationId"] for application in view.applications) ==
           Set(["plant_a__source", "plant_b__source"])
     plant_b_application = only(
@@ -700,13 +701,15 @@ end
         model,
         RenameModelApplication(model_graph_global(:source), :renamed_source),
     )
-    template_spec = as_model_spec(only(only(renamed.instances).template.applications))
-    @test criteria(value_inputs(template_spec).signal).application == :renamed_source
+    template_spec = PlantSimEngine.as_model_spec(
+        only(only(renamed.instances).template.applications),
+    )
+    @test PlantSimEngine.criteria(value_inputs(template_spec).signal).application == :renamed_source
     mounted_spec = PlantSimEngine._model_edit_spec(
         renamed,
         model_graph_template(:plant, :consumer),
     )
-    @test criteria(value_inputs(mounted_spec).signal).application == :renamed_source
+    @test PlantSimEngine.criteria(value_inputs(mounted_spec).signal).application == :renamed_source
 end
 
 

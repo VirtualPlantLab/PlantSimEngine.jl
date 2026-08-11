@@ -1,6 +1,6 @@
 import { Check, Trash2, X } from "lucide-react";
 import { useMemo, useState } from "react";
-import { ParameterFields, parameterDefaults } from "./ApplicationForm";
+import { modelDescriptorForApplication, ParameterFields, parameterDefaults } from "./ApplicationForm";
 import type { ApplicationGraphNode, ApplicationOwner, InstanceDescriptor, ModelDescriptor } from "./types";
 
 export type OverrideFormValue = {
@@ -31,13 +31,14 @@ export function OverrideForm({
     () => models.filter((model) => model.process === application.process),
     [application.process, models],
   );
+  const initialModel = modelDescriptorForApplication(matchingModels, application) || matchingModels[0] || null;
   const [scope, setScope] = useState<"instance" | "object">("instance");
   const [instanceName, setInstanceName] = useState(application.targetInstances[0] || instances[0]?.name || "");
   const instance = instances.find((item) => item.name === instanceName);
   const objectIds = (instance?.objectIds || []).filter((id) => application.targetIds.some((target) => String(target) === String(id)));
   const [objectId, setObjectId] = useState<unknown>(objectIds[0] ?? "");
-  const [modelType, setModelType] = useState(application.modelType);
-  const model = matchingModels.find((item) => item.type === modelType) || matchingModels[0] || null;
+  const [modelType, setModelType] = useState(initialModel?.type || application.modelType);
+  const model = matchingModels.find((item) => item.type === modelType) || initialModel;
   const [parameters, setParameters] = useState(() => parameterDefaults(model, application));
   const baseApplicationId = application.owner.applicationId;
   const hasInstanceOverride = Boolean(instance?.instanceOverrides.includes(baseApplicationId));
