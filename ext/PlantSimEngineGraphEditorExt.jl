@@ -5,7 +5,6 @@ import JSON
 import Dates
 import PlantSimEngine
 import PlantSimEngine.GraphEditor: edit_graph, current_model, apply_edit!, undo!, redo!
-import Random
 
 mutable struct GraphEditorSession <: PlantSimEngine.GraphEditor.AbstractModelGraphEditorSession
     model::PlantSimEngine.CompositeModel
@@ -203,7 +202,7 @@ function redo!(session::GraphEditorSession)
     return session.model
 end
 
-_session_token() = bytes2hex(rand(Random.RandomDevice(), UInt8, 16))
+_session_token() = PlantSimEngine._graph_editor_session_token()
 
 function _is_loopback_host(host)
     return lowercase(strip(String(host))) in (

@@ -1,5 +1,8 @@
 abstract type AbstractModelGraphEdit end
 
+_graph_editor_session_token() =
+    bytes2hex(rand(Random.RandomDevice(), UInt8, 16))
+
 """
     ModelApplicationRef(scope, application_id; instance=nothing)
     GlobalApplicationRef(application_id)

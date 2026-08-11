@@ -12,6 +12,7 @@ import Term
 import Markdown
 import JSON
 import InteractiveUtils
+import Random
 import Base: position
 
 # For MTG compatibility:
