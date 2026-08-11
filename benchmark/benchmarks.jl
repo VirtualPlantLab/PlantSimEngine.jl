@@ -64,6 +64,18 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
         nsteps,
     ) setup = ((model, ignored_requests, nsteps) = setup_multirate_buffer_benchmark())
 
+    include(joinpath(@__DIR__, "test-immutable-scenario-benchmark.jl"))
+    for output_policy in (:none, :requests, :all)
+        SUITE[suite_name]["PSE_immutable_scenario_$(output_policy)"] =
+            @benchmarkable benchmark_immutable_scenario_steps(
+                simulation,
+                48,
+            ) setup = (simulation = setup_immutable_scenario_benchmark(
+                nleaves=256,
+                output_policy=$output_policy,
+            )) evals = 1
+    end
+
     include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
     for usage in (:zero, :sparse, :dense)
         SUITE[suite_name]["PSE_hard_calls_$(usage)"] =

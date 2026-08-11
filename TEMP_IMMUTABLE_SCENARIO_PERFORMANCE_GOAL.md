@@ -193,7 +193,7 @@ hard-call execution path.
 - [x] Preserve the pinned PlantBiophysics/XPalm release runners, accepted raw
   performance record, typed hard-call microbenchmarks, and benchmark API smoke
   tests added by the completed prerequisite work.
-- [ ] Record the exact branch, commit, Julia version, thread count, CPU context,
+- [x] Record the exact branch, commit, Julia version, thread count, CPU context,
   dependency versions, benchmark parameters, output policy, warm-up policy,
   sample count, and relevant package SHAs for this goal's pre-change baseline.
 - [ ] Add or preserve one-setup/many-timestep steady-state benchmarks for:
@@ -203,7 +203,7 @@ hard-call execution path.
   - `outputs=:all`;
   - many applications with mixed cadences;
   - homogeneous targets and targets split by overrides or environment type.
-- [ ] Keep construction and initial compilation outside warmed step timings.
+- [x] Keep construction and initial compilation outside warmed step timings.
 - [ ] Add lifecycle benchmarks for one and several objects covering:
   - registration/growth;
   - removal of one object and a subtree;
@@ -216,11 +216,53 @@ hard-call execution path.
   and runtime work counters.
 - [ ] Add counters that distinguish immutable-plan compilation from mutable
   target instantiation and target-buffer updates.
-- [ ] Record the current branch-head baseline before changing behavior. Reuse
+- [x] Record the current branch-head baseline before changing behavior. Reuse
   the pinned runners and accepted comparison as historical controls, but do
   not substitute the `d5480c50` measurements for a fresh starting-point run.
-- [ ] Commit the benchmark harness and focused regression tests as the first
+- [x] Commit the benchmark harness and focused regression tests as the first
   coherent slice.
+
+### Fresh immutable-scenario baseline (2026-08-11)
+
+This pre-change baseline was recorded on branch `multi-plants` at
+`eb87938235472484b54956c8c86db1b7e5a9f104` plus the counter-only benchmark
+instrumentation in the first implementation slice. The machine was an Apple
+M3 Max MacBook Pro with 36 GiB RAM, Darwin 25.5.0 on arm64. Julia 1.12.1 used
+10 threads while scientific execution remained sequential. The benchmark
+environment used PlantSimEngine 0.15.0, BenchmarkTools 1.8.0, and
+`benchmark/Manifest.toml` SHA-256
+`658c36d6259dd4ff287a19db97c80335af2e0ad242419a690f144fee97362936`.
+
+The workload contains 256 homogeneous hourly leaf producers and one daily
+plant consumer reading all leaf values through `PreviousTimeStep`. Each timing
+uses one already constructed simulation after one untimed setup step, then
+times 48 continuous `continue!` steps. BenchmarkTools performed its normal
+warm-up; results are medians of 10 samples with one evaluation per sample.
+Construction is reported separately. The explicit-request case retains one
+hourly `HoldLast` request over all leaves; output collection is excluded.
+
+| Output policy/workload | Median total | Median per step | Allocations | Allocated bytes |
+| --- | ---: | ---: | ---: | ---: |
+| construction and initial one-step run, `outputs=:none` | 4.306 ms | not applicable | 54,276 | 3,073,520 |
+| 48 warmed steps, `outputs=:none` | 1.704 ms | 35.502 us | 1,888 | 117,760 |
+| 48 warmed steps, one explicit request | 9.481 ms | 197.516 us | 179,183 | 8,340,640 |
+| 48 warmed steps, `outputs=:all` | 2.830 ms | 58.961 us | 89,086 | 4,909,056 |
+
+The opt-in work counters cover 49 total steps including setup. Every policy
+visited 98 application groups, 98 batches, and 12,593 nominal batch targets.
+This proves two current steady-state costs that later phases must remove:
+
+- `_refresh_output_request_targets!` was called 51 times for every policy even
+  though topology never changed;
+- the explicit request performed 51 full selector resolutions, consuming
+  6.402 ms in one representative instrumented run;
+- the daily application's group, batch, and nominal targets were counted on
+  every hourly step even when the application was not due.
+
+The benchmark API smoke passed 16/16 and the focused runtime/instrumentation
+suite passed 322/322. The broader Phase 1 matrix remains open for scenes with
+no temporal dependency, several requests, overrides/environment splits,
+lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
 
 ## Phase 2: Remove Unnecessary Steady-State Work
 

@@ -5024,16 +5024,30 @@ function _initial_output_request_targets(model, compiled, output_requests)
 end
 
 function _refresh_output_request_targets!(simulation::Simulation, added_object_ids=nothing)
+    started_at = _runtime_performance_start(simulation.performance)
+    _runtime_performance_count!(
+        simulation.performance,
+        :output_request_target_refreshes,
+    )
     for request in simulation.output_requests
         application_id, object_targets =
             simulation.output_request_targets[request.name]
         matched_ids = if isnothing(added_object_ids)
+            _runtime_performance_count!(
+                simulation.performance,
+                :output_request_selector_resolutions,
+            )
             resolve_object_ids(
                 simulation.model,
                 _selector_as_many(request.selector);
                 context=request.context,
             )
         else
+            _runtime_performance_count!(
+                simulation.performance,
+                :output_request_incremental_object_checks,
+                length(added_object_ids),
+            )
             ObjectId[
                 object_id for object_id in added_object_ids
                 if _selector_matches_object_id(
@@ -5073,6 +5087,11 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
             )
         end
     end
+    _runtime_performance_finish!(
+        simulation.performance,
+        :output_request_target_refresh,
+        started_at,
+    )
     return simulation
 end
 

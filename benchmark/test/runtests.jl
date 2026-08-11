@@ -122,6 +122,42 @@ if benchmark_test_enabled("multirate benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("immutable scenario benchmark API smoke")
+    @testset "immutable scenario benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-immutable-scenario-benchmark.jl",
+            ),
+        )
+        for output_policy in (:none, :requests, :all)
+            simulation = setup_immutable_scenario_benchmark(;
+                nleaves=4,
+                output_policy=output_policy,
+            )
+            benchmark_immutable_scenario_steps(simulation, 48)
+            @test current_step(simulation) == 49
+            @test only(model_objects(simulation.model; scale=:Plant)).status.total ==
+                  4 * 48
+            performance =
+                PlantSimEngine.Advanced.runtime_performance(simulation)
+            @test performance.counts[:steps_executed] == 49
+            @test performance.counts[:output_request_target_refreshes] == 51
+            if output_policy === :requests
+                @test performance.counts[:output_request_selector_resolutions] ==
+                      51
+                @test !isempty(collect_outputs(simulation; sink=nothing))
+            else
+                @test !haskey(
+                    performance.counts,
+                    :output_request_selector_resolutions,
+                )
+            end
+        end
+    end
+end
+
 if benchmark_test_enabled("lifecycle benchmark API smoke")
     @testset "lifecycle benchmark API smoke" begin
         isdefined(@__MODULE__, :BenchmarkCallSourceModel) ||
@@ -306,6 +342,9 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             @test haskey(suite, "PSE")
             @test haskey(suite, "PSE_hard_calls_zero")
             @test haskey(suite, "PSE_lifecycle_large")
+            @test haskey(suite, "PSE_immutable_scenario_none")
+            @test haskey(suite, "PSE_immutable_scenario_requests")
+            @test haskey(suite, "PSE_immutable_scenario_all")
             @test !haskey(suite, "PBP")
             @test !haskey(suite, "PBP_batch_run")
             @test !haskey(suite, "XPalm_run_100")

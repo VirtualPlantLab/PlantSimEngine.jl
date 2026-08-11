@@ -848,6 +848,8 @@ end
     @test performance.counts[:initial_environment_bindings_constructed] == 1
     @test performance.counts[:initial_execution_targets_constructed] == 1
     @test performance.counts[:initial_execution_batches_constructed] == 1
+    @test performance.counts[:output_request_target_refreshes] == 4
+    @test !haskey(performance.counts, :output_request_selector_resolutions)
     @test performance.elapsed_seconds[:step_execution] >= 0.0
     @test performance.elapsed_seconds[:initial_composite_compile] >= 0.0
     @test performance.elapsed_seconds[:initial_binding_compile] >= 0.0
@@ -864,6 +866,7 @@ end
     @test performance.elapsed_seconds[:environment_sampling] >= 0.0
     @test performance.elapsed_seconds[:scientific_kernel_execution] >= 0.0
     @test performance.elapsed_seconds[:output_publication] >= 0.0
+    @test performance.elapsed_seconds[:output_request_target_refresh] >= 0.0
 
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
