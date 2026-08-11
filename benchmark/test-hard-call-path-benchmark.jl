@@ -1,8 +1,11 @@
+using Dates
 using PlantSimEngine
 
 PlantSimEngine.@process "benchmark_call_source" verbose = false
 PlantSimEngine.@process "benchmark_call_controller" verbose = false
 PlantSimEngine.@process "benchmark_bulk_call_controller" verbose = false
+PlantSimEngine.@process "benchmark_sampled_environment_source" verbose = false
+PlantSimEngine.@process "benchmark_sampled_environment_controller" verbose = false
 PlantSimEngine.@process "benchmark_unrelated_work" verbose = false
 
 struct BenchmarkCallSourceModel <: AbstractBenchmark_Call_SourceModel end
@@ -13,6 +16,12 @@ struct BenchmarkBulkCallControllerModel{P,C} <:
     repeats::Int
     publish::P
     capture_context::C
+end
+struct BenchmarkSampledEnvironmentSourceModel <:
+       AbstractBenchmark_Sampled_Environment_SourceModel end
+struct BenchmarkSampledEnvironmentControllerModel{E} <:
+       AbstractBenchmark_Sampled_Environment_ControllerModel
+    sampled_environment::E
 end
 struct BenchmarkUnrelatedWorkModel <: AbstractBenchmark_Unrelated_WorkModel end
 
@@ -29,6 +38,46 @@ function PlantSimEngine.run!(
     context,
 )
     status.signal += 1
+    return nothing
+end
+
+PlantSimEngine.inputs_(::BenchmarkSampledEnvironmentSourceModel) = NamedTuple()
+PlantSimEngine.outputs_(::BenchmarkSampledEnvironmentSourceModel) =
+    (temperature_seen=0.0,)
+PlantSimEngine.environment_inputs_(::BenchmarkSampledEnvironmentSourceModel) =
+    (T=Required(Float64),)
+
+function PlantSimEngine.run!(
+    ::BenchmarkSampledEnvironmentSourceModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.temperature_seen = environment.T
+    return nothing
+end
+
+PlantSimEngine.inputs_(::BenchmarkSampledEnvironmentControllerModel) =
+    NamedTuple()
+PlantSimEngine.outputs_(::BenchmarkSampledEnvironmentControllerModel) =
+    (executions=0,)
+
+function PlantSimEngine.run!(
+    model::BenchmarkSampledEnvironmentControllerModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    run_call!(
+        context,
+        :source;
+        sampled_environment=model.sampled_environment,
+        publish=false,
+    )
+    BENCHMARK_BULK_CALL_CONTEXT[] = context
+    status.executions += 1
     return nothing
 end
 
@@ -163,6 +212,7 @@ function setup_compiled_hard_call_benchmark(;
         :nested,
         :many,
         :heterogeneous,
+        :sampled_environment,
         :published,
     ) ||
         error("Unsupported compiled hard-call benchmark kind `$(kind)`.")
@@ -224,6 +274,37 @@ function setup_compiled_hard_call_benchmark(;
             ),
             Int(steps),
         )
+    end
+    if kind == :sampled_environment
+        model = CompositeModel(
+            PlantSimEngine.Object(:scene; scale=:Scene, name=:scene),
+            PlantSimEngine.Object(
+                :leaf_1;
+                scale=:Leaf,
+                name=:leaf_1,
+                parent=:scene,
+            );
+            applications=(
+                ModelSpec(
+                    BenchmarkSampledEnvironmentSourceModel();
+                    name=:source,
+                    on=One(name=:leaf_1),
+                ),
+                ModelSpec(
+                    BenchmarkSampledEnvironmentControllerModel((T=30.0,));
+                    name=:controller,
+                    on=One(name=:scene),
+                    calls=(
+                        :source => One(
+                            name=:leaf_1,
+                            application=:source,
+                        ),
+                    ),
+                ),
+            ),
+            environment=(T=20.0, duration=Hour(1)),
+        )
+        return model, Int(steps)
     end
     leaf_count = kind == :many ? target_count : 1
     objects = Any[PlantSimEngine.Object(:scene; scale=:Scene, name=:scene)]
@@ -341,6 +422,30 @@ function compiled_hard_call_invocation_allocations(
         context;
         repeats=repeats,
         publish=publish,
+    )
+end
+
+function benchmark_sampled_hard_call_invocation(
+    context::T,
+    sampled_environment,
+) where {T}
+    run_call!(
+        context,
+        :source;
+        sampled_environment=sampled_environment,
+        publish=false,
+    )
+    return nothing
+end
+
+function sampled_hard_call_invocation_allocations(
+    context::T,
+    sampled_environment,
+) where {T}
+    benchmark_sampled_hard_call_invocation(context, sampled_environment)
+    return @allocated benchmark_sampled_hard_call_invocation(
+        context,
+        sampled_environment,
     )
 end
 

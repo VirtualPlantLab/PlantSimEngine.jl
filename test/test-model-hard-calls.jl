@@ -15,6 +15,7 @@ struct ManyCallControllerModel <: AbstractMany_Call_ControllerModel end
 struct CallReturnShapeModel <: AbstractCall_Return_ShapeModel end
 
 const CALL_RETURN_CONTEXT = Ref{Any}()
+const NESTED_ROOT_CONTEXT = Ref{Any}()
 
 function call_lookup_allocations(context)
     call_targets(context, :one)
@@ -22,6 +23,12 @@ function call_lookup_allocations(context)
 end
 
 literal_call_targets(context::T) where {T} = call_targets(context, :one)
+literal_call_model(context::T) where {T} = call_model(context, :one)
+
+function call_model_lookup_allocations(context::T) where {T}
+    literal_call_model(context)
+    return @allocated literal_call_model(context)
+end
 
 PlantSimEngine.inputs_(::NestedCallLeafModel) = NamedTuple()
 PlantSimEngine.outputs_(::NestedCallLeafModel) = (value=0.0, calls=0)
@@ -66,6 +73,7 @@ function PlantSimEngine.run!(
     context,
 )
     status.calls += 1
+    NESTED_ROOT_CONTEXT[] = context
     middle = only(call_targets(context, :middle))
     run_call!(middle; publish=false)
     status.trial_value = middle.status.value
@@ -152,6 +160,15 @@ end
     @test schedule[:middle].manual_call_only
     @test schedule[:leaf].manual_call_only
     @test !schedule[:root].manual_call_only
+
+    @test_nowarn run_call!(
+        NESTED_ROOT_CONTEXT[],
+        :middle;
+        environment=(duration=Hour(2),),
+        publish=true,
+    )
+    @test statuses[:leaf].calls == 3
+    @test statuses[:middle].calls == 3
 end
 
 
@@ -181,6 +198,18 @@ end
     @test controller.cached_view
     context = CALL_RETURN_CONTEXT[]
     @test (@inferred literal_call_targets(context)) === call_targets(context, :one)
+    @test (@inferred literal_call_model(context)) isa NestedCallLeafModel
+    @test call_model(context, :one) === runtime_model(only(call_targets(context, :one)))
+    @test call_model_lookup_allocations(context) == 0
+    @test_throws "resolved 0" call_model(context, :optional)
+    @test_throws "resolved 2" call_model(context, :many)
+    @test_throws ArgumentError call_model(nothing, :one)
+    @test_throws "mutually exclusive" run_call!(
+        context,
+        :one;
+        environment=(T=20.0,),
+        sampled_environment=(T=21.0,),
+    )
     call_lookup_allocations(context)
     @test call_lookup_allocations(context) == 0
     one_call_view = call_targets(context, :one)

@@ -95,6 +95,27 @@ publication currently allocates 192 bytes in the minimal gate. Construction
 and the one-step fan-out workload remain separate and were 17.542 ms and 15.524
 ms respectively at this milestone.
 
+### PlantBiophysics fast-API milestone
+
+After PlantBiophysics switched its iterative kernels to the bulk
+`sampled_environment` path and singular `call_model` access, the same fresh
+benchmark process measured:
+
+| Current output policy | Median total | Median per step | Allocations | Allocated bytes | Release ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `outputs=:none` | 19.514 ms | 2.228 us | 288,137 | 25,883,792 | 0.16x |
+| `outputs=:all` | 36.431 ms | 4.159 us | 868,558 | 47,792,736 | 0.30x |
+
+The complete PlantBiophysics suite passed with 268 tests after the adaptation.
+Construction remained separate at 17.398 ms, and the one-step fan-out workload
+was 15.521 ms.
+
+The full 8,760-hour retained-output trajectory was also compared against the
+pinned pre-optimization PlantSimEngine `5437ed3f` with PlantBiophysics
+`b733e05`. All 113,880 output rows, including their timestep, application,
+object, variable, and value fields, were exactly identical. The maximum
+absolute numerical difference was 0.0.
+
 ## Phase 1: Lock Down Baselines And Regression Tests
 
 - [x] Record the exact branch, commit, Julia version, thread count, CPU context, package versions, benchmark parameters, output policy, sample count, and warm-up policy for every baseline.
@@ -108,7 +129,7 @@ ms respectively at this milestone.
   - measure a no-retention throughput case and the closest comparable retained-output case.
 - [x] Keep construction timing as a separate benchmark rather than mixing it into the steady-state result.
 - [x] Keep the independent one-step/many-scenes workload, but label it as a cold-run or fan-out metric rather than the primary PlantBiophysics performance result.
-- [ ] Add small hard-call microbenchmarks using no-op or minimal kernels for:
+- [x] Add small hard-call microbenchmarks using no-op or minimal kernels for:
   - one singular hard dependency;
   - nested hard dependencies;
   - repeated iterative calls;
@@ -118,7 +139,7 @@ ms respectively at this milestone.
   - unpublished trials and accepted publication.
 - [x] Add warmed allocation gates that isolate framework overhead from model-kernel allocations.
 - [x] Record the current baseline before changing the runtime.
-- [ ] Commit the benchmark harness and regression tests as the first coherent slice.
+- [x] Commit the benchmark harness and regression tests as the first coherent slice (`c1340dca`).
 
 ## Phase 2: Compile Immutable Hard-Call Plans
 
@@ -131,7 +152,7 @@ ms respectively at this milestone.
 - [x] Add a specialization/function barrier for any unavoidable heterogeneous lookup so dynamic dispatch occurs once per batch, never once per object field access or kernel operation.
 - [x] Keep heavy target materialization only for explicit diagnostics or introspection, not for normal execution.
 - [x] Validate the focused correctness and allocation tests.
-- [ ] Commit the immutable-plan implementation as a coherent slice.
+- [x] Commit the immutable-plan implementation as a coherent slice (`695bc2c9`).
 
 ## Phase 3: Add Lifecycle-Maintained Target Buffers
 
@@ -146,11 +167,11 @@ ms respectively at this milestone.
 - [ ] Ensure removed objects retain their historical output samples.
 - [x] Prove that an ordinary timestep after a lifecycle event performs no graph rebuild or selector resolution for unchanged call plans.
 - [x] Test creation, removal, reparenting, templates, instances, overrides, and nested hard calls.
-- [ ] Commit lifecycle target-buffer maintenance as a coherent slice.
+- [x] Commit lifecycle target-buffer maintenance as a coherent slice (`695bc2c9`).
 
 ## Phase 4: Provide Allocation-Free Public Execution Paths
 
-- [ ] Add a bulk hard-call path accepting an already sampled model environment, for example:
+- [x] Add a bulk hard-call path accepting an already sampled model environment, for example:
 
   ```julia
   run_call!(
@@ -161,31 +182,31 @@ ms respectively at this milestone.
   )
   ```
 
-- [ ] Keep `sampled_environment` distinct from the existing transient backend `environment` override semantics.
-- [ ] Ensure the bulk path executes cached typed batches directly without enumerating public `CallTarget` wrappers.
-- [ ] Design an allocation-free singular-target mechanism for algorithms such as FvCB that must inspect the selected stomatal model before executing it.
-- [ ] Use a typed callback/function barrier or an equivalent cached handle so `gs_closure` dispatch and model parameter access remain concrete.
-- [ ] Preserve selective or iterative execution where required without imposing its cost on the ordinary bulk path.
-- [ ] Preserve trial publication semantics: iterative calls default to unpublished, and only accepted state is published.
+- [x] Keep `sampled_environment` distinct from the existing transient backend `environment` override semantics.
+- [x] Ensure the bulk path executes cached typed batches directly without enumerating public `CallTarget` wrappers.
+- [x] Design an allocation-free singular-target mechanism for algorithms such as FvCB that must inspect the selected stomatal model before executing it.
+- [x] Use a typed callback/function barrier or an equivalent cached handle so `gs_closure` dispatch and model parameter access remain concrete.
+- [x] Preserve selective or iterative execution where required without imposing its cost on the ordinary bulk path.
+- [x] Preserve trial publication semantics: iterative calls default to unpublished, and only accepted state is published.
 - [ ] Update diagnostics and docstrings so caching claims distinguish cached plans/buffers from explicitly materialized introspection views.
-- [ ] Validate the focused correctness and allocation tests.
+- [x] Validate the focused correctness and allocation tests.
 - [ ] Commit the public fast-path API as a coherent slice.
 
 ## Phase 5: Adapt PlantBiophysics
 
-- [ ] Update Monteith to use the cached bulk hard-call path with its already sampled environment.
-- [ ] Update FvCB to use the cached singular stomatal target/model path without materializing a `CallTarget` during each iteration.
-- [ ] Preserve the exact numerical behavior of Monteith, FvCB, Medlyn, environment sampling, convergence, and publication.
-- [ ] Run the complete PlantBiophysics test suite against the local PlantSimEngine checkout.
-- [ ] Compare representative final values and full output trajectories with the pre-optimization implementation.
-- [ ] Run cheap warmed allocation checks after the adaptation.
-- [ ] Run the fair multi-timestep PlantBiophysics benchmark after this major milestone.
-- [ ] If the median current/release ratio remains above 1.5×, profile the remaining per-timestep overhead before proceeding to final acceptance.
+- [x] Update Monteith to use the cached bulk hard-call path with its already sampled environment.
+- [x] Update FvCB to use the cached singular stomatal target/model path without materializing a `CallTarget` during each iteration.
+- [x] Preserve the exact numerical behavior of Monteith, FvCB, Medlyn, environment sampling, convergence, and publication.
+- [x] Run the complete PlantBiophysics test suite against the local PlantSimEngine checkout.
+- [x] Compare representative final values and full output trajectories with the pre-optimization implementation.
+- [x] Run cheap warmed allocation checks after the adaptation.
+- [x] Run the fair multi-timestep PlantBiophysics benchmark after this major milestone.
+- [x] If the median current/release ratio remains above 1.5×, profile the remaining per-timestep overhead before proceeding to final acceptance.
 - [ ] Commit the PlantBiophysics adaptation separately in its repository, preserving unrelated changes there.
 
 ## Phase 6: Validate PlantSimEngine And XPalm
 
-- [ ] Run focused PlantSimEngine hard-call, execution-plan, environment, publication, and lifecycle tests after each relevant implementation slice.
+- [x] Run focused PlantSimEngine hard-call, execution-plan, environment, publication, and lifecycle tests after each relevant implementation slice.
 - [ ] Run the complete PlantSimEngine test suite before final downstream validation.
 - [ ] Run the complete XPalm test suite against the local PlantSimEngine checkout.
 - [ ] Run the established 4,160-step XPalm numerical regression and confirm the reference values remain unchanged within their existing tolerances.

@@ -300,7 +300,7 @@ export One, OptionalOne, Many
 export Input, Call, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates
-export call_targets, run_call!, commit_environment!
+export call_targets, call_model, run_call!, commit_environment!
 export Status
 export Required, Default
 export @process, process

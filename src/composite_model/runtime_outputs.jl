@@ -276,7 +276,7 @@ Retrieving it does not allocate a replacement collection. Obtain it with
 [`call_targets`](@ref) or as the result of
 [`run_call!(::RunContext, ::Symbol)`](@ref).
 """
-mutable struct CallTargets{CS,EB,B,TS,OR,C,E,BT} <: AbstractVector{CallTarget}
+mutable struct CallTargets{CS,EB,B,TS,OR,C,BT} <: AbstractVector{CallTarget}
     compiled::CS
     environment_bindings::EB
     binding::B
@@ -285,7 +285,10 @@ mutable struct CallTargets{CS,EB,B,TS,OR,C,E,BT} <: AbstractVector{CallTarget}
     time::Float64
     constants::C
     publication_allowed::Bool
-    environment::E
+    # This is synchronization metadata for explicitly materialized CallTarget
+    # views, not part of the typed execution path. A transient backend override
+    # may legitimately change its concrete type between invocations.
+    environment::Any
     execution_batches::BT
 end
 
@@ -3532,6 +3535,67 @@ Base.@constprop :aggressive function call_targets(
     return _model_call_targets(context, name)
 end
 
+@inline function _single_call_model(batches::Tuple{B}) where {B}
+    return only(first(batches).targets).model
+end
+
+"""
+    call_model(context::RunContext, name::Symbol)
+
+Return the concrete model for a declared hard call that currently resolves to
+exactly one execution target. This is the allocation-free singular access path
+for a controller that needs to dispatch on or inspect its fixed dependency
+model before executing it.
+
+Use [`call_targets`](@ref) when status access, selective execution, or more than
+one target is required. The returned model is the model stored in the compiled
+execution target and remains valid until a lifecycle refresh barrier.
+"""
+@noinline function _call_model_target_count_error(name, targets)
+    throw(
+        ArgumentError(
+            "Hard call `$(name)` must resolve to exactly one target to use " *
+            "`call_model`; resolved $(length(targets)).",
+        ),
+    )
+end
+
+@noinline function _call_model_missing_error(context, name)
+    available = Symbol[targets.binding.call for targets in context.calls]
+    error(
+        "Application `$(context.application.id)` on object ",
+        "`$(context.object_id.value)` did not declare call `$(name)`. ",
+        "Declared calls: $(available).",
+    )
+end
+
+@inline function _call_model(
+    context::RunContext,
+    ::Val{name},
+) where {name}
+    targets = _find_call_targets(context.calls, Val(name), context)
+    isnothing(targets) && _call_model_missing_error(context, name)
+    length(targets) == 1 || _call_model_target_count_error(name, targets)
+    return _single_call_model(targets.execution_batches)
+end
+
+
+Base.@constprop :aggressive function call_model(
+    context::RunContext,
+    name::Symbol,
+)
+    return _call_model(context, Val(name))
+end
+
+function call_model(context, name::Symbol)
+    throw(
+        ArgumentError(
+            "`call_model` requires the compiled RunContext passed to a model " *
+            "kernel; got $(typeof(context)).",
+        ),
+    )
+end
+
 function _call_target_object_id(model::CompositeModel, target)
     target isa ObjectId && return target
     target isa Object && return target.id
@@ -4304,7 +4368,8 @@ function _run_call_targets!(
 end
 
 """
-    run_call!(context::RunContext, name::Symbol; environment, publish=false)
+    run_call!(context::RunContext, name::Symbol;
+              environment, sampled_environment, publish=false)
 
 Execute every target of the hard call declared as `name` and return its
 [`CallTargets`](@ref) collection. The return shape is always vector-like:
@@ -4313,6 +4378,11 @@ Execute every target of the hard call declared as `name` and return its
 When `environment` is supplied, every target keeps its own opaque compiled
 backend handle and samples that transient backend-specific state. The state is
 inherited by nested hard calls. Omit it to sample the committed backend state.
+
+When `sampled_environment` is supplied, that already sampled model-facing value
+is forwarded directly to every target through the cached typed execution path.
+It is not resampled and is not inherited as a backend state by nested calls.
+`environment` and `sampled_environment` are mutually exclusive.
 
 For finer-grained target selection, order, or direct per-target sampled environments,
 use [`call_targets`](@ref) and [`run_call!(::CallTarget)`](@ref). Commit an
@@ -4323,9 +4393,19 @@ function run_call!(
     context::RunContext,
     name::Symbol;
     environment=_NO_ENVIRONMENT_OVERRIDE,
+    sampled_environment=_UNSPECIFIED_SCENE_ENVIRONMENT,
     publish::Bool=false,
     objects=nothing,
 )
+    if !(environment isa NoEnvironmentOverride) &&
+       !(sampled_environment isa UnspecifiedModelEnvironment)
+        throw(
+            ArgumentError(
+                "`environment` and `sampled_environment` are mutually " *
+                "exclusive hard-call overrides.",
+            ),
+        )
+    end
     targets = isnothing(objects) ?
               call_targets(context, name) :
               call_targets(context, name; objects=objects)
@@ -4335,7 +4415,7 @@ function run_call!(
     return _run_call_targets!(
         targets,
         publish,
-        _UNSPECIFIED_SCENE_ENVIRONMENT,
+        sampled_environment,
         selected_environment,
     )
 end
@@ -4344,6 +4424,7 @@ function run_call!(
     context,
     name::Symbol;
     environment=_NO_ENVIRONMENT_OVERRIDE,
+    sampled_environment=_UNSPECIFIED_SCENE_ENVIRONMENT,
     publish::Bool=false,
     objects=nothing,
 )

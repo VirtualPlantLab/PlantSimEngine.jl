@@ -383,7 +383,7 @@ function PlantSimEngine.run!(m::ModelObjectEnvironmentCallControllerModel, statu
         target = only(run_call!(
             context,
             :source;
-            environment=local_environment,
+            sampled_environment=local_environment,
             publish=false,
         ))
     end

@@ -190,6 +190,17 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
         @test current_step(heterogeneous_simulation) == 2
         @test getproperty.(getproperty.(heterogeneous_leaves, :status), :signal) ==
               [2, 4]
+        sampled_model, sampled_steps = setup_compiled_hard_call_benchmark(;
+            kind=:sampled_environment,
+            steps=2,
+        )
+        sampled_simulation = benchmark_compiled_hard_call(
+            sampled_model,
+            sampled_steps,
+        )
+        sampled_leaf = only(model_objects(sampled_model; scale=:Leaf))
+        @test current_step(sampled_simulation) == 2
+        @test sampled_leaf.status.temperature_seen == 30.0
         for (kind, repeats, target_count) in (
             (:singular, 1, 1),
             (:repeated, 8, 1),
@@ -215,6 +226,12 @@ if benchmark_test_enabled("hard-call path benchmark API smoke")
             published_context;
             publish=true,
         ) <= 256
+        setup_compiled_hard_call_step(; kind=:sampled_environment)
+        sampled_context = BENCHMARK_BULK_CALL_CONTEXT[]
+        @test sampled_hard_call_invocation_allocations(
+            sampled_context,
+            (T=31.0,),
+        ) == 0
     end
 end
 
@@ -483,6 +500,7 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
         @test haskey(suite, "PSE_compiled_hard_call_nested")
         @test haskey(suite, "PSE_compiled_hard_call_many")
         @test haskey(suite, "PSE_compiled_hard_call_heterogeneous")
+        @test haskey(suite, "PSE_compiled_hard_call_sampled_environment")
         @test haskey(suite, "PSE_compiled_hard_call_published")
         @test haskey(suite, "PSE_lifecycle_small")
         @test haskey(suite, "PSE_lifecycle_large")

@@ -232,6 +232,7 @@ end
         :application_name,
         :applies_to,
         :bounds,
+        :call_model,
         :call_targets,
         :collect_outputs,
         :commit_environment!,
