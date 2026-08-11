@@ -250,6 +250,7 @@ end
         :inputs,
         :mark_environment_binding_dirty!,
         :model_calls,
+        :model_object,
         :model_objects,
         :move_object!,
         :object_ids,
