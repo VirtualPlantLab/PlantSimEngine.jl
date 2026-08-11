@@ -118,6 +118,32 @@ pinned pre-optimization PlantSimEngine `5437ed3f` with PlantBiophysics
 object, variable, and value fields, were exactly identical. The maximum
 absolute numerical difference was 0.0.
 
+### Final downstream acceptance
+
+On the final one-thread PlantBiophysics run, the current 8,760-step workload
+measured 18.414 ms with `outputs=:none` and 32.216 ms with `outputs=:all`. The
+pinned release retained-output workload measured 85.142 ms. The closest
+retained-output ratio is therefore 0.378x, and the current runtime is faster
+than the release baseline on both output policies.
+
+The final XPalm comparison used five warmed samples on both current and pinned
+release stacks. Each timed sample called the high-level `XPalm.xpalm` workflow,
+including scene construction, 4,160 lifecycle steps, requested outputs, and
+DataFrame materialization, but excluding meteorology/Palm preparation, Julia
+startup, and package loading. Both sides used 10 Julia threads while executing
+the scientific model sequentially.
+
+| XPalm stack | Median full cycle | Per step | Release ratio |
+| --- | ---: | ---: | ---: |
+| `v0.6.1` with PlantSimEngine `v0.14.1` | 5.416 s | 1.302 ms | 1.000x |
+| current XPalm with PlantSimEngine `d5480c50` | 8.035 s | 1.931 ms | **1.483x** |
+
+The current final state exactly matched the `v0.6.1` reference: step 4,160,
+344 phytomers, LAI `5.0587602356164405`, and FTSW
+`0.7991179101191216`. Raw samples, allocations, construction, output-retention,
+and lifecycle-profile measurements are recorded permanently in
+`benchmark/release_baselines/README.md`.
+
 ## Phase 1: Lock Down Baselines And Regression Tests
 
 - [x] Record the exact branch, commit, Julia version, thread count, CPU context, package versions, benchmark parameters, output policy, sample count, and warm-up policy for every baseline.
@@ -209,7 +235,7 @@ absolute numerical difference was 0.0.
 ## Phase 6: Validate PlantSimEngine And XPalm
 
 - [x] Run focused PlantSimEngine hard-call, execution-plan, environment, publication, and lifecycle tests after each relevant implementation slice.
-- [ ] Rerun the complete PlantSimEngine test suite on the final committed runtime after the focused lifecycle regression fix.
+- [x] Rerun the complete PlantSimEngine test suite on the final committed runtime after the focused lifecycle regression fix (2,005 tests passed).
 - [x] Run the complete XPalm test suite against the local PlantSimEngine checkout (307 tests passed).
 - [x] Run the established 4,160-step XPalm numerical regression and confirm the reference values remain unchanged within their existing tolerances (68 tests passed with the exact `v0.6.1` reference state).
 - [x] Verify growth-related object creation, hard-call target attachment, schedules, output retention, and final-state behavior in XPalm.
@@ -267,19 +293,19 @@ Additional benchmark runs are justified only when profiling identifies a new bot
 
 This goal is complete only when all of the following are true:
 
-- [ ] The hard-dependency definition is compiled once and remains immutable during simulation.
-- [ ] Runtime object growth/removal/reparenting updates only affected cached target buffers at lifecycle barriers.
-- [ ] Ordinary hard-call execution performs no selector resolution, application lookup, target reconstruction, or dependency-graph rebuild.
-- [ ] Homogeneous hard-call loops retain concrete model, status, environment, and context types.
-- [ ] Warmed framework overhead for the focused hard-call microbenchmarks is allocation-free or reduced to a documented, justified minimum.
-- [ ] All PlantSimEngine tests pass.
-- [ ] All PlantBiophysics tests pass and representative numerical trajectories are unchanged.
-- [ ] All XPalm tests and the established numerical regression pass.
-- [ ] The fair multi-timestep PlantBiophysics benchmark is no more than approximately **1.5× slower** than the pinned release stack on the primary comparable metric.
-- [ ] The fair XPalm full-cycle benchmark is no more than approximately **1.5× slower** than its pinned release baseline, unless a separately measured and explicitly accepted non-hard-call cost explains the difference.
-- [ ] Construction, steady-state execution, lifecycle refresh, output retention/materialization, and full-cycle measurements are reported separately.
-- [ ] Benchmark scripts used by CI match the supported API and represent one-setup/many-timestep workloads where appropriate.
-- [ ] Final benchmark methodology, raw results, ratios, package SHAs, and validation commands are recorded for reproducibility.
-- [ ] All relevant changes have been committed in coherent increments, with unrelated changes preserved.
+- [x] The hard-dependency definition is compiled once and remains immutable during simulation.
+- [x] Runtime object growth/removal/reparenting updates only affected cached target buffers at lifecycle barriers.
+- [x] Ordinary hard-call execution performs no selector resolution, application lookup, target reconstruction, or dependency-graph rebuild.
+- [x] Homogeneous hard-call loops retain concrete model, status, environment, and context types.
+- [x] Warmed framework overhead for the focused hard-call microbenchmarks is allocation-free or reduced to a documented, justified minimum.
+- [x] All PlantSimEngine tests pass (2,005/2,005).
+- [x] All PlantBiophysics tests pass (268/268) and representative numerical trajectories are unchanged.
+- [x] All XPalm tests (307/307) and the established numerical regression (68/68) pass.
+- [x] The fair multi-timestep PlantBiophysics benchmark is no more than approximately **1.5× slower** than the pinned release stack on the primary comparable metric (0.378x for the closest retained-output comparison).
+- [x] The fair XPalm full-cycle benchmark is no more than approximately **1.5× slower** than its pinned release baseline (1.483x).
+- [x] Construction, steady-state execution, lifecycle refresh, output retention/materialization, and full-cycle measurements are reported separately.
+- [x] Benchmark scripts used by CI match the supported API and represent one-setup/many-timestep workloads where appropriate.
+- [x] Final benchmark methodology, raw results, ratios, package SHAs, and validation commands are recorded for reproducibility.
+- [x] All relevant changes have been committed in coherent increments, with unrelated changes preserved.
 
 If either primary downstream benchmark remains around 4× slower, the goal is not complete even if correctness tests pass.
