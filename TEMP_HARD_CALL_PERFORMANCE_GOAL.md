@@ -45,9 +45,11 @@ The goal is complete only when the current implementation is approximately as fa
 ## Baseline Record (2026-08-11)
 
 The baseline machine is an Apple M3 Max MacBook Pro with 14 CPU cores and 36 GB
-RAM, running macOS/Darwin 25.5.0 on arm64. All measurements below used Julia
-1.12.1 with one Julia thread, 12 samples, one evaluation per sample, and an
-explicit warm-up before sampling.
+RAM, running macOS/Darwin 25.5.0 on arm64. The PlantBiophysics release/current
+measurements below used Julia 1.12.1 with 10 Julia threads, 12 samples, one
+evaluation per sample, and an explicit warm-up before sampling. The scientific
+model execution remained sequential. The staged XPalm profiling harness was
+also exercised separately with one Julia thread.
 
 Pinned sources:
 
@@ -74,9 +76,9 @@ ms (36.775 us per step, 4,551,711 allocations, 651,132,896 bytes) for
 `outputs=:all`. It also records construction separately at 17.289 ms and the
 100-scene one-step fan-out workload separately at 15.681 ms. The first table is
 the acceptance comparison because its release and current values came from the
-same temporary comparison harness. A checked-in pinned release runner remains
-to be added so the comparison can be repeated without reconstructing that
-temporary environment.
+same temporary comparison harness. Reproducible pinned release runners are now
+checked in under `benchmark/release_baselines/` for both PlantBiophysics and
+XPalm.
 
 ### First typed-batch milestone
 
@@ -119,8 +121,8 @@ absolute numerical difference was 0.0.
 ## Phase 1: Lock Down Baselines And Regression Tests
 
 - [x] Record the exact branch, commit, Julia version, thread count, CPU context, package versions, benchmark parameters, output policy, sample count, and warm-up policy for every baseline.
-- [ ] Preserve a pinned PlantBiophysics release environment using PlantBiophysics `v0.17.0` and PlantSimEngine `v0.14.1`.
-- [ ] Preserve a pinned XPalm release environment using the established XPalm release scenario and compatible PlantSimEngine release.
+- [x] Preserve a pinned PlantBiophysics release environment using PlantBiophysics `v0.17.0` and PlantSimEngine `v0.14.1`.
+- [x] Preserve a pinned XPalm release environment using the established XPalm release scenario and compatible PlantSimEngine release.
 - [x] Add a deterministic, one-setup/many-timestep PlantBiophysics benchmark:
   - construct the leaf scene outside the timed region;
   - run one continuous weather trajectory over many timesteps;
@@ -164,7 +166,7 @@ absolute numerical difference was 0.0.
 - [x] Preserve stable ordering by object id and existing selector semantics.
 - [x] Revalidate `One` and `OptionalOne` multiplicity whenever a lifecycle change affects their target buffers.
 - [x] Ensure new objects can run applications that remain later in the same timestep, while never rerunning applications that already completed.
-- [ ] Ensure removed objects retain their historical output samples.
+- [x] Ensure removed objects retain their historical output samples.
 - [x] Prove that an ordinary timestep after a lifecycle event performs no graph rebuild or selector resolution for unchanged call plans.
 - [x] Test creation, removal, reparenting, templates, instances, overrides, and nested hard calls.
 - [x] Commit lifecycle target-buffer maintenance as a coherent slice (`695bc2c9`).
@@ -188,9 +190,9 @@ absolute numerical difference was 0.0.
 - [x] Use a typed callback/function barrier or an equivalent cached handle so `gs_closure` dispatch and model parameter access remain concrete.
 - [x] Preserve selective or iterative execution where required without imposing its cost on the ordinary bulk path.
 - [x] Preserve trial publication semantics: iterative calls default to unpublished, and only accepted state is published.
-- [ ] Update diagnostics and docstrings so caching claims distinguish cached plans/buffers from explicitly materialized introspection views.
+- [x] Update diagnostics and docstrings so caching claims distinguish cached plans/buffers from explicitly materialized introspection views.
 - [x] Validate the focused correctness and allocation tests.
-- [ ] Commit the public fast-path API as a coherent slice.
+- [x] Commit the public fast-path API as a coherent slice (`f3d2974b`).
 
 ## Phase 5: Adapt PlantBiophysics
 
@@ -202,32 +204,32 @@ absolute numerical difference was 0.0.
 - [x] Run cheap warmed allocation checks after the adaptation.
 - [x] Run the fair multi-timestep PlantBiophysics benchmark after this major milestone.
 - [x] If the median current/release ratio remains above 1.5×, profile the remaining per-timestep overhead before proceeding to final acceptance.
-- [ ] Commit the PlantBiophysics adaptation separately in its repository, preserving unrelated changes there.
+- [x] Commit the PlantBiophysics adaptation separately in its repository, preserving unrelated changes there (`dbd04e0`).
 
 ## Phase 6: Validate PlantSimEngine And XPalm
 
 - [x] Run focused PlantSimEngine hard-call, execution-plan, environment, publication, and lifecycle tests after each relevant implementation slice.
-- [ ] Run the complete PlantSimEngine test suite before final downstream validation.
-- [ ] Run the complete XPalm test suite against the local PlantSimEngine checkout.
-- [ ] Run the established 4,160-step XPalm numerical regression and confirm the reference values remain unchanged within their existing tolerances.
-- [ ] Verify growth-related object creation, hard-call target attachment, schedules, output retention, and final-state behavior in XPalm.
-- [ ] Run the fair XPalm full-cycle benchmark in isolated current and pinned-release environments.
-- [ ] Report construction, `outputs=:none`, requested-output collection, lifecycle refresh, and full-cycle timing separately when applicable.
-- [ ] If XPalm exceeds the 1.5× performance target, profile it independently rather than assuming the PlantBiophysics fix covers all runtime costs.
-- [ ] Commit any required XPalm adaptation separately in the XPalm repository, preserving unrelated changes there.
+- [ ] Rerun the complete PlantSimEngine test suite on the final committed runtime after the focused lifecycle regression fix.
+- [x] Run the complete XPalm test suite against the local PlantSimEngine checkout (307 tests passed).
+- [x] Run the established 4,160-step XPalm numerical regression and confirm the reference values remain unchanged within their existing tolerances (68 tests passed with the exact `v0.6.1` reference state).
+- [x] Verify growth-related object creation, hard-call target attachment, schedules, output retention, and final-state behavior in XPalm.
+- [x] Run the fair XPalm full-cycle benchmark in isolated current and pinned-release environments.
+- [x] Report construction, `outputs=:none`, requested-output collection, lifecycle refresh, and full-cycle timing separately when applicable.
+- [x] Profile XPalm independently; this identified previous-step temporal input materialization as its remaining hot path and led to `e2604582` and `d5480c50`.
+- [x] Confirm that no XPalm adaptation or commit is required; the XPalm worktree remained clean.
 
 ## Phase 7: Documentation, CI, And Skill Updates
 
-- [ ] Update the PlantSimEngine hard-call documentation to explain immutable call plans and lifecycle-maintained object target buffers.
-- [ ] Update modeler examples to use the allocation-free bulk and singular hard-call APIs.
-- [ ] Update `Diagnostics.explain_calls` or related diagnostics if needed to expose compiled plans, current target counts, batch types, and lifecycle refresh state without exposing unstable implementation fields.
-- [ ] Update the regular benchmark CI to run a reasonably sized multi-timestep PlantBiophysics workload.
-- [ ] Update the full-performance workflow to run the longer PlantBiophysics and XPalm acceptance benchmarks.
-- [ ] Keep construction, steady-state execution, lifecycle refresh, output retention/materialization, and full-cycle measurements separately named.
-- [ ] Add regression thresholds only after stable baselines have been collected on comparable runners; avoid brittle thresholds based on a single noisy run.
-- [ ] Update the installed `plantsimengine` skill to match the final public API and performance contract.
-- [ ] Run documentation checks and benchmark API smoke tests.
-- [ ] Commit documentation, CI, and skill-facing repository changes in coherent slices.
+- [x] Update the PlantSimEngine hard-call documentation to explain immutable call plans and lifecycle-maintained object target buffers.
+- [x] Update modeler examples to use the allocation-free bulk and singular hard-call APIs.
+- [x] Review `Diagnostics.explain_calls`; no new unstable implementation fields were needed because the existing call explanation and public target materialization remain the explicit introspection boundary.
+- [x] Update the regular benchmark CI to run a reasonably sized multi-timestep PlantBiophysics workload.
+- [x] Update the full-performance workflow to run the longer PlantBiophysics and XPalm acceptance benchmarks.
+- [x] Keep construction, steady-state execution, lifecycle refresh, output retention/materialization, and full-cycle measurements separately named.
+- [x] Avoid brittle thresholds based on a single noisy run; the workflows preserve measurements for runner-specific baselining.
+- [x] Update and install the `plantsimengine` skill to match the final public API and performance contract.
+- [x] Run documentation checks and benchmark API smoke tests (documentation build completed and release-baseline bootstrap smoke passed 14/14).
+- [x] Commit documentation, CI, and skill-facing repository changes in coherent slices (`b5518fbf`).
 
 ## Commit Checkpoints
 
