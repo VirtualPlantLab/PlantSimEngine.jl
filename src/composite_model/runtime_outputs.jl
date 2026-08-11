@@ -9,6 +9,12 @@ struct OutputRetentionPlan
     historical_outputs_by_application::Dict{Symbol,Vector{Symbol}}
 end
 
+mutable struct OutputRequestMembership{T}
+    start_time::Float64
+    end_time::Union{Nothing,Float64}
+    initial::T
+end
+
 """
     TemporalDependencyBuffer{T} <: AbstractVector{Tuple{Float64,T}}
 
@@ -4952,7 +4958,11 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
         added_object_ids =
             _incremental_output_request_object_ids(simulation.model)
         _refresh_simulation_runtime!(simulation)
-        _refresh_output_request_targets!(simulation, added_object_ids)
+        _refresh_output_request_targets!(
+            simulation,
+            added_object_ids,
+            completed_applications,
+        )
         empty!(simulation.environment_bindings.sample_cache)
         groups = simulation.execution_plan.groups
         next_group = findfirst(
@@ -5001,6 +5011,38 @@ function _continue_scene!(simulation::Simulation, steps::Integer)
     return simulation
 end
 
+function _output_request_target(
+    model,
+    compiled,
+    application,
+    object_id,
+    variable::Symbol,
+    start_time,
+)
+    initial = getproperty(
+        _model_status_view_for_application(
+            compiled,
+            application,
+            object_id,
+        ).status,
+        variable,
+    )
+    return (
+        scale=_model_object(model, object_id).scale,
+        memberships=[
+            OutputRequestMembership(
+                float(start_time),
+                nothing,
+                initial,
+            ),
+        ],
+    )
+end
+
+_output_request_target_is_active(target) =
+    !isempty(target.memberships) &&
+    isnothing(last(target.memberships).end_time)
+
 function _initial_output_request_targets(model, compiled, output_requests)
     targets = Dict{Symbol,Tuple{Symbol,Dict{ObjectId,Any}}}()
     for request in output_requests
@@ -5013,17 +5055,13 @@ function _initial_output_request_targets(model, compiled, output_requests)
         targets[request.name] = (
             application.id,
             Dict(
-                id => (
-                    scale=_model_object(model, id).scale,
-                    initial=getproperty(
-                        _model_status_view_for_application(
-                            compiled,
-                            application,
-                            id,
-                        ).status,
-                        request.var,
-                    ),
-                    start_time=0.0,
+                id => _output_request_target(
+                    model,
+                    compiled,
+                    application,
+                    id,
+                    request.var,
+                    0.0,
                 )
                 for id in object_ids
             ),
@@ -5032,7 +5070,11 @@ function _initial_output_request_targets(model, compiled, output_requests)
     return targets
 end
 
-function _refresh_output_request_targets!(simulation::Simulation, added_object_ids=nothing)
+function _refresh_output_request_targets!(
+    simulation::Simulation,
+    added_object_ids=nothing,
+    completed_applications=nothing,
+)
     current_revision = model_revision(simulation.model)
     simulation.output_request_model_revision == current_revision &&
         return simulation
@@ -5074,32 +5116,68 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
                 )
             ]
         end
-        match_count = isnothing(added_object_ids) ?
-                      length(matched_ids) :
-                      length(union(Set(keys(object_targets)), Set(matched_ids)))
-        if request.selector isa Union{One,OptionalOne} && match_count > 1
+        active_ids = Set(
+            object_id for (object_id, target) in object_targets
+            if _output_request_target_is_active(target)
+        )
+        matched_id_set = Set(matched_ids)
+        current_ids = isnothing(added_object_ids) ?
+                      matched_id_set :
+                      union(active_ids, matched_id_set)
+        if request.selector isa Union{One,OptionalOne} && length(current_ids) > 1
             error(
                 "Output request `$(request.name)` expected at most one current object for selector ",
-                "`$(request.selector)`, got $([id.value for id in matched_ids]).",
+                "`$(request.selector)`, got $([id.value for id in current_ids]).",
             )
         end
         application = _compiled_application_by_id(
             simulation.compiled,
             application_id,
         )
+        application_completed =
+            !isnothing(completed_applications) &&
+            application_id in completed_applications
+        membership_end_time = application_completed ?
+                              float(simulation.current_step + 1) :
+                              float(simulation.current_step)
+        if isnothing(added_object_ids)
+            for object_id in setdiff(active_ids, matched_id_set)
+                last(object_targets[object_id].memberships).end_time =
+                    membership_end_time
+            end
+        end
+        start_time = application_completed ?
+                     float(simulation.current_step + 2) :
+                     float(simulation.current_step + 1)
         for object_id in matched_ids
-            haskey(object_targets, object_id) && continue
-            object_targets[object_id] = (
-                scale=_model_object(simulation.model, object_id).scale,
-                initial=getproperty(
+            if haskey(object_targets, object_id)
+                target = object_targets[object_id]
+                _output_request_target_is_active(target) && continue
+                initial = getproperty(
                     _model_status_view_for_application(
                         simulation.compiled,
                         application,
                         object_id,
                     ).status,
                     request.var,
-                ),
-                start_time=float(simulation.current_step + 1),
+                )
+                push!(
+                    target.memberships,
+                    OutputRequestMembership(
+                        start_time,
+                        nothing,
+                        initial,
+                    ),
+                )
+                continue
+            end
+            object_targets[object_id] = _output_request_target(
+                simulation.model,
+                simulation.compiled,
+                application,
+                object_id,
+                request.var,
+                start_time,
             )
         end
     end
@@ -5414,16 +5492,24 @@ function _model_requested_output_rows(
         (
             object_id=object_id,
             scale=target.scale,
+            membership=membership,
             samples=vcat(
-                [(target.start_time, target.initial)],
-                get(
-                    sim.temporal_streams,
-                    (application.id, object_id, request.var),
-                    Tuple{Float64,typeof(target.initial)}[],
-                ),
+                [(membership.start_time, membership.initial)],
+                [
+                    sample for sample in get(
+                        sim.temporal_streams,
+                        (application.id, object_id, request.var),
+                        Tuple{Float64,typeof(membership.initial)}[],
+                    ) if membership.start_time <= first(sample) &&
+                    (
+                        isnothing(membership.end_time) ||
+                        first(sample) <= membership.end_time
+                    )
+                ],
             ),
         )
         for (object_id, target) in requested_objects
+        for membership in target.memberships
     ]
     isempty(source_rows) && return NamedTuple[]
     nonempty_source_rows = [row for row in source_rows if !isempty(row.samples)]
@@ -5435,21 +5521,22 @@ function _model_requested_output_rows(
     for time in 1:Int(floor(max_time))
         _should_run_at_time(clock, float(time)) || continue
         t_start = float(time) - float(clock.dt) + 1.0
-        for row in sort!(nonempty_source_rows; by=row -> string(row.object_id.value))
-            first_sample_time = first(row.samples)[1]
-            is_current_target =
-                haskey(sim.model.registry.objects, row.object_id) &&
-                _selector_matches_object_id(
-                    sim.model,
-                    request.selector,
-                    row.object_id;
-                    context=request.context,
-                )
-            last_sample_time = request.policy isa HoldLast &&
-                               is_current_target ?
-                               float(sim.current_step) :
+        for row in sort!(
+            nonempty_source_rows;
+            by=row -> (
+                string(row.object_id.value),
+                row.membership.start_time,
+            ),
+        )
+            membership_end = isnothing(row.membership.end_time) ?
+                             float(sim.current_step) :
+                             row.membership.end_time
+            row.membership.start_time <= float(time) <= membership_end ||
+                continue
+            last_sample_time = request.policy isa HoldLast ?
+                               membership_end :
                                last(row.samples)[1]
-            first_sample_time <= float(time) <= last_sample_time || continue
+            float(time) <= last_sample_time || continue
             push!(
                 rows,
                 (
@@ -5465,7 +5552,7 @@ function _model_requested_output_rows(
                     value=_model_requested_value(
                         row.samples,
                         float(time),
-                        t_start,
+                        max(t_start, row.membership.start_time),
                         request.policy,
                         timeline,
                     ),

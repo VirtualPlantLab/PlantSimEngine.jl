@@ -150,3 +150,50 @@ end
     @test Set(getproperty.(leaf_rows, :object_id)) == Set((:leaf_1, :leaf_2))
     @test all(row -> row.object_id == :plant, plant_rows)
 end
+
+@testset "output request membership intervals follow topology" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_1; scale=:Plant, parent=:scene),
+        Object(:plant_2; scale=:Plant, parent=:scene),
+        Object(:leaf; scale=:Leaf, parent=:plant_1);
+        applications=(
+            ModelSpec(
+                BoundaryCounterModel();
+                name=:leaf_counter,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    request = OutputRequest(
+        Many(scale=:Leaf, within=Subtree()),
+        :count;
+        name=:plant_1_leaves,
+        application=:leaf_counter,
+        context=:plant_1,
+    )
+    simulation = run!(model; steps=2, outputs=request)
+    reparent_object!(model, :leaf, :plant_2)
+    continue!(simulation; steps=2)
+    reparent_object!(model, :leaf, :plant_1)
+    continue!(simulation; steps=2)
+    remove_object!(model, :leaf)
+    continue!(simulation)
+
+    rows = collect_outputs(
+        simulation,
+        :plant_1_leaves;
+        sink=nothing,
+    )
+    @test getproperty.(rows, :timestep) == [1, 2, 5, 6]
+    @test getproperty.(rows, :value) == [1, 2, 5, 6]
+    @test all(row -> row.object_id == :leaf, rows)
+    target = simulation.output_request_targets[
+        :plant_1_leaves
+    ][2][ObjectId(:leaf)]
+    @test [
+        (membership.start_time, membership.end_time)
+        for membership in target.memberships
+    ] == [(0.0, 2.0), (5.0, 6.0)]
+end

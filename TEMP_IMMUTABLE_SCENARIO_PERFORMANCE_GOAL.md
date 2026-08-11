@@ -272,12 +272,12 @@ lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
 - [x] Give output-request target state an observed topology generation or
   lifecycle-event cursor.
 - [x] Refresh request membership only when a relevant lifecycle delta exists.
-- [ ] Preserve the history of removed objects and define explicit start/end
+- [x] Preserve the history of removed objects and define explicit start/end
   membership semantics for objects that enter or leave a selector after
   reparenting.
 - [x] Test that a long unchanged simulation performs zero output-selector
   resolutions after initialization.
-- [ ] Test additions, removals, reparenting, continuation, and collection of
+- [x] Test additions, removals, reparenting, continuation, and collection of
   historical intervals.
 
 ### Scheduler traversal
@@ -286,8 +286,8 @@ lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
   heterogeneous batch.
 - [x] Replace the four-condition dirty check after each application with one
   safe mutation-generation comparison or an equivalent single cheap signal.
-- [ ] Preserve immediate refresh after an application mutates structure.
-- [ ] Preserve the rule that newly activated applications may run only if they
+- [x] Preserve immediate refresh after an application mutates structure.
+- [x] Preserve the rule that newly activated applications may run only if they
   remain later in the current timestep.
 - [x] Add allocation and visit-count gates for an unchanged timestep.
 - [x] Commit these steady-state removals as one validated slice.
@@ -310,6 +310,14 @@ counting all 12,593 nominal targets. Unchanged output-request target refreshes
 and selector resolutions both fell from 51 to zero. Registering one new leaf
 then caused exactly one incremental object check, and its requested output
 began at the lifecycle entry step.
+
+Output-request targets now retain explicit membership intervals. A topology
+barrier closes an interval at the current step when the requested producer has
+already run, or at the previous completed step when it has not. Re-entry opens
+a new interval at the corresponding next eligible step and records the
+object's current value as that interval's initial sample. Collection consumes
+these intervals directly, so removed objects retain history and reparented
+objects cannot leak samples from periods when they were outside the selector.
 
 ## Phase 3: Compile A Truly Immutable Scenario Plan
 
