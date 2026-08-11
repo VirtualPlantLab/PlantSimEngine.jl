@@ -321,12 +321,12 @@ objects cannot leak samples from periods when they were outside the selector.
 
 ## Phase 3: Compile A Truly Immutable Scenario Plan
 
-- [ ] Introduce a scenario-level plan that owns immutable application metadata.
+- [x] Introduce a scenario-level plan that owns immutable application metadata.
 - [ ] Split fixed declaration fields from the mutable `target_ids`,
   `source_ids`, `source_application_ids`, `callee_object_ids`, and
   `callee_application_ids` currently stored in `CompiledModelApplication`,
   `CompiledModelInputBinding`, and `CompiledModelCallBinding`.
-- [ ] Compile application identifiers to stable internal indices while keeping
+- [x] Compile application identifiers to stable internal indices while keeping
   public symbolic identifiers unchanged.
 - [ ] Compile input-binding templates independently of current consumer objects.
 - [ ] Represent potential producer applications even when source or consumer
@@ -353,9 +353,18 @@ objects cannot leak samples from periods when they were outside the selector.
 - [ ] Ensure lifecycle refresh cannot rebuild or mutate the application DAG.
 - [ ] Add diagnostics that separately expose immutable application plans and
   current object target counts.
-- [ ] Test applications that start with zero targets and acquire objects later.
+- [x] Test applications that start with zero targets and acquire objects later.
 - [ ] Test ambiguity and cycle errors at the earliest sound validation point.
 - [ ] Commit the immutable scenario-plan implementation as a coherent slice.
+
+`CompiledScenarioPlan` now owns a stable tuple of `CompiledApplicationPlan`
+values and the immutable timeline definition. Each application plan has a
+dense, compilation-order slot while preserving its public symbolic id.
+`CompiledModelApplication` contains only that fixed plan and its mutable
+object-target vector, and lifecycle additions/removals reuse the exact same
+scenario/application plan objects. Focused coverage starts an application at
+zero leaf targets, adds a matching object, removes it again, and checks that
+only the target vector and diagnostic target count change.
 
 ## Phase 4: Compile An Event-Driven Multirate Schedule
 

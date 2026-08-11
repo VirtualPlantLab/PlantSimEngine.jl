@@ -1429,7 +1429,7 @@ function _materialize_model_inputs!(
     time::Real=1,
 )
     isnothing(streams) && return status
-    timeline = compiled.timeline
+    timeline = compiled.scenario_plan.timeline
     for temporal_input in bindings
         _materialize_model_temporal_input!(
             status,
@@ -3240,7 +3240,7 @@ function _model_output_retention_covers_binding(
             binding,
             consumer,
             source,
-            compiled.timeline,
+            compiled.scenario_plan.timeline,
         )
         key = (application_id, binding.source_var)
         key in plan.temporal_dependencies || return false
@@ -3312,7 +3312,7 @@ function compile_model_output_retention(
 )
     temporal_dependencies = Set{Tuple{Symbol,Symbol}}()
     dependency_horizons = Dict{Tuple{Symbol,Symbol},Float64}()
-    timeline = compiled.timeline
+    timeline = compiled.scenario_plan.timeline
     for binding in compiled.input_bindings
         binding.carrier_hint == :temporal_stream || continue
         consumer = _compiled_application_by_id(compiled, binding.application_id)
@@ -3729,15 +3729,8 @@ function _partial_model_application(
     target_ids::Vector{ObjectId},
 )
     return CompiledModelApplication(
-        application.id,
-        application.spec,
-        application.process,
-        application.name,
+        application.plan,
         target_ids,
-        application.applies_to,
-        application.timestep,
-        application.clock,
-        application.model_overrides,
     )
 end
 

@@ -1,13 +1,57 @@
-struct CompiledModelApplication{S,AT,TS,CL,MO}
+"""
+Immutable scenario-level metadata for one model application. Runtime object
+membership is stored separately in [`CompiledModelApplication`](@ref).
+"""
+struct CompiledApplicationPlan{S,AT,TS,CL,MO}
+    slot::Int
     id::Symbol
     spec::S
     process::Symbol
     name::Union{Nothing,Symbol}
-    target_ids::Vector{ObjectId}
     applies_to::AT
     timestep::TS
     clock::CL
     model_overrides::MO
+end
+
+"""
+Object-dependent runtime state for one compiled application.
+"""
+struct CompiledModelApplication{P}
+    plan::P
+    target_ids::Vector{ObjectId}
+end
+
+@inline function Base.getproperty(
+    application::CompiledModelApplication,
+    name::Symbol,
+)
+    name === :plan && return getfield(application, :plan)
+    name === :target_ids && return getfield(application, :target_ids)
+    return getproperty(getfield(application, :plan), name)
+end
+
+Base.propertynames(application::CompiledModelApplication) =
+    (:plan, :target_ids, propertynames(application.plan)...)
+
+"""
+Immutable application and timeline metadata shared by every lifecycle refresh
+of a compiled scenario.
+"""
+struct CompiledScenarioPlan{AP,AI,TL}
+    applications::AP
+    applications_by_id::AI
+    timeline::TL
+end
+
+function _compiled_scenario_plan(applications, timeline)
+    application_plans = Tuple(application.plan for application in applications)
+    application_ids = Tuple(plan.id for plan in application_plans)
+    return CompiledScenarioPlan(
+        application_plans,
+        NamedTuple{application_ids}(application_plans),
+        timeline,
+    )
 end
 
 struct CompiledModelInputBinding{SEL,P,W,C}
@@ -111,8 +155,9 @@ struct CompiledEnvironmentBindings{SC,B,I,PI,S,P,C}
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO,TL}
+struct CompiledCompositeModel{SC,SP,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO}
     model::SC
+    scenario_plan::SP
     applications::AP
     applications_by_id::AI
     applications_by_object::ABO
@@ -130,7 +175,6 @@ struct CompiledCompositeModel{SC,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,
     changed_execution_target_ids::CET
     status_view_refresh_is_pure_addition::PA
     application_order::AO
-    timeline::TL
     revision::Int
 end
 
@@ -303,6 +347,7 @@ function _compile_scene(
     )
     return CompiledCompositeModel(
         model,
+        _compiled_scenario_plan(applications, timeline),
         applications,
         applications_by_id,
         _applications_by_object(applications),
@@ -320,7 +365,6 @@ function _compile_scene(
         Set(keys(status_views_by_target)),
         false,
         application_order,
-        timeline,
         model.revision,
     )
 end
@@ -953,6 +997,7 @@ function _prepare_structural_compiled_delta(
 
     stripped = CompiledCompositeModel(
         model,
+        compiled.scenario_plan,
         compiled.applications,
         compiled.applications_by_id,
         applications_by_object,
@@ -970,7 +1015,6 @@ function _prepare_structural_compiled_delta(
         removed_target_keys,
         false,
         compiled.application_order,
-        compiled.timeline,
         model.revision,
     )
     result = (
@@ -1082,7 +1126,7 @@ function _extend_compiled_scene(
         calls = model_calls(application.spec)
         calls isa NamedTuple && !isempty(keys(calls))
     end
-    timeline = compiled.timeline
+    timeline = compiled.scenario_plan.timeline
     added_applications = CompiledModelApplication[]
     for application in applications
         target_ids = get(new_targets, application.id, ObjectId[])
@@ -1090,15 +1134,8 @@ function _extend_compiled_scene(
         push!(
             added_applications,
             CompiledModelApplication(
-                application.id,
-                application.spec,
-                application.process,
-                application.name,
+                application.plan,
                 target_ids,
-                application.applies_to,
-                application.timestep,
-                application.clock,
-                application.model_overrides,
             ),
         )
     end
@@ -1163,15 +1200,8 @@ function _extend_compiled_scene(
             push!(
                 affected_call_applications,
                 CompiledModelApplication(
-                    application.id,
-                    application.spec,
-                    application.process,
-                    application.name,
+                    application.plan,
                     target_ids,
-                    application.applies_to,
-                    application.timestep,
-                    application.clock,
-                    application.model_overrides,
                 ),
             )
         end
@@ -1465,15 +1495,8 @@ function _extend_compiled_scene(
             push!(
                 rewired_applications,
                 CompiledModelApplication(
-                    application.id,
-                    application.spec,
-                    application.process,
-                    application.name,
+                    application.plan,
                     target_ids,
-                    application.applies_to,
-                    application.timestep,
-                    application.clock,
-                    application.model_overrides,
                 ),
             )
         end
@@ -1612,6 +1635,7 @@ function _extend_compiled_scene(
     status_view_refresh_is_pure_addition = pure_addition
     return CompiledCompositeModel(
         model,
+        compiled.scenario_plan,
         applications,
         applications_by_id,
         applications_by_object,
@@ -1629,7 +1653,6 @@ function _extend_compiled_scene(
         changed_execution_target_ids,
         status_view_refresh_is_pure_addition,
         application_order,
-        timeline,
         model.revision,
     )
 end
@@ -1869,7 +1892,7 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
     end
     ids = Set{Symbol}()
     applications = CompiledModelApplication[]
-    for spec in specs
+    for (slot, spec) in pairs(specs)
         selector = applies_to(spec)
         isnothing(selector) && error(
             "Model application for process `$(process(spec))` has no `ModelSpec(...; on=...)` selector."
@@ -1899,15 +1922,23 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
         push!(
             applications,
             CompiledModelApplication(
-                app_id,
-                spec,
-                proc,
-                name,
+                CompiledApplicationPlan(
+                    slot,
+                    app_id,
+                    spec,
+                    proc,
+                    name,
+                    selector,
+                    timestep(spec),
+                    _model_application_clock(
+                        model,
+                        spec,
+                        target_ids,
+                        timeline,
+                    ),
+                    model_overrides,
+                ),
                 target_ids,
-                selector,
-                timestep(spec),
-                _model_application_clock(model, spec, target_ids, timeline),
-                model_overrides,
             ),
         )
     end
@@ -3337,9 +3368,11 @@ end
 function explain_applications(compiled::CompiledCompositeModel)
     return [
         (
+            application_slot=application.plan.slot,
             application_id=application.id,
             process=application.process,
             name=application.name,
+            current_target_count=length(application.target_ids),
             target_ids=[id.value for id in application.target_ids],
             target_scales=sort!(unique!(Symbol[
                 _model_object(compiled.model, id).scale
@@ -3386,7 +3419,7 @@ function _application_model_dispatch(application::CompiledModelApplication)
 end
 
 function explain_schedule(compiled::CompiledCompositeModel)
-    timeline = compiled.timeline
+    timeline = compiled.scenario_plan.timeline
     manual_application_ids = _manual_call_application_ids(compiled)
     execution_positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
     return [

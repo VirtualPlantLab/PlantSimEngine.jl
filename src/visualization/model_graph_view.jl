@@ -175,8 +175,10 @@ function _model_graph_compiled(
         input_bindings,
         call_owners,
     )
+    timeline = _model_timeline(model)
     return CompiledCompositeModel(
         model,
+        _compiled_scenario_plan(applications, timeline),
         applications,
         applications_by_id,
         _applications_by_object(applications),
@@ -194,12 +196,11 @@ function _model_graph_compiled(
         Set(keys(status_views)),
         false,
         application_order,
-        _model_timeline(model),
         model.revision,
     )
 end
 
-function _model_graph_fallback_application(model, raw_spec, timeline)
+function _model_graph_fallback_application(model, raw_spec, timeline, slot)
     spec = as_model_spec(raw_spec)
     selector = applies_to(spec)
     selector isa AbstractObjectMultiplicity || error(
@@ -208,15 +209,18 @@ function _model_graph_fallback_application(model, raw_spec, timeline)
     application_id = something(application_name(spec), process(spec))
     target_ids = resolve_object_ids(model, selector)
     return CompiledModelApplication(
-        application_id,
-        spec,
-        process(spec),
-        application_name(spec),
+        CompiledApplicationPlan(
+            slot,
+            application_id,
+            spec,
+            process(spec),
+            application_name(spec),
+            selector,
+            timestep(spec),
+            _model_application_clock(model, spec, target_ids, timeline),
+            _compiled_object_model_overrides(spec, target_ids, application_id),
+        ),
         target_ids,
-        selector,
-        timestep(spec),
-        _model_application_clock(model, spec, target_ids, timeline),
-        _compiled_object_model_overrides(spec, target_ids, application_id),
     )
 end
 
@@ -229,9 +233,9 @@ function _model_graph_compile_applications(model, timeline, diagnostics)
 
     recovered = CompiledModelApplication[]
     recovered_ids = Set{Symbol}()
-    for raw_spec in model.applications
+    for (slot, raw_spec) in pairs(model.applications)
         try
-            application = _model_graph_fallback_application(model, raw_spec, timeline)
+            application = _model_graph_fallback_application(model, raw_spec, timeline, slot)
             application.id in recovered_ids && error(
                 "Duplicate recovered model application id `$(application.id)`.",
             )

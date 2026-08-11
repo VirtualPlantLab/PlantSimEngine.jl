@@ -84,6 +84,8 @@ but are intentionally not part of the default user namespace.
 module Advanced
 import ..PlantSimEngine:
     ObjectRegistry,
+    CompiledApplicationPlan,
+    CompiledScenarioPlan,
     CompiledCompositeModel,
     CompiledModelApplication,
     CompiledModelInputBinding,
@@ -106,6 +108,7 @@ import ..PlantSimEngine:
     runtime_performance
 
 export ObjectRegistry
+export CompiledApplicationPlan, CompiledScenarioPlan
 export CompiledCompositeModel, CompiledModelApplication
 export CompiledModelInputBinding, CompiledModelCallBinding
 export CompiledEnvironmentBinding, CompiledEnvironmentBindings

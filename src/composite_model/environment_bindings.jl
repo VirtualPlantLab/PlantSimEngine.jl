@@ -404,15 +404,8 @@ function _refresh_environment_bindings_for_objects(
         haskey(model.registry.objects, object_id) || continue
         for application in current_applications
             partial_application = CompiledModelApplication(
-                application.id,
-                application.spec,
-                application.process,
-                application.name,
+                application.plan,
                 ObjectId[object_id],
-                application.applies_to,
-                application.timestep,
-                application.clock,
-                application.model_overrides,
             )
             for binding in _compile_environment_bindings_for_applications(
                 model,

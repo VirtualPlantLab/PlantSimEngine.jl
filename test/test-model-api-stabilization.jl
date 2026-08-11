@@ -286,12 +286,14 @@ end
     evaluation_names = names(PlantSimEngine.Evaluation)
     @test Set(advanced_names) == Set([
         :Advanced,
+        :CompiledApplicationPlan,
         :CompiledCompositeModel,
         :CompiledEnvironmentBinding,
         :CompiledEnvironmentBindings,
         :CompiledModelApplication,
         :CompiledModelCallBinding,
         :CompiledModelInputBinding,
+        :CompiledScenarioPlan,
         :ObjectRefVector,
         :ObjectRegistry,
         :RuntimePerformanceCounters,
@@ -487,6 +489,8 @@ end
     end
     for internal_name in (
         :ObjectRegistry,
+        :CompiledApplicationPlan,
+        :CompiledScenarioPlan,
         :CompiledCompositeModel,
         :CompiledModelApplication,
         :compile_composite_model,
@@ -718,6 +722,48 @@ end
         if row.application_id == :consumer && row.input == :signal
     )
     @test ordered_binding.source_application_ids == [:source_b]
+end
+
+@testset "immutable application plans survive lifecycle target refresh" begin
+    model = CompositeModel(
+        Object(:plant; scale=:Plant);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:leaf_source,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+    )
+
+    compiled = Advanced.refresh_bindings!(model)
+    scenario_plan = compiled.scenario_plan
+    application = only(compiled.applications)
+    application_plan = application.plan
+
+    @test !ismutabletype(typeof(scenario_plan))
+    @test !ismutabletype(typeof(application_plan))
+    @test fieldnames(typeof(application)) == (:plan, :target_ids)
+    @test only(scenario_plan.applications) === application_plan
+    @test scenario_plan.applications_by_id[:leaf_source] === application_plan
+    @test application_plan.slot == 1
+    @test isempty(application.target_ids)
+    @test only(explain_applications(compiled)).application_slot == 1
+    @test only(explain_applications(compiled)).current_target_count == 0
+
+    register_object!(model, Object(:leaf; scale=:Leaf, parent=:plant))
+    added = Advanced.refresh_bindings!(model)
+    @test added.scenario_plan === scenario_plan
+    @test only(added.applications).plan === application_plan
+    @test only(added.applications).target_ids == ObjectId[ObjectId(:leaf)]
+    @test only(explain_applications(added)).current_target_count == 1
+
+    remove_object!(model, :leaf)
+    removed = Advanced.refresh_bindings!(model)
+    @test removed.scenario_plan === scenario_plan
+    @test only(removed.applications).plan === application_plan
+    @test isempty(only(removed.applications).target_ids)
+    @test only(explain_applications(removed)).current_target_count == 0
 end
 
 @testset "invalid reparenting is atomic" begin
