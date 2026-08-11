@@ -2270,12 +2270,7 @@ _model_application_should_run(application::CompiledModelApplication, t::Real) =
     _should_run_at_time(application.clock, float(t))
 
 function _manual_call_application_ids(compiled::CompiledCompositeModel)
-    ids = Set{Symbol}()
-    for binding in compiled.call_bindings
-        union!(ids, binding.callee_application_ids)
-        isnothing(binding.application) || push!(ids, binding.application)
-    end
-    return ids
+    return compiled.scenario_plan.manual_application_ids
 end
 
 function _typed_temporal_source_streams(source_streams::Vector{Any})
@@ -3752,11 +3747,11 @@ mutable struct _TargetedApplicationSet{A,B}
     outputs_prepared::Bool
 end
 
-mutable struct _TargetedTopologyRuntime{CS}
+mutable struct _TargetedTopologyRuntime{CS,MA}
     compiled::CS
     model_revision::Int
     application_sets::Dict{Tuple{Vararg{ObjectId}},Any}
-    manual_application_ids::Set{Symbol}
+    manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
 end
 
@@ -3785,7 +3780,7 @@ function _targeted_topology_runtime!(
         compiled,
         model.revision,
         Dict{Tuple{Vararg{ObjectId}},Any}(),
-        _manual_call_application_ids(compiled.call_bindings),
+        compiled.scenario_plan.manual_application_ids,
         Dict(
             application_id => index
             for (index, application_id) in pairs(compiled.application_order)
@@ -5217,6 +5212,21 @@ function run!(
         performance_counters,
         :initial_binding_compile,
         started_at,
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_application_plans_compiled,
+        length(compiled.scenario_plan.applications),
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_input_plans_compiled,
+        length(compiled.scenario_plan.input_plans),
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_call_plans_compiled,
+        length(compiled.scenario_plan.call_plans),
     )
     _runtime_performance_count!(
         performance_counters,

@@ -184,15 +184,15 @@ hard-call execution path.
   lifecycle-refreshed typed execution targets.
 - [x] Record the accepted PlantBiophysics and XPalm performance, allocation,
   numerical, and test baselines that must not regress.
-- [ ] Define the shared boundary between the scenario plan, lifecycle delta,
+- [x] Define the shared boundary between the scenario plan, lifecycle delta,
   root execution batches, and hard-call buffers.
-- [ ] Move fixed call definitions into the immutable scenario plan and mutable
+- [x] Move fixed call definitions into the immutable scenario plan and mutable
   resolved call membership into runtime topology state without replacing the
   accepted typed `CompiledExecutionBatch` fast path.
-- [ ] Ensure this goal does not create separate object-change journals,
+- [x] Ensure this goal does not create separate object-change journals,
   revision systems, selector compilers, or target-buffer update protocols for
   root execution and hard calls.
-- [ ] Preserve the hard-call goal's correctness, publication, nested-call,
+- [x] Preserve the hard-call goal's correctness, publication, nested-call,
   selective-execution, and performance requirements.
 - [x] Record prerequisite ordering: hard-call optimization and downstream
   acceptance are complete; immutable-scenario work begins from commit
@@ -224,7 +224,7 @@ hard-call execution path.
   lifecycle refresh.
 - [ ] Record total time, time per timestep/event, allocations, allocated bytes,
   and runtime work counters.
-- [ ] Add counters that distinguish immutable-plan compilation from mutable
+- [x] Add counters that distinguish immutable-plan compilation from mutable
   target instantiation and target-buffer updates.
 - [x] Record the current branch-head baseline before changing behavior. Reuse
   the pinned runners and accepted comparison as historical controls, but do
@@ -341,7 +341,7 @@ objects cannot leak samples from periods when they were outside the selector.
 - [x] Compile input-binding templates independently of current consumer objects.
 - [x] Represent potential producer applications even when source or consumer
   selectors currently match zero objects.
-- [ ] Preserve explicit `PreviousTimeStep` semantics: it must not add a
+- [x] Preserve explicit `PreviousTimeStep` semantics: it must not add a
   same-step or reverse scheduler edge.
 - [x] Compile same-object inference as an application-level template plus
   object-instantiation validation. New objects must not create new graph
@@ -349,23 +349,23 @@ objects cannot leak samples from periods when they were outside the selector.
 - [x] Establish cached homogeneous hard-call execution batches and the warmed
   allocation-free bulk/singular public paths. Preserve these as runtime
   consumers of the new plan.
-- [ ] Resolve hard-call ownership, manual-call-only application membership,
+- [x] Resolve hard-call ownership, manual-call-only application membership,
   selectors, multiplicity, and publication rules once through immutable
   application/call templates. Lifecycle refresh may change only the resolved
   object membership and cached batches.
-- [ ] Compile writer/update ordering independently of current target objects
+- [x] Compile writer/update ordering independently of current target objects
   where selector overlap can be established from fixed application rules.
-- [ ] Define a conservative and documented policy for potential selector
+- [x] Define a conservative and documented policy for potential selector
   overlap that cannot be proven without an object instance.
-- [ ] Compile and store the application DAG and stable topological order once.
-- [ ] Store ordered application plans directly rather than rebuilding an
+- [x] Compile and store the application DAG and stable topological order once.
+- [x] Store ordered application plans directly rather than rebuilding an
   ordered vector through symbolic dictionary lookups.
-- [ ] Ensure lifecycle refresh cannot rebuild or mutate the application DAG.
+- [x] Ensure lifecycle refresh cannot rebuild or mutate the application DAG.
 - [x] Add diagnostics that separately expose immutable application plans and
   current object target counts.
 - [x] Test applications that start with zero targets and acquire objects later.
-- [ ] Test ambiguity and cycle errors at the earliest sound validation point.
-- [ ] Commit the immutable scenario-plan implementation as a coherent slice.
+- [x] Test ambiguity and cycle errors at the earliest sound validation point.
+- [x] Commit the immutable scenario-plan implementation as a coherent slice.
 
 `CompiledScenarioPlan` now owns a stable tuple of `CompiledApplicationPlan`
 values and the immutable timeline definition. Each application plan has a
@@ -386,6 +386,39 @@ present even when both applications initially have zero targets. The runtime
 application id index is an immutable `NamedTuple` of mutable application-state
 references, which also preserves the existing warmed temporal allocation
 gate after the plan split.
+
+### Static scenario DAG completion (2026-08-12)
+
+The scenario plan now derives potential input producers and hard-call callees
+from fixed application declarations even when no object currently matches a
+selector. It freezes direct hard-call ownership, manual-call-only membership,
+application dependency children, and stable topological order as tuples and
+`NamedTuple`s. Nested call targets are ordered through their root scheduled
+owner. `PreviousTimeStep` plans retain their source metadata but contribute no
+same-step edge. Writer/update edges are compiled from authored output/update
+rules and fixed selector-label overlap; scale, kind, species, and name can
+prove disjointness, while cases depending on topology, scope, relations, or
+current membership conservatively remain potential overlaps.
+
+`CompiledScenarioPlan.ordered_application_plans` contains only immutable
+`CompiledApplicationPlan` values. The corresponding ordered tuple of mutable
+`CompiledModelApplication` target state lives on `CompiledCompositeModel` and
+is reused directly by root execution and lifecycle refresh. Additions,
+removals, and reparenting reuse the exact scenario DAG/order objects and no
+longer rebuild call ownership, application children, or topological order.
+Initial performance diagnostics now report immutable application/input/call
+plan counts and time `scenario_plan_compile` separately from runtime target,
+binding, status-view, and execution-target construction.
+
+Pre-commit validation passed 1,603 focused assertions: application/API
+stabilization 402, hard calls 85, `PreviousTimeStep` views 60, unified
+model/object behavior 677, graph view 181, binding inference 16,
+configuration errors 6, multirate integration 13, output boundaries 20,
+environment backends 9, numerical parity 23, status initialization 28, time
+validation 13, runtime matrix 10, environment sampling 15, temporal reducers
+10, and immutable-scenario benchmark API smoke 35. These are slice-level
+gates, not a substitute for the complete package and downstream acceptance
+runs required later in the goal.
 
 ## Phase 4: Compile An Event-Driven Multirate Schedule
 

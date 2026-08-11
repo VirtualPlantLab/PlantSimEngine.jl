@@ -35,7 +35,7 @@ Base.propertynames(application::CompiledModelApplication) =
     (:plan, :target_ids, propertynames(application.plan)...)
 
 """Immutable authored input declaration for one application."""
-struct CompiledModelInputPlan{SEL,OA,W}
+struct CompiledModelInputPlan{SEL,OA,PSA,W}
     slot::Int
     application_slot::Int
     application_id::Symbol
@@ -47,11 +47,13 @@ struct CompiledModelInputPlan{SEL,OA,W}
     process::Union{Nothing,Symbol}
     application::Union{Nothing,Symbol}
     multiplicity::Symbol
+    potential_source_application_ids::PSA
+    breaks_same_step_cycle::Bool
     window::W
 end
 
 """Immutable authored hard-call declaration for one application."""
-struct CompiledModelCallPlan{NAME,SEL}
+struct CompiledModelCallPlan{NAME,SEL,PCA}
     slot::Int
     application_slot::Int
     application_id::Symbol
@@ -61,6 +63,7 @@ struct CompiledModelCallPlan{NAME,SEL}
     process::Union{Nothing,Symbol}
     application::Union{Nothing,Symbol}
     multiplicity::Symbol
+    potential_callee_application_ids::PCA
 end
 
 function CompiledModelCallPlan(
@@ -73,8 +76,13 @@ function CompiledModelCallPlan(
     process,
     application,
     multiplicity,
+    potential_callee_application_ids,
 )
-    return CompiledModelCallPlan{call,typeof(selector)}(
+    return CompiledModelCallPlan{
+        call,
+        typeof(selector),
+        typeof(potential_callee_application_ids),
+    }(
         slot,
         application_slot,
         application_id,
@@ -84,6 +92,7 @@ function CompiledModelCallPlan(
         process,
         application,
         multiplicity,
+        potential_callee_application_ids,
     )
 end
 
@@ -93,13 +102,18 @@ _compiled_call_name(::CompiledModelCallPlan{NAME}) where {NAME} = NAME
 Immutable application, dependency-declaration, and timeline metadata shared by
 every lifecycle refresh of a compiled scenario.
 """
-struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,TL}
+struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,TL}
     applications::AP
     applications_by_id::AI
     input_plans::IP
     input_plans_by_application::IPI
     call_plans::CP
     call_plans_by_application::CPI
+    call_owners::CO
+    manual_application_ids::MA
+    application_children::AC
+    application_order::AO
+    ordered_application_plans::OAP
     timeline::TL
 end
 
@@ -117,16 +131,204 @@ function _applications_by_id(applications)
     return NamedTuple{application_ids}(Tuple(applications))
 end
 
+function _scenario_call_owners(applications, call_plans)
+    owners = Dict{Symbol,Set{Symbol}}()
+    for plan in call_plans
+        for callee_id in plan.potential_callee_application_ids
+            push!(get!(owners, callee_id, Set{Symbol}()), plan.application_id)
+        end
+    end
+    application_ids = Tuple(application.id for application in applications)
+    return NamedTuple{application_ids}(
+        Tuple(
+            Tuple(
+                application.id for application in applications
+                if application.id in get(owners, callee_id, Set{Symbol}())
+            )
+            for callee_id in application_ids
+        ),
+    )
+end
+
+function _scenario_root_call_owners(
+    call_owners,
+    application_id::Symbol,
+    path=(),
+)
+    application_id in path && error(
+        "Composite model hard-call ownership cycle detected among applications ",
+        "`$((path..., application_id))`.",
+    )
+    direct_owners = get(call_owners, application_id, ())
+    isempty(direct_owners) && return (application_id,)
+    roots = Symbol[]
+    for owner_id in direct_owners
+        append!(
+            roots,
+            _scenario_root_call_owners(
+                call_owners,
+                owner_id,
+                (path..., application_id),
+            ),
+        )
+    end
+    unique!(roots)
+    return Tuple(roots)
+end
+
+function _validate_scenario_call_ownership!(
+    call_owners,
+    manual_application_ids,
+)
+    for application_id in manual_application_ids
+        _scenario_root_call_owners(call_owners, application_id)
+    end
+    return nothing
+end
+
+function _scenario_input_order_edges!(children, input_plans, call_owners)
+    for plan in input_plans
+        plan.breaks_same_step_cycle && continue
+        ordering_sources = (
+            plan.potential_source_application_ids...,
+            plan.order_after_application_ids...,
+        )
+        for source_id in unique(ordering_sources)
+            direct_owners = get(call_owners, source_id, ())
+            if isempty(direct_owners)
+                _add_model_application_edge!(
+                    children,
+                    source_id,
+                    plan.application_id,
+                )
+            else
+                for owner_id in _scenario_root_call_owners(
+                    call_owners,
+                    source_id,
+                )
+                    _add_model_application_edge!(
+                        children,
+                        owner_id,
+                        plan.application_id,
+                    )
+                end
+            end
+        end
+    end
+    return children
+end
+
+function _scenario_update_order_edges!(
+    children,
+    applications,
+    manual_application_ids,
+)
+    for (application_index, application) in pairs(applications)
+        application.id in manual_application_ids && continue
+        for update in updates(application.spec)
+            after_labels = _update_after(update)
+            isempty(after_labels) && continue
+            for variable in _update_variables(update)
+                for previous_application in applications[1:(application_index - 1)]
+                    previous_application.id in manual_application_ids &&
+                        continue
+                    variable in _model_canonical_output_names(
+                        previous_application,
+                    ) || continue
+                    _selector_labels_may_overlap(
+                        previous_application.applies_to,
+                        application.applies_to,
+                    ) || continue
+                    any(
+                        label -> _update_matches_application(
+                            label,
+                            previous_application,
+                        ),
+                        after_labels,
+                    ) || continue
+                    _add_model_application_edge!(
+                        children,
+                        previous_application.id,
+                        application.id,
+                    )
+                end
+            end
+        end
+    end
+    return children
+end
+
+function _freeze_scenario_application_children(applications, children)
+    application_ids = Tuple(application.id for application in applications)
+    return NamedTuple{application_ids}(
+        Tuple(
+            Tuple(
+                application.id for application in applications
+                if application.id in get(
+                    children,
+                    parent_id,
+                    Set{Symbol}(),
+                )
+            )
+            for parent_id in application_ids
+        ),
+    )
+end
+
+function _compile_scenario_application_children(
+    applications,
+    input_plans,
+    call_owners,
+    manual_application_ids,
+)
+    children = Dict{Symbol,Set{Symbol}}()
+    _scenario_input_order_edges!(children, input_plans, call_owners)
+    _scenario_update_order_edges!(
+        children,
+        applications,
+        manual_application_ids,
+    )
+    return _freeze_scenario_application_children(applications, children)
+end
+
 function _compiled_scenario_plan(applications, input_plans, call_plans, timeline)
     application_plans = Tuple(application.plan for application in applications)
     application_ids = Tuple(plan.id for plan in application_plans)
+    call_owners = _scenario_call_owners(applications, call_plans)
+    manual_application_ids = Tuple(
+        application.id for application in applications
+        if !isempty(call_owners[application.id])
+    )
+    _validate_scenario_call_ownership!(
+        call_owners,
+        manual_application_ids,
+    )
+    application_children = _compile_scenario_application_children(
+        applications,
+        input_plans,
+        call_owners,
+        manual_application_ids,
+    )
+    application_order = _stable_topological_application_order(
+        applications,
+        application_children,
+    )
+    application_plans_by_id = NamedTuple{application_ids}(application_plans)
     return CompiledScenarioPlan(
         application_plans,
-        NamedTuple{application_ids}(application_plans),
+        application_plans_by_id,
         Tuple(input_plans),
         _plans_by_application(applications, input_plans),
         Tuple(call_plans),
         _plans_by_application(applications, call_plans),
+        call_owners,
+        manual_application_ids,
+        application_children,
+        Tuple(application_order),
+        Tuple(
+            application_plans_by_id[application_id]
+            for application_id in application_order
+        ),
         timeline,
     )
 end
@@ -238,11 +440,12 @@ struct CompiledEnvironmentBindings{SC,B,I,PI,S,P,C}
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,SP,AP,AI,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO}
+struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO}
     model::SC
     scenario_plan::SP
     applications::AP
     applications_by_id::AI
+    ordered_applications::OA
     applications_by_object::ABO
     input_bindings::IB
     call_bindings::CB
@@ -354,6 +557,12 @@ function _compile_scene(
     started_at = _runtime_performance_start(performance)
     timeline = _model_timeline(model)
     applications = _compile_model_applications(model, raw_specs, timeline)
+    _runtime_performance_finish!(
+        performance,
+        :application_target_compile,
+        started_at,
+    )
+    started_at = _runtime_performance_start(performance)
     input_plans = _compile_model_input_plans(applications)
     call_plans = _compile_model_call_plans(applications)
     scenario_plan = _compiled_scenario_plan(
@@ -364,7 +573,7 @@ function _compile_scene(
     )
     _runtime_performance_finish!(
         performance,
-        :application_target_compile,
+        :scenario_plan_compile,
         started_at,
     )
     started_at = _runtime_performance_start(performance)
@@ -373,19 +582,28 @@ function _compile_scene(
         applications;
         plans_by_application=scenario_plan.call_plans_by_application,
     )
-    _validate_model_call_cadences!(applications, call_bindings, timeline)
+    _validate_model_call_plan_cadences!(
+        applications,
+        scenario_plan.call_plans,
+        timeline,
+    )
     _runtime_performance_finish!(
         performance,
         :call_binding_compile,
         started_at,
     )
-    _validate_model_writers!(applications, call_bindings)
+    _validate_model_writer_groups!(
+        _model_writer_groups(
+            applications,
+            scenario_plan.manual_application_ids,
+        ),
+    )
     _prepare_model_output_statuses!(model, applications)
     started_at = _runtime_performance_start(performance)
     input_bindings = _compile_model_input_bindings(
         model,
         applications,
-        _manual_call_application_ids(call_bindings),
+        scenario_plan.manual_application_ids,
         scenario_plan.input_plans_by_application,
     )
     many_input_binding_cache =
@@ -410,24 +628,19 @@ function _compile_scene(
             :consumer_id,
         ),
     )
-    call_bindings_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
-    started_at = _runtime_performance_start(performance)
-    call_owners = _model_call_owners(call_bindings)
-    application_children = _compile_model_application_children(
-        applications,
-        input_bindings,
-        call_owners,
+    call_bindings_by_target = _index_model_bindings(
+        call_bindings,
+        :application_id,
+        :consumer_id,
     )
-    application_order = _stable_topological_application_order(
-        applications,
-        application_children,
-    )
-    _runtime_performance_finish!(
-        performance,
-        :application_order_compile,
-        started_at,
-    )
+    call_owners = scenario_plan.call_owners
+    application_children = scenario_plan.application_children
+    application_order = scenario_plan.application_order
     applications_by_id = _applications_by_id(applications)
+    ordered_applications = Tuple(
+        applications_by_id[application_id]
+        for application_id in application_order
+    )
     started_at = _runtime_performance_start(performance)
     status_views_by_target = _compile_model_status_views(
         model,
@@ -446,6 +659,7 @@ function _compile_scene(
         scenario_plan,
         applications,
         applications_by_id,
+        ordered_applications,
         _applications_by_object(applications),
         input_bindings,
         call_bindings,
@@ -1030,15 +1244,10 @@ function _prepare_structural_compiled_delta(
         delete!(applications_by_object, object_id)
     end
 
-    removed_input_consumers = Set{Tuple{Symbol,ObjectId,Symbol}}()
     input_bindings = CompiledModelInputBinding[]
     sizehint!(input_bindings, length(compiled.input_bindings))
     for binding in compiled.input_bindings
         if binding.consumer_id in dirty
-            push!(
-                removed_input_consumers,
-                (binding.application_id, binding.consumer_id, binding.input),
-            )
             continue
         end
         push!(input_bindings, binding)
@@ -1065,13 +1274,11 @@ function _prepare_structural_compiled_delta(
         ),
     )
 
-    removed_call_consumers = Set{Tuple{Symbol,ObjectId}}()
     call_bindings = CompiledModelCallBinding[]
     sizehint!(call_bindings, length(compiled.call_bindings))
     for binding in compiled.call_bindings
         key = (binding.application_id, binding.consumer_id)
         if binding.consumer_id in dirty
-            push!(removed_call_consumers, key)
             continue
         end
         push!(call_bindings, binding)
@@ -1104,6 +1311,7 @@ function _prepare_structural_compiled_delta(
         compiled.scenario_plan,
         compiled.applications,
         compiled.applications_by_id,
+        compiled.ordered_applications,
         applications_by_object,
         input_bindings,
         call_bindings,
@@ -1128,8 +1336,6 @@ function _prepare_structural_compiled_delta(
         previous_temporal_sources=previous_temporal_sources,
         changed_application_ids=changed_application_ids,
         changed_target_ids=removed_target_keys,
-        graph_may_shrink=!isempty(removed_input_consumers),
-        call_graph_may_shrink=!isempty(removed_call_consumers),
     )
     _runtime_performance_finish!(
         performance,
@@ -1165,8 +1371,6 @@ function _extend_compiled_scene(
     }(),
     changed_application_ids_seed=Set{Symbol}(),
     changed_target_ids_seed=Set{Tuple{Symbol,ObjectId}}(),
-    application_graph_may_shrink::Bool=false,
-    recompute_call_owners::Bool=false,
     pure_addition::Bool=true,
     structural_dirty_ids=ObjectId[],
     performance=nothing,
@@ -1176,8 +1380,6 @@ function _extend_compiled_scene(
         isempty(forced_input_binding_keys) &&
         isempty(forced_call_target_keys) &&
         isempty(changed_application_ids_seed) &&
-        !application_graph_may_shrink &&
-        !recompute_call_owners &&
         return compile_composite_model(
             model,
             model.applications;
@@ -1227,7 +1429,6 @@ function _extend_compiled_scene(
 
     started_at = _runtime_performance_start(performance)
     has_calls = !isempty(compiled.scenario_plan.call_plans)
-    timeline = compiled.scenario_plan.timeline
     added_applications = CompiledModelApplication[]
     for application in applications
         target_ids = get(new_targets, application.id, ObjectId[])
@@ -1364,16 +1565,11 @@ function _extend_compiled_scene(
             )
         end
     end
-    _validate_model_call_cadences!(
-        applications,
-        (replacement_call_bindings..., new_call_bindings...),
-        timeline,
-    )
     _validate_model_writers_for_objects!(
         applications,
         applications_by_object,
         added_ids,
-        call_bindings,
+        compiled.scenario_plan.manual_application_ids,
     )
     _prepare_model_output_statuses!(model, added_applications)
     _runtime_performance_finish!(
@@ -1383,7 +1579,7 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    manual_application_ids = _manual_call_application_ids(call_bindings)
+    manual_application_ids = compiled.scenario_plan.manual_application_ids
     added_input_binding_capacity = sum(
         length(_model_input_names(application)) *
         length(get(new_targets, application.id, ObjectId[]))
@@ -1402,15 +1598,11 @@ function _extend_compiled_scene(
     input_bindings_by_target = compiled.input_bindings_by_target
     many_binding_cache = compiled.many_input_binding_cache
     changed_bindings = CompiledModelInputBinding[]
-    order_changed_bindings = CompiledModelInputBinding[]
     rewired_consumer_ids = Set{ObjectId}()
     affected_temporal_keys = Set{Tuple{Symbol,ObjectId}}()
     previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
-    application_edges_may_shrink =
-        application_graph_may_shrink ||
-        !isempty(forced_input_binding_keys)
     candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
@@ -1449,8 +1641,6 @@ function _extend_compiled_scene(
         previous_source_ids = binding.carrier_hint == :temporal_stream ?
                               copy(binding.source_ids) :
                               ObjectId[]
-        previous_source_application_ids =
-            copy(binding.source_application_ids)
         binding.multiplicity == :many &&
             binding.carrier_hint == :temporal_stream &&
             (previous_shared_many_sources[binding.source_ids] = copy(binding.source_ids))
@@ -1487,9 +1677,6 @@ function _extend_compiled_scene(
             )
         end
         if appended_sources
-            previous_source_application_ids !=
-            binding.source_application_ids &&
-                push!(order_changed_bindings, binding)
             if binding.carrier_hint == :temporal_stream &&
                previous_source_ids != binding.source_ids
                 key = (binding.application_id, binding.consumer_id)
@@ -1523,13 +1710,8 @@ function _extend_compiled_scene(
             model,
             only(replacement),
         )
-        issubset(
-            previous_source_application_ids,
-            replacement_binding.source_application_ids,
-        ) || (application_edges_may_shrink = true)
         input_bindings[index] = replacement_binding
         push!(changed_bindings, replacement_binding)
-        push!(order_changed_bindings, replacement_binding)
         push!(rewired_consumer_ids, binding.consumer_id)
         if binding.carrier_hint == :temporal_stream
             key = (binding.application_id, binding.consumer_id)
@@ -1573,7 +1755,6 @@ function _extend_compiled_scene(
                 end
                 new_bindings = input_bindings[first_new_binding:last_new_binding]
                 append!(changed_bindings, new_bindings)
-                append!(order_changed_bindings, new_bindings)
                 input_bindings_by_target[(application.id, consumer_id)] = Tuple(new_bindings)
             end
         end
@@ -1628,68 +1809,9 @@ function _extend_compiled_scene(
             :consumer_id,
         ),
     )
-    started_at = _runtime_performance_start(performance)
-    call_owners = !recompute_call_owners &&
-                  isempty(forced_call_target_keys) ?
-                  compiled.call_owners :
-                  _model_call_owners(call_bindings)
-    call_owners_changed =
-        recompute_call_owners || !isempty(forced_call_target_keys)
-    for binding in call_bindings
-        for callee_id in binding.callee_application_ids
-            owners = get!(call_owners, callee_id, Set{Symbol}())
-            binding.application_id in owners && continue
-            push!(owners, binding.application_id)
-            call_owners_changed = true
-        end
-    end
-    application_children = if !application_edges_may_shrink &&
-                              !call_owners_changed
-        children = Dict(
-            application_id => copy(child_ids)
-            for (application_id, child_ids) in compiled.application_children
-        )
-        _model_input_order_edges!(
-            children,
-            order_changed_bindings,
-            call_owners,
-        )
-        _model_update_order_edges!(children, added_applications)
-    else
-        _compile_model_application_children(
-            applications,
-            input_bindings,
-            call_owners,
-        )
-    end
-    application_order = if application_children ==
-                           compiled.application_children
-        compiled.application_order
-    else
-        _stable_topological_application_order(
-            applications,
-            application_children,
-        )
-    end
-    _runtime_performance_finish!(
-        performance,
-        :application_order_refresh,
-        started_at,
-    )
-    if application_order != compiled.application_order
-        for (key, view) in compiled.status_views_by_target
-            isempty(view.temporal_inputs) && continue
-            push!(affected_temporal_keys, key)
-            for temporal_input in view.temporal_inputs
-                get!(
-                    previous_temporal_sources,
-                    (key..., temporal_input.binding.input),
-                ) do
-                    copy(temporal_input.binding.source_ids)
-                end
-            end
-        end
-    end
+    call_owners = compiled.scenario_plan.call_owners
+    application_children = compiled.scenario_plan.application_children
+    application_order = compiled.scenario_plan.application_order
     started_at = _runtime_performance_start(performance)
     status_views_by_target = _extend_model_status_views(
         model,
@@ -1743,6 +1865,7 @@ function _extend_compiled_scene(
         compiled.scenario_plan,
         applications,
         applications_by_id,
+        compiled.ordered_applications,
         applications_by_object,
         input_bindings,
         call_bindings,
@@ -1762,39 +1885,69 @@ function _extend_compiled_scene(
     )
 end
 
+function _validate_model_call_cadence!(
+    caller,
+    callee,
+    call,
+    timeline,
+)
+    # A call-only target with no model/scenario cadence declaration inherits
+    # the cadence of its parent call. An explicit target cadence is a
+    # scientific contract and must match the caller.
+    _runtime_clock_source_for_spec(callee.spec) == :environment_base_step &&
+        return nothing
+    same_dt = isapprox(
+        float(caller.clock.dt),
+        float(callee.clock.dt);
+        atol=1.0e-9,
+        rtol=0.0,
+    )
+    same_phase = isapprox(
+        float(caller.clock.phase),
+        float(callee.clock.phase);
+        atol=1.0e-9,
+        rtol=0.0,
+    )
+    same_dt && same_phase && return nothing
+    caller_seconds = float(caller.clock.dt) * timeline.base_step_seconds
+    callee_seconds = float(callee.clock.dt) * timeline.base_step_seconds
+    error(
+        "Hard call `$(call)` from application `$(caller.id)` to ",
+        "application `$(callee.id)` has incompatible cadence: caller=",
+        "$(caller_seconds) seconds (phase=$(caller.clock.phase)), target=",
+        "$(callee_seconds) seconds (phase=$(callee.clock.phase)). ",
+        "Use matching `ModelSpec(...; every=...)` declarations or omit `every` on the ",
+        "manual-call-only target so it inherits the parent call cadence."
+    )
+end
+
+function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
+    applications_by_id = _applications_by_id(applications)
+    for plan in call_plans
+        caller = applications_by_id[plan.application_id]
+        for callee_id in plan.potential_callee_application_ids
+            callee = applications_by_id[callee_id]
+            _validate_model_call_cadence!(
+                caller,
+                callee,
+                _compiled_call_name(plan),
+                timeline,
+            )
+        end
+    end
+    return nothing
+end
+
 function _validate_model_call_cadences!(applications, call_bindings, timeline)
-    applications_by_id = Dict(application.id => application for application in applications)
+    applications_by_id = _applications_by_id(applications)
     for binding in call_bindings
         caller = applications_by_id[binding.application_id]
         for callee_id in binding.callee_application_ids
-            callee = applications_by_id[callee_id]
-            # A call-only target with no model/scenario cadence declaration
-            # inherits the cadence of its parent call. An explicit target
-            # cadence is a scientific contract and must match the caller.
-            _runtime_clock_source_for_spec(callee.spec) == :environment_base_step &&
-                continue
-            same_dt = isapprox(
-                float(caller.clock.dt),
-                float(callee.clock.dt);
-                atol=1.0e-9,
-                rtol=0.0,
-            )
-            same_phase = isapprox(
-                float(caller.clock.phase),
-                float(callee.clock.phase);
-                atol=1.0e-9,
-                rtol=0.0,
-            )
-            same_dt && same_phase && continue
-            caller_seconds = float(caller.clock.dt) * timeline.base_step_seconds
-            callee_seconds = float(callee.clock.dt) * timeline.base_step_seconds
-            error(
-                "Hard call `$(binding.call)` from application `$(caller.id)` to ",
-                "application `$(callee.id)` has incompatible cadence: caller=",
-                "$(caller_seconds) seconds (phase=$(caller.clock.phase)), target=",
-                "$(callee_seconds) seconds (phase=$(callee.clock.phase)). ",
-                "Use matching `ModelSpec(...; every=...)` declarations or omit `every` on the ",
-                "manual-call-only target so it inherits the parent call cadence."
+            _validate_model_call_cadence!(
+                caller,
+                applications_by_id[callee_id],
+                binding.call,
+                timeline,
             )
         end
     end
@@ -2264,10 +2417,9 @@ function _validate_model_writers_for_objects!(
     applications,
     applications_by_object,
     object_ids,
-    call_bindings=(),
+    manual_application_ids=(),
 )
     isempty(object_ids) && return nothing
-    manual_application_ids = _manual_call_application_ids(call_bindings)
     positions = Dict(
         application.id => index
         for (index, application) in pairs(applications)
@@ -2892,8 +3044,72 @@ function _matching_input_source_applications(
     return matches
 end
 
+_selector_constraint_values(value) =
+    isnothing(value) ? () : value isa Tuple ? value : (value,)
+
+# Scenario plans can disprove overlap only when immutable fixed-label domains
+# are disjoint. Scope, topology, relations, and object membership may change at
+# lifecycle barriers, so every unresolved case remains a potential overlap.
+# Object-level multiplicity and writer ambiguity are still validated when
+# concrete targets exist.
+function _selector_labels_may_overlap(left, right)
+    for key in (:scale, :kind, :species, :name)
+        left_values = _selector_constraint_values(
+            _criteria_value(criteria(left), key),
+        )
+        right_values = _selector_constraint_values(
+            _criteria_value(criteria(right), key),
+        )
+        isempty(left_values) && continue
+        isempty(right_values) && continue
+        any(value -> value in right_values, left_values) || return false
+    end
+    return true
+end
+
+function _potential_input_source_application_ids(
+    applications,
+    consumer_application,
+    selector,
+    source_var::Symbol,
+    process_filter,
+    application_filter,
+    origin::Symbol,
+)
+    _selector_from_status(selector) && return ()
+    source_selector = origin == :inferred_same_object ?
+                      consumer_application.applies_to : selector
+    return Tuple(
+        application.id for application in applications
+        if source_var in _model_output_names(application) &&
+           (isnothing(process_filter) ||
+            application.process == process_filter) &&
+           (isnothing(application_filter) ||
+            application.id == application_filter) &&
+           _selector_labels_may_overlap(
+            source_selector,
+            application.applies_to,
+        )
+    )
+end
+
+function _potential_call_application_ids(
+    applications,
+    selector,
+    process_filter,
+    application_filter,
+)
+    return Tuple(
+        application.id for application in applications
+        if (isnothing(process_filter) || application.process == process_filter) &&
+           (isnothing(application_filter) || application.id == application_filter) &&
+           _selector_labels_may_overlap(selector, application.applies_to)
+    )
+end
+
 function _compiled_model_input_plan(
     plans,
+    applications,
     application,
     input::Symbol,
     selector,
@@ -2910,6 +3126,25 @@ function _compiled_model_input_plan(
         applications_by_id,
         application.id,
     )
+    potential_source_application_ids =
+        _potential_input_source_application_ids(
+        applications,
+        application,
+        selector,
+        source_var,
+        process_filter,
+        application_filter,
+        origin,
+    )
+    policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
+    breaks_same_step_cycle = policy isa PreviousTimeStep
+    if breaks_same_step_cycle && policy.variable != input
+        error(
+            "PreviousTimeStep marker for input `$(input)` on application ",
+            "`$(application.id)` names `$(policy.variable)`. Use ",
+            "`PreviousTimeStep(:$(input))`."
+        )
+    end
     return CompiledModelInputPlan(
         length(plans) + 1,
         application.plan.slot,
@@ -2922,6 +3157,8 @@ function _compiled_model_input_plan(
         process_filter,
         application_filter,
         multiplicity(selector),
+        potential_source_application_ids,
+        breaks_same_step_cycle,
         _selector_window(selector),
     )
 end
@@ -2945,6 +3182,7 @@ function _compile_model_input_plans(applications)
                 plans,
                 _compiled_model_input_plan(
                     plans,
+                    applications,
                     application,
                     input,
                     selector,
@@ -2968,6 +3206,7 @@ function _compile_model_input_plans(applications)
                     plans,
                     _compiled_model_input_plan(
                         plans,
+                        applications,
                         application,
                         input,
                         selector,
@@ -3003,6 +3242,12 @@ function _compile_model_call_plans(applications)
                     _criteria_get(criteria(selector), :process, nothing),
                     _selector_application(selector),
                     multiplicity(selector),
+                    _potential_call_application_ids(
+                        applications,
+                        selector,
+                        _criteria_get(criteria(selector), :process, nothing),
+                        _selector_application(selector),
+                    ),
                 ),
             )
         end
@@ -3499,7 +3744,7 @@ function _compile_model_application_order(applications, input_bindings, call_bin
 end
 
 function _ordered_model_applications(compiled::CompiledCompositeModel)
-    return [compiled.applications_by_id[application_id] for application_id in compiled.application_order]
+    return compiled.ordered_applications
 end
 
 function explain_applications(compiled::CompiledCompositeModel)
@@ -3611,7 +3856,7 @@ function _model_binding_copy_semantics(binding::CompiledModelInputBinding)
     return :backend_defined
 end
 
-function explain_bindings(compiled::CompiledCompositeModel)
+    function explain_bindings(compiled::CompiledCompositeModel)
     return [
         (
             input_plan_slot=binding.plan.slot,
@@ -3621,7 +3866,10 @@ function explain_bindings(compiled::CompiledCompositeModel)
             input=binding.input,
             origin=binding.origin,
             source_ids=[id.value for id in binding.source_ids],
-            source_application_ids=binding.source_application_ids,
+        source_application_ids=binding.source_application_ids,
+        potential_source_application_ids=
+            binding.plan.potential_source_application_ids,
+        breaks_same_step_cycle=binding.plan.breaks_same_step_cycle,
             order_after_application_ids=binding.order_after_application_ids,
             source_var=binding.source_var,
             process=binding.process,
@@ -3652,7 +3900,9 @@ function explain_calls(compiled::CompiledCompositeModel)
             call=binding.call,
             origin=binding.origin,
             callee_object_ids=[id.value for id in binding.callee_object_ids],
-            callee_application_ids=binding.callee_application_ids,
+        callee_application_ids=binding.callee_application_ids,
+        potential_callee_application_ids=
+            binding.plan.potential_callee_application_ids,
             process=binding.process,
             application=binding.application,
             multiplicity=binding.multiplicity,

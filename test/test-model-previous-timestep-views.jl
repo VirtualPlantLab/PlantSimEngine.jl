@@ -161,7 +161,7 @@ end
         applications=(source_spec, consumer_spec),
     )
     compiled = Advanced.refresh_bindings!(same_object)
-    @test compiled.application_order == [:signal_source, :lagged_consumer]
+    @test compiled.application_order == (:signal_source, :lagged_consumer)
 
     lagged_binding = only(
         binding for binding in compiled.input_bindings
@@ -299,7 +299,7 @@ end
         applications=(consumer_spec, source_spec),
     )
     @test Advanced.refresh_bindings!(consumer_first).application_order ==
-          [:lagged_consumer, :signal_source]
+          (:lagged_consumer, :signal_source)
 
     cycle_status = Status(cycle_a=0.0, cycle_b=2.0)
     unbroken_cycle = CompositeModel(
@@ -568,10 +568,11 @@ end
             _temporal_view_source_spec(target=Many(scale=:Leaf)),
         ),
     )
-    initial_dynamic_order =
-        Advanced.refresh_bindings!(dynamic_same_step).application_order
+    initial_dynamic_compiled = Advanced.refresh_bindings!(dynamic_same_step)
+    initial_dynamic_plan = initial_dynamic_compiled.scenario_plan
+    initial_dynamic_order = initial_dynamic_compiled.application_order
     @test initial_dynamic_order ==
-          [:same_step_consumer, :signal_source]
+          (:signal_source, :same_step_consumer)
     dynamic_same_step_simulation =
         run!(dynamic_same_step; outputs=:none)
     register_object!(
@@ -584,8 +585,12 @@ end
         parent=:scene,
     )
     continue!(dynamic_same_step_simulation)
+    @test dynamic_same_step_simulation.compiled.scenario_plan ===
+          initial_dynamic_plan
+    @test dynamic_same_step_simulation.compiled.application_order ===
+          initial_dynamic_order
     @test dynamic_same_step_simulation.compiled.application_order ==
-          [:signal_source, :same_step_consumer]
+          (:signal_source, :same_step_consumer)
     dynamic_same_step_status =
         only(model_objects(dynamic_same_step; scale=:Leaf)).status
     @test dynamic_same_step_status.signal == 6.0

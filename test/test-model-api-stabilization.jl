@@ -750,6 +750,12 @@ end
     @test ismutabletype(typeof(application))
     @test isconst(typeof(application), :plan)
     @test compiled.applications_by_id isa NamedTuple
+    @test scenario_plan.call_owners isa NamedTuple
+    @test scenario_plan.application_children isa NamedTuple
+    @test scenario_plan.manual_application_ids == ()
+    @test scenario_plan.application_order == (:leaf_source,)
+    @test scenario_plan.ordered_application_plans == (application_plan,)
+    @test compiled.ordered_applications == (application,)
     @test fieldnames(typeof(application)) == (:plan, :target_ids)
     @test only(scenario_plan.applications) === application_plan
     @test scenario_plan.applications_by_id[:leaf_source] === application_plan
@@ -805,6 +811,8 @@ end
     @test input_plan.application_id == :leaf_consumer
     @test input_plan.input == :signal
     @test input_plan.origin == :model_spec
+    @test input_plan.potential_source_application_ids == (:leaf_source,)
+    @test !input_plan.breaks_same_step_cycle
     @test isempty(scenario_plan.input_plans_by_application.leaf_source)
     @test only(scenario_plan.input_plans_by_application.leaf_consumer) ===
           input_plan
@@ -848,6 +856,8 @@ end
     binding_row = only(explain_bindings(refreshed))
     @test binding_row.input_plan_slot == 1
     @test binding_row.application_slot == 2
+    @test binding_row.potential_source_application_ids == (:leaf_source,)
+    @test !binding_row.breaks_same_step_cycle
 end
 
 @testset "same-object inference is compiled before objects exist" begin
@@ -873,6 +883,8 @@ end
     @test inferred_plan.application_id == :leaf_consumer
     @test inferred_plan.application == :leaf_source
     @test inferred_plan.input == :signal
+    @test inferred_plan.potential_source_application_ids == (:leaf_source,)
+    @test !inferred_plan.breaks_same_step_cycle
     @test isempty(compiled.input_bindings)
 
     register_object!(
@@ -1015,6 +1027,9 @@ end
     @test performance.counts[:application_groups_visited] == 3
     @test performance.counts[:execution_batches_visited] == 3
     @test performance.counts[:execution_targets_visited] == 3
+    @test performance.counts[:initial_application_plans_compiled] == 1
+    @test performance.counts[:initial_input_plans_compiled] == 0
+    @test performance.counts[:initial_call_plans_compiled] == 0
     @test performance.counts[:initial_status_views_constructed] == 1
     @test performance.counts[:initial_input_bindings_constructed] == 0
     @test performance.counts[:initial_call_bindings_constructed] == 0
@@ -1027,9 +1042,13 @@ end
     @test performance.elapsed_seconds[:initial_composite_compile] >= 0.0
     @test performance.elapsed_seconds[:initial_binding_compile] >= 0.0
     @test performance.elapsed_seconds[:application_target_compile] >= 0.0
+    @test performance.elapsed_seconds[:scenario_plan_compile] >= 0.0
     @test performance.elapsed_seconds[:call_binding_compile] >= 0.0
     @test performance.elapsed_seconds[:input_binding_compile] >= 0.0
-    @test performance.elapsed_seconds[:application_order_compile] >= 0.0
+    @test !haskey(
+        performance.elapsed_seconds,
+        :application_order_compile,
+    )
     @test performance.elapsed_seconds[:status_view_compile] >= 0.0
     @test performance.elapsed_seconds[:initial_execution_plan_compile] >= 0.0
     @test performance.elapsed_seconds[
@@ -1069,7 +1088,10 @@ end
     @test refreshed.elapsed_seconds[:application_target_refresh] >= 0.0
     @test refreshed.elapsed_seconds[:call_binding_refresh] >= 0.0
     @test refreshed.elapsed_seconds[:input_binding_refresh] >= 0.0
-    @test refreshed.elapsed_seconds[:application_order_refresh] >= 0.0
+    @test !haskey(
+        refreshed.elapsed_seconds,
+        :application_order_refresh,
+    )
     @test refreshed.elapsed_seconds[:status_view_refresh] >= 0.0
     @test simulation.compiled.status_views_by_target[
         (:source, ObjectId(:leaf_1))

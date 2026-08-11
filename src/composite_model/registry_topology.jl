@@ -1071,8 +1071,6 @@ function refresh_bindings!(
                 previous_temporal_sources_seed=delta.previous_temporal_sources,
                 changed_application_ids_seed=delta.changed_application_ids,
                 changed_target_ids_seed=delta.changed_target_ids,
-                application_graph_may_shrink=delta.graph_may_shrink,
-                recompute_call_owners=delta.call_graph_may_shrink,
                 pure_addition=false,
                 structural_dirty_ids=model.binding_dirty_objects,
                 performance=performance,

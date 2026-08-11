@@ -171,6 +171,40 @@ end
     @test statuses[:middle].calls == 3
 end
 
+@testset "hard-call ownership cycles fail before execution" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:middle; scale=:Plant, name=:middle, parent=:scene);
+        applications=(
+            ModelSpec(
+                NestedCallRootModel();
+                name=:root,
+                on=One(name=:scene),
+                calls=(
+                    :middle => One(
+                        name=:middle,
+                        application=:middle,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallMiddleModel();
+                name=:middle,
+                on=One(name=:middle),
+                calls=(
+                    :leaf => One(
+                        name=:scene,
+                        application=:root,
+                    ),
+                ),
+            ),
+        ),
+    )
+    @test_throws "hard-call ownership cycle detected" Advanced.refresh_bindings!(
+        model,
+    )
+end
+
 
 @testset "hard-call return shape and errors" begin
     model = CompositeModel(
@@ -197,6 +231,10 @@ end
     @test getproperty.(call_plans, :application_id) ==
           (:controller, :controller, :controller)
     @test getproperty.(call_plans, :call) == (:one, :optional, :many)
+    @test getproperty.(call_plans, :potential_callee_application_ids) ==
+          ((:leaf_calls,), (:leaf_calls,), (:leaf_calls,))
+    @test scenario_plan.manual_application_ids == (:leaf_calls,)
+    @test scenario_plan.call_owners.leaf_calls == (:controller,)
     @test all(
         plan -> plan ===
                 only(
@@ -226,6 +264,7 @@ end
     )
     @test one_call_row.call_plan_slot == 1
     @test one_call_row.application_slot == 1
+    @test one_call_row.potential_callee_application_ids == (:leaf_calls,)
     controller = only(model_objects(model; scale=:Scene)).status
     @test controller.one_count == 1
     @test controller.optional_count == 0
@@ -378,6 +417,9 @@ end
     )
 
     simulation = run!(model)
+    scenario_plan = simulation.compiled.scenario_plan
+    application_children = simulation.compiled.application_children
+    application_order = simulation.compiled.application_order
     controller = only(model_objects(model; name=:plant_a)).status
     schedule = Dict(row.application_id => row for row in explain_schedule(simulation.compiled))
     @test schedule[:leaf_calls].manual_call_only
@@ -386,11 +428,17 @@ end
 
     reparent_object!(model, :leaf, :plant_a)
     continue!(simulation; steps=1)
+    @test simulation.compiled.scenario_plan === scenario_plan
+    @test simulation.compiled.application_children === application_children
+    @test simulation.compiled.application_order === application_order
     @test controller.ncalls == 1
     @test controller.total == 1.0
 
     reparent_object!(model, :leaf, :plant_b)
     continue!(simulation; steps=1)
+    @test simulation.compiled.scenario_plan === scenario_plan
+    @test simulation.compiled.application_children === application_children
+    @test simulation.compiled.application_order === application_order
     @test controller.ncalls == 0
     @test controller.total == 0.0
 end
@@ -406,6 +454,34 @@ end
         environment=(duration=Hour(1),),
     )
     @test_throws "incompatible cadence" Advanced.refresh_bindings!(incompatible)
+
+    incompatible_without_current_targets = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene);
+        applications=(
+            ModelSpec(
+                ManyCallControllerModel();
+                name=:controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        application=:leaf_calls,
+                    ),
+                ),
+                every=Day(1),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:leaf_calls,
+                on=Many(scale=:Leaf),
+                every=Hour(1),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    @test_throws "incompatible cadence" Advanced.refresh_bindings!(
+        incompatible_without_current_targets,
+    )
 
     inherited = CompositeModel(
         Object(:scene; scale=:Scene, name=:scene),

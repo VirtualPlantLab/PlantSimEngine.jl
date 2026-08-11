@@ -155,37 +155,41 @@ function _model_graph_compiled(
     applications,
     input_bindings,
     call_bindings,
-    application_order,
     diagnostics,
 )
     isempty(diagnostics) || return nothing
     applications_by_id = _applications_by_id(applications)
     input_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
     call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
+    timeline = _model_timeline(model)
+    scenario_plan = _compiled_scenario_plan(
+        applications,
+        _compile_model_input_plans(applications),
+        _compile_model_call_plans(applications),
+        timeline,
+    )
+    ordered_applications = Tuple(
+        applications_by_id[application_id]
+        for application_id in scenario_plan.application_order
+    )
+    _validate_model_call_plan_cadences!(
+        applications,
+        scenario_plan.call_plans,
+        timeline,
+    )
     status_views = _compile_model_status_views(
         model,
         applications,
         applications_by_id,
         input_by_target,
-        application_order,
+        scenario_plan.application_order,
     )
-    call_owners = _model_call_owners(call_bindings)
-    application_children = _compile_model_application_children(
-        applications,
-        input_bindings,
-        call_owners,
-    )
-    timeline = _model_timeline(model)
     return CompiledCompositeModel(
         model,
-        _compiled_scenario_plan(
-            applications,
-            _compile_model_input_plans(applications),
-            _compile_model_call_plans(applications),
-            timeline,
-        ),
+        scenario_plan,
         applications,
         applications_by_id,
+        ordered_applications,
         _applications_by_object(applications),
         input_bindings,
         call_bindings,
@@ -194,13 +198,13 @@ function _model_graph_compiled(
         _index_dynamic_input_bindings(model, input_bindings),
         _index_dynamic_call_bindings(model, call_bindings),
         _many_input_binding_cache(model, input_bindings),
-        call_owners,
-        application_children,
+        scenario_plan.call_owners,
+        scenario_plan.application_children,
         status_views,
         Set(application.id for application in applications),
         Set(keys(status_views)),
         false,
-        application_order,
+        scenario_plan.application_order,
         model.revision,
     )
 end
@@ -412,7 +416,6 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
             applications,
             input_bindings,
             call_bindings,
-            application_order,
             diagnostics,
         )
     catch err

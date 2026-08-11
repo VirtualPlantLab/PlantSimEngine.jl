@@ -1185,7 +1185,8 @@ end
     )
     @test relation_binding.source_ids == [:plant_1]
     @test object_address(relation_binding.selector).relation == :parent
-    @test relation_input_compiled.application_order == [:plant_signal, :leaf_consumer]
+    @test relation_input_compiled.application_order ==
+          (:plant_signal, :leaf_consumer)
     run!(relation_input_scene)
     @test only(model_objects(relation_input_scene; scale=:Leaf)).status.observed_signal == 1.0
 
@@ -1920,7 +1921,7 @@ end
     @test renamed_binding.carrier_kind == :ref
     @test renamed_binding.copy_semantics == :live_references
     @test renamed_compiled.application_order ==
-          [:signal_source, :renamed_consumer]
+          (:signal_source, :renamed_consumer)
     renamed_status = only(model_objects(renamed_input_scene; scale=:Leaf)).status
     @test PlantSimEngine.refvalue(renamed_status, :renamed_signal) ===
           PlantSimEngine.refvalue(renamed_status, :signal)
@@ -2017,7 +2018,8 @@ end
     @test length(reversed_compiled.applications_by_id) == length(reversed_compiled.applications)
     @test reversed_compiled.applications_by_id[:signal_source].process == :model_object_signal_source
     @test reversed_compiled.applications_by_id[:signal_consumer].process == :model_object_signal_consumer
-    @test reversed_compiled.application_order == [:signal_source, :signal_consumer]
+    @test reversed_compiled.application_order ==
+          (:signal_source, :signal_consumer)
     @test [row.application_id for row in explain_schedule(reversed_compiled)] ==
           [:signal_source, :signal_consumer]
     @test [row.execution_index for row in explain_schedule(reversed_compiled)] == [1, 2]
@@ -2043,7 +2045,7 @@ end
     previous_value_compiled =
         Advanced.refresh_bindings!(previous_value_after_producer_scene)
     @test previous_value_compiled.application_order ==
-          [:signal_source, :lagged_consumer]
+          (:signal_source, :lagged_consumer)
     run!(previous_value_after_producer_scene; steps=3)
     previous_value_status =
         only(model_objects(previous_value_after_producer_scene; scale=:Leaf)).status
@@ -2059,6 +2061,25 @@ end
             ModelSpec(ModelObjectCycleAModel(); name=:cycle_a, on=One(scale=:Leaf)),
             ModelSpec(ModelObjectCycleBModel(); name=:cycle_b, on=One(scale=:Leaf)),
         ),
+    )
+
+    zero_target_cycle_scene = CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene);
+        applications=(
+            ModelSpec(
+                ModelObjectCycleAModel();
+                name=:cycle_a,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelObjectCycleBModel();
+                name=:cycle_b,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+    )
+    @test_throws "application dependency cycle detected" Advanced.refresh_bindings!(
+        zero_target_cycle_scene,
     )
 
     lagged_cycle_scene = CompositeModel(
@@ -2080,7 +2101,13 @@ end
         ),
     )
     lagged_cycle_compiled = Advanced.refresh_bindings!(lagged_cycle_scene)
-    @test lagged_cycle_compiled.application_order == [:cycle_a, :cycle_b]
+    @test lagged_cycle_compiled.application_order == (:cycle_a, :cycle_b)
+    lagged_cycle_plan = only(
+        plan for plan in lagged_cycle_compiled.scenario_plan.input_plans
+        if plan.application_id == :cycle_a && plan.input == :cycle_b
+    )
+    @test lagged_cycle_plan.potential_source_application_ids == (:cycle_b,)
+    @test lagged_cycle_plan.breaks_same_step_cycle
     lagged_binding = only(
         row for row in explain_bindings(lagged_cycle_compiled)
         if row.application_id == :cycle_a && row.input == :cycle_b
@@ -3084,7 +3111,8 @@ end
     )
     hard_call_order = Advanced.refresh_bindings!(hard_call_order_scene)
     @test hard_call_order.applications_by_id[:signal_caller].process == :model_object_signal_caller
-    @test hard_call_order.application_order == [:signal_source, :signal_caller, :signal_consumer]
+    @test hard_call_order.application_order ==
+          (:signal_source, :signal_caller, :signal_consumer)
     run!(hard_call_order_scene)
     hard_call_order_status = only(model_objects(hard_call_order_scene; scale=:Leaf)).status
     @test hard_call_order_status.signal == 1.0
@@ -3882,11 +3910,15 @@ end
         ),
     )
     empty_many_compiled = Advanced.refresh_bindings!(empty_many_scene)
+    empty_many_scenario_plan = empty_many_compiled.scenario_plan
     empty_many_binding = only(empty_many_compiled.input_bindings)
     @test isempty(empty_many_binding.source_ids)
     @test empty_many_binding.source_application_ids == [:leaf_signal]
     @test empty_many_compiled.application_order ==
-          [:leaf_signal, :plant_signal_total]
+          (:leaf_signal, :plant_signal_total)
+    @test only(
+        empty_many_scenario_plan.input_plans_by_application.plant_signal_total,
+    ).potential_source_application_ids == (:leaf_signal,)
     register_object!(
         empty_many_scene,
         Object(
@@ -3899,13 +3931,50 @@ end
     )
     run!(empty_many_scene)
     @test only(model_objects(empty_many_scene; scale=:Plant)).status.signal_total == 1.0
+    refreshed_empty_many_compiled = Advanced.refresh_bindings!(empty_many_scene)
+    @test refreshed_empty_many_compiled.scenario_plan ===
+          empty_many_scenario_plan
+    @test refreshed_empty_many_compiled.application_order ===
+          empty_many_compiled.application_order
     refreshed_empty_many_binding = only(
-        binding for binding in
-        Advanced.refresh_bindings!(empty_many_scene).input_bindings
+        binding for binding in refreshed_empty_many_compiled.input_bindings
         if binding.application_id == :plant_signal_total
     )
     @test refreshed_empty_many_binding.source_ids == [ObjectId(:leaf_1)]
     @test refreshed_empty_many_binding.source_application_ids == [:leaf_signal]
+
+    zero_target_writer_scene = CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene);
+        applications=(
+            ModelSpec(
+                ModelObjectSignalSourceModel();
+                name=:primary_signal,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelObjectSignalSourceModel();
+                name=:updated_signal,
+                on=Many(scale=:Leaf),
+                updates=Updates(:signal; after=:primary_signal),
+            ),
+        ),
+    )
+    zero_target_writer_compiled =
+        Advanced.refresh_bindings!(zero_target_writer_scene)
+    zero_target_writer_plan = zero_target_writer_compiled.scenario_plan
+    @test zero_target_writer_plan.application_children.primary_signal ==
+          (:updated_signal,)
+    register_object!(
+        zero_target_writer_scene,
+        Object(:leaf_1; scale=:Leaf, status=Status(signal=0.0));
+        parent=:scene,
+    )
+    refreshed_zero_target_writer =
+        Advanced.refresh_bindings!(zero_target_writer_scene)
+    @test refreshed_zero_target_writer.scenario_plan ===
+          zero_target_writer_plan
+    @test refreshed_zero_target_writer.application_children ===
+          zero_target_writer_plan.application_children
 
     initializing_growth_scene = CompositeModel(
         Object(
@@ -3931,6 +4000,20 @@ end
         ),
         environment=(duration=Hour(1),),
     )
+    initializing_growth_compiled =
+        Advanced.refresh_bindings!(initializing_growth_scene)
+    initializing_growth_plan = initializing_growth_compiled.scenario_plan
+    @test initializing_growth_plan.manual_application_ids ==
+          (:dynamic_initializer,)
+    @test only(
+        initializing_growth_plan.call_plans_by_application.initializing_growth,
+    ).potential_callee_application_ids == (:dynamic_initializer,)
+    initializing_schedule = Dict(
+        row.application_id => row
+        for row in explain_schedule(initializing_growth_compiled)
+    )
+    @test initializing_schedule[:dynamic_initializer].manual_call_only
+    @test !initializing_schedule[:initializing_growth].manual_call_only
     initializing_growth_simulation = run!(
         initializing_growth_scene;
         steps=2,
@@ -3939,6 +4022,8 @@ end
           status.initialized_signal == 7.0
     @test only(model_objects(initializing_growth_scene; scale=:Scene)).
           status.bindings_remained_dirty
+    @test initializing_growth_simulation.compiled.scenario_plan ===
+          initializing_growth_plan
     @test only(model_objects(initializing_growth_scene; scale=:Leaf)).
           status.signal == 7.0
     @test initializing_growth_simulation.compiled.revision ==
