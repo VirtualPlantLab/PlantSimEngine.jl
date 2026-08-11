@@ -268,29 +268,48 @@ lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
 
 ### Output-request targets
 
-- [ ] Stop calling `_refresh_output_request_targets!` on an unchanged topology.
-- [ ] Give output-request target state an observed topology generation or
+- [x] Stop calling `_refresh_output_request_targets!` on an unchanged topology.
+- [x] Give output-request target state an observed topology generation or
   lifecycle-event cursor.
-- [ ] Refresh request membership only when a relevant lifecycle delta exists.
+- [x] Refresh request membership only when a relevant lifecycle delta exists.
 - [ ] Preserve the history of removed objects and define explicit start/end
   membership semantics for objects that enter or leave a selector after
   reparenting.
-- [ ] Test that a long unchanged simulation performs zero output-selector
+- [x] Test that a long unchanged simulation performs zero output-selector
   resolutions after initialization.
 - [ ] Test additions, removals, reparenting, continuation, and collection of
   historical intervals.
 
 ### Scheduler traversal
 
-- [ ] Evaluate cadence once per application execution group, not once per
+- [x] Evaluate cadence once per application execution group, not once per
   heterogeneous batch.
 - [ ] Replace the four-condition dirty check after each application with one
   safe mutation-generation comparison or an equivalent single cheap signal.
 - [ ] Preserve immediate refresh after an application mutates structure.
 - [ ] Preserve the rule that newly activated applications may run only if they
   remain later in the current timestep.
-- [ ] Add allocation and visit-count gates for an unchanged timestep.
-- [ ] Commit these steady-state removals as one validated slice.
+- [x] Add allocation and visit-count gates for an unchanged timestep.
+- [x] Commit these steady-state removals as one validated slice.
+
+### First steady-state cleanup result (2026-08-11)
+
+An observed model revision now gates output-request target refresh, and the
+root scheduler evaluates cadence before entering an application's batches.
+Using the identical baseline workload and 10-sample method:
+
+| Output policy | Median total | Median per step | Allocations | Allocated bytes | Baseline speedup |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `outputs=:none` | 1.692 ms | 35.247 us | 1,712 | 90,080 | 1.01x |
+| one explicit request | 2.820 ms | 58.746 us | 88,752 | 4,878,304 | 3.36x |
+| `outputs=:all` | 2.604 ms | 54.247 us | 88,766 | 4,879,072 | 1.09x |
+
+Across 49 total steps, the scheduler still considered 98 application groups,
+but entered only 52 due groups/batches and 12,547 due targets instead of
+counting all 12,593 nominal targets. Unchanged output-request target refreshes
+and selector resolutions both fell from 51 to zero. Registering one new leaf
+then caused exactly one incremental object check, and its requested output
+began at the lifecycle entry step.
 
 ## Phase 3: Compile A Truly Immutable Scenario Plan
 

@@ -483,6 +483,7 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     temporal_streams::TS
     output_requests::R
     output_request_targets::RT
+    output_request_model_revision::Int
     current_step::Int
     constants::C
     performance::P
@@ -1993,7 +1994,6 @@ end
     temporal_streams,
     output_retention,
 )
-    _model_application_should_run(batch.application, time) || return nothing
     shared_environment = _model_execution_batch_environment(
         batch.environment_provider,
         env_bindings,
@@ -2126,7 +2126,6 @@ function _run_model_execution_batch_profiled!(
     output_retention,
     performance::RuntimePerformanceCounters,
 )
-    _model_application_should_run(batch.application, time) || return nothing
     started_at = _runtime_performance_start(performance)
     shared_environment = _model_execution_batch_environment(
         batch.environment_provider,
@@ -2241,6 +2240,7 @@ function _run_model_execution_batch!(
     temporal_streams=nothing,
     output_retention=nothing,
 )
+    _model_application_should_run(batch.application, time) || return nothing
     return _run_model_execution_batch!(
         batch,
         compiled,
@@ -4889,6 +4889,14 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             group_index += 1
             continue
         end
+        _runtime_performance_count!(
+            simulation.performance,
+            :application_groups_considered,
+        )
+        if !_model_application_should_run(group.application, step)
+            group_index += 1
+            continue
+        end
         for batch in group.batches
             if isnothing(simulation.performance)
                 _run_model_execution_batch!(
@@ -5024,6 +5032,13 @@ function _initial_output_request_targets(model, compiled, output_requests)
 end
 
 function _refresh_output_request_targets!(simulation::Simulation, added_object_ids=nothing)
+    current_revision = model_revision(simulation.model)
+    simulation.output_request_model_revision == current_revision &&
+        return simulation
+    if isempty(simulation.output_requests)
+        simulation.output_request_model_revision = current_revision
+        return simulation
+    end
     started_at = _runtime_performance_start(simulation.performance)
     _runtime_performance_count!(
         simulation.performance,
@@ -5092,6 +5107,7 @@ function _refresh_output_request_targets!(simulation::Simulation, added_object_i
         :output_request_target_refresh,
         started_at,
     )
+    simulation.output_request_model_revision = current_revision
     return simulation
 end
 
@@ -5225,6 +5241,7 @@ function run!(
         temporal_streams,
         output_requests,
         output_request_targets,
+        model_revision(model),
         0,
         constants,
         performance_counters,

@@ -143,11 +143,46 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
             performance =
                 PlantSimEngine.Advanced.runtime_performance(simulation)
             @test performance.counts[:steps_executed] == 49
-            @test performance.counts[:output_request_target_refreshes] == 51
+            @test performance.counts[:application_groups_considered] == 98
+            @test performance.counts[:application_groups_visited] == 52
+            @test performance.counts[:execution_batches_visited] == 52
+            @test performance.counts[:execution_targets_visited] == 199
+            @test !haskey(
+                performance.counts,
+                :output_request_target_refreshes,
+            )
             if output_policy === :requests
-                @test performance.counts[:output_request_selector_resolutions] ==
-                      51
+                @test !haskey(
+                    performance.counts,
+                    :output_request_selector_resolutions,
+                )
                 @test !isempty(collect_outputs(simulation; sink=nothing))
+
+                register_object!(
+                    simulation.model,
+                    Object(:leaf_5; scale=:Leaf, kind=:leaf, parent=:plant),
+                )
+                continue!(simulation)
+                lifecycle_performance =
+                    PlantSimEngine.Advanced.runtime_performance(simulation)
+                @test lifecycle_performance.counts[
+                    :output_request_target_refreshes
+                ] == 1
+                @test lifecycle_performance.counts[
+                    :output_request_incremental_object_checks
+                ] == 1
+                @test !haskey(
+                    lifecycle_performance.counts,
+                    :output_request_selector_resolutions,
+                )
+                @test count(
+                    row -> row.object_id == :leaf_5,
+                    collect_outputs(
+                        simulation,
+                        :leaf_signal;
+                        sink=nothing,
+                    ),
+                ) == 1
             else
                 @test !haskey(
                     performance.counts,
