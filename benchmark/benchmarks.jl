@@ -107,8 +107,28 @@ if INCLUDE_DOWNSTREAM_BENCHMARKS &&
    SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
     # "PBP benchmark"
     include(joinpath(@__DIR__, "test-plantbiophysics.jl"))
-    SUITE[suite_name]["PBP"] = @benchmarkable benchmark_plantbiophysics()
-    SUITE[suite_name]["PBP_batch_run"] =
+    const PLANTBIOPHYSICS_PR_BENCHMARK_STEPS = 100
+    SUITE[suite_name]["PBP_multistep_no_outputs"] =
+        @benchmarkable benchmark_plantbiophysics_multistep(
+            model,
+            nsteps;
+            outputs=:none,
+        ) setup = ((model, nsteps) = setup_plantbiophysics_multistep(
+            nsteps=PLANTBIOPHYSICS_PR_BENCHMARK_STEPS,
+        ))
+    SUITE[suite_name]["PBP_multistep_all_outputs"] =
+        @benchmarkable benchmark_plantbiophysics_multistep(
+            model,
+            nsteps;
+            outputs=:all,
+        ) setup = ((model, nsteps) = setup_plantbiophysics_multistep(
+            nsteps=PLANTBIOPHYSICS_PR_BENCHMARK_STEPS,
+        ))
+    SUITE[suite_name]["PBP_construction"] =
+        @benchmarkable setup_plantbiophysics_multistep(
+            nsteps=PLANTBIOPHYSICS_PR_BENCHMARK_STEPS,
+        )
+    SUITE[suite_name]["PBP_one_step_fanout"] =
         @benchmarkable benchmark_plantbiophysics_batch(
             scenes,
         ) setup = (scenes = setup_benchmark_plantbiophysics_batch())

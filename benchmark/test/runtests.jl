@@ -240,6 +240,82 @@ if benchmark_test_enabled("PlantBiophysics benchmark API smoke")
         include(joinpath(@__DIR__, "..", "test-plantbiophysics.jl"))
         scenes = setup_benchmark_plantbiophysics_batch(; n=2)
         @test isnothing(benchmark_plantbiophysics_batch(scenes))
+        model, nsteps = setup_plantbiophysics_multistep(; nsteps=2)
+        simulation = benchmark_plantbiophysics_multistep(
+            model,
+            nsteps;
+            outputs=:none,
+        )
+        @test current_step(simulation) == nsteps
+        records = run_plantbiophysics_performance_profile(;
+            nsteps=2,
+            fanout_scenes=2,
+            samples=2,
+        )
+        @test Set(record.stage for record in records) ==
+              Set([
+            "steady_state_no_retention",
+            "steady_state_retain_all",
+            "construction_only",
+            "one_step_fanout",
+        ])
+        steady_records = filter(
+            record -> record.scope == "one_setup_many_timesteps",
+            records,
+        )
+        @test length(steady_records) == 2
+        @test all(record.nscenes == 1 for record in steady_records)
+        @test all(record.nsteps_per_scene == 2 for record in steady_records)
+        @test all(record.total_model_steps == 2 for record in steady_records)
+        @test all(record.samples == 2 for record in records)
+        @test all(record.minimum_time_ns > 0 for record in records)
+    end
+end
+
+if !isnothing(BENCHMARK_TEST_PATTERN) &&
+   benchmark_test_enabled("PlantBiophysics benchmark performance")
+    @testset "PlantBiophysics benchmark performance" begin
+        isdefined(@__MODULE__, :run_plantbiophysics_performance_profile) ||
+            include(joinpath(@__DIR__, "..", "test-plantbiophysics.jl"))
+        output_path = get(
+            ENV,
+            "PSE_PLANTBIOPHYSICS_BENCHMARK_OUTPUT",
+            joinpath(
+                @__DIR__,
+                "..",
+                "results",
+                "plantbiophysics-full-latest.csv",
+            ),
+        )
+        samples = parse(
+            Int,
+            get(ENV, "PSE_PLANTBIOPHYSICS_BENCHMARK_SAMPLES", "10"),
+        )
+        nsteps = parse(
+            Int,
+            get(ENV, "PSE_PLANTBIOPHYSICS_BENCHMARK_STEPS", "8760"),
+        )
+        fanout_scenes = parse(
+            Int,
+            get(ENV, "PSE_PLANTBIOPHYSICS_FANOUT_SCENES", "100"),
+        )
+        records = write_plantbiophysics_performance_profile(
+            output_path;
+            nsteps=nsteps,
+            fanout_scenes=fanout_scenes,
+            samples=samples,
+        )
+        @test isfile(output_path)
+        @test length(records) == 4
+        @test only(
+            record.nsteps_per_scene for record in records
+            if record.stage == "steady_state_no_retention"
+        ) == nsteps
+        @test only(
+            record.nscenes for record in records
+            if record.stage == "one_step_fanout"
+        ) == fanout_scenes
+        @test all(record.samples == samples for record in records)
     end
 end
 
@@ -347,6 +423,10 @@ if !isnothing(BENCHMARK_TEST_PATTERN) &&
             "PSE_lifecycle_immediate_hard_call",
         )
         @test haskey(suite, "PSE_multirate_no_output_run")
+        @test haskey(suite, "PBP_multistep_no_outputs")
+        @test haskey(suite, "PBP_multistep_all_outputs")
+        @test haskey(suite, "PBP_construction")
+        @test haskey(suite, "PBP_one_step_fanout")
         @test haskey(suite, "XPalm_small_outputs_100")
         @test haskey(suite, "XPalm_all_outputs_100")
     end

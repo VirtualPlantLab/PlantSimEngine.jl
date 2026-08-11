@@ -5,7 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       full_performance:
-        description: Run the complete XPalm performance workflow
+        description: Run the complete downstream performance workflow
         required: false
         default: false
         type: boolean

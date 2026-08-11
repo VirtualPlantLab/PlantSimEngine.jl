@@ -1,4 +1,4 @@
-name: Full XPalm performance
+name: Full downstream performance
 
 on:
   schedule:
@@ -45,18 +45,21 @@ permissions:
   contents: read
 
 concurrency:
-  group: full-xpalm-performance-${{ github.ref }}
+  group: full-downstream-performance-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  full-xpalm-performance:
-    name: XPalm full cycle
+  full-downstream-performance:
+    name: PlantBiophysics and XPalm
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       JULIA_NUM_THREADS: "1"
       JULIA_PKG_PRECOMPILE_AUTO: "0"
       PSE_BENCHMARK_INCLUDE_DOWNSTREAM: "true"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_STEPS: "8760"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_SAMPLES: "10"
+      PSE_PLANTBIOPHYSICS_FANOUT_SCENES: "100"
     steps:
       - name: Check out PlantSimEngine
         uses: actions/checkout@v6
@@ -111,6 +114,12 @@ jobs:
           Pkg.instantiate()
           Pkg.precompile()
 
+      - name: Run the PlantBiophysics API and performance benchmark
+        run: >-
+          julia --project=benchmark --color=yes
+          benchmark/test/runtests.jl
+          "PlantBiophysics benchmark (API smoke|performance)"
+
       - name: Run the complete XPalm performance and correctness matrix
         run: >-
           julia --project=benchmark --color=yes
@@ -121,8 +130,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: xpalm-full-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          name: downstream-full-performance-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            benchmark/results/plantbiophysics-full-latest.csv
             benchmark/results/xpalm-full-latest.csv
             benchmark/Manifest.toml
           if-no-files-found: warn
