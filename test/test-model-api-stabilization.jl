@@ -744,9 +744,12 @@ end
     scenario_plan = compiled.scenario_plan
     application = only(compiled.applications)
     application_plan = application.plan
+    application_schedule = scenario_plan.application_schedule
 
     @test !ismutabletype(typeof(scenario_plan))
     @test !ismutabletype(typeof(application_plan))
+    @test !ismutabletype(typeof(application_schedule))
+    @test !ismutabletype(typeof(only(application_schedule.entries)))
     @test ismutabletype(typeof(application))
     @test isconst(typeof(application), :plan)
     @test compiled.applications_by_id isa NamedTuple
@@ -755,6 +758,8 @@ end
     @test scenario_plan.manual_application_ids == ()
     @test scenario_plan.application_order == (:leaf_source,)
     @test scenario_plan.ordered_application_plans == (application_plan,)
+    @test only(application_schedule.entries).application_id == :leaf_source
+    @test only(application_schedule.entries).kind == :always
     @test compiled.ordered_applications == (application,)
     @test fieldnames(typeof(application)) == (:plan, :target_ids)
     @test only(scenario_plan.applications) === application_plan
@@ -767,6 +772,7 @@ end
     register_object!(model, Object(:leaf; scale=:Leaf, parent=:plant))
     added = Advanced.refresh_bindings!(model)
     @test added.scenario_plan === scenario_plan
+    @test added.scenario_plan.application_schedule === application_schedule
     @test only(added.applications).plan === application_plan
     @test only(added.applications).target_ids == ObjectId[ObjectId(:leaf)]
     @test only(explain_applications(added)).current_target_count == 1
@@ -774,6 +780,7 @@ end
     remove_object!(model, :leaf)
     removed = Advanced.refresh_bindings!(model)
     @test removed.scenario_plan === scenario_plan
+    @test removed.scenario_plan.application_schedule === application_schedule
     @test only(removed.applications).plan === application_plan
     @test isempty(only(removed.applications).target_ids)
     @test only(explain_applications(removed)).current_target_count == 0

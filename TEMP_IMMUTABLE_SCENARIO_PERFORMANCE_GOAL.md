@@ -422,21 +422,68 @@ runs required later in the goal.
 
 ## Phase 4: Compile An Event-Driven Multirate Schedule
 
-- [ ] Compile immutable clock/cadence definitions into a schedule that selects
+- [x] Compile immutable clock/cadence definitions into a schedule that selects
   only applications due at the current base step.
-- [ ] Use a schedule wheel, next-due-step table, or another allocation-free
+- [x] Use a schedule wheel, next-due-step table, or another allocation-free
   design appropriate for the supported clock representation.
-- [ ] Preserve stable topological order among applications due on the same
+- [x] Preserve stable topological order among applications due on the same
   timestep.
-- [ ] Preserve phase semantics and Dates-based duration conversion.
-- [ ] Ensure a lifecycle refresh changes current target buffers without
+- [x] Preserve phase semantics and Dates-based duration conversion.
+- [x] Ensure a lifecycle refresh changes current target buffers without
   rebuilding cadence definitions.
-- [ ] Ensure a newly activated application runs in the current timestep only
+- [x] Ensure a newly activated application runs in the current timestep only
   when it is due and remains after the mutation barrier.
-- [ ] Add visit-count tests proving that non-due application groups and their
+- [x] Add visit-count tests proving that non-due application groups and their
   batches are not traversed.
-- [ ] Benchmark many small applications at several cadences.
-- [ ] Commit the event-driven scheduler as a coherent slice.
+- [x] Benchmark many small applications at several cadences.
+- [x] Commit the event-driven scheduler as a coherent slice.
+
+### Event-driven scheduler implementation (2026-08-12)
+
+`CompiledScenarioPlan.application_schedule` now stores immutable root cadence
+entries in stable topological order. Applications with `dt <= 1` use an
+always-due list, exact integer clocks use a reusable next-due-step table and
+binary min-heap, and general real-valued clocks retain the prior modulo and
+phase semantics through a generic fallback. The due-index buffer, periodic
+heap, and topological-order restoration are allocation-free after schedule
+initialization. Manual-call-only applications remain outside the root
+schedule.
+
+`CompiledExecutionPlan` holds only the mutable schedule cursor and a dense
+application-slot-to-current-group table. Lifecycle refresh reuses the exact
+schedule cursor while replacing or updating current target groups. The root
+loop traverses only due application slots; a due slot with no current targets
+costs one slot lookup and does not traverse an execution group or batch.
+Within-step growth can activate a due application later in topological order,
+while an application whose mutation barrier has already passed waits for its
+next due timestep. Output-request membership boundaries use that same static
+barrier prefix.
+
+Diagnostics now report `schedule_entry_index`, `schedule_kind`, integer period
+and phase when applicable, and whether dispatch is event-driven. Performance
+counters distinguish initial schedule-entry compilation, schedule dispatches,
+due entries, generic-clock checks, and visited execution groups. On the
+existing 49-step immutable-scenario smoke, considered groups fell from 98 to
+52 while due groups, batches, 199 target visits, and final results remained
+unchanged.
+
+A 5-sample warmed, uninstrumented benchmark with setup excluded and one
+evaluation per sample used 64 one-target applications cycling through 1, 2, 3,
+4, 6, 8, 12, and 24-hour cadences over 240 steps. The complete continuation
+had an 89.100 ms median, 33,228 allocations, and 134,139,968 allocated bytes.
+The scheduler selected 4,800 due application visits rather than scanning
+15,360 execution groups. A direct warmed measurement of the due-index selector
+itself reported zero allocations on every tested step.
+
+Pre-commit validation passed 1,422 focused assertions: application/API
+stabilization 408, hard calls 88, multirate integration 42, time validation 13,
+output boundaries 20, `PreviousTimeStep` views 60, environment sampling 15,
+temporal reducers 10, runtime matrix 10, numerical parity 23, unified
+model/object behavior 679, and immutable-scenario benchmark API smoke 54. The
+unified lifecycle expectation was deliberately updated so an application
+before the mutation barrier runs on the next timestep rather than rewinding
+the current step. Exact-integer heap dispatch was additionally checked against
+the prior clock predicate for periods 2 through 12 and phases -24 through 24.
 
 ## Phase 5: Introduce A Shared Lifecycle Delta
 

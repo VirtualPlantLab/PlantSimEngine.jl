@@ -467,11 +467,172 @@ struct CompiledApplicationExecutionGroup{A,B}
     batches::B
 end
 
-struct CompiledExecutionPlan{G,B}
+mutable struct RuntimeApplicationSchedule
+    next_due_steps::Vector{Int}
+    heap::Vector{Int}
+    due_entry_indices::Vector{Int}
+    last_step::Int
+end
+
+struct CompiledExecutionPlan{G,B,I,S}
     groups::G
     batches::B
+    groups_by_application_slot::I
+    schedule::S
     model_revision::Int
     environment_revision::Int
+end
+
+function _periodic_schedule_due_on_or_after(
+    entry::CompiledApplicationScheduleEntry,
+    first_step::Int,
+)
+    period_steps = something(entry.period_steps)
+    phase_step = something(entry.phase_step)
+    offset = mod(
+        mod(phase_step, period_steps) - mod(first_step, period_steps),
+        period_steps,
+    )
+    first_step > typemax(Int) - offset && return typemax(Int)
+    return first_step + offset
+end
+
+@inline function _schedule_heap_isless(
+    schedule::RuntimeApplicationSchedule,
+    left::Int,
+    right::Int,
+)
+    left_due = schedule.next_due_steps[left]
+    right_due = schedule.next_due_steps[right]
+    return left_due < right_due || (left_due == right_due && left < right)
+end
+
+function _schedule_heap_push!(
+    schedule::RuntimeApplicationSchedule,
+    entry_index::Int,
+)
+    heap = schedule.heap
+    push!(heap, entry_index)
+    child = length(heap)
+    while child > 1
+        parent = child >>> 1
+        _schedule_heap_isless(schedule, heap[child], heap[parent]) || break
+        heap[child], heap[parent] = heap[parent], heap[child]
+        child = parent
+    end
+    return schedule
+end
+
+function _schedule_heap_pop!(schedule::RuntimeApplicationSchedule)
+    heap = schedule.heap
+    root = first(heap)
+    tail = pop!(heap)
+    isempty(heap) && return root
+    heap[1] = tail
+    parent = 1
+    while true
+        left = parent << 1
+        left > length(heap) && break
+        right = left + 1
+        child = right <= length(heap) &&
+                _schedule_heap_isless(schedule, heap[right], heap[left]) ?
+                right : left
+        _schedule_heap_isless(schedule, heap[child], heap[parent]) || break
+        heap[parent], heap[child] = heap[child], heap[parent]
+        parent = child
+    end
+    return root
+end
+
+function _runtime_application_schedule(
+    plan::CompiledApplicationSchedule;
+    after_step::Int=0,
+)
+    entry_count = length(plan.entries)
+    schedule = RuntimeApplicationSchedule(
+        fill(typemax(Int), entry_count),
+        Int[],
+        Int[],
+        after_step,
+    )
+    sizehint!(schedule.heap, length(plan.periodic_entry_indices))
+    sizehint!(schedule.due_entry_indices, entry_count)
+    first_step = after_step == typemax(Int) ? after_step : after_step + 1
+    for entry_index in plan.periodic_entry_indices
+        schedule.next_due_steps[entry_index] =
+            _periodic_schedule_due_on_or_after(
+                plan.entries[entry_index],
+                first_step,
+            )
+        _schedule_heap_push!(schedule, entry_index)
+    end
+    return schedule
+end
+
+@inline function _generic_schedule_entry_is_due(
+    entry::CompiledApplicationScheduleEntry,
+    step::Int,
+)
+    return isapprox(
+        mod(float(step) - entry.phase, entry.dt),
+        0.0;
+        atol=1.0e-8,
+        rtol=0.0,
+    )
+end
+
+function _due_application_schedule_entries!(
+    schedule::RuntimeApplicationSchedule,
+    plan::CompiledApplicationSchedule,
+    step::Int,
+)
+    step > schedule.last_step || error(
+        "Application schedule expected a step after $(schedule.last_step), got $(step).",
+    )
+    due = schedule.due_entry_indices
+    empty!(due)
+    for entry_index in plan.always_entry_indices
+        push!(due, entry_index)
+    end
+    while !isempty(schedule.heap)
+        entry_index = first(schedule.heap)
+        schedule.next_due_steps[entry_index] <= step || break
+        _schedule_heap_pop!(schedule)
+        entry = plan.entries[entry_index]
+        candidate = schedule.next_due_steps[entry_index]
+        candidate < step &&
+            (candidate = _periodic_schedule_due_on_or_after(entry, step))
+        if candidate == step
+            push!(due, entry_index)
+            candidate = step == typemax(Int) ?
+                        typemax(Int) :
+                        _periodic_schedule_due_on_or_after(entry, step + 1)
+        end
+        schedule.next_due_steps[entry_index] = candidate
+        candidate == typemax(Int) ||
+            _schedule_heap_push!(schedule, entry_index)
+    end
+    for entry_index in plan.generic_entry_indices
+        _generic_schedule_entry_is_due(plan.entries[entry_index], step) &&
+            push!(due, entry_index)
+    end
+    sort!(due)
+    schedule.last_step = step
+    return due
+end
+
+function _execution_groups_by_application_slot(groups, application_count::Int)
+    groups_by_slot = fill!(
+        Vector{Union{Nothing,CompiledApplicationExecutionGroup}}(
+            undef,
+            application_count,
+        ),
+        nothing,
+    )
+    for group in groups
+        groups_by_slot[group.application.slot] = group
+    end
+    return groups_by_slot
 end
 
 """
@@ -2657,9 +2818,14 @@ function compile_model_execution_plan(
             ),
         )
     end
+    application_count = length(compiled.scenario_plan.applications)
     return CompiledExecutionPlan(
         groups,
         batches,
+        _execution_groups_by_application_slot(groups, application_count),
+        _runtime_application_schedule(
+            compiled.scenario_plan.application_schedule,
+        ),
         compiled.revision,
         env_bindings.environment_revision,
     )
@@ -3166,6 +3332,11 @@ function _refresh_model_execution_plan(
         plan=CompiledExecutionPlan(
             groups,
             batches,
+            _execution_groups_by_application_slot(
+                groups,
+                length(compiled.scenario_plan.applications),
+            ),
+            previous.schedule,
             compiled.revision,
             env_bindings.environment_revision,
         ),
@@ -4873,30 +5044,56 @@ function _simulation_runtime_dirty(simulation::Simulation)
     return simulation.runtime_revision != simulation.model.runtime_revision
 end
 
+function _mark_schedule_prefix_completed!(
+    completed_applications::Set{Symbol},
+    schedule_plan::CompiledApplicationSchedule,
+    first_entry::Int,
+    last_entry::Int,
+)
+    for entry_index in first_entry:last_entry
+        push!(
+            completed_applications,
+            schedule_plan.entries[entry_index].application_id,
+        )
+    end
+    return completed_applications
+end
+
 function _run_model_execution_step!(simulation::Simulation, step::Integer)
     started_at = _runtime_performance_start(simulation.performance)
     empty!(simulation.environment_bindings.sample_cache)
-    groups = simulation.execution_plan.groups
-    group_index = firstindex(groups)
+    schedule_plan = simulation.compiled.scenario_plan.application_schedule
+    due_entry_indices = _due_application_schedule_entries!(
+        simulation.execution_plan.schedule,
+        schedule_plan,
+        Int(step),
+    )
+    _runtime_performance_count!(
+        simulation.performance,
+        :application_schedule_dispatches,
+    )
+    _runtime_performance_count!(
+        simulation.performance,
+        :application_schedule_entries_due,
+        length(due_entry_indices),
+    )
+    _runtime_performance_count!(
+        simulation.performance,
+        :application_schedule_generic_checks,
+        length(schedule_plan.generic_entry_indices),
+    )
     completed_applications = nothing
-    while group_index <= length(groups)
-        group = groups[group_index]
-        # A refresh can insert a newly activated group before applications
-        # that already ran. Skip every completed group, not only the prefix
-        # used to choose the first resume point.
-        if !isnothing(completed_applications) &&
-           group.application.id in completed_applications
-            group_index += 1
-            continue
-        end
+    completed_schedule_entry = 0
+    for entry_index in due_entry_indices
+        schedule_entry = schedule_plan.entries[entry_index]
+        group = simulation.execution_plan.groups_by_application_slot[
+            schedule_entry.application_slot
+        ]
+        isnothing(group) && continue
         _runtime_performance_count!(
             simulation.performance,
             :application_groups_considered,
         )
-        if !_model_application_should_run(group.application, step)
-            group_index += 1
-            continue
-        end
         for batch in group.batches
             if isnothing(simulation.performance)
                 _run_model_execution_batch!(
@@ -4936,17 +5133,24 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
         )
 
         if !isnothing(completed_applications)
-            push!(completed_applications, group.application.id)
-        end
-        if !_simulation_runtime_dirty(simulation)
-            group_index += 1
-            continue
-        end
-        if isnothing(completed_applications)
-            completed_applications = Set(
-                groups[index].application.id
-                for index in firstindex(groups):group_index
+            _mark_schedule_prefix_completed!(
+                completed_applications,
+                schedule_plan,
+                completed_schedule_entry + 1,
+                entry_index,
             )
+            completed_schedule_entry = entry_index
+        end
+        _simulation_runtime_dirty(simulation) || continue
+        if isnothing(completed_applications)
+            completed_applications = Set{Symbol}()
+            _mark_schedule_prefix_completed!(
+                completed_applications,
+                schedule_plan,
+                firstindex(schedule_plan.entries),
+                entry_index,
+            )
+            completed_schedule_entry = entry_index
         end
         added_object_ids =
             _incremental_output_request_object_ids(simulation.model)
@@ -4957,14 +5161,6 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             completed_applications,
         )
         empty!(simulation.environment_bindings.sample_cache)
-        groups = simulation.execution_plan.groups
-        next_group = findfirst(
-            candidate ->
-                !(candidate.application.id in completed_applications),
-            groups,
-        )
-        isnothing(next_group) && break
-        group_index = next_group
     end
     _runtime_performance_finish!(
         simulation.performance,
@@ -5217,6 +5413,11 @@ function run!(
         performance_counters,
         :initial_application_plans_compiled,
         length(compiled.scenario_plan.applications),
+    )
+    _runtime_performance_count!(
+        performance_counters,
+        :initial_application_schedule_entries_compiled,
+        length(compiled.scenario_plan.application_schedule.entries),
     )
     _runtime_performance_count!(
         performance_counters,

@@ -4048,16 +4048,21 @@ end
         ),
         environment=(duration=Hour(1),),
     )
-    run!(lifecycle_resume_scene; steps=1)
+    lifecycle_resume_simulation = run!(lifecycle_resume_scene; steps=1)
     @test only(model_objects(lifecycle_resume_scene; scale=:Scene)).
           status.execution_count == 1
     @test only(model_objects(lifecycle_resume_scene; scale=:Leaf)).
-          status.signal == 1.0
+          status.signal == 0.0
     @test Set(object_ids(lifecycle_resume_scene)) ==
           Set([
         ObjectId(:scene),
         ObjectId(:first_growth_leaf),
     ])
+    continue!(lifecycle_resume_simulation; steps=1)
+    @test only(model_objects(lifecycle_resume_scene; scale=:Scene)).
+          status.execution_count == 2
+    @test only(model_objects(lifecycle_resume_scene; scale=:Leaf)).
+          status.signal == 1.0
 
     lifecycle_scene = CompositeModel(
         Object(

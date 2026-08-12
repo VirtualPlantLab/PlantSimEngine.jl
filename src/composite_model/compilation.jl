@@ -98,11 +98,94 @@ end
 
 _compiled_call_name(::CompiledModelCallPlan{NAME}) where {NAME} = NAME
 
+"""One immutable root-scheduler rule in stable topological order."""
+struct CompiledApplicationScheduleEntry
+    slot::Int
+    application_slot::Int
+    application_id::Symbol
+    dt::Float64
+    phase::Float64
+    kind::Symbol
+    period_steps::Union{Nothing,Int}
+    phase_step::Union{Nothing,Int}
+end
+
+"""Immutable cadence definitions for root-scheduled applications."""
+struct CompiledApplicationSchedule{E,A,P,G}
+    entries::E
+    always_entry_indices::A
+    periodic_entry_indices::P
+    generic_entry_indices::G
+end
+
+function _exact_schedule_integer(value::Float64)
+    isfinite(value) && isinteger(value) || return nothing
+    return try
+        Int(value)
+    catch
+        nothing
+    end
+end
+
+function _compiled_application_schedule(
+    applications_by_id,
+    application_order,
+    manual_application_ids,
+)
+    entries = CompiledApplicationScheduleEntry[]
+    always_entry_indices = Int[]
+    periodic_entry_indices = Int[]
+    generic_entry_indices = Int[]
+    for application_id in application_order
+        application_id in manual_application_ids && continue
+        application = applications_by_id[application_id]
+        dt = float(application.clock.dt)
+        phase = float(application.clock.phase)
+        dt > 0.0 || error("Clock interval must be positive, got $(dt).")
+        period_steps = _exact_schedule_integer(dt)
+        phase_step = _exact_schedule_integer(phase)
+        kind = if dt <= 1.0
+            :always
+        elseif !isnothing(period_steps) && !isnothing(phase_step)
+            :periodic_integer
+        else
+            :generic
+        end
+        push!(
+            entries,
+            CompiledApplicationScheduleEntry(
+                length(entries) + 1,
+                application.slot,
+                application.id,
+                dt,
+                phase,
+                kind,
+                kind === :periodic_integer ? period_steps : nothing,
+                kind === :periodic_integer ? phase_step : nothing,
+            ),
+        )
+        entry_indices = if kind === :always
+            always_entry_indices
+        elseif kind === :periodic_integer
+            periodic_entry_indices
+        else
+            generic_entry_indices
+        end
+        push!(entry_indices, length(entries))
+    end
+    return CompiledApplicationSchedule(
+        Tuple(entries),
+        Tuple(always_entry_indices),
+        Tuple(periodic_entry_indices),
+        Tuple(generic_entry_indices),
+    )
+end
+
 """
 Immutable application, dependency-declaration, and timeline metadata shared by
 every lifecycle refresh of a compiled scenario.
 """
-struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,TL}
+struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,AS,TL}
     applications::AP
     applications_by_id::AI
     input_plans::IP
@@ -114,6 +197,7 @@ struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,TL}
     application_children::AC
     application_order::AO
     ordered_application_plans::OAP
+    application_schedule::AS
     timeline::TL
 end
 
@@ -314,6 +398,11 @@ function _compiled_scenario_plan(applications, input_plans, call_plans, timeline
         application_children,
     )
     application_plans_by_id = NamedTuple{application_ids}(application_plans)
+    application_schedule = _compiled_application_schedule(
+        application_plans_by_id,
+        application_order,
+        manual_application_ids,
+    )
     return CompiledScenarioPlan(
         application_plans,
         application_plans_by_id,
@@ -329,6 +418,7 @@ function _compiled_scenario_plan(applications, input_plans, call_plans, timeline
             application_plans_by_id[application_id]
             for application_id in application_order
         ),
+        application_schedule,
         timeline,
     )
 end
@@ -3816,7 +3906,12 @@ function explain_schedule(compiled::CompiledCompositeModel)
     timeline = compiled.scenario_plan.timeline
     manual_application_ids = _manual_call_application_ids(compiled)
     execution_positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
+    schedule_entries = Dict(
+        entry.application_id => entry
+        for entry in compiled.scenario_plan.application_schedule.entries
+    )
     return [
+        let entry = get(schedule_entries, application.id, nothing)
         (
             application_id=application.id,
             process=application.process,
@@ -3829,7 +3924,13 @@ function explain_schedule(compiled::CompiledCompositeModel)
             target_ids=[id.value for id in application.target_ids],
             root_scheduled=!(application.id in manual_application_ids),
             manual_call_only=application.id in manual_application_ids,
+            schedule_entry_index=isnothing(entry) ? nothing : entry.slot,
+            schedule_kind=isnothing(entry) ? :manual_call_only : entry.kind,
+            period_steps=isnothing(entry) ? nothing : entry.period_steps,
+            phase_step=isnothing(entry) ? nothing : entry.phase_step,
+            event_driven=!isnothing(entry) && entry.kind !== :generic,
         )
+        end
         for application in _ordered_model_applications(compiled)
     ]
 end

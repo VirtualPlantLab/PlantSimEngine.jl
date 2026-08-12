@@ -75,6 +75,12 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
                 output_policy=$output_policy,
             )) evals = 1
     end
+    SUITE[suite_name]["PSE_many_cadence_schedule"] =
+        @benchmarkable benchmark_many_cadence_schedule(
+            simulation,
+            nsteps,
+        ) setup = ((simulation, nsteps) =
+            setup_many_cadence_schedule_benchmark()) evals = 1
 
     include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
     for usage in (:zero, :sparse, :dense)

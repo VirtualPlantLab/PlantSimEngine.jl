@@ -143,7 +143,13 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
             performance =
                 PlantSimEngine.Advanced.runtime_performance(simulation)
             @test performance.counts[:steps_executed] == 49
-            @test performance.counts[:application_groups_considered] == 98
+            @test performance.counts[
+                :initial_application_schedule_entries_compiled
+            ] == 2
+            @test performance.counts[:application_schedule_dispatches] == 49
+            @test performance.counts[:application_schedule_entries_due] == 52
+            @test performance.counts[:application_schedule_generic_checks] == 0
+            @test performance.counts[:application_groups_considered] == 52
             @test performance.counts[:application_groups_visited] == 52
             @test performance.counts[:execution_batches_visited] == 52
             @test performance.counts[:execution_targets_visited] == 199
@@ -191,6 +197,29 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
                 )
             end
         end
+
+        cadence_simulation, cadence_steps =
+            setup_many_cadence_schedule_benchmark(;
+                napplications=8,
+                nsteps=24,
+                performance=true,
+            )
+        benchmark_many_cadence_schedule(
+            cadence_simulation,
+            cadence_steps,
+        )
+        cadence_performance =
+            PlantSimEngine.Advanced.runtime_performance(cadence_simulation)
+        @test current_step(cadence_simulation) == 24
+        @test cadence_performance.counts[:application_schedule_dispatches] == 24
+        @test cadence_performance.counts[:application_schedule_entries_due] == 60
+        @test cadence_performance.counts[:application_groups_considered] == 60
+        @test cadence_performance.counts[:application_groups_visited] == 60
+        @test cadence_performance.counts[:execution_batches_visited] == 60
+        @test sum(
+            object.status.signal
+            for object in model_objects(cadence_simulation.model)
+        ) == 60.0
     end
 end
 

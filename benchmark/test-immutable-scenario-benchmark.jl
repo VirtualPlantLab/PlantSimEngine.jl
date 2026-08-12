@@ -115,3 +115,47 @@ function benchmark_immutable_scenario_steps(simulation, nsteps::Int)
     nsteps >= 0 || throw(ArgumentError("`nsteps` must be non-negative."))
     return continue!(simulation; steps=nsteps)
 end
+
+function setup_many_cadence_schedule_benchmark(;
+    napplications::Int=64,
+    nsteps::Int=240,
+    performance::Bool=false,
+)
+    napplications > 0 ||
+        throw(ArgumentError("`napplications` must be positive."))
+    nsteps > 0 || throw(ArgumentError("`nsteps` must be positive."))
+    cadences = (1, 2, 3, 4, 6, 8, 12, 24)
+    object_names = Tuple(Symbol(:schedule_slot_, index) for index in 1:napplications)
+    objects = Object[
+        Object(
+            object_name;
+            name=object_name,
+            scale=:ScheduleSlot,
+        )
+        for object_name in object_names
+    ]
+    applications = ModelSpec[
+        ModelSpec(
+            ImmutableScenarioBenchmarkSource();
+            name=Symbol(:scheduled_application_, index),
+            on=One(scale=:ScheduleSlot, name=object_names[index]),
+            every=Hour(cadences[mod1(index, length(cadences))]),
+        )
+        for index in 1:napplications
+    ]
+    model = CompositeModel(
+        objects...;
+        applications=applications,
+        environment=(duration=Hour(1),),
+    )
+    simulation = run!(
+        model;
+        steps=1,
+        outputs=:none,
+        performance=performance,
+    )
+    return simulation, nsteps - 1
+end
+
+benchmark_many_cadence_schedule(simulation, nsteps::Int) =
+    continue!(simulation; steps=nsteps)

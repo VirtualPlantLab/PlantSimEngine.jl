@@ -160,6 +160,9 @@ end
     @test schedule[:middle].manual_call_only
     @test schedule[:leaf].manual_call_only
     @test !schedule[:root].manual_call_only
+    @test schedule[:middle].schedule_kind == :manual_call_only
+    @test isnothing(schedule[:middle].schedule_entry_index)
+    @test schedule[:root].event_driven
 
     @test_nowarn run_call!(
         NESTED_ROOT_CONTEXT[],
