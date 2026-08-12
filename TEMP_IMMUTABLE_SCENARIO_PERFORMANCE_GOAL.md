@@ -749,20 +749,55 @@ diff --check` also passed.
 Perform this phase only if profiles show tuple-key dictionaries or repeated
 static metadata remain important after the preceding work.
 
-- [ ] Assign each immutable application a dense internal application slot.
-- [ ] Assign each runtime object a stable monotonic internal object slot while
-  preserving its public `ObjectId` and public stable-order semantics.
-- [ ] Use vector tables, bitsets, or slot-indexed adjacency structures for hot
-  internal lookup where they outperform dictionaries.
-- [ ] Keep tombstones or equivalent stable ownership for removed objects whose
-  output history remains accessible.
-- [ ] Avoid duplicating selectors, policies, model contracts, environment
-  metadata, or output schemas in every object-level binding instance.
-- [ ] Preserve heterogeneous object/status/model support and split typed
+- [x] Reuse each immutable application's existing dense compilation-order
+  `slot`; the runtime schedule already indexes execution groups by this slot.
+- [x] Evaluate a stable monotonic runtime object slot. Do not introduce one
+  while current profiles show no hot `ObjectId` dictionary lookup and current
+  memory growth is linear.
+- [x] Confirm vector/slot-indexed lookup is already used where it outperforms
+  dictionaries in the hot root schedule; keep dictionaries at cold/lifecycle
+  and public-id boundaries.
+- [x] Preserve removed-object output ownership through stable public
+  `ObjectId` stream keys; no tombstone slot layer is needed without an object
+  slot migration.
+- [x] Avoid duplicating selectors, policies, model contracts, environment
+  metadata, or output schemas in every object-level binding instance through
+  the application/input/call/output/environment plans compiled above.
+- [x] Preserve heterogeneous object/status/model support and split typed
   execution batches only when runtime types genuinely differ.
-- [ ] Measure memory as well as time for large object counts.
-- [ ] Commit dense-slot changes only after focused correctness, allocation, and
-  large-scene evidence.
+- [x] Measure memory as well as time for large object counts.
+- [x] Do not create a speculative dense-slot change or commit: the profiling
+  gate did not justify one.
+
+### Dense-slot decision (2026-08-12)
+
+Application slots are already part of `CompiledApplicationPlan`, schedule
+entries store `application_slot`, and `CompiledExecutionPlan` holds a dense
+`groups_by_application_slot` vector. A warmed 100,000-step CPU profile of the
+256-object `outputs=:none`, `performance=false` workload found no tuple-key or
+`ObjectId` dictionary lookup among the 40 hottest PlantSimEngine frames.
+Samples were concentrated in typed batch execution, reusable `RunContext`
+preparation, and bounded temporal-buffer access.
+
+A full-allocation profile of another 48 warmed steps recorded 1,683
+allocations and 133,577 bytes across Julia and PlantSimEngine. PlantSimEngine
+frames resolved to the compiled batch boundary, `PreviousTimeStep` `Many`
+value assignment, and no-op performance-counter call sites; none resolved to a
+dictionary lookup or repeated static-plan construction. Dense object slots
+would therefore not address the observed steady-state allocation sources.
+
+Combined reachable runtime memory for `(model, compiled environment,
+execution plan, temporal streams)` was 44,256 bytes for 9 objects, 1,019,424
+bytes for 257 objects, and 6,945,624 bytes for 2,049 objects. The immutable
+scenario plan remained exactly 1,968 bytes at all three sizes. Incremental
+memory was approximately 3.9 KiB per added object from 9 to 257 objects and
+3.2 KiB per object from 257 to 2,049 objects, with no super-linear growth.
+
+Consequently, a second object identity and tombstone layer would add lifecycle
+coordination and retained-history complexity without a profile-backed hot
+lookup or memory-scaling problem. Phase 8 is complete as a measured no-change
+decision; dense object slots should be reconsidered only if a later profile
+identifies public-id dictionaries as a material cost.
 
 ## Phase 9: Full Validation And Documentation
 
