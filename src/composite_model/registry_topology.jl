@@ -215,6 +215,74 @@ struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
     max_node_id::Base.RefValue{Int}
 end
 
+"""Labels and topology captured for one object at a lifecycle event."""
+struct LifecycleObjectSnapshot{G}
+    id::ObjectId
+    scale::Union{Nothing,Symbol}
+    kind::Union{Nothing,Symbol}
+    species::Union{Nothing,Symbol}
+    name::Union{Nothing,Symbol}
+    parent::Union{Nothing,ObjectId}
+    children::Tuple
+    ancestors::Tuple
+    geometry::G
+end
+
+"""One subtree reparenting recorded before runtime buffers refresh."""
+struct LifecycleReparentEvent
+    root_id::ObjectId
+    descendant_ids::Tuple
+    old_parent::Union{Nothing,ObjectId}
+    new_parent::Union{Nothing,ObjectId}
+    old_ancestors_by_object::Dict{ObjectId,Tuple}
+end
+
+"""One geometry mutation and every environment handle it can affect."""
+struct LifecycleMoveEvent{O,N}
+    object_id::ObjectId
+    affected_object_ids::Tuple
+    old_geometry::O
+    new_geometry::N
+end
+
+"""
+Append-only object lifecycle events pending the next runtime refresh barrier.
+The dirty-id sets are derived indices shared by every runtime consumer.
+"""
+mutable struct LifecycleDelta
+    added::Vector{LifecycleObjectSnapshot}
+    removed::Vector{LifecycleObjectSnapshot}
+    reparented::Vector{LifecycleReparentEvent}
+    moved::Vector{LifecycleMoveEvent}
+    structural_dirty_ids::Set{ObjectId}
+    environment_dirty_ids::Set{ObjectId}
+    structural_kind::Symbol
+    full_environment::Bool
+    structural_generation::Int
+    environment_generation::Int
+end
+
+function LifecycleDelta(;
+    structural_kind::Symbol=:clean,
+    full_environment::Bool=false,
+)
+    structural_kind in (:clean, :addition, :structural, :full) || error(
+        "Unsupported lifecycle structural kind `$(structural_kind)`.",
+    )
+    return LifecycleDelta(
+        LifecycleObjectSnapshot[],
+        LifecycleObjectSnapshot[],
+        LifecycleReparentEvent[],
+        LifecycleMoveEvent[],
+        Set{ObjectId}(),
+        Set{ObjectId}(),
+        structural_kind,
+        full_environment,
+        0,
+        0,
+    )
+end
+
 mutable struct CompositeModel{R,A,E,I,SA}
     registry::R
     applications::A
@@ -225,9 +293,7 @@ mutable struct CompositeModel{R,A,E,I,SA}
     environment_binding_cache::Any
     bindings_dirty::Bool
     environment_bindings_dirty::Bool
-    environment_dirty_objects::Union{Nothing,Set{ObjectId}}
-    binding_dirty_objects::Union{Nothing,Set{ObjectId}}
-    binding_dirty_kind::Symbol
+    lifecycle_delta::LifecycleDelta
     input_default_status_variables::Dict{ObjectId,Set{Symbol}}
     runtime_revision::Int
     revision::Int
@@ -321,14 +387,16 @@ function _prepare_object_instances!(objects, instances)
     return instance_ids
 end
 
-function _register_model_objects!(model::CompositeModel, objects)
+function _register_objects!(model::CompositeModel, objects)
     pending = copy(objects)
+    added = Object[]
     while !isempty(pending)
         registered = false
         for index in reverse(eachindex(pending))
             object = pending[index]
             if isnothing(object.parent) || haskey(model.registry.objects, object.parent)
-                register_object!(model, object)
+                _register_object_without_lifecycle!(model, object)
+                push!(added, object)
                 deleteat!(pending, index)
                 registered = true
             end
@@ -337,8 +405,12 @@ function _register_model_objects!(model::CompositeModel, objects)
         unresolved = [(object.id.value, isnothing(object.parent) ? nothing : object.parent.value) for object in pending]
         error("Cannot register model objects because parent objects are missing or cyclic: $(unresolved).")
     end
+    _record_added_objects!(model, added)
     return model
 end
+
+_register_model_objects!(model::CompositeModel, objects) =
+    _register_objects!(model, objects)
 
 """
     CompositeModel(items...; applications=(), instances=(), environment=nothing)
@@ -369,9 +441,10 @@ function CompositeModel(
         nothing,
         true,
         true,
-        nothing,
-        Set{ObjectId}(),
-        :full,
+        LifecycleDelta(;
+            structural_kind=:full,
+            full_environment=true,
+        ),
         Dict{ObjectId,Set{Symbol}}(),
         0,
         0,
@@ -587,50 +660,96 @@ function CompositeModel(
     )
 end
 
-function _mark_environment_bindings_dirty!(model::CompositeModel, object_id::Union{Nothing,ObjectId}=nothing)
-    if isnothing(object_id) || isnothing(model.environment_binding_cache)
+_lifecycle_object_ids(::Nothing) = nothing
+_lifecycle_object_ids(object_id::ObjectId) = (object_id,)
+_lifecycle_object_ids(object_ids) = object_ids
+
+function _mark_environment_bindings_dirty!(
+    model::CompositeModel,
+    object_ids=nothing,
+)
+    delta = model.lifecycle_delta
+    ids = _lifecycle_object_ids(object_ids)
+    if isnothing(ids) || isnothing(model.environment_binding_cache)
         model.environment_binding_cache = nothing
-        model.environment_dirty_objects = nothing
-    elseif !isnothing(model.environment_dirty_objects)
-        push!(model.environment_dirty_objects, object_id)
+        delta.full_environment = true
+    elseif !delta.full_environment
+        union!(delta.environment_dirty_ids, ids)
+    end
+    if !model.environment_bindings_dirty
+        model.environment_revision += 1
+        model.runtime_revision += 1
     end
     model.environment_bindings_dirty = true
-    model.environment_revision += 1
-    model.runtime_revision += 1
+    delta.environment_generation = model.environment_revision
     return model
 end
 
 function _mark_bindings_dirty!(
     model::CompositeModel,
-    object_id::Union{Nothing,ObjectId}=nothing;
+    object_ids=nothing;
     kind::Symbol=:full,
 )
     kind in (:addition, :structural, :full) || error(
         "Unsupported binding dirty kind `$(kind)`.",
     )
-    if isnothing(object_id)
+    delta = model.lifecycle_delta
+    ids = _lifecycle_object_ids(object_ids)
+    if isnothing(ids)
         model.binding_cache = nothing
-        model.binding_dirty_objects = nothing
-        model.binding_dirty_kind = :full
-    elseif !isnothing(model.binding_dirty_objects)
-        push!(model.binding_dirty_objects, object_id)
-        model.binding_dirty_kind = if model.binding_dirty_kind == :full
+        delta.structural_kind = :full
+    else
+        union!(delta.structural_dirty_ids, ids)
+        delta.structural_kind = if delta.structural_kind == :full
             :full
-        elseif model.binding_dirty_kind == :clean
+        elseif delta.structural_kind == :clean
             kind
-        elseif model.binding_dirty_kind == kind
+        elseif delta.structural_kind == kind
             kind
         else
             :structural
         end
     end
+    if !model.bindings_dirty
+        model.revision += 1
+    end
     model.bindings_dirty = true
-    model.revision += 1
-    return _mark_environment_bindings_dirty!(model, object_id)
+    delta.structural_generation = model.revision
+    return _mark_environment_bindings_dirty!(model, ids)
+end
+
+function _reset_lifecycle_delta_if_consumed!(model::CompositeModel)
+    model.bindings_dirty && return model.lifecycle_delta
+    model.environment_bindings_dirty && return model.lifecycle_delta
+    consumed = model.lifecycle_delta
+    model.lifecycle_delta = LifecycleDelta()
+    return consumed
+end
+
+function _consume_structural_lifecycle_delta!(model::CompositeModel)
+    consumed = model.lifecycle_delta
+    if !model.environment_bindings_dirty
+        model.lifecycle_delta = LifecycleDelta()
+        return consumed
+    end
+    model.lifecycle_delta = LifecycleDelta(
+        copy(consumed.added),
+        copy(consumed.removed),
+        copy(consumed.reparented),
+        copy(consumed.moved),
+        Set{ObjectId}(),
+        copy(consumed.environment_dirty_ids),
+        :clean,
+        consumed.full_environment,
+        consumed.structural_generation,
+        consumed.environment_generation,
+    )
+    return consumed
 end
 
 bindings_dirty(model::CompositeModel) = model.bindings_dirty
 environment_bindings_dirty(model::CompositeModel) = model.environment_bindings_dirty
+lifecycle_delta(model::CompositeModel) = model.lifecycle_delta
 model_revision(model::CompositeModel) = model.revision
 environment_revision(model::CompositeModel) = model.environment_revision
 compiled_bindings(model::CompositeModel) = model.bindings_dirty ? nothing : model.binding_cache
@@ -712,6 +831,41 @@ function _object_ancestor_ids(
     return ancestors
 end
 
+function _lifecycle_object_snapshot(model::CompositeModel, object::Object)
+    ancestors = get(
+        model.registry.ancestor_ids_by_object,
+        object.id,
+        ObjectId[],
+    )
+    return LifecycleObjectSnapshot(
+        object.id,
+        object.scale,
+        object.kind,
+        object.species,
+        object.name,
+        object.parent,
+        Tuple(object.children),
+        Tuple(ancestors),
+        object.geometry,
+    )
+end
+
+function _record_added_objects!(model::CompositeModel, objects)
+    isempty(objects) && return model
+    object_ids = Tuple(object.id for object in objects)
+    for object in objects
+        push!(
+            model.lifecycle_delta.added,
+            _lifecycle_object_snapshot(model, object),
+        )
+    end
+    return _mark_bindings_dirty!(
+        model,
+        object_ids;
+        kind=:addition,
+    )
+end
+
 function _refresh_object_ancestor_ids!(
     model::CompositeModel,
     object_id::ObjectId,
@@ -758,7 +912,11 @@ Register a fully initialized [`Object`](@ref) in `model`. Structural bindings
 are marked dirty and become visible to execution after the next lifecycle
 refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
 """
-function register_object!(model::CompositeModel, object::Object; parent=object.parent)
+function _register_object_without_lifecycle!(
+    model::CompositeModel,
+    object::Object;
+    parent=object.parent,
+)
     registry = model.registry
     haskey(registry.objects, object.id) && error("CompositeModel already contains object id `$(object.id.value)`.")
     parent_id = isnothing(parent) ? nothing : ObjectId(parent)
@@ -786,8 +944,17 @@ function register_object!(model::CompositeModel, object::Object; parent=object.p
         parent_object = registry.objects[object.parent]
         object.id in parent_object.children || push!(parent_object.children, object.id)
     end
-    _mark_bindings_dirty!(model, object.id; kind=:addition)
     return object
+end
+
+function register_object!(model::CompositeModel, object::Object; parent=object.parent)
+    registered = _register_object_without_lifecycle!(
+        model,
+        object;
+        parent=parent,
+    )
+    _record_added_objects!(model, (registered,))
+    return registered
 end
 
 function _status_data!(data::Dict{Symbol,Any}, values)
@@ -903,8 +1070,12 @@ function _remove_child_link!(model::CompositeModel, parent_id, child_id::ObjectI
     return nothing
 end
 
-function _instance_roots_in_subtree(model::CompositeModel, root_id::ObjectId)
-    subtree_ids = Set(_descendant_ids(model, root_id))
+function _instance_roots_in_subtree(
+    model::CompositeModel,
+    root_id::ObjectId,
+    descendant_ids=_descendant_ids(model, root_id),
+)
+    subtree_ids = Set(descendant_ids)
     roots = ObjectId[
         _instance_root_id(instance) for instance in model.instances
         if _instance_root_id(instance) in subtree_ids
@@ -912,8 +1083,17 @@ function _instance_roots_in_subtree(model::CompositeModel, root_id::ObjectId)
     return _sort_object_ids!(roots)
 end
 
-function _validate_mutable_object_subtree!(model::CompositeModel, object::Object, operation::Symbol)
-    instance_roots = _instance_roots_in_subtree(model, object.id)
+function _validate_mutable_object_subtree!(
+    model::CompositeModel,
+    object::Object,
+    operation::Symbol,
+    descendant_ids=_descendant_ids(model, object.id),
+)
+    instance_roots = _instance_roots_in_subtree(
+        model,
+        object.id,
+        descendant_ids,
+    )
     isempty(instance_roots) && return nothing
     error(
         "Cannot $(operation) object `$(object.id.value)` because its subtree contains ",
@@ -924,36 +1104,60 @@ end
 
 function remove_object!(model::CompositeModel, id; recursive::Bool=true)
     object = _model_object(model, id)
-    _validate_mutable_object_subtree!(model, object, :remove)
+    descendant_ids = _descendant_ids(model, object.id)
+    _validate_mutable_object_subtree!(
+        model,
+        object,
+        :remove,
+        descendant_ids,
+    )
     if !recursive && !isempty(object.children)
         error("Cannot remove object `$(object.id.value)` with children unless `recursive=true`.")
     end
-    for child in copy(object.children)
-        remove_object!(model, child; recursive=true)
-    end
+    snapshots = LifecycleObjectSnapshot[
+        _lifecycle_object_snapshot(model, _model_object(model, object_id))
+        for object_id in descendant_ids
+    ]
     _remove_child_link!(model, object.parent, object.id)
-    _deindex_object!(model.registry, object)
-    delete!(model.registry.objects, object.id)
-    delete!(model.registry.ancestor_ids_by_object, object.id)
-    delete!(model.input_default_status_variables, object.id)
-    _mark_bindings_dirty!(model, object.id; kind=:structural)
+    for object_id in Iterators.reverse(descendant_ids)
+        removed = _model_object(model, object_id)
+        _deindex_object!(model.registry, removed)
+        delete!(model.registry.objects, object_id)
+        delete!(model.registry.ancestor_ids_by_object, object_id)
+        delete!(model.input_default_status_variables, object_id)
+    end
+    append!(model.lifecycle_delta.removed, snapshots)
+    _mark_bindings_dirty!(model, descendant_ids; kind=:structural)
     return object
 end
 
 function reparent_object!(model::CompositeModel, id, new_parent)
     object = _model_object(model, id)
-    _validate_mutable_object_subtree!(model, object, :reparent)
+    descendant_ids = _descendant_ids(model, object.id)
+    _validate_mutable_object_subtree!(
+        model,
+        object,
+        :reparent,
+        descendant_ids,
+    )
     new_parent_id = isnothing(new_parent) ? nothing : ObjectId(new_parent)
     if !isnothing(new_parent_id)
         haskey(model.registry.objects, new_parent_id) || error("No model object with id `$(new_parent_id.value)`.")
         new_parent_id == object.id && error(
             "Cannot reparent object `$(object.id.value)` to itself.",
         )
-        new_parent_id in _descendant_ids(model, object.id) && error(
+        new_parent_id in descendant_ids && error(
             "Cannot reparent object `$(object.id.value)` below its descendant `$(new_parent_id.value)`.",
         )
     end
-    _remove_child_link!(model, object.parent, object.id)
+    old_parent_id = object.parent
+    old_ancestors_by_object = Dict{ObjectId,Tuple}(
+        descendant_id => Tuple(
+            _object_ancestor_ids(model.registry, descendant_id),
+        )
+        for descendant_id in descendant_ids
+    )
+    _remove_child_link!(model, old_parent_id, object.id)
     object.parent = new_parent_id
     if !isnothing(new_parent_id)
         parent_object = _model_object(model, new_parent_id)
@@ -967,9 +1171,17 @@ function reparent_object!(model::CompositeModel, id, new_parent)
         object.id,
         parent_ancestors,
     )
-    for dirty_id in _descendant_ids(model, object.id)
-        _mark_bindings_dirty!(model, dirty_id; kind=:structural)
-    end
+    push!(
+        model.lifecycle_delta.reparented,
+        LifecycleReparentEvent(
+            object.id,
+            Tuple(descendant_ids),
+            old_parent_id,
+            new_parent_id,
+            old_ancestors_by_object,
+        ),
+    )
+    _mark_bindings_dirty!(model, descendant_ids; kind=:structural)
     return object
 end
 
@@ -979,12 +1191,24 @@ end
 
 function update_geometry!(model::CompositeModel, id, geometry_or_position; invalidate_environment::Bool=true)
     object = _model_object(model, id)
+    old_geometry = object.geometry
+    affected_object_ids = ObjectId[object.id]
+    invalidate_environment && append!(
+        affected_object_ids,
+        _geometry_inheriting_descendants(model, object.id),
+    )
     object.geometry = geometry_or_position
     if invalidate_environment
-        _mark_environment_bindings_dirty!(model, object.id)
-        for descendant_id in _geometry_inheriting_descendants(model, object.id)
-            _mark_environment_bindings_dirty!(model, descendant_id)
-        end
+        push!(
+            model.lifecycle_delta.moved,
+            LifecycleMoveEvent(
+                object.id,
+                Tuple(affected_object_ids),
+                old_geometry,
+                geometry_or_position,
+            ),
+        )
+        _mark_environment_bindings_dirty!(model, affected_object_ids)
     end
     return object
 end
@@ -1043,36 +1267,37 @@ function refresh_bindings!(
         )
     end
     if force || model.bindings_dirty || isnothing(model.binding_cache)
+        delta = model.lifecycle_delta
+        dirty_object_ids = delta.structural_dirty_ids
         can_extend = !force &&
                      !isnothing(model.binding_cache) &&
-                     !isnothing(model.binding_dirty_objects) &&
-                     !isempty(model.binding_dirty_objects)
-        if can_extend && model.binding_dirty_kind == :addition
+                     !isempty(dirty_object_ids)
+        if can_extend && delta.structural_kind == :addition
             model.binding_cache = _extend_compiled_scene(
                 model,
                 model.binding_cache,
-                model.binding_dirty_objects,
+                dirty_object_ids,
                 ;
                 performance=performance,
             )
-        elseif can_extend && model.binding_dirty_kind == :structural
+        elseif can_extend && delta.structural_kind == :structural
             delta = _prepare_structural_compiled_delta(
                 model,
                 model.binding_cache,
-                model.binding_dirty_objects,
+                dirty_object_ids,
                 performance,
             )
             model.binding_cache = _extend_compiled_scene(
                 model,
                 delta.compiled,
-                model.binding_dirty_objects;
+                dirty_object_ids;
                 forced_input_binding_keys=delta.forced_input_binding_keys,
                 forced_call_target_keys=delta.forced_call_target_keys,
                 previous_temporal_sources_seed=delta.previous_temporal_sources,
                 changed_application_ids_seed=delta.changed_application_ids,
                 changed_target_ids_seed=delta.changed_target_ids,
                 pure_addition=false,
-                structural_dirty_ids=model.binding_dirty_objects,
+                structural_dirty_ids=dirty_object_ids,
                 performance=performance,
             )
             _remove_stale_status_views!(
@@ -1088,28 +1313,28 @@ function refresh_bindings!(
                 )
         end
         model.bindings_dirty = false
-        model.binding_dirty_objects = Set{ObjectId}()
-        model.binding_dirty_kind = :clean
+        _consume_structural_lifecycle_delta!(model)
     end
     return model.binding_cache
 end
 
 function refresh_environment_bindings!(model::CompositeModel, compiled=refresh_bindings!(model); force::Bool=false)
     if force || model.environment_bindings_dirty || isnothing(model.environment_binding_cache)
+        delta = model.lifecycle_delta
         if !force &&
            !isnothing(model.environment_binding_cache) &&
-           !isnothing(model.environment_dirty_objects)
+           !delta.full_environment
             model.environment_binding_cache = _refresh_environment_bindings_for_objects(
                 model,
                 compiled,
                 model.environment_binding_cache,
-                model.environment_dirty_objects,
+                delta.environment_dirty_ids,
             )
         else
             model.environment_binding_cache = compile_environment_bindings(model, compiled)
         end
         model.environment_bindings_dirty = false
-        model.environment_dirty_objects = Set{ObjectId}()
+        _reset_lifecycle_delta_if_consumed!(model)
     elseif model.environment_binding_cache.model_revision == compiled.revision &&
            model.environment_binding_cache.environment_revision ==
            model.environment_revision &&

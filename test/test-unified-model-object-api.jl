@@ -1016,6 +1016,73 @@ end
     @test node_id(auto_id_leaf_status.node) == 5
     @test auto_id_leaf_status.node[:plantsimengine_status] === auto_id_leaf_status
 
+    temporal_mtg_root =
+        Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    temporal_mtg_plant = Node(
+        temporal_mtg_root,
+        MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1),
+    )
+    temporal_mtg_leaf = Node(
+        temporal_mtg_plant,
+        MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2),
+    )
+    temporal_mtg_plant[:plantsimengine_status] =
+        Status(signals=[0.0], signal_total=0.0)
+    temporal_mtg_leaf[:plantsimengine_status] = Status(signal=0.0)
+    temporal_mtg_id = node -> Symbol(:temporal_, node_id(node))
+    temporal_mtg_scene = CompositeModel(
+        temporal_mtg_root;
+        id=temporal_mtg_id,
+        applications=(
+            ModelSpec(
+                ModelObjectSignalSourceModel();
+                name=:signal_source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelObjectPlantSignalSumModel();
+                name=:plant_signal_sum,
+                on=One(scale=:Plant),
+                inputs=(
+                    PreviousTimeStep(:signals) => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:signal_source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+    )
+    temporal_mtg_simulation =
+        run!(temporal_mtg_scene; steps=1, outputs=:none)
+    temporal_plant_status = only(
+        model_objects(temporal_mtg_scene; scale=:Plant),
+    ).status
+    @test temporal_plant_status.signal_total == 0.0
+    added_temporal_leaf = add_organ!(
+        temporal_mtg_plant,
+        temporal_mtg_scene,
+        :+,
+        :Leaf,
+        2;
+        index=2,
+        id=4,
+        initial_status=(signal=10.0,),
+    )
+    @test added_temporal_leaf.signal == 10.0
+    @test only(Advanced.lifecycle_delta(temporal_mtg_scene).added).id ==
+          ObjectId(:temporal_4)
+    continue!(temporal_mtg_simulation)
+    @test temporal_plant_status.signal_total == 11.0
+    temporal_view = temporal_mtg_simulation.compiled.status_views_by_target[
+        (:plant_signal_sum, ObjectId(:temporal_2))
+    ]
+    @test only(temporal_view.temporal_inputs).binding.source_ids ==
+          ObjectId.([:temporal_3, :temporal_4])
+    continue!(temporal_mtg_simulation)
+    @test temporal_plant_status.signal_total == 13.0
+
     model = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
         Object(:plant_1; scale=:Plant, kind=:plant, species=:oil_palm, parent=:scene),

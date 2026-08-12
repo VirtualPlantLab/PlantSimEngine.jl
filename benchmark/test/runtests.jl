@@ -263,6 +263,14 @@ if benchmark_test_enabled("lifecycle benchmark API smoke")
             @test performance.counts[
                 :execution_target_rebuild_new
             ] <= 3
+            @test performance.counts[:lifecycle_barriers] == 1
+            @test performance.counts[:lifecycle_added_objects] == 1
+            @test performance.counts[
+                :lifecycle_environment_dirty_objects
+            ] == 1
+            @test PlantSimEngine.Advanced.lifecycle_delta(
+                simulation.model,
+            ).structural_kind == :clean
         end
     end
 end

@@ -296,6 +296,10 @@ end
         :CompiledModelInputPlan,
         :CompiledModelInputBinding,
         :CompiledScenarioPlan,
+        :LifecycleDelta,
+        :LifecycleMoveEvent,
+        :LifecycleObjectSnapshot,
+        :LifecycleReparentEvent,
         :ObjectRefVector,
         :ObjectRegistry,
         :RuntimePerformanceCounters,
@@ -307,6 +311,7 @@ end
         :compiled_environment_bindings,
         :environment_bindings_dirty,
         :environment_revision,
+        :lifecycle_delta,
         :model_revision,
         :refresh_bindings!,
         :refresh_environment_bindings!,
@@ -546,6 +551,172 @@ end
         StabilizationEnvironmentModel();
         environment=(provider=:global,),
     )
+end
+
+@testset "shared lifecycle delta journals bulk mutations" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:plant_a; scale=:Plant, parent=:scene),
+        Object(:plant_b; scale=:Plant, parent=:scene),
+        Object(:branch; scale=:Axis, parent=:plant_a),
+        Object(:branch_leaf; scale=:Leaf, parent=:branch),
+        Object(
+            :geometry_root;
+            scale=:Axis,
+            parent=:plant_b,
+            geometry=(cell=:sun,),
+        ),
+        Object(:geometry_leaf; scale=:Leaf, parent=:geometry_root),
+    )
+    initial_delta = Advanced.lifecycle_delta(model)
+    @test length(initial_delta.added) == 7
+    @test initial_delta.structural_kind == :full
+    @test Advanced.model_revision(model) == 0
+    @test Advanced.environment_revision(model) == 0
+    @test model.runtime_revision == 0
+    Advanced.refresh_environment_bindings!(model)
+    scenario_plan = Advanced.compiled_bindings(model).scenario_plan
+    @test isempty(Advanced.lifecycle_delta(model).added)
+
+    base_revisions = (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    )
+    PlantSimEngine._register_objects!(
+        model,
+        Object[
+            Object(
+                :added_leaf_1;
+                scale=:Leaf,
+                kind=:leaf,
+                species=:test,
+                name=:added_leaf_1,
+                parent=:plant_a,
+            ),
+            Object(:added_leaf_2; scale=:Leaf, parent=:plant_a),
+        ],
+    )
+    additions = Advanced.lifecycle_delta(model)
+    @test (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    ) == base_revisions .+ 1
+    @test additions.structural_generation == Advanced.model_revision(model)
+    @test additions.environment_generation ==
+          Advanced.environment_revision(model)
+    @test additions.structural_kind == :addition
+    @test Set(snapshot.id for snapshot in additions.added) ==
+          Set(ObjectId.([:added_leaf_1, :added_leaf_2]))
+    added_leaf = only(
+        snapshot for snapshot in additions.added
+        if snapshot.id == ObjectId(:added_leaf_1)
+    )
+    @test added_leaf.kind == :leaf
+    @test added_leaf.species == :test
+    @test added_leaf.parent == ObjectId(:plant_a)
+    @test added_leaf.ancestors ==
+          (ObjectId(:scene), ObjectId(:plant_a), ObjectId(:added_leaf_1))
+    Advanced.refresh_environment_bindings!(model)
+    @test Advanced.compiled_bindings(model).scenario_plan === scenario_plan
+    @test Advanced.lifecycle_delta(model) !== additions
+    @test Advanced.lifecycle_delta(model).structural_kind == :clean
+
+    reparent_base = (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    )
+    reparent_object!(model, :branch, :plant_b)
+    reparented = Advanced.lifecycle_delta(model)
+    @test length(reparented.reparented) == 1
+    reparent_event = only(reparented.reparented)
+    @test reparent_event.root_id == ObjectId(:branch)
+    @test reparent_event.descendant_ids ==
+          (ObjectId(:branch), ObjectId(:branch_leaf))
+    @test reparent_event.old_parent == ObjectId(:plant_a)
+    @test reparent_event.new_parent == ObjectId(:plant_b)
+    @test reparent_event.old_ancestors_by_object[ObjectId(:branch_leaf)] ==
+          (ObjectId(:scene), ObjectId(:plant_a), ObjectId(:branch), ObjectId(:branch_leaf))
+    @test (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    ) == reparent_base .+ 1
+
+    move_object!(model, :geometry_root, (cell=:shade,))
+    @test (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    ) == reparent_base .+ 1
+    move_event = only(Advanced.lifecycle_delta(model).moved)
+    @test move_event.object_id == ObjectId(:geometry_root)
+    @test move_event.affected_object_ids ==
+          (ObjectId(:geometry_root), ObjectId(:geometry_leaf))
+    @test move_event.old_geometry == (cell=:sun,)
+    @test move_event.new_geometry == (cell=:shade,)
+    Advanced.refresh_environment_bindings!(model)
+    @test Advanced.compiled_bindings(model).scenario_plan === scenario_plan
+
+    removal_base = (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    )
+    remove_object!(model, :branch)
+    removal = Advanced.lifecycle_delta(model)
+    @test (
+        Advanced.model_revision(model),
+        Advanced.environment_revision(model),
+        model.runtime_revision,
+    ) == removal_base .+ 1
+    @test Tuple(snapshot.id for snapshot in removal.removed) ==
+          (ObjectId(:branch), ObjectId(:branch_leaf))
+    removed_leaf = last(removal.removed)
+    @test removed_leaf.parent == ObjectId(:branch)
+    @test removed_leaf.ancestors ==
+          (ObjectId(:scene), ObjectId(:plant_b), ObjectId(:branch), ObjectId(:branch_leaf))
+    @test !haskey(model.registry.objects, ObjectId(:branch))
+    @test !haskey(model.registry.objects, ObjectId(:branch_leaf))
+    Advanced.refresh_environment_bindings!(model)
+    @test Advanced.compiled_bindings(model).scenario_plan === scenario_plan
+end
+
+@testset "lifecycle delta supports partial cache consumption" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene);
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+    )
+    Advanced.refresh_environment_bindings!(model)
+    register_object!(model, Object(:leaf_1; scale=:Leaf, parent=:scene))
+    first_refresh = Advanced.refresh_bindings!(model)
+    @test first_refresh.applications_by_id.source.target_ids ==
+          ObjectId[ObjectId(:leaf_1)]
+    after_binding_refresh = Advanced.lifecycle_delta(model)
+    @test after_binding_refresh.structural_kind == :clean
+    @test isempty(after_binding_refresh.structural_dirty_ids)
+    @test only(after_binding_refresh.added).id == ObjectId(:leaf_1)
+    @test after_binding_refresh.environment_dirty_ids ==
+          Set([ObjectId(:leaf_1)])
+
+    register_object!(model, Object(:leaf_2; scale=:Leaf, parent=:scene))
+    pending = Advanced.lifecycle_delta(model)
+    @test pending.structural_dirty_ids == Set([ObjectId(:leaf_2)])
+    @test Tuple(snapshot.id for snapshot in pending.added) ==
+          (ObjectId(:leaf_1), ObjectId(:leaf_2))
+    Advanced.refresh_environment_bindings!(model)
+    @test Advanced.compiled_bindings(model).applications_by_id.source.target_ids ==
+          ObjectId.([:leaf_1, :leaf_2])
+    @test Advanced.lifecycle_delta(model).structural_kind == :clean
+    @test isempty(Advanced.lifecycle_delta(model).added)
 end
 
 @testset "composite model template constructor" begin
@@ -1082,6 +1253,9 @@ end
     @test refreshed.counts[:steps_executed] == 4
     @test refreshed.counts[:binding_refreshes] == 1
     @test refreshed.counts[:dirty_binding_objects] == 1
+    @test refreshed.counts[:lifecycle_barriers] == 1
+    @test refreshed.counts[:lifecycle_added_objects] == 1
+    @test refreshed.counts[:lifecycle_environment_dirty_objects] == 1
     @test refreshed.counts[:status_views_constructed] == 1
     @test refreshed.counts[:input_binding_targets_replaced] == 0
     @test refreshed.counts[:call_binding_targets_replaced] == 0
@@ -1139,6 +1313,11 @@ end
         model,
         Object(:leaf_2; scale=:Leaf, parent=:plant),
     )
+    @test ObjectId(:leaf_2) ∉
+          simulation.compiled.applications_by_id.source.target_ids
+    pending_delta = Advanced.lifecycle_delta(model)
+    @test pending_delta.structural_kind == :addition
+    @test only(pending_delta.added).id == ObjectId(:leaf_2)
     continue!(simulation)
 
     refreshed_leaf_view =
@@ -1156,6 +1335,9 @@ end
     @test plant_status.lagged_total == 3.0
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:status_views_constructed] == 2
+    @test performance.counts[:lifecycle_barriers] == 1
+    @test performance.counts[:lifecycle_added_objects] == 1
+    @test performance.counts[:lifecycle_environment_dirty_objects] == 1
     @test performance.counts[:output_retention_reuses] == 1
     @test !haskey(performance.counts, :output_retention_compiles)
 end
@@ -1266,7 +1448,7 @@ function stabilization_lifecycle_work(nleaves_per_plant, operation)
     if operation == :add
         register_object!(
             model,
-            Object(:added_leaf; scale=:Leaf, parent=:plant_a),
+            Object(:zz_added_leaf; scale=:Leaf, parent=:plant_a),
         )
     elseif operation == :remove
         remove_object!(model, :removed_leaf)
@@ -1305,6 +1487,36 @@ function stabilization_lifecycle_work(nleaves_per_plant, operation)
             :environment_refreshes,
             0,
         ),
+        lifecycle_barriers=get(
+            performance.counts,
+            :lifecycle_barriers,
+            0,
+        ),
+        lifecycle_added=get(
+            performance.counts,
+            :lifecycle_added_objects,
+            0,
+        ),
+        lifecycle_removed=get(
+            performance.counts,
+            :lifecycle_removed_objects,
+            0,
+        ),
+        lifecycle_reparented=get(
+            performance.counts,
+            :lifecycle_reparented_objects,
+            0,
+        ),
+        lifecycle_moved=get(
+            performance.counts,
+            :lifecycle_moved_objects,
+            0,
+        ),
+        lifecycle_environment_dirty=get(
+            performance.counts,
+            :lifecycle_environment_dirty_objects,
+            0,
+        ),
     ), simulation
 end
 
@@ -1314,7 +1526,12 @@ function stabilization_lifecycle_refresh_allocations(
 )
     model = stabilization_lifecycle_scene(nleaves_per_plant)
     simulation = run!(model; outputs=:none)
-    if operation == :remove
+    if operation == :add
+        register_object!(
+            model,
+            Object(:zz_added_leaf; scale=:Leaf, parent=:plant_a),
+        )
+    elseif operation == :remove
         remove_object!(model, :removed_leaf)
     elseif operation == :reparent
         reparent_object!(model, :moving_leaf, :plant_b)
@@ -1337,6 +1554,14 @@ end
         @test small_work.execution_targets <= 3
         @test small_work.execution_batches == 0
         @test small_work.execution_groups_updated <= 3
+        @test small_work.lifecycle_barriers == 1
+        @test small_work.lifecycle_environment_dirty == 1
+        @test small_work.lifecycle_added == (operation == :add ? 1 : 0)
+        @test small_work.lifecycle_removed ==
+              (operation == :remove ? 1 : 0)
+        @test small_work.lifecycle_reparented ==
+              (operation == :reparent ? 1 : 0)
+        @test small_work.lifecycle_moved == (operation == :move ? 1 : 0)
 
         if operation == :remove
             @test !haskey(
@@ -1370,7 +1595,7 @@ end
         end
     end
 
-    for operation in (:remove, :reparent, :move)
+    for operation in (:add, :remove, :reparent, :move)
         stabilization_lifecycle_refresh_allocations(8, operation)
         small_allocations = minimum(
             stabilization_lifecycle_refresh_allocations(8, operation)

@@ -471,6 +471,7 @@ end
 function setup_lifecycle_hard_call_benchmark(;
     nobjects=1000,
     usage=:zero,
+    performance::Bool=true,
 )
     model, _ = setup_hard_call_path_benchmark(;
         nobjects=nobjects,
@@ -481,7 +482,7 @@ function setup_lifecycle_hard_call_benchmark(;
         model;
         steps=1,
         outputs=:none,
-        performance=true,
+        performance=performance,
     )
     return simulation, nobjects + 1
 end

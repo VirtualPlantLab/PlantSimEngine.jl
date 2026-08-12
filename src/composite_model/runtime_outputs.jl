@@ -888,10 +888,14 @@ function _initialize_model_output_streams!(
     compiled::CompiledCompositeModel,
     retention::OutputRetentionPlan,
     sizehint_steps::Integer=0,
+    target_keys=nothing,
 )
     for (application_id, variables) in retention.retained_outputs_by_application
         application = _compiled_application_by_id(compiled, application_id)
         for object_id in application.target_ids
+            !isnothing(target_keys) &&
+                !((application_id, object_id) in target_keys) &&
+                continue
             status = _model_status_view_for_application(
                 compiled,
                 application,
@@ -4115,8 +4119,9 @@ function _targeted_new_object_call_targets(
 )
     model = runtime_model(context)
     bindings_dirty(model) || return nothing
-    dirty_ids = model.binding_dirty_objects
-    isnothing(dirty_ids) && return nothing
+    delta = lifecycle_delta(model)
+    delta.structural_kind === :full && return nothing
+    dirty_ids = delta.structural_dirty_ids
     all(object_id -> object_id in dirty_ids, requested_ids) || return nothing
 
     cached_targets = _model_call_targets(context, name)
@@ -4713,13 +4718,61 @@ function _model_output_selection(outputs)
     return requests, false
 end
 
+function _runtime_performance_count_lifecycle_delta!(performance, delta)
+    _runtime_performance_count!(performance, :lifecycle_barriers)
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_added_objects,
+        length(delta.added),
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_removed_objects,
+        length(delta.removed),
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_reparented_subtrees,
+        length(delta.reparented),
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_reparented_objects,
+        sum(
+            length(event.descendant_ids)
+            for event in delta.reparented;
+            init=0,
+        ),
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_moved_objects,
+        length(delta.moved),
+    )
+    _runtime_performance_count!(
+        performance,
+        :lifecycle_environment_dirty_objects,
+        delta.full_environment ? 0 : length(delta.environment_dirty_ids),
+    )
+    delta.full_environment && _runtime_performance_count!(
+        performance,
+        :lifecycle_full_environment_barriers,
+    )
+    return nothing
+end
+
 function _refresh_simulation_runtime!(simulation::Simulation)
     model = simulation.model
     if bindings_dirty(model) ||
        simulation.compiled.revision != model_revision(model)
-        dirty_object_count = isnothing(model.binding_dirty_objects) ?
+        lifecycle = lifecycle_delta(model)
+        _runtime_performance_count_lifecycle_delta!(
+            simulation.performance,
+            lifecycle,
+        )
+        dirty_object_count = lifecycle.structural_kind === :full ?
                              length(model.registry.objects) :
-                             length(model.binding_dirty_objects)
+                             length(lifecycle.structural_dirty_ids)
         previous_status_views = isnothing(simulation.performance) ?
                                 nothing :
                                 copy(
@@ -4846,6 +4899,9 @@ function _refresh_simulation_runtime!(simulation::Simulation)
             simulation.temporal_streams,
             simulation.compiled,
             simulation.output_retention,
+            0,
+            output_retention_reused ?
+            simulation.compiled.changed_execution_target_ids : nothing,
         )
         started_at = _runtime_performance_start(simulation.performance)
         simulation.environment_bindings = refresh_environment_bindings!(
@@ -4926,10 +4982,14 @@ function _refresh_simulation_runtime!(simulation::Simulation)
     elseif environment_bindings_dirty(model) ||
            simulation.environment_bindings.environment_revision !=
            environment_revision(model)
+        _runtime_performance_count_lifecycle_delta!(
+            simulation.performance,
+            lifecycle_delta(model),
+        )
         dirty_environment_object_ids =
-            isnothing(model.environment_dirty_objects) ?
+            lifecycle_delta(model).full_environment ?
             nothing :
-            copy(model.environment_dirty_objects)
+            copy(lifecycle_delta(model).environment_dirty_ids)
         changed_execution_application_ids = nothing
         changed_execution_target_ids =
             Set{Tuple{Symbol,ObjectId}}()
@@ -5152,12 +5212,11 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
             )
             completed_schedule_entry = entry_index
         end
-        added_object_ids =
-            _incremental_output_request_object_ids(simulation.model)
+        lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
         _refresh_simulation_runtime!(simulation)
         _refresh_output_request_targets!(
             simulation,
-            added_object_ids,
+            lifecycle,
             completed_applications,
         )
         empty!(simulation.environment_bindings.sample_cache)
@@ -5174,11 +5233,15 @@ function _run_model_execution_step!(simulation::Simulation, step::Integer)
     return simulation
 end
 
-function _incremental_output_request_object_ids(model::CompositeModel)
+function _pending_output_request_lifecycle_delta(model::CompositeModel)
     bindings_dirty(model) || return nothing
-    model.binding_dirty_kind == :addition || return nothing
-    isnothing(model.binding_dirty_objects) && return nothing
-    return copy(model.binding_dirty_objects)
+    return lifecycle_delta(model)
+end
+
+function _incremental_output_request_object_ids(delta)
+    isnothing(delta) && return nothing
+    delta.structural_kind == :addition || return nothing
+    return ObjectId[snapshot.id for snapshot in delta.added]
 end
 
 function _continue_scene!(simulation::Simulation, steps::Integer)
@@ -5186,17 +5249,15 @@ function _continue_scene!(simulation::Simulation, steps::Integer)
     start_step = simulation.current_step + 1
     final_step = simulation.current_step + steps
     for step in start_step:final_step
-        added_object_ids =
-            _incremental_output_request_object_ids(simulation.model)
+        lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
         _refresh_simulation_runtime!(simulation)
-        _refresh_output_request_targets!(simulation, added_object_ids)
+        _refresh_output_request_targets!(simulation, lifecycle)
         _run_model_execution_step!(simulation, step)
         simulation.current_step = step
     end
-    added_object_ids =
-        _incremental_output_request_object_ids(simulation.model)
+    lifecycle = _pending_output_request_lifecycle_delta(simulation.model)
     _refresh_simulation_runtime!(simulation)
-    _refresh_output_request_targets!(simulation, added_object_ids)
+    _refresh_output_request_targets!(simulation, lifecycle)
     return simulation
 end
 
@@ -5261,7 +5322,7 @@ end
 
 function _refresh_output_request_targets!(
     simulation::Simulation,
-    added_object_ids=nothing,
+    lifecycle=nothing,
     completed_applications=nothing,
 )
     current_revision = model_revision(simulation.model)
@@ -5276,6 +5337,7 @@ function _refresh_output_request_targets!(
         simulation.performance,
         :output_request_target_refreshes,
     )
+    added_object_ids = _incremental_output_request_object_ids(lifecycle)
     for request in simulation.output_requests
         application_id, object_targets =
             simulation.output_request_targets[request.name]

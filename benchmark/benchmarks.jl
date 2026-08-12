@@ -120,6 +120,7 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             setup_lifecycle_hard_call_benchmark(
                 nobjects=32,
                 usage=:zero,
+                performance=false,
             ))
     SUITE[suite_name]["PSE_lifecycle_large"] =
         @benchmarkable benchmark_lifecycle_event(
@@ -129,6 +130,7 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             setup_lifecycle_hard_call_benchmark(
                 nobjects=5000,
                 usage=:zero,
+                performance=false,
             ))
     SUITE[suite_name]["PSE_lifecycle_immediate_hard_call"] =
         @benchmarkable benchmark_lifecycle_event(
@@ -138,6 +140,7 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             setup_lifecycle_hard_call_benchmark(
                 nobjects=1000,
                 usage=:dense,
+                performance=false,
             ))
 end
 

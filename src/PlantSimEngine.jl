@@ -84,6 +84,10 @@ but are intentionally not part of the default user namespace.
 module Advanced
 import ..PlantSimEngine:
     ObjectRegistry,
+    LifecycleObjectSnapshot,
+    LifecycleReparentEvent,
+    LifecycleMoveEvent,
+    LifecycleDelta,
     CompiledApplicationPlan,
     CompiledModelInputPlan,
     CompiledModelCallPlan,
@@ -102,6 +106,7 @@ import ..PlantSimEngine:
     compile_environment_bindings,
     bindings_dirty,
     environment_bindings_dirty,
+    lifecycle_delta,
     model_revision,
     environment_revision,
     compiled_bindings,
@@ -110,6 +115,8 @@ import ..PlantSimEngine:
     runtime_performance
 
 export ObjectRegistry
+export LifecycleObjectSnapshot, LifecycleReparentEvent, LifecycleMoveEvent
+export LifecycleDelta, lifecycle_delta
 export CompiledApplicationPlan, CompiledModelInputPlan, CompiledModelCallPlan
 export CompiledScenarioPlan
 export CompiledCompositeModel, CompiledModelApplication

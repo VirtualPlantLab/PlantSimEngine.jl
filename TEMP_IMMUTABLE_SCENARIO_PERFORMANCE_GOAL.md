@@ -487,7 +487,7 @@ the prior clock predicate for periods 2 through 12 and phases -24 through 24.
 
 ## Phase 5: Introduce A Shared Lifecycle Delta
 
-- [ ] Replace coarse dirty sets with a structured append-only delta or event
+- [x] Replace coarse dirty sets with a structured append-only delta or event
   journal containing, as applicable:
   - added object ids and labels;
   - removed object ids and previous topology information;
@@ -495,29 +495,77 @@ the prior clock predicate for periods 2 through 12 and phases -24 through 24.
   - moved objects and old/new geometry sources;
   - one structural generation and one environment generation per committed
     barrier.
-- [ ] Make application targets, input carriers, temporal input state,
+- [x] Make application targets, input carriers, temporal input state,
   environment handles, output-request targets, root execution batches, and
   hard-call target buffers consume the same lifecycle delta.
-- [ ] Preserve the current incremental append path for monotonic `Many`
+- [x] Preserve the current incremental append path for monotonic `Many`
   hard-call additions, or replace it only with a measured delta-based path that
   retains its ordering and allocation advantages.
-- [ ] Stage updates while kernels execute and apply them only at the existing
+- [x] Stage updates while kernels execute and apply them only at the existing
   refresh barrier.
-- [ ] Never mutate a target buffer while it is being iterated.
-- [ ] Add bulk internal operations for registering several objects, deleting a
+- [x] Never mutate a target buffer while it is being iterated.
+- [x] Add bulk internal operations for registering several objects, deleting a
   subtree, and marking a reparented subtree once.
-- [ ] Validate a subtree once before removal rather than recursively validating
+- [x] Validate a subtree once before removal rather than recursively validating
   every child.
-- [ ] Avoid incrementing model/environment revisions once per descendant.
-- [ ] Preserve object-id ordering, multiplicity checks, removed-object history,
+- [x] Avoid incrementing model/environment revisions once per descendant.
+- [x] Preserve object-id ordering, multiplicity checks, removed-object history,
   template/instance rules, and MTG identifier bookkeeping.
-- [ ] Test organ creation after temporal buffers already exist: resize or
+- [x] Test organ creation after temporal buffers already exist: resize or
   replace affected `Many` storage at the lifecycle barrier, use the compiled
   initial value when the new organ has no previous sample, and read its normal
   temporal buffer from the following timestep onward.
-- [ ] Prove that lifecycle refresh work is proportional to the affected delta
+- [x] Prove that lifecycle refresh work is proportional to the affected delta
   and selector dependencies, not total objects or applications.
-- [ ] Commit lifecycle journaling and bulk refresh as a coherent slice.
+- [x] Commit lifecycle journaling and bulk refresh as a coherent slice.
+
+### Shared lifecycle delta completion (2026-08-12)
+
+`CompositeModel` now owns one `LifecycleDelta` journal instead of separate
+structural and environment dirty-object sets. Added and removed objects carry
+label, topology, ancestry, and geometry snapshots; reparent events retain the
+old and new parent plus the affected subtree; move events retain old/new
+geometry and every object inheriting that geometry. One pending structural
+generation and one pending environment generation are recorded per refresh
+barrier, including when a subtree contains many descendants.
+
+The same delta now drives application targets, value carriers, temporal state,
+output-request membership, direct output-stream initialization, environment
+handles, root execution groups, and cached hard-call targets. Structural and
+environment consumers can consume their parts at different times without
+losing append-only event data. Bulk object registration records one addition
+barrier, while subtree removal and reparenting compute and validate descendants
+once before applying one refresh notification. Mutations remain staged until
+the existing post-application barrier, so no iterated target buffer is mutated
+in place.
+
+The temporal lifecycle regression starts with populated `PreviousTimeStep`
+buffers, creates a new MTG-backed leaf, observes its compiled initial value on
+the first eligible read, and observes its normal temporal sample on the next
+timestep. Removed-object streams remain retained. Partial-consumption tests
+also prove that a binding-only refresh followed by another addition neither
+duplicates nor drops targets.
+
+Isolated lifecycle-barrier allocations stayed effectively constant between
+scenes with 8 and 2,048 leaves per plant:
+
+| Operation | 8 leaves | 2,048 leaves |
+| --- | ---: | ---: |
+| monotonic addition | 37,136 bytes | 37,776 bytes |
+| removal | 42,144 bytes | 43,248 bytes |
+| reparenting | 59,200 bytes | 60,608 bytes |
+| movement | 19,328 bytes | 19,712 bytes |
+
+The addition case deliberately uses an object id that appends in stable object
+order. A non-monotonic insertion correctly rebuilds the affected `Many`
+selector/carrier and therefore scales with that selector dependency rather
+than taking the append fast path.
+
+Focused validation passed 1,431 assertions: application/API stabilization
+490, hard calls 88, lifecycle benchmark API smoke 25, immutable-scenario
+benchmark API smoke 54, `PreviousTimeStep` views 60, environment backends 9,
+output boundaries 20, and unified model/object behavior 685. `git diff
+--check` also passed before the checkpoint commit.
 
 ## Phase 6: Compile Selectors And Reverse Dependency Indices
 

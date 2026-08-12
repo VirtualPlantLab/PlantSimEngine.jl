@@ -1466,15 +1466,6 @@ function _extend_compiled_scene(
     performance=nothing,
 )
     added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
-    isempty(added_ids) &&
-        isempty(forced_input_binding_keys) &&
-        isempty(forced_call_target_keys) &&
-        isempty(changed_application_ids_seed) &&
-        return compile_composite_model(
-            model,
-            model.applications;
-            performance=performance,
-        )
     started_at = _runtime_performance_start(performance)
     new_targets = _new_application_targets(model, compiled.applications, added_ids)
     isnothing(new_targets) && return compile_composite_model(
@@ -1673,7 +1664,8 @@ function _extend_compiled_scene(
     added_input_binding_capacity = sum(
         length(_model_input_names(application)) *
         length(get(new_targets, application.id, ObjectId[]))
-        for application in applications
+        for application in applications;
+        init=0,
     )
     input_bindings = compiled.input_bindings
     sizehint!(
