@@ -11,6 +11,30 @@ function PlantSimEngine.run!(::BoundaryCounterModel, status, environment, consta
     status.ignored += 10
 end
 
+function boundary_output_publication_allocations(bindings, time)
+    return @allocated PlantSimEngine._model_publish_runtime_outputs!(
+        bindings,
+        time,
+    )
+end
+
+@testset "direct output bindings preserve stream type errors" begin
+    stream = Tuple{Float64,Float64}[]
+    reference = Ref{Any}(1.0)
+    output = PlantSimEngine.RuntimeOutputStream{
+        :value,
+        typeof(stream),
+        typeof(reference),
+    }(stream, reference, 0.0)
+    PlantSimEngine._model_publish_runtime_outputs!((output,), 1.0)
+    @test stream == [(1.0, 1.0)]
+    reference[] = :wrong_type
+    @test_throws "stable output type" PlantSimEngine._model_publish_runtime_outputs!(
+        (output,),
+        2.0,
+    )
+end
+
 PlantSimEngine.@process "boundary_manual_counter" verbose = false
 PlantSimEngine.@process "boundary_manual_controller" verbose = false
 
@@ -68,6 +92,23 @@ end
         (:leaf_counter, ObjectId(:leaf_a), :count),
         (:leaf_counter, ObjectId(:leaf_b), :count),
     ])
+    batch = only(simulation.execution_plan.batches)
+    @test batch.output_publication.enabled
+    @test batch.output_publication.variables == (:count,)
+    @test only(explain_execution_plan(simulation)).output_publication ==
+          :direct_stream_bindings
+    for target in batch.targets
+        output = only(target.output_bindings)
+        @test PlantSimEngine._runtime_output_variable(output) == :count
+        @test output.stream === outputs(simulation)[
+            (:leaf_counter, target.object_id, :count)
+        ]
+        boundary_output_publication_allocations(target.output_bindings, 1.0)
+        @test boundary_output_publication_allocations(
+            target.output_bindings,
+            1.0,
+        ) == 0
+    end
 end
 
 @testset "held manual output spans the requested timeline" begin
@@ -149,6 +190,52 @@ end
     @test length(plant_rows) == 2
     @test Set(getproperty.(leaf_rows, :object_id)) == Set((:leaf_1, :leaf_2))
     @test all(row -> row.object_id == :plant, plant_rows)
+    @test all(
+        batch.output_publication.variables == (:count, :ignored)
+        for batch in simulation.execution_plan.batches
+    )
+end
+
+@testset "lifecycle targets receive direct output bindings" begin
+    model = CompositeModel(
+        Object(:leaf_1; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                BoundaryCounterModel();
+                name=:leaf_counter,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    simulation = run!(
+        model;
+        outputs=OutputRequest(
+            :Leaf,
+            :count;
+            name=:leaf_counts,
+            application=:leaf_counter,
+        ),
+    )
+    register_object!(model, Object(:leaf_2; scale=:Leaf))
+    continue!(simulation)
+
+    new_target = only(
+        target for batch in simulation.execution_plan.batches
+        for target in batch.targets
+        if target.object_id == ObjectId(:leaf_2)
+    )
+    output = only(new_target.output_bindings)
+    @test PlantSimEngine._runtime_output_variable(output) == :count
+    @test output.stream === outputs(simulation)[
+        (:leaf_counter, ObjectId(:leaf_2), :count)
+    ]
+    new_rows = filter(
+        row -> row.object_id == :leaf_2,
+        collect_outputs(simulation, :leaf_counts; sink=nothing),
+    )
+    @test getproperty.(new_rows, :timestep) == [2]
+    @test getproperty.(new_rows, :value) == [1]
 end
 
 @testset "output request membership intervals follow topology" begin

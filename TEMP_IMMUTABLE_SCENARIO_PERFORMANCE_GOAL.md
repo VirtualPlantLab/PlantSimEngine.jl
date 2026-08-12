@@ -628,17 +628,56 @@ unified model/object integration file also passed 685/685, and `git diff
 
 ### Outputs
 
-- [ ] Extend direct typed runtime output bindings to requested and
+- [x] Extend direct typed runtime output bindings to requested and
   `outputs=:all` historical streams, not only dependency-only streams.
-- [ ] Publish through precompiled stream/reference tuples without per-target
+- [x] Publish through precompiled stream/reference tuples without per-target
   stream-key dictionary lookup.
-- [ ] Compile per-application retention variables and publication capability
+- [x] Compile per-application retention variables and publication capability
   into application/batch plans.
-- [ ] Preserve bounded temporal dependency buffers, unbounded requested
+- [x] Preserve bounded temporal dependency buffers, unbounded requested
   history, stream-only routing, type-stability errors, and removed-object
   history.
-- [ ] Ensure lifecycle-created targets receive correctly initialized output
+- [x] Ensure lifecycle-created targets receive correctly initialized output
   sinks and membership intervals.
+
+#### Direct output-sink result (2026-08-12)
+
+Every retained target output now owns a typed `RuntimeOutputStream` that points
+directly to both its status reference and its initialized stream. This applies
+uniformly to bounded dependency buffers, explicit requests, `outputs=:all`,
+root-scheduled applications, bulk hard calls, and selectively materialized
+`CallTarget`s. The execution loop publishes the precompiled tuple recursively;
+the obsolete per-target dictionary publisher and its duplicate retention maps
+were removed.
+
+Each `CompiledExecutionBatch` now carries one `CompiledOutputPublication`
+value with the application's stable retained-variable tuple and an enabled
+flag. `outputs=:none` therefore skips publication at the batch boundary, while
+retaining output no longer performs application or stream-key dictionary
+lookups inside the target loop. Immediate hard-call targets created after a
+lifecycle mutation initialize any missing retained stream before materializing
+their direct binding; the normal lifecycle barrier continues to initialize
+membership intervals and preserves removed-object history.
+
+Using the same warmed 256-leaf, 48-step, 10-sample benchmark on the output-sink
+parent commit:
+
+| Output policy | Before | After | Speedup | Allocations before/after | Bytes before/after |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `outputs=:none` | 1.794 ms | 1.820 ms | 0.99x | 1,374 / 1,374 | 118,784 / 121,152 |
+| one explicit request | 3.543 ms | 1.846 ms | 1.92x | 76,174 / 2,398 | 3,728,128 / 977,216 |
+| `outputs=:all` | 3.206 ms | 1.813 ms | 1.77x | 76,186 / 2,398 | 3,728,608 / 977,248 |
+
+Requested and all-output allocations fell by 96.85% and allocated bytes by
+73.79%. The no-retention allocation count was unchanged; its small timing and
+byte differences are within the noise/capacity variation of these short
+samples. Direct publication itself allocates zero bytes in the focused test.
+
+The fresh output-focused matrix passed 794 assertions across API
+stabilization, requested/all/none outputs, lifecycle membership, bounded
+`PreviousTimeStep` storage, hard-call publication, and type-stability errors.
+The immutable-scenario benchmark smoke also passed 54/54, and `git diff
+--check` passed before the output-sink checkpoint commit.
 
 ### Environment
 

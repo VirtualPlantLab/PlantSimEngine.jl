@@ -754,6 +754,10 @@ end
           (:all_outputs,)
     default_simulation = run!(default_scene; steps=2)
     @test isempty(outputs(default_simulation))
+    default_batch = only(default_simulation.execution_plan.batches)
+    @test !default_batch.output_publication.enabled
+    @test isempty(default_batch.output_publication.variables)
+    @test isempty(only(default_batch.targets).output_bindings)
     @test current_step(default_simulation) == 2
     @test final_state(default_simulation) == (signal=2.0,)
     @test final_state(default_simulation, :scene) == (signal=2.0,)
@@ -796,6 +800,13 @@ end
     retained_scene = CompositeModel(StabilizationSourceModel())
     simulation = run!(retained_scene; steps=2, outputs=:all)
     @test current_step(simulation) == 2
+    retained_batch = only(simulation.execution_plan.batches)
+    @test retained_batch.output_publication.enabled
+    @test retained_batch.output_publication.variables == (:signal,)
+    retained_output = only(only(retained_batch.targets).output_bindings)
+    @test retained_output.stream === outputs(simulation)[
+        (:stabilization_source, ObjectId(:scene), :signal)
+    ]
     retained_display = sprint(show, MIME"text/plain"(), simulation)
     @test occursin("retained streams: 1", retained_display)
     @test !occursin("hint:", retained_display)

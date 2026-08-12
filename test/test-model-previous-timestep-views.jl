@@ -233,7 +233,14 @@ end
     @test runtime_temporal_input isa PlantSimEngine.RuntimeTemporalInput
     @test runtime_temporal_input.compiled === only(status_view.temporal_inputs)
     @test runtime_temporal_input.source_streams === dependency_stream
-    @test isempty(execution_target.output_bindings)
+    consumer_runtime_output = only(execution_target.output_bindings)
+    @test PlantSimEngine._runtime_output_variable(consumer_runtime_output) ==
+          :observed_signal
+    @test consumer_runtime_output.stream === outputs(simulation)[
+        (:lagged_consumer, ObjectId(:leaf), :observed_signal)
+    ]
+    @test consumer_runtime_output.reference ===
+          PlantSimEngine.refvalue(canonical_status, :observed_signal)
     PlantSimEngine._materialize_model_inputs!(
         execution_target.status,
         execution_target.input_bindings,

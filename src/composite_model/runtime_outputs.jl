@@ -3,10 +3,7 @@ struct OutputRetentionPlan
     temporal_dependencies::Set{Tuple{Symbol,Symbol}}
     requested_outputs::Set{Tuple{Symbol,Symbol}}
     dependency_horizons::Dict{Tuple{Symbol,Symbol},Float64}
-    retained_application_ids::Set{Symbol}
     retained_outputs_by_application::Dict{Symbol,Vector{Symbol}}
-    dependency_outputs_by_application::Dict{Symbol,Vector{Symbol}}
-    historical_outputs_by_application::Dict{Symbol,Vector{Symbol}}
 end
 
 mutable struct OutputRequestMembership{T}
@@ -124,6 +121,11 @@ struct RuntimeOutputStream{V,S,R}
 end
 
 _runtime_output_variable(::RuntimeOutputStream{V}) where {V} = V
+
+struct CompiledOutputPublication{V}
+    variables::V
+    enabled::Bool
+end
 
 """
     RuntimePerformanceCounters
@@ -255,7 +257,7 @@ function RunContext(
     )
 end
 
-struct CallTarget{CS,EB,A,M,S,VS,TI,CT,ENV,TS,OR,C,E}
+struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -264,6 +266,7 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,CT,ENV,TS,OR,C,E}
     status::S
     canonical_status::VS
     temporal_inputs::TI
+    output_bindings::OB
     calls::CT
     environment_binding::ENV
     temporal_streams::TS
@@ -456,10 +459,11 @@ function _call_bindings_signature(call_bindings)
     return signature
 end
 
-struct CompiledExecutionBatch{A,T<:AbstractVector,MP} <: AbstractExecutionBatch
+struct CompiledExecutionBatch{A,T<:AbstractVector,MP,OP} <: AbstractExecutionBatch
     application::A
     targets::T
     environment_provider::MP
+    output_publication::OP
 end
 
 struct CompiledApplicationExecutionGroup{A,B}
@@ -826,28 +830,6 @@ end
 _model_stream_key(application_id::Symbol, object_id::ObjectId, variable::Symbol) =
     (application_id, object_id, variable)
 
-function _model_retain_output(
-    retention::OutputRetentionPlan,
-    application_id::Symbol,
-    variable::Symbol,
-)
-    retention.retain_all && return true
-    key = (application_id, variable)
-    return key in retention.temporal_dependencies ||
-           key in retention.requested_outputs
-end
-
-function _model_retain_application(
-    retention::OutputRetentionPlan,
-    application_id::Symbol,
-)
-    return retention.retain_all || application_id in retention.retained_application_ids
-end
-
-_model_retain_application(::Nothing, application_id::Symbol) = true
-
-_model_retain_output(::Nothing, application_id::Symbol, variable::Symbol) = true
-
 function _model_dependency_only_output(
     retention::OutputRetentionPlan,
     application_id::Symbol,
@@ -936,45 +918,6 @@ function _initialize_model_output_streams!(
     return streams
 end
 
-function _model_prune_dependency_stream!(
-    samples,
-    retention::OutputRetentionPlan,
-    application_id::Symbol,
-    variable::Symbol,
-    time::Real,
-)
-    retention.retain_all && return samples
-    key = (application_id, variable)
-    key in retention.requested_outputs && return samples
-    key in retention.temporal_dependencies || return samples
-    horizon = get(retention.dependency_horizons, key, 0.0)
-    if horizon <= 0.0
-        length(samples) > 1 && deleteat!(samples, 1:(length(samples) - 1))
-        return samples
-    end
-    cutoff = float(time) - horizon + 1.0
-    filter!(sample -> sample[1] >= cutoff - 1.0e-8, samples)
-    return samples
-end
-
-function _model_prune_dependency_stream!(
-    samples::TemporalDependencyBuffer,
-    retention::OutputRetentionPlan,
-    application_id::Symbol,
-    variable::Symbol,
-    time::Real,
-)
-    horizon = get(retention.dependency_horizons, (application_id, variable), 0.0)
-    cutoff = horizon <= 0.0 ? float(time) : float(time) - horizon + 1.0
-    while !isempty(samples) && first(samples)[1] < cutoff - 1.0e-8
-        _temporal_dependency_popfirst!(samples)
-    end
-    return samples
-end
-
-_model_prune_dependency_stream!(samples, ::Nothing, application_id, variable, time) =
-    samples
-
 function _model_remove_sample_time!(
     samples::TemporalDependencyBuffer,
     sample_time::Float64,
@@ -1011,56 +954,6 @@ end
     return samples
 end
 
-function _model_publish_outputs!(
-    streams,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    status,
-    time::Real,
-    retention=nothing,
-    retained_variables=nothing,
-)
-    isnothing(streams) && return nothing
-    _model_retain_application(retention, application.id) || return nothing
-    variables = isnothing(retained_variables) ? keys(outputs_(application.spec)) : retained_variables
-    for variable in variables
-        var = Symbol(variable)
-        isnothing(retained_variables) &&
-            !_model_retain_output(retention, application.id, var) && continue
-        hasproperty(status, var) || error(
-            "Application `$(application.id)` declares output `$(var)`, but object ",
-            "`$(object_id.value)` status has no such variable."
-        )
-        key = _model_stream_key(application.id, object_id, var)
-        value = getproperty(status, var)
-        samples = get(streams, key, nothing)
-        if isnothing(samples)
-            samples = _model_new_output_stream(
-                value,
-                retention,
-                application.id,
-                var,
-            )
-            streams[key] = samples
-        elseif !(value isa fieldtype(eltype(samples), 2))
-            error(
-                "Output `$(application.id).$(var)` on object `$(object_id.value)` changed ",
-                "value type from `$(fieldtype(eltype(samples), 2))` to `$(typeof(value))`. ",
-                "CompositeModel temporal streams require a stable output type."
-            )
-        end
-        _model_publish_sample!(samples, float(time), value)
-        _model_prune_dependency_stream!(
-            samples,
-            retention,
-            application.id,
-            var,
-            time,
-        )
-    end
-    return nothing
-end
-
 @inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
 
 @inline function _model_publish_runtime_outputs!(
@@ -1068,10 +961,17 @@ end
     time::Real,
 )
     output = first(outputs)
+    value = output.reference[]
+    expected_type = fieldtype(eltype(output.stream), 2)
+    value isa expected_type || error(
+        "Output `$(_runtime_output_variable(output))` changed value type from ",
+        "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
+        "streams require a stable output type.",
+    )
     _model_publish_sample!(
         output.stream,
         float(time),
-        output.reference[],
+        value,
     )
     if output.stream isa TemporalDependencyBuffer
         cutoff = output.dependency_horizon <= 0.0 ?
@@ -1837,136 +1737,6 @@ end
     )
 end
 
-@inline function _run_model_application_with_calls!(
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    status,
-    canonical_status,
-    environment_value,
-    calls,
-    time,
-    constants,
-    temporal_streams,
-    output_retention,
-    publish::Bool,
-    environment,
-)
-    context = RunContext(
-        compiled,
-        env_bindings,
-        application,
-        object_id,
-        calls,
-        temporal_streams,
-        output_retention,
-        float(time),
-        constants,
-        publish,
-        environment,
-    )
-    model = _application_model(application, object_id)
-    run!(model, status, environment_value, constants, context)
-    if publish
-        _model_publish_outputs!(
-            temporal_streams,
-            application,
-            object_id,
-            status,
-            time,
-            output_retention,
-        )
-    end
-    return status
-end
-
-@inline function _run_model_application!(
-    compiled::CompiledCompositeModel,
-    env_bindings::CompiledEnvironmentBindings,
-    application::CompiledModelApplication,
-    object_id::ObjectId,
-    time::Real,
-    constants,
-    temporal_streams,
-    output_retention,
-    publish::Bool,
-    sampled_environment,
-    environment,
-)
-    status_view = _model_status_view_for_application(
-        compiled,
-        application,
-        object_id,
-    )
-    status = _materialize_model_inputs!(
-        status_view.status,
-        status_view.temporal_inputs,
-        compiled,
-        application,
-        temporal_streams,
-        time,
-    )
-    environment_value = sampled_environment isa UnspecifiedModelEnvironment ?
-                        _model_environment_for_model(
-        env_bindings,
-        application,
-        object_id,
-        time,
-        environment,
-    ) : sampled_environment
-    call_bindings = get(
-        compiled.call_bindings_by_target,
-        (application.id, object_id),
-        (),
-    )
-    if isempty(call_bindings)
-        return _run_model_application_with_calls!(
-            compiled,
-            env_bindings,
-            application,
-            object_id,
-            status,
-            status_view.canonical_status,
-            environment_value,
-            (),
-            time,
-            constants,
-            temporal_streams,
-            output_retention,
-            publish,
-            environment,
-        )
-    end
-    calls = _runtime_call_targets(
-        compiled,
-        env_bindings,
-        call_bindings,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        publish,
-        environment,
-    )
-    return _run_model_application_with_calls!(
-        compiled,
-        env_bindings,
-        application,
-        object_id,
-        status,
-        status_view.canonical_status,
-        environment_value,
-        calls,
-        time,
-        constants,
-        temporal_streams,
-        output_retention,
-        publish,
-        environment,
-    )
-end
-
 @inline function _run_model_execution_target_without_calls!(
     compiled::CompiledCompositeModel,
     env_bindings::CompiledEnvironmentBindings,
@@ -1978,7 +1748,6 @@ end
     output_retention,
     sampled_environment,
     publish_outputs::Bool,
-    retained_outputs,
 )
     status = isempty(target.input_bindings) ?
              target.status :
@@ -2028,17 +1797,6 @@ end
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
-        if isnothing(retained_outputs) || !isempty(retained_outputs)
-            _model_publish_outputs!(
-                temporal_streams,
-                application,
-                target.object_id,
-                status,
-                time,
-                output_retention,
-                retained_outputs,
-            )
-        end
     end
     return status
 end
@@ -2054,7 +1812,6 @@ end
     output_retention,
     sampled_environment,
     publish_outputs::Bool,
-    retained_outputs,
 )
     isempty(target.call_bindings) && return _run_model_execution_target_without_calls!(
         compiled,
@@ -2067,7 +1824,6 @@ end
         output_retention,
         sampled_environment,
         publish_outputs,
-        retained_outputs,
     )
     status = isempty(target.input_bindings) ?
              target.status :
@@ -2101,17 +1857,6 @@ end
     if publish_outputs
         isempty(target.output_bindings) ||
             _model_publish_runtime_outputs!(target.output_bindings, time)
-        if isnothing(retained_outputs) || !isempty(retained_outputs)
-            _model_publish_outputs!(
-                temporal_streams,
-                application,
-                target.object_id,
-                status,
-                time,
-                output_retention,
-                retained_outputs,
-            )
-        end
     end
     return status
 end
@@ -2180,13 +1925,7 @@ end
         batch.application,
         time,
     )
-    publish_outputs = _model_retain_application(output_retention, batch.application.id)
-    retained_outputs = output_retention isa OutputRetentionPlan ?
-                       get(
-        output_retention.historical_outputs_by_application,
-        batch.application.id,
-        (),
-    ) : nothing
+    publish_outputs = batch.output_publication.enabled
     if isempty(first(batch.targets).call_bindings)
         if isnothing(temporal_streams)
             for target in batch.targets
@@ -2201,7 +1940,6 @@ end
                     output_retention,
                     shared_environment,
                     publish_outputs,
-                    retained_outputs,
                 )
             end
             return nothing
@@ -2263,17 +2001,6 @@ end
                         target.output_bindings,
                         time,
                     )
-                if isnothing(retained_outputs) || !isempty(retained_outputs)
-                    _model_publish_outputs!(
-                        temporal_streams,
-                        batch.application,
-                        target.object_id,
-                        status,
-                        time,
-                        output_retention,
-                        retained_outputs,
-                    )
-                end
             end
         end
         return nothing
@@ -2290,7 +2017,6 @@ end
             output_retention,
             shared_environment,
             publish_outputs,
-            retained_outputs,
         )
     end
     return nothing
@@ -2318,14 +2044,7 @@ function _run_model_execution_batch_profiled!(
         :environment_sampling,
         started_at,
     )
-    publish_outputs =
-        _model_retain_application(output_retention, batch.application.id)
-    retained_outputs = output_retention isa OutputRetentionPlan ?
-                       get(
-        output_retention.historical_outputs_by_application,
-        batch.application.id,
-        (),
-    ) : nothing
+    publish_outputs = batch.output_publication.enabled
     for target in batch.targets
         started_at = _runtime_performance_start(performance)
         status = isempty(target.input_bindings) ?
@@ -2391,17 +2110,6 @@ function _run_model_execution_batch_profiled!(
                 target.output_bindings,
                 time,
             )
-        if isnothing(retained_outputs) || !isempty(retained_outputs)
-            _model_publish_outputs!(
-                temporal_streams,
-                batch.application,
-                target.object_id,
-                status,
-                time,
-                output_retention,
-                retained_outputs,
-            )
-        end
         _runtime_performance_finish!(
             performance,
             :output_publication,
@@ -2524,20 +2232,30 @@ function _runtime_model_output_streams(
     object_id,
     streams,
     output_retention::OutputRetentionPlan,
+    initialize_missing::Bool=false,
 )
     variables = get(
-        output_retention.dependency_outputs_by_application,
+        output_retention.retained_outputs_by_application,
         application.id,
         (),
     )
     return Tuple(begin
         key = _model_stream_key(application.id, object_id, variable)
         stream = get(streams, key, nothing)
-        isnothing(stream) && error(
-            "No initialized retained output stream for application ",
-            "`$(application.id)` on object `$(object_id.value)` and variable ",
-            "`$(variable)`.",
-        )
+        if isnothing(stream)
+            initialize_missing || error(
+                "No initialized retained output stream for application ",
+                "`$(application.id)` on object `$(object_id.value)` and variable ",
+                "`$(variable)`.",
+            )
+            stream = _model_new_output_stream(
+                getproperty(status, variable),
+                output_retention,
+                application.id,
+                variable,
+            )
+            streams[key] = stream
+        end
         reference = refvalue(status, variable)
         RuntimeOutputStream{
             variable,
@@ -2704,13 +2422,33 @@ function _compiled_model_execution_environment_provider(
     return CachedGlobalModelEnvironment(binding)
 end
 
+function _compiled_output_publication(
+    output_retention::OutputRetentionPlan,
+    application::CompiledModelApplication,
+)
+    variables = Tuple(get(
+        output_retention.retained_outputs_by_application,
+        application.id,
+        (),
+    ))
+    return CompiledOutputPublication(variables, !isempty(variables))
+end
+
+_compiled_output_publication(::Nothing, application) =
+    CompiledOutputPublication((), false)
+
 function _append_model_execution_batches!(
     batches,
     env_bindings::CompiledEnvironmentBindings,
     application::CompiledModelApplication,
     targets,
+    output_retention,
 )
     isempty(targets) && return batches
+    output_publication = _compiled_output_publication(
+        output_retention,
+        application,
+    )
     first_index = firstindex(targets)
     target_type = typeof(targets[first_index])
     for index in (first_index + 1):lastindex(targets)
@@ -2725,6 +2463,7 @@ function _append_model_execution_batches!(
                     application,
                     targets[first_index],
                 ),
+                output_publication,
             ),
         )
         first_index = index
@@ -2740,6 +2479,7 @@ function _append_model_execution_batches!(
                 application,
                 targets[first_index],
             ),
+            output_publication,
         ),
     )
     return batches
@@ -2778,6 +2518,7 @@ function _compiled_call_execution_batches(
             env_bindings,
             application,
             targets,
+            output_retention,
         )
     end
     return Tuple(batches)
@@ -2813,6 +2554,7 @@ function compile_model_execution_plan(
             env_bindings,
             application,
             targets,
+            output_retention,
         )
         first_batch > length(batches) && continue
         push!(
@@ -2860,7 +2602,7 @@ function _model_execution_outputs_match(
 )
     variables = output_retention isa OutputRetentionPlan ?
                 get(
-        output_retention.dependency_outputs_by_application,
+        output_retention.retained_outputs_by_application,
         application.id,
         (),
     ) : ()
@@ -3320,6 +3062,7 @@ function _refresh_model_execution_plan(
             env_bindings,
             application,
             targets,
+            output_retention,
         )
         isempty(application_batches) && continue
         push!(
@@ -3367,6 +3110,10 @@ function explain_execution_plan(plan::CompiledExecutionPlan)
             call_capability=isempty(first(batch.targets).call_bindings) ?
                             :no_calls :
                             :compiled_calls,
+            output_variables=batch.output_publication.variables,
+            output_publication=batch.output_publication.enabled ?
+                               :direct_stream_bindings :
+                               :none,
             environment_binding_type=fieldtype(
                 eltype(batch.targets),
                 :environment_binding,
@@ -3454,14 +3201,8 @@ function _same_model_output_retention(
            current.temporal_dependencies &&
            previous.requested_outputs == current.requested_outputs &&
            previous.dependency_horizons == current.dependency_horizons &&
-           previous.retained_application_ids ==
-           current.retained_application_ids &&
            previous.retained_outputs_by_application ==
-           current.retained_outputs_by_application &&
-           previous.dependency_outputs_by_application ==
-           current.dependency_outputs_by_application &&
-           previous.historical_outputs_by_application ==
-           current.historical_outputs_by_application
+           current.retained_outputs_by_application
 end
 
 function _model_status_view_refresh_is_pure_addition(
@@ -3529,8 +3270,6 @@ function compile_model_output_retention(
         push!(requested_outputs, (application.id, request.var))
     end
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
-    dependency_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
-    historical_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
         Set(
             (application.id, Symbol(variable))
@@ -3545,38 +3284,16 @@ function compile_model_output_retention(
             get!(retained_outputs_by_application, application_id, Symbol[]),
             variable,
         )
-        key = (application_id, variable)
-        destination = !retain_all &&
-                      key in temporal_dependencies &&
-                      !(key in requested_outputs) ?
-                      dependency_outputs_by_application :
-                      historical_outputs_by_application
-        push!(get!(destination, application_id, Symbol[]), variable)
     end
-    for outputs_by_application in (
-        retained_outputs_by_application,
-        dependency_outputs_by_application,
-        historical_outputs_by_application,
-    )
-        for variables in values(outputs_by_application)
-            sort!(variables; by=string)
-        end
+    for variables in values(retained_outputs_by_application)
+        sort!(variables; by=string)
     end
     return OutputRetentionPlan(
         retain_all,
         temporal_dependencies,
         requested_outputs,
         dependency_horizons,
-        Set{Symbol}(
-            application_id
-            for (application_id, _) in union(
-                temporal_dependencies,
-                requested_outputs,
-            )
-        ),
         retained_outputs_by_application,
-        dependency_outputs_by_application,
-        historical_outputs_by_application,
     )
 end
 
@@ -3745,6 +3462,7 @@ function _materialize_call(
         target.status,
         target.canonical_status,
         target.input_bindings,
+        target.output_bindings,
         calls,
         target.environment_binding,
         targets.temporal_streams,
@@ -4232,6 +3950,14 @@ function _targeted_new_object_call_targets(
                     status_view.status,
                     status_view.canonical_status,
                     status_view.temporal_inputs,
+                    _runtime_model_output_streams(
+                        status_view.status,
+                        application,
+                        object_id,
+                        context.temporal_streams,
+                        context.output_retention,
+                        true,
+                    ),
                     (),
                     _environment_binding_for(
                         environment_bindings,
@@ -4462,14 +4188,11 @@ end
         context,
     )
     if publication_allowed
-        _model_publish_outputs!(
-            target.temporal_streams,
-            target.application,
-            target.object_id,
-            status,
-            target.time,
-            target.output_retention,
-        )
+        isempty(target.output_bindings) ||
+            _model_publish_runtime_outputs!(
+                target.output_bindings,
+                target.time,
+            )
     end
     return target
 end
@@ -4537,14 +4260,11 @@ end
         context,
     )
     if publication_allowed
-        _model_publish_outputs!(
-            targets.temporal_streams,
-            application,
-            target.object_id,
-            status,
-            targets.time,
-            targets.output_retention,
-        )
+        isempty(target.output_bindings) ||
+            _model_publish_runtime_outputs!(
+                target.output_bindings,
+                targets.time,
+            )
     end
     return nothing
 end
