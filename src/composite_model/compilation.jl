@@ -29,7 +29,18 @@ end
 )
     name === :plan && return getfield(application, :plan)
     name === :target_ids && return getfield(application, :target_ids)
-    return getproperty(getfield(application, :plan), name)
+    plan = getfield(application, :plan)
+    name === :slot && return getfield(plan, :slot)
+    name === :id && return getfield(plan, :id)
+    name === :spec && return getfield(plan, :spec)
+    name === :process && return getfield(plan, :process)
+    name === :name && return getfield(plan, :name)
+    name === :applies_to && return getfield(plan, :applies_to)
+    name === :target_matcher && return getfield(plan, :target_matcher)
+    name === :timestep && return getfield(plan, :timestep)
+    name === :clock && return getfield(plan, :clock)
+    name === :model_overrides && return getfield(plan, :model_overrides)
+    return getproperty(plan, name)
 end
 
 Base.propertynames(application::CompiledModelApplication) =
@@ -624,7 +635,26 @@ end
     name === :policy && return getfield(binding, :policy)
     name === :carrier_hint && return getfield(binding, :carrier_hint)
     name === :carrier && return getfield(binding, :carrier)
-    return getproperty(getfield(binding, :plan), name)
+    plan = getfield(binding, :plan)
+    name === :slot && return getfield(plan, :slot)
+    name === :application_slot && return getfield(plan, :application_slot)
+    name === :application_id && return getfield(plan, :application_id)
+    name === :input && return getfield(plan, :input)
+    name === :selector && return getfield(plan, :selector)
+    name === :matcher && return getfield(plan, :matcher)
+    name === :origin && return getfield(plan, :origin)
+    name === :order_after_application_ids &&
+        return getfield(plan, :order_after_application_ids)
+    name === :source_var && return getfield(plan, :source_var)
+    name === :process && return getfield(plan, :process)
+    name === :application && return getfield(plan, :application)
+    name === :multiplicity && return getfield(plan, :multiplicity)
+    name === :potential_source_application_ids &&
+        return getfield(plan, :potential_source_application_ids)
+    name === :breaks_same_step_cycle &&
+        return getfield(plan, :breaks_same_step_cycle)
+    name === :window && return getfield(plan, :window)
+    return getproperty(plan, name)
 end
 
 Base.propertynames(binding::CompiledModelInputBinding) = (
@@ -668,7 +698,20 @@ end
     name === :callee_object_ids && return getfield(binding, :callee_object_ids)
     name === :callee_application_ids &&
         return getfield(binding, :callee_application_ids)
-    return getproperty(getfield(binding, :plan), name)
+    plan = getfield(binding, :plan)
+    name === :slot && return getfield(plan, :slot)
+    name === :application_slot && return getfield(plan, :application_slot)
+    name === :application_id && return getfield(plan, :application_id)
+    name === :call && return getfield(plan, :call)
+    name === :selector && return getfield(plan, :selector)
+    name === :matcher && return getfield(plan, :matcher)
+    name === :origin && return getfield(plan, :origin)
+    name === :process && return getfield(plan, :process)
+    name === :application && return getfield(plan, :application)
+    name === :multiplicity && return getfield(plan, :multiplicity)
+    name === :potential_callee_application_ids &&
+        return getfield(plan, :potential_callee_application_ids)
+    return getproperty(plan, name)
 end
 
 Base.propertynames(binding::CompiledModelCallBinding) = (
@@ -721,7 +764,21 @@ end
     name === :geometry_source_object_id &&
         return getfield(binding, :geometry_source_object_id)
     name === :geometry_source && return getfield(binding, :geometry_source)
-    return getproperty(getfield(binding, :plan), name)
+    plan = getfield(binding, :plan)
+    name === :application_id && return getfield(plan, :application_id)
+    name === :backend && return getfield(plan, :backend)
+    name === :config && return getfield(plan, :config)
+    name === :required_inputs && return getfield(plan, :required_inputs)
+    name === :source_inputs && return getfield(plan, :source_inputs)
+    name === :produced_outputs && return getfield(plan, :produced_outputs)
+    name === :sampling_rules && return getfield(plan, :sampling_rules)
+    name === :compiled_sampling_rules &&
+        return getfield(plan, :compiled_sampling_rules)
+    name === :sampler && return getfield(plan, :sampler)
+    name === :prepared_source && return getfield(plan, :prepared_source)
+    name === :uses_raw_global_source &&
+        return getfield(plan, :uses_raw_global_source)
+    return getproperty(plan, name)
 end
 
 Base.propertynames(binding::CompiledEnvironmentBinding) = (
@@ -2102,7 +2159,7 @@ function _extend_compiled_scene(
                 consumer_id,
                 _application_plans(
                     compiled.scenario_plan.input_plans_by_application,
-                    application.id,
+                    application.slot,
                 ),
                 manual_application_ids,
                 applications_by_object,
@@ -3668,8 +3725,8 @@ function _compile_model_call_plans(model::CompositeModel, applications)
     return plans
 end
 
-_application_plans(plans_by_application, application_id::Symbol) =
-    getproperty(plans_by_application, application_id)
+_application_plans(plans_by_application, application_slot::Integer) =
+    getfield(plans_by_application, application_slot)
 
 function _potential_input_source_applications(
     applications_by_id,
@@ -3728,7 +3785,7 @@ function _compile_model_input_bindings(
                 model,
                 application,
                 consumer_id,
-                _application_plans(plans_by_application, application.id),
+                _application_plans(plans_by_application, application.slot),
                 manual_application_ids,
                 by_object,
                 by_id,
@@ -4011,7 +4068,7 @@ function _compile_model_call_bindings(
         for consumer_id in application.target_ids
             for plan in _application_plans(
                 plans_by_application,
-                application.id,
+                application.slot,
             )
                 call_sym = plan.call
                 selector = plan.selector
@@ -4181,13 +4238,13 @@ function explain_applications(compiled::CompiledCompositeModel)
             input_plan_count=length(
                 _application_plans(
                     compiled.scenario_plan.input_plans_by_application,
-                    application.id,
+                    application.slot,
                 ),
             ),
             call_plan_count=length(
                 _application_plans(
                     compiled.scenario_plan.call_plans_by_application,
-                    application.id,
+                    application.slot,
                 ),
             ),
             current_target_count=length(application.target_ids),

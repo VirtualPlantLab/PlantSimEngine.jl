@@ -3961,7 +3961,7 @@ function _targeted_new_object_call_targets(
                 object_id,
                 _application_plans(
                     compiled.scenario_plan.input_plans_by_application,
-                    application.id,
+                    application.slot,
                 ),
                 targeted_runtime.manual_application_ids,
                 applications_by_object,
