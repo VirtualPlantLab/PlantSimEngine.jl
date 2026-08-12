@@ -847,6 +847,193 @@ end
     )
 end
 
+function stabilization_compiled_selector_allocations(
+    model,
+    matcher,
+    object_id,
+    context,
+)
+    return @allocated PlantSimEngine._selector_matches_object_id(
+        model,
+        matcher,
+        object_id;
+        context=context,
+    )
+end
+
+@testset "compiled selector matchers preserve topology semantics" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, kind=:scene),
+        Object(:plant; scale=:Plant, parent=:scene),
+        Object(:axis; scale=:Axis, parent=:plant),
+        Object(:leaf_1; scale=:Leaf, parent=:axis),
+        Object(:leaf_2; scale=:Leaf, parent=:plant),
+        Object(:other_plant; scale=:Plant, parent=:scene),
+        Object(:other_leaf; scale=:Leaf, parent=:other_plant),
+    )
+    cases = (
+        (Many(Self()), :leaf_1),
+        (Many(Subtree()), :plant),
+        (Many(SelfPlant()), :leaf_1),
+        (Many(Ancestor()), :leaf_1),
+        (Many(Ancestor(scale=:Plant)), :leaf_1),
+        (Many(Scope(:plant)), :leaf_1),
+        (Many(Relation(:self)), :leaf_1),
+        (Many(Relation(:parent)), :leaf_1),
+        (Many(Relation(:children)), :plant),
+        (Many(Relation(:ancestors)), :leaf_1),
+        (Many(Relation(:descendants)), :plant),
+        (Many(Relation(:siblings)), :axis),
+    )
+    all_ids = object_ids(model)
+    for (selector, context) in cases
+        matcher = PlantSimEngine._compile_selector_matcher(model, selector)
+        matched = ObjectId[
+            object_id for object_id in all_ids
+            if PlantSimEngine._selector_matches_object_id(
+                model,
+                matcher,
+                object_id;
+                context=context,
+            )
+        ]
+        PlantSimEngine._sort_object_ids!(matched)
+        @test matched == resolve_object_ids(model, selector; context=context)
+        for object_id in all_ids
+            stabilization_compiled_selector_allocations(
+                model,
+                matcher,
+                object_id,
+                context,
+            )
+            @test stabilization_compiled_selector_allocations(
+                model,
+                matcher,
+                object_id,
+                ObjectId(context),
+            ) == 0
+        end
+    end
+
+    named_matcher = PlantSimEngine._compile_selector_matcher(
+        model,
+        Many(scale=:Leaf, within=Scope(:plant)),
+    )
+    @test named_matcher.scope isa PlantSimEngine.CompiledNamedScope
+    @test named_matcher.scope.root_id == ObjectId(:plant)
+
+    ancestor_matcher = PlantSimEngine._compile_selector_matcher(
+        model,
+        Many(Ancestor()),
+    )
+    @test_throws "No matching ancestor" PlantSimEngine._selector_matches_object_id(
+        model,
+        ancestor_matcher,
+        ObjectId(:scene);
+        context=ObjectId(:scene),
+    )
+end
+
+function stabilization_selector_candidate_scene(nplants)
+    objects = Object[Object(:scene; scale=:Scene, kind=:scene)]
+    for index in 1:nplants
+        plant_id = Symbol(:plant_, index)
+        push!(objects, Object(plant_id; scale=:Plant, parent=:scene))
+        push!(
+            objects,
+            Object(
+                Symbol(plant_id, :_leaf);
+                scale=:Leaf,
+                parent=plant_id,
+            ),
+        )
+    end
+    return CompositeModel(
+        objects...;
+        applications=(
+            ModelSpec(
+                StabilizationSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                StabilizationLaggedSumModel();
+                name=:plant_sum,
+                on=Many(scale=:Plant),
+                inputs=(
+                    :previous_signals => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:source,
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+        environment=(T=20.0, duration=Hour(1)),
+    )
+end
+
+function stabilization_selector_candidate_refresh_allocations(nplants)
+    model = stabilization_selector_candidate_scene(nplants)
+    simulation = run!(model; outputs=:none)
+    register_object!(
+        model,
+        Object(:zz_new_leaf; scale=:Leaf, parent=:plant_1),
+    )
+    return @allocated PlantSimEngine._refresh_simulation_runtime!(simulation)
+end
+
+@testset "lifecycle reverse selector candidates remain local" begin
+    model = stabilization_selector_candidate_scene(64)
+    simulation = run!(model; outputs=:none, performance=true)
+    register_object!(
+        model,
+        Object(:zz_new_leaf; scale=:Leaf, parent=:plant_1),
+    )
+    continue!(simulation)
+    counts = Advanced.runtime_performance(simulation).counts
+    @test counts[:selector_application_candidates] == 1
+    @test counts[:selector_input_binding_candidates] == 1
+    @test get(counts, :selector_call_binding_candidates, 0) == 0
+
+    reparented_model = stabilization_selector_candidate_scene(64)
+    reparented_simulation = run!(
+        reparented_model;
+        outputs=:none,
+        performance=true,
+    )
+    reparent_object!(
+        reparented_model,
+        :plant_1_leaf,
+        :plant_2,
+    )
+    continue!(reparented_simulation)
+    reparented_counts = Advanced.runtime_performance(reparented_simulation).counts
+    @test reparented_counts[:selector_application_candidates] == 1
+    @test reparented_counts[:selector_input_binding_candidates] == 2
+    @test get(reparented_counts, :selector_call_binding_candidates, 0) == 0
+    plant_bindings = Dict(
+        row.consumer_id => row.source_ids
+        for row in explain_bindings(reparented_model)
+        if row.application_id == :plant_sum &&
+           row.consumer_id in (:plant_1, :plant_2)
+    )
+    @test isempty(plant_bindings[:plant_1])
+    @test plant_bindings[:plant_2] == [:plant_1_leaf, :plant_2_leaf]
+
+    stabilization_selector_candidate_refresh_allocations(8)
+    small_allocations = minimum(
+        stabilization_selector_candidate_refresh_allocations(8)
+        for _ in 1:2
+    )
+    large_allocations = minimum(
+        stabilization_selector_candidate_refresh_allocations(2_048)
+        for _ in 1:2
+    )
+    @test large_allocations <= small_allocations + 32_768
+end
+
 @testset "repeated applications require explicit identity" begin
     model = CompositeModel(
         Object(:leaf; scale=:Leaf);

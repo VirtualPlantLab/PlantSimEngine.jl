@@ -419,7 +419,7 @@ end
         environment=(duration=Hour(1),),
     )
 
-    simulation = run!(model)
+    simulation = run!(model; performance=true)
     scenario_plan = simulation.compiled.scenario_plan
     application_children = simulation.compiled.application_children
     application_order = simulation.compiled.application_order
@@ -434,6 +434,9 @@ end
     @test simulation.compiled.scenario_plan === scenario_plan
     @test simulation.compiled.application_children === application_children
     @test simulation.compiled.application_order === application_order
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:selector_application_candidates] == 1
+    @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 1
     @test controller.total == 1.0
 
@@ -442,6 +445,11 @@ end
     @test simulation.compiled.scenario_plan === scenario_plan
     @test simulation.compiled.application_children === application_children
     @test simulation.compiled.application_order === application_order
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:selector_application_candidates] == 2
+    # Leaving the anchored subtree is rebuilt from the old target membership;
+    # it does not require another reverse-index candidate on the new ancestry.
+    @test performance.counts[:selector_call_binding_candidates] == 1
     @test controller.ncalls == 0
     @test controller.total == 0.0
 end

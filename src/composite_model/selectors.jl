@@ -167,6 +167,26 @@ multiplicity(::One) = :one
 multiplicity(::OptionalOne) = :optional_one
 multiplicity(::Many) = :many
 
+"""A named topology scope resolved once while the scenario plan is compiled."""
+struct CompiledNamedScope
+    name::Symbol
+    root_id::ObjectId
+end
+
+"""
+Normalized selector criteria used by lifecycle membership checks without
+reinterpreting the authored selector at every structural refresh.
+"""
+struct CompiledSelectorMatcher{S,R,SC,K,SP,N}
+    scope::S
+    relation::R
+    scale::SC
+    kind::K
+    species::SP
+    name::N
+    defaults_to_context::Bool
+end
+
 function _selector_semantic_fields(selector::AbstractObjectMultiplicity)
     selector_criteria = criteria(selector)
     fields = Symbol[Symbol(key) for key in keys(selector_criteria) if Symbol(key) != :selectors]
@@ -477,21 +497,63 @@ function _ancestor_id(
     kind=nothing,
     include_self::Bool=true,
 )
-    id = if include_self
-        current_id
-    else
-        parent = _model_object(model, current_id).parent
-        isnothing(parent) && return nothing
-        parent
+    return _ancestor_id(
+        model,
+        current_id,
+        _maybe_symbol(scale),
+        _maybe_symbol(kind),
+        include_self,
+    )
+end
+
+function _ancestor_id(
+    model::CompositeModel,
+    current_id::ObjectId,
+    scale::Union{Nothing,Symbol},
+    kind::Union{Nothing,Symbol},
+    include_self::Bool,
+)
+    ancestors = _object_ancestor_ids(model.registry, current_id)
+    final_index = lastindex(ancestors) - (include_self ? 0 : 1)
+    final_index < firstindex(ancestors) && return nothing
+    isnothing(scale) && isnothing(kind) &&
+        return @inbounds ancestors[final_index]
+    isnothing(kind) && return _ancestor_id_by_index(
+        ancestors,
+        final_index,
+        model.registry.by_scale,
+        scale,
+    )
+    isnothing(scale) && return _ancestor_id_by_index(
+        ancestors,
+        final_index,
+        model.registry.by_kind,
+        kind,
+    )
+    haskey(model.registry.by_scale, scale) || return nothing
+    haskey(model.registry.by_kind, kind) || return nothing
+    scale_ids = model.registry.by_scale[scale]
+    kind_ids = model.registry.by_kind[kind]
+    for index in final_index:-1:firstindex(ancestors)
+        id = @inbounds ancestors[index]
+        id in scale_ids && id in kind_ids && return id
     end
-    while true
-        object = _model_object(model, id)
-        scale_match = isnothing(scale) || object.scale == Symbol(scale)
-        kind_match = isnothing(kind) || object.kind == Symbol(kind)
-        scale_match && kind_match && return id
-        isnothing(object.parent) && return nothing
-        id = object.parent
+    return nothing
+end
+
+function _ancestor_id_by_index(
+    ancestors::Vector{ObjectId},
+    final_index::Int,
+    object_index::Dict{Symbol,Set{ObjectId}},
+    label::Symbol,
+)
+    haskey(object_index, label) || return nothing
+    matching_ids = object_index[label]
+    for index in final_index:-1:firstindex(ancestors)
+        id = @inbounds ancestors[index]
+        id in matching_ids && return id
     end
+    return nothing
 end
 
 function _ancestor_ids(model::CompositeModel, current_id::ObjectId)
@@ -502,6 +564,53 @@ function _ancestor_ids(model::CompositeModel, current_id::ObjectId)
         parent_id = _model_object(model, parent_id).parent
     end
     return ids
+end
+
+@inline function _object_is_in_nearest_ancestor_scope(
+    model::CompositeModel,
+    object_id::ObjectId,
+    current_id::ObjectId,
+    scale::Union{Nothing,Symbol},
+    include_self::Bool,
+)
+    current_ancestors = _object_ancestor_ids(model.registry, current_id)
+    final_index = lastindex(current_ancestors) - (include_self ? 0 : 1)
+    final_index < firstindex(current_ancestors) && error(
+        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
+    )
+    object_ancestors = _object_ancestor_ids(model.registry, object_id)
+    if isnothing(scale)
+        ancestor_id = @inbounds current_ancestors[final_index]
+        return ancestor_id in object_ancestors
+    end
+    for index in final_index:-1:firstindex(current_ancestors)
+        ancestor_id = @inbounds current_ancestors[index]
+        _model_object(model, ancestor_id).scale == scale || continue
+        return ancestor_id in object_ancestors
+    end
+    scale === :Plant && include_self && error(
+        "No `scale=:Plant` ancestor found for object `$(current_id.value)`.",
+    )
+    error(
+        "No matching ancestor found for object `$(current_id.value)` and scale `$(scale)`.",
+    )
+end
+
+@inline function _object_is_nearest_ancestor(
+    model::CompositeModel,
+    object_id::ObjectId,
+    current_id::ObjectId,
+    scale::Symbol,
+)
+    current_ancestors = _object_ancestor_ids(model.registry, current_id)
+    final_index = lastindex(current_ancestors) - 1
+    final_index < firstindex(current_ancestors) && return false
+    for index in final_index:-1:firstindex(current_ancestors)
+        ancestor_id = @inbounds current_ancestors[index]
+        _model_object(model, ancestor_id).scale == scale || continue
+        return object_id == ancestor_id
+    end
+    return false
 end
 
 function _relation_object_ids(model::CompositeModel, relation::Symbol, context)
@@ -563,6 +672,61 @@ function _criteria_scope(criteria)
     return isnothing(keyword) ? positional : keyword
 end
 
+function _named_scope_root_id(model::CompositeModel, scope::Scope)
+    root_id = get(model.registry.by_name, scope.name, nothing)
+    if isnothing(root_id)
+        candidate = ObjectId(scope.name)
+        root_id = haskey(model.registry.objects, candidate) ? candidate : nothing
+    end
+    if isnothing(root_id)
+        available = sort!(unique(Symbol[
+            keys(model.registry.by_name)...,
+            (id.value for id in keys(model.registry.objects))...,
+        ]); by=string)
+        suggestions = _near_symbol_matches(scope.name, available)
+        error(
+            "No named scope or object `$(scope.name)` found in the model registry. ",
+            "available=$(available), suggestions=$(suggestions).",
+        )
+    end
+    return root_id
+end
+
+_compile_selector_scope(::CompositeModel, scope) = scope
+_compile_selector_scope(model::CompositeModel, scope::Scope) =
+    CompiledNamedScope(scope.name, _named_scope_root_id(model, scope))
+
+_compile_selector_relation(::Nothing) = nothing
+_compile_selector_relation(relation::Symbol) = Val(relation)
+
+function _compile_selector_matcher(
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+)
+    criteria_ = criteria(selector)
+    relation = _criteria_value(criteria_, :relation, Relation)
+    scope = _compile_selector_scope(model, _criteria_scope(criteria_))
+    scale = _criteria_value(criteria_, :scale)
+    kind = _criteria_value(criteria_, :kind)
+    species = _criteria_value(criteria_, :species)
+    name = haskey(criteria_, :name) ? criteria_.name : nothing
+    defaults_to_context = isnothing(scope) &&
+                          isnothing(relation) &&
+                          isnothing(scale) &&
+                          isnothing(kind) &&
+                          isnothing(species) &&
+                          isnothing(name)
+    return CompiledSelectorMatcher(
+        scope,
+        _compile_selector_relation(relation),
+        scale,
+        kind,
+        species,
+        name,
+        defaults_to_context,
+    )
+end
+
 function _scope_object_ids(model::CompositeModel, scope, context)
     if isnothing(scope) || scope isa SceneScope
         return ObjectId[keys(model.registry.objects)...]
@@ -577,7 +741,13 @@ function _scope_object_ids(model::CompositeModel, scope, context)
         return _descendant_ids(model, current_id)
     elseif scope isa SelfPlant
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
-        plant_id = _ancestor_id(model, current_id; scale=:Plant)
+        plant_id = _ancestor_id(
+            model,
+            current_id,
+            :Plant,
+            nothing,
+            true,
+        )
         isnothing(plant_id) && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
         return _descendant_ids(model, plant_id)
     elseif scope isa Ancestor
@@ -593,23 +763,10 @@ function _scope_object_ids(model::CompositeModel, scope, context)
         end
         return _descendant_ids(model, ancestor_id)
     elseif scope isa Scope
-        root_id = get(model.registry.by_name, scope.name, nothing)
-        if isnothing(root_id)
-            candidate = ObjectId(scope.name)
-            root_id = haskey(model.registry.objects, candidate) ? candidate : nothing
-        end
-        if isnothing(root_id)
-            available = sort!(unique(Symbol[
-                keys(model.registry.by_name)...,
-                (id.value for id in keys(model.registry.objects))...,
-            ]); by=string)
-            suggestions = _near_symbol_matches(scope.name, available)
-            error(
-                "No named scope or object `$(scope.name)` found in the model registry. ",
-                "available=$(available), suggestions=$(suggestions)."
-            )
-        end
-        return _descendant_ids(model, root_id)
+        return _descendant_ids(model, _named_scope_root_id(model, scope))
+    elseif scope isa CompiledNamedScope
+        return haskey(model.registry.objects, scope.root_id) ?
+               _descendant_ids(model, scope.root_id) : ObjectId[]
     end
 
     error("Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.")
@@ -671,20 +828,101 @@ function _scope_contains_object(model::CompositeModel, scope, context, object_id
     elseif scope isa SelfPlant
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`SelfPlant()` selectors require a current object context.")
-        plant_id = _ancestor_id(model, current_id; scale=:Plant)
-        isnothing(plant_id) && error("No `scale=:Plant` ancestor found for object `$(current_id.value)`.")
-        _object_is_in_subtree(model, object_id, plant_id)
+        _object_is_in_nearest_ancestor_scope(
+            model,
+            object_id,
+            current_id,
+            :Plant,
+            true,
+        )
     elseif scope isa Ancestor
         current_id = _object_id_from_context(context)
         isnothing(current_id) && error("`Ancestor(...)` selectors require a current object context.")
-        ancestor_id = _ancestor_id(model, current_id; scale=scope.scale, include_self=false)
-        isnothing(ancestor_id) && error(
-            "No matching ancestor found for object `$(current_id.value)` and selector `$(scope)`."
+        _object_is_in_nearest_ancestor_scope(
+            model,
+            object_id,
+            current_id,
+            scope.scale,
+            false,
         )
-        _object_is_in_subtree(model, object_id, ancestor_id)
+    elseif scope isa Scope
+        _object_is_in_subtree(
+            model,
+            object_id,
+            _named_scope_root_id(model, scope),
+        )
+    elseif scope isa CompiledNamedScope
+        haskey(model.registry.objects, scope.root_id) &&
+            _object_is_in_subtree(model, object_id, scope.root_id)
     else
-        object_id in Set(_scope_object_ids(model, scope, context))
+        error(
+            "Unsupported object scope selector `$(scope)` of type `$(typeof(scope))`.",
+        )
     end
+end
+
+@inline _relation_contains_object(
+    ::CompositeModel,
+    ::Nothing,
+    context_id::ObjectId,
+    object_id::ObjectId,
+) = true
+
+@inline _relation_contains_object(
+    ::CompositeModel,
+    ::Val{:self},
+    context_id::ObjectId,
+    object_id::ObjectId,
+) = object_id == context_id
+
+@inline function _relation_contains_object(
+    model::CompositeModel,
+    ::Val{:parent},
+    context_id::ObjectId,
+    object_id::ObjectId,
+)
+    return _model_object(model, context_id).parent == object_id
+end
+
+@inline function _relation_contains_object(
+    model::CompositeModel,
+    ::Val{:children},
+    context_id::ObjectId,
+    object_id::ObjectId,
+)
+    return _model_object(model, object_id).parent == context_id
+end
+
+@inline function _relation_contains_object(
+    model::CompositeModel,
+    ::Val{:ancestors},
+    context_id::ObjectId,
+    object_id::ObjectId,
+)
+    return object_id != context_id &&
+           object_id in _object_ancestor_ids(model.registry, context_id)
+end
+
+@inline function _relation_contains_object(
+    model::CompositeModel,
+    ::Val{:descendants},
+    context_id::ObjectId,
+    object_id::ObjectId,
+)
+    return object_id != context_id &&
+           context_id in _object_ancestor_ids(model.registry, object_id)
+end
+
+@inline function _relation_contains_object(
+    model::CompositeModel,
+    ::Val{:siblings},
+    context_id::ObjectId,
+    object_id::ObjectId,
+)
+    object_id == context_id && return false
+    context_parent = _model_object(model, context_id).parent
+    return !isnothing(context_parent) &&
+           _model_object(model, object_id).parent == context_parent
 end
 
 function _symbol_edit_distance(left::Symbol, right::Symbol)
@@ -773,6 +1011,59 @@ function _matches_object_criteria(object::Object; scale=nothing, kind=nothing, s
     return true
 end
 
+_compiled_relation_symbol(::Val{RELATION}) where {RELATION} = RELATION
+
+function _selector_matches_object_id(
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher,
+    object_id::ObjectId;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
+    if default_to_context && matcher.defaults_to_context && !isnothing(context)
+        return object_id == _object_id_from_context(context)
+    end
+    object = _model_object(model, object_id)
+    _matches_object_criteria(
+        object;
+        scale=matcher.scale,
+        kind=matcher.kind,
+        species=matcher.species,
+        name=matcher.name,
+    ) || return false
+    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    if isnothing(matcher.relation)
+        if scope isa Ancestor &&
+           !isnothing(matcher.scale) &&
+           matcher.scale == scope.scale
+            current_id = _object_id_from_context(context)
+            isnothing(current_id) && error(
+                "`Ancestor(...)` selectors require a current object context.",
+            )
+            return _object_is_nearest_ancestor(
+                model,
+                object_id,
+                current_id,
+                scope.scale,
+            )
+        end
+        return _scope_contains_object(model, scope, context, object_id)
+    end
+    current_id = _object_id_from_context(context)
+    isnothing(current_id) && error(
+        "`Relation(:$(_compiled_relation_symbol(matcher.relation)))` selectors require a current object context.",
+    )
+    _relation_contains_object(
+        model,
+        matcher.relation,
+        current_id,
+        object_id,
+    ) || return false
+    return isnothing(matcher.scope) ||
+           _scope_contains_object(model, matcher.scope, context, object_id)
+end
+
 function _selector_matches_object_id(
     model::CompositeModel,
     selector::AbstractObjectMultiplicity,
@@ -781,45 +1072,35 @@ function _selector_matches_object_id(
     default_to_context::Bool=false,
     default_scope=nothing,
 )
-    criteria_ = criteria(selector)
-    relation = _criteria_value(criteria_, :relation, Relation)
-    explicit_scope = _criteria_scope(criteria_)
-    scale = _criteria_value(criteria_, :scale)
-    kind = _criteria_value(criteria_, :kind)
-    species = _criteria_value(criteria_, :species)
-    name = haskey(criteria_, :name) ? criteria_.name : nothing
-    if default_to_context &&
-       isnothing(explicit_scope) &&
-       isnothing(relation) &&
-       isnothing(scale) &&
-       isnothing(kind) &&
-       isnothing(species) &&
-       isnothing(name) &&
-       !isnothing(context)
-        return object_id == _object_id_from_context(context)
+    return _selector_matches_object_id(
+        model,
+        _compile_selector_matcher(model, selector),
+        object_id;
+        context=context,
+        default_to_context=default_to_context,
+        default_scope=default_scope,
+    )
+end
+
+function _selector_matches_any_object_id(
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher,
+    object_ids;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
+    for object_id in object_ids
+        _selector_matches_object_id(
+            model,
+            matcher,
+            object_id;
+            context=context,
+            default_to_context=default_to_context,
+            default_scope=default_scope,
+        ) && return true
     end
-    object = _model_object(model, object_id)
-    _matches_object_criteria(object; scale=scale, kind=kind, species=species, name=name) ||
-        return false
-    if isnothing(relation)
-        scope = isnothing(explicit_scope) ? default_scope : explicit_scope
-        if scope isa Ancestor && !isnothing(scale) && scale == scope.scale
-            current_id = _object_id_from_context(context)
-            isnothing(current_id) && error(
-                "`Ancestor(...)` selectors require a current object context."
-            )
-            return object_id == _ancestor_id(
-                model,
-                current_id;
-                scale=scope.scale,
-                include_self=false,
-            )
-        end
-        return _scope_contains_object(model, scope, context, object_id)
-    end
-    object_id in _relation_object_ids(model, relation, context) || return false
-    return isnothing(explicit_scope) ||
-           _scope_contains_object(model, explicit_scope, context, object_id)
+    return false
 end
 
 function _selector_matches_any_object_id(
@@ -830,56 +1111,14 @@ function _selector_matches_any_object_id(
     default_to_context::Bool=false,
     default_scope=nothing,
 )
-    criteria_ = criteria(selector)
-    relation = _criteria_value(criteria_, :relation, Relation)
-    explicit_scope = _criteria_scope(criteria_)
-    scale = _criteria_value(criteria_, :scale)
-    kind = _criteria_value(criteria_, :kind)
-    species = _criteria_value(criteria_, :species)
-    name = haskey(criteria_, :name) ? criteria_.name : nothing
-    if default_to_context &&
-       isnothing(explicit_scope) &&
-       isnothing(relation) &&
-       isnothing(scale) &&
-       isnothing(kind) &&
-       isnothing(species) &&
-       isnothing(name) &&
-       !isnothing(context)
-        return _object_id_from_context(context) in object_ids
-    end
-    related_ids = isnothing(relation) ? nothing : Set(_relation_object_ids(model, relation, context))
-    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
-    if isnothing(relation) && scope isa Ancestor && !isnothing(scale) && scale == scope.scale
-        current_id = _object_id_from_context(context)
-        isnothing(current_id) && error(
-            "`Ancestor(...)` selectors require a current object context."
-        )
-        ancestor_id = _ancestor_id(
-            model,
-            current_id;
-            scale=scope.scale,
-            include_self=false,
-        )
-        isnothing(ancestor_id) && return false
-        ancestor_id in object_ids || return false
-        object = _model_object(model, ancestor_id)
-        return _matches_object_criteria(
-            object;
-            scale=scale,
-            kind=kind,
-            species=species,
-            name=name,
-        )
-    end
-    for object_id in object_ids
-        object = _model_object(model, object_id)
-        _matches_object_criteria(object; scale=scale, kind=kind, species=species, name=name) ||
-            continue
-        isnothing(related_ids) || object_id in related_ids || continue
-        _scope_contains_object(model, scope, context, object_id) || continue
-        return true
-    end
-    return false
+    return _selector_matches_any_object_id(
+        model,
+        _compile_selector_matcher(model, selector),
+        object_ids;
+        context=context,
+        default_to_context=default_to_context,
+        default_scope=default_scope,
+    )
 end
 
 function resolve_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity; context=nothing)
@@ -894,10 +1133,28 @@ function _resolve_object_ids(
     default_to_context::Bool=false,
     default_scope=nothing,
 )
-    criteria_ = criteria(selector)
-    relation = _criteria_value(criteria_, :relation, Relation)
+    return _resolve_object_ids(
+        model,
+        selector,
+        _compile_selector_matcher(model, selector);
+        context=context,
+        default_to_context=default_to_context,
+        default_scope=default_scope,
+    )
+end
 
-    explicit_scope = _criteria_scope(criteria_)
+function _resolve_object_ids(
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+    matcher::CompiledSelectorMatcher;
+    context=nothing,
+    default_to_context::Bool=false,
+    default_scope=nothing,
+)
+    relation = isnothing(matcher.relation) ?
+               nothing : _compiled_relation_symbol(matcher.relation)
+
+    explicit_scope = matcher.scope
     scope = if !isnothing(explicit_scope)
         explicit_scope
     elseif isnothing(relation)
@@ -905,18 +1162,13 @@ function _resolve_object_ids(
     else
         nothing
     end
-    scale = _criteria_value(criteria_, :scale)
-    kind = _criteria_value(criteria_, :kind)
-    species = _criteria_value(criteria_, :species)
-    name = haskey(criteria_, :name) ? criteria_.name : nothing
+    scale = matcher.scale
+    kind = matcher.kind
+    species = matcher.species
+    name = matcher.name
 
     if default_to_context &&
-       isnothing(explicit_scope) &&
-       isnothing(relation) &&
-       isnothing(scale) &&
-       isnothing(kind) &&
-       isnothing(species) &&
-       isnothing(name) &&
+       matcher.defaults_to_context &&
        !isnothing(context)
         return ObjectId[_object_id_from_context(context)]
     end

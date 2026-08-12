@@ -2,13 +2,14 @@
 Immutable scenario-level metadata for one model application. Runtime object
 membership is stored separately in [`CompiledModelApplication`](@ref).
 """
-struct CompiledApplicationPlan{S,AT,TS,CL,MO}
+struct CompiledApplicationPlan{S,AT,TM,TS,CL,MO}
     slot::Int
     id::Symbol
     spec::S
     process::Symbol
     name::Union{Nothing,Symbol}
     applies_to::AT
+    target_matcher::TM
     timestep::TS
     clock::CL
     model_overrides::MO
@@ -35,12 +36,13 @@ Base.propertynames(application::CompiledModelApplication) =
     (:plan, :target_ids, propertynames(application.plan)...)
 
 """Immutable authored input declaration for one application."""
-struct CompiledModelInputPlan{SEL,OA,PSA,W}
+struct CompiledModelInputPlan{SEL,M,OA,PSA,W}
     slot::Int
     application_slot::Int
     application_id::Symbol
     input::Symbol
     selector::SEL
+    matcher::M
     origin::Symbol
     order_after_application_ids::OA
     source_var::Symbol
@@ -53,12 +55,13 @@ struct CompiledModelInputPlan{SEL,OA,PSA,W}
 end
 
 """Immutable authored hard-call declaration for one application."""
-struct CompiledModelCallPlan{NAME,SEL,PCA}
+struct CompiledModelCallPlan{NAME,SEL,M,PCA}
     slot::Int
     application_slot::Int
     application_id::Symbol
     call::Symbol
     selector::SEL
+    matcher::M
     origin::Symbol
     process::Union{Nothing,Symbol}
     application::Union{Nothing,Symbol}
@@ -72,6 +75,7 @@ function CompiledModelCallPlan(
     application_id,
     call::Symbol,
     selector,
+    matcher,
     origin,
     process,
     application,
@@ -81,6 +85,7 @@ function CompiledModelCallPlan(
     return CompiledModelCallPlan{
         call,
         typeof(selector),
+        typeof(matcher),
         typeof(potential_callee_application_ids),
     }(
         slot,
@@ -88,6 +93,7 @@ function CompiledModelCallPlan(
         application_id,
         call,
         selector,
+        matcher,
         origin,
         process,
         application,
@@ -116,6 +122,171 @@ struct CompiledApplicationSchedule{E,A,P,G}
     always_entry_indices::A
     periodic_entry_indices::P
     generic_entry_indices::G
+end
+
+"""Reverse candidate index for compiled selector matchers."""
+struct SelectorCandidateIndex{W,S,K,SP,N,A}
+    wildcard::W
+    by_scale::S
+    by_kind::K
+    by_species::SP
+    by_name::N
+    by_scope_anchor::A
+end
+
+function _selector_candidate_index()
+    return SelectorCandidateIndex(
+        Int[],
+        Dict{Symbol,Vector{Int}}(),
+        Dict{Symbol,Vector{Int}}(),
+        Dict{Symbol,Vector{Int}}(),
+        Dict{Symbol,Vector{Int}}(),
+        Dict{ObjectId,Vector{Int}}(),
+    )
+end
+
+function _freeze_selector_candidate_index(index::SelectorCandidateIndex)
+    freeze(groups) = Dict(key => Tuple(values) for (key, values) in groups)
+    return SelectorCandidateIndex(
+        Tuple(index.wildcard),
+        freeze(index.by_scale),
+        freeze(index.by_kind),
+        freeze(index.by_species),
+        freeze(index.by_name),
+        freeze(index.by_scope_anchor),
+    )
+end
+
+_selector_candidate_values(value) = value isa Tuple ? value : (value,)
+
+function _selector_scope_anchor(
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher;
+    context=nothing,
+    default_scope=nothing,
+)
+    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    scope isa CompiledNamedScope && return scope.root_id
+    isnothing(context) && return nothing
+    context_id = _object_id_from_context(context)
+    scope isa Union{Self,Subtree} && return context_id
+    if scope isa SelfPlant
+        return _ancestor_id(
+            model,
+            context_id,
+            :Plant,
+            nothing,
+            true,
+        )
+    elseif scope isa Ancestor
+        return _ancestor_id(
+            model,
+            context_id,
+            scope.scale,
+            nothing,
+            false,
+        )
+    end
+    if isnothing(scope) && !isnothing(matcher.relation)
+        relation = _compiled_relation_symbol(matcher.relation)
+        relation in (:self, :children, :descendants) && return context_id
+        relation in (:parent, :siblings) &&
+            return _model_object(model, context_id).parent
+    end
+    return nothing
+end
+
+function _selector_candidate_destination(
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher;
+    context=nothing,
+    default_scope=nothing,
+)
+    scope = isnothing(matcher.scope) ? default_scope : matcher.scope
+    if scope isa Self && isnothing(matcher.relation)
+        return nothing
+    end
+    anchor = _selector_scope_anchor(
+        model,
+        matcher;
+        context=context,
+        default_scope=default_scope,
+    )
+    !isnothing(anchor) &&
+        return (index.by_scope_anchor, (ObjectId(anchor),))
+    for (groups, value) in (
+        (index.by_name, matcher.name),
+        (index.by_scale, matcher.scale),
+        (index.by_kind, matcher.kind),
+        (index.by_species, matcher.species),
+    )
+        isnothing(value) ||
+            return (groups, _selector_candidate_values(value))
+    end
+    return (nothing, ())
+end
+
+function _index_selector_candidate!(
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    matcher::CompiledSelectorMatcher,
+    candidate_index::Int;
+    context=nothing,
+    default_scope=nothing,
+)
+    destination = _selector_candidate_destination(
+        index,
+        model,
+        matcher;
+        context=context,
+        default_scope=default_scope,
+    )
+    isnothing(destination) && return index
+    groups, values = destination
+    if isnothing(groups)
+        push!(index.wildcard, candidate_index)
+    else
+        for value in values
+            push!(get!(groups, value, Int[]), candidate_index)
+        end
+    end
+    return index
+end
+
+function _union_selector_candidates!(
+    candidates::Set{Int},
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    union!(candidates, index.wildcard)
+    object = _model_object(model, object_id)
+    for (groups, value) in (
+        (index.by_name, object.name),
+        (index.by_scale, object.scale),
+        (index.by_kind, object.kind),
+        (index.by_species, object.species),
+    )
+        isnothing(value) || union!(candidates, get(groups, value, ()))
+    end
+    for anchor in _object_ancestor_ids(model.registry, object_id)
+        union!(candidates, get(index.by_scope_anchor, anchor, ()))
+    end
+    return candidates
+end
+
+function _application_target_candidate_index(model, application_plans)
+    index = _selector_candidate_index()
+    for plan in application_plans
+        _index_selector_candidate!(
+            index,
+            model,
+            plan.target_matcher,
+            plan.slot,
+        )
+    end
+    return _freeze_selector_candidate_index(index)
 end
 
 function _exact_schedule_integer(value::Float64)
@@ -185,9 +356,10 @@ end
 Immutable application, dependency-declaration, and timeline metadata shared by
 every lifecycle refresh of a compiled scenario.
 """
-struct CompiledScenarioPlan{AP,AI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,AS,TL}
+struct CompiledScenarioPlan{AP,AI,ATI,IP,IPI,CP,CPI,CO,MA,AC,AO,OAP,AS,TL}
     applications::AP
     applications_by_id::AI
+    application_target_candidates::ATI
     input_plans::IP
     input_plans_by_application::IPI
     call_plans::CP
@@ -375,7 +547,13 @@ function _compile_scenario_application_children(
     return _freeze_scenario_application_children(applications, children)
 end
 
-function _compiled_scenario_plan(applications, input_plans, call_plans, timeline)
+function _compiled_scenario_plan(
+    model::CompositeModel,
+    applications,
+    input_plans,
+    call_plans,
+    timeline,
+)
     application_plans = Tuple(application.plan for application in applications)
     application_ids = Tuple(plan.id for plan in application_plans)
     call_owners = _scenario_call_owners(applications, call_plans)
@@ -406,6 +584,7 @@ function _compiled_scenario_plan(applications, input_plans, call_plans, timeline
     return CompiledScenarioPlan(
         application_plans,
         application_plans_by_id,
+        _application_target_candidate_index(model, application_plans),
         Tuple(input_plans),
         _plans_by_application(applications, input_plans),
         Tuple(call_plans),
@@ -554,24 +733,21 @@ struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,A
     revision::Int
 end
 
-function _dynamic_binding_scale_keys(model::CompositeModel, binding)
-    binding.origin == :inferred_same_object && return Symbol[]
-    selector_criteria = criteria(binding.selector)
-    explicit_scope = _criteria_scope(selector_criteria)
-    default_scope = _default_dependency_scope(model, binding.consumer_id)
-    scope = isnothing(explicit_scope) ? default_scope : explicit_scope
-    scope isa Self && return Symbol[]
-    scale = _criteria_value(selector_criteria, :scale)
-    isnothing(scale) && return Union{Nothing,Symbol}[nothing]
-    return Symbol[Symbol(value) for value in (scale isa Tuple ? scale : (scale,))]
-end
-
 function _index_dynamic_bindings(model::CompositeModel, bindings)
-    index = Dict{Union{Nothing,Symbol},Vector{Int}}()
+    index = _selector_candidate_index()
     for (binding_index, binding) in pairs(bindings)
-        for scale in _dynamic_binding_scale_keys(model, binding)
-            push!(get!(index, scale, Int[]), binding_index)
-        end
+        binding.origin == :inferred_same_object && continue
+        _index_selector_candidate!(
+            index,
+            model,
+            binding.matcher,
+            binding_index;
+            context=binding.consumer_id,
+            default_scope=_default_dependency_scope(
+                model,
+                binding.consumer_id,
+            ),
+        )
     end
     return index
 end
@@ -653,9 +829,10 @@ function _compile_scene(
         started_at,
     )
     started_at = _runtime_performance_start(performance)
-    input_plans = _compile_model_input_plans(applications)
-    call_plans = _compile_model_call_plans(applications)
+    input_plans = _compile_model_input_plans(model, applications)
+    call_plans = _compile_model_call_plans(model, applications)
     scenario_plan = _compiled_scenario_plan(
+        model,
         applications,
         input_plans,
         call_plans,
@@ -769,12 +946,36 @@ function _compile_scene(
     )
 end
 
-function _new_application_targets(model::CompositeModel, applications, added_ids)
+function _new_application_targets(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    added_ids,
+    performance=nothing,
+)
+    candidate_slots = Set{Int}()
+    for object_id in added_ids
+        _union_selector_candidates!(
+            candidate_slots,
+            compiled.scenario_plan.application_target_candidates,
+            model,
+            object_id,
+        )
+    end
+    _runtime_performance_count!(
+        performance,
+        :selector_application_candidates,
+        length(candidate_slots),
+    )
     targets = Dict{Symbol,Vector{ObjectId}}()
-    for application in applications
+    for slot in sort!(collect(candidate_slots))
+        application = compiled.applications[slot]
         matched = ObjectId[
             object_id for object_id in added_ids
-            if _selector_matches_object_id(model, application.applies_to, object_id)
+            if _selector_matches_object_id(
+                model,
+                application.target_matcher,
+                object_id,
+            )
         ]
         isempty(matched) && continue
         new_count = length(application.target_ids) + length(matched)
@@ -987,7 +1188,7 @@ function _append_added_many_sources!(
         object_id for object_id in added_ids if
         _selector_matches_object_id(
             model,
-            binding.selector,
+            binding.matcher,
             object_id;
             context=binding.consumer_id,
             default_to_context=true,
@@ -1049,7 +1250,7 @@ function _update_structural_many_sources!(
         is_source = haskey(model.registry.objects, object_id) &&
                     _selector_matches_object_id(
             model,
-            binding.selector,
+            binding.matcher,
             object_id;
             context=binding.consumer_id,
             default_to_context=true,
@@ -1271,7 +1472,7 @@ function _append_added_many_call_targets!(
         object_id for object_id in added_ids
         if _selector_matches_object_id(
             model,
-            binding.selector,
+            binding.matcher,
             object_id;
             context=binding.consumer_id,
             default_to_context=true,
@@ -1467,18 +1668,39 @@ function _extend_compiled_scene(
 )
     added_ids = ObjectId[id for id in added_objects if haskey(model.registry.objects, id)]
     started_at = _runtime_performance_start(performance)
-    new_targets = _new_application_targets(model, compiled.applications, added_ids)
+    new_targets = _new_application_targets(
+        model,
+        compiled,
+        added_ids,
+        performance,
+    )
     isnothing(new_targets) && return compile_composite_model(
         model,
         model.applications;
         performance=performance,
     )
-
-    for application in compiled.applications
+    applications = compiled.applications
+    applications_by_id = compiled.applications_by_id
+    new_target_application_ids = sort!(
+        collect(keys(new_targets));
+        by=application_id -> applications_by_id[application_id].slot,
+    )
+    new_target_applications = Tuple(
+        applications_by_id[application_id]
+        for application_id in new_target_application_ids
+    )
+    for application in new_target_applications
         _insert_sorted_object_ids!(
             application.target_ids,
-            get(new_targets, application.id, ObjectId[]),
+            new_targets[application.id],
         )
+    end
+    changed_application_ids = union(
+        Set(new_target_application_ids),
+        changed_application_ids_seed,
+    )
+    for application_id in changed_application_ids
+        application = applications_by_id[application_id]
         if application.id in changed_application_ids_seed
             target_count = length(application.target_ids)
             if application.applies_to isa One && target_count != 1
@@ -1494,11 +1716,9 @@ function _extend_compiled_scene(
             end
         end
     end
-    applications = compiled.applications
-    applications_by_id = compiled.applications_by_id
     applications_by_object = compiled.applications_by_object
-    for application in applications
-        for object_id in get(new_targets, application.id, ObjectId[])
+    for application in new_target_applications
+        for object_id in new_targets[application.id]
             push!(get!(applications_by_object, object_id, Any[]), application)
         end
     end
@@ -1510,41 +1730,37 @@ function _extend_compiled_scene(
 
     started_at = _runtime_performance_start(performance)
     has_calls = !isempty(compiled.scenario_plan.call_plans)
-    added_applications = CompiledModelApplication[]
-    for application in applications
-        target_ids = get(new_targets, application.id, ObjectId[])
-        isempty(target_ids) && continue
-        push!(
-            added_applications,
-            CompiledModelApplication(
-                application.plan,
-                target_ids,
-            ),
+    added_applications = CompiledModelApplication[
+        CompiledModelApplication(
+            application.plan,
+            new_targets[application.id],
         )
-    end
+        for application in new_target_applications
+    ]
     rebuilt_existing_call_targets =
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     changed_call_target_keys =
         Set{Tuple{Symbol,ObjectId}}(forced_call_target_keys)
     if has_calls
-        candidate_call_binding_indices =
-            Set(get(compiled.dynamic_call_binding_indices, nothing, Int[]))
+        candidate_call_binding_indices = Set{Int}()
         for object_id in added_ids
-            object_scale = _model_object(model, object_id).scale
-            isnothing(object_scale) || union!(
+            _union_selector_candidates!(
                 candidate_call_binding_indices,
-                get(
-                    compiled.dynamic_call_binding_indices,
-                    object_scale,
-                    Int[],
-                ),
+                compiled.dynamic_call_binding_indices,
+                model,
+                object_id,
             )
         end
+        _runtime_performance_count!(
+            performance,
+            :selector_call_binding_candidates,
+            length(candidate_call_binding_indices),
+        )
         for binding_index in candidate_call_binding_indices
             binding = compiled.call_bindings[binding_index]
             _selector_matches_any_object_id(
                 model,
-                binding.selector,
+                binding.matcher,
                 added_ids;
                 context=binding.consumer_id,
                 default_to_context=true,
@@ -1574,13 +1790,24 @@ function _extend_compiled_scene(
     ) : CompiledModelCallBinding[]
     affected_call_applications = CompiledModelApplication[]
     if !isempty(rebuilt_existing_call_targets)
-        for application in applications
-            target_ids = ObjectId[
-                object_id for object_id in application.target_ids
-                if (application.id, object_id) in
-                   rebuilt_existing_call_targets
-            ]
-            isempty(target_ids) && continue
+        target_ids_by_application = Dict{Symbol,Vector{ObjectId}}()
+        for (application_id, object_id) in rebuilt_existing_call_targets
+            push!(
+                get!(
+                    target_ids_by_application,
+                    application_id,
+                    ObjectId[],
+                ),
+                object_id,
+            )
+        end
+        for application_id in sort!(
+            collect(keys(target_ids_by_application));
+            by=id -> applications_by_id[id].slot,
+        )
+            application = applications_by_id[application_id]
+            target_ids = target_ids_by_application[application_id]
+            _sort_object_ids!(target_ids)
             push!(
                 affected_call_applications,
                 CompiledModelApplication(
@@ -1639,12 +1866,18 @@ function _extend_compiled_scene(
     first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
     for binding_index in first_new_call_binding:length(call_bindings)
         binding = call_bindings[binding_index]
-        for scale in _dynamic_binding_scale_keys(model, binding)
-            push!(
-                get!(dynamic_call_binding_indices, scale, Int[]),
-                binding_index,
-            )
-        end
+        binding.origin == :inferred_same_object && continue
+        _index_selector_candidate!(
+            dynamic_call_binding_indices,
+            model,
+            binding.matcher,
+            binding_index;
+            context=binding.consumer_id,
+            default_scope=_default_dependency_scope(
+                model,
+                binding.consumer_id,
+            ),
+        )
     end
     _validate_model_writers_for_objects!(
         applications,
@@ -1663,8 +1896,8 @@ function _extend_compiled_scene(
     manual_application_ids = compiled.scenario_plan.manual_application_ids
     added_input_binding_capacity = sum(
         length(_model_input_names(application)) *
-        length(get(new_targets, application.id, ObjectId[]))
-        for application in applications;
+        length(application.target_ids)
+        for application in added_applications;
         init=0,
     )
     input_bindings = compiled.input_bindings
@@ -1685,7 +1918,7 @@ function _extend_compiled_scene(
     previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
-    candidate_binding_indices = Set(get(compiled.dynamic_input_binding_indices, nothing, Int[]))
+    candidate_binding_indices = Set{Int}()
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
             key = (binding.application_id, binding.consumer_id, binding.input)
@@ -1694,12 +1927,18 @@ function _extend_compiled_scene(
         end
     end
     for object_id in added_ids
-        object_scale = _model_object(model, object_id).scale
-        isnothing(object_scale) || union!(
+        _union_selector_candidates!(
             candidate_binding_indices,
-            get(compiled.dynamic_input_binding_indices, object_scale, Int[]),
+            compiled.dynamic_input_binding_indices,
+            model,
+            object_id,
         )
     end
+    _runtime_performance_count!(
+        performance,
+        :selector_input_binding_candidates,
+        length(candidate_binding_indices),
+    )
     for index in candidate_binding_indices
         binding = input_bindings[index]
         force_rebuild =
@@ -1741,7 +1980,7 @@ function _extend_compiled_scene(
         if !force_rebuild
             _selector_matches_any_object_id(
                 model,
-                binding.selector,
+                binding.matcher,
                 added_ids;
                 context=binding.consumer_id,
                 default_to_context=true,
@@ -1810,8 +2049,8 @@ function _extend_compiled_scene(
         )
     end
     previous_binding_count = length(input_bindings)
-    for application in applications
-        for consumer_id in get(new_targets, application.id, ObjectId[])
+    for application in added_applications
+        for consumer_id in application.target_ids
             first_new_binding = length(input_bindings) + 1
             _compile_added_consumer_bindings!(
                 input_bindings,
@@ -1844,9 +2083,18 @@ function _extend_compiled_scene(
     dynamic_input_binding_indices = compiled.dynamic_input_binding_indices
     for binding_index in (previous_binding_count + 1):length(input_bindings)
         binding = input_bindings[binding_index]
-        for scale in _dynamic_binding_scale_keys(model, binding)
-            push!(get!(dynamic_input_binding_indices, scale, Int[]), binding_index)
-        end
+        binding.origin == :inferred_same_object && continue
+        _index_selector_candidate!(
+            dynamic_input_binding_indices,
+            model,
+            binding.matcher,
+            binding_index;
+            context=binding.consumer_id,
+            default_scope=_default_dependency_scope(
+                model,
+                binding.consumer_id,
+            ),
+        )
     end
 
     affected_input_applications = if pure_addition ||
@@ -1854,12 +2102,30 @@ function _extend_compiled_scene(
         Tuple(added_applications)
     else
         rewired_applications = CompiledModelApplication[]
-        for application in applications
-            target_ids = ObjectId[
-                object_id for object_id in application.target_ids
-                if object_id in rewired_consumer_ids
-            ]
-            isempty(target_ids) && continue
+        targets_by_application = Dict{Symbol,Vector{ObjectId}}()
+        for object_id in rewired_consumer_ids
+            for application in get(
+                applications_by_object,
+                object_id,
+                (),
+            )
+                push!(
+                    get!(
+                        targets_by_application,
+                        application.id,
+                        ObjectId[],
+                    ),
+                    object_id,
+                )
+            end
+        end
+        for application_id in sort!(
+            collect(keys(targets_by_application));
+            by=id -> applications_by_id[id].slot,
+        )
+            application = applications_by_id[application_id]
+            target_ids = targets_by_application[application_id]
+            _sort_object_ids!(target_ids)
             push!(
                 rewired_applications,
                 CompiledModelApplication(
@@ -2251,7 +2517,8 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
         app_id = isnothing(name) ? proc : name
         app_id in ids && error("Duplicate compiled model application id `$(app_id)`.")
         push!(ids, app_id)
-        target_ids = resolve_object_ids(model, selector)
+        target_matcher = _compile_selector_matcher(model, selector)
+        target_ids = _resolve_object_ids(model, selector, target_matcher)
         sizehint!(target_ids, length(target_ids) + 1)
         spec = _model_spec_with_environment_hints(
             model,
@@ -2269,6 +2536,7 @@ function _compile_model_applications(model::CompositeModel, raw_specs, timeline)
                     proc,
                     name,
                     selector,
+                    target_matcher,
                     timestep(spec),
                     _model_application_clock(
                         model,
@@ -2663,10 +2931,16 @@ function _validate_from_status_selector!(
     return order_after
 end
 
-function _dependency_object_ids(model::CompositeModel, selector::AbstractObjectMultiplicity, context::ObjectId)
+function _dependency_object_ids(
+    model::CompositeModel,
+    selector::AbstractObjectMultiplicity,
+    matcher::CompiledSelectorMatcher,
+    context::ObjectId,
+)
     return _resolve_object_ids(
         model,
-        selector;
+        selector,
+        matcher;
         context=context,
         default_to_context=true,
         default_scope=_default_dependency_scope(model, context),
@@ -3191,6 +3465,7 @@ end
 
 function _compiled_model_input_plan(
     plans,
+    model,
     applications,
     application,
     input::Symbol,
@@ -3233,6 +3508,7 @@ function _compiled_model_input_plan(
         application.id,
         input,
         selector,
+        _compile_selector_matcher(model, selector),
         origin,
         Tuple(order_after_application_ids),
         source_var,
@@ -3245,7 +3521,7 @@ function _compiled_model_input_plan(
     )
 end
 
-function _compile_model_input_plans(applications)
+function _compile_model_input_plans(model::CompositeModel, applications)
     plans = CompiledModelInputPlan[]
     applications_by_id = Dict(
         application.id => application for application in applications
@@ -3264,6 +3540,7 @@ function _compile_model_input_plans(applications)
                 plans,
                 _compiled_model_input_plan(
                     plans,
+                    model,
                     applications,
                     application,
                     input,
@@ -3288,6 +3565,7 @@ function _compile_model_input_plans(applications)
                     plans,
                     _compiled_model_input_plan(
                         plans,
+                        model,
                         applications,
                         application,
                         input,
@@ -3302,7 +3580,7 @@ function _compile_model_input_plans(applications)
     return plans
 end
 
-function _compile_model_call_plans(applications)
+function _compile_model_call_plans(model::CompositeModel, applications)
     plans = CompiledModelCallPlan[]
     for application in applications
         calls = model_calls(application.spec)
@@ -3320,6 +3598,7 @@ function _compile_model_call_plans(applications)
                     application.id,
                     call,
                     selector,
+                    _compile_selector_matcher(model, selector),
                     get(call_origins(application.spec), call, :model_spec),
                     _criteria_get(criteria(selector), :process, nothing),
                     _selector_application(selector),
@@ -3384,7 +3663,7 @@ function _compile_model_input_bindings(
     if isnothing(plans_by_application)
         plans_by_application = _plans_by_application(
             applications,
-            _compile_model_input_plans(applications),
+            _compile_model_input_plans(model, applications),
         )
     end
     bindings = CompiledModelInputBinding[]
@@ -3422,7 +3701,13 @@ function _push_model_input_binding!(
     source_var = plan.source_var
     process_filter = plan.process
     application_filter = plan.application
-    source_ids = isnothing(source_ids_override) ? _dependency_object_ids(model, selector, consumer_id) : source_ids_override
+    source_ids = isnothing(source_ids_override) ?
+                 _dependency_object_ids(
+        model,
+        selector,
+        plan.matcher,
+        consumer_id,
+    ) : source_ids_override
     selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
     source_application_ids = if _selector_from_status(selector)
         Symbol[]
@@ -3666,7 +3951,7 @@ function _compile_model_call_bindings(
     if isnothing(plans_by_application)
         plans_by_application = _plans_by_application(
             applications,
-            _compile_model_call_plans(applications),
+            _compile_model_call_plans(model, applications),
         )
     end
     bindings = CompiledModelCallBinding[]
@@ -3678,7 +3963,12 @@ function _compile_model_call_bindings(
             )
                 call_sym = plan.call
                 selector = plan.selector
-                callee_object_ids = _dependency_object_ids(model, selector, consumer_id)
+                callee_object_ids = _dependency_object_ids(
+                    model,
+                    selector,
+                    plan.matcher,
+                    consumer_id,
+                )
                 proc = plan.process
                 app_name = plan.application
                 callee_application_ids = Symbol[]

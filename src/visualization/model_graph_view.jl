@@ -163,9 +163,10 @@ function _model_graph_compiled(
     call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
     timeline = _model_timeline(model)
     scenario_plan = _compiled_scenario_plan(
+        model,
         applications,
-        _compile_model_input_plans(applications),
-        _compile_model_call_plans(applications),
+        _compile_model_input_plans(model, applications),
+        _compile_model_call_plans(model, applications),
         timeline,
     )
     ordered_applications = Tuple(
@@ -216,7 +217,8 @@ function _model_graph_fallback_application(model, raw_spec, timeline, slot)
         "Model application for process `$(process(spec))` has no valid `ModelSpec(...; on=...)` selector.",
     )
     application_id = something(application_name(spec), process(spec))
-    target_ids = resolve_object_ids(model, selector)
+    target_matcher = _compile_selector_matcher(model, selector)
+    target_ids = _resolve_object_ids(model, selector, target_matcher)
     return CompiledModelApplication(
         CompiledApplicationPlan(
             slot,
@@ -225,6 +227,7 @@ function _model_graph_fallback_application(model, raw_spec, timeline, slot)
             process(spec),
             application_name(spec),
             selector,
+            target_matcher,
             timestep(spec),
             _model_application_clock(model, spec, target_ids, timeline),
             _compiled_object_model_overrides(spec, target_ids, application_id),

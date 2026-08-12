@@ -641,7 +641,7 @@ end
 Result of running a [`CompositeModel`](@ref). Use `outputs`, `collect_outputs`,
 [`final_state`](@ref), and `PlantSimEngine.Diagnostics` to inspect it.
 """
-mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
+mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RM,RT,C,P}
     model::S
     compiled::CS
     environment_bindings::EB
@@ -649,6 +649,7 @@ mutable struct Simulation{S,CS,EB,EP,OR,TS,R,RT,C,P}
     output_retention::OR
     temporal_streams::TS
     output_requests::R
+    output_request_matchers::RM
     output_request_targets::RT
     output_request_model_revision::Int
     runtime_revision::Int
@@ -3972,25 +3973,18 @@ function _new_object_applications(
 )
     by_object = Dict{ObjectId,Vector{Any}}()
     partial_applications = CompiledModelApplication[]
-    for application in compiled.applications
-        target_ids = ObjectId[
-            object_id for object_id in requested_ids
-            if _selector_matches_object_id(
-                model,
-                application.applies_to,
-                object_id,
-            )
-        ]
-        isempty(target_ids) && continue
-        new_target_count = length(application.target_ids) +
-                           count(
-            object_id -> !(object_id in application.target_ids),
-            target_ids,
-        )
-        if (application.applies_to isa One && new_target_count != 1) ||
-           (application.applies_to isa OptionalOne && new_target_count > 1)
-            return nothing
-        end
+    new_targets = _new_application_targets(
+        model,
+        compiled,
+        requested_ids,
+    )
+    isnothing(new_targets) && return nothing
+    for slot in sort!(Int[
+        compiled.applications_by_id[application_id].slot
+        for application_id in keys(new_targets)
+    ])
+        application = compiled.applications[slot]
+        target_ids = new_targets[application.id]
         partial = _partial_model_application(application, target_ids)
         push!(partial_applications, partial)
         for object_id in target_ids
@@ -4136,7 +4130,7 @@ function _targeted_new_object_call_targets(
         object_id for object_id in requested_ids
         if !_selector_matches_object_id(
             model,
-            binding.selector,
+            binding.matcher,
             object_id;
             context=context.object_id,
             default_to_context=true,
@@ -5293,13 +5287,19 @@ _output_request_target_is_active(target) =
     !isempty(target.memberships) &&
     isnothing(last(target.memberships).end_time)
 
-function _initial_output_request_targets(model, compiled, output_requests)
+function _initial_output_request_targets(
+    model,
+    compiled,
+    output_requests,
+    output_request_matchers,
+)
     targets = Dict{Symbol,Tuple{Symbol,Dict{ObjectId,Any}}}()
     for request in output_requests
         application = _model_request_application(model, compiled, request)
-        object_ids = resolve_object_ids(
+        object_ids = _resolve_object_ids(
             model,
-            request.selector;
+            request.selector,
+            output_request_matchers[request.name];
             context=request.context,
         )
         targets[request.name] = (
@@ -5339,6 +5339,7 @@ function _refresh_output_request_targets!(
     )
     added_object_ids = _incremental_output_request_object_ids(lifecycle)
     for request in simulation.output_requests
+        matcher = simulation.output_request_matchers[request.name]
         application_id, object_targets =
             simulation.output_request_targets[request.name]
         matched_ids = if isnothing(added_object_ids)
@@ -5346,9 +5347,10 @@ function _refresh_output_request_targets!(
                 simulation.performance,
                 :output_request_selector_resolutions,
             )
-            resolve_object_ids(
+            _resolve_object_ids(
                 simulation.model,
-                _selector_as_many(request.selector);
+                _selector_as_many(request.selector),
+                matcher;
                 context=request.context,
             )
         else
@@ -5361,7 +5363,7 @@ function _refresh_output_request_targets!(
                 object_id for object_id in added_object_ids
                 if _selector_matches_object_id(
                     simulation.model,
-                    request.selector,
+                    matcher,
                     object_id;
                     context=request.context,
                 )
@@ -5567,10 +5569,15 @@ function run!(
         length(execution_plan.batches),
     )
     started_at = _runtime_performance_start(performance_counters)
+    output_request_matchers = Dict(
+        request.name => _compile_selector_matcher(model, request.selector)
+        for request in output_requests
+    )
     output_request_targets = _initial_output_request_targets(
         model,
         compiled,
         output_requests,
+        output_request_matchers,
     )
     _runtime_performance_finish!(
         performance_counters,
@@ -5590,6 +5597,7 @@ function run!(
         output_retention,
         temporal_streams,
         output_requests,
+        output_request_matchers,
         output_request_targets,
         model_revision(model),
         model.runtime_revision,

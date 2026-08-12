@@ -569,21 +569,60 @@ output boundaries 20, and unified model/object behavior 685. `git diff
 
 ## Phase 6: Compile Selectors And Reverse Dependency Indices
 
-- [ ] Normalize immutable selector criteria into compiled matcher objects or
+- [x] Normalize immutable selector criteria into compiled matcher objects or
   typed predicates.
-- [ ] Resolve named `Scope` roots once and use ancestor membership instead of
+- [x] Resolve named `Scope` roots once and use ancestor membership instead of
   materializing a descendant `Set` for single-object membership tests.
-- [ ] Add allocation-free relation membership predicates for `self`, `parent`,
+- [x] Add allocation-free relation membership predicates for `self`, `parent`,
   `children`, `ancestors`, `descendants`, and `siblings`.
-- [ ] Compile reverse candidate indices for application target selectors using
+- [x] Compile reverse candidate indices for application target selectors using
   `scale`, `kind`, `species`, `name`, scope anchors, and wildcard classes.
-- [ ] Extend dynamic input/call binding indices beyond the current scale-only
+- [x] Extend dynamic input/call binding indices beyond the current scale-only
   coarse filter when measurements justify it.
-- [ ] Track which scoped bindings may be affected by a reparented subtree.
-- [ ] Preserve exact `One`, `OptionalOne`, `Many`, scope, topology, application,
+- [x] Track which scoped bindings may be affected by a reparented subtree.
+- [x] Preserve exact `One`, `OptionalOne`, `Many`, scope, topology, application,
   process, and stable-order semantics.
-- [ ] Add allocation tests for matching one added object against a large scene.
-- [ ] Commit selector compilation and reverse indices as a coherent slice.
+- [x] Add allocation tests for matching one added object against a large scene.
+- [x] Commit selector compilation and reverse indices as a coherent slice.
+
+### Compiled-selector and reverse-index result (2026-08-12)
+
+`CompiledSelectorMatcher` now stores normalized label criteria, topology scope,
+typed relation dispatch, and default-context behavior once per immutable
+application, input, call, or output-request declaration. Named `Scope` values
+become `CompiledNamedScope` values with a stable root `ObjectId`. Single-object
+membership therefore uses cached ancestor paths directly instead of rebuilding
+descendant sets, and all six relation predicates execute without allocation in
+the focused matcher tests.
+
+`SelectorCandidateIndex` partitions application plans and lifecycle-maintained
+input/call bindings by `scale`, `kind`, `species`, `name`, scope anchor, or a
+conservative wildcard. A lifecycle addition now tests only the union of the
+new object's label and ancestor buckets. Reparenting combines the new ancestry
+with bindings forced by the object's old source/call membership, so entering
+and leaving scoped selectors both remain exact without a scene-wide scan.
+Output requests also retain their compiled matchers for later lifecycle
+refreshes.
+
+On a scene with 64 independent plants, adding one leaf examined one of two
+application plans and one of 64 plant input bindings. Reparenting a leaf from
+plant 1 to plant 2 examined one application plan and exactly the two affected
+input bindings; the old carrier became empty and the new carrier contained
+both leaves in stable order. The equivalent hard-call reparent test examined
+one reverse call-binding candidate on entry, while exit used its recorded old
+membership without another reverse candidate.
+
+Every compiled matcher check across `Self`, `Subtree`, `SelfPlant`, generic and
+scaled `Ancestor`, named `Scope`, and every supported `Relation` allocated zero
+bytes. The warmed incremental refresh allocated 39,152 bytes for an 8-plant
+scene and 56,208 bytes for a 2,048-plant scene, a 17,056-byte increase rather
+than growth proportional to total objects or bindings.
+
+Focused validation passed 1,014 assertions: API stabilization 598, hard calls
+92, graph views 181, `PreviousTimeStep` views 60, environment backends 9,
+output boundaries 20, and immutable-scenario benchmark smoke 54. The broader
+unified model/object integration file also passed 685/685, and `git diff
+--check` passed before the checkpoint commit.
 
 ## Phase 7: Compile Output And Environment Runtime Sinks
 
