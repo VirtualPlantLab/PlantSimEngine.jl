@@ -748,7 +748,11 @@ struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
     applications_identity::UInt
 end
 
-struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO}
+# Keep a stable heap identity at dynamic execution-batch boundaries. The
+# scenario plan and application plans remain immutable values; only their
+# runtime shell is reference-backed so passing it across a batch boundary does
+# not box and copy the complete typed scenario-plan tuple.
+mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,MBC,CO,AC,SVI,CE,CET,PA,AO}
     model::SC
     scenario_plan::SP
     applications::AP
