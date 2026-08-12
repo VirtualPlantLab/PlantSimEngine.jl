@@ -23,7 +23,8 @@ function call_lookup_allocations(context)
 end
 
 literal_call_targets(context::T) where {T} = call_targets(context, :one)
-literal_call_model(context::T) where {T} = call_model(context, :one)
+# Julia 1.10 needs the literal call site inlined into the allocation probe.
+@inline literal_call_model(context::T) where {T} = call_model(context, :one)
 
 function call_model_lookup_allocations(context::T) where {T}
     literal_call_model(context)

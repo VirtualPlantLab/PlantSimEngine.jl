@@ -168,9 +168,9 @@ multiplicity(::OptionalOne) = :optional_one
 multiplicity(::Many) = :many
 
 """A named topology scope resolved once while the scenario plan is compiled."""
-struct CompiledNamedScope
+struct CompiledNamedScope{I<:ObjectId}
     name::Symbol
-    root_id::ObjectId
+    root_id::I
 end
 
 """

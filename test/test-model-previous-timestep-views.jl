@@ -143,6 +143,25 @@ function _materialization_allocations(
     )
 end
 
+function _runtime_materialization_allocations(
+    status,
+    input_bindings,
+    compiled,
+    application,
+    streams,
+    time,
+)
+    # Function scope keeps Julia 1.10 from charging test machinery to this path.
+    return @allocated PlantSimEngine._materialize_model_inputs!(
+        status,
+        input_bindings,
+        compiled,
+        application,
+        streams,
+        time,
+    )
+end
+
 @testset "Application-local PreviousTimeStep status views" begin
     source_spec = _temporal_view_source_spec()
     consumer_spec = _temporal_view_consumer_spec(
@@ -249,15 +268,13 @@ end
         simulation.temporal_streams,
         4,
     )
-    @test @allocated(
-        PlantSimEngine._materialize_model_inputs!(
-            execution_target.status,
-            execution_target.input_bindings,
-            simulation.compiled,
-            simulation.compiled.applications_by_id[:lagged_consumer],
-            simulation.temporal_streams,
-            4,
-        )
+    @test _runtime_materialization_allocations(
+        execution_target.status,
+        execution_target.input_bindings,
+        simulation.compiled,
+        simulation.compiled.applications_by_id[:lagged_consumer],
+        simulation.temporal_streams,
+        4,
     ) == 0
     source_execution_target = only(
         only(

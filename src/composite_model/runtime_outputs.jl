@@ -3649,7 +3649,7 @@ end
 end
 
 
-Base.@constprop :aggressive function call_model(
+@inline Base.@constprop :aggressive function call_model(
     context::RunContext,
     name::Symbol,
 )
