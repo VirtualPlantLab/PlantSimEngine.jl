@@ -771,6 +771,88 @@ function runtime_performance(simulation::Simulation)
     )
 end
 
+const _IMMUTABLE_PLAN_PERFORMANCE_METRICS = Set((
+    :scenario_plan_compile,
+    :initial_application_plans_compiled,
+    :initial_application_schedule_entries_compiled,
+    :initial_input_plans_compiled,
+    :initial_call_plans_compiled,
+))
+
+const _OBJECT_TARGET_PERFORMANCE_METRICS = Set((
+    :application_target_compile,
+    :call_binding_compile,
+    :input_binding_compile,
+    :status_view_compile,
+    :initial_status_views_constructed,
+    :initial_input_bindings_constructed,
+    :initial_call_bindings_constructed,
+    :initial_environment_compile,
+    :initial_environment_bindings_constructed,
+    :initial_output_retention_compile,
+    :initial_execution_plan_compile,
+    :initial_execution_plan_and_model_bundle_compile,
+    :initial_execution_targets_constructed,
+    :initial_execution_batches_constructed,
+    :initial_output_target_compile,
+))
+
+const _INITIAL_TOTAL_PERFORMANCE_METRICS = Set((
+    :initial_binding_compile,
+    :initial_composite_compile,
+))
+
+@inline function _runtime_performance_phase(metric::Symbol)
+    metric in _IMMUTABLE_PLAN_PERFORMANCE_METRICS &&
+        return :immutable_plan_compilation
+    metric in _OBJECT_TARGET_PERFORMANCE_METRICS &&
+        return :object_target_instantiation
+    metric in _INITIAL_TOTAL_PERFORMANCE_METRICS &&
+        return :initial_compilation_total
+    name = String(metric)
+    (startswith(name, "lifecycle_") ||
+     occursin("_refresh", name) ||
+     occursin("_delta", name) ||
+     occursin("_reused", name) ||
+     occursin("_rebuilt", name)) &&
+        return :lifecycle_buffer_update
+    startswith(name, "output_collection") && return :output_collection
+    return :steady_state_execution
+end
+
+"""
+    explain_runtime_performance(simulation)
+
+Group the opt-in counters produced by `run!(...; performance=true)` into
+immutable plan compilation, object-target instantiation, lifecycle buffer
+updates, steady-state execution, output collection, and initial-total rows.
+Each row reports either or both of `count` and `elapsed_seconds`. The function
+returns an empty vector when performance instrumentation was disabled.
+"""
+function explain_runtime_performance(simulation::Simulation)
+    performance = runtime_performance(simulation)
+    isnothing(performance) && return NamedTuple[]
+    metrics = union(
+        Set(keys(performance.counts)),
+        Set(keys(performance.elapsed_seconds)),
+    )
+    rows = [
+        (
+            phase=_runtime_performance_phase(metric),
+            metric=metric,
+            count=get(performance.counts, metric, nothing),
+            elapsed_seconds=get(
+                performance.elapsed_seconds,
+                metric,
+                nothing,
+            ),
+        )
+        for metric in metrics
+    ]
+    sort!(rows; by=row -> (string(row.phase), string(row.metric)))
+    return rows
+end
+
 # Diagnostics accept the live simulation handle without exposing its compiled
 # representation. Views concerning topology and initialization use the current
 # model; compiled views use the simulation's current compiled state.

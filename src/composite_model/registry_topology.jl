@@ -905,13 +905,6 @@ function _apply_instance_labels!(object::Object, instance)
     return object
 end
 
-"""
-    register_object!(model, object; parent=object.parent)
-
-Register a fully initialized [`Object`](@ref) in `model`. Structural bindings
-are marked dirty and become visible to execution after the next lifecycle
-refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
-"""
 function _register_object_without_lifecycle!(
     model::CompositeModel,
     object::Object;
@@ -947,6 +940,13 @@ function _register_object_without_lifecycle!(
     return object
 end
 
+"""
+    register_object!(model, object; parent=object.parent)
+
+Register a fully initialized [`Object`](@ref) in `model`. Structural bindings
+are marked dirty and become visible to execution after the next lifecycle
+refresh boundary. Prefer [`add_organ!`](@ref) for MTG-backed growth.
+"""
 function register_object!(model::CompositeModel, object::Object; parent=object.parent)
     registered = _register_object_without_lifecycle!(
         model,

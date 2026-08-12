@@ -383,8 +383,9 @@ low-level operation for callers that already own a complete `Object`.
 
 Structural changes invalidate compiled object/model bindings. Movement and
 geometry changes invalidate environment bindings without rebuilding structural
-input carriers. The next `run!` or `continue!` timestep refreshes the necessary
-caches.
+input carriers. Scenario-level application, dependency, selector, cadence,
+environment-sampling, and output-retention plans remain immutable; only the
+affected object targets and buffers are refreshed.
 
 Do not mutate `Object` topology, labels, or geometry fields directly. Direct
 field mutation bypasses registry indexes and cache invalidation and is
@@ -397,8 +398,10 @@ still be added, removed, or reparented.
 
 Inside a lifecycle-capable model kernel, use `runtime_model(context)` to obtain
 the live model. Objects created during a kernel call do not recursively execute
-inside that call. Structural targets, value carriers, call targets, writer
-validation, schedules, and output-request matches are refreshed at the next
-timestep boundary. Geometry-only mutations refresh affected environment
-bindings at that boundary; already published streams remain available for
-removed objects.
+inside that call. At the safe barrier after the mutating application,
+PlantSimEngine refreshes affected structural targets, value carriers, hard-call
+targets, writer validation, temporal storage, execution groups, output-request
+matches, and environment handles. A new object can therefore run an application
+that remains later in the same timestep, but it does not retroactively run an
+application that already completed. Already published streams remain available
+for removed objects.

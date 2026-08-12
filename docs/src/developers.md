@@ -58,6 +58,20 @@ Benchmark scripts live in `benchmark/`. They are useful when a change may alter
 runtime characteristics, but they are not a substitute for the main test suite
 or downstream integration checks.
 
+For phase-oriented diagnostics, opt in explicitly:
+
+```julia
+simulation = run!(model; steps=48, outputs=:none, performance=true)
+Diagnostics.explain_runtime_performance(simulation)
+```
+
+The returned rows distinguish immutable-plan compilation, object-target
+instantiation, lifecycle-buffer updates, steady-state execution, output
+collection, and whole-initialization totals. Use these counters to establish
+where work occurred, not as a microbenchmark. Timing instrumentation calls
+`time_ns()` at runtime boundaries, so benchmark ordinary execution separately
+with `performance=false` after warming the simulation.
+
 ## CI workflows
 
 The repository currently relies on these GitHub Actions workflows:

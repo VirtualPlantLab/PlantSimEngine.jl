@@ -153,6 +153,7 @@ import ..PlantSimEngine:
     explain_outputs,
     explain_initialization,
     explain_execution_plan,
+    explain_runtime_performance,
     explain_output_retention,
     explain_environment_bindings,
     explain_schedule,
@@ -163,6 +164,7 @@ export explain_objects, explain_instances, explain_scopes
 export explain_applications, explain_bindings, explain_calls, explain_writers
 export input_carrier, input_value, has_reference_carrier
 export explain_outputs, explain_initialization, explain_execution_plan
+export explain_runtime_performance
 export explain_output_retention, explain_environment_bindings
 export explain_schedule, explain_environment
 end

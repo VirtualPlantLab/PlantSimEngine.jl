@@ -637,7 +637,7 @@ Before each timestep, dirty bindings are refreshed in batch.
 
 ## Compilation Strategy
 
-The compiler should build one global dependency graph over object addresses.
+The compiler builds one global dependency graph over object addresses.
 The graph includes:
 
 - value dependencies from `ModelSpec(...; inputs=...)`;
@@ -652,8 +652,38 @@ The runtime representation is an implementation detail:
 - same-rate local links can stay as aliases;
 - cross-rate links use temporal state;
 - many-object links use `RefVector` or node-value streams;
-- call links use `ModelCall` or an equivalent callable runtime handle;
-- environment links use cached `EnvironmentBinding`s.
+- call links use immutable call plans with lifecycle-maintained target buffers;
+- environment links use application-level plans and object-specific handles.
+
+### Immutable plans and mutable object state
+
+The application graph is immutable during a simulation. Growth changes which
+objects participate in that graph, not which applications, dependency
+declarations, cadence rules, or selector programs exist. The compiler keeps
+these two ownership layers separate:
+
+| Immutable for the scenario | Mutable at lifecycle barriers |
+| --- | --- |
+| application identity, model specification, and dense application slot | application target object ids |
+| dependency edges and topological order | value carriers and temporal source buffers |
+| compiled input and hard-call selector programs | hard-call target buffers |
+| cadence definitions and schedule entries | schedule cursor and current execution groups |
+| output-retention requirements and publication variables | stream instances and request membership intervals |
+| environment backend/configuration, sampling rules, sampler, and prepared source | object handles, geometry provenance, and spatial index entries |
+
+`CompiledScenarioPlan` owns the immutable application, input, call, ordering,
+and cadence definitions. Object-level bindings delegate to these plans rather
+than copying their selector, policy, contract, or environment metadata.
+`CompiledExecutionPlan` uses dense application slots for root scheduling and
+keeps homogeneous target batches concrete.
+
+A `LifecycleDelta` journals additions, removals, reparenting, and movement once.
+At the safe barrier after the mutating application, the runtime consumes that
+shared delta to update affected application targets, input carriers, hard-call
+targets, temporal storage, output membership, environment handles, and
+execution groups. Applications still due later in the same timestep may run on
+new objects. The following unchanged timestep returns to the same precompiled
+schedule without selector resolution or graph reconstruction.
 
 The final execution plan should group contiguous targets with the same concrete
 model, status, model-bundle, input-binding, and environment-binding types.
@@ -664,6 +694,14 @@ environment refreshes rebuild these batches before the next timestep.
 
 The public explanation API must describe the normalized graph, not the internal
 carrier choice.
+
+Use `run!(model; performance=true)` only for coarse phase instrumentation. The
+structured `Diagnostics.explain_runtime_performance(simulation)` view groups
+the resulting counters into immutable-plan compilation, object-target
+instantiation, lifecycle-buffer updates, steady-state execution, output
+collection, and initial totals. Benchmark the normal runtime with
+`performance=false`, because enabled instrumentation deliberately calls
+`time_ns()` around compiler/runtime boundaries.
 
 ## Agent-Facing Requirements
 
@@ -681,6 +719,7 @@ Diagnostics.explain_schedule(sim)
 Diagnostics.explain_writers(sim)
 Diagnostics.explain_execution_plan(sim)
 Diagnostics.explain_output_retention(sim)
+Diagnostics.explain_runtime_performance(sim)
 ```
 
 These helpers should return stable structured data, not only pretty text. A

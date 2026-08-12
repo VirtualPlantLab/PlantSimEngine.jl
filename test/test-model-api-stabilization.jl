@@ -328,6 +328,7 @@ end
         :explain_execution_plan,
         :explain_initialization,
         :explain_instances,
+        :explain_runtime_performance,
         :explain_objects,
         :explain_output_retention,
         :explain_outputs,
@@ -1384,6 +1385,7 @@ end
     disabled_model = CompositeModel(StabilizationSourceModel())
     disabled_simulation = run!(disabled_model; steps=2)
     @test isnothing(Advanced.runtime_performance(disabled_simulation))
+    @test isempty(Diagnostics.explain_runtime_performance(disabled_simulation))
 
     model = CompositeModel(
         Object(:leaf_1; scale=:Leaf);
@@ -1439,6 +1441,19 @@ end
         :output_request_target_refresh,
     )
     @test simulation.runtime_revision == model.runtime_revision
+    phase_rows = Diagnostics.explain_runtime_performance(simulation)
+    @test only(
+        row for row in phase_rows
+        if row.metric == :scenario_plan_compile
+    ).phase == :immutable_plan_compilation
+    @test only(
+        row for row in phase_rows
+        if row.metric == :initial_execution_targets_constructed
+    ).phase == :object_target_instantiation
+    @test only(
+        row for row in phase_rows
+        if row.metric == :steps_executed
+    ).phase == :steady_state_execution
 
     original_view =
         simulation.compiled.status_views_by_target[(:source, ObjectId(:leaf_1))]
@@ -1475,11 +1490,25 @@ end
     @test simulation.compiled.status_views_by_target[
         (:source, ObjectId(:leaf_1))
     ] === original_view
+    refreshed_phase_rows = Diagnostics.explain_runtime_performance(simulation)
+    @test only(
+        row for row in refreshed_phase_rows
+        if row.metric == :lifecycle_added_objects
+    ).phase == :lifecycle_buffer_update
+    @test only(
+        row for row in refreshed_phase_rows
+        if row.metric == :application_target_refresh
+    ).phase == :lifecycle_buffer_update
 
     collect_outputs(simulation; sink=nothing)
     collected = Advanced.runtime_performance(simulation)
     @test collected.counts[:output_collections] == 1
     @test collected.elapsed_seconds[:output_collection] >= 0.0
+    collected_phase_rows = Diagnostics.explain_runtime_performance(simulation)
+    @test only(
+        row for row in collected_phase_rows
+        if row.metric == :output_collections
+    ).phase == :output_collection
 end
 
 @testset "incremental lifecycle preserves temporal state" begin
