@@ -206,7 +206,7 @@ hard-call execution path.
 - [x] Record the exact branch, commit, Julia version, thread count, CPU context,
   dependency versions, benchmark parameters, output policy, warm-up policy,
   sample count, and relevant package SHAs for this goal's pre-change baseline.
-- [ ] Add or preserve one-setup/many-timestep steady-state benchmarks for:
+- [x] Add or preserve one-setup/many-timestep steady-state benchmarks for:
   - `outputs=:none` with no temporal dependency;
   - temporal inputs with bounded dependency streams;
   - one and several explicit `OutputRequest`s;
@@ -214,15 +214,15 @@ hard-call execution path.
   - many applications with mixed cadences;
   - homogeneous targets and targets split by overrides or environment type.
 - [x] Keep construction and initial compilation outside warmed step timings.
-- [ ] Add lifecycle benchmarks for one and several objects covering:
+- [x] Add lifecycle benchmarks for one and several objects covering:
   - registration/growth;
   - removal of one object and a subtree;
   - reparenting of one object and a subtree;
   - geometry movement and inherited-geometry invalidation.
-- [ ] Measure selector resolution separately for `SceneScope`, `Scope`,
+- [x] Measure selector resolution separately for `SceneScope`, `Scope`,
   `Subtree`, `SelfPlant`, `Ancestor`, and every `Relation` variant used by
   lifecycle refresh.
-- [ ] Record total time, time per timestep/event, allocations, allocated bytes,
+- [x] Record total time, time per timestep/event, allocations, allocated bytes,
   and runtime work counters.
 - [x] Add counters that distinguish immutable-plan compilation from mutable
   target instantiation and target-buffer updates.
@@ -270,9 +270,17 @@ This proves two current steady-state costs that later phases must remove:
   every hourly step even when the application was not due.
 
 The benchmark API smoke passed 16/16 and the focused runtime/instrumentation
-suite passed 322/322. The broader Phase 1 matrix remains open for scenes with
-no temporal dependency, several requests, overrides/environment splits,
-lifecycle removal/reparenting/movement, and selector-family microbenchmarks.
+suite passed 322/322. The rest of the matrix was completed at the relevant
+implementation milestones rather than duplicated in the initial harness:
+PlantBiophysics covers no-temporal one-setup execution, the immutable-scenario
+harness covers bounded temporal inputs and none/requested/all retention, XPalm
+covers several explicit requests and lifecycle growth, the event-driven
+benchmark covers mixed cadences, and the prerequisite hard-call matrix covers
+homogeneous and heterogeneous execution/environment batches. Phase 5 records
+isolated add, remove, reparent, and move events at two scene sizes. Phase 6
+records allocation-free compiled matcher checks; the final public-resolution
+microbenchmark records time and allocation for every supported scope and
+relation family.
 
 ## Phase 2: Remove Unnecessary Steady-State Work
 
@@ -799,6 +807,14 @@ lookup or memory-scaling problem. Phase 8 is complete as a measured no-change
 decision; dense object slots should be reconsidered only if a later profile
 identifies public-id dictionaries as a material cost.
 
+The final XPalm acceptance profile did identify one different dense-index
+opportunity: lifecycle refresh was retrieving immutable input/call plan tuples
+from a `NamedTuple` through runtime symbolic property dispatch. Reusing the
+already compiled application slot for that lookup removed the dispatch without
+introducing an object slot, changing public ids, or duplicating plan metadata.
+This is the application-slot reuse required by the first Phase 8 item, not the
+deferred object-slot migration.
+
 ## Phase 9: Full Validation And Documentation
 
 - [x] Preserve the prerequisite acceptance record: PlantSimEngine 2,005/2,005,
@@ -806,7 +822,7 @@ identifies public-id dictionaries as a material cost.
   exact PlantBiophysics retained trajectory, and exact XPalm final reference.
   These counts establish the pre-change boundary and do not satisfy the fresh
   final runs below.
-- [ ] Run focused tests after each compiler/runtime slice covering:
+- [x] Run focused tests after each compiler/runtime slice covering:
   - one object and many objects;
   - same-object and cross-object inputs;
   - `One`, `OptionalOne`, and `Many`;
@@ -818,25 +834,168 @@ identifies public-id dictionaries as a material cost.
   - templates, instances, and overrides;
   - output requests, `outputs=:all`, `outputs=:none`, and removed-object history;
   - generic numeric and status value types.
-- [ ] Run the complete PlantSimEngine test suite.
-- [ ] Run the complete PlantBiophysics test suite against the local checkout.
-- [ ] Run the complete XPalm test suite and established 4,160-step numerical
+- [x] Run the complete PlantSimEngine test suite.
+- [x] Run the complete PlantBiophysics test suite against the local checkout.
+- [x] Run the complete XPalm test suite and established 4,160-step numerical
   regression against the local checkout.
-- [ ] Compare representative full trajectories, not only final scalar values,
+- [x] Compare representative full trajectories, not only final scalar values,
   for changes touching time, outputs, environment sampling, or lifecycle.
-- [ ] Run fair warmed multi-timestep PlantBiophysics and XPalm benchmarks after
+- [x] Run fair warmed multi-timestep PlantBiophysics and XPalm benchmarks after
   the major implementation milestones.
-- [ ] Update diagnostics to distinguish immutable plan compilation, object
+- [x] Update diagnostics to distinguish immutable plan compilation, object
   target instantiation, lifecycle buffer updates, and steady-state execution.
-- [ ] Update developer documentation for the immutable-plan/mutable-state
+- [x] Update developer documentation for the immutable-plan/mutable-state
   architecture and lifecycle barrier.
-- [ ] Update benchmark CI only after runner baselines are stable enough to
-  support non-brittle thresholds.
-- [ ] Update the installed PlantSimEngine skill if the resulting public or
+- [x] Evaluate benchmark CI and retain artifact-only reporting until runner
+  baselines are stable enough to support non-brittle thresholds.
+- [x] Update the installed PlantSimEngine skill if the resulting public or
   advanced compiler contract changes.
-- [ ] Remove temporary diagnostics and benchmark-only implementation hooks.
-- [ ] Record final commands, SHAs, benchmark methodology, raw results, ratios,
+- [x] Remove temporary diagnostics and benchmark-only implementation hooks.
+- [x] Record final commands, SHAs, benchmark methodology, raw results, ratios,
   allocation counts, and validation boundaries.
+
+### Final acceptance record (2026-08-12)
+
+The final source benchmark and validation commit is
+`b0617ba1a538d8b1e547d471e971ae998a2ff318` on `multi-plants`, with
+PlantBiophysics `dbd04e0e9c4de4e061272aaa3885b5be0b9b51d3` and XPalm
+`192e43f766150072376bea8910936f85511121ed`. Measurements used Julia 1.12.1
+on the same Apple M3 Max MacBook Pro with 36 GiB RAM and arm64 Darwin 25.5.0
+used for the baseline. The PlantBiophysics runner forced one Julia thread;
+XPalm used 10 threads while its scientific application execution remained
+sequential.
+
+All Julia processes and child test/benchmark processes were launched through
+Kaimon. The final correctness boundary is:
+
+| Validation | Result | Wall time |
+| --- | ---: | ---: |
+| focused immutable-plan/lifecycle/API stabilization | 611/611 | 69.4 s |
+| warmed hard-call allocation/API smoke | 38/38 | 27.5 s |
+| complete PlantSimEngine suite | 2,414/2,414 | 12 min 31.1 s |
+| complete PlantBiophysics suite | 268/268 | 1 min 43.0 s |
+| complete XPalm suite | 307/307 | individual testset timings retained in the test log |
+| XPalm 4,160-step numerical regression | 68/68 | 3 min 22.2 s |
+
+The full Documenter build, including doctests, cross-references, and HTML
+rendering, passed after the diagnostics/documentation slice; the final source
+changes affect only internal representation and access paths. `git diff
+--check` passed after every final source slice.
+
+#### Final PlantBiophysics benchmark and trajectory
+
+The final one-thread run used one constructed scene for 8,760 continuous
+timesteps, 10 BenchmarkTools samples, one evaluation per sample, and excluded
+construction from the two steady-state timings. The 100-scene fan-out remains
+a separate construction/execution diagnostic.
+
+| Stage | Median | Minimum | Median per model step | Allocated bytes | Allocations |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| `outputs=:none`, 8,760 steps | 14.399 ms | 13.511 ms | 1.644 us | 13,968,656 | 176,498 |
+| `outputs=:all`, 8,760 steps | 14.821 ms | 13.704 ms | 1.692 us | 20,285,040 | 194,166 |
+| construction only | 16.099 ms | 15.389 ms | not applicable | 20,256,464 | 462,611 |
+| 100 constructed scenes, one step each | 29.246 ms | 27.442 ms | 292.458 us | 27,030,400 | 274,700 |
+
+Relative to the accepted prerequisite current-stack result, the final
+no-retention workload is 1.279x faster and the retain-all workload is 2.174x
+faster. The independently materialized retained trajectory contains 113,880
+rows and has SHA-256
+`c7c2cfc17c25b4eed9829280287e3a5ac8c7ccb571bf20dad5b1edd6bd970115`,
+exactly matching both the pre-optimization trajectory and the prerequisite
+acceptance artifact.
+
+#### Final XPalm full-cycle benchmark
+
+The final XPalm comparison used the exact pinned release methodology: one
+unmeasured complete lifecycle warm-up, then five BenchmarkTools samples with
+one evaluation each and a forced 120-second budget. Each sample times the same
+high-level `XPalm.xpalm` scope, including scene construction, 4,160 growth and
+execution steps, requested outputs, and DataFrame materialization. Julia
+startup, package loading, and the warm-up are excluded.
+
+| Stack | Median | Per step | Allocated bytes | Allocations | Release ratio |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| pinned XPalm 0.6.1 / PlantSimEngine 0.14.1 | 5.416 s | 1.302 ms | 6,898,039,968 | 80,317,174 | 1.000x |
+| accepted prerequisite current stack | 8.035 s | 1.931 ms | 3,378,642,888 | 39,259,563 | 1.483x |
+| final immutable-scenario stack | **7.756 s** | **1.864 ms** | 4,394,830,168 | 54,021,601 | **1.432x** |
+
+Final raw sample times, in execution order, were `7.755657666`,
+`7.742372875`, `7.836337291`, `7.679069208`, and `7.771110958` seconds. The
+median is 3.47% faster than the accepted prerequisite current stack and stays
+inside the approximately 1.5x release boundary. The final result remains
+exactly step 4,160, 344 phytomers, LAI `5.0587602356164405`, and FTSW
+`0.7991179101191216`.
+
+Final profiling caught two representation costs before acceptance. Making the
+complete immutable scenario tuple part of an immutable
+`CompiledCompositeModel` caused Julia to box and copy that large wrapper at
+dynamic typed-batch boundaries: the fully warmed median was 18.980 s with
+6,412,926,232 bytes. Commit `962afc29` retained immutable scenario/application
+plans but gave their mutable runtime shell stable heap identity, reducing the
+median to 9.113 s. A second allocation profile found runtime-symbol forwarding
+through immutable application/input/call/environment plans. Commit `b0617ba1`
+uses the existing dense application slot for plan-tuple lookup and explicit
+field access for the wrapper delegates, without changing plan immutability or
+duplicating metadata; this produced the final 7.756-second result.
+
+#### Selector-family microbenchmark
+
+Public `resolve_object_ids` resolution was warmed and measured separately on a
+seven-object, two-plant topology with 1,000 samples and one evaluation per
+sample. These figures include result-vector construction; the lower-level
+compiled single-object matcher checks for the same families remain zero-byte
+operations as recorded in Phase 6.
+
+| Selector family | Median | Allocated bytes | Allocations |
+| --- | ---: | ---: | ---: |
+| `SceneScope` | 1.709 us | 1,888 | 50 |
+| named `Scope` | 2.709 us | 2,960 | 87 |
+| `Subtree` | 2.542 us | 2,944 | 86 |
+| `SelfPlant` | 2.708 us | 2,992 | 89 |
+| `Ancestor` | 2.250 us | 2,576 | 73 |
+| `Relation(:self)` | 1.750 us | 1,552 | 34 |
+| `Relation(:parent)` | 1.791 us | 1,536 | 33 |
+| `Relation(:children)` | 1.875 us | 1,616 | 36 |
+| `Relation(:ancestors)` | 2.042 us | 1,680 | 39 |
+| `Relation(:descendants)` | 2.500 us | 2,064 | 52 |
+| `Relation(:siblings)` | 2.250 us | 1,632 | 36 |
+
+#### Diagnostics, documentation, CI, and reproducibility boundary
+
+`Diagnostics.explain_runtime_performance(simulation)` now groups opt-in
+metrics into immutable-plan compilation, object-target instantiation, initial
+compilation total, lifecycle-buffer updates, output collection, and
+steady-state execution. Developer documentation records the immutable-plan /
+mutable-object-state split, lifecycle barrier, and diagnostic workflow in
+`docs/src/dev/composite_model_design.md`, `docs/src/developers.md`, and
+`docs/src/model_execution.md`. The installed PlantSimEngine skill was updated
+with the diagnostic categories, environment-plan ownership rule, and
+validation checklist.
+
+The benchmark CI review deliberately leaves `.github/workflows/Benchmarks.yml`
+and `.github/workflows/FullPerformance.yml` artifact-only: they already run the
+appropriate warmed/staged profiles and preserve CSVs and manifests, but the
+available runner baseline is not stable enough for a non-brittle wall-time
+threshold. Local acceptance therefore uses the pinned release projects and
+raw methods recorded above.
+
+Representative commands, executed through their Kaimon-owned sessions or
+Kaimon-owned child processes, were:
+
+```text
+julia --project=test -e 'empty!(ARGS); include("test/runtests.jl")'
+julia --project=/path/to/PlantBiophysics/test -e 'empty!(ARGS); include("test/runtests.jl")'
+julia --project=/path/to/XPalm/test -e 'empty!(ARGS); include("test/runtests.jl")'
+julia --project=/path/to/XPalm/test -e 'ARGS=["reference-regression"]; include("test/runtests.jl")'
+run_plantbiophysics_performance_profile(nsteps=8760, fanout_scenes=100, samples=10)
+@benchmark xpalm_reference_end_to_end(nsteps=4160) samples=5 evals=1 seconds=120
+```
+
+Construction, warmed none/all retention, explicit requests, output
+collection, lifecycle refresh, environment refresh, selector resolution, and
+end-to-end full-cycle time are intentionally reported in separate benchmark
+stages across the Phase 1, 5, 7, and final tables; no fresh-process JIT time is
+used as a runtime acceptance result.
 
 ## Commit Checkpoints
 
@@ -886,45 +1045,45 @@ bottleneck or a milestone result remains outside the target range.
 
 This goal is complete only when all of the following are true:
 
-- [ ] Scenario/application definitions, application dependency edges,
+- [x] Scenario/application definitions, application dependency edges,
   topological order, cadence rules, selector programs, environment sampling
   rules, and output-retention requirements are compiled once.
-- [ ] Lifecycle operations update only affected object-level targets, carriers,
+- [x] Lifecycle operations update only affected object-level targets, carriers,
   streams, environment handles, and execution buffers at a safe barrier.
-- [ ] Ordinary unchanged timesteps perform no selector resolution, application
+- [x] Ordinary unchanged timesteps perform no selector resolution, application
   graph reconstruction, topological sorting, output-request target refresh, or
   environment-handle reconstruction.
-- [ ] Non-due multirate applications and their batches are not traversed.
-- [ ] The ordinary post-lifecycle timestep returns immediately to the same
+- [x] Non-due multirate applications and their batches are not traversed.
+- [x] The ordinary post-lifecycle timestep returns immediately to the same
   precompiled steady-state schedule.
-- [ ] New objects can activate existing application relationships without
+- [x] New objects can activate existing application relationships without
   constructing new application-level dependency definitions.
-- [ ] Temporal scalar references and `Many` storage remain allocation-stable
+- [x] Temporal scalar references and `Many` storage remain allocation-stable
   between lifecycle events while still admitting newly created organs at the
   refresh barrier with correct first-sample fallback semantics.
-- [ ] The root runtime and hard-call runtime consume the same lifecycle delta
+- [x] The root runtime and hard-call runtime consume the same lifecycle delta
   and immutable scenario ownership model.
-- [ ] Homogeneous execution loops retain concrete model, status, carrier,
+- [x] Homogeneous execution loops retain concrete model, status, carrier,
   stream, environment, and context types.
-- [ ] Warmed focused hard-call fast paths remain allocation-free where recorded
+- [x] Warmed focused hard-call fast paths remain allocation-free where recorded
   by the prerequisite gates, PlantBiophysics retains its exact accepted
   trajectory, and XPalm remains no more than approximately 1.5x the pinned
   release full-cycle runtime.
-- [ ] Explicit output requests preserve correct dynamic membership intervals
+- [x] Explicit output requests preserve correct dynamic membership intervals
   and removed-object history without steady-state rescans.
-- [ ] Lifecycle work and allocations scale with the affected structural delta,
+- [x] Lifecycle work and allocations scale with the affected structural delta,
   not total scene size, except where selector semantics genuinely require a
   broader affected set.
-- [ ] Construction, warmed steady-state execution, explicit output requests,
+- [x] Construction, warmed steady-state execution, explicit output requests,
   output collection, lifecycle refresh, environment refresh, and full-cycle
   runtime are reported separately.
-- [ ] All PlantSimEngine tests pass.
-- [ ] All relevant PlantBiophysics tests pass and representative numerical
+- [x] All PlantSimEngine tests pass.
+- [x] All relevant PlantBiophysics tests pass and representative numerical
   trajectories are unchanged.
-- [ ] All relevant XPalm tests and the established numerical regression pass.
-- [ ] Benchmark methods, raw results, package SHAs, allocation counts, and
+- [x] All relevant XPalm tests and the established numerical regression pass.
+- [x] Benchmark methods, raw results, package SHAs, allocation counts, and
   validation commands are recorded reproducibly.
-- [ ] All relevant changes are committed in coherent increments, with unrelated
+- [x] All relevant changes are committed in coherent increments, with unrelated
   worktree changes preserved.
 
 ## Deferred Ideas
