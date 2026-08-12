@@ -681,20 +681,68 @@ The immutable-scenario benchmark smoke also passed 54/54, and `git diff
 
 ### Environment
 
-- [ ] Split immutable per-application environment information from mutable
+- [x] Split immutable per-application environment information from mutable
   per-object handles.
-- [ ] Store backend selection, required/source/produced variables, sampling
+- [x] Store backend selection, required/source/produced variables, sampling
   rules, prepared sources, and sampler objects once per application plan.
-- [ ] Keep only handle, context, geometry source, and other genuinely
+- [x] Keep only handle, context, geometry source, and other genuinely
   object-dependent state in target bindings.
-- [ ] Add reverse indices from object to existing environment bindings so
+- [x] Add reverse indices from object to existing environment bindings so
   targeted refresh does not scan every application for each dirty object.
-- [ ] Replace hash-based per-step global sample caches with application slots or
-  generation-stamped cache entries if benchmarks show a measurable benefit.
-- [ ] Preserve transient hard-call environment overrides and accepted
+- [x] Benchmark the hash-based per-step global sample cache. Bypass it at the
+  root application-batch boundary, where direct typed sampling removes the
+  measurable cost; retain it only as a fallback for individual target/call
+  lookups, where application slots are not yet justified.
+- [x] Preserve transient hard-call environment overrides and accepted
   environment commits.
-- [ ] Commit output and environment sink optimization in separate validated
+- [x] Commit output and environment sink optimization in separate validated
   slices unless they require one shared internal representation.
+
+#### Immutable environment-plan result (2026-08-12)
+
+Environment compilation now produces one `CompiledEnvironmentApplicationPlan`
+per immutable application. It owns backend/config selection, immutable tuples
+of required, source, and produced variables, the declared sampling-rule tuple,
+typed `CompiledEnvironmentSamplingRule` accessors, the temporal sampler, and
+the prepared global source. Each `CompiledEnvironmentBinding` delegates that
+shared metadata to its plan and retains only its object id, backend handle,
+execution context, and geometry-source provenance.
+
+`CompiledEnvironmentBindings` now maintains `targets_by_object`. A targeted
+geometry or lifecycle refresh gets stale bindings and relevant spatial
+backends from the dirty object's current and prior targets; it no longer scans
+the complete immutable application graph. Added targets reuse the same
+application-plan objects, removed targets are deleted from the reverse index,
+and metadata-only recompilation can replace a plan while preserving valid
+object handles.
+
+Global batch sampling now reads the prepared source and applies typed compiled
+accessors directly. It therefore returns a concrete model-facing environment
+before entering the target loop and bypasses the hash cache used by fallback
+individual target/hard-call sampling. Transient `GlobalConstant` trial states
+use the same compiled mapping; custom spatial backends continue to dispatch
+through their backend-specific sampling methods, and accepted commits still
+use the target's compiled backend and handle.
+
+On the warmed 256-object, 48-step global-environment benchmark (10-sample
+baseline and 20-sample final confirmation):
+
+| Environment path | Before | After | Allocations before/after | Bytes before/after |
+| --- | ---: | ---: | ---: | ---: |
+| direct raw source | 0.313 ms | 0.316 ms | 336 / 336 | 52,224 / 52,224 |
+| remapped source | 0.608 ms | 0.349 ms | 26,304 / 336 | 1,900,032 / 72,192 |
+
+The remapped path is 1.74x faster, removes 98.72% of its allocations and
+96.20% of allocated bytes, and now has the same allocation count as the raw
+path. Its overhead relative to raw sampling fell from 94% to 10%, so adding a
+dense application-slot cache at this stage would not target a remaining
+measurable root-loop bottleneck.
+
+Fresh validation passed 2,126 assertions across environment backends and
+sampling, API/lifecycle stabilization, hard calls, unified model/object
+behavior, graph views and editor transactions, toy spatial/global providers,
+the MAESPA model example, and the immutable-scenario benchmark smoke. `git
+diff --check` also passed.
 
 ## Phase 8: Evaluate Dense Internal Slots
 

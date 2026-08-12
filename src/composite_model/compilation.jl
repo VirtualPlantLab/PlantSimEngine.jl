@@ -682,27 +682,66 @@ Base.propertynames(binding::CompiledModelCallBinding) = (
 @inline _compiled_call_name(binding::CompiledModelCallBinding) =
     _compiled_call_name(binding.plan)
 
-struct CompiledEnvironmentBinding{B,H,C}
+struct CompiledEnvironmentSamplingRule{T,S} end
+
+CompiledEnvironmentSamplingRule(target::Symbol, source::Symbol) =
+    CompiledEnvironmentSamplingRule{target,source}()
+
+struct CompiledEnvironmentApplicationPlan{B,C,RI,SI,PO,R,CR,S,P}
     application_id::Symbol
-    object_id::ObjectId
     backend::B
+    config::C
+    required_inputs::RI
+    source_inputs::SI
+    produced_outputs::PO
+    sampling_rules::R
+    compiled_sampling_rules::CR
+    sampler::S
+    prepared_source::P
+    uses_raw_global_source::Bool
+end
+
+struct CompiledEnvironmentBinding{P,H,C}
+    plan::P
+    object_id::ObjectId
     handle::H
-    required_inputs::Vector{Symbol}
-    source_inputs::Vector{Symbol}
-    produced_outputs::Vector{Symbol}
     context::C
     geometry_source_object_id::Union{Nothing,ObjectId}
     geometry_source::Symbol
-    config::Any
 end
 
-struct CompiledEnvironmentBindings{SC,B,I,PI,S,P,C}
+@inline function Base.getproperty(
+    binding::CompiledEnvironmentBinding,
+    name::Symbol,
+)
+    name === :plan && return getfield(binding, :plan)
+    name === :object_id && return getfield(binding, :object_id)
+    name === :handle && return getfield(binding, :handle)
+    name === :context && return getfield(binding, :context)
+    name === :geometry_source_object_id &&
+        return getfield(binding, :geometry_source_object_id)
+    name === :geometry_source && return getfield(binding, :geometry_source)
+    return getproperty(getfield(binding, :plan), name)
+end
+
+Base.propertynames(binding::CompiledEnvironmentBinding) = (
+    :plan,
+    :object_id,
+    :handle,
+    :context,
+    :geometry_source_object_id,
+    :geometry_source,
+    propertynames(binding.plan)...,
+)
+
+struct CompiledEnvironmentBindings{SC,AP,API,B,I,PI,OI,C}
     model::SC
+    application_plans::AP
+    application_plans_by_id::API
     bindings::B
     by_target::I
     positions_by_target::PI
-    samplers_by_application::S
-    prepared_global_environment::P
+    targets_by_object::OI
     sample_cache::C
     model_revision::Int
     environment_revision::Int
@@ -2338,9 +2377,18 @@ function explain_initialization(model::CompositeModel)
         for binding in compiled.input_bindings
     )
 
+    _, environment_plans_by_id = _compile_environment_application_plans(
+        model,
+        compiled.applications;
+        prepare_runtime=false,
+    )
     environment_bindings = Dict(
         (binding.application_id, binding.object_id) => binding
-        for binding in _compile_environment_bindings(model, compiled)
+        for binding in _compile_environment_bindings(
+            model,
+            compiled,
+            environment_plans_by_id,
+        )
     )
 
     rows = NamedTuple[]

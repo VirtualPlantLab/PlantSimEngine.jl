@@ -2533,9 +2533,23 @@ end
     @test compiled_environment isa Advanced.CompiledEnvironmentBindings
     @test !Advanced.environment_bindings_dirty(environment_scene)
     @test Advanced.compiled_environment_bindings(environment_scene) === compiled_environment
+    @test length(compiled_environment.application_plans) == 2
+    @test Set(keys(compiled_environment.application_plans_by_id)) ==
+          Set((:probe, :temperature_update))
     @test length(compiled_environment.by_target) == length(compiled_environment.bindings)
+    @test Set(compiled_environment.targets_by_object[ObjectId(:leaf_1)]) == Set((
+        (:probe, ObjectId(:leaf_1)),
+        (:temperature_update, ObjectId(:leaf_1)),
+    ))
     @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].handle.cell == :cell_a
     @test compiled_environment.by_target[(:temperature_update, ObjectId(:leaf_2))].handle.cell == :cell_b
+    @test compiled_environment.by_target[(:probe, ObjectId(:leaf_1))].plan ===
+          compiled_environment.application_plans_by_id[:probe]
+    @test all(
+        binding.plan ===
+        compiled_environment.application_plans_by_id[binding.application_id]
+        for binding in compiled_environment.bindings
+    )
     @test length(grid_backend.binds) == 4
     @test length(grid_backend.index_updates) == 1
     @test length(grid_backend.index_updates[1]) == 4
@@ -2547,13 +2561,13 @@ end
     leaf_1_probe = only(row for row in environment_rows if row.application_id == :probe && row.object_id == :leaf_1)
     @test leaf_1_probe.handle.provider == :grid
     @test leaf_1_probe.handle.cell == :cell_a
-    @test leaf_1_probe.required_inputs == [:T, :CO2]
-    @test leaf_1_probe.produced_outputs == Symbol[]
+    @test leaf_1_probe.required_inputs == (:T, :CO2)
+    @test leaf_1_probe.produced_outputs == ()
     leaf_2_update = only(row for row in environment_rows if row.application_id == :temperature_update && row.object_id == :leaf_2)
     @test leaf_2_update.handle.cell == :cell_b
-    @test leaf_2_update.required_inputs == [:T]
-    @test leaf_2_update.source_inputs == [:T]
-    @test leaf_2_update.produced_outputs == [:T]
+    @test leaf_2_update.required_inputs == (:T,)
+    @test leaf_2_update.source_inputs == (:T,)
+    @test leaf_2_update.produced_outputs == (:T,)
 
     missing_global_environment_scene = CompositeModel(
         Object(:scene; scale=:Scene, kind=:scene),
@@ -2610,8 +2624,9 @@ end
     ) === nothing
     remapped_environment = Advanced.refresh_environment_bindings!(remapped_global_environment_scene)
     remapped_row = only(explain_environment_bindings(remapped_environment))
-    @test remapped_row.required_inputs == [:T, :CO2]
-    @test remapped_row.source_inputs == [:T, :Ca]
+    @test remapped_row.required_inputs == (:T, :CO2)
+    @test remapped_row.source_inputs == (:T, :Ca)
+    @test remapped_row.sampling_rules == (:T => :T, :CO2 => :Ca)
     run!(remapped_global_environment_scene)
     remapped_status = only(model_objects(remapped_global_environment_scene; scale=:Leaf)).status
     @test remapped_status.temperature_seen == 20.0
@@ -2628,8 +2643,8 @@ end
     @test validate_environment_inputs(hinted_global_environment_scene) === nothing
     hinted_environment = Advanced.refresh_environment_bindings!(hinted_global_environment_scene)
     hinted_row = only(explain_environment_bindings(hinted_environment))
-    @test hinted_row.required_inputs == [:T, :CO2]
-    @test hinted_row.source_inputs == [:T, :Ca]
+    @test hinted_row.required_inputs == (:T, :CO2)
+    @test hinted_row.source_inputs == (:T, :Ca)
     hinted_application = Advanced.refresh_bindings!(hinted_global_environment_scene).applications_by_id[:co2_probe]
     @test environment_bindings(hinted_application.spec).CO2.source == :Ca
     run!(hinted_global_environment_scene)
@@ -2648,7 +2663,7 @@ end
     hinted_override_row = only(
         explain_environment_bindings(Advanced.refresh_environment_bindings!(hinted_override_global_environment_scene))
     )
-    @test hinted_override_row.source_inputs == [:T, :Cb]
+    @test hinted_override_row.source_inputs == (:T, :Cb)
     hinted_override_application =
         Advanced.refresh_bindings!(hinted_override_global_environment_scene).applications_by_id[:co2_probe]
     @test environment_bindings(hinted_override_application.spec).CO2.source == :Cb
@@ -2783,7 +2798,7 @@ end
         Advanced.refresh_environment_bindings!(contract_scene, contract_compiled)
     original_contract_binding =
         original_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
-    @test original_contract_binding.required_inputs == [:T, :CO2]
+    @test original_contract_binding.required_inputs == (:T, :CO2)
     @test Advanced.refresh_environment_bindings!(
         contract_scene,
         contract_compiled,
@@ -2801,7 +2816,7 @@ end
         Advanced.refresh_environment_bindings!(contract_scene, revised_contract_compiled)
     revised_contract_binding =
         revised_contract_bindings.by_target[(:probe, ObjectId(:leaf_1))]
-    @test revised_contract_binding.required_inputs == [:T]
+    @test revised_contract_binding.required_inputs == (:T,)
     @test revised_contract_binding.handle.cell == original_contract_binding.handle.cell
     @test revised_contract_binding !== original_contract_binding
     @test length(contract_backend.binds) == 1
@@ -2818,6 +2833,10 @@ end
     @test Advanced.refresh_bindings!(environment_scene) === structural_environment_cache
     refreshed_environment = Advanced.refresh_environment_bindings!(environment_scene)
     @test !Advanced.environment_bindings_dirty(environment_scene)
+    @test refreshed_environment.application_plans ===
+          compiled_environment.application_plans
+    @test refreshed_environment.application_plans_by_id ===
+          compiled_environment.application_plans_by_id
     @test length(grid_backend.binds) == 6
     @test length(grid_backend.index_updates) == 2
     @test only(grid_backend.index_updates[2]).id == :leaf_2
@@ -2860,6 +2879,10 @@ end
     @test all(
         row.object_id != :leaf_3
         for row in explain_environment_bindings(refreshed_without_leaf)
+    )
+    @test !haskey(
+        refreshed_without_leaf.targets_by_object,
+        ObjectId(:leaf_3),
     )
 
     inherited_grid_backend = ModelObjectGridBackend()

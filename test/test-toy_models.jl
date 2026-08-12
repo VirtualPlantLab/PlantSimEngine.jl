@@ -598,11 +598,11 @@ end
     @test only(
         row for row in global_environment_rows
         if row.application_id == :degree_days
-    ).source_inputs == [:air_temperature]
+    ).source_inputs == (:air_temperature,)
     @test only(
         row for row in global_environment_rows
         if row.application_id == :light
-    ).source_inputs == [:incident_par]
+    ).source_inputs == (:incident_par,)
 
     backend = ToySpatialEnvironment(
         Dict(

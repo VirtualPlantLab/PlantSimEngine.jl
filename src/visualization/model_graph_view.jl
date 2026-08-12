@@ -341,9 +341,15 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     )
 
     _model_graph_phase!(diagnostics, :environment_bindings, nothing) do
+        _, environment_plans_by_id = _compile_environment_application_plans(
+            model,
+            applications;
+            prepare_runtime=false,
+        )
         environment_bindings = _compile_environment_bindings_for_applications(
             model,
             applications,
+            environment_plans_by_id,
         )
         _validate_model_environment_inputs!(
             environment_bindings,
@@ -1125,7 +1131,16 @@ end
 
 function _model_graph_environment_edges(report, level, environment_catalog)
     environment_bindings = try
-        _compile_environment_bindings_for_applications(report.model, report.applications)
+        _, environment_plans_by_id = _compile_environment_application_plans(
+            report.model,
+            report.applications;
+            prepare_runtime=false,
+        )
+        _compile_environment_bindings_for_applications(
+            report.model,
+            report.applications,
+            environment_plans_by_id,
+        )
     catch
         Any[]
     end
@@ -1134,7 +1149,8 @@ function _model_graph_environment_edges(report, level, environment_catalog)
             required_inputs = Symbol.(keys(environment_inputs_(application.spec)))
             produced_outputs = Symbol.(keys(environment_outputs_(application.spec)))
             isempty(required_inputs) && isempty(produced_outputs) && continue
-            source_inputs = _environment_source_variable_names(application.spec)
+            sampling_rules = Tuple(_environment_sampling_rules(application.spec))
+            source_inputs = _environment_source_variable_names(sampling_rules)
             config = environment_config(application.spec)
             backend = _environment_backend_from_config(report.model, config)
             for object_id in application.target_ids

@@ -170,9 +170,16 @@ function apply_edit!(session::GraphEditorSession, edit::PlantSimEngine.GraphEdit
         PlantSimEngine.GraphEditor.SetModelApplicationEnvironment,
     }
         report = PlantSimEngine.GraphEditor.compile_model_report(candidate)
+        _, environment_plans_by_id =
+            PlantSimEngine._compile_environment_application_plans(
+                candidate,
+                report.applications;
+                prepare_runtime=false,
+            )
         bindings = PlantSimEngine._compile_environment_bindings_for_applications(
             candidate,
             report.applications,
+            environment_plans_by_id,
         )
         PlantSimEngine._validate_model_environment_inputs!(
             bindings,

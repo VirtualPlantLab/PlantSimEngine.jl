@@ -142,7 +142,7 @@ include("../examples/maespa_model_example.jl")
     scene_environment = only(row for row in environment_rows if row.application_id == :scene_eb)
     @test scene_environment.handle.provider == :forcing
     @test scene_environment.handle.sink == :canopy
-    @test scene_environment.produced_outputs == [:T, :Rh]
+    @test scene_environment.produced_outputs == (:T, :Rh)
     leaf_environment = only(
         row for row in environment_rows
         if row.application_id == :plant_A__energy_balance && row.object_id == :plant_A_leaf_1

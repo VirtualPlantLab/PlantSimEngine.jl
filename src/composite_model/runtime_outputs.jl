@@ -426,8 +426,6 @@ end
 abstract type AbstractExecutionBatch end
 struct UnspecifiedModelEnvironment end
 const _UNSPECIFIED_SCENE_ENVIRONMENT = UnspecifiedModelEnvironment()
-const _SCENE_RAW_ENVIRONMENT_CACHE_ID = Symbol("#raw_global_environment")
-
 struct RawGlobalModelEnvironment{M}
     sampled_environment::M
 end
@@ -1543,6 +1541,14 @@ function _model_environment_for_binding(
     isnothing(binding) && return nothing
     isnothing(binding.backend) && return nothing
     if !(environment isa NoEnvironmentOverride)
+        if binding.backend isa GlobalConstant
+            row = _environment_row_at_step(environment, Int(round(time)))
+            binding.uses_raw_global_source && return row
+            return _sample_compiled_global_environment_row(
+                row,
+                binding.compiled_sampling_rules,
+            )
+        end
         return sample_environment(
             binding.backend,
             binding.handle,
@@ -1556,34 +1562,10 @@ function _model_environment_for_binding(
         key = (application.id, step)
         haskey(env_bindings.sample_cache, key) &&
             return env_bindings.sample_cache[key]
-        raw_key = (_SCENE_RAW_ENVIRONMENT_CACHE_ID, step)
-        raw_row = get!(env_bindings.sample_cache, raw_key) do
-            _environment_row_at_step(environment_source(binding.backend), step)
-        end
-        sampler = get(env_bindings.samplers_by_application, application.id, nothing)
-        if !isnothing(sampler)
-            sampled = _sample_environment_for_model(
-                sampler,
-                raw_row,
-                step,
-                application.clock,
-                application.spec,
-            )
-            env_bindings.sample_cache[key] = sampled
-            return sampled
-        end
-        bindings = environment_bindings(application.spec)
-        has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
-        environment_sources = _environment_source_overrides(application.spec)
-        if !has_bindings && isempty(keys(environment_sources))
-            env_bindings.sample_cache[key] = raw_row
-            return raw_row
-        end
-        sampled = sample_environment(
-            binding.backend,
-            binding.handle,
-            time,
-            application.spec,
+        sampled = _sample_compiled_global_environment(
+            binding,
+            application,
+            step,
         )
         env_bindings.sample_cache[key] = sampled
         return sampled
@@ -1593,6 +1575,29 @@ function _model_environment_for_binding(
         binding.handle,
         time,
         application.spec,
+    )
+end
+
+@inline function _sample_compiled_global_environment(
+    binding,
+    application,
+    step::Int,
+)
+    raw_row = _environment_row_at_step(binding.prepared_source, step)
+    sampler = binding.sampler
+    if !isnothing(sampler)
+        return _sample_environment_for_model(
+            sampler,
+            raw_row,
+            step,
+            application.clock,
+            application.spec,
+        )
+    end
+    binding.uses_raw_global_source && return raw_row
+    return _sample_compiled_global_environment_row(
+        raw_row,
+        binding.compiled_sampling_rules,
     )
 end
 
@@ -1902,11 +1907,10 @@ end
     application,
     time,
 )
-    return _model_environment_for_binding(
-        env_bindings,
-        application,
+    return _sample_compiled_global_environment(
         provider.binding,
-        time,
+        application,
+        Int(round(time)),
     )
 end
 
@@ -2399,25 +2403,8 @@ function _compiled_model_execution_environment_provider(
     binding.backend isa GlobalConstant ||
         return _UNSPECIFIED_SCENE_ENVIRONMENT
 
-    sampler = get(
-        env_bindings.samplers_by_application,
-        application.id,
-        nothing,
-    )
-    bindings = environment_bindings(application.spec)
-    has_bindings = bindings isa NamedTuple && !isempty(keys(bindings))
-    environment_sources =
-        _environment_source_overrides(application.spec)
-    if isnothing(sampler) &&
-       !has_bindings &&
-       isempty(keys(environment_sources))
-        source = environment_source(binding.backend)
-        prepared = get(
-            env_bindings.prepared_global_environment,
-            source,
-            source,
-        )
-        return RawGlobalModelEnvironment(prepared)
+    if binding.uses_raw_global_source
+        return RawGlobalModelEnvironment(binding.prepared_source)
     end
     return CachedGlobalModelEnvironment(binding)
 end
@@ -3807,6 +3794,7 @@ function _targeted_call_environment_bindings(
     partial = _compile_environment_bindings_for_applications(
         model,
         applications,
+        cached.application_plans_by_id,
     )
     _validate_model_environment_inputs!(partial, applications_by_id)
     by_target = Dict(
@@ -3816,10 +3804,10 @@ function _targeted_call_environment_bindings(
     return _compiled_environment_bindings(
         model,
         compiled,
+        cached.application_plans,
+        cached.application_plans_by_id,
         partial,
         by_target,
-        _model_environment_samplers(partial),
-        cached.prepared_global_environment,
         cached.sample_cache,
     )
 end
