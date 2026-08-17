@@ -30,37 +30,31 @@ Declare the `inputs_` and `outputs_` methods for that model (note the '_', these
 
 ```@example usepkg
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Float64),)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+    (aPPFD=0.0,)
 end
 ```
 
 Write the [`run!`](@ref) function that operates on a single timestep : 
 
 ```@example usepkg
-function run!(::Beer, models, status, meteo, constants, extras)
-    status.PPFD =
-        meteo.Ri_PAR_f *
-        exp(-models.light_interception.k * status.LAI) *
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
+    status.aPPFD =
+        environment.Ri_PAR_f *
+        exp(-model.k * status.LAI) *
         constants.J_to_umol
+    return nothing
 end
-```
-
-Determine if parallelization is possible, and which traits to declare :
-
-```@example usepkg
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
 ```
 
 And that is all you need to get going, for this example with a single parameter and no interdependencies. 
 
 The [`@process`](@ref) macro does some boilerplate work described [here](@ref under_the_hood)
 
-Some extra utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
+Some context utility functions can also be interesting to implement to make users' lives simpler. See the [Model implementation additional notes](@ref) page for details.
 If your custom model needs to handle more complex couplings than the simple input/output described in this example, check out the [Coupling more complex models](@ref) page.
 
 ## Detailed version
@@ -147,87 +141,101 @@ Parameterized types are practical because they let the user choose the type of t
 
 ### Inputs and outputs
 
-When implementing a new model, it is necessary to declare what variables will be required, whether provided as an input to our model or computed for every timestep as an output. Input variables will either be initialized by the user in a `Status` object, or provided by another model. Output variables may be global simulation outputs and/or used by other models.
+When implementing a new model, it is necessary to declare what variables it
+reads and what variables it computes. Every input declaration must say whether
+the input is required or has a genuine model default. A required input is
+initialized by the user in a `Status` object or bound from another model. A
+defaulted input needs neither. Output variables may be retained as simulation
+outputs and/or used by other models.
 
 In our case, the `Beer` model, computing light interception, has one input variable and one output variable:
 
 - Inputs: `:LAI`, the leaf area index (m² m⁻²)
 - Outputs: `:aPPFD`, the photosynthetic photon flux density (μmol m⁻² s⁻¹)
 
-We declare these inputs/outputs by adding a method for the [`inputs`](@ref) and [`outputs`](@ref) functions. These functions take the type of the model as argument, and return a `NamedTuple` with the names of the variables as keys, and their default values as values:
+We declare these inputs/outputs by adding methods for the underscore extension
+functions. `inputs_` returns a `NamedTuple` whose values are `Required(T)` or
+`Default(value)` declarations. `outputs_` returns a `NamedTuple` whose values
+are the initial output state:
 
 ```@example usepkg
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Float64),)
 end
 
 function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+    (aPPFD=0.0,)
 end
 ```
 
-These functions are internal, and end with an "\_". Users instead use [`inputs`](@ref) and [`outputs`](@ref) to query model variables.
+`LAI` has no scientifically meaningful fallback, so it is required. If the
+model instead had an optional efficiency of `0.8`, it would declare
+`efficiency=Default(0.8)`. Do not use sentinel values such as `-Inf` to mean
+"required": they are ordinary values and hide the model contract.
+
+`Required(Float64)` is an expected type, not an initialization value. A model
+that supports a broader or parameterized type can declare that type instead.
+PlantSimEngine does not convert status values to `Float64`.
+
+These extension functions end with an "\_". Simulation users instead use
+[`inputs`](@ref), [`outputs`](@ref), [`init_variables`](@ref), and
+[`Diagnostics.explain_initialization`](@ref) to inspect the contract.
 
 ### The run! method
 
-When running a simulation with [`run!`](@ref), each model is run in turn at every timestep, following whatever order was deduced from the `ModelMapping` definition and Status. Each model also has its [`run!`](@ref) method for that purpose that update the simulation's current state, with a slightly different signature. The function takes six arguments:
+When running a simulation with [`run!`](@ref), each model is run at its
+scheduled timestep, following the dependency order compiled from model
+applications, inputs, and manual calls. Each model has its own [`run!`](@ref)
+method for updating the current state. The function takes five arguments:
 
 ```julia
-function run!(::Beer, models, status, meteo, constants, extras)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
 ```
 
-- the model's type
-- models: a [`ModelMapping`](@ref) object, which contains all the models of the simulation
+- model: the current model instance, used for dispatch and parameter access.
 - status: a [`Status`](@ref) object, which contains the current values (*i.e.* state) of the variables for **one** time-step (e.g. the value of the plant LAI at time t)
-- meteo: (usually) an `Atmosphere` object, or a row of the meteorological data, which contains the current values of the meteorological variables for **one** time-step (*e.g.* the value of the PAR at time t)
+- environment: the sampled model-facing environment for the current target and
+  timestep.
 - constants: a `Constants` object, or a `NamedTuple`, which contains the values of the constants for the simulation (*e.g.* the value of the Stefan-Boltzmann constant, unit-conversion constants...)
-- extras: any other object you want to pass to your model, mostly for advanced usage, not detailed here
+- context: PlantSimEngine's runtime context for hard calls and lifecycle
+  operations.
 
-A typical [`run!`](@ref) function can therefore make use of simulation constants, input/output variables accessible through the [`Status`](@ref object, or weather data. 
+A typical [`run!`](@ref) function can therefore use simulation constants,
+input/output variables accessible through the [`Status`](@ref) object, or
+weather data.
 
-Here is the [`run!`](@ref) implementation of the light interception for a [`ModelMapping`](@ref) component models. Note that the input and output variable are accessed through the [`status`](@ref) argument :
+Here is the [`run!`](@ref) implementation of the light interception model.
+Note that the input and output variables are accessed through the
+`status` argument:
 
 ```@example usepkg
-function run!(::Beer, models, status, meteo, constants, extras)
-    status.PPFD =
-        meteo.Ri_PAR_f *
-        exp(-models.light_interception.k * status.LAI) *
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
+    status.aPPFD =
+        environment.Ri_PAR_f *
+        exp(-model.k * status.LAI) *
         constants.J_to_umol
+    return nothing
 end
 ```
 
 ### Additional notes
 
-To use this model, users will have to make sure that the variables for that model are defined in the [`Status`](@ref) object, the meteorology, and the `Constants` object.
+To use this model, simulation users must supply or bind every `Required` status
+input. Inputs declared with `Default` are initialized automatically. Required
+environment variables and constants must also be available through their
+respective contracts.
 
 !!! Note
     [`Status`](@ref) objects contain the current state of the simulation. It is not, by default, possible to make use of earlier variable states, unless a custom model is written for that purpose.
 
-Model parameters are available from the [`ModelMapping`](@ref) that is passed via the `models` argument. Index by the process name, then the parameter name. For example, the `k` parameter of the `Beer` model is found in `models.light_interception.k`.
+Model parameters are read directly from the current model instance. For
+example, the `k` parameter of the `Beer` model is `model.k`.
 
 !!! warning
-    You need to import all the functions you want to extend, so Julia knows your intention of adding a method to the function from PlantSimEngine, and not defining your own function. To do so, you have to prefix the said functions by the package name, or import them before *e.g.*: `import PlantSimEngine: inputs_, outputs_`. The troubleshooting subsection [Implementing a model: forgetting to import or prefix functions](@ref) showcases output errors that can occur when you forget to prefix.
-
-### Parallelization traits
-
-`PlantSimEngine` defines traits to get additional information about the models. At the moment, there are two traits implemented that help the package to know if a model can be run in parallel over space (*i.e.* objects) and/or time (*i.e.* time-steps).
-
-By default, all models are assumed to be **not** parallelizable over objects and time-steps, because it is the safest default. If your model is parallelizable, you should add the trait to the model.
-
-For example, if we want to add the trait for parallelization over objects to our `Beer` model, we would do:
-
-```@example usepkg
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
-```
-
-And if we want to add the trait for parallelization over time-steps to our `Beer` model, we would do:
-
-```@example usepkg
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-```
-
-!!! note
-    A model is parallelizable over objects if it does not call another model directly inside its code. Similarly, a model is parallelizable over time-steps if it does not get values from other time-steps directly inside its code. In practice, most of the models are parallelizable one way or another, but it is safer to assume they are not.
+    Prefix functions you extend with `PlantSimEngine.`, or import them first,
+    for example `import PlantSimEngine: inputs_, outputs_`. Otherwise Julia
+    defines an unrelated function in your module instead of adding a method to
+    PlantSimEngine's function.
 
 OK that's it! We now a full new model implementation for the light interception process! Other models might be more complex in terms of what computations they do, or how they couple with other models, but the approach remains the same.
 
@@ -244,5 +252,15 @@ PlantSimEngine.dep(::Fvcb) = (stomatal_conductance=AbstractStomatal_ConductanceM
 ```
 
 Here we say to PlantSimEngine that the `Fvcb` model needs a model of type `AbstractStomatal_ConductanceModel` in the stomatal conductance process.
+
+This is intentionally process-based because `dep(model)` is a model-author
+contract. The model author cannot know which application name a future scenario
+will choose for stomatal conductance. In a concrete scenario, users should wire
+the selected producer or callee with `application=...` in `ModelSpec(...; inputs=...)` or
+`ModelSpec(...; calls=...)` when that application is known:
+
+```julia
+ModelSpec(ParentModel(); name=:parent, calls=(:stomata => One(scale=:Leaf, application=:stomatal_conductance)))
+```
 
 You can read more about hard dependencies in [Coupling more complex models](@ref).

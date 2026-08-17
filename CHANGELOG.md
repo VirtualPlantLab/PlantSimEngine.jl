@@ -1,5 +1,36 @@
 # Changelog
 
+## v0.15.0
+
+### Breaking changes
+
+- Environment backends now compile an opaque per-target handle with
+  `bind_environment`. Accepted state is committed explicitly with
+  `commit_environment!`, while provider-aware trial state is passed with
+  `run_call!(context, name; environment=state)`. The former support/scatter,
+  scoped override, and context-level meteorology APIs were removed.
+- Hard dependencies now execute through
+  `run_call!(context::RunContext, name::Symbol; ...)`, which executes every
+  selector-resolved target and always returns a vector-like `CallTargets`
+  collection.
+- The singular hard-call accessor and string-name hard-call methods were
+  removed. Use `only(call_targets(context, :name))` for fine-grained access to
+  a `One` dependency.
+- Direct recursive dependency execution is no longer supported. Model kernels
+  must run inside a compiled `CompositeModel` and receive a `RunContext`.
+
+### Added
+
+- `CallTargets`, a cached `AbstractVector` view over compiled hard-call targets
+  that is allocation-free to retrieve.
+- `run_call!(context, name)` for the common execute-all operation while
+  retaining `run_call!(target::CallTarget)` for selective, per-target, and
+  iterative control.
+- `compile_model_source` and `write_compiled_model` for turning a resolved
+  `CompositeModel` into deterministic, loadable Julia source that exposes
+  application order, targets, input provenance, model bodies, cadence,
+  environments, outputs, and nested manual calls.
+
 ## v0.14.1
 
 Changes in this section are based on the git history since [`v0.14.0`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/releases/tag/v0.14.0), corresponding to the GitHub compare view for [`v0.14.1`](https://github.com/VirtualPlantLab/PlantSimEngine.jl/compare/v0.14.0...v0.14.1).
@@ -27,7 +58,7 @@ working with PlantSimEngine internals.
   edges, variable dependency edges, scale filters, relationship filters, search,
   overview/detail modes, and an inspector.
 - An interactive browser-based graph editor through `edit_graph`, backed by a
-  local `HTTP.jl` server and WebSocket session. 
+  local `HTTP.jl` server and WebSocket session.
 - The live graph editor runs as a package extension that depends on
   `HTTP.jl`; static graph visualization is available without loading
   `HTTP`.
@@ -48,7 +79,7 @@ working with PlantSimEngine internals.
 - Visualization of required initialization values and graph diagnostics even
   when a mapping is incomplete or cyclic.
 - A new documentation page for graph visualization and editing:
-  [`docs/src/step_by_step/graph_visualization_editor.md`](docs/src/step_by_step/graph_visualization_editor.md).
+  [`docs/src/guides/graph_visualizer_editor.md`](docs/src/guides/graph_visualizer_editor.md).
 - Playwright end-to-end tests for the browser editor and new Julia tests for
   the static graph viewer and editor extension.
 - A local `plantsimengine` Codex skill describing the package architecture and
@@ -80,7 +111,7 @@ and substantially expands the documentation.
 The main user-facing breaking change in this release is the move toward
 `Symbol`-based scale names in mappings and multi-scale configuration. Code that
 still uses string scales such as `"Leaf"` or `"Plant"` should be updated to use
-symbols such as `:Leaf` and `:Plant`, especially in `ModelMapping(...)`,
+symbols such as `:Leaf` and `:Plant`, especially in `PlantSimEngine.ModelMapping(...)`,
 `MultiScaleModel(...)`, and explicit multi-rate bindings. `ModelList` is also on
 the deprecation path in favor of `ModelMapping`, so this release is a good time
 to migrate mapping code to the newer API.
@@ -95,7 +126,7 @@ to migrate mapping code to the newer API.
   `InputBindings`, `MeteoBindings`, `MeteoWindow`, `OutputRouting`, and
   `ScopeModel`.
 - New model traits for multi-rate inference and defaults:
-  `output_policy`, `timestep_hint`, and `meteo_hint`.
+  `output_policy`, `timestep_hint`, and `environment_hint`.
 - New export API for resampled output streams with `OutputRequest(...)` and
   `collect_outputs(...)`.
 - New debugging/introspection helpers:
@@ -136,12 +167,12 @@ to migrate mapping code to the newer API.
 
 ### Deprecated
 
-- `run!(::ModelList, ...)` is deprecated. Use `run!(ModelMapping(...), ...)`
+- `run!(::ModelList, ...)` is deprecated. Use `run!(PlantSimEngine.ModelMapping(...), ...)`
   instead.
 - `run!` with collections of `ModelList` is deprecated. Use collections of
   `ModelMapping` instead.
 - `run!(mtg, mapping::AbstractDict, ...)` is deprecated. Construct a
-  `ModelMapping(...)` first, or call `run!(mtg, ModelMapping(mapping), ...)`.
+  `PlantSimEngine.ModelMapping(...)` first, or call `run!(mtg, PlantSimEngine.ModelMapping(mapping), ...)`.
 - String scale names are deprecated in multi-scale mapping APIs. Use `Symbol`
   scales such as `:Leaf` instead of `"Leaf"`.
 - `ModelList` remains available for now but is being phased out in favor of
@@ -152,7 +183,7 @@ to migrate mapping code to the newer API.
 #### 1. Replace ad hoc mappings with `ModelMapping`
 
 If you previously used `ModelList(...)` directly for single-scale runs, or a
-plain `Dict` for MTG runs, migrate to `ModelMapping(...)`.
+plain `Dict` for MTG runs, migrate to `PlantSimEngine.ModelMapping(...)`.
 
 Before:
 
@@ -172,13 +203,13 @@ mapping = Dict(
 After:
 
 ```julia
-leaf = ModelMapping(
+leaf = PlantSimEngine.ModelMapping(
     process1 = Process1Model(),
     process2 = Process2Model(),
     status = (x = 1.0,),
 )
 
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
     :Plant => (ToyGrowthModel(),),
 )
@@ -192,7 +223,7 @@ When a model should run at a cadence different from the meteo, wrap it in
 Typical pattern:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (
         ModelSpec(HourlyLeafModel()) |> TimeStepModel(1.0),
     ),
@@ -239,7 +270,7 @@ If your mappings still use string scales, migrate them to symbols.
 Before:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     "Leaf" => (ToyAssimModel(),),
 )
 
@@ -250,7 +281,7 @@ MultiScaleModel([:A => "Leaf"])
 After:
 
 ```julia
-mapping = ModelMapping(
+mapping = PlantSimEngine.ModelMapping(
     :Leaf => (ToyAssimModel(),),
 )
 
@@ -289,7 +320,7 @@ For reusable models, it is now often worth defining:
 - `output_policy(::Type{<:MyModel})` to describe the natural aggregation rule
   for a produced variable,
 - `timestep_hint(::Type{<:MyModel})` to declare valid/preferred cadences,
-- `meteo_hint(::Type{<:MyModel})` to declare default weather aggregation rules.
+- `environment_hint(::Type{<:MyModel})` to declare default environment aggregation rules.
 
 This is optional, but it makes inference more useful and error messages more
 actionable.

@@ -1,0 +1,139 @@
+name: Full downstream performance
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      xpalm_ref:
+        description: XPalm branch, tag, or commit
+        required: true
+        default: main
+        type: string
+      plantbiophysics_ref:
+        description: PlantBiophysics branch, tag, or commit
+        required: true
+        default: master
+        type: string
+      plantgeom_ref:
+        description: PlantGeom branch, tag, or commit
+        required: true
+        default: plantsimengine-multi-plant
+        type: string
+  workflow_call:
+    inputs:
+      xpalm_ref:
+        description: XPalm branch, tag, or commit
+        required: false
+        default: main
+        type: string
+      plantbiophysics_ref:
+        description: PlantBiophysics branch, tag, or commit
+        required: false
+        default: master
+        type: string
+      plantgeom_ref:
+        description: PlantGeom branch, tag, or commit
+        required: false
+        default: plantsimengine-multi-plant
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-downstream-performance-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  full-downstream-performance:
+    name: PlantBiophysics and XPalm
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      JULIA_NUM_THREADS: "1"
+      JULIA_PKG_PRECOMPILE_AUTO: "0"
+      PSE_BENCHMARK_INCLUDE_DOWNSTREAM: "true"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_STEPS: "8760"
+      PSE_PLANTBIOPHYSICS_BENCHMARK_SAMPLES: "10"
+      PSE_PLANTBIOPHYSICS_FANOUT_SCENES: "100"
+    steps:
+      - name: Check out PlantSimEngine
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.ref }}
+
+      - name: Check out XPalm
+        uses: actions/checkout@v6
+        with:
+          repository: PalmStudio/XPalm.jl
+          ref: ${{ inputs.xpalm_ref || 'main' }}
+          path: downstream/XPalm
+
+      - name: Check out PlantBiophysics
+        uses: actions/checkout@v6
+        with:
+          repository: VEZY/PlantBiophysics.jl
+          ref: ${{ inputs.plantbiophysics_ref || 'master' }}
+          path: downstream/PlantBiophysics
+
+      - name: Check out PlantGeom
+        uses: actions/checkout@v6
+        with:
+          repository: VEZY/PlantGeom.jl
+          ref: ${{ inputs.plantgeom_ref || 'plantsimengine-multi-plant' }}
+          path: downstream/PlantGeom
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@v3
+        with:
+          version: "1.12.1"
+
+      - name: Cache Julia packages
+        uses: julia-actions/cache@v3
+
+      - name: Resolve and instantiate the benchmark environment
+        shell: julia --project=benchmark --color=yes {0}
+        run: |
+          using Pkg
+
+          benchmark_project = joinpath(pwd(), "benchmark", "Project.toml")
+          include(joinpath(pwd(), "benchmark", "prepare_full_performance_project.jl"))
+          prepare_full_performance_project!(benchmark_project)
+          Pkg.activate(joinpath(pwd(), "benchmark"))
+          Pkg.develop([
+              PackageSpec(path=pwd()),
+              PackageSpec(path=joinpath(pwd(), "downstream", "XPalm")),
+              PackageSpec(path=joinpath(pwd(), "downstream", "PlantBiophysics")),
+              PackageSpec(path=joinpath(pwd(), "downstream", "PlantGeom")),
+          ])
+          Pkg.resolve()
+          Pkg.instantiate()
+          Pkg.precompile()
+
+      - name: Run the PlantBiophysics API and performance benchmark
+        run: >-
+          julia --project=benchmark --color=yes
+          benchmark/test/runtests.jl
+          "PlantBiophysics benchmark (API smoke|performance)"
+
+      - name: Run the complete XPalm performance and correctness matrix
+        run: >-
+          julia --project=benchmark --color=yes
+          benchmark/test/runtests.jl
+          "XPalm staged performance profile full"
+
+      - name: Persist measurements and the resolved environment
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: downstream-full-performance-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            benchmark/results/plantbiophysics-full-latest.csv
+            benchmark/results/xpalm-full-latest.csv
+            benchmark/Manifest.toml
+          if-no-files-found: warn
+          retention-days: 90

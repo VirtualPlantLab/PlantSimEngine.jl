@@ -9,7 +9,7 @@ const _MODEL_PARAMETER_TYPE_CHOICES = (
 )
 
 const _MODEL_DISCOVERY_EXCLUDED_NAMES = Set{Symbol}([
-    :MultiScaleModel,
+    :ObjectModelOverrides,
     :ModelSpec,
 ])
 
@@ -17,16 +17,16 @@ const _MODEL_DISCOVERY_EXCLUDED_NAMES = Set{Symbol}([
     available_processes()
 
 Return process abstract model types visible in the current Julia session.
-
-Packages become discoverable after the user loads them with `using PackageName`.
+Loading another package with `using PackageName` makes its process and model
+types discoverable without a separate registry.
 """
 function available_processes()
     processes = Type[]
-    for T in _abstract_model_subtypes()
-        _is_process_type(T) || continue
-        push!(processes, T)
+    for type in _abstract_model_subtypes()
+        _is_process_type(type) || continue
+        push!(processes, type)
     end
-    return sort!(unique(processes); by=T -> string(process_(T)))
+    return sort!(unique(processes); by=type -> string(process_(type)))
 end
 
 """
@@ -34,55 +34,64 @@ end
     available_models(process::Symbol)
     available_models(process_type::Type{<:AbstractModel})
 
-Return model implementation types visible in the current Julia session.
+Return concrete model implementation types visible in the current Julia
+session.
 """
 function available_models()
     models = Type[]
-    for T in _abstract_model_subtypes()
-        _is_available_model_type(T) || continue
-        push!(models, T)
+    for type in _abstract_model_subtypes()
+        _is_available_model_type(type) || continue
+        push!(models, type)
     end
-    return sort!(unique(models); by=T -> string(_process_name_for_type(T), ".", nameof(T)))
+    return sort!(unique(models); by=type -> string(_process_name_for_type(type), ".", nameof(type)))
 end
 
-function available_models(process_name::Symbol)
-    filter(T -> _process_name_for_type(T) == process_name, available_models())
-end
+available_models(process_name::Symbol) =
+    filter(type -> _process_name_for_type(type) == process_name, available_models())
 
 function available_models(process_type::Type{<:AbstractModel})
-    process_name = _is_process_type(process_type) ? process_(process_type) : _process_name_for_type(process_type)
+    process_name = _is_process_type(process_type) ?
+                   process_(process_type) :
+                   _process_name_for_type(process_type)
     return available_models(process_name)
 end
 
 """
     model_descriptor(::Type{<:AbstractModel})
 
-Return renderer-friendly metadata for one model implementation type.
+Return JSON-compatible discovery metadata for a model implementation type.
+Input and output metadata is inferred best-effort from a zero-argument or dummy
+instance when the type can be constructed safely.
 """
 function model_descriptor(::Type{T}) where {T<:AbstractModel}
     process_type = _process_type_for_model(T)
     process_name = isnothing(process_type) ? nothing : process_(process_type)
-    constructor = model_constructor_descriptor(T)
+    module_ = parentmodule(T)
     return Dict{String,Any}(
         "type" => string(T),
         "name" => string(nameof(T)),
+        "module" => string(module_),
+        "package" => _model_package_name(module_),
         "process" => isnothing(process_name) ? nothing : string(process_name),
         "processType" => isnothing(process_type) ? nothing : string(process_type),
-        "inputs" => _model_var_descriptor(T, inputs_),
+        "inputs" => _model_input_descriptor(T),
         "outputs" => _model_var_descriptor(T, outputs_),
+        "environmentInputs" => _model_var_descriptor(T, environment_inputs_),
+        "environmentOutputs" => _model_var_descriptor(T, environment_outputs_),
         "timespec" => _safe_string_trait(T, timespec),
         "outputPolicy" => _safe_string_trait(T, output_policy),
         "timestepHint" => _safe_string_trait(T, timestep_hint),
-        "meteoHint" => _safe_string_trait(T, meteo_hint),
-        "constructor" => constructor,
+        "environmentHint" => _safe_string_trait(T, environment_hint),
+        "constructor" => model_constructor_descriptor(T),
     )
 end
 
 """
     model_constructor_descriptor(::Type{<:AbstractModel})
 
-Return best-effort constructor metadata inferred from struct fields and an
-optional zero-argument constructor.
+Return constructor metadata inferred from struct fields and an optional
+zero-argument constructor. Fields that share a type parameter share a type
+choice in the editor.
 """
 function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
     unwrapped_type = Base.unwrap_unionall(T)
@@ -91,29 +100,29 @@ function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
     default_instance = _try_zero_arg_model(T)
     has_defaults = !isnothing(default_instance)
     positional_values = _dummy_constructor_values(declared_types)
-    positional_constructible = !isnothing(positional_values) && _can_construct_with(T, positional_values)
+    positional_constructible = !isnothing(positional_values) &&
+                               _can_construct_with(T, positional_values)
 
     fields = Dict{String,Any}[]
     parameter_groups = Dict{String,Vector{String}}()
-    for (i, name) in pairs(names)
-        declared = declared_types[i]
+    for (index, name) in pairs(names)
+        declared = declared_types[index]
         default = has_defaults ? getfield(default_instance, name) : nothing
         default_type = has_defaults ? typeof(default) : nothing
         parameter_key = _field_type_parameter_key(declared)
-        inferred_choice = _parameter_choice(default_type, declared)
         field_name = string(name)
         if !isnothing(parameter_key)
             push!(get!(parameter_groups, parameter_key, String[]), field_name)
         end
-
         push!(fields, Dict{String,Any}(
             "name" => field_name,
             "declaredType" => string(declared),
             "hasDefault" => has_defaults,
-            "default" => has_defaults ? _jsonable_value(default) : nothing,
+            "default" => has_defaults ? _jsonable_model_value(default) : nothing,
+            "defaultJulia" => has_defaults ? repr(default) : nothing,
             "defaultType" => isnothing(default_type) ? nothing : string(default_type),
             "typeParameter" => parameter_key,
-            "inferredChoice" => string(inferred_choice),
+            "inferredChoice" => string(_parameter_choice(default_type, declared)),
             "choices" => string.(_MODEL_PARAMETER_TYPE_CHOICES),
         ))
     end
@@ -130,35 +139,37 @@ function model_constructor_descriptor(::Type{T}) where {T<:AbstractModel}
     )
 end
 
-function _abstract_model_subtypes(root::Type=AbstractModel)
+function _abstract_model_subtypes(root::Type=AbstractModel, seen=Set{Type}())
     found = Type[]
+    root in seen && return found
+    push!(seen, root)
     for child in InteractiveUtils.subtypes(root)
+        child in seen && continue
         push!(found, child)
-        append!(found, _abstract_model_subtypes(child))
+        append!(found, _abstract_model_subtypes(child, seen))
     end
     return found
 end
 
-function _is_process_type(T::Type)
-    isabstracttype(T) || return false
-    T === AbstractModel && return false
+function _is_process_type(type::Type)
+    isabstracttype(type) || return false
+    type === AbstractModel && return false
     try
-        process_(T)
+        process_(type)
         return true
     catch
         return false
     end
 end
 
-function _is_available_model_type(T::Type)
-    isabstracttype(T) && return false
-    nameof(T) in _MODEL_DISCOVERY_EXCLUDED_NAMES && return false
-    isnothing(_process_type_for_model(T)) && return false
-    return true
+function _is_available_model_type(type::Type)
+    isabstracttype(type) && return false
+    nameof(type) in _MODEL_DISCOVERY_EXCLUDED_NAMES && return false
+    return !isnothing(_process_type_for_model(type))
 end
 
-function _process_type_for_model(T::Type)
-    current = T
+function _process_type_for_model(type::Type)
+    current = type
     while current !== Any && current !== AbstractModel
         _is_process_type(current) && return current
         current = supertype(current)
@@ -166,22 +177,45 @@ function _process_type_for_model(T::Type)
     return nothing
 end
 
-function _process_name_for_type(T::Type)
-    process_type = _process_type_for_model(T)
-    isnothing(process_type) && return Symbol(nameof(T))
-    return process_(process_type)
+function _process_name_for_type(type::Type)
+    process_type = _process_type_for_model(type)
+    return isnothing(process_type) ? Symbol(nameof(type)) : process_(process_type)
 end
 
 function _model_var_descriptor(::Type{T}, accessor) where {T<:AbstractModel}
     instance = _try_zero_arg_model(T)
     isnothing(instance) && (instance = _try_dummy_model(T))
     isnothing(instance) && return Dict{String,Any}()
-    vars = try
+    variables = try
         accessor(instance)
     catch err
         return Dict{String,Any}("_error" => sprint(showerror, err))
     end
-    return Dict(string(k) => _jsonable_value(v) for (k, v) in pairs(vars))
+    return Dict(string(name) => _jsonable_model_value(value) for (name, value) in pairs(variables))
+end
+
+function _model_input_descriptor(::Type{T}) where {T<:AbstractModel}
+    instance = _try_zero_arg_model(T)
+    isnothing(instance) && (instance = _try_dummy_model(T))
+    isnothing(instance) && return Dict{String,Any}()
+    schema = try
+        _input_schema(instance)
+    catch err
+        return Dict{String,Any}("_error" => sprint(showerror, err))
+    end
+    return Dict(
+        string(name) => Dict{String,Any}(
+            "declaration" => declaration isa Required ? "required" : "defaulted",
+            "expectedType" => string(_input_expected_type(declaration)),
+            "default" => declaration isa Default ?
+                         _jsonable_model_value(declaration.value) :
+                         nothing,
+            "defaultJulia" => declaration isa Default ?
+                              repr(declaration.value) :
+                              nothing,
+        )
+        for (name, declaration) in pairs(schema)
+    )
 end
 
 function _safe_string_trait(::Type{T}, trait) where {T<:AbstractModel}
@@ -211,8 +245,7 @@ function _try_dummy_model(::Type{T}) where {T<:AbstractModel}
     unwrapped_type = Base.unwrap_unionall(T)
     names = fieldnames(unwrapped_type)
     isempty(names) && return nothing
-    field_types = fieldtypes(unwrapped_type)
-    values = _dummy_constructor_values(field_types)
+    values = _dummy_constructor_values(fieldtypes(unwrapped_type))
     isnothing(values) && return nothing
     try
         return T(values...)
@@ -242,49 +275,46 @@ end
 
 _dummy_field_value(::TypeVar) = 0.0
 
-function _dummy_field_value(T)
+function _dummy_field_value(type)
     try
-        T === Any && return 0.0
-        T === Bool && return false
-        T <: Integer && return zero(T)
-        T <: AbstractFloat && return zero(T)
-        T <: Real && return zero(T)
-        T <: Symbol && return :value
-        T <: AbstractString && return ""
+        type === Any && return 0.0
+        type === Bool && return false
+        type <: Integer && return zero(type)
+        type <: AbstractFloat && return zero(type)
+        type <: Real && return zero(type)
+        type <: Symbol && return :value
+        type <: AbstractString && return ""
     catch
         return nothing
     end
     return nothing
 end
 
-function _field_type_parameter_key(field_type)
-    field_type isa TypeVar && return string(field_type.name)
-    return nothing
-end
+_field_type_parameter_key(field_type) = field_type isa TypeVar ? string(field_type.name) : nothing
 
 function _parameter_choice(default_type, declared_type)
     !isnothing(default_type) && return _parameter_choice_from_type(default_type)
     return _parameter_choice_from_type(declared_type)
 end
 
-function _parameter_choice_from_type(T)
+function _parameter_choice_from_type(type)
     try
-        T === Nothing && return :nothing
-        T === Any && return :float
-        T isa TypeVar && return :float
-        T === Bool && return :boolean
-        T <: Integer && return :integer
-        T <: AbstractFloat && return :float
-        T <: Real && return :float
-        T <: Symbol && return :symbol
-        T <: AbstractString && return :string
+        type === Nothing && return :nothing
+        type === Any && return :float
+        type isa TypeVar && return :float
+        type === Bool && return :boolean
+        type <: Integer && return :integer
+        type <: AbstractFloat && return :float
+        type <: Real && return :float
+        type <: Symbol && return :symbol
+        type <: AbstractString && return :string
     catch
         return :float
     end
     return :julia
 end
 
-function _jsonable_value(value)
+function _jsonable_model_value(value)
     value === nothing && return nothing
     value isa Bool && return value
     value isa Real && isfinite(value) && return value
@@ -292,4 +322,10 @@ function _jsonable_value(value)
     value isa AbstractString && return value
     value isa AbstractArray && return string(typeof(value), " length ", length(value))
     return string(value)
+end
+
+function _model_package_name(module_::Module)
+    root = Base.moduleroot(module_)
+    root in (Base, Core, Main) && return nothing
+    return string(nameof(root))
 end

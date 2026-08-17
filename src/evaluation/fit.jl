@@ -14,7 +14,11 @@ For example the method for fitting the `Beer` model from the example script (see
 this:
 
 ```julia
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
+function PlantSimEngine.Evaluation.fit(
+    ::Type{Beer},
+    df;
+    J_to_umol=PlantMeteo.Constants().J_to_umol,
+)
     k = Statistics.mean(log.(df.Ri_PAR_f ./ (df.aPPFD ./ J_to_umol)) ./ df.LAI)
     return (k=k,)
 end
@@ -28,12 +32,31 @@ and `Ri_PAR_f`.
 ```julia
 # Including example processes and models:
 using PlantSimEngine.Examples;
+using PlantSimEngine.Evaluation;
 
-m = ModelList(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
-fit(Beer, df)
+meteo = Atmosphere(
+    T=20.0,
+    Wind=1.0,
+    P=101.3,
+    Rh=0.65,
+    Ri_PAR_f=300.0,
+    duration=Hour(1),
+)
+model = CompositeModel(
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
+    environment=meteo,
+)
+simulation = run!(model)
+leaf = final_state(simulation, One(scale=:Leaf))
+df = DataFrame(
+    aPPFD=leaf.aPPFD,
+    LAI=leaf.LAI,
+    Ri_PAR_f=meteo.Ri_PAR_f[1],
+)
+Evaluation.fit(Beer, df)
 ```
 
 Note that this is a dummy example to show that the fitting method works, as we simulate the aPPFD 

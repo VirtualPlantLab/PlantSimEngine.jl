@@ -111,7 +111,7 @@ macro process(f, args...)
         We also have to define the model inputs and outputs by adding methods to `inputs_`:
 
         ```julia
-            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=-Inf,)
+            PlantSimEngine.inputs_(::$(dummy_type_name)) = (X=Required(Float64),)
         ```
 
         And `outputs_` from PlantSimEngine:
@@ -124,56 +124,43 @@ macro process(f, args...)
         inside your process implementation:
 
         ```julia
-            PlantSimEngine.dep(::$(dummy_type_name)) = (other_process_name=AbstractOtherProcessModel,)
+            PlantSimEngine.dep(::$(dummy_type_name)) = (
+                other_process_name=Call(process=:other_process_name),
+            )
         ```
 
         And finally, we can define the model implementation by adding a method to `run!`:
 
         ```julia
         function PlantSimEngine.run!(
-            ::$(dummy_type_name),
-            models,
+            m::$(dummy_type_name),
             status,
-            meteo,
+            environment,
             constants,
-            extra
+            context
         )
-            status.Y = model.$(process_name).a * meteo.CO2 + status.X
-            run!(model.other_process_name, models, status, meteo, constants, extra)
+            status.Y = m.a * environment.CO2 + status.X
+            run_call!(context, :other_process_name; publish=true)
         end
         ```
 
-        Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used for dispatch), the ModelMapping, the status, the meteorology,
-        the constants and any extra values.
+        Note that {#8abeff}run!(){/#8abeff} takes five arguments: the model type
+        (used for dispatch and parameter access), the status, the sampled
+        environment, constants, and runtime context.
 
-        Then we can use variables from the status as inputs or outputs, model parameters from the ModelMapping (indexing by process, here 
-        using "$(process_name)" as the process name), and meteorology variables.
+        Then we can use variables from the status as inputs or outputs, read
+        this model's parameters directly from `m`, and use sampled environment
+        variables.
 
-        Note that our example model has an hard-dependency on another process called `other_process_name` that is called using the {#8abeff}run!(){/#8abeff} function with 
-        the process as the first argument: `run!(model.other_process_name, models, status, meteo, constants, extra)`.
-
-        If your model can be run in parallel, you can also add traits to your model type so `PlantSimEngine` knows
-        it can safely parallelize the computation:
-
-        - over space (*i.e.* over objects):
-
-        ```@example usepkg
-        PlantSimEngine.ObjectDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsObjectIndependent()
-        ```
-
-        - over time (*i.e.* time-steps):
-
-        ```@example usepkg
-        PlantSimEngine.TimeStepDependencyTrait(::Type{<:$(dummy_type_name)}) = PlantSimEngine.IsTimeStepIndependent()
-        ```
+        Our example model has a hard dependency on `other_process_name`. The
+        compiled runtime resolves its declared targets, executes them with
+        `run_call!(context, :other_process_name; publish=true)`, and
+        returns a vector-like `CallTargets` collection.
 
         !!! tip "Variables and parameters usage"
-            Note that {#8abeff}run!(){/#8abeff} takes six arguments: the model type (used
-            for dispatch), the ModelMapping, the status, the meteorology, the constants and
-            any extra values.
-            Then we can use variables from the status as inputs or outputs, model parameters
-            from the ModelMapping (indexing by process, here using "$(process_name)" as the
-            process name), and meteorology variables.
+            The model argument owns parameters, `status` owns bound state,
+            `environment` contains sampled forcing, and `context` exposes hard
+            calls and lifecycle operations.
         """
         )
     )

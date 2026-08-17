@@ -27,21 +27,19 @@ end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyLeafSurfaceModel)
-    (carbon_biomass=-Inf,)
+    (carbon_biomass=Required(Real),)
 end
 
 # Define outputs:
-function PlantSimEngine.outputs_(::ToyLeafSurfaceModel)
-    (surface=-Inf,)
+function PlantSimEngine.outputs_(model::ToyLeafSurfaceModel)
+    (surface=oftype(float(model.SLA), -Inf),)
 end
 
-function PlantSimEngine.run!(m::ToyLeafSurfaceModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyLeafSurfaceModel, status, environment, constants, context)
     status.surface = status.carbon_biomass * m.SLA
 end
 
 # Can be parallelized over organs and time-steps:
-PlantSimEngine.ObjectDependencyTrait(::Type{<:ToyLeafSurfaceModel}) = PlantSimEngine.IsObjectIndependent()
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyLeafSurfaceModel}) = PlantSimEngine.IsTimeStepDependent()
 
 
 
@@ -64,7 +62,7 @@ struct ToyPlantLeafSurfaceModel <: AbstractLeaf_SurfaceModel end
 
 # Define inputs:
 function PlantSimEngine.inputs_(::ToyPlantLeafSurfaceModel)
-    (leaf_surfaces=[-Inf],)
+    (leaf_surfaces=Required(AbstractVector{<:Real}),)
 end
 
 # Define outputs:
@@ -72,9 +70,6 @@ function PlantSimEngine.outputs_(::ToyPlantLeafSurfaceModel)
     (surface=-Inf,)
 end
 
-function PlantSimEngine.run!(m::ToyPlantLeafSurfaceModel, models, status, meteo, constants, extra_args)
+function PlantSimEngine.run!(m::ToyPlantLeafSurfaceModel, status, environment, constants, context)
     status.surface = sum(status.leaf_surfaces)
 end
-
-# Can be parallelized over time-steps:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:ToyPlantLeafSurfaceModel}) = PlantSimEngine.IsTimeStepDependent()

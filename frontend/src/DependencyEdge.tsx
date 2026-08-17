@@ -1,14 +1,7 @@
-import {
-  BaseEdge,
-  EdgeLabelRenderer,
-  Position,
-  getSmoothStepPath,
-  type Edge,
-  type EdgeProps,
-} from "@xyflow/react";
-import type { GraphEdgeData } from "./types";
+import { BaseEdge, EdgeLabelRenderer, Position, getSmoothStepPath, type Edge, type EdgeProps } from "@xyflow/react";
+import type { ModelGraphEdge } from "./types";
 
-type DependencyFlowEdge = Edge<GraphEdgeData, "dependency">;
+type SceneFlowEdge = Edge<ModelGraphEdge, "sceneEdge">;
 
 export function DependencyEdge({
   id,
@@ -21,58 +14,28 @@ export function DependencyEdge({
   markerEnd,
   style,
   data,
-}: EdgeProps<DependencyFlowEdge>) {
+}: EdgeProps<SceneFlowEdge>) {
   const [path, labelX, labelY] = getSmoothStepPath({
     sourceX,
     sourceY,
-    sourcePosition,
     targetX,
     targetY,
+    sourcePosition,
     targetPosition,
-    borderRadius: 18,
-    offset: 28,
+    borderRadius: 14,
+    offset: 24,
   });
-
-  if (!data) {
-    return <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} interactionWidth={18} />;
-  }
-
-  const label = data?.label;
-  const renamed = data?.sourceVariable && data?.targetVariable && data.sourceVariable !== data.targetVariable;
-  const isCallEdge = data?.kind === "hard_dependency" && !data.sourcePort && !data.targetPort;
-  const showPrimaryLabel = Boolean(label) && !renamed && !isCallEdge;
-  const showScaleTag = data?.scaleRelation === "multiscale" && !isCallEdge;
-  const showChip = showPrimaryLabel || showScaleTag;
-  const highlighted = Boolean(data?.highlighted);
-  const dimmed = Boolean(data?.dimmed);
-
+  const label = edgeLabel(data);
   return (
     <>
       <BaseEdge id={id} path={path} markerEnd={markerEnd} style={style} interactionWidth={18} />
-      {showChip && (
+      {label && (
         <EdgeLabelRenderer>
-          <EdgeTerminal
-            className={`edge-terminal source ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
-            x={sourceX}
-            y={sourceY}
-            side={sourcePosition}
-            color={terminalColor(data, highlighted)}
-          />
-          <EdgeTerminal
-            className={`edge-terminal target ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
-            x={targetX}
-            y={targetY}
-            side={targetPosition}
-            color={terminalColor(data, highlighted)}
-          />
           <div
-            className={`edge-chip ${data.kind} ${data.scaleRelation} ${highlighted ? "highlighted" : ""} ${data.focused ? "focused" : ""} ${dimmed ? "dimmed" : ""}`}
-            style={{
-              transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 14}px)`,
-            }}
+            className={`edge-chip ${data?.kind ?? ""} ${data?.cycle ? "cycle" : ""}`}
+            style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 12}px)` }}
           >
-            {showPrimaryLabel && <span>{label}</span>}
-            {showScaleTag && <small>multiscale</small>}
+            {label}
           </div>
         </EdgeLabelRenderer>
       )}
@@ -80,32 +43,12 @@ export function DependencyEdge({
   );
 }
 
-function EdgeTerminal({ className, x, y, side, color }: { className: string; x: number; y: number; side: Position; color: string }) {
-  const xOffset =
-    className.includes("target")
-      ? side === Position.Left
-        ? -9
-        : 9
-      : side === Position.Left
-        ? 9
-        : -9;
-
-  return (
-    <div
-      className={className}
-      data-side={side}
-      style={{
-        transform: `translate(-50%, -50%) translate(${x + xOffset}px, ${y}px)`,
-        ["--terminal-color" as string]: color,
-      }}
-    />
-  );
-}
-
-function terminalColor(data: GraphEdgeData, highlighted: boolean) {
-  if (highlighted) return "#1f7a53";
-  if (data.kind === "cycle_dependency" || data.diagnostics.some((item) => item.includes("Cycle edge"))) return "#d3422f";
-  if (data.kind === "hard_dependency") return "#bf6a54";
-  if (data.kind === "mapped_variable" || data.scaleRelation === "multiscale") return "#1f7a53";
-  return "#b7a696";
+function edgeLabel(data?: ModelGraphEdge) {
+  if (!data) return "";
+  if (data.kind === "manual_call") return data.call || "call";
+  if (data.kind === "object_topology" || data.kind === "application_target") return "";
+  if (data.sourceVariable && data.targetVariable) {
+    return data.sourceVariable === data.targetVariable ? data.sourceVariable : `${data.sourceVariable} → ${data.targetVariable}`;
+  }
+  return data.kind.replaceAll("_", " ");
 }

@@ -1,2711 +1,1057 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Background,
   Controls,
+  MarkerType,
   MiniMap,
   ReactFlow,
-  MarkerType,
   useEdgesState,
   useNodesState,
   type Connection,
   type Edge,
   type Node,
-  type ReactFlowInstance,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import {
   AlertTriangle,
+  Boxes,
   CircleAlert,
-  Filter,
+  Code2,
+  GitBranch,
   FolderOpen,
-  GitPullRequestArrow,
+  Layers3,
   Network,
-  RotateCcw,
-  Route,
-  ScissorsLineDashed,
+  Plus,
+  Scissors,
   Search,
+  Save,
+  Undo2,
+  Redo2,
   X,
 } from "lucide-react";
+import { ApplicationForm, type ApplicationFormValue } from "./ApplicationForm";
+import { ApplicationConfigurationForm } from "./ApplicationConfigurationForm";
+import { BindingForm, type BindingEndpoints, type BindingFormValue } from "./BindingForm";
+import { EnvironmentForm } from "./EnvironmentForm";
+import { InstanceForm, type InstanceFormValue } from "./InstanceForm";
+import { ObjectForm, type ObjectFormValue } from "./ObjectForm";
+import { OverrideForm, type OverrideFormValue } from "./OverrideForm";
+import { ApplicationNode, EntityNode } from "./ModelNode";
 import { DependencyEdge } from "./DependencyEdge";
-import { ModelNode } from "./ModelNode";
 import { layoutGraph, type LayoutMode } from "./layout";
-import { sampleGraph } from "./sampleGraph";
-import type { DependencyGraphView, GraphEdgeData, GraphEditorState, GraphNodeData, GraphPort, InitializationDescriptor, ModelDescriptor, RuntimeGraphNodeData } from "./types";
+import { sampleModelGraph } from "./sampleModelGraph";
+import type {
+  ApplicationGraphNode,
+  DetailMode,
+  EditorState,
+  EnvironmentDescriptor,
+  EnvironmentGraphNode,
+  ExecutionGraphNode,
+  GraphPort,
+  GraphViewMode,
+  InstanceDescriptor,
+  InstancePreview,
+  ModelDescriptor,
+  ObjectGraphNode,
+  RuntimeApplicationNode,
+  RuntimeEntityNode,
+  ModelGraphEdge,
+  ModelGraphView,
+  ModelRootDescriptor,
+  SelectorPreview,
+  TemplateDescriptor,
+  TargetPreview,
+} from "./types";
 import "./styles.css";
 
-type EdgeFilterKey = "dataFlow" | "mapped" | "callStack";
-type EdgeFilters = Record<EdgeFilterKey, boolean>;
-type FocusMode = "none" | "upstream" | "downstream" | "neighborhood";
-type SidePanel = "inspector" | "add_model" | "initializations" | "mapping_code" | null;
-type GraphViewMode = "overview" | "detail";
-
-type PendingMappingConnection = {
-  sourceNode: GraphNodeData;
-  sourcePort: GraphPort;
-  targetNode: GraphNodeData;
-  targetPort: GraphPort;
+type FlowNode = Node<RuntimeApplicationNode | RuntimeEntityNode>;
+type FlowEdge = Edge<ModelGraphEdge>;
+type CandidatePopover = { port: GraphPort; application: ApplicationGraphNode; x: number; y: number };
+type CycleBreakSelection = { application: ApplicationGraphNode; port: GraphPort };
+type InspectorSelection = ApplicationGraphNode | TemplateDescriptor | InstanceDescriptor | ObjectGraphNode | ExecutionGraphNode | EnvironmentDescriptor | EnvironmentGraphNode | ModelRootDescriptor | ModelGraphEdge | null;
+type GraphScopeFilter = { label: string; objectIds: unknown[] };
+type ApplicationFormState = {
+  mode: "add" | "update";
+  application?: ApplicationGraphNode;
+  initialModelType?: string;
+  suggestedSelector?: ApplicationGraphNode["selector"];
 };
+type ObjectFormState = { mode: "add" | "update"; object?: ObjectGraphNode };
 
-type CandidatePopover = {
-  portId: string;
-  anchor: { x: number; y: number };
-};
-
-type AddModelSelection = {
-  modelType: string;
-  scale: string;
-  requestId: number;
-};
-
-type SearchResult = {
-  id: string;
-  kind: "model" | "input" | "output";
-  node: GraphNodeData;
-  port?: GraphPort;
-  label: string;
-  detail: string;
-};
-
-type RequiredInput = {
-  node: GraphNodeData;
-  port: GraphPort;
-  reason: "previous_time_step" | "mapped_unresolved" | "user_initialization";
-};
-
-type CycleBreakOption = {
-  edge: GraphEdgeData;
-  node: GraphNodeData;
-  port: GraphPort;
-};
-
-type ValidationWarning = {
-  id: string;
-  severity: "error" | "warning" | "info";
-  category: "init" | "mapping" | "ownership" | "hard_dependency" | "cross_scale";
-  title: string;
-  detail: string;
-  nodeId?: string;
-  nodeIds?: string[];
-  portId?: string;
-  portIds?: string[];
-  edgeId?: string;
-};
-
-type FocusState = {
-  active: boolean;
-  edges: Set<string>;
-  nodes: Set<string>;
-  ports: Set<string>;
-};
-
-const nodeTypes = { model: ModelNode };
-const edgeTypes = { dependency: DependencyEdge };
-const edgeColors = {
-  base: "#a99a8c",
-  accent: "#1f7a53",
-  mapped: "#4f8d69",
-  hard: "#bf6a54",
-};
-
-const defaultEdgeFilters: EdgeFilters = {
-  dataFlow: true,
-  mapped: true,
-  callStack: true,
-};
-
-const focusLabels: Record<FocusMode, string> = {
-  none: "No focus",
-  upstream: "Upstream",
-  downstream: "Downstream",
-  neighborhood: "Both",
-};
-
-const layoutLabels: Record<LayoutMode, string> = {
-  data_flow: "Data-flow",
-  compact: "Compact",
-  scale_grouped: "Scale grouped",
-  call_stack: "Call stack",
-  overview: "Overview",
-};
-
-const valueTypeChoices = ["float", "integer", "boolean", "symbol", "string", "nothing", "julia"];
+const nodeTypes = { application: ApplicationNode, entity: EntityNode };
+const edgeTypes = { modelEdge: DependencyEdge };
 
 export default function App() {
-  const [graph, setGraph] = useState<DependencyGraphView>(loadInitialGraph());
-  const [editorModels, setEditorModels] = useState<ModelDescriptor[]>([]);
-  const [editorSocket, setEditorSocket] = useState<WebSocket | null>(null);
-  const [editorConnected, setEditorConnected] = useState(false);
+  const [graph, setGraph] = useState<ModelGraphView>(loadInitialGraph);
+  const [view, setView] = useState<GraphViewMode>(() => loadInitialGraph().level);
+  const [detailMode, setDetailMode] = useState<DetailMode>(() => loadInitialGraph().metadata.applicationCount > 24 ? "overview" : "detail");
+  const [query, setQuery] = useState("");
+  const [selected, setSelected] = useState<InspectorSelection>(null);
+  const [scopeFilter, setScopeFilter] = useState<GraphScopeFilter | null>(null);
+  const [selectedPort, setSelectedPort] = useState<GraphPort | null>(null);
+  const [candidate, setCandidate] = useState<CandidatePopover | null>(null);
+  const [showDiagnostics, setShowDiagnostics] = useState(false);
+  const [showInitialization, setShowInitialization] = useState(false);
+  const [showModelCode, setShowModelCode] = useState(false);
+  const [showOpen, setShowOpen] = useState(false);
+  const [showSave, setShowSave] = useState(false);
+  const [modelCode, setSceneCode] = useState("");
+  const [autosavePath, setAutosavePath] = useState<string | null>(null);
+  const [savePath, setSavePath] = useState<string | null>(null);
+  const [recentPaths, setRecentPaths] = useState<string[]>([]);
+  const [socket, setSocket] = useState<WebSocket | null>(null);
+  const [connected, setConnected] = useState(false);
   const [canUndo, setCanUndo] = useState(false);
   const [canRedo, setCanRedo] = useState(false);
-  const [activePanel, setActivePanel] = useState<SidePanel>(() => loadEditorConfig()?.websocketUrl ? "inspector" : null);
-  const [mappingCode, setMappingCode] = useState("");
-  const [initializations, setInitializations] = useState<InitializationDescriptor[]>([]);
-  const [lastSavedPath, setLastSavedPath] = useState<string | null>(null);
-  const [saveTargetPath, setSaveTargetPath] = useState<string | null>(null);
-  const [autosavePath, setAutosavePath] = useState<string | null>(null);
-  const [lastAutosavedPath, setLastAutosavedPath] = useState<string | null>(null);
-  const [recentMappings, setRecentMappings] = useState<string[]>([]);
-  const [editorFeedback, setEditorFeedback] = useState<{ kind: "error" | "info"; text: string } | null>(null);
-  const [savePath, setSavePath] = useState("mapping.generated.jl");
-  const [customScales, setCustomScales] = useState<string[]>([]);
-  const [selected, setSelected] = useState<GraphNodeData | null>(null);
-  const [activePort, setActivePort] = useState<GraphPort | null>(null);
-  const [pendingConnection, setPendingConnection] = useState<PendingMappingConnection | null>(null);
-  const [showRequiredPanel, setShowRequiredPanel] = useState(false);
-  const [showWarningsPanel, setShowWarningsPanel] = useState(false);
-  const [showOpenPanel, setShowOpenPanel] = useState(false);
-  const [showRelationshipsPanel, setShowRelationshipsPanel] = useState(false);
-  const [showScalesPanel, setShowScalesPanel] = useState(false);
-  const [showSearchResults, setShowSearchResults] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [layoutMode, setLayoutMode] = useState<LayoutMode>("data_flow");
-  const [focusMode, setFocusMode] = useState<FocusMode>("neighborhood");
-  const [viewMode, setViewMode] = useState<GraphViewMode>(() => defaultGraphViewMode(loadInitialGraph()));
-  const [viewModeTouched, setViewModeTouched] = useState(false);
-  const [edgeFilters, setEdgeFilters] = useState<EdgeFilters>(defaultEdgeFilters);
-  const [collapsedScales, setCollapsedScales] = useState<Set<string>>(() => new Set());
-  const [pinnedFocus, setPinnedFocus] = useState<FocusState | null>(null);
-  const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
+  const [feedback, setFeedback] = useState<string | null>(null);
+  const [applicationForm, setApplicationForm] = useState<ApplicationFormState | null>(null);
+  const [targetPreview, setTargetPreview] = useState<TargetPreview | null>(null);
+  const [showInstanceForm, setShowInstanceForm] = useState(false);
+  const [instancePreview, setInstancePreview] = useState<InstancePreview | null>(null);
+  const [showEnvironmentForm, setShowEnvironmentForm] = useState(false);
+  const [objectForm, setObjectForm] = useState<ObjectFormState | null>(null);
+  const [overrideApplication, setOverrideApplication] = useState<ApplicationGraphNode | null>(null);
+  const [configurationApplicationId, setConfigurationApplicationId] = useState<string | null>(null);
+  const [bindingForm, setBindingForm] = useState<BindingEndpoints | null>(null);
+  const [bindingPreview, setBindingPreview] = useState<SelectorPreview | null>(null);
   const [cycleBreakMode, setCycleBreakMode] = useState(false);
-  const [candidatePopover, setCandidatePopover] = useState<CandidatePopover | null>(null);
-  const [addModelSelection, setAddModelSelection] = useState<AddModelSelection | null>(null);
-  const [addModelFocusRequest, setAddModelFocusRequest] = useState(0);
-  const [highlightAddModelPanel, setHighlightAddModelPanel] = useState(false);
-  const [flowInstance, setFlowInstance] = useState<ReactFlowInstance<Node<RuntimeGraphNodeData>, Edge<GraphEdgeData>> | null>(null);
-  const [nodes, setNodes, onNodesChange] = useNodesState<Node<RuntimeGraphNodeData>>([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState<Edge<GraphEdgeData>>([]);
-  const sidePanelRef = useRef<HTMLElement | null>(null);
+  const [cycleBreakSelection, setCycleBreakSelection] = useState<CycleBreakSelection | null>(null);
+  const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
+  const [edges, setEdges, onEdgesChange] = useEdgesState<FlowEdge>([]);
 
-  const nodeById = useMemo(() => new Map(graph.nodes.map((node) => [node.id, node])), [graph]);
-  const portById = useMemo(() => buildPortIndex(graph), [graph]);
-  const incomingByPort = useMemo(() => groupEdgesByPort(graph.edges, "targetPort"), [graph.edges]);
-  const outgoingByPort = useMemo(() => groupEdgesByPort(graph.edges, "sourcePort"), [graph.edges]);
-  const requiredInputPortIds = useMemo(() => deriveRequiredInputPorts(graph), [graph]);
-  const candidatePortIds = useMemo(() => deriveCandidatePortIds(graph, editorModels, incomingByPort), [editorModels, graph, incomingByPort]);
-  const requiredInputs = useMemo(() => deriveRequiredInputs(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
-  const warningItems = useMemo(() => deriveValidationWarnings(graph, requiredInputPortIds, incomingByPort), [graph, incomingByPort, requiredInputPortIds]);
-  const actionableWarningItems = useMemo(() => warningItems.filter((item) => item.severity !== "info"), [warningItems]);
-  const searchResults = useMemo(() => deriveSearchResults(graph, searchQuery), [graph, searchQuery]);
-  const visibleNodeData = useMemo(() => graph.nodes.filter((node) => !collapsedScales.has(node.scale)), [collapsedScales, graph.nodes]);
-  const editorScales = useMemo(() => {
-    const graphScales = graph.scales.length > 0 ? graph.scales : ["Default"];
-    const merged = [...graphScales, ...customScales];
-    return [...new Set(merged)];
-  }, [customScales, graph.scales]);
-  const visibleNodeIds = useMemo(() => new Set(visibleNodeData.map((node) => node.id)), [visibleNodeData]);
-  const visibleEdgeData = useMemo(() => graph.edges.filter((edge) => (
-    edgeMatchesFilters(edge, edgeFilters) &&
-    visibleNodeIds.has(edge.source) &&
-    visibleNodeIds.has(edge.target)
-  )), [edgeFilters, graph.edges, visibleNodeIds]);
-  const cycleBreakOptions = useMemo(() => deriveCycleBreakOptions(graph, nodeById, portById), [graph, nodeById, portById]);
-  const cycleBreakPortIds = useMemo(() => new Set(cycleBreakOptions.map((option) => option.port.id)), [cycleBreakOptions]);
-  const hoverHighlight = useMemo(() => deriveHighlight(graph, activePort), [activePort, graph]);
-  const traversalFocus = useMemo(
-    () => deriveFocus(graph, selected?.id ?? null, activePort, focusMode),
-    [activePort, focusMode, graph, selected?.id],
+  const editorConfig = useMemo(loadEditorConfig, []);
+  const applicationById = useMemo(() => new Map(graph.applications.map((application) => [application.applicationId, application])), [graph.applications]);
+  const unresolvedPortIds = useMemo(() => new Set(
+    graph.initialization
+      .filter((row) => row.role === "input" && row.disposition === "unresolved")
+      .map((row) => applicationPortId(row.applicationId, "input", row.variable)),
+  ), [graph.initialization]);
+  const previousPortIds = useMemo(() => new Set(
+    graph.initialization
+      .filter((row) => row.role === "input" && row.previousTimeStep)
+      .map((row) => applicationPortId(row.applicationId, "input", row.variable)),
+  ), [graph.initialization]);
+  const cyclicApplications = useMemo(() => new Set(graph.cycles.flatMap((cycle) => cycle.applicationIds)), [graph.cycles]);
+  const cycleBreakPortIds = useMemo(() => new Set(
+    graph.cycles.flatMap((cycle) => cycle.breakCandidates.map((candidate) => applicationPortId(candidate.applicationId, "input", candidate.input))),
+  ), [graph.cycles]);
+  const candidatePortIds = useMemo(() => deriveCandidatePortIds(graph), [graph]);
+  const candidateModels = useMemo(() => candidate ? modelsForPort(graph.modelLibrary, candidate.port) : [], [candidate, graph.modelLibrary]);
+  const candidateApplications = useMemo(() => candidate ? applicationsForPort(graph.applications, candidate) : [], [candidate, graph.applications]);
+  const portIndex = useMemo(() => {
+    const index = new Map<string, { application: ApplicationGraphNode; port: GraphPort }>();
+    for (const application of graph.applications) {
+      for (const port of [...application.inputs, ...application.outputs]) index.set(port.id, { application, port });
+    }
+    return index;
+  }, [graph.applications]);
+  const scopedObjectIds = useMemo(
+    () => scopeFilter ? new Set(scopeFilter.objectIds.map(objectKey)) : null,
+    [scopeFilter],
   );
-  const focus = useMemo(() => pinnedFocus?.active ? pinnedFocus : traversalFocus, [pinnedFocus, traversalFocus]);
-  const activeCandidatePortId = candidatePopover?.portId ?? null;
-  const candidatePopoverInfo = useMemo(() => {
-    if (!candidatePopover) return null;
-    const portInfo = portById.get(candidatePopover.portId);
-    if (!portInfo || !candidatePortIds.has(candidatePopover.portId)) return null;
-    const { port } = portInfo;
-    const field = port.role === "input" ? "outputs" : "inputs";
-    const models = editorModels
-      .filter((model) => Object.prototype.hasOwnProperty.call(modelVariableDeclarations(model, field), port.name))
-      .sort((left, right) => left.name.localeCompare(right.name));
-    if (models.length === 0) return null;
-    return {
-      anchor: candidatePopover.anchor,
-      node: portInfo.node,
-      port,
-      title: port.role === "input" ? "Models That Compute" : "Models That Consume",
-      models,
-    };
-  }, [candidatePopover, candidatePortIds, editorModels, portById]);
-
-  const toggleCandidatePopover = useCallback((port: GraphPort, anchor: { x: number; y: number }) => {
-    setActivePort(port);
-    setCandidatePopover((current) => current?.portId === port.id ? null : { portId: port.id, anchor });
-  }, []);
 
   useEffect(() => {
-    const config = loadEditorConfig();
-    if (!config?.websocketUrl) return;
-
-    const socket = new WebSocket(config.websocketUrl);
-    setEditorSocket(socket);
-    socket.addEventListener("open", () => {
-      setEditorConnected(true);
-      setEditorFeedback(null);
-    });
-    socket.addEventListener("close", () => {
-      setEditorConnected(false);
-      setEditorFeedback({ kind: "error", text: "Graph editor connection closed. Refresh the page or restart the Julia session." });
-    });
-    socket.addEventListener("message", (event) => {
-      const payload = JSON.parse(event.data) as GraphEditorState;
+    if (!editorConfig?.websocketUrl) return;
+    const nextSocket = new WebSocket(editorConfig.websocketUrl);
+    setSocket(nextSocket);
+    nextSocket.addEventListener("open", () => { setConnected(true); setFeedback(null); });
+    nextSocket.addEventListener("close", () => { setConnected(false); setFeedback("Editor connection closed."); });
+    nextSocket.addEventListener("message", (event) => {
+      const payload = JSON.parse(event.data) as EditorState;
       if (payload.graph) setGraph(payload.graph);
-      if (payload.models) setEditorModels(payload.models);
-      if (typeof payload.mappingCode === "string") setMappingCode(payload.mappingCode);
-      if (Array.isArray(payload.initializations)) setInitializations(payload.initializations);
-      setLastSavedPath(typeof payload.lastSavedPath === "string" ? payload.lastSavedPath : null);
-      setSaveTargetPath(typeof payload.saveTargetPath === "string" ? payload.saveTargetPath : null);
-      if (typeof payload.saveTargetPath === "string") setSavePath(payload.saveTargetPath);
-      setAutosavePath(typeof payload.autosavePath === "string" ? payload.autosavePath : null);
-      setLastAutosavedPath(typeof payload.lastAutosavedPath === "string" ? payload.lastAutosavedPath : null);
-      if (Array.isArray(payload.recentMappings)) setRecentMappings(payload.recentMappings);
+      if (typeof payload.modelCode === "string") setSceneCode(payload.modelCode);
+      setAutosavePath(payload.autosavePath ?? null);
+      setSavePath(payload.savePath ?? null);
+      setRecentPaths(payload.recentPaths ?? []);
+      if (payload.selectorPreview) setBindingPreview(payload.selectorPreview);
+      if (payload.targetPreview) setTargetPreview(payload.targetPreview);
+      if (payload.instancePreview) setInstancePreview(payload.instancePreview);
+      if (payload.ok === false) {
+        setBindingPreview(null);
+        setTargetPreview(null);
+        setInstancePreview(null);
+      }
       setCanUndo(Boolean(payload.canUndo));
       setCanRedo(Boolean(payload.canRedo));
-      if (payload.ok === false) {
-        const message = payload.diagnostics?.[0] ?? "Graph editor command failed.";
-        setEditorFeedback({ kind: "error", text: message });
-      } else if (payload.diagnostics?.length) {
-        setEditorFeedback({ kind: "info", text: payload.diagnostics[0] });
-      } else {
-        setEditorFeedback(null);
-      }
+      setFeedback(payload.ok === false ? payload.diagnostics?.[0] || "The edit failed." : null);
     });
-    return () => socket.close();
-  }, []);
+    return () => nextSocket.close();
+  }, [editorConfig?.websocketUrl]);
 
-  const sendEditorCommand = useCallback((command: Record<string, unknown>) => {
-    if (!editorSocket || editorSocket.readyState !== WebSocket.OPEN) {
-      setEditorFeedback({ kind: "error", text: "Graph editor is offline; command was not sent." });
+  useEffect(() => {
+    if (!graph.metadata.cyclic) {
+      setCycleBreakMode(false);
+      setCycleBreakSelection(null);
+    }
+  }, [graph.metadata.cyclic]);
+
+  const sendCommand = useCallback((command: Record<string, unknown>) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setFeedback("This action requires an interactive Julia editor session.");
       return;
     }
-    editorSocket.send(JSON.stringify(command));
-  }, [editorSocket]);
+    socket.send(JSON.stringify(command));
+  }, [socket]);
 
-  const breakCycleAtPort = useCallback((port: GraphPort) => {
-    const target = portById.get(port.id);
-    if (!target || port.role !== "input") return;
-    sendEditorCommand({
+  const openCandidates = useCallback((application: ApplicationGraphNode, port: GraphPort, anchor: { x: number; y: number }) => {
+    setSelected(application);
+    setSelectedPort(port);
+    setCandidate({ application, port, x: anchor.x, y: anchor.y });
+  }, []);
+
+  useEffect(() => {
+    const nextNodes = buildNodes({
+      graph,
+      view,
+      detailMode,
+      query,
+      scopedObjectIds,
+      unresolvedPortIds,
+      previousPortIds,
+      candidatePortIds,
+      cyclicApplications,
+      cycleBreakPortIds,
+      cycleBreakMode,
+      openCandidates,
+      onPortClick: setSelectedPort,
+      onCycleBreak: (application, port) => setCycleBreakSelection({ application, port }),
+    });
+    const nodeIds = new Set(nextNodes.map((node) => node.id));
+    const nextEdges = buildEdges(graph, view).filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target));
+    const layoutMode: LayoutMode = view === "topology" ? "topology" : detailMode === "overview" ? "overview" : "data_flow";
+    layoutGraph(nextNodes, nextEdges, layoutMode).then(setNodes);
+    setEdges(nextEdges);
+  }, [candidatePortIds, cycleBreakMode, cycleBreakPortIds, cyclicApplications, detailMode, graph, openCandidates, previousPortIds, query, scopedObjectIds, setEdges, setNodes, unresolvedPortIds, view]);
+
+  const inspectSelection = useCallback((_: unknown, node: FlowNode) => {
+    if (node.data.nodeKind === "application") {
+      setSelected(applicationById.get(node.data.applicationId) ?? null);
+    } else {
+      setSelected(node.data.detail);
+      if (node.data.nodeKind === "object") {
+        const object = node.data.detail as ObjectGraphNode;
+        setScopeFilter({
+          label: `subtree ${object.name || String(object.objectId)}`,
+          objectIds: objectSubtreeIds(graph.objects, object.objectId),
+        });
+      } else if (node.data.nodeKind === "instance") {
+        const instance = node.data.detail as InstanceDescriptor;
+        setScopeFilter({ label: `instance ${instance.name}`, objectIds: instance.objectIds });
+      } else if (node.data.nodeKind === "model") {
+        setScopeFilter(null);
+      }
+    }
+    setSelectedPort(null);
+  }, [applicationById, graph.objects]);
+
+  const selectCandidateModel = useCallback((model: ModelDescriptor) => {
+    if (!candidate) return;
+    setTargetPreview(null);
+    setApplicationForm({
+      mode: "add",
+      initialModelType: model.type,
+      suggestedSelector: selectorSuggestion(candidate.application),
+    });
+    if (!connected) setFeedback(`${model.name} matches ${candidate.port.name}. Start an interactive Julia editor session to add it to the composite model.`);
+    setCandidate(null);
+  }, [candidate, connected]);
+
+  const submitApplication = useCallback((value: ApplicationFormValue) => {
+    if (!connected) {
+      setFeedback("Adding or updating an application requires an interactive Julia editor session.");
+      setApplicationForm(null);
+      return;
+    }
+    sendCommand({
       action: "edit",
-      kind: "mark_previous_timestep",
-      scale: target.node.scale,
-      process: target.node.process,
-      variable: port.name,
+      kind: value.applicationRef ? "update_application" : "add_application",
+      ...value,
     });
-    setCycleBreakMode(false);
-    setPinnedFocus(null);
-    setSelectedEdge(null);
-    setSelected(target.node);
-    setActivePort(port);
-  }, [portById, sendEditorCommand]);
+    setApplicationForm(null);
+  }, [connected, sendCommand]);
 
-  const removeGraphModel = useCallback((node: GraphNodeData) => {
-    const target = removableMappingNode(node, nodeById);
-    if (!target) {
-      setEditorFeedback({ kind: "error", text: `Cannot remove ${node.process}: no owning ModelMapping model was found.` });
+  const submitInstance = useCallback((value: InstanceFormValue) => {
+    if (!connected) {
+      setFeedback("Adding a template instance requires an interactive Julia editor session.");
       return;
     }
-    sendEditorCommand({
+    sendCommand({ action: "edit", kind: "add_instance", ...value });
+    setShowInstanceForm(false);
+    setInstancePreview(null);
+  }, [connected, sendCommand]);
+
+  const submitBinding = useCallback((value: BindingFormValue) => {
+    if (!connected) {
+      setFeedback("Creating a binding requires an interactive Julia editor session.");
+      setBindingForm(null);
+      return;
+    }
+    sendCommand({ action: "edit", kind: "set_input_binding", ...value });
+    setBindingForm(null);
+  }, [connected, sendCommand]);
+
+  const submitObject = useCallback((value: ObjectFormValue) => {
+    if (!connected) {
+      setFeedback("Adding or updating an object requires an interactive Julia editor session.");
+      setObjectForm(null);
+      return;
+    }
+    sendCommand({
       action: "edit",
-      kind: "remove_model",
-      scale: target.scale,
-      process: target.process,
+      kind: objectForm?.mode === "update" ? "update_object" : "add_object",
+      objectId: value.objectId,
+      configuration: value.configuration,
     });
-    setSelected((current) => current?.id === node.id || current?.id === target.id ? null : current);
-    setActivePort(null);
-    setSelectedEdge(null);
-  }, [nodeById, sendEditorCommand]);
+    setObjectForm(null);
+  }, [connected, objectForm?.mode, sendCommand]);
 
-  const togglePanel = useCallback((panel: Exclude<SidePanel, null>) => {
-    setActivePanel((current) => current === panel ? null : panel);
-  }, []);
-
-  const openAddModelPanel = useCallback(() => {
-    setActivePanel("add_model");
-    setHighlightAddModelPanel(true);
-    setAddModelFocusRequest(Date.now());
-  }, []);
-
-  const addCustomScale = useCallback((rawScale: string) => {
-    const scale = rawScale.trim();
-    if (!scale) return;
-    setCustomScales((current) => current.includes(scale) || graph.scales.includes(scale) ? current : [...current, scale]);
-  }, [graph.scales]);
-
-  useEffect(() => {
-    if (activePanel !== "add_model" || !highlightAddModelPanel) return;
-    sidePanelRef.current?.scrollIntoView({ block: "nearest", inline: "nearest" });
-    sidePanelRef.current?.focus({ preventScroll: true });
-    const timeout = window.setTimeout(() => setHighlightAddModelPanel(false), 1800);
-    return () => window.clearTimeout(timeout);
-  }, [activePanel, highlightAddModelPanel, addModelFocusRequest]);
-
-  useEffect(() => {
-    if (!viewModeTouched) setViewMode(defaultGraphViewMode(graph));
-  }, [graph, viewModeTouched]);
-
-  useEffect(() => {
-    const nextNodes = visibleNodeData.map((node) => ({
-      id: node.id,
-      type: "model",
-      position: { x: 0, y: 0 },
-      data: runtimeNodeData(node, {
-        activePort: null,
-        highlightedPortIds: new Set<string>(),
-        focusedPortIds: new Set<string>(),
-        requiredInputPortIds,
-        candidatePortIds,
-        cycleNodeIds: new Set(graph.cycleNodes),
-        cycleBreakPortIds,
-        cycleBreakMode,
-        focusedNodeIds: new Set<string>(),
-        hasActiveFocus: false,
-        activeCandidatePortId,
-        setActivePort,
-        setCandidatePopover: toggleCandidatePopover,
-        breakCycleAtPort,
-        removeGraphModel,
-        viewMode,
-      }),
-    }));
-    const nextEdges = visibleEdgeData.map((edge) => flowEdge(edge, new Set<string>(), new Set<string>(), false, false));
-    layoutGraph(nextNodes, nextEdges, effectiveLayoutMode(viewMode, layoutMode)).then((layouted) => {
-      setNodes(layouted);
-      setEdges(nextEdges);
-    });
-  }, [activeCandidatePortId, breakCycleAtPort, candidatePortIds, cycleBreakMode, cycleBreakPortIds, graph.cycleNodes, layoutMode, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode, visibleEdgeData, visibleNodeData]);
-
-  useEffect(() => {
-    const focusEdges = focus.active ? focus.edges : new Set<string>();
-    setNodes((current) => current.map((node) => ({
-      ...node,
-      data: runtimeNodeData(node.data, {
-        activePort,
-        highlightedPortIds: hoverHighlight.ports,
-        focusedPortIds: focus.ports,
-        requiredInputPortIds,
-        candidatePortIds,
-        cycleNodeIds: new Set(graph.cycleNodes),
-        cycleBreakPortIds,
-        cycleBreakMode,
-        focusedNodeIds: focus.nodes,
-        hasActiveFocus: focus.active,
-        activeCandidatePortId,
-        setActivePort,
-        setCandidatePopover: toggleCandidatePopover,
-        breakCycleAtPort,
-        removeGraphModel,
-        viewMode,
-      }),
-    })));
-    setEdges((current) => current.map((edge) => edge.data ? flowEdge(edge.data, hoverHighlight.edges, focusEdges, Boolean(activePort), focus.active) : edge));
-  }, [activeCandidatePortId, activePort, breakCycleAtPort, candidatePortIds, cycleBreakMode, cycleBreakPortIds, focus, graph.cycleNodes, hoverHighlight.edges, hoverHighlight.ports, removeGraphModel, requiredInputPortIds, setEdges, setNodes, toggleCandidatePopover, viewMode]);
-
-  useEffect(() => {
-    if (candidatePopover && !candidatePortIds.has(candidatePopover.portId)) setCandidatePopover(null);
-  }, [candidatePopover, candidatePortIds]);
-
-  const onConnect = useCallback((connection: Connection) => {
-    if (!editorConnected) return;
-    const sourcePortId = connection.sourceHandle;
-    const targetPortId = connection.targetHandle;
-    if (!sourcePortId || !targetPortId) return;
-    const sourceInfo = portById.get(sourcePortId);
-    const targetInfo = portById.get(targetPortId);
-    if (!sourceInfo || !targetInfo) return;
-    // Only handle output-to-input connections.
-    if (sourceInfo.port.role !== "output" || targetInfo.port.role !== "input") return;
-    setPendingConnection({
-      sourceNode: sourceInfo.node,
-      sourcePort: sourceInfo.port,
-      targetNode: targetInfo.node,
-      targetPort: targetInfo.port,
-    });
-  }, [editorConnected, portById]);
-
-  const relayout = useCallback(() => {
-    layoutGraph(nodes, edges, effectiveLayoutMode(viewMode, layoutMode)).then(setNodes);
-  }, [edges, layoutMode, nodes, setNodes, viewMode]);
-
-  const focusNode = useCallback((node: GraphNodeData, port?: GraphPort | null) => {
-    setPinnedFocus(null);
-    setSelectedEdge(null);
-    setSelected(node);
-    setActivePort(port ?? null);
-    setActivePanel("inspector");
-    setCollapsedScales((current) => {
-      if (!current.has(node.scale)) return current;
-      const next = new Set(current);
-      next.delete(node.scale);
-      return next;
-    });
-    const renderedNode = nodes.find((item) => item.id === node.id);
-    if (renderedNode && flowInstance) {
-      flowInstance.setCenter(renderedNode.position.x + 156, renderedNode.position.y + 90, { zoom: 0.85, duration: 520 });
-    }
-  }, [flowInstance, nodes]);
-
-  const focusEdge = useCallback((edge: GraphEdgeData) => {
-    const port = edge.targetPort ? portById.get(edge.targetPort)?.port : edge.sourcePort ? portById.get(edge.sourcePort)?.port : null;
-    const node = port?.id === edge.targetPort ? nodeById.get(edge.target) : nodeById.get(edge.source);
-    if (node) focusNode(node, port ?? null);
-  }, [focusNode, nodeById, portById]);
-
-  const chooseCycleBreakPoint = useCallback(() => {
-    setCycleBreakMode(true);
-    setViewModeTouched(true);
-    setViewMode("detail");
-    setActivePanel("inspector");
-    setSelected(null);
-    setSelectedEdge(null);
-    setCandidatePopover(null);
-    setActivePort(null);
-
-    const nextFocus = emptyFocusState();
-    nextFocus.active = true;
-    for (const option of cycleBreakOptions) {
-      nextFocus.edges.add(option.edge.id);
-      nextFocus.nodes.add(option.edge.source);
-      nextFocus.nodes.add(option.edge.target);
-      if (option.edge.sourcePort) nextFocus.ports.add(option.edge.sourcePort);
-      nextFocus.ports.add(option.port.id);
-    }
-    setPinnedFocus(nextFocus);
-
-    if (flowInstance && cycleBreakOptions.length > 0) {
-      const nodeIds = [...new Set(cycleBreakOptions.flatMap((option) => [option.edge.source, option.edge.target]))];
-      flowInstance.fitView({
-        nodes: nodeIds.map((id) => ({ id })),
-        padding: 0.36,
-        duration: 520,
-        maxZoom: 1.05,
-      });
-    }
-  }, [cycleBreakOptions, flowInstance]);
-
-  useEffect(() => {
-    if (!graph.cyclic) setCycleBreakMode(false);
-  }, [graph.cyclic]);
-
-  const toggleEdgeFilter = useCallback((key: EdgeFilterKey) => {
-    setEdgeFilters((current) => ({ ...current, [key]: !current[key] }));
-  }, []);
-
-  const toggleScale = useCallback((scale: string) => {
-    setSelected(null);
-    setSelectedEdge(null);
-    setActivePort(null);
-    setPinnedFocus(null);
-    setCollapsedScales((current) => {
-      const next = new Set(current);
-      if (next.has(scale)) next.delete(scale);
-      else next.add(scale);
-      return next;
-    });
-  }, []);
-
-  const expandAllScales = useCallback(() => setCollapsedScales(new Set()), []);
-
-  const focusWarning = useCallback((warning: ValidationWarning) => {
-    if (warning.portIds?.length) {
-      const nextFocus = emptyFocusState();
-      nextFocus.active = true;
-      for (const portId of warning.portIds) {
-        const target = portById.get(portId);
-        if (!target) continue;
-        nextFocus.ports.add(portId);
-        nextFocus.nodes.add(target.node.id);
-      }
-      setPinnedFocus(nextFocus);
-      const first = portById.get(warning.portIds[0]);
-      if (first) {
-        setSelected(null);
-        setSelectedEdge(null);
-        setActivePort(null);
-        if (flowInstance && warning.nodeIds && warning.nodeIds.length > 1) {
-          flowInstance.fitView({
-            nodes: warning.nodeIds.map((id) => ({ id })),
-            padding: 0.28,
-            duration: 520,
-            maxZoom: 0.95,
-          });
-        } else {
-          const renderedNode = nodes.find((item) => item.id === first.node.id);
-          if (renderedNode && flowInstance) {
-            flowInstance.setCenter(renderedNode.position.x + 156, renderedNode.position.y + 90, { zoom: 0.9, duration: 520 });
-          }
-        }
-      }
+  const submitOverride = useCallback((value: OverrideFormValue) => {
+    if (!connected) {
+      setFeedback("Creating an override requires an interactive Julia editor session.");
+      setOverrideApplication(null);
       return;
     }
+    sendCommand({
+      action: "edit",
+      kind: value.scope === "instance" ? "set_instance_override" : "set_object_override",
+      ...value,
+    });
+    setOverrideApplication(null);
+  }, [connected, sendCommand]);
 
-    setPinnedFocus(null);
-    setSelectedEdge(null);
-    if (warning.edgeId) {
-      const edge = graph.edges.find((item) => item.id === warning.edgeId);
-      if (edge) focusEdge(edge);
+  const removeOverride = useCallback((value: OverrideFormValue) => {
+    if (!connected) {
+      setFeedback("Removing an override requires an interactive Julia editor session.");
       return;
     }
-    if (warning.portId) {
-      const target = portById.get(warning.portId);
-      if (target) focusNode(target.node, target.port);
+    sendCommand({
+      action: "edit",
+      kind: value.scope === "instance" ? "remove_instance_override" : "remove_object_override",
+      ...value,
+    });
+    setOverrideApplication(null);
+  }, [connected, sendCommand]);
+
+  const connectPorts = useCallback((connection: Connection) => {
+    if (!connection.sourceHandle || !connection.targetHandle) return;
+    const source = portIndex.get(connection.sourceHandle);
+    const target = portIndex.get(connection.targetHandle);
+    if (!source || !target || source.port.role !== "output" || target.port.role !== "input") {
+      setFeedback("Connect an application output to an application input.");
       return;
     }
-    if (warning.nodeId) {
-      const node = nodeById.get(warning.nodeId);
-      if (node) focusNode(node);
+    setBindingForm({
+      sourceApplication: source.application,
+      sourcePort: source.port,
+      targetApplication: target.application,
+      targetPort: target.port,
+    });
+    setBindingPreview(null);
+  }, [portIndex]);
+
+  const activeInitialization = useMemo(() => {
+    if (!selected) return graph.initialization;
+    if ("applicationId" in selected) return graph.initialization.filter((row) => row.applicationId === selected.applicationId);
+    if ("objectId" in selected) return graph.initialization.filter((row) => String(row.objectId) === String(selected.objectId));
+    if ("objectIds" in selected) {
+      const ids = new Set(selected.objectIds.map(objectKey));
+      return graph.initialization.filter((row) => ids.has(objectKey(row.objectId)));
     }
-  }, [flowInstance, focusEdge, focusNode, graph.edges, nodeById, nodes, portById]);
+    return graph.initialization;
+  }, [graph.initialization, selected]);
 
   return (
-    <main className={`app-shell ${activePanel ? "has-side-panel" : ""} ${viewMode === "overview" ? "overview-mode" : "detail-mode"} ${candidatePopover ? "has-candidate-popover" : ""} ${cycleBreakMode ? "cycle-break-mode" : ""}`}>
-      <section className="graph-panel">
-        <div className="topbar graph-workbench">
-          <button
-            className={`metric-button open-button ${showOpenPanel ? "active" : ""}`}
-            disabled={!editorConnected}
-            onClick={() => setShowOpenPanel((open) => !open)}
-            title="Open a ModelMapping"
-          >
-            <FolderOpen size={14} /> Open
-          </button>
-
-          <div className="brand-block">
-            <div className="eyebrow">PlantSimEngine</div>
-            <h1>Dependency Graph</h1>
-          </div>
-
-          <div className="search-box">
-            <Search size={15} />
-            <input
-              value={searchQuery}
-              placeholder="Search model or variable"
-              onChange={(event) => {
-                setSearchQuery(event.target.value);
-                setShowSearchResults(true);
-              }}
-              onFocus={() => setShowSearchResults(true)}
-            />
-            {searchQuery && (
-              <button className="clear-search" onClick={() => setSearchQuery("")} title="Clear search">
-                <X size={13} />
-              </button>
-            )}
-            {showSearchResults && searchQuery.trim().length > 0 && (
-              <div className="search-results">
-                {searchResults.length > 0 ? searchResults.map((result) => (
-                  <button
-                    key={result.id}
-                    className="search-result"
-                    onClick={() => {
-                      focusNode(result.node, result.port ?? null);
-                      setSearchQuery(result.label);
-                      setShowSearchResults(false);
-                    }}
-                  >
-                    <strong>{result.label}</strong>
-                    <span>{result.detail}</span>
-                  </button>
-                )) : <div className="empty-state compact">No match.</div>}
-              </div>
-            )}
-          </div>
-
-          <div className="metrics">
-            <span>{visibleNodeData.length}/{graph.nodes.length} models</span>
-            <span>{visibleEdgeData.length}/{graph.edges.length} links</span>
-            {requiredInputs.length > 0 && (
-              <button
-                className={`metric-button warn ${showRequiredPanel ? "active" : ""}`}
-                title={`${requiredInputs.length} required initializations`}
-                onClick={() => setShowRequiredPanel((open) => !open)}
-              >
-                <CircleAlert size={14} /> {requiredInputs.length} init
-              </button>
-            )}
-            {actionableWarningItems.length > 0 && (
-              <button
-                className={`metric-button caution ${showWarningsPanel ? "active" : ""}`}
-                title={`${actionableWarningItems.length} actionable graph warnings`}
-                onClick={() => setShowWarningsPanel((open) => !open)}
-              >
-                <AlertTriangle size={14} /> {actionableWarningItems.length} warn
-              </button>
-            )}
-            {graph.cyclic && <span className="warn"><AlertTriangle size={14} /> cycle</span>}
-          </div>
-
-          <div className="toolbar-group">
-            <button
-              className={`metric-button view-mode-button ${viewMode === "overview" ? "active overview-cta" : ""}`}
-              onClick={() => {
-                setViewModeTouched(true);
-                setViewMode((mode) => mode === "overview" ? "detail" : "overview");
-              }}
-              title={viewMode === "overview" ? "Show full model inputs and outputs" : "Show compact cards for large graphs"}
-            >
-              {viewMode === "overview" ? "Overview Mode - Show Detailed View" : "Show Overview"}
-            </button>
-            <label className="select-control" title="Choose how the graph should be arranged">
-              <Network size={14} />
-              <select value={layoutMode} onChange={(event) => setLayoutMode(event.target.value as LayoutMode)}>
-                {(Object.keys(layoutLabels) as LayoutMode[])
-                  .filter((mode) => mode !== "overview")
-                  .map((mode) => <option key={mode} value={mode}>{layoutLabels[mode]}</option>)}
-              </select>
-            </label>
-            <label className="select-control" title="Dim graph context around the current selection">
-              <Route size={14} />
-              <select value={focusMode} onChange={(event) => setFocusMode(event.target.value as FocusMode)}>
-                {(Object.keys(focusLabels) as FocusMode[]).map((mode) => <option key={mode} value={mode}>{focusLabels[mode]}</option>)}
-              </select>
-            </label>
-            <button className="icon-button" onClick={relayout} title="Run layout">
-              <RotateCcw size={17} />
-            </button>
-          </div>
-
-          <div className="toolbar-group graph-filter-buttons">
-            <button
-              className={`metric-button ${showRelationshipsPanel ? "active" : ""}`}
-              onClick={() => setShowRelationshipsPanel((open) => !open)}
-              title="Show relationship filters"
-            >
-              <Filter size={14} /> Relationships
-            </button>
-            <button
-              className={`metric-button ${showScalesPanel ? "active" : ""}`}
-              onClick={() => setShowScalesPanel((open) => !open)}
-              title="Show scale visibility controls"
-            >
-              <Network size={14} /> Scales {collapsedScales.size > 0 ? `${graph.scales.length - collapsedScales.size}/${graph.scales.length}` : graph.scales.length}
-            </button>
-          </div>
-
-          <div className="toolbar-group panel-switch">
-            <button data-testid="toolbar-inspector" className={`metric-button ${activePanel === "inspector" ? "active" : ""}`} onClick={() => togglePanel("inspector")}>Inspector</button>
-            {editorSocket && (
-              <>
-                <button data-testid="toolbar-add-model" className={`metric-button ${activePanel === "add_model" ? "active" : ""}`} onClick={openAddModelPanel}>Add model</button>
-                <button className={`metric-button ${activePanel === "initializations" ? "active" : ""}`} onClick={() => togglePanel("initializations")}>Initializations</button>
-                <button data-testid="toolbar-mapping-code" className={`metric-button ${activePanel === "mapping_code" ? "active" : ""}`} onClick={() => togglePanel("mapping_code")}>Mapping code</button>
-              </>
-            )}
-          </div>
-
-          {editorSocket && (
-            <div className="toolbar-group live-session">
-              <span className={editorConnected ? "live-pill connected" : "live-pill"}>{editorConnected ? "live" : "offline"}</span>
-              <button className="metric-button" disabled={!canUndo} onClick={() => sendEditorCommand({ action: "undo" })}>Undo</button>
-              <button className="metric-button" disabled={!canRedo} onClick={() => sendEditorCommand({ action: "redo" })}>Redo</button>
-            </div>
+    <main className="model-editor-shell" data-testid="model-graph-viewer">
+      <header className="model-toolbar">
+        <div className="model-brand">
+          <span className="brand-mark" />
+          <div><small>PLANTSIMENGINE</small><strong>Model Graph</strong></div>
+        </div>
+        <div className="model-search">
+          <Search size={17} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search application, object, or variable" />
+          {query && <button aria-label="Clear search" onClick={() => setQuery("")}><X size={15} /></button>}
+        </div>
+        <div className="model-counts">
+          <span>{graph.metadata.applicationCount} applications</span>
+          <span>{graph.metadata.objectCount} objects</span>
+          {graph.metadata.unresolvedInitializationCount > 0 && (
+            <button className="count-warning" onClick={() => setShowInitialization(true)}><CircleAlert size={14} /> {graph.metadata.unresolvedInitializationCount} init</button>
+          )}
+          {graph.diagnostics.length > 0 && (
+            <button className="count-error" onClick={() => setShowDiagnostics(true)}><AlertTriangle size={14} /> {graph.diagnostics.length}</button>
           )}
         </div>
+        <nav className="view-tabs" aria-label="Graph projection">
+          <button className={view === "applications" ? "active" : ""} onClick={() => setView("applications")}><Layers3 size={15} /> Applications</button>
+          <button className={view === "topology" ? "active" : ""} onClick={() => setView("topology")}><GitBranch size={15} /> Objects</button>
+          <button className={view === "resolved" ? "active" : ""} onClick={() => setView("resolved")}><Network size={15} /> Executions</button>
+        </nav>
+        <div className="model-actions">
+          {editorConfig && <button data-testid="open-model" onClick={() => setShowOpen(true)}><FolderOpen size={15} /> Open</button>}
+          {editorConfig && <button data-testid="save-model" onClick={() => setShowSave(true)}><Save size={15} /> {savePath ? "Saved" : "Save"}</button>}
+          {view !== "topology" && (
+            <button className={detailMode === "overview" ? "overview-cta" : ""} onClick={() => setDetailMode((current) => current === "overview" ? "detail" : "overview")}>
+              {detailMode === "overview" ? "Overview Mode - Show Detailed View" : "Show Overview"}
+            </button>
+          )}
+          {editorConfig && <button data-testid="add-application" onClick={() => { setTargetPreview(null); setApplicationForm({ mode: "add" }); }}><Plus size={15} /> Add application</button>}
+          {editorConfig && <button data-testid="add-object" onClick={() => setObjectForm({ mode: "add" })}><Plus size={15} /> Add object</button>}
+          {editorConfig && graph.templates.length > 0 && <button data-testid="add-instance" onClick={() => { setInstancePreview(null); setShowInstanceForm(true); }}><Plus size={15} /> Add instance</button>}
+          {editorConfig && <button data-testid="configure-environment" onClick={() => setShowEnvironmentForm(true)}>Environment</button>}
+          {editorConfig && <button disabled={!canUndo} onClick={() => sendCommand({ action: "undo" })} aria-label="Undo"><Undo2 size={15} /></button>}
+          {editorConfig && <button disabled={!canRedo} onClick={() => sendCommand({ action: "redo" })} aria-label="Redo"><Redo2 size={15} /></button>}
+          <button onClick={() => setShowModelCode(true)}><Code2 size={15} /> Model code</button>
+        </div>
+      </header>
 
-        {editorFeedback && (
-          <div className={`editor-feedback ${editorFeedback.kind}`} role="status" aria-live="polite">
-            {editorFeedback.text}
-          </div>
-        )}
-
-        {graph.cyclic && (
-          <CycleBreakPrompt
-            active={cycleBreakMode}
-            optionCount={cycleBreakOptions.length}
-            editorConnected={editorConnected}
-            onChoose={chooseCycleBreakPoint}
-          />
-        )}
-
-        {showRelationshipsPanel && <RelationshipLegend filters={edgeFilters} onToggle={toggleEdgeFilter} />}
-        {showScalesPanel && <ScaleControls scales={graph.scales} collapsedScales={collapsedScales} onToggle={toggleScale} onExpandAll={expandAllScales} />}
-
-        {showRequiredPanel && (
-          <FloatingPanel className="required-panel" title="Required Initializations" subtitle={`${requiredInputs.length} inputs`} onClose={() => setShowRequiredPanel(false)}>
-            <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} />
-          </FloatingPanel>
-        )}
-
-        {showWarningsPanel && (
-          <FloatingPanel className="warnings-panel" title="Validation Warnings" subtitle={`${actionableWarningItems.length} warnings, ${warningItems.length - actionableWarningItems.length} info`} onClose={() => setShowWarningsPanel(false)}>
-            <WarningList warnings={warningItems} onFocusWarning={focusWarning} />
-          </FloatingPanel>
-        )}
-
-        {showOpenPanel && (
-          <OpenMappingPanel
-            recentMappings={recentMappings}
-            disabled={!editorConnected}
-            onOpen={(path) => {
-              sendEditorCommand({ action: "open_mapping_code", path });
-              setShowOpenPanel(false);
+      {graph.metadata.cyclic && (
+        <section className="cycle-callout" data-testid="cycle-callout">
+          <AlertTriangle size={19} />
+          <div><strong>Current-step dependency cycle</strong><span>Select a cycle input to read its previous accepted timestep value.</span></div>
+          <button
+            className={cycleBreakMode ? "active" : ""}
+            onClick={() => {
+              setView("applications");
+              setDetailMode("detail");
+              setCycleBreakMode((current) => !current);
             }}
-            onClose={() => setShowOpenPanel(false)}
-          />
-        )}
-
-        <ReactFlow
-          nodes={nodes}
-          edges={edges}
-          nodeTypes={nodeTypes}
-          edgeTypes={edgeTypes}
-          onNodesChange={onNodesChange}
-          onEdgesChange={onEdgesChange}
-          onConnect={onConnect}
-          onInit={setFlowInstance}
-          onPaneClick={() => {
-            setShowSearchResults(false);
-            setCandidatePopover(null);
-            setShowOpenPanel(false);
-            setShowRelationshipsPanel(false);
-            setShowScalesPanel(false);
-          }}
-          onEdgeClick={(_, edge) => {
-            if (edge.data) {
-              setCandidatePopover(null);
-              setSelectedEdge(edge.data);
-              setSelected(null);
-              setActivePort(null);
-              setPinnedFocus(null);
-              setActivePanel("inspector");
-            }
-          }}
-          onNodeClick={(_, node) => {
-            setCandidatePopover(null);
-            setSelectedEdge(null);
-            setSelected(node.data);
-            setActivePanel("inspector");
-          }}
-          fitView
-          fitViewOptions={{ padding: viewMode === "overview" ? 0.14 : 0.08, minZoom: 0.03, maxZoom: viewMode === "overview" ? 1.25 : 1 }}
-          minZoom={0.03}
-          maxZoom={2}
-        >
-          <Background color="transparent" />
-          <Controls />
-          <MiniMap pannable zoomable nodeStrokeWidth={3} />
-        </ReactFlow>
-
-        {candidatePopoverInfo && (
-          <ModelCandidatePopover
-            anchor={candidatePopoverInfo.anchor}
-            title={candidatePopoverInfo.title}
-            variable={candidatePopoverInfo.port.name}
-            role={candidatePopoverInfo.port.role}
-            models={candidatePopoverInfo.models}
-            onSelectModel={(model) => {
-              const requestId = Date.now();
-              setAddModelSelection({
-                modelType: model.type,
-                scale: candidatePopoverInfo.node.scale,
-                requestId,
-              });
-              setAddModelFocusRequest(requestId);
-              setHighlightAddModelPanel(true);
-              setActivePanel("add_model");
-              setCandidatePopover(null);
-            }}
-            onClose={() => setCandidatePopover(null)}
-          />
-        )}
-      </section>
-
-      {activePanel && (
-        <aside
-          ref={sidePanelRef}
-          className={`inspector ${activePanel === "add_model" && highlightAddModelPanel ? "guided-focus" : ""}`}
-          tabIndex={-1}
-        >
-          {activePanel === "inspector" && (
-            <>
-              <header>
-                <GitPullRequestArrow size={19} />
-                <h2>Inspector</h2>
-              </header>
-              <InspectorDetails
-                selected={selected}
-                selectedEdge={selectedEdge}
-                activePort={activePort}
-                requiredInputPortIds={requiredInputPortIds}
-                incomingEdges={activePort ? incomingByPort.get(activePort.id) ?? [] : []}
-                outgoingEdges={activePort ? outgoingByPort.get(activePort.id) ?? [] : []}
-                nodeById={nodeById}
-                portById={portById}
-                graphNodes={graph.nodes}
-                onFocusEdge={focusEdge}
-                models={editorModels}
-                scales={editorScales}
-                onAddScale={addCustomScale}
-                onCommand={sendEditorCommand}
-                editorConnected={editorConnected}
-              />
-              <h3>Required Initializations</h3>
-              <RequiredInputList groups={groupRequiredInputs(requiredInputs)} onSelect={focusNode} compact />
-              <h3>Diagnostics</h3>
-              {graph.diagnostics.length > 0 ? graph.diagnostics.map((item) => <div className="diagnostic" key={item}>{item}</div>) : <div className="empty-state">No diagnostics.</div>}
-            </>
-          )}
-
-          {activePanel === "add_model" && (
-            <>
-              <header>
-                <GitPullRequestArrow size={19} />
-                <h2>Add Model</h2>
-              </header>
-              {editorModels.length > 0 ? (
-                <ModelBrowser
-                  models={editorModels}
-                  scales={editorScales}
-                  selection={addModelSelection}
-                  focusRequestId={addModelFocusRequest}
-                  onAddScale={addCustomScale}
-                  onCommand={sendEditorCommand}
-                  disabled={!editorConnected}
-                />
-              ) : <div className="empty-state">No model type is available.</div>}
-            </>
-          )}
-
-          {activePanel === "initializations" && (
-            <>
-              <header>
-                <GitPullRequestArrow size={19} />
-                <h2>Initializations</h2>
-              </header>
-              <InitializationPanel
-                initializations={initializations}
-                disabled={!editorConnected}
-                onCommand={sendEditorCommand}
-              />
-            </>
-          )}
-
-          {activePanel === "mapping_code" && (
-            <>
-              <header>
-                <GitPullRequestArrow size={19} />
-                <h2>Mapping Code</h2>
-              </header>
-              <MappingCodePanel
-                code={mappingCode}
-                savePath={savePath}
-                lastSavedPath={lastSavedPath}
-                saveTargetPath={saveTargetPath}
-                autosavePath={autosavePath}
-                lastAutosavedPath={lastAutosavedPath}
-                onSavePathChange={setSavePath}
-                onSave={() => sendEditorCommand({ action: "write_mapping_code", path: savePath })}
-                disabled={!editorConnected}
-              />
-            </>
-          )}
-        </aside>
+            data-testid="choose-cycle-break"
+          >
+            {cycleBreakMode ? "Cancel break selection" : "Choose a break point in graph"}
+          </button>
+        </section>
+      )}
+      {feedback && <div className="editor-feedback">{feedback}<button onClick={() => setFeedback(null)}><X size={14} /></button></div>}
+      {scopeFilter && (
+        <section className="graph-scope-filter" data-testid="graph-scope-filter">
+          <span>Showing {view === "resolved" ? "executions" : view === "applications" ? "applications" : "topology"} for <strong>{scopeFilter.label}</strong> ({scopeFilter.objectIds.length} objects)</span>
+          {view === "topology" && <button onClick={() => setView("applications")}>Show related applications</button>}
+          <button aria-label="Clear graph scope" onClick={() => setScopeFilter(null)}><X size={14} /> Clear</button>
+        </section>
       )}
 
-      {pendingConnection && (
-        <MappingDialog
-          connection={pendingConnection}
-          scales={editorScales}
-          onConfirm={(command) => {
-            sendEditorCommand(command);
-            setPendingConnection(null);
+      <section className="model-workspace">
+        <div className="flow-wrap">
+          <ReactFlow
+            nodes={nodes}
+            edges={edges}
+            nodeTypes={nodeTypes}
+            edgeTypes={edgeTypes}
+            onNodesChange={onNodesChange}
+            onEdgesChange={onEdgesChange}
+            onConnect={connectPorts}
+            onNodeClick={inspectSelection}
+            onEdgeClick={(_, edge) => setSelected(edge.data ?? null)}
+            fitView
+            minZoom={0.05}
+            maxZoom={2}
+          >
+            <Background color="#d8cdbc" gap={22} size={1} />
+            <Controls />
+            <MiniMap pannable zoomable />
+          </ReactFlow>
+        </div>
+        <Inspector
+          selection={selected}
+          port={selectedPort}
+          initialization={activeInitialization}
+          interactive={connected}
+          onEditApplication={(application) => {
+            setTargetPreview(null);
+            setApplicationForm({
+              mode: "update",
+              application,
+            });
           }}
-          onCancel={() => setPendingConnection(null)}
+          onRemoveApplication={(application) => sendCommand({
+            action: "edit",
+            kind: "remove_application",
+            applicationRef: application.owner,
+          })}
+          onConfigureApplication={(application) => setConfigurationApplicationId(application.applicationId)}
+          onOverrideApplication={setOverrideApplication}
+          onRemoveInstance={(instance) => sendCommand({ action: "edit", kind: "remove_instance", name: instance.name })}
+          onEditObject={(object) => setObjectForm({ mode: "update", object })}
+          onRemoveObject={(object) => sendCommand({ action: "edit", kind: "remove_object", objectId: object.objectId, recursive: true })}
+        />
+      </section>
+
+      {candidate && (candidateModels.length > 0 || candidateApplications.length > 0) && (
+        <CandidatePopover
+          candidate={candidate}
+          models={candidateModels}
+          applications={candidateApplications}
+          onSelectModel={selectCandidateModel}
+          onSelectApplication={(application) => {
+            setBindingForm(endpointsForCandidate(candidate, application));
+            setBindingPreview(null);
+            setCandidate(null);
+          }}
+          onClose={() => setCandidate(null)}
+        />
+      )}
+      {showDiagnostics && <DiagnosticsPanel graph={graph} onClose={() => setShowDiagnostics(false)} sendCommand={sendCommand} interactive={connected} />}
+      {showInitialization && <InitializationPanel graph={graph} onClose={() => setShowInitialization(false)} sendCommand={sendCommand} interactive={connected} />}
+      {showModelCode && <SceneCodePanel code={modelCode} onClose={() => setShowModelCode(false)} />}
+      {showOpen && <SceneFileDialog mode="open" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "open_model_code", path }); setShowOpen(false); }} onClose={() => setShowOpen(false)} />}
+      {showSave && <SceneFileDialog mode="save" recentPaths={recentPaths} currentPath={savePath} autosavePath={autosavePath} onSubmit={(path) => { sendCommand({ action: "save_model_code", path }); setShowSave(false); }} onClose={() => setShowSave(false)} />}
+      {applicationForm && (
+        <ApplicationForm
+          mode={applicationForm.mode}
+          models={graph.modelLibrary}
+          objects={graph.objects}
+          application={applicationForm.application}
+          initialModelType={applicationForm.initialModelType}
+          suggestedSelector={applicationForm.suggestedSelector}
+          nameReadOnly={applicationForm.application?.owner.scope === "template"}
+          preview={targetPreview}
+          onPreview={(selector) => { setTargetPreview(null); sendCommand({ action: "preview_application_targets", selector, applicationRef: applicationForm.application?.owner }); }}
+          onSubmit={submitApplication}
+          onClose={() => { setApplicationForm(null); setTargetPreview(null); }}
+        />
+      )}
+      {bindingForm && (
+        <BindingForm
+          endpoints={bindingForm}
+          objects={graph.objects}
+          preview={bindingPreview}
+          onPreview={(value) => { setBindingPreview(null); sendCommand({ action: "preview_input_binding", ...value }); }}
+          onSubmit={submitBinding}
+          onClose={() => { setBindingForm(null); setBindingPreview(null); }}
+        />
+      )}
+      {objectForm && (
+        <ObjectForm mode={objectForm.mode} objects={graph.objects} object={objectForm.object} onSubmit={submitObject} onClose={() => setObjectForm(null)} />
+      )}
+      {showInstanceForm && (
+        <InstanceForm templates={graph.templates} instances={graph.instances} objects={graph.objects} preview={instancePreview} onPreview={(value) => { setInstancePreview(null); sendCommand({ action: "preview_instance", ...value }); }} onSubmit={submitInstance} onClose={() => { setShowInstanceForm(false); setInstancePreview(null); }} />
+      )}
+      {showEnvironmentForm && (
+        <EnvironmentForm environments={graph.environments} activeId={graph.metadata.sceneEnvironmentId} onSubmit={(environmentId) => { sendCommand({ action: "edit", kind: "set_model_environment", environmentId }); setShowEnvironmentForm(false); }} onClose={() => setShowEnvironmentForm(false)} />
+      )}
+      {overrideApplication && (
+        <OverrideForm application={overrideApplication} models={graph.modelLibrary} instances={graph.instances} onSubmit={submitOverride} onRemove={removeOverride} onClose={() => setOverrideApplication(null)} />
+      )}
+      {configurationApplicationId && applicationById.get(configurationApplicationId) && (
+        <ApplicationConfigurationForm application={applicationById.get(configurationApplicationId)!} applications={graph.applications} environments={graph.environments} models={graph.modelLibrary} onCommand={sendCommand} onClose={() => setConfigurationApplicationId(null)} />
+      )}
+      {cycleBreakSelection && (
+        <CycleBreakDialog
+          selection={cycleBreakSelection}
+          initialization={graph.initialization}
+          onSubmit={(initializeMissing, initialValue) => {
+            sendCommand({
+              action: "edit",
+              kind: "break_cycle",
+              applicationRef: cycleBreakSelection.application.owner,
+              input: cycleBreakSelection.port.name,
+              initializeMissing,
+              initialValue,
+            });
+            setCycleBreakSelection(null);
+          }}
+          onClose={() => setCycleBreakSelection(null)}
         />
       )}
     </main>
   );
 }
 
-function MappingDialog({
-  connection,
-  scales,
-  onConfirm,
-  onCancel,
+function buildNodes({
+  graph,
+  view,
+  detailMode,
+  query,
+  scopedObjectIds,
+  unresolvedPortIds,
+  previousPortIds,
+  candidatePortIds,
+  cyclicApplications,
+  cycleBreakPortIds,
+  cycleBreakMode,
+  openCandidates,
+  onPortClick,
+  onCycleBreak,
 }: {
-  connection: PendingMappingConnection;
-  scales: string[];
-  onConfirm: (command: Record<string, unknown>) => void;
-  onCancel: () => void;
-}) {
-  const [mode, setMode] = useState<"single" | "multi">("single");
-  const [selectedScales, setSelectedScales] = useState<string[]>([connection.sourceNode.scale]);
-
-  const toggleScale = (scale: string) => {
-    setSelectedScales((current) =>
-      current.includes(scale) ? current.filter((s) => s !== scale) : [...current, scale]
-    );
-  };
-
-  const handleConfirm = () => {
-    const command: Record<string, unknown> = {
-      action: "edit",
-      kind: "set_mapped_variable",
-      scale: connection.targetNode.scale,
-      process: connection.targetNode.process,
-      variable: connection.targetPort.name,
-      sourceScale: connection.sourceNode.scale,
-      sourceVariable: connection.sourcePort.name,
-      mode: mode === "single" && connection.sourceNode.scale === connection.targetNode.scale ? "same_scale" : mode,
+  graph: ModelGraphView;
+  view: GraphViewMode;
+  detailMode: DetailMode;
+  query: string;
+  scopedObjectIds: Set<string> | null;
+  unresolvedPortIds: Set<string>;
+  previousPortIds: Set<string>;
+  candidatePortIds: Set<string>;
+  cyclicApplications: Set<string>;
+  cycleBreakPortIds: Set<string>;
+  cycleBreakMode: boolean;
+  openCandidates: (application: ApplicationGraphNode, port: GraphPort, anchor: { x: number; y: number }) => void;
+  onPortClick: (port: GraphPort) => void;
+  onCycleBreak: (application: ApplicationGraphNode, port: GraphPort) => void;
+}): FlowNode[] {
+  const matches = (value: unknown) => !query || JSON.stringify(value).toLowerCase().includes(query.toLowerCase());
+  if (view === "topology") {
+    const modelDetail: ModelRootDescriptor = {
+      entity: "model",
+      objectCount: graph.metadata.objectCount,
+      instanceCount: graph.metadata.instanceCount,
+      applicationCount: graph.metadata.applicationCount,
     };
-    if (mode === "multi") {
-      const extras = selectedScales.filter((s) => s !== connection.sourceNode.scale);
-      if (extras.length > 0) command.extraSourceScales = extras;
-    }
-    onConfirm(command);
-  };
-
-  return (
-    <div className="mapping-dialog-overlay" onClick={onCancel} role="dialog" aria-modal="true" aria-label="Map variable">
-      <div className="mapping-dialog" onClick={(e) => e.stopPropagation()}>
-        <div className="mapping-dialog-header">
-          <div className="eyebrow">Variable Mapping</div>
-          <button className="icon-button compact" onClick={onCancel} title="Cancel"><X size={14} /></button>
-        </div>
-
-        <div className="mapping-dialog-body">
-          <div className="mapping-port-summary">
-            <div className="mapping-port source">
-              <small>Source</small>
-              <strong>{connection.sourceNode.scale}</strong>
-              <span>{connection.sourceNode.process}.{connection.sourcePort.name}</span>
-            </div>
-            <div className="mapping-arrow">-&gt;</div>
-            <div className="mapping-port target">
-              <small>Target</small>
-              <strong>{connection.targetNode.scale}</strong>
-              <span>{connection.targetNode.process}.{connection.targetPort.name}</span>
-            </div>
-          </div>
-
-          <div className="mapping-mode-section">
-            <div className="mapping-mode-label">Mapping mode</div>
-            <label className="mapping-radio">
-              <input type="radio" name="mode" value="single" checked={mode === "single"} onChange={() => setMode("single")} />
-              <span>Scalar - single node at :{connection.sourceNode.scale}</span>
-            </label>
-            <label className="mapping-radio">
-              <input type="radio" name="mode" value="multi" checked={mode === "multi"} onChange={() => setMode("multi")} />
-              <span>Vector - all nodes from selected scales</span>
-            </label>
-          </div>
-
-          {mode === "multi" && (
-            <div className="mapping-scale-picker">
-              <div className="mapping-mode-label">Source scales</div>
-              {scales.map((scale) => (
-                <label className="mapping-checkbox" key={scale}>
-                  <input
-                    type="checkbox"
-                    checked={selectedScales.includes(scale)}
-                    disabled={scale === connection.sourceNode.scale}
-                    onChange={() => toggleScale(scale)}
-                  />
-                  <span>{scale}</span>
-                </label>
-              ))}
-            </div>
-          )}
-        </div>
-
-        <div className="mapping-dialog-footer">
-          <button className="metric-button" onClick={onCancel}>Cancel</button>
-          <button className="metric-button accent-button" onClick={handleConfirm}>Apply mapping</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function RelationshipLegend({ filters, onToggle }: { filters: EdgeFilters; onToggle: (key: EdgeFilterKey) => void }) {
-  return (
-    <div className="relationship-legend">
-      <div className="legend-title"><Filter size={13} /> Relationships</div>
-      <button className={filters.dataFlow ? "active" : ""} onClick={() => onToggle("dataFlow")}><span className="legend-line data-flow" /> data flow</button>
-      <button className={filters.mapped ? "active" : ""} onClick={() => onToggle("mapped")}><span className="legend-line mapped" /> mapped</button>
-      <button className={filters.callStack ? "active" : ""} onClick={() => onToggle("callStack")}><span className="legend-line call" /> call stack</button>
-      <div className="legend-note"><CircleAlert size={12} /> red inputs need initialization</div>
-    </div>
-  );
-}
-
-function ScaleControls({
-  scales,
-  collapsedScales,
-  onToggle,
-  onExpandAll,
-}: {
-  scales: string[];
-  collapsedScales: Set<string>;
-  onToggle: (scale: string) => void;
-  onExpandAll: () => void;
-}) {
-  return (
-    <div className="scale-controls">
-      <div className="legend-title"><Network size={13} /> Scales</div>
-      <div className="scale-list">
-        {scales.map((scale) => {
-          const collapsed = collapsedScales.has(scale);
-          return (
-            <button key={scale} className={collapsed ? "collapsed" : "active"} onClick={() => onToggle(scale)}>
-              <span>{scale}</span>
-              <small>{collapsed ? "collapsed" : "visible"}</small>
-            </button>
-          );
-        })}
-      </div>
-      {collapsedScales.size > 0 && <button className="scale-reset" onClick={onExpandAll}>Show all scales</button>}
-    </div>
-  );
-}
-
-function FloatingPanel({ className, title, subtitle, onClose, children }: { className: string; title: string; subtitle: string; onClose: () => void; children: ReactNode }) {
-  return (
-    <div className={`floating-panel ${className}`}>
-      <div className="floating-panel-header">
-        <div>
-          <div className="eyebrow">{title}</div>
-          <h2>{subtitle}</h2>
-        </div>
-        <button className="icon-button compact" onClick={onClose} title={`Close ${title}`}>
-          <X size={14} />
-        </button>
-      </div>
-      {children}
-    </div>
-  );
-}
-
-function RequiredInputList({ groups, onSelect, compact = false }: { groups: Map<string, RequiredInput[]>; onSelect: (node: GraphNodeData, port?: GraphPort | null) => void; compact?: boolean }) {
-  if (groups.size === 0) return <div className="empty-state">Every input is computed by another model.</div>;
-  return (
-    <div className={`initialization-list ${compact ? "compact" : ""}`}>
-      {[...groups.entries()].map(([group, items]) => (
-        <section className="initialization-group" key={group}>
-          <h4>{group}</h4>
-          {items.map(({ node, port, reason }) => (
-            <button className={`initialization-item ${reason}`} key={port.id} onClick={() => onSelect(node, port)}>
-              <span>{node.scale}.{node.process}</span>
-              <strong>{port.name}</strong>
-              <small>{requiredReasonLabel(reason)}</small>
-            </button>
-          ))}
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function WarningList({
-  warnings,
-  onFocusWarning,
-}: {
-  warnings: ValidationWarning[];
-  onFocusWarning: (warning: ValidationWarning) => void;
-}) {
-  if (warnings.length === 0) return <div className="empty-state">No validation warnings.</div>;
-  const grouped = groupValidationWarnings(warnings);
-  return (
-    <div className="warning-list">
-      {(["error", "warning", "info"] as const).map((severity) => {
-        const items = grouped.get(severity) ?? [];
-        if (items.length === 0) return null;
-        return (
-          <section className="warning-group" key={severity}>
-            <h4>{validationSeverityLabel(severity)} ({items.length})</h4>
-            {items.map((warning) => (
-              <button
-                key={warning.id}
-                className={`warning-item ${warning.severity} ${warning.category}`}
-                onClick={() => onFocusWarning(warning)}
-              >
-                <strong>{warning.title}</strong>
-                <span>{warning.detail}</span>
-              </button>
-            ))}
-          </section>
-        );
-      })}
-    </div>
-  );
-}
-
-function OpenMappingPanel({
-  recentMappings,
-  disabled,
-  onOpen,
-  onClose,
-}: {
-  recentMappings: string[];
-  disabled: boolean;
-  onOpen: (path: string) => void;
-  onClose: () => void;
-}) {
-  const [path, setPath] = useState("");
-
-  const openPath = () => {
-    const trimmed = path.trim();
-    if (!trimmed) return;
-    onOpen(trimmed);
-  };
-
-  return (
-    <FloatingPanel className="open-panel" title="Open" subtitle="ModelMapping" onClose={onClose}>
-      <div className="open-mapping-panel">
-        <label className="model-browser-control">
-          <span>File path</span>
-          <div className="inline-field">
-            <input
-              value={path}
-              onChange={(event) => setPath(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") openPath();
-              }}
-              placeholder="/path/to/mapping.jl"
-            />
-            <button className="metric-button" disabled={disabled || !path.trim()} onClick={openPath}>
-              Open
-            </button>
-          </div>
-        </label>
-        <div className="recent-mappings">
-          <div className="row-with-actions">
-            <strong>Recent mappings</strong>
-          </div>
-          {recentMappings.length > 0 ? (
-            <div className="recent-mapping-list">
-              {recentMappings.map((item) => (
-                <button className="recent-mapping-item" key={item} disabled={disabled} onClick={() => onOpen(item)}>
-                  <span>{basename(item)}</span>
-                  <small>{item}</small>
-                </button>
-              ))}
-            </div>
-          ) : <div className="empty-state compact">No recent mapping.</div>}
-        </div>
-      </div>
-    </FloatingPanel>
-  );
-}
-
-function CycleBreakPrompt({
-  active,
-  optionCount,
-  editorConnected,
-  onChoose,
-}: {
-  active: boolean;
-  optionCount: number;
-  editorConnected: boolean;
-  onChoose: () => void;
-}) {
-  return (
-    <div data-testid="cycle-break-prompt" className={`cycle-break-prompt ${active ? "active" : ""}`} role="status" aria-live="polite">
-      <div>
-        <strong>Cycle detected</strong>
-        <span>
-          Choose which variable to decouple. The selected input will be wrapped in <code>PreviousTimeStep</code>, so that model uses the value from the previous timestep and is disconnected from this current-step variable within a run.
-        </span>
-      </div>
-      <button data-testid="cycle-break-choose" className="metric-button danger cycle-break-cta" disabled={!editorConnected || optionCount === 0} onClick={onChoose}>
-        <ScissorsLineDashed size={14} />
-        {active ? "Choose a highlighted input" : "Choose break point in graph"}
-      </button>
-    </div>
-  );
-}
-
-function InspectorDetails({
-  selected,
-  selectedEdge,
-  activePort,
-  requiredInputPortIds,
-  incomingEdges,
-  outgoingEdges,
-  nodeById,
-  portById,
-  graphNodes,
-  onFocusEdge,
-  models,
-  scales,
-  onAddScale,
-  onCommand,
-  editorConnected,
-}: {
-  selected: GraphNodeData | null;
-  selectedEdge: GraphEdgeData | null;
-  activePort: GraphPort | null;
-  requiredInputPortIds: Set<string>;
-  incomingEdges: GraphEdgeData[];
-  outgoingEdges: GraphEdgeData[];
-  nodeById: Map<string, GraphNodeData>;
-  portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
-  graphNodes: GraphNodeData[];
-  onFocusEdge: (edge: GraphEdgeData) => void;
-  models: ModelDescriptor[];
-  scales: string[];
-  onAddScale: (scale: string) => void;
-  onCommand: (command: Record<string, unknown>) => void;
-  editorConnected: boolean;
-}) {
-  return (
-    <>
-      {selectedEdge && (
-        <EdgeDetails
-          edge={selectedEdge}
-          nodeById={nodeById}
-          portById={portById}
-          onCommand={onCommand}
-          editorConnected={editorConnected}
-        />
-      )}
-      {selected ? (
-        <div className="details">
-          <Row label="Process" value={selected.process} />
-          <Row label="Model" value={selected.modelType} />
-          <Row label="Scale" value={selected.scale} />
-          <Row label="Rate" value={selected.rate} />
-          <Row label="Inputs" value={selected.inputs.map((port) => port.name).join(", ") || "none"} />
-          <Row label="Outputs" value={selected.outputs.map((port) => port.name).join(", ") || "none"} />
-          {selected.inputs.filter((port) => requiredInputPortIds.has(port.id)).map((port) => (
-            <div className="initialization-note" key={port.id}><CircleAlert size={14} /> {port.name} must be initialized</div>
-          ))}
-          {selected.inputs.filter((port) => port.previousTimeStep).map((port) => (
-            <div className="edit-suggestion" key={port.id}><ScissorsLineDashed size={14} /> {port.name} uses previous timestep</div>
-          ))}
-          {selected.role === "model" && (
-            <ExistingModelEditor
-              key={selected.id}
-              node={selected}
-              models={models}
-              scales={scales}
-              onAddScale={onAddScale}
-              onCommand={onCommand}
-              disabled={!editorConnected}
-            />
-          )}
-        </div>
-      ) : !selectedEdge ? (
-        <div className="empty-state">Select a model node.</div>
-      ) : null}
-
-      <h3>Variable Provenance</h3>
-      {activePort ? (
-        <div className="variable-card">
-          <div className="variable-card-title">
-            <span>{activePort.name}</span>
-            <small>{activePort.role}</small>
-          </div>
-          <Row label={activePort.role === "input" ? "Default" : "Decl."} value={activePort.default} />
-          {activePort.mappingMode && <Row label="Mapping" value={activePort.mappingMode} />}
-          {activePort.sourceScale && <Row label="Source" value={`${activePort.sourceScale}.${activePort.sourceVariable ?? activePort.name}`} />}
-          {requiredInputPortIds.has(activePort.id) && <div className="initialization-note"><CircleAlert size={14} /> required initialization</div>}
-          {activePort.previousTimeStep && <div className="edit-suggestion"><ScissorsLineDashed size={14} /> uses previous timestep</div>}
-          <EdgeList title="Produced by" edges={incomingEdges} direction="incoming" nodeById={nodeById} portById={portById} onFocusEdge={onFocusEdge} />
-          <EdgeList title="Consumed by" edges={outgoingEdges} direction="outgoing" nodeById={nodeById} portById={portById} onFocusEdge={onFocusEdge} />
-          {activePort.role === "input" && (
-            <VariableMappingEditor
-              key={activePort.id}
-              target={portById.get(activePort.id) ?? null}
-              graphNodes={graphNodes}
-              disabled={!editorConnected}
-              onCommand={onCommand}
-            />
-          )}
-        </div>
-      ) : (
-        <div className="empty-state">Hover, click, or search a variable to see where it comes from and where it goes.</div>
-      )}
-    </>
-  );
-}
-
-function EdgeDetails({
-  edge,
-  nodeById,
-  portById,
-  onCommand,
-  editorConnected,
-}: {
-  edge: GraphEdgeData;
-  nodeById: Map<string, GraphNodeData>;
-  portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
-  onCommand: (command: Record<string, unknown>) => void;
-  editorConnected: boolean;
-}) {
-  const source = nodeById.get(edge.source);
-  const target = nodeById.get(edge.target);
-  const sourcePort = edge.sourcePort ? portById.get(edge.sourcePort)?.port : null;
-  const targetPort = edge.targetPort ? portById.get(edge.targetPort)?.port : null;
-  const breakable = isCycleEdge(edge) && target && targetPort && targetPort.role === "input";
-  return (
-    <div className={`edge-detail-card ${isCycleEdge(edge) ? "cycle-edge-card" : ""}`}>
-      <div className="variable-card-title">
-        <span>{edgeKindLabel(edge)}</span>
-        <small>{edge.scaleRelation}</small>
-      </div>
-      <Row label="Source" value={source ? `${source.scale}.${source.process}` : edge.source} />
-      <Row label="Source var" value={sourcePort?.name ?? edge.sourceVariable ?? "model call"} />
-      <Row label="Target" value={target ? `${target.scale}.${target.process}` : edge.target} />
-      <Row label="Target var" value={targetPort?.name ?? edge.targetVariable ?? "model call"} />
-      <Row label="Kind" value={edge.kind} />
-      <Row label="Label" value={edge.label || "none"} />
-      {breakable && (
-        <button
-          className="metric-button danger cycle-break-button"
-          disabled={!editorConnected}
-          onClick={() => onCommand({
-            action: "edit",
-            kind: "mark_previous_timestep",
-            scale: target.scale,
-            process: target.process,
-            variable: targetPort.name,
-          })}
-        >
-          <ScissorsLineDashed size={14} /> Use previous timestep for {targetPort.name}
-        </button>
-      )}
-      {edge.diagnostics.length > 0 ? edge.diagnostics.map((item) => (
-        <div className="diagnostic" key={item}>{item}</div>
-      )) : <div className="empty-state compact">No edge diagnostics.</div>}
-    </div>
-  );
-}
-
-function EdgeList({
-  title,
-  edges,
-  direction,
-  nodeById,
-  portById,
-  onFocusEdge,
-}: {
-  title: string;
-  edges: GraphEdgeData[];
-  direction: "incoming" | "outgoing";
-  nodeById: Map<string, GraphNodeData>;
-  portById: Map<string, { node: GraphNodeData; port: GraphPort }>;
-  onFocusEdge: (edge: GraphEdgeData) => void;
-}) {
-  return (
-    <div className="provenance-block">
-      <h4>{title}</h4>
-      {edges.length > 0 ? edges.map((edge) => {
-        const source = nodeById.get(edge.source);
-        const target = nodeById.get(edge.target);
-        const sourcePort = edge.sourcePort ? portById.get(edge.sourcePort)?.port : null;
-        const targetPort = edge.targetPort ? portById.get(edge.targetPort)?.port : null;
-        const main = direction === "incoming"
-          ? `${source?.scale ?? "?"}.${source?.process ?? "?"}.${sourcePort?.name ?? edge.sourceVariable ?? "model"}`
-          : `${target?.scale ?? "?"}.${target?.process ?? "?"}.${targetPort?.name ?? edge.targetVariable ?? "model"}`;
-        return (
-          <button className={`provenance-edge ${edge.kind}`} key={edge.id} onClick={() => onFocusEdge(edge)}>
-            <strong>{main}</strong>
-            <span>{edgeKindLabel(edge)}{edge.scaleRelation === "multiscale" ? " across scales" : ""}</span>
-            {edge.diagnostics.length > 0 && <small>{edge.diagnostics[0]}</small>}
-          </button>
-        );
-      }) : <div className="empty-state compact">No {title.toLowerCase()} edge.</div>}
-    </div>
-  );
-}
-
-function ModelCandidatePopover({
-  anchor,
-  title,
-  variable,
-  role,
-  models,
-  onSelectModel,
-  onClose,
-}: {
-  anchor: { x: number; y: number };
-  title: string;
-  variable: string;
-  role: "input" | "output";
-  models: ModelDescriptor[];
-  onSelectModel: (model: ModelDescriptor) => void;
-  onClose: () => void;
-}) {
-  const field = role === "input" ? "outputs" : "inputs";
-  const fieldLabel = role === "input" ? "Outputs" : "Inputs";
-  return (
-    <div className="candidate-popover" style={candidatePopoverStyle(anchor)} onClick={(event) => event.stopPropagation()}>
-      <div className="candidate-popover-header">
-        <div>
-          <div className="eyebrow">{title}</div>
-          <h3>{variable}</h3>
-        </div>
-        <button className="icon-button compact" onClick={(event) => {
-          event.stopPropagation();
-          onClose();
-        }} title="Close model suggestions" aria-label="Close model suggestions">
-          <X size={14} />
-        </button>
-      </div>
-      <div className="candidate-popover-list">
-        {models.map((model) => {
-          const declarations = modelVariableDeclarations(model, field);
-          return (
-            <button
-              className="candidate-model-card"
-              type="button"
-              key={`${model.type}:${model.process ?? ""}`}
-              onClick={(event) => {
-                event.stopPropagation();
-                onSelectModel(model);
-              }}
-            >
-              <strong>{model.name}</strong>
-              <span>{model.process ?? model.processType ?? "unknown process"}</span>
-              <small>{fieldLabel}: {Object.keys(declarations).join(", ") || variable}</small>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function candidatePopoverStyle(anchor: { x: number; y: number }) {
-  if (typeof window === "undefined") return { left: anchor.x, top: anchor.y };
-  const margin = 12;
-  const width = Math.min(360, window.innerWidth - margin * 2);
-  const maxHeight = Math.min(420, window.innerHeight - margin * 2);
-  const opensLeft = anchor.x + width + margin > window.innerWidth;
-  const left = Math.min(
-    Math.max(opensLeft ? anchor.x - width - 10 : anchor.x + 10, margin),
-    Math.max(margin, window.innerWidth - width - margin),
-  );
-  const top = Math.min(
-    Math.max(anchor.y - 28, margin),
-    Math.max(margin, window.innerHeight - maxHeight - margin),
-  );
-  return { left, top, width, maxHeight };
-}
-
-function modelVariableDeclarations(model: ModelDescriptor, field: "inputs" | "outputs"): Record<string, unknown> {
-  const declarations = model[field];
-  if (!declarations || typeof declarations !== "object" || Array.isArray(declarations)) return {};
-  return declarations;
-}
-
-function Row({ label, value }: { label: string; value: string }) {
-  return <div className="row"><span>{label}</span><strong>{value}</strong></div>;
-}
-
-function RateEditor({
-  mode,
-  dt,
-  phase,
-  defaultLabel,
-  onModeChange,
-  onDtChange,
-  onPhaseChange,
-}: {
-  mode: "default" | "clock";
-  dt: string;
-  phase: string;
-  defaultLabel: string;
-  onModeChange: (mode: "default" | "clock") => void;
-  onDtChange: (value: string) => void;
-  onPhaseChange: (value: string) => void;
-}) {
-  return (
-    <div className="rate-editor">
-      <label className="model-browser-control">
-        <span>Rate</span>
-        <select value={mode} onChange={(event) => onModeChange(event.target.value as "default" | "clock")}>
-          <option value="default">Default rate</option>
-          <option value="clock">Custom ClockSpec</option>
-        </select>
-      </label>
-      {mode === "default" ? (
-        <div className="rate-summary">Uses model default: {defaultLabel}</div>
-      ) : (
-        <div className="rate-clock-row">
-          <label>
-            <span>dt</span>
-            <input value={dt} onChange={(event) => onDtChange(event.target.value)} inputMode="decimal" />
-          </label>
-          <label>
-            <span>phase</span>
-            <input value={phase} onChange={(event) => onPhaseChange(event.target.value)} inputMode="decimal" />
-          </label>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function ExistingModelEditor({
-  node,
-  models,
-  scales,
-  onAddScale,
-  onCommand,
-  disabled,
-}: {
-  node: GraphNodeData;
-  models: ModelDescriptor[];
-  scales: string[];
-  onAddScale: (scale: string) => void;
-  onCommand: (command: Record<string, unknown>) => void;
-  disabled: boolean;
-}) {
-  const matchingModels = useMemo(() => {
-    const sameProcess = models.filter((model) => model.process === node.process);
-    return sameProcess.length > 0 ? sameProcess : models;
-  }, [models, node.process]);
-  const initialModel = matchingModels.find((model) => model.name === node.modelType || model.type === node.modelType) ?? matchingModels[0];
-  const [modelType, setModelType] = useState(initialModel?.type ?? node.modelType);
-  const selectedModel = matchingModels.find((model) => model.type === modelType) ?? initialModel;
-  const [targetScale, setTargetScale] = useState(node.scale);
-  const [newScale, setNewScale] = useState("");
-  const initialValues = useMemo(() => {
-    if (!selectedModel) return {};
-    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
-      field.name,
-      node.modelParameters?.[field.name]?.value ?? parameterDefaultValue(field.default),
-    ]));
-  }, [node.modelParameters, selectedModel]);
-  const initialTypes = useMemo(() => {
-    if (!selectedModel) return {};
-    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
-      field.name,
-      node.modelParameters?.[field.name]?.type ?? field.inferredChoice,
-    ]));
-  }, [node.modelParameters, selectedModel]);
-  const [values, setValues] = useState<Record<string, string>>(initialValues);
-  const [types, setTypes] = useState<Record<string, string>>(initialTypes);
-  const initialTimestep = node.timestep ?? { mode: "default" as const, dt: "1.0", phase: "0.0" };
-  const [rateMode, setRateMode] = useState<"default" | "clock">(initialTimestep.mode === "clock" ? "clock" : "default");
-  const [rateDt, setRateDt] = useState(initialTimestep.dt ?? "1.0");
-  const [ratePhase, setRatePhase] = useState(initialTimestep.phase ?? "0.0");
-
-  useEffect(() => {
-    setValues(initialValues);
-    setTypes(initialTypes);
-  }, [initialTypes, initialValues]);
-
-  const setSharedType = useCallback((fieldName: string, nextType: string) => {
-    if (!selectedModel) return;
-    const field = selectedModel.constructor.fields.find((item) => item.name === fieldName);
-    const group = field?.typeParameter ? selectedModel.constructor.parameterGroups[field.typeParameter] ?? [fieldName] : [fieldName];
-    setTypes((current) => ({ ...current, ...Object.fromEntries(group.map((name) => [name, nextType])) }));
-  }, [selectedModel]);
-
-  const parameters = useCallback(() => {
-    if (!selectedModel) return {};
-    return Object.fromEntries(selectedModel.constructor.fields.map((field) => [
-      field.name,
-      { type: types[field.name] ?? field.inferredChoice, value: values[field.name] ?? "" },
-    ]));
-  }, [selectedModel, types, values]);
-
-  if (!selectedModel) return null;
-  const timestep = rateMode === "clock" ? { mode: "clock", dt: rateDt, phase: ratePhase } : { mode: "default" };
-
-  return (
-    <div className="existing-model-editor" data-testid="existing-model-editor">
-      <h3>Edit Model</h3>
-      <label className="model-browser-control">
-        <span>Scale</span>
-        <select data-testid="edit-model-scale" value={targetScale} onChange={(event) => setTargetScale(event.target.value)}>
-          {scales.map((scale) => <option key={scale} value={scale}>{scale}</option>)}
-        </select>
-      </label>
-      <label className="model-browser-control">
-        <span>New scale</span>
-        <div className="inline-field">
-          <input value={newScale} onChange={(event) => setNewScale(event.target.value)} placeholder="Leaf, Fruit, Soil" />
-          <button
-            className="metric-button"
-            onClick={() => {
-              onAddScale(newScale);
-              if (newScale.trim()) setTargetScale(newScale.trim());
-              setNewScale("");
-            }}
-          >
-            Add
-          </button>
-        </div>
-      </label>
-      <label className="model-browser-control">
-        <span>Model</span>
-        <select data-testid="edit-model-type" value={selectedModel.type} onChange={(event) => setModelType(event.target.value)}>
-          {matchingModels.map((model) => <option key={model.type} value={model.type}>{model.name}</option>)}
-        </select>
-      </label>
-      <RateEditor
-        mode={rateMode}
-        dt={rateDt}
-        phase={ratePhase}
-        defaultLabel={selectedModel.timespec ?? "default rate"}
-        onModeChange={setRateMode}
-        onDtChange={setRateDt}
-        onPhaseChange={setRatePhase}
-      />
-      {selectedModel.constructor.fields.map((field) => (
-        <div className="parameter-row" key={field.name}>
-          <label>{field.name}</label>
-          <input data-testid={`edit-param-${field.name}`} value={values[field.name] ?? ""} onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))} />
-          <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
-            {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-          </select>
-        </div>
-      ))}
-      <div className="row-with-actions">
-        <button
-          data-testid="update-model-submit"
-          className="metric-button"
-          disabled={disabled}
-          onClick={() => onCommand({
-            action: "edit",
-            kind: "update_model",
-            scale: node.scale,
-            process: node.process,
-            targetScale,
-            modelType: selectedModel.type,
-            parameters: parameters(),
-            timestep,
-          })}
-        >
-          Update model
-        </button>
-        <button
-          data-testid="remove-model-submit"
-          className="metric-button danger"
-          disabled={disabled}
-          onClick={() => onCommand({ action: "edit", kind: "remove_model", scale: node.scale, process: node.process })}
-        >
-          Remove
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function VariableMappingEditor({
-  target,
-  graphNodes,
-  disabled,
-  onCommand,
-}: {
-  target: { node: GraphNodeData; port: GraphPort } | null;
-  graphNodes: GraphNodeData[];
-  disabled: boolean;
-  onCommand: (command: Record<string, unknown>) => void;
-}) {
-  const sourceOptions = useMemo(() => {
-    if (!target) return [];
-    return graphNodes
-      .flatMap((node) => node.outputs.map((port) => ({ node, port })))
-      .filter(({ node, port }) => node.id !== target.node.id || port.name !== target.port.name)
-      .sort((left, right) => `${left.node.scale}.${left.node.process}.${left.port.name}`.localeCompare(`${right.node.scale}.${right.node.process}.${right.port.name}`));
-  }, [graphNodes, target]);
-  const [sourceId, setSourceId] = useState("");
-  const [mode, setMode] = useState<"single" | "multi">("single");
-  const [extraScales, setExtraScales] = useState<string[]>([]);
-
-  useEffect(() => {
-    setSourceId(sourceOptions[0]?.port.id ?? "");
-    setMode("single");
-    setExtraScales([]);
-  }, [sourceOptions]);
-
-  if (!target) return null;
-  const selected = sourceOptions.find((item) => item.port.id === sourceId) ?? sourceOptions[0] ?? null;
-  const candidateExtraScales = selected
-    ? [...new Set(sourceOptions
-      .filter((item) => item.port.name === selected.port.name && item.node.scale !== selected.node.scale)
-      .map((item) => item.node.scale))]
-    : [];
-
-  const toggleExtraScale = (scale: string) => {
-    setExtraScales((current) =>
-      current.includes(scale) ? current.filter((item) => item !== scale) : [...current, scale]
-    );
-  };
-
-  const apply = () => {
-    if (!selected) return;
-    const command: Record<string, unknown> = {
-      action: "edit",
-      kind: "set_mapped_variable",
-      scale: target.node.scale,
-      process: target.node.process,
-      variable: target.port.name,
-      sourceScale: selected.node.scale,
-      sourceVariable: selected.port.name,
-      mode: mode === "single" && selected.node.scale === target.node.scale ? "same_scale" : mode,
+    const modelNode: FlowNode = {
+      id: "model:root",
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "model",
+        title: graph.metadata.title || "Composite model",
+        subtitle: "model root",
+        badges: [`${graph.metadata.instanceCount} instances`, `${graph.metadata.objectCount} objects`],
+        detail: modelDetail,
+      },
     };
-    if (mode === "multi" && extraScales.length > 0) command.extraSourceScales = extraScales;
-    onCommand(command);
-  };
-
-  return (
-    <div className="variable-mapping-editor">
-      <h4>Set Mapping</h4>
-      {sourceOptions.length === 0 ? (
-        <div className="empty-state compact">No output variable is available as a source.</div>
-      ) : (
-        <>
-          <label className="model-browser-control">
-            <span>Source output</span>
-            <select data-testid="mapping-source-output" value={selected?.port.id ?? ""} onChange={(event) => setSourceId(event.target.value)}>
-              {sourceOptions.map(({ node, port }) => (
-                <option key={port.id} value={port.id}>{node.scale}.{node.process}.{port.name}</option>
-              ))}
-            </select>
-          </label>
-          <div className="mapping-mode-section">
-            <label className="mapping-radio">
-              <input type="radio" name={`${target.port.id}-mapping-mode`} checked={mode === "single"} onChange={() => setMode("single")} />
-              <span>Scalar</span>
-            </label>
-            <label className="mapping-radio">
-              <input type="radio" name={`${target.port.id}-mapping-mode`} checked={mode === "multi"} onChange={() => setMode("multi")} />
-              <span>Vector</span>
-            </label>
-          </div>
-          {mode === "multi" && candidateExtraScales.length > 0 && (
-            <div className="mapping-scale-picker">
-              {candidateExtraScales.map((scale) => (
-                <label className="mapping-checkbox" key={scale}>
-                  <input type="checkbox" checked={extraScales.includes(scale)} onChange={() => toggleExtraScale(scale)} />
-                  <span>{scale}</span>
-                </label>
-              ))}
-            </div>
-          )}
-          <button data-testid="mapping-apply" className="metric-button" disabled={disabled || !selected} onClick={apply}>Apply mapping</button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function InitializationPanel({
-  initializations,
-  disabled,
-  onCommand,
-}: {
-  initializations: InitializationDescriptor[];
-  disabled: boolean;
-  onCommand: (command: Record<string, unknown>) => void;
-}) {
-  const grouped = useMemo(() => {
-    const groups = new Map<string, InitializationDescriptor[]>();
-    for (const item of initializations) {
-      const group = groups.get(item.scale) ?? [];
-      group.push(item);
-      groups.set(item.scale, group);
-    }
-    return groups;
-  }, [initializations]);
-
-  if (initializations.length === 0) {
-    return <div className="empty-state">No explicit status initialization is required by the current ModelMapping.</div>;
+    const templateNodes: FlowNode[] = graph.templates.filter(matches).map((template) => ({
+      id: `template:${template.id}`,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "template",
+        title: template.name,
+        subtitle: template.source === "catalog" ? "template preset" : "model-local template",
+        badges: [`${template.applications.length} applications`, `${template.mountedInstances.length} mounts`],
+        detail: template,
+      },
+    }));
+    const instanceNodes: FlowNode[] = graph.instances.filter(matches).map((instance) => ({
+      id: instance.id,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "instance",
+        title: instance.name,
+        subtitle: [instance.kind, instance.species].filter(Boolean).join(" · ") || "object instance",
+        badges: [`${instance.objectIds.length} objects`, `${instance.applicationIds.length} applications`, `${instance.instanceOverrides.length + instance.objectOverrides.length} overrides`],
+        detail: instance,
+      },
+    }));
+    const objectNodes: FlowNode[] = graph.objects.filter(matches).map((object) => ({
+      id: object.id,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "object",
+        title: object.name || String(object.objectId),
+        subtitle: [object.kind, object.scale, object.instance].filter(Boolean).join(" · "),
+        badges: [object.species, object.hasStatus ? "status" : null, object.hasGeometry ? "geometry" : null].filter(Boolean) as string[],
+        detail: object,
+      },
+    }));
+    return [modelNode, ...templateNodes, ...instanceNodes, ...objectNodes];
   }
-
-  return (
-    <div className="initialization-editor">
-      {[...grouped.entries()].map(([scale, items]) => (
-        <section className="initialization-editor-group" key={scale}>
-          <h3>{scale}</h3>
-          {items.map((item) => (
-            <InitializationRow
-              key={`${item.scale}:${item.name}`}
-              item={item}
-              disabled={disabled}
-              onCommand={onCommand}
-            />
-          ))}
-        </section>
-      ))}
-    </div>
-  );
-}
-
-function InitializationRow({
-  item,
-  disabled,
-  onCommand,
-}: {
-  item: InitializationDescriptor;
-  disabled: boolean;
-  onCommand: (command: Record<string, unknown>) => void;
-}) {
-  const [value, setValue] = useState(item.value);
-  const [type, setType] = useState(item.type);
-
-  useEffect(() => {
-    setValue(item.value);
-    setType(item.type);
-  }, [item]);
-
-  return (
-    <div className={`initialization-editor-row ${item.provided ? "provided" : ""}`}>
-      <label>{item.name}</label>
-      <input
-        value={value}
-        onChange={(event) => setValue(event.target.value)}
-        placeholder={item.provided ? "" : "initial value"}
-      />
-      <select value={type} onChange={(event) => setType(event.target.value)}>
-        {valueTypeChoices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-      </select>
-      <button
-        className="metric-button"
-        disabled={disabled}
-        onClick={() => onCommand({
-          action: "edit",
-          kind: "set_initialization",
-          scale: item.scale,
-          variable: item.name,
-          value: { type, value },
-        })}
-      >
-        Apply
-      </button>
-      <small>{item.provided ? "Stored in Status" : "Missing from Status"}</small>
-    </div>
-  );
-}
-
-function MappingCodePanel({
-  code,
-  savePath,
-  lastSavedPath,
-  saveTargetPath,
-  autosavePath,
-  lastAutosavedPath,
-  onSavePathChange,
-  onSave,
-  disabled,
-}: {
-  code: string;
-  savePath: string;
-  lastSavedPath: string | null;
-  saveTargetPath: string | null;
-  autosavePath: string | null;
-  lastAutosavedPath: string | null;
-  onSavePathChange: (path: string) => void;
-  onSave: () => void;
-  disabled: boolean;
-}) {
-  const copyCode = useCallback(async () => {
-    if (!code) return;
-    await navigator.clipboard.writeText(code);
-  }, [code]);
-
-  return (
-    <div className="mapping-code-panel">
-      <div className="row-with-actions">
-        <strong>Current Julia mapping</strong>
-        <button className="metric-button" onClick={() => { void copyCode(); }}>Copy</button>
-      </div>
-      <textarea data-testid="mapping-code" className="mapping-code" readOnly value={code} />
-      <label className="model-browser-control">
-        <span>Write to file</span>
-        <input value={savePath} onChange={(event) => onSavePathChange(event.target.value)} placeholder="mapping.generated.jl" />
-      </label>
-      <button className="metric-button" disabled={disabled} onClick={onSave}>Save mapping code</button>
-      <div className="storage-grid">
-        {saveTargetPath ? <PathStatus label="Auto-save target" path={saveTargetPath} /> : <div className="empty-state compact">No file target selected.</div>}
-        {lastSavedPath ? <PathStatus label="Last saved" path={lastSavedPath} /> : null}
-        {autosavePath ? <PathStatus label={lastAutosavedPath ? "Recovery autosave" : "Recovery target"} path={autosavePath} /> : null}
-      </div>
-    </div>
-  );
-}
-
-function PathStatus({ label, path }: { label: string; path: string }) {
-  return (
-    <div className="path-status">
-      <span>{label}</span>
-      <strong>{path}</strong>
-    </div>
-  );
-}
-
-function basename(path: string) {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
-}
-
-function ModelBrowser({
-  models,
-  scales,
-  selection,
-  focusRequestId,
-  onAddScale,
-  onCommand,
-  disabled,
-}: {
-  models: ModelDescriptor[];
-  scales: string[];
-  selection: AddModelSelection | null;
-  focusRequestId: number;
-  onAddScale: (scale: string) => void;
-  onCommand: (command: Record<string, unknown>) => void;
-  disabled: boolean;
-}) {
-  const [modelType, setModelType] = useState(models[0]?.type ?? "");
-  const [scale, setScale] = useState(scales[0] ?? "Default");
-  const [newScale, setNewScale] = useState("");
-  const selected = models.find((model) => model.type === modelType) ?? models[0];
-
-  useEffect(() => {
-    if (!models.some((model) => model.type === modelType)) setModelType(models[0]?.type ?? "");
-  }, [modelType, models]);
-
-  useEffect(() => {
-    if (!scales.includes(scale)) setScale(scales[0] ?? "Default");
-  }, [scale, scales]);
-
-  useEffect(() => {
-    if (!selection) return;
-    if (models.some((model) => model.type === selection.modelType)) setModelType(selection.modelType);
-    if (selection.scale) setScale(selection.scale);
-  }, [models, selection]);
-
-  if (!selected) return <div className="empty-state">No model type is available.</div>;
-  return (
-    <div className="model-browser" data-testid="add-model-panel">
-      <label className="model-browser-control">
-        <span>Define scale</span>
-        <div className="inline-field">
-          <input value={newScale} onChange={(event) => setNewScale(event.target.value)} placeholder="Leaf, Plant, Scene" />
-          <button
-            className="metric-button"
-            onClick={() => {
-              onAddScale(newScale);
-              if (newScale.trim()) setScale(newScale.trim());
-              setNewScale("");
-            }}
-          >
-            Add scale
-          </button>
-        </div>
-      </label>
-      <label className="model-browser-control">
-        <span>Scale</span>
-        <select data-testid="add-model-scale" value={scale} onChange={(event) => setScale(event.target.value)}>
-          {scales.map((item) => <option key={item} value={item}>{item}</option>)}
-        </select>
-      </label>
-      <label className="model-browser-control">
-        <span>Model</span>
-        <select data-testid="add-model-type" value={selected.type} onChange={(event) => setModelType(event.target.value)}>
-          {models.map((model) => <option key={model.type} value={model.type}>{model.name} ({model.process ?? "unknown"})</option>)}
-        </select>
-      </label>
-      <ModelParameterForm
-        key={selected.type}
-        model={selected}
-        scale={scale}
-        focusRequestId={focusRequestId}
-        disabled={disabled}
-        onCommand={onCommand}
-      />
-    </div>
-  );
-}
-
-function ModelParameterForm({
-  model,
-  scale,
-  focusRequestId,
-  disabled,
-  onCommand,
-}: {
-  model: ModelDescriptor;
-  scale: string;
-  focusRequestId: number;
-  disabled: boolean;
-  onCommand: (command: Record<string, unknown>) => void;
-}) {
-  const initialValues = useMemo(() => Object.fromEntries(model.constructor.fields.map((field) => [field.name, parameterDefaultValue(field.default)])), [model]);
-  const initialTypes = useMemo(() => Object.fromEntries(model.constructor.fields.map((field) => [field.name, field.inferredChoice])), [model]);
-  const [values, setValues] = useState<Record<string, string>>(initialValues);
-  const [types, setTypes] = useState<Record<string, string>>(initialTypes);
-  const [rateMode, setRateMode] = useState<"default" | "clock">("default");
-  const [rateDt, setRateDt] = useState("1.0");
-  const [ratePhase, setRatePhase] = useState("0.0");
-  const firstParameterRef = useRef<HTMLInputElement | null>(null);
-  const addButtonRef = useRef<HTMLButtonElement | null>(null);
-
-  const setSharedType = useCallback((fieldName: string, nextType: string) => {
-    const field = model.constructor.fields.find((item) => item.name === fieldName);
-    const group = field?.typeParameter ? model.constructor.parameterGroups[field.typeParameter] ?? [fieldName] : [fieldName];
-    setTypes((current) => ({ ...current, ...Object.fromEntries(group.map((name) => [name, nextType])) }));
-  }, [model]);
-
-  const addModel = useCallback(() => {
-    const parameters = Object.fromEntries(model.constructor.fields.map((field) => [
-      field.name,
-      { type: types[field.name] ?? field.inferredChoice, value: values[field.name] ?? "" },
-    ]));
-    const timestep = rateMode === "clock" ? { mode: "clock", dt: rateDt, phase: ratePhase } : { mode: "default" };
-    onCommand({ action: "edit", kind: "add_model", scale, modelType: model.type, parameters, timestep });
-  }, [model, onCommand, rateDt, rateMode, ratePhase, scale, types, values]);
-
-  useEffect(() => {
-    if (!focusRequestId) return;
-    window.setTimeout(() => {
-      (firstParameterRef.current ?? addButtonRef.current)?.focus({ preventScroll: true });
-    }, 80);
-  }, [focusRequestId, model.type]);
-
-  return (
-      <div className="model-browser-item add-model-config">
-      <div className="model-browser-title">
-        <strong>{model.name}</strong>
-        <span>{model.process ?? "unknown process"} at :{scale}</span>
-      </div>
-      <div className="rate-editor">
-        <label className="model-browser-control">
-          <span>Rate</span>
-          <select value={rateMode} onChange={(event) => setRateMode(event.target.value as "default" | "clock")}>
-            <option value="default">Default rate</option>
-            <option value="clock">Custom ClockSpec</option>
-          </select>
-        </label>
-        {rateMode === "default" ? (
-          <div className="rate-summary">Uses model default: {model.timespec ?? "default rate"}</div>
-        ) : (
-          <div className="rate-clock-row">
-            <label>
-              <span>dt</span>
-              <input value={rateDt} onChange={(event) => setRateDt(event.target.value)} inputMode="decimal" />
-            </label>
-            <label>
-              <span>phase</span>
-              <input value={ratePhase} onChange={(event) => setRatePhase(event.target.value)} inputMode="decimal" />
-            </label>
-          </div>
-        )}
-      </div>
-      {model.constructor.fields.map((field, index) => (
-        <div className="parameter-row" key={field.name}>
-          <label>{field.name}</label>
-          <input
-            data-testid={`add-param-${field.name}`}
-            ref={index === 0 ? firstParameterRef : undefined}
-            value={values[field.name] ?? ""}
-            onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-          />
-          <select value={types[field.name] ?? field.inferredChoice} onChange={(event) => setSharedType(field.name, event.target.value)}>
-            {field.choices.map((choice) => <option key={choice} value={choice}>{choice}</option>)}
-          </select>
-        </div>
-      ))}
-      <div className="add-model-footer">
-        <button data-testid="add-model-submit" ref={addButtonRef} className="metric-button accent-button" disabled={disabled} onClick={addModel}>
-          Add {model.name}
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function parameterDefaultValue(value: unknown) {
-  if (value === null || typeof value === "undefined") return "";
-  if (typeof value === "string" && value.startsWith(":")) return value.slice(1);
-  return String(value);
-}
-
-function loadInitialGraph() {
-  const embedded = document.getElementById("pse-graph-data");
-  if (embedded?.textContent) return JSON.parse(embedded.textContent) as DependencyGraphView;
-  const fromWindow = (window as Window & { PlantSimEngineGraph?: DependencyGraphView }).PlantSimEngineGraph;
-  return fromWindow ?? sampleGraph;
-}
-
-function defaultGraphViewMode(graph: DependencyGraphView): GraphViewMode {
-  return graph.nodes.length > 45 || graph.edges.length > 110 ? "overview" : "detail";
-}
-
-function effectiveLayoutMode(viewMode: GraphViewMode, layoutMode: LayoutMode): LayoutMode {
-  return viewMode === "overview" ? "overview" : layoutMode === "overview" ? "data_flow" : layoutMode;
-}
-
-function loadEditorConfig() {
-  const embedded = document.getElementById("pse-editor-config");
-  if (!embedded?.textContent) return null;
-  return JSON.parse(embedded.textContent) as { websocketUrl?: string };
-}
-
-function runtimeNodeData(
-  node: GraphNodeData,
-  options: {
-    activePort: GraphPort | null;
-    highlightedPortIds: Set<string>;
-    focusedPortIds: Set<string>;
-    requiredInputPortIds: Set<string>;
-    candidatePortIds: Set<string>;
-    cycleNodeIds: Set<string>;
-    cycleBreakPortIds: Set<string>;
-    cycleBreakMode: boolean;
-    focusedNodeIds: Set<string>;
-    hasActiveFocus: boolean;
-    activeCandidatePortId: string | null;
-    setActivePort: (port: GraphPort | null) => void;
-    setCandidatePopover: (port: GraphPort, anchor: { x: number; y: number }) => void;
-    breakCycleAtPort: (port: GraphPort) => void;
-    removeGraphModel: (node: GraphNodeData) => void;
-    viewMode: GraphViewMode;
-  },
-): RuntimeGraphNodeData {
-  return {
-    ...node,
-    viewMode: options.viewMode,
-    cyclic: options.cycleNodeIds.has(node.id),
-    activePortId: options.activePort?.id ?? null,
-    highlightedPortIds: [...options.highlightedPortIds],
-    focusedPortIds: [...options.focusedPortIds],
-    requiredInputPortIds: [...options.requiredInputPortIds],
-    candidatePortIds: [...options.candidatePortIds],
-    cycleBreakPortIds: [...options.cycleBreakPortIds],
-    cycleBreakActive: options.cycleBreakMode,
-    focused: options.focusedNodeIds.has(node.id),
-    dimmed: options.hasActiveFocus && !options.focusedNodeIds.has(node.id),
-    onPortEnter: options.setActivePort,
-    onPortLeave: (port) => {
-      if (options.activeCandidatePortId !== port.id) options.setActivePort(null);
-    },
-    onCandidateClick: options.setCandidatePopover,
-    onCycleBreakClick: options.breakCycleAtPort,
-    onRemoveModel: options.removeGraphModel,
-  };
-}
-
-function removableMappingNode(node: GraphNodeData, nodeById: Map<string, GraphNodeData>) {
-  let current: GraphNodeData | undefined = node;
-  const visited = new Set<string>();
-  while (current && !visited.has(current.id)) {
-    if (current.role === "model") return current;
-    visited.add(current.id);
-    current = current.parent ? nodeById.get(current.parent) : undefined;
-  }
-  return null;
-}
-
-function deriveRequiredInputPorts(graph: DependencyGraphView) {
-  const computedInputPortIds = new Set(graph.edges.map((edge) => edge.targetPort).filter(isString));
-  const required = new Set<string>();
-  const requiredKeys = new Set<string>();
-
-  for (const node of graph.nodes) {
-    for (const port of node.inputs) {
-      if (computedInputPortIds.has(port.id)) continue;
-      const canonical = canonicalInitializationPort(graph, node, port, computedInputPortIds);
-      if (!canonical) continue;
-      const key = initializationKey(canonical.node, canonical.port);
-      if (requiredKeys.has(key)) continue;
-      requiredKeys.add(key);
-      required.add(canonical.port.id);
-    }
-  }
-
-  return required;
-}
-
-function deriveCycleBreakOptions(
-  graph: DependencyGraphView,
-  nodeById: Map<string, GraphNodeData>,
-  portById: Map<string, { node: GraphNodeData; port: GraphPort }>,
-): CycleBreakOption[] {
-  const options: CycleBreakOption[] = [];
-  const seenPorts = new Set<string>();
-  for (const edge of graph.edges) {
-    if (!isCycleEdge(edge) || !edge.targetPort) continue;
-    const node = nodeById.get(edge.target);
-    const portInfo = portById.get(edge.targetPort);
-    if (!node || !portInfo || portInfo.port.role !== "input") continue;
-    if (seenPorts.has(portInfo.port.id)) continue;
-    seenPorts.add(portInfo.port.id);
-    options.push({ edge, node, port: portInfo.port });
-  }
-  return options;
-}
-
-function deriveCandidatePortIds(
-  graph: DependencyGraphView,
-  models: ModelDescriptor[],
-  incomingByPort: Map<string, GraphEdgeData[]>,
-) {
-  const producerVariables = new Set<string>();
-  const consumerVariables = new Set<string>();
-  for (const model of models) {
-    Object.keys(modelVariableDeclarations(model, "outputs")).forEach((name) => producerVariables.add(name));
-    Object.keys(modelVariableDeclarations(model, "inputs")).forEach((name) => consumerVariables.add(name));
-  }
-
-  const candidates = new Set<string>();
-  for (const node of graph.nodes) {
-    for (const port of node.inputs) {
-      const isUncomputed = (incomingByPort.get(port.id) ?? []).length === 0;
-      if (isUncomputed && producerVariables.has(port.name)) candidates.add(port.id);
-    }
-    for (const port of node.outputs) {
-      if (consumerVariables.has(port.name)) candidates.add(port.id);
-    }
-  }
-  return candidates;
-}
-
-function deriveRequiredInputs(graph: DependencyGraphView, requiredInputPortIds: Set<string>, incomingByPort: Map<string, GraphEdgeData[]>) {
-  return graph.nodes.flatMap((node) => (
-    node.inputs
-      .filter((port) => requiredInputPortIds.has(port.id))
-      .map((port): RequiredInput => ({
-        node,
-        port,
-        reason: requiredReason(port, incomingByPort.get(port.id) ?? []),
-      }))
-  ));
-}
-
-function requiredReason(port: GraphPort, incomingEdges: GraphEdgeData[]): RequiredInput["reason"] {
-  if (port.previousTimeStep) return "previous_time_step";
-  if (port.mappingMode && incomingEdges.length === 0) return "mapped_unresolved";
-  return "user_initialization";
-}
-
-function canonicalInitializationPort(
-  graph: DependencyGraphView,
-  node: GraphNodeData,
-  port: GraphPort,
-  computedInputPortIds: Set<string>,
-  visited = new Set<string>(),
-): { node: GraphNodeData; port: GraphPort } | null {
-  if (visited.has(port.id)) return { node, port };
-  visited.add(port.id);
-
-  if (!port.sourceScale) return { node, port };
-
-  const sourceVariable = port.sourceVariable ?? port.name;
-  const sourceInput = findInputPort(graph, port.sourceScale, sourceVariable);
-  if (sourceInput) {
-    if (computedInputPortIds.has(sourceInput.port.id)) return null;
-    return canonicalInitializationPort(graph, sourceInput.node, sourceInput.port, computedInputPortIds, visited);
-  }
-
-  const sourceOutput = findOutputPort(graph, port.sourceScale, sourceVariable);
-  if (sourceOutput) return null;
-
-  return { node, port };
-}
-
-function findInputPort(graph: DependencyGraphView, scale: string, variable: string) {
-  let fallback: { node: GraphNodeData; port: GraphPort } | null = null;
-  for (const node of graph.nodes) {
-    if (node.scale !== scale) continue;
-    const port = node.inputs.find((candidate) => candidate.name === variable);
-    if (!port) continue;
-    if (!fallback) fallback = { node, port };
-    if (!port.sourceScale) return { node, port };
-  }
-  return fallback;
-}
-
-function findOutputPort(graph: DependencyGraphView, scale: string, variable: string) {
-  for (const node of graph.nodes) {
-    if (node.scale !== scale) continue;
-    const port = node.outputs.find((candidate) => candidate.name === variable);
-    if (port) return { node, port };
-  }
-  return null;
-}
-
-function initializationKey(node: GraphNodeData, port: GraphPort) {
-  return `${node.scale}:${port.name}`;
-}
-
-function groupRequiredInputs(requiredInputs: RequiredInput[]) {
-  const grouped = new Map<string, RequiredInput[]>();
-  for (const item of requiredInputs) {
-    const key = `${item.node.scale}.${item.node.process}`;
-    const group = grouped.get(key) ?? [];
-    group.push(item);
-    grouped.set(key, group);
-  }
-  return grouped;
-}
-
-function requiredReasonLabel(reason: RequiredInput["reason"]) {
-  if (reason === "previous_time_step") return "previous step";
-  if (reason === "mapped_unresolved") return "unresolved mapping";
-  return "user init";
-}
-
-function flowEdge(
-  edge: GraphEdgeData,
-  highlightedEdgeIds: Set<string>,
-  focusedEdgeIds: Set<string>,
-  hasActivePort: boolean,
-  hasActiveFocus: boolean,
-): Edge<GraphEdgeData> {
-  const highlighted = highlightedEdgeIds.has(edge.id);
-  const focused = focusedEdgeIds.has(edge.id);
-  const callEdge = isCallEdge(edge);
-  const dimmed = (hasActivePort && !highlighted) || (hasActiveFocus && !focused && !highlighted);
-
-  return {
-    id: edge.id,
-    source: edge.source,
-    target: edge.target,
-    sourceHandle: edge.sourcePort ?? (callEdge ? `${edge.source}:call-source` : undefined),
-    targetHandle: edge.targetPort ?? (callEdge ? `${edge.target}:call-target` : undefined),
-    markerEnd: callEdge ? undefined : edgeMarker(edgeColor(edge, highlighted || focused)),
-    type: "dependency",
-    animated: !callEdge && (edge.scaleRelation === "multiscale" || isCycleEdge(edge)),
-    className: `${edge.kind} ${callEdge ? "call_edge" : "variable_edge"} ${edge.scaleRelation} ${isCycleEdge(edge) ? "cycle_edge" : ""} ${focused ? "focused" : ""} ${highlighted ? "highlighted" : dimmed ? "dimmed" : ""}`,
-    style: edgeStyle(edgeColor(edge, highlighted || focused), highlighted || focused || isCycleEdge(edge), isCycleEdge(edge)),
-    selected: highlighted || focused,
-    zIndex: highlighted ? 120 : focused ? 90 : callEdge ? 3 : 5,
-    data: { ...edge, highlighted, focused, dimmed },
-  };
-}
-
-function edgeColor(edge: GraphEdgeData, highlighted: boolean) {
-  if (highlighted) return edgeColors.accent;
-  if (isCycleEdge(edge)) return "#d3422f";
-  if (edge.kind === "hard_dependency") return edgeColors.hard;
-  if (edge.kind === "mapped_variable" || edge.scaleRelation === "multiscale") return edgeColors.mapped;
-  return edgeColors.base;
-}
-
-function edgeMarker(color: string) {
-  return {
-    type: MarkerType.ArrowClosed,
-    color,
-    width: 9,
-    height: 9,
-    markerUnits: "userSpaceOnUse",
-    strokeWidth: 1.2,
-  };
-}
-
-function edgeStyle(color: string, highlighted: boolean, cycle = false) {
-  return {
-    stroke: color,
-    strokeWidth: cycle ? 4 : highlighted ? 3 : 2.2,
-  };
-}
-
-function deriveHighlight(graph: DependencyGraphView, activePort: GraphPort | null) {
-  const result = emptyFocusState();
-  if (!activePort) return result;
-
-  result.ports.add(activePort.id);
-  const visitedPorts = new Set<string>([activePort.id]);
-  const queue = [activePort.id];
-
-  while (queue.length > 0) {
-    const portId = queue.shift()!;
-    for (const edge of graph.edges) {
-      const sourcePort = edge.sourcePort;
-      const targetPort = edge.targetPort;
-      if (!sourcePort || !targetPort) continue;
-      if (sourcePort !== portId && targetPort !== portId) continue;
-
-      result.edges.add(edge.id);
-      result.nodes.add(edge.source);
-      result.nodes.add(edge.target);
-      result.ports.add(sourcePort);
-      result.ports.add(targetPort);
-
-      const nextPort = sourcePort === portId ? targetPort : sourcePort;
-      if (!visitedPorts.has(nextPort)) {
-        visitedPorts.add(nextPort);
-        queue.push(nextPort);
-      }
-    }
-  }
-
-  return result;
-}
-
-function deriveFocus(graph: DependencyGraphView, selectedNodeId: string | null, activePort: GraphPort | null, mode: FocusMode): FocusState {
-  const result = emptyFocusState();
-  if (mode === "none") return result;
-
-  const seeds = new Set<string>();
-  if (activePort) seeds.add(activePort.id);
-  if (selectedNodeId) {
-    const node = graph.nodes.find((item) => item.id === selectedNodeId);
-    node?.inputs.forEach((port) => seeds.add(port.id));
-    node?.outputs.forEach((port) => seeds.add(port.id));
-    result.nodes.add(selectedNodeId);
-  }
-  if (seeds.size === 0) return result;
-
-  result.active = true;
-  const visited = new Set(seeds);
-  const queue = [...seeds];
-  seeds.forEach((seed) => result.ports.add(seed));
-
-  while (queue.length > 0) {
-    const portId = queue.shift()!;
-    for (const edge of graph.edges) {
-      if (!edge.sourcePort || !edge.targetPort) continue;
-      const upstream = mode === "upstream" || mode === "neighborhood";
-      const downstream = mode === "downstream" || mode === "neighborhood";
-      const nextPort = downstream && edge.sourcePort === portId
-        ? edge.targetPort
-        : upstream && edge.targetPort === portId
-          ? edge.sourcePort
-          : null;
-      if (!nextPort) continue;
-
-      result.edges.add(edge.id);
-      result.nodes.add(edge.source);
-      result.nodes.add(edge.target);
-      result.ports.add(edge.sourcePort);
-      result.ports.add(edge.targetPort);
-      if (!visited.has(nextPort)) {
-        visited.add(nextPort);
-        queue.push(nextPort);
-      }
-    }
-  }
-
-  for (const edge of graph.edges) {
-    if (!isCallEdge(edge)) continue;
-    if (result.nodes.has(edge.source) || result.nodes.has(edge.target)) {
-      result.edges.add(edge.id);
-      result.nodes.add(edge.source);
-      result.nodes.add(edge.target);
-    }
-  }
-
-  return result;
-}
-
-function deriveSearchResults(graph: DependencyGraphView, query: string): SearchResult[] {
-  const normalized = query.trim().toLowerCase();
-  if (!normalized) return [];
-
-  const results: SearchResult[] = [];
-  for (const node of graph.nodes) {
-    const nodeHaystack = `${node.scale} ${node.process} ${node.modelType} ${node.rate}`.toLowerCase();
-    if (nodeHaystack.includes(normalized)) {
-      results.push({
-        id: `model:${node.id}`,
-        kind: "model",
-        node,
-        label: `${node.scale}.${node.process}`,
-        detail: node.modelType,
-      });
-    }
-    for (const port of [...node.inputs, ...node.outputs]) {
-      const portHaystack = `${node.scale} ${node.process} ${node.modelType} ${port.name} ${port.role}`.toLowerCase();
-      if (portHaystack.includes(normalized)) {
-        results.push({
-          id: `port:${port.id}`,
-          kind: port.role,
-          node,
-          port,
-          label: `${port.name}`,
-          detail: `${port.role} in ${node.scale}.${node.process}`,
-        });
-      }
-    }
-  }
-
-  return results.slice(0, 18);
-}
-
-function deriveValidationWarnings(graph: DependencyGraphView, requiredInputPortIds: Set<string>, incomingByPort: Map<string, GraphEdgeData[]>): ValidationWarning[] {
-  const warnings: ValidationWarning[] = [];
-  const outputs = new Map<string, Array<{ node: GraphNodeData; port: GraphPort }>>();
-  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
-
-  for (const node of graph.nodes) {
-    for (const port of node.outputs) {
-      if (!isOwnOutput(node, port)) continue;
-      const key = `${node.scale}:${port.name}`;
-      const group = outputs.get(key) ?? [];
-      group.push({ node, port });
-      outputs.set(key, group);
-    }
-    for (const port of node.inputs) {
-      const incoming = incomingByPort.get(port.id) ?? [];
-      if (requiredInputPortIds.has(port.id) && incoming.length > 0) {
-        warnings.push({
-          id: `required-with-edge:${port.id}`,
-          severity: "error",
-          category: "init",
-          title: "Input marked init but connected",
-          detail: `${node.scale}.${node.process}.${port.name} has incoming data-flow edges and should not be required.`,
-          nodeId: node.id,
-          portId: port.id,
-        });
-      }
-      if (port.mappingMode && requiredInputPortIds.has(port.id) && !port.previousTimeStep) {
-        warnings.push({
-          id: `unresolved-mapping:${port.id}`,
-          severity: "warning",
-          category: "mapping",
-          title: "Mapped input has no producer",
-          detail: `${node.scale}.${node.process}.${port.name} declares mapping metadata but no source output was found.`,
-          nodeId: node.id,
-          portId: port.id,
-        });
-      }
-    }
-  }
-
-  for (const [key, group] of outputs) {
-    if (group.length <= 1) continue;
-    const [scale, variable] = key.split(":");
-    const producerLabels = group.map(({ node }) => `${node.scale}.${node.process}`).join(", ");
-    warnings.push({
-      id: `multiple-producers:${key}`,
-      severity: "warning",
-      category: "ownership",
-      title: "Multiple producers",
-      detail: `${scale}.${variable} is output by ${group.length} models at the same scale: ${producerLabels}.`,
-      nodeId: group[0].node.id,
-      nodeIds: group.map(({ node }) => node.id),
-      portId: group[0].port.id,
-      portIds: group.map(({ port }) => port.id),
+  if (view === "resolved") {
+    const applications = new Map(graph.applications.map((application) => [application.applicationId, application]));
+    const executionNodes: FlowNode[] = graph.executions
+      .filter((execution) => !scopedObjectIds || scopedObjectIds.has(objectKey(execution.objectId)))
+      .filter(matches).map((execution) => {
+      const application = applications.get(execution.applicationId);
+      return {
+        id: execution.id,
+        type: "entity",
+        position: { x: 0, y: 0 },
+        data: {
+          nodeKind: "execution",
+          title: execution.applicationId,
+          subtitle: `object ${String(execution.objectId)}`,
+          badges: [shortType(execution.modelType), execution.overridden ? "override" : "shared"],
+          inputPortIds: [...(application?.inputs ?? []), ...(application?.environmentInputs ?? [])].map((port) => port.id),
+          outputPortIds: [...(application?.outputs ?? []), ...(application?.environmentOutputs ?? [])].map((port) => port.id),
+          detail: execution,
+        },
+      };
     });
+    return [...executionNodes, ...environmentNodes(graph, "resolved")];
   }
-
-  for (const edge of graph.edges) {
-    if (edge.diagnostics.some((item) => item.includes("Forwarded to a hard dependency"))) {
-      warnings.push({
-        id: `hard-forward:${edge.id}`,
-        severity: "info",
-        category: "hard_dependency",
-        title: "Hard input forwarding",
-        detail: `${edge.targetVariable ?? "input"} is satisfied through the owning model status before a hard dependency call. This is expected for declared hard dependencies.`,
-        edgeId: edge.id,
-      });
-    }
-    const sourceNode = nodeById.get(edge.source);
-    const targetNode = nodeById.get(edge.target);
-    const crossesScale = Boolean(sourceNode && targetNode && sourceNode.scale !== targetNode.scale);
-    if (
-      crossesScale &&
-      edge.kind !== "mapped_variable" &&
-      !isCallEdge(edge) &&
-      !hasSameScaleProducerForTarget(edge, targetNode, nodeById, incomingByPort)
-    ) {
-      warnings.push({
-        id: `implicit-cross-scale:${edge.id}`,
-        severity: "info",
-        category: "cross_scale",
-        title: "Inferred cross-scale edge",
-        detail: `${sourceNode?.scale}.${sourceNode?.process}.${edge.sourceVariable ?? "source"} -> ${targetNode?.scale}.${targetNode?.process}.${edge.targetVariable ?? "target"} crosses scales through graph inference rather than a direct mapped-variable edge.`,
-        edgeId: edge.id,
-      });
-    }
-  }
-
-  return warnings;
+  const applicationNodes: FlowNode[] = graph.applications
+    .filter((application) => !scopedObjectIds || application.targetIds.some((id) => scopedObjectIds.has(objectKey(id))))
+    .filter(matches).map((application) => ({
+    id: application.id,
+    type: "application",
+    position: { x: 0, y: 0 },
+    data: {
+      ...application,
+      nodeKind: "application",
+      detailMode,
+      cyclic: cyclicApplications.has(application.applicationId),
+      requiredInputPortIds: application.inputs.filter((port) => unresolvedPortIds.has(port.id)).map((port) => port.id),
+      candidatePortIds: [...application.inputs, ...application.outputs].filter((port) => candidatePortIds.has(port.id)).map((port) => port.id),
+      previousTimeStepPortIds: application.inputs.filter((port) => previousPortIds.has(port.id)).map((port) => port.id),
+      cycleBreakInputPortIds: application.inputs.filter((port) => cycleBreakPortIds.has(port.id)).map((port) => port.id),
+      cycleBreakMode,
+      onCandidateClick: (port, anchor) => openCandidates(application, port, anchor),
+      onPortClick,
+      onCycleBreak,
+    },
+  }));
+  return [...applicationNodes, ...environmentNodes(graph, "applications")];
 }
 
-function hasSameScaleProducerForTarget(
-  edge: GraphEdgeData,
-  targetNode: GraphNodeData | undefined,
-  nodeById: Map<string, GraphNodeData>,
-  incomingByPort: Map<string, GraphEdgeData[]>,
-) {
-  if (!targetNode || !edge.targetPort) return false;
-  const incoming = incomingByPort.get(edge.targetPort) ?? [];
-  return incoming.some((candidate) => {
-    if (candidate.id === edge.id || !candidate.sourcePort || !candidate.targetPort) return false;
-    const candidateSource = nodeById.get(candidate.source);
-    return candidateSource?.scale === targetNode.scale;
+function environmentNodes(graph: ModelGraphView, projection: "applications" | "resolved"): FlowNode[] {
+  const relevant = graph.edges.filter((edge) => edge.kind === "environment_binding" && edge.projection === projection);
+  const ids = new Set(relevant.flatMap((edge) => [edge.source, edge.target]).filter((id) => id.startsWith("environment:")));
+  return [...ids].map((id) => {
+    const provider = id.slice("environment:".length);
+    const descriptor = graph.environments.find((environment) => environment.id === id);
+    const inputs = uniqueStrings(relevant.filter((edge) => edge.target === id).map((edge) => edge.targetPort).filter(Boolean) as string[]);
+    const outputs = uniqueStrings(relevant.filter((edge) => edge.source === id).map((edge) => edge.sourcePort).filter(Boolean) as string[]);
+    return {
+      id,
+      type: "entity",
+      position: { x: 0, y: 0 },
+      data: {
+        nodeKind: "environment",
+        title: descriptor?.name || provider,
+        subtitle: descriptor?.active ? "active scene environment" : "environment backend",
+        badges: [`${outputs.length} inputs`, `${inputs.length} outputs`],
+        inputPortIds: inputs,
+        outputPortIds: outputs,
+        detail: descriptor || { provider },
+      },
+    };
   });
 }
 
-function isOwnOutput(node: GraphNodeData, port: GraphPort) {
-  return !node.ownOutputIds || node.ownOutputIds.includes(port.id);
+function uniqueStrings(values: string[]) { return [...new Set(values)]; }
+
+function buildEdges(graph: ModelGraphView, view: GraphViewMode): FlowEdge[] {
+  const sourceEdges = view === "topology" ? [...graph.edges, ...topologyContainerEdges(graph)] : graph.edges;
+  return sourceEdges
+    .filter((edge) => edgeProjectionMatches(edge, view))
+    .map((edge) => ({
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: edge.sourcePort || undefined,
+      targetHandle: edge.targetPort || undefined,
+      type: "modelEdge",
+      data: edge,
+      markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(edge), width: 16, height: 16 },
+      style: {
+        stroke: edgeColor(edge),
+        strokeWidth: edge.cycle ? 4 : edge.kind === "manual_call" ? 2.5 : 1.8,
+        strokeDasharray: edge.kind === "previous_timestep" ? "7 5" : edge.kind === "manual_call" ? "3 4" : undefined,
+      },
+    }));
 }
 
-function groupValidationWarnings(warnings: ValidationWarning[]) {
-  const grouped = new Map<ValidationWarning["severity"], ValidationWarning[]>();
-  for (const warning of warnings) {
-    const group = grouped.get(warning.severity) ?? [];
-    group.push(warning);
-    grouped.set(warning.severity, group);
+function topologyContainerEdges(graph: ModelGraphView): ModelGraphEdge[] {
+  const edges: ModelGraphEdge[] = [];
+  const instanceObjectIds = new Set(graph.instances.flatMap((instance) => instance.objectIds.map(objectKey)));
+  for (const template of graph.templates) {
+    edges.push({
+      id: `topology:model:template:${template.id}`,
+      source: "model:root",
+      target: `template:${template.id}`,
+      kind: "object_topology",
+      projection: "topology",
+      cycle: false,
+    });
   }
-  return grouped;
-}
-
-function validationSeverityLabel(severity: ValidationWarning["severity"]) {
-  if (severity === "error") return "Likely bugs";
-  if (severity === "warning") return "Review";
-  return "Information";
-}
-
-function mergeFocusStates(primary: FocusState, secondary: FocusState | null): FocusState {
-  if (!secondary?.active) return primary;
-  return {
-    active: primary.active || secondary.active,
-    edges: new Set([...primary.edges, ...secondary.edges]),
-    nodes: new Set([...primary.nodes, ...secondary.nodes]),
-    ports: new Set([...primary.ports, ...secondary.ports]),
-  };
-}
-
-function buildPortIndex(graph: DependencyGraphView) {
-  const index = new Map<string, { node: GraphNodeData; port: GraphPort }>();
-  for (const node of graph.nodes) {
-    for (const port of [...node.inputs, ...node.outputs]) index.set(port.id, { node, port });
+  for (const instance of graph.instances) {
+    edges.push({
+      id: `topology:${instance.id}:object:${String(instance.rootId)}`,
+      source: instance.id,
+      target: `object:${String(instance.rootId)}`,
+      kind: "object_topology",
+      projection: "topology",
+      cycle: false,
+    });
   }
-  return index;
-}
-
-function groupEdgesByPort(edges: GraphEdgeData[], side: "sourcePort" | "targetPort") {
-  const groups = new Map<string, GraphEdgeData[]>();
-  for (const edge of edges) {
-    const portId = edge[side];
-    if (!portId) continue;
-    const group = groups.get(portId) ?? [];
-    group.push(edge);
-    groups.set(portId, group);
+  for (const object of graph.objects) {
+    if (object.parent === null && !instanceObjectIds.has(objectKey(object.objectId))) {
+      edges.push({
+        id: `topology:model:${object.id}`,
+        source: "model:root",
+        target: object.id,
+        kind: "object_topology",
+        projection: "topology",
+        cycle: false,
+      });
+    }
   }
-  return groups;
+  return edges;
 }
 
-function edgeMatchesFilters(edge: GraphEdgeData, filters: EdgeFilters) {
-  if (isCallEdge(edge)) return filters.callStack;
-  if (isCycleEdge(edge)) return filters.dataFlow;
-  if (edge.kind === "mapped_variable" || edge.scaleRelation === "multiscale") return filters.mapped;
-  return filters.dataFlow;
+export function objectSubtreeIds(objects: ObjectGraphNode[], rootId: unknown): unknown[] {
+  const children = new Map<string, unknown[]>();
+  for (const object of objects) {
+    if (object.parent === null) continue;
+    const key = objectKey(object.parent);
+    children.set(key, [...(children.get(key) ?? []), object.objectId]);
+  }
+  const result: unknown[] = [];
+  const pending: unknown[] = [rootId];
+  const visited = new Set<string>();
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    const key = objectKey(id);
+    if (visited.has(key)) continue;
+    visited.add(key);
+    result.push(id);
+    pending.push(...(children.get(key) ?? []));
+  }
+  return result;
 }
 
-function edgeKindLabel(edge: GraphEdgeData) {
-  if (isCycleEdge(edge)) return "cycle dependency";
-  if (isCallEdge(edge)) return "call stack";
-  if (edge.kind === "mapped_variable") return "mapped variable";
-  if (edge.diagnostics.some((item) => item.includes("Forwarded to a hard dependency"))) return "hard input forwarding";
-  if (edge.diagnostics.some((item) => item.includes("Computed by a hard dependency"))) return "hard output";
-  return "soft dependency";
+function objectKey(value: unknown) {
+  const text = String(value);
+  return text.startsWith("object:") ? text.slice("object:".length) : text;
 }
 
-function isCallEdge(edge: GraphEdgeData) {
-  return edge.kind === "hard_dependency" && !edge.sourcePort && !edge.targetPort;
+function edgeProjectionMatches(edge: ModelGraphEdge, view: GraphViewMode) {
+  const projection = (edge as ModelGraphEdge & { projection?: string }).projection;
+  if (view === "topology") return edge.kind === "object_topology" || edge.kind === "template_mount";
+  if (view === "resolved") return projection === "resolved";
+  return projection === "applications" || (!projection && !["object_topology", "application_target"].includes(edge.kind));
 }
 
-function isCycleEdge(edge: GraphEdgeData) {
-  return edge.kind === "cycle_dependency" || edge.diagnostics.some((item) => item.includes("Cycle edge"));
+function edgeColor(edge: ModelGraphEdge) {
+  if (edge.cycle) return "#cf4937";
+  if (edge.kind === "previous_timestep") return "#317b62";
+  if (edge.kind === "manual_call") return "#be6a54";
+  if (edge.kind === "object_topology") return "#7b7167";
+  if (edge.kind === "environment_binding") return "#367b8b";
+  return "#a59687";
 }
 
-function emptyFocusState(): FocusState {
-  return {
-    active: false,
-    edges: new Set<string>(),
-    nodes: new Set<string>(),
-    ports: new Set<string>(),
-  };
+export function deriveCandidatePortIds(graph: ModelGraphView) {
+  const result = new Set<string>();
+  for (const application of graph.applications) {
+    for (const input of application.inputs) {
+      const existing = graph.applications.some((other) =>
+        other.applicationId !== application.applicationId && other.outputs.some((output) => output.name === input.name)
+      );
+      if (existing || graph.modelLibrary.some((model) => Object.prototype.hasOwnProperty.call(model.outputs, input.name))) result.add(input.id);
+    }
+    for (const output of application.outputs) {
+      const existing = graph.applications.some((other) =>
+        other.applicationId !== application.applicationId && other.inputs.some((input) => input.name === output.name)
+      );
+      if (existing || graph.modelLibrary.some((model) => Object.prototype.hasOwnProperty.call(model.inputs, output.name))) result.add(output.id);
+    }
+  }
+  return result;
 }
 
-function isString(value: unknown): value is string {
-  return typeof value === "string";
+export function modelsForPort(library: ModelDescriptor[], port: GraphPort) {
+  const field = port.role === "input" ? "outputs" : "inputs";
+  return library
+    .filter((model) => Object.prototype.hasOwnProperty.call(model[field], port.name))
+    .sort((left, right) => `${left.package}.${left.name}`.localeCompare(`${right.package}.${right.name}`));
+}
+
+function CandidatePopover({
+  candidate,
+  models,
+  applications,
+  onSelectModel,
+  onSelectApplication,
+  onClose,
+}: {
+  candidate: CandidatePopover;
+  models: ModelDescriptor[];
+  applications: ApplicationGraphNode[];
+  onSelectModel: (model: ModelDescriptor) => void;
+  onSelectApplication: (application: ApplicationGraphNode) => void;
+  onClose: () => void;
+}) {
+  const title = candidate.port.role === "input" ? `Models that compute ${candidate.port.name}` : `Models that consume ${candidate.port.name}`;
+  return (
+    <section className="candidate-popover" style={{ left: Math.min(candidate.x + 8, window.innerWidth - 390), top: Math.min(candidate.y - 20, window.innerHeight - 480) }}>
+      <header><div><strong>{title}</strong><span>Exact declared variable-name matches</span></div><button onClick={onClose}><X size={15} /></button></header>
+      <div className="candidate-list">
+        {applications.length > 0 && <div className="candidate-section-label">Existing applications</div>}
+        {applications.map((application) => (
+          <button className="candidate-card existing" key={application.applicationId} onClick={() => onSelectApplication(application)}>
+            <strong>{application.name || application.applicationId}</strong>
+            <span>{application.modelName}</span>
+            <small>{application.targetCount} target{application.targetCount === 1 ? "" : "s"}</small>
+            <div>Connect without adding another application</div>
+          </button>
+        ))}
+        {models.length > 0 && <div className="candidate-section-label">Available models</div>}
+        {models.map((model) => (
+          <button className="candidate-card" key={model.type} onClick={() => onSelectModel(model)}>
+            <strong>{model.name}</strong>
+            <span>{model.process}</span>
+            <small>{model.package || model.module}</small>
+            <div>{Object.keys(model.inputs).length} inputs · {Object.keys(model.outputs).length} outputs</div>
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+export function applicationsForPort(applications: ApplicationGraphNode[], candidate: CandidatePopover) {
+  return applications
+    .filter((application) => application.applicationId !== candidate.application.applicationId)
+    .filter((application) => {
+      const ports = candidate.port.role === "input" ? application.outputs : application.inputs;
+      return ports.some((port) => port.name === candidate.port.name);
+    })
+    .sort((left, right) => left.applicationId.localeCompare(right.applicationId));
+}
+
+export function endpointsForCandidate(candidate: CandidatePopover, application: ApplicationGraphNode): BindingEndpoints {
+  if (candidate.port.role === "input") {
+    const sourcePort = application.outputs.find((port) => port.name === candidate.port.name);
+    if (!sourcePort) throw new Error(`Application ${application.applicationId} does not output ${candidate.port.name}.`);
+    return { sourceApplication: application, sourcePort, targetApplication: candidate.application, targetPort: candidate.port };
+  }
+  const targetPort = application.inputs.find((port) => port.name === candidate.port.name);
+  if (!targetPort) throw new Error(`Application ${application.applicationId} does not input ${candidate.port.name}.`);
+  return { sourceApplication: candidate.application, sourcePort: candidate.port, targetApplication: application, targetPort };
+}
+
+function Inspector({ selection, port, initialization, interactive, onEditApplication, onConfigureApplication, onRemoveApplication, onOverrideApplication, onRemoveInstance, onEditObject, onRemoveObject }: { selection: InspectorSelection; port: GraphPort | null; initialization: ModelGraphView["initialization"]; interactive: boolean; onEditApplication: (application: ApplicationGraphNode) => void; onConfigureApplication: (application: ApplicationGraphNode) => void; onRemoveApplication: (application: ApplicationGraphNode) => void; onOverrideApplication: (application: ApplicationGraphNode) => void; onRemoveInstance: (instance: InstanceDescriptor) => void; onEditObject: (object: ObjectGraphNode) => void; onRemoveObject: (object: ObjectGraphNode) => void }) {
+  const application = selection && "applicationId" in selection && "selector" in selection ? selection as ApplicationGraphNode : null;
+  const object = selection && "objectId" in selection && !("applicationId" in selection) ? selection as ObjectGraphNode : null;
+  const instance = selection && "templateId" in selection && "objectIds" in selection ? selection as InstanceDescriptor : null;
+  return (
+    <aside className="model-inspector">
+      <header><strong>Inspector</strong>{selection && <span>{selectionLabel(selection)}</span>}</header>
+      {!selection && <div className="empty-inspector"><Boxes size={28} /><p>Select an application, object, execution, or relationship.</p></div>}
+      {selection && <pre>{JSON.stringify(selection, null, 2)}</pre>}
+      {application && interactive && <div className="inspector-actions"><button onClick={() => onEditApplication(application)}>{application.owner.scope === "template" ? "Edit shared template" : "Edit application"}</button><button data-testid="configure-application" onClick={() => onConfigureApplication(application)}>Configure coupling</button>{application.owner.scope === "template" && <button onClick={() => onOverrideApplication(application)}>Create override</button>}<button className="danger" onClick={() => onRemoveApplication(application)}>{application.owner.scope === "template" ? "Remove from shared template" : "Remove application"}</button></div>}
+      {instance && interactive && <div className="inspector-actions"><button className="danger" onClick={() => onRemoveInstance(instance)}>Unmount instance</button><small>The object subtree is retained.</small></div>}
+      {object && interactive && <div className="inspector-actions"><button onClick={() => onEditObject(object)}>Edit object</button><button className="danger" onClick={() => onRemoveObject(object)}>Remove object and descendants</button></div>}
+      {port && <section><h4>Selected variable</h4><code>{port.name}</code><p>{port.expectedType}</p></section>}
+      {selection && initialization.length > 0 && (
+        <section className="inspector-initialization"><h4>Initialization</h4>{initialization.slice(0, 8).map((row) => <div key={`${row.applicationId}:${row.objectId}:${row.variable}`}><code>{row.variable}</code><span className={row.disposition === "unresolved" ? "unresolved" : ""}>{row.disposition}</span></div>)}</section>
+      )}
+    </aside>
+  );
+}
+
+function DiagnosticsPanel({ graph, onClose, sendCommand, interactive }: { graph: ModelGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
+  return <Overlay title="Diagnostics and cycles" onClose={onClose}>
+    {graph.diagnostics.map((diagnostic) => <article className="diagnostic-card" key={`${diagnostic.code}:${diagnostic.message}`}><strong>{diagnostic.code}</strong><p>{diagnostic.message}</p>{diagnostic.suggestions.map((suggestion) => <small key={suggestion}>{suggestion}</small>)}</article>)}
+    {graph.cycles.map((cycle) => <article className="cycle-card" key={cycle.id}><strong>{cycle.applicationIds.join(" → ")}</strong><p>Choose an input to read from the previous timestep.</p>{cycle.breakCandidates.map((candidate) => { const owner = graph.applications.find((application) => application.applicationId === candidate.applicationId)?.owner; return <button disabled={!interactive || !owner} key={`${candidate.applicationId}:${candidate.objectId}:${candidate.input}`} onClick={() => owner && sendCommand({ action: "edit", kind: "mark_previous_timestep", applicationRef: owner, input: candidate.input })}>{candidate.applicationId}.{candidate.input}</button>; })}</article>)}
+    {graph.diagnostics.length === 0 && graph.cycles.length === 0 && <p>No diagnostics.</p>}
+  </Overlay>;
+}
+
+function InitializationPanel({ graph, onClose, sendCommand, interactive }: { graph: ModelGraphView; onClose: () => void; sendCommand: (command: Record<string, unknown>) => void; interactive: boolean }) {
+  const unresolved = graph.initialization.filter((row) => row.disposition === "unresolved");
+  const groups = new Map<string, typeof unresolved>();
+  for (const row of unresolved) {
+    const key = `${row.applicationId}:${row.variable}`;
+    groups.set(key, [...(groups.get(key) || []), row]);
+  }
+  return <Overlay title="Initialization" onClose={onClose}>
+    {[...groups.entries()].map(([key, rows]) => <InitializationGroup key={key} rows={rows} interactive={interactive} sendCommand={sendCommand} />)}
+    {unresolved.length === 0 && <p>No unresolved initial values.</p>}
+  </Overlay>;
+}
+
+function InitializationGroup({ rows, interactive, sendCommand }: { rows: ModelGraphView["initialization"]; interactive: boolean; sendCommand: (command: Record<string, unknown>) => void }) {
+  const [valueType, setValueType] = useState("float");
+  const [value, setValue] = useState("");
+  const first = rows[0];
+  const typedValue = { type: valueType, value };
+  return <article className="initialization-group">
+    <header><div><strong>{first.variable}</strong><span>{first.applicationId}</span></div><small>{rows.length} object{rows.length === 1 ? "" : "s"} · expected {first.expectedType}</small></header>
+    <p>Required because the input has no producer, environment source, status value, or usable temporal initialization.</p>
+    {interactive && <div className="initialization-value"><label>Type<select value={valueType} onChange={(event) => setValueType(event.target.value)}><option value="float">Float</option><option value="integer">Integer</option><option value="boolean">Boolean</option><option value="symbol">Symbol</option><option value="string">String</option><option value="julia">Julia expression</option></select></label><label>Value<input value={value} onChange={(event) => setValue(event.target.value)} /></label><button disabled={!value.trim()} onClick={() => sendCommand({ action: "edit", kind: "set_object_statuses", objectIds: rows.map((row) => row.objectId), variable: first.variable, value: typedValue })}>Set all targets</button></div>}
+    <div className="initialization-object-list">{rows.map((row) => <div key={String(row.objectId)}><span>Object {String(row.objectId)}</span><code>{row.origin}</code>{interactive && <button disabled={!value.trim()} onClick={() => sendCommand({ action: "edit", kind: "set_object_status", objectId: row.objectId, variable: row.variable, value: typedValue })}>Set this object</button>}</div>)}</div>
+  </article>;
+}
+
+function SceneCodePanel({ code, onClose }: { code: string; onClose: () => void }) {
+  return <Overlay title="Model code" onClose={onClose}><pre className="model-code">{code || "Model code is available from an interactive editor session."}</pre></Overlay>;
+}
+
+function SceneFileDialog({ mode, recentPaths, currentPath, autosavePath, onSubmit, onClose }: { mode: "open" | "save"; recentPaths: string[]; currentPath: string | null; autosavePath: string | null; onSubmit: (path: string) => void; onClose: () => void }) {
+  const [path, setPath] = useState(currentPath || "");
+  return <Overlay title={mode === "open" ? "Open Model" : "Save Model"} onClose={onClose}>
+    <div className="model-file-dialog">
+      <p>{mode === "open" ? "Open a Julia script whose final binding is `model = CompositeModel(...)`. Future edits will be saved back to that file." : "After the first save, every successful graph edit automatically rewrites this Julia script."}</p>
+      <label>Julia file path<div className="model-path-input"><input value={path} onChange={(event) => setPath(event.target.value)} placeholder="/absolute/path/to/model.jl" autoFocus /><button className="primary" disabled={!path.trim()} onClick={() => onSubmit(path.trim())}>{mode === "open" ? "Open" : "Save"}</button></div></label>
+      {mode === "open" && recentPaths.length > 0 && <section><strong>Recent models</strong><div className="recent-model-list">{recentPaths.map((recent) => <button key={recent} onClick={() => onSubmit(recent)}><span>{recent.split("/").at(-1)}</span><small>{recent}</small></button>)}</div></section>}
+      {mode === "open" && autosavePath && <section><strong>Recovery autosave</strong><button className="recovery-path" onClick={() => onSubmit(autosavePath)}>{autosavePath}</button></section>}
+      <small>Use Git to version saved composite-model scripts and review scientific configuration changes.</small>
+    </div>
+  </Overlay>;
+}
+
+function CycleBreakDialog({
+  selection,
+  initialization,
+  onSubmit,
+  onClose,
+}: {
+  selection: CycleBreakSelection;
+  initialization: ModelGraphView["initialization"];
+  onSubmit: (initializeMissing: boolean, initialValue: { type: string; value: string } | null) => void;
+  onClose: () => void;
+}) {
+  const missing = initialization.filter((row) =>
+    row.applicationId === selection.application.applicationId &&
+    row.variable === selection.port.name &&
+    row.disposition !== "supplied"
+  );
+  const [valueType, setValueType] = useState("float");
+  const [value, setValue] = useState("");
+  return <div className="overlay-backdrop" onMouseDown={onClose}>
+    <section className="overlay-panel cycle-break-dialog" onMouseDown={(event) => event.stopPropagation()} data-testid="cycle-break-dialog">
+      <header><div><strong>Break the current-step cycle</strong><span>{selection.application.applicationId}.{selection.port.name}</span></div><button onClick={onClose}><X size={17} /></button></header>
+      <div className="overlay-content">
+        <p>This changes the application input to read its value from the previous accepted timestep. The model is disconnected from the current value during each run step.</p>
+        <div className="cycle-impact"><strong>Application-wide change</strong><span>It affects all {selection.application.targetCount} targets selected by this application.</span></div>
+        {missing.length > 0 && <fieldset><legend>Required initial value</legend><p>{missing.length} target{missing.length === 1 ? "" : "s"} need a value before the first timestep.</p><div className="form-grid"><label>Value type<select value={valueType} onChange={(event) => setValueType(event.target.value)}><option value="float">Float</option><option value="integer">Integer</option><option value="boolean">Boolean</option><option value="symbol">Symbol</option><option value="string">String</option><option value="julia">Julia expression</option></select></label><label>Initial value<input value={value} onChange={(event) => setValue(event.target.value)} autoFocus /></label></div></fieldset>}
+      </div>
+      <footer><button onClick={onClose}>Cancel</button><button className="primary" disabled={missing.length > 0 && !value.trim()} onClick={() => onSubmit(missing.length > 0, missing.length > 0 ? { type: valueType, value } : null)} data-testid="confirm-cycle-break"><Scissors size={15} /> Use previous timestep</button></footer>
+    </section>
+  </div>;
+}
+
+function Overlay({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return <div className="overlay-backdrop" onMouseDown={onClose}><section className="overlay-panel" onMouseDown={(event) => event.stopPropagation()}><header><strong>{title}</strong><button onClick={onClose}><X size={17} /></button></header><div className="overlay-content">{children}</div></section></div>;
+}
+
+function selectionLabel(selection: Exclude<InspectorSelection, null>) {
+  if ("applicationId" in selection) return selection.applicationId;
+  if ("objectId" in selection) return String(selection.objectId);
+  if ("objectIds" in selection) return selection.name;
+  if ("entity" in selection) return "Composite model";
+  if ("provider" in selection) return selection.provider;
+  if ("name" in selection) return selection.name;
+  return selection.kind.replaceAll("_", " ");
+}
+
+function shortType(type: string) {
+  return type.split(".").at(-1) || type;
+}
+
+export function selectorSuggestion(application: ApplicationGraphNode): ApplicationGraphNode["selector"] {
+  const criteria: Record<string, unknown> = { selectors: [] };
+  if (application.targetInstances.length === 0 && application.targetScales.length === 1) criteria.scale = application.targetScales[0];
+  if (application.targetKinds.length === 1) criteria.kind = application.targetKinds[0];
+  if (application.targetSpecies.length === 1) criteria.species = application.targetSpecies[0];
+  return { type: application.targetCount === 1 ? "One" : "Many", multiplicity: application.targetCount === 1 ? "one" : "many", criteria, julia: "" };
+}
+
+export function applicationPortId(applicationId: string, role: "input" | "output", variable: string) {
+  return `application:${applicationId}:${role}:${variable}`;
+}
+
+function loadInitialGraph(): ModelGraphView {
+  const element = document.getElementById("pse-model-graph-data");
+  if (!element?.textContent) return sampleModelGraph;
+  try { return JSON.parse(element.textContent) as ModelGraphView; } catch { return sampleModelGraph; }
+}
+
+function loadEditorConfig(): { websocketUrl: string } | null {
+  const element = document.getElementById("pse-editor-config");
+  if (!element?.textContent) return null;
+  try { return JSON.parse(element.textContent) as { websocketUrl: string }; } catch { return null; }
 }

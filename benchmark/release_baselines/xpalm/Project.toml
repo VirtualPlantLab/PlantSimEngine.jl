@@ -1,0 +1,15 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+XPalm = "6b523e1e-d512-416c-8e51-a8fbef0064e7"
+
+[sources]
+PlantSimEngine = {rev = "503af98c3709a0b1207407e3741b7cb09ebfbcf7", url = "https://github.com/VirtualPlantLab/PlantSimEngine.jl"}
+XPalm = {rev = "a0dbf2e8d6fa9e21f8e8ced3220da184b3ee3f4c", url = "https://github.com/PalmStudio/XPalm.jl"}
+
+[compat]
+PlantSimEngine = "=0.14.1"
+XPalm = "=0.6.1"
+julia = "1.12"
