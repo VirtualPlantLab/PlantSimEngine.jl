@@ -116,11 +116,12 @@ struct _CompiledReadableKernel
     application_id::Symbol
     process::Symbol
     model::Any
-    dispatch_type::Any
     helper_name::Symbol
     method::Method
     source_module::Module
     body::Expr
+    input_plans::Any
+    call_plans::Any
 end
 
 function _validate_source_function_name(function_name::Symbol)
@@ -136,7 +137,7 @@ function _compiled_source_scenario_signature(compiled::CompiledCompositeModel)
             id=application.id,
             process=application.process,
             models=Tuple(sort!(unique!(
-                [_compiled_source_dispatch_type_name(model) for model in _compiled_source_application_models(application)],
+                [_compiled_source_concrete_type_name(model) for model in _compiled_source_application_models(application)],
             ))),
             selector=repr(application.applies_to),
             timestep=repr(application.timestep),
@@ -209,7 +210,7 @@ function _compiled_source_application_models(application::CompiledModelApplicati
     unique_models = Any[]
     dispatch_names = Set{String}()
     for model in models
-        dispatch_name = _compiled_source_dispatch_type_name(model)
+        dispatch_name = _compiled_source_concrete_type_name(model)
         dispatch_name in dispatch_names && continue
         push!(dispatch_names, dispatch_name)
         push!(unique_models, model)
@@ -254,11 +255,12 @@ function _compiled_source_kernels(compiled::CompiledCompositeModel, source_id::S
                     application.id,
                     application.process,
                     model,
-                    Base.typename(typeof(model)).wrapper,
                     helper_name,
                     method,
                     method.module,
                     body,
+                    compiled.scenario_plan.input_plans_by_application[application.id],
+                    compiled.scenario_plan.call_plans_by_application[application.id],
                 ),
             )
         end
@@ -517,6 +519,14 @@ function _compiled_source_dispatch_type_name(model)
     return string(module_path, ".", nameof(wrapper))
 end
 
+function _compiled_source_concrete_type_name(model)
+    concrete_type = typeof(model)
+    wrapper_name = _compiled_source_dispatch_type_name(model)
+    isempty(concrete_type.parameters) && return wrapper_name
+    parameters = join(repr.(concrete_type.parameters), ", ")
+    return string(wrapper_name, "{", parameters, "}")
+end
+
 function _compiled_source_imports(kernels)
     imports = String["import PlantSimEngine\n", "import PlantMeteo\n"]
     roots = Set{Module}()
@@ -554,11 +564,21 @@ function _compiled_source_kernel_definition(kernel::_CompiledReadableKernel)
     )
     helper_expression = Expr(:function, helper_signature, kernel.body)
     module_path = _compiled_source_module_path(kernel.source_module)
-    dispatch_type = _compiled_source_dispatch_type_name(kernel.model)
+    dispatch_type = _compiled_source_concrete_type_name(kernel.model)
     inputs = join(string.(keys(inputs_(kernel.model))), ", ")
     outputs = join(string.(keys(outputs_(kernel.model))), ", ")
     isempty(inputs) && (inputs = "none")
     isempty(outputs) && (outputs = "none")
+    resolved_inputs = isempty(kernel.input_plans) ?
+                      "# Resolved inputs: none\n" :
+                      join(
+        ("# " * _compiled_source_input_description(plan) * "\n" for plan in kernel.input_plans),
+    )
+    resolved_calls = isempty(kernel.call_plans) ?
+                     "# Manual calls: none\n" :
+                     join(
+        ("# " * _compiled_source_call_description(plan) * "\n" for plan in kernel.call_plans),
+    )
     return string(
         "# Application :", kernel.application_id,
         " | process :", kernel.process,
@@ -566,6 +586,8 @@ function _compiled_source_kernel_definition(kernel::_CompiledReadableKernel)
         "# Original method: ", kernel.method, "\n",
         "# Source: ", String(kernel.method.file), ":", kernel.method.line, "\n",
         "# Inputs: ", inputs, " | outputs: ", outputs, "\n",
+        resolved_inputs,
+        resolved_calls,
         "Core.eval(", module_path, ", quote\n",
         _compiled_source_indent(_compiled_source_render(helper_expression), 4), "\n",
         "end)\n\n",
@@ -599,6 +621,66 @@ function _compiled_source_object_summary(model::CompositeModel, object_ids)
     return join(labels, ", ")
 end
 
+function _compiled_source_value_description(value)
+    value isa PreviousTimeStep && return "PreviousTimeStep($(repr(value.variable)))"
+    return repr(value)
+end
+
+function _compiled_source_selector_description(selector::AbstractObjectMultiplicity)
+    selector_criteria = criteria(selector)
+    arguments = String[
+        _compiled_source_value_description(value)
+        for value in selector_criteria.selectors
+    ]
+    for key in keys(selector_criteria)
+        key === :selectors && continue
+        push!(
+            arguments,
+            "$(key)=$(_compiled_source_value_description(getproperty(selector_criteria, key)))",
+        )
+    end
+    selector_name = nameof(Base.typename(typeof(selector)).wrapper)
+    return string(selector_name, "(", join(arguments, ", "), ")")
+end
+
+function _compiled_source_environment_description(spec)
+    config = environment_config(spec)
+    isnothing(config) && return "scenario default"
+    values = config.config
+    arguments = join(
+        ("$(key)=$(repr(getproperty(values, key)))" for key in keys(values)),
+        ", ",
+    )
+    return string("Environment(", arguments, ")")
+end
+
+function _compiled_source_output_routing_description(spec)
+    routing = output_routing(spec)
+    isempty(routing) && return "canonical (all declared outputs)"
+    return join(
+        ("$(key)=>$(repr(getproperty(routing, key)))" for key in keys(routing)),
+        ", ",
+    )
+end
+
+function _compiled_source_input_description(plan)
+    source = isnothing(plan.application) ?
+             (isnothing(plan.process) ? "inferred producer" : "process :$(plan.process)") :
+             "application :$(plan.application)"
+    lag = plan.breaks_same_step_cycle ? " (previous timestep)" : ""
+    return "input :$(plan.input) <- $(source).$(plan.source_var) via $(plan.multiplicity)$(lag); " *
+           "selector=$(_compiled_source_selector_description(plan.selector)); " *
+           "window=$(_compiled_source_value_description(plan.window))"
+end
+
+function _compiled_source_call_description(plan)
+    target = isnothing(plan.application) ?
+             (isnothing(plan.process) ? "resolved application" : "process :$(plan.process)") :
+             "application :$(plan.application)"
+    return "manual call :$(plan.call) -> $(target) via $(plan.multiplicity); " *
+           "selector=$(_compiled_source_selector_description(plan.selector))"
+end
+
 function _compiled_source_application_comments(
     simulation::Simulation,
     application::CompiledModelApplication,
@@ -608,22 +690,17 @@ function _compiled_source_application_comments(
         "Application :$(application.id)",
         "process: :$(application.process)",
         "cadence: dt=$(entry.dt), phase=$(entry.phase), schedule=$(entry.kind)",
-        "target selector: $(repr(application.applies_to))",
+        "target selector: $(_compiled_source_selector_description(application.applies_to))",
         "current targets: $(_compiled_source_object_summary(simulation.model, application.target_ids))",
+        "environment: $(_compiled_source_environment_description(application.spec))",
+        "output routing: $(_compiled_source_output_routing_description(application.spec))",
     ]
     input_plans = simulation.compiled.scenario_plan.input_plans_by_application[application.id]
     if isempty(input_plans)
         push!(lines, "inputs: none")
     else
         for plan in input_plans
-            source = isnothing(plan.application) ?
-                     (isnothing(plan.process) ? "inferred producer" : "process :$(plan.process)") :
-                     "application :$(plan.application)"
-            lag = plan.breaks_same_step_cycle ? " (previous timestep)" : ""
-            push!(
-                lines,
-                "input :$(plan.input) <- $(source).$(plan.source_var) via $(plan.multiplicity)$(lag)",
-            )
+            push!(lines, _compiled_source_input_description(plan))
         end
     end
     call_plans = simulation.compiled.scenario_plan.call_plans_by_application[application.id]
@@ -631,13 +708,7 @@ function _compiled_source_application_comments(
         push!(lines, "manual calls: none")
     else
         for plan in call_plans
-            target = isnothing(plan.application) ?
-                     (isnothing(plan.process) ? "resolved application" : "process :$(plan.process)") :
-                     "application :$(plan.application)"
-            push!(
-                lines,
-                "manual call :$(plan.call) -> $(target) via $(plan.multiplicity)",
-            )
+            push!(lines, _compiled_source_call_description(plan))
         end
     end
     return lines
@@ -659,31 +730,26 @@ function _compiled_source_application_block(
         comments,
         "        if ", application_id, " in due_applications\n",
         "            application = simulation.compiled.applications_by_id[", application_id, "]\n",
-        "            group = PlantSimEngine._compiled_source_application_group(\n",
-        "                simulation, ", application_id, ",\n",
+        "            # Resolve the objects selected by this application at the current\n",
+        "            # lifecycle revision, then run the visible scientific kernel once\n",
+        "            # for each object.\n",
+        "            for resolved_target in PlantSimEngine._compiled_source_targets(\n",
+        "                simulation, ", application_id, ", timestep,\n",
         "            )\n",
-        "            if !isnothing(group)\n",
-        "                for batch in group.batches\n",
-        "                    shared_environment, publish_outputs =\n",
-        "                        PlantSimEngine._compiled_source_prepare_batch(\n",
-        "                            simulation, batch, timestep,\n",
-        "                        )\n",
-        "                    for target in batch.targets\n",
-        "                        status, environment, context =\n",
-        "                            PlantSimEngine._compiled_source_prepare_target!(\n",
-        "                                simulation, application, target, timestep,\n",
-        "                                shared_environment,\n",
-        "                            )\n",
-        "                        PlantSimEngine._compiled_source_kernel!(\n",
-        "                            Val(", repr(source_id), "), Val(", application_id, "),\n",
-        "                            target.model, status, environment,\n",
-        "                            simulation.constants, context,\n",
-        "                        )\n",
-        "                        PlantSimEngine._compiled_source_publish_target!(\n",
-        "                            target, timestep, publish_outputs,\n",
-        "                        )\n",
-        "                    end\n",
-        "                end\n",
+        "                target = resolved_target.target\n",
+        "                status, environment, context =\n",
+        "                    PlantSimEngine._compiled_source_prepare_target!(\n",
+        "                        simulation, application, target, timestep,\n",
+        "                        resolved_target.shared_environment,\n",
+        "                    )\n",
+        "                PlantSimEngine._compiled_source_kernel!(\n",
+        "                    Val(", repr(source_id), "), Val(", application_id, "),\n",
+        "                    target.model, status, environment,\n",
+        "                    simulation.constants, context,\n",
+        "                )\n",
+        "                PlantSimEngine._compiled_source_publish_target!(\n",
+        "                    target, timestep, resolved_target.publish_outputs,\n",
+        "                )\n",
         "            end\n",
         "        end\n",
         "        push!(completed_applications, ", application_id, ")\n",
@@ -727,6 +793,32 @@ end
 function _compiled_source_application_group(simulation::Simulation, application_id::Symbol)
     application = simulation.compiled.applications_by_id[application_id]
     return simulation.execution_plan.groups_by_application_slot[application.slot]
+end
+
+function _compiled_source_targets(
+    simulation::Simulation,
+    application_id::Symbol,
+    time::Real,
+)
+    group = _compiled_source_application_group(simulation, application_id)
+    isnothing(group) && return NamedTuple[]
+    targets = NamedTuple[]
+    for batch in group.batches
+        shared_environment, publish_outputs =
+            _compiled_source_prepare_batch(simulation, batch, time)
+        for target in batch.targets
+            push!(
+                targets,
+                (;
+                    object_id=target.object_id,
+                    target,
+                    shared_environment,
+                    publish_outputs,
+                ),
+            )
+        end
+    end
+    return targets
 end
 
 function _compiled_source_prepare_batch(
