@@ -42,6 +42,10 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Readable model source compilation" begin
+        include("test-model-source-compilation.jl")
+    end
+
     @testset "Composite model numerical parity" begin
         include("test-model-numerical-parity.jl")
     end

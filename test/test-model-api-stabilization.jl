@@ -235,6 +235,7 @@ end
         :call_model,
         :call_targets,
         :collect_outputs,
+        :compile_model_source,
         :commit_environment!,
         :continue!,
         :current_step,
@@ -277,6 +278,7 @@ end
         :validate_environment_inputs,
         :value_inputs,
         :variables,
+        :write_compiled_model,
     ])
     @test public_names == expected_public_names
     advanced_names = names(PlantSimEngine.Advanced)

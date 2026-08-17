@@ -326,6 +326,7 @@ export environment_bindings, environment_window, output_routing, updates
 export environment_inputs, environment_outputs
 export validate_environment_inputs
 export run!, continue!, step!
+export compile_model_source, write_compiled_model
 export Advanced, Diagnostics, GraphEditor, EnvironmentAPI, Evaluation
 
 # Re-exporting PlantMeteo main functions:
