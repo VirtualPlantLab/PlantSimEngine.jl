@@ -270,37 +270,14 @@ end
 
 function _compiled_source_run_method(model)
     model_type = typeof(model)
-    candidates = Method[]
-    for method in methods(run!)
-        signature = Base.unwrap_unionall(method.sig)
-        signature isa DataType || continue
-        length(signature.parameters) == 6 || continue
-        model_argument = signature.parameters[2]
-        applicable = try
-            model_type <: model_argument
-        catch
-            false
-        end
-        applicable && push!(candidates, method)
+    return try
+        which(run!, Tuple{model_type,Any,Any,Any,Any})
+    catch err
+        error(
+            "No unambiguous five-argument `run!` method was found for model type ",
+            "`$(model_type)`. Julia dispatch reported: $(sprint(showerror, err))",
+        )
     end
-    isempty(candidates) && error(
-        "No five-argument `run!` method was found for model type `$(model_type)`.",
-    )
-    best = first(candidates)
-    for candidate in Base.tail(Tuple(candidates))
-        Base.morespecific(candidate.sig, best.sig) && (best = candidate)
-    end
-    ambiguous = Method[
-        candidate for candidate in candidates
-        if candidate !== best &&
-           !Base.morespecific(best.sig, candidate.sig) &&
-           !Base.morespecific(candidate.sig, best.sig)
-    ]
-    isempty(ambiguous) || error(
-        "Several incomparable five-argument `run!` methods match model type `$(model_type)`: ",
-        join(string.((best, ambiguous...)), ", "),
-    )
-    return best
 end
 
 function _compiled_source_method_expression(method::Method)
@@ -355,8 +332,17 @@ end
 function _compiled_source_clean_expression(expression)
     expression isa LineNumberNode && return nothing
     expression isa Expr || return expression
+    if expression.head === :return &&
+       (isempty(expression.args) ||
+        (length(expression.args) == 1 && only(expression.args) === nothing))
+        return Expr(:return, :nothing)
+    end
     cleaned = Any[]
     for argument in expression.args
+        if expression.head === :macrocall && argument isa LineNumberNode
+            push!(cleaned, argument)
+            continue
+        end
         value = _compiled_source_clean_expression(argument)
         isnothing(value) || push!(cleaned, value)
     end

@@ -3,6 +3,25 @@ using Dates
 PlantSimEngine.@process "source_compiler_signal" verbose = false
 struct SourceCompilerSignalModel <: AbstractSource_Compiler_SignalModel end
 
+PlantSimEngine.@process "source_compiler_generic" verbose = false
+struct SourceCompilerGenericModel <: AbstractSource_Compiler_GenericModel end
+
+PlantSimEngine.inputs_(::SourceCompilerGenericModel) = NamedTuple()
+PlantSimEngine.outputs_(::SourceCompilerGenericModel) = (generic_value=0.0,)
+
+function PlantSimEngine.run!(
+    ::M,
+    status,
+    environment,
+    constants,
+    context,
+) where {M<:AbstractSource_Compiler_GenericModel}
+    @debug "Running the generic source-compiler fixture"
+    status.generic_value > 10.0 && return
+    status.generic_value += 4.0
+    return nothing
+end
+
 PlantSimEngine.inputs_(::SourceCompilerSignalModel) = NamedTuple()
 PlantSimEngine.outputs_(::SourceCompilerSignalModel) = (signal=0.0,)
 
@@ -214,6 +233,11 @@ function source_compiler_fixture()
                 on=One(scale=:Scene),
             ),
             ModelSpec(
+                SourceCompilerGenericModel();
+                name=:generic_dispatch,
+                on=One(scale=:Scene),
+            ),
+            ModelSpec(
                 SourceCompilerConsumerModel();
                 name=:consumer,
                 on=One(scale=:Scene),
@@ -355,6 +379,7 @@ end
     @test occursin("executable explanation of a resolved CompositeModel", source)
     @test occursin("Application :source", source)
     @test occursin("Application :consumer", source)
+    @test occursin("Application :generic_dispatch", source)
     @test occursin("Application :child", source)
     @test occursin("Application :grandchild", source)
     @test occursin("Application :parent", source)
@@ -405,6 +430,7 @@ end
     normal_scene = final_state(normal_simulation, One(scale=:Scene))
     @test generated_simulation.current_step == normal_simulation.current_step == 3
     @test generated_scene.signal == normal_scene.signal == 3.0
+    @test generated_scene.generic_value == normal_scene.generic_value == 12.0
     @test generated_scene.doubled == normal_scene.doubled == 6.0
     @test generated_scene.grandchild_value == normal_scene.grandchild_value == 6.0
     @test generated_scene.child_value == normal_scene.child_value == 15.0
