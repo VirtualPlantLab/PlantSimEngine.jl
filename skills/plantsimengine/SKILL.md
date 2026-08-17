@@ -1,132 +1,268 @@
 ---
 name: plantsimengine
-description: Use PlantSimEngine.jl to compose existing process models with ModelMapping, spatial multiscale MTG mappings, multirate ModelSpec configuration, and to implement or wrap new models by defining processes, inputs_, outputs_, run!, hard dependencies, and model traits.
+description: Use PlantSimEngine.jl to compose, run, diagnose, and optimize simulations with the unified CompositeModel/Object API, and to implement or wrap generic model kernels with explicit input schemas, environments, hard calls, lifecycle support, and multirate execution.
 ---
 
 # PlantSimEngine Skill
 
-Use this skill when helping with PlantSimEngine.jl simulations, model mappings, multiscale MTG coupling, multirate execution, or implementing/wrapping models.
+Use this skill when helping with PlantSimEngine.jl model/object simulations,
+multiscale or multi-plant coupling, multirate execution, microclimate binding,
+or implementing and wrapping models.
 
 PlantSimEngine has two main user roles:
 
-- **Users** compose existing models. They mostly need `ModelMapping`, `MultiScaleModel`/`ModelSpec`, status initialization, variable mappings, spatial scale symbols, and multirate policies.
-- **Modelers** implement or wrap models. They need process identity, `inputs_`, `outputs_`, `run!`, hard dependencies, model traits, and tests that prove the model composes correctly.
+- **Users** compose existing models. They mostly need `CompositeModel`, `Object`,
+  `ModelSpec`, `Updates`, and `Environment`.
+- **Modelers** implement or wrap generic kernels. They need process identity,
+  `inputs_`, `outputs_`, `dep`, `environment_inputs_`, `environment_outputs_`, `run!`,
+  model traits, and focused tests.
 
-Prefer current APIs: `ModelMapping`, `ModelSpec`, `MultiScaleModel`, `Status`, `PreviousTimeStep`, and `run!`. Treat legacy `ModelList` as compatibility plumbing unless the user is working on legacy code.
+Use the unified model/object API for multiscale, multi-plant, soil, model, and
+microclimate work. `ModelMapping`, `MultiScaleModel`, `GraphSimulation`, and
+the other mapping-era scenario layers have been removed; do not recreate them
+as aliases or compatibility wrappers. Translate historical code with
+`docs/src/migration_composite_model.md`.
 
 ## First Steps
 
-1. Identify whether the request is user-side mapping work or modeler-side implementation work.
+1. Identify whether the request is user-side scenario composition or
+   modeler-side implementation.
 2. Inspect existing model declarations before inventing names:
    - Search for process definitions with `rg "@process|abstract type Abstract.*Model" src examples docs test`.
    - Search for model APIs with `rg "inputs_\\(|outputs_\\(|PlantSimEngine.run!|dep\\(" src examples test`.
-3. Check model IO with `inputs(model)`, `outputs(model)`, `variables(model)`, and process identity with `process(model)` when available.
-4. Validate mappings early with `dep(mapping)`, `to_initialize(mapping[, mtg])`, `resolved_model_specs(mapping)`, and `explain_model_specs(mapping)` when relevant.
+3. Check model IO with `inputs(model)`, `outputs(model)`, `variables(model)`,
+   and process identity with `process(model)` when available.
+4. Validate scenarios early with `Diagnostics.explain_initialization(model)`
+   and inspect applications, bindings, calls, writers, schedules, execution
+   batches, environments, and output retention through `Diagnostics`.
+5. Prefer supported `Diagnostics` helpers over compiler-field inspection.
+   Reach for `PlantSimEngine.Advanced` only when the task is explicitly about
+   compiler integration or cache behavior.
 
 ## User Workflow: Existing Models
 
-### Single-scale mapping
+### Build the object graph
 
-Use `ModelMapping` when all models share one status.
+For one object with ordinary same-object inference, use the thin constructor
+that lowers directly to the same Composite Model/Object runtime:
 
 ```julia
-mapping = ModelMapping(
-    ModelA(args...),
-    ModelB(args...);
-    status=(x=1.0, y=0.0),
+model = CompositeModel(
+    ModelA(),
+    ModelB();
+    status=(initial_value=1.0,),
+    timestep=Dates.Hour(1),
 )
+```
 
-out = run!(mapping, meteo)
+Use the explicit object graph below as soon as models require different target
+sets or scenario policies.
+
+Represent every runtime entity as an `Object` with stable identity and useful
+labels. Plant topology remains scenario-defined.
+
+```julia
+model = CompositeModel(
+    Object(:scene; scale=:Scene, kind=:scene),
+    Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene),
+    Object(:leaf_1; scale=:Leaf, kind=:leaf, parent=:plant_1),
+    Object(:soil; scale=:Soil, kind=:soil, parent=:scene);
+    environment=(T=25.0, Rh=0.6, Wind=1.0),
+)
 ```
 
 Rules:
 
-- Inputs are matched to outputs by variable name after model declarations are flattened.
-- Variables not produced by another model must be initialized through `status`, model defaults, meteo, or another supported input source.
-- If two models produce the same canonical variable, inspect the graph and disambiguate before relying on incidental order.
-- `Status` values are reference-backed. Writing `status.x = value` mutates the cell used by coupled models.
+- `scale`, `kind`, `species`, and `name` are selector labels, not a fixed plant
+  ontology.
+- Use any hierarchy required by the simulated object.
+- `Status` is reference-backed. Same-rate coupling should preserve those
+  references instead of copying values.
+- Use `CompositeModelTemplate` and `ObjectInstance` for repeated plants with shared
+  model objects and parameters.
+- Use `Override` only when one instance or selected object genuinely needs a
+  different implementation while remaining part of the same logical
+  application.
+- Adapt an existing MTG with `CompositeModel(mtg; applications=..., environment=...)`,
+  or inspect `objects_from_mtg(mtg; ...)` before constructing the model.
+  Accessors can translate MTG attributes into ids, labels, status, and
+  geometry.
 
-### Spatial multiscale mapping
+### Apply models
 
-Use `ModelMapping` keyed by scale symbols when running on an MTG. Prefer symbol scales such as `:Scene`, `:Plant`, `:Leaf`, `:Internode`; string scale names are deprecated.
+Wrap each scenario application in `ModelSpec` and select its target objects
+with `on`.
 
 ```julia
-mapping = ModelMapping(
-    :Scene => (
-        SceneModel(),
-    ),
-    :Plant => (
-        MultiScaleModel(
-            PlantModel(),
-            [:TT_cu => (:Scene => :TT_cu)],
-        ),
-    ),
-    :Leaf => (
-        LeafModel(),
-        Status(carbon_biomass=1.0),
-    ),
+applications = (
+    ModelSpec(LeafModel(); name=:leaf_model, on=Many(scale=:Leaf)),
+
+    ModelSpec(SoilModel(); name=:soil_model, on=One(scale=:Soil)),
 )
 
-out = run!(mtg, mapping, meteo)
+model = CompositeModel(model_objects...; applications=applications, environment=backend)
 ```
 
-Each scale tuple can contain models, `ModelSpec`s, `MultiScaleModel`s, and optional `Status(...)` initializers for variables local to that scale. A model only sees variables in its local status unless they are mapped from another scale or supplied by runtime input binding.
+Use explicit application names when a process is applied more than once to the
+same object set. Singular producer references use `application=`. A
+`Many(process=...)` filter is reserved for explicit discovery across several
+applications, such as mounted template instances.
 
-### Variable mapping forms
+### Couple values with `inputs`
 
-Use `MultiScaleModel(model, mapped_variables)` or pipe through `ModelSpec(model) |> MultiScaleModel(mapped_variables)`.
-
-Common forms:
+Declare each consumer's value source with the `inputs` keyword.
 
 ```julia
-:x => :Plant                         # scalar read from :Plant, same variable name
-:x => (:Plant => :y)                 # scalar read from :Plant variable :y
-:x => [:Leaf]                        # vector read from all :Leaf nodes
-:x => [:Leaf, :Internode]            # vector read from several scales
-:x => [:Leaf => :a, :Internode => :b] # vector read with per-scale renaming
-:x => (Symbol("") => :y)             # same-scale rename or alias
-PreviousTimeStep(:x)                 # break current-step dependency inference
-PreviousTimeStep(:x) => (:Plant => :y)
+ModelSpec(
+    AllocationModel();
+    name=:allocation,
+    on=Many(scale=:Plant),
+    inputs=(
+        :leaf_carbon => Many(
+            scale=:Leaf,
+            within=Subtree(),
+            application=:leaf_carbon,
+            var=:leaf_carbon,
+        ),
+    ),
+)
 ```
 
 Semantics:
 
-- Scalar cross-scale mappings share a `Ref`; the source scale is expected to be unique at runtime.
-- Vector mappings create a `RefVector`; models must handle vector inputs, and order follows MTG traversal order.
-- Same-scale renaming creates a per-status alias, not a graph-wide shared variable.
-- `PreviousTimeStep` prevents same-step dependency edges and is the standard way to break cycles.
+- `One(...)`, `OptionalOne(...)`, and `Many(...)` make multiplicity explicit.
+- `Self()` is only the consumer object. `Subtree()` is that object plus its
+  descendants. `SelfPlant()` is the nearest containing plant and its subtree.
+  `SceneScope()` selects across the model.
+- Same-rate scalar and many-object inputs use shared `Ref`s or reference
+  vectors where possible.
+- Cross-rate values use typed temporal streams.
+- Rename variables with
+  `inputs=(:local_name => One(within=Self(), var=:source_name),)`.
+- Use `PreviousTimeStep(:x) => selector` for an explicit lag and cycle break.
+- An unresolved `OptionalOne` input keeps its `inputs_` default.
 
-### Multirate configuration
+### Control manual model calls
 
-Use `ModelSpec` when models run at different clocks, consume streams with temporal policies, aggregate meteo, or need scoped streams.
+Use `calls` when the parent model must own the call stack, such as an iterative
+energy balance.
 
 ```julia
-daily = ClockSpec(24.0, 1.0)
-
-plant_spec =
-    ModelSpec(PlantDailyModel()) |>
-    MultiScaleModel([:leaf_assim => [:Leaf => :A]]) |>
-    TimeStepModel(daily) |>
-    InputBindings(;
-        leaf_assim=(process=:leafassimilation, scale=:Leaf, var=:A, policy=Integrate()),
-    ) |>
-    ScopeModel(:plant)
+ModelSpec(
+    SceneEnergyBalance();
+    name=:scene_energy,
+    on=One(scale=:Scene),
+    calls=(
+        :leaf_energy => Many(
+            scale=:Leaf,
+            within=SceneScope(),
+            application=:energy_balance,
+        ),
+    ),
+)
 ```
 
-Policies:
+Inside `run!`, execute all targets with `run_call!(context, :name)`, which
+always returns a vector-like `CallTargets` collection. Pass
+`sampled_environment=value` to the same bulk call when the caller already has
+one model-facing environment for all targets. This uses the cached typed
+execution batches directly. Use `call_model(context, :name)` when a singular
+dependency's concrete model must guide dispatch or parameter access.
 
-- `HoldLast()` uses the latest producer value.
-- `Interpolate()` interpolates or holds/extrapolates producer streams.
-- `Integrate()` reduces over the consumer window, usually for fluxes or accumulations.
-- `Aggregate()` reduces over the consumer window, usually for means, extrema, or summaries.
+Reserve `call_targets(context, :name)` and individual `run_call!(target)` calls
+for object selection, custom ordering, target status inspection, or a distinct
+sampled environment per target. `run_call!` defaults to `publish=false` for
+trial iterations. Use `publish=true` once for the accepted state. Applications
+used only as call targets are not scheduled independently and do not receive
+inferred soft bindings.
 
-Precedence:
+Keep `environment=trial_state` distinct from
+`sampled_environment=model_facing_value`. A transient backend state is sampled
+through each target's compiled environment handle and inherited by nested hard
+calls; an already sampled value is forwarded directly and is not treated as a
+backend state.
 
-1. Input policy: explicit `InputBindings(..., policy=...)` > producer `output_policy` > `HoldLast()`.
-2. Timestep: `TimeStepModel(...)` > non-default `timespec(model)` > meteo base step.
-3. Meteo sampling: explicit `MeteoBindings(...)`/`MeteoWindow(...)` > `meteo_hint(...)` > runtime defaults.
+### Configure rates and environment
 
-Use explicit `InputBindings` when several models/scales can produce the same variable, names differ, or the default temporal policy is not correct. Use `OutputRouting(; x=:stream_only)` when a producer should publish a stream without becoming the canonical status owner for `x`.
+Use `Dates.Period` values directly:
+
+```julia
+ModelSpec(
+    DailyPlantModel();
+    name=:daily_plant,
+    on=Many(scale=:Plant),
+    inputs=(
+        :leaf_fluxes => Many(
+            scale=:Leaf,
+            within=Subtree(),
+            var=:flux,
+            policy=Integrate(),
+            window=Dates.Day(1),
+        ),
+    ),
+    every=Dates.Day(1),
+)
+```
+
+Policies are `HoldLast`, `Interpolate`, `Integrate`, and `Aggregate`. When an
+`ModelSpec(...; inputs=...)` selector omits `policy=...`, a unique producer's
+`output_policy(::Type{<:Model})` trait supplies the default policy; explicit
+selector policies override the trait.
+Environment variables come from `environment_inputs_` and `environment_outputs_`.
+`environment_hint(...).bindings` can provide model-author default source remaps, and
+`Environment(; sources=...)` is the scenario-level override. Use
+`Environment(provider=:grid)` only when overriding automatic binding.
+For global `Weather` tables, model applications sample meteorology at their
+compiled clock using the `environment_hint` reducer/window. An
+`Environment(; sources=...)` override changes the source but preserves that
+reducer, and all objects in one application reuse the same sampled row for a
+given timestep. Spatial backends define their own temporal sampling semantics.
+When no `every` value is provided, the model scheduler honors
+`timespec(::Type{<:Model})`; an explicit `every` remains the scenario-level
+override. If the clock falls back to the model base step,
+`timestep_hint(::Type{<:Model})` required bounds are validated as compatibility
+constraints.
+
+### Handle lifecycle changes
+
+Use `add_organ!` for MTG-backed growth: it creates the node, applies the MTG
+status policy and initial values, attaches status, and registers the object.
+Use `register_object!` only when the caller already owns a fully initialized
+`Object`. `remove_object!` and `reparent_object!` change topology;
+`move_object!`, `update_geometry!`, and
+`mark_environment_binding_dirty!` invalidate spatial bindings.
+
+The hard-dependency definition is immutable after scenario compilation: call
+names, applications, selectors, multiplicity, ordering, and batching rules do
+not change at runtime. Structural changes made inside a kernel refresh only the
+affected application targets, value carriers, hard-call target buffers,
+writers, and schedules after that application. New objects may run
+applications still remaining in the same timestep, but never ones that already
+completed. Removed objects keep retained output history. Ordinary timesteps
+then return to the cached plan without selector resolution or graph rebuild.
+
+### Validate the compiled scenario
+
+```julia
+Diagnostics.explain_initialization(model)
+Diagnostics.explain_applications(model)
+Diagnostics.explain_bindings(model)
+Diagnostics.explain_calls(model)
+Diagnostics.explain_schedule(model)
+Diagnostics.explain_writers(model)
+Diagnostics.explain_execution_plan(model)
+```
+
+Run with `simulation = run!(model; steps=n, outputs=:none)`. Use
+`outputs=:all` or `outputs=OutputRequest(...)` when the user needs retained or
+resampled outputs. Requests are materialized from retained typed streams after
+the run, and dynamic objects are exported only across their own sample
+interval. Continue the same time/environment/multirate state with
+`continue!(simulation; steps=n)` or `step!(simulation)`. Read the latest status
+without retaining streams through `final_state(simulation[, selector])`. Use
+`outputs(simulation)` for retained typed streams and `collect_outputs` only
+when rows must be materialized. Inspect retention afterward with
+`Diagnostics.explain_output_retention(simulation)`.
 
 ## Modeler Workflow: New Or Wrapped Models
 
@@ -149,22 +285,31 @@ struct MyModel{T} <: AbstractSome_ProcessModel
     p::T
 end
 
-PlantSimEngine.inputs_(::MyModel) = (x=0.0, y=-Inf)
-PlantSimEngine.outputs_(::MyModel) = (z=-Inf,)
+PlantSimEngine.inputs_(::MyModel) = (
+    x=Required(Real),
+    offset=Default(0.0),
+)
+PlantSimEngine.outputs_(model::MyModel) = (z=zero(model.p),)
 
-function PlantSimEngine.run!(m::MyModel, models, status, meteo, constants, extra=nothing)
-    status.z = f(status.x, status.y, meteo.T, m.p)
+function PlantSimEngine.run!(model::MyModel, status, environment, constants, context)
+    status.z = model.p * status.x + status.offset
     return nothing
 end
 ```
 
 Rules:
 
-- `inputs_` and `outputs_` are authoritative. Defaults are also initialization hints.
+- `inputs_` must return a `NamedTuple` containing only `Required(T)` and
+  `Default(value)` declarations. `Required(T)` is a type contract, not an
+  initial value. Use `Default` only for a scientifically meaningful fallback.
+- `outputs_` returns initial output-state values; keep them generic with
+  respect to model parameter and status types.
 - Use `NamedTuple()` for no inputs or no outputs.
 - Read and write model state through `status`. Do not store timestep-varying state in the model object.
-- Read weather through `meteo` and physical constants through `constants`.
-- In MTG runs, `extra` is the `GraphSimulation`; do not use user-defined `extra` arguments for MTG APIs.
+- Read sampled forcing through `environment` and physical constants through `constants`.
+- In model runs, `context` is a `RunContext`. Use its public hard-call and
+  lifecycle APIs rather than attaching unrelated user data. Obtain the live
+  model with `runtime_model(context)`; do not inspect `context.compiled.model`.
 - If a variable appears in both `inputs_` and `outputs_` with the same name, remember that `variables(model)` merges declarations and later output declarations win.
 
 ### Wrapping existing code
@@ -180,40 +325,41 @@ When wrapping an external or existing model:
 
 ### Hard dependencies
 
-Use hard dependencies when a parent model directly calls a required submodel inside its own `run!`. The runtime records the dependency but does not automatically execute it for the parent.
+Use a `Call(...)` dependency default when a parent model directly calls a
+required submodel inside its own `run!`. Scenario-level `ModelSpec(...; calls=...)` can
+override the default selector without changing the kernel.
 
 ```julia
 PlantSimEngine.dep(::ParentModel) = (
-    child_process=AbstractChild_ProcessModel,
+    child=Call(One(process=:child_process)),
 )
 
-function PlantSimEngine.run!(m::ParentModel, models, status, meteo, constants, extra=nothing)
-    run!(models.child_process, models, status, meteo, constants, extra)
-    status.parent_output = g(status.child_output)
+function PlantSimEngine.run!(model::ParentModel, status, environment, constants, context)
+    child = only(run_call!(context, :child; publish=true))
+    status.parent_output = g(child.status.child_output)
+    return nothing
 end
 ```
 
-For multiscale hard dependencies, declare the target scale:
+The scenario decides the concrete target objects:
 
 ```julia
-PlantSimEngine.dep(::ParentModel) = (
-    child_process=AbstractChild_ProcessModel => (:Leaf,),
+ModelSpec(
+    ParentModel();
+    name=:parent,
+    on=One(scale=:Scene),
+    calls=(:child => Many(scale=:Leaf, application=:child),),
 )
 ```
 
-Then call the child model explicitly on the correct target status, usually via `extra.statuses[:Leaf]` and `extra.models[:Leaf]`. Be careful: hard-dependency IO still participates in graph compilation through the owning soft node.
+Hard calls are never automatically executed for the parent. Trial
+`run_call!` calls do not publish; pass `publish=true` for the accepted state.
 
 ### Model traits
 
 Add traits only when they are true for the model implementation, not merely convenient for one scenario.
 
 ```julia
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:MyModel}) =
-    PlantSimEngine.IsTimeStepIndependent()
-
-PlantSimEngine.ObjectDependencyTrait(::Type{<:MyModel}) =
-    PlantSimEngine.IsObjectIndependent()
-
 PlantSimEngine.timespec(::Type{<:MyDailyModel}) = ClockSpec(24.0, 1.0)
 
 PlantSimEngine.output_policy(::Type{<:MyFluxModel}) = (
@@ -223,38 +369,109 @@ PlantSimEngine.output_policy(::Type{<:MyFluxModel}) = (
 PlantSimEngine.timestep_hint(::Type{<:MyModel}) =
     (; required=(Dates.Hour(1), Dates.Hour(6)), preferred=Dates.Hour(1))
 
-PlantSimEngine.meteo_hint(::Type{<:MyModel}) = (
-    bindings=(T=MeanReducer(),),
-    window=RollingWindow(),
+PlantSimEngine.environment_hint(::Type{<:MyModel}) = (
+    bindings=(T=PlantMeteo.MeanReducer(),),
+    window=PlantMeteo.RollingWindow(),
 )
 ```
 
-Parallel traits are mainly for single-scale execution. Multirate MTG runs are currently sequential.
+There is currently no public parallel executor API. Do not promise parallel or
+distributed execution; establish correctness and independence before any
+future parallel implementation.
+
+### Performance rules
+
+- Keep model parameters, status values, carriers, and output streams concrete
+  and generic; do not force `Float64`.
+- Preserve reference carriers instead of copying same-rate values.
+- Keep dynamic dispatch at compiled batch boundaries, not inside the per-object
+  kernel loop.
+- Preserve immutable hard-call plans, lifecycle-maintained target buffers, and
+  homogeneous execution batches.
+- Use bulk `run_call!(context, name; sampled_environment=value)` in repeated
+  iterative loops. Do not enumerate `CallTarget` wrappers merely to execute all
+  targets.
+- Use `call_model(context, name)` for allocation-free singular model access;
+  use public target materialization only when status or per-target control is
+  actually required.
+- After a lifecycle event, the ordinary steady-state path should return to the
+  precompiled schedule rather than rebuilding the whole scene each step.
+- Add allocation checks for hot loops over many organs, and separate scene
+  construction, steady-state steps, lifecycle refresh, output collection, and
+  full-cycle runtime when benchmarking.
+
+### Source ownership
+
+- `src/composite_model_api.jl` is only the dependency-ordered include boundary.
+- `src/composite_model/registry_topology.jl` owns objects, instances, and lifecycle.
+- `src/composite_model/selectors.jl` owns selector resolution.
+- `src/composite_model/compilation.jl` owns bindings, calls, writers, and schedules.
+- `src/composite_model/environment_bindings.jl` owns environment coupling.
+- `src/composite_model/runtime_outputs.jl` owns execution and output streams.
 
 ## Validation Checklist
 
-For user mappings:
+For user scenarios:
 
-- `to_initialize(mapping)` or `to_initialize(mapping, mtg)` lists only variables the user should really provide.
-- `dep(mapping)` succeeds and the dependency graph matches the expected coupling.
-- `explain_model_specs(mapping)` is sensible for multirate runs.
-- Cycles are either absent or intentionally broken with `PreviousTimeStep`.
-- Ambiguous multirate producers are resolved with `InputBindings`.
+- `Diagnostics.explain_initialization(model)` contains no unresolved required
+  values.
+- `Diagnostics.explain_applications` shows the expected application/object
+  pairs.
+- `Diagnostics.explain_bindings` shows the intended source ids, source applications,
+  temporal policies, and carrier semantics.
+- `Diagnostics.explain_calls`, `Diagnostics.explain_schedule`, and
+  `Diagnostics.explain_writers` match the intended manual call stack and
+  execution order.
+- `Diagnostics.explain_execution_plan` groups large homogeneous object sets into concrete
+  batches; unexpected one-object batches usually indicate heterogeneous model,
+  status, binding, or environment types.
+- Cycles are absent or intentionally broken with `PreviousTimeStep`.
+- Ambiguous singular producers are resolved with `application=`.
+- Environment explanations show the expected provider, cell, geometry source,
+  source variables, and whether a temporal sampler is compiled.
+- Test one object, many objects, templates, instances, and overrides when the
+  scenario supports them.
+- Test object creation, removal, reparenting, movement, and removed-object
+  history when lifecycle behavior is in scope.
 
 For model implementations:
 
 - Unit-test `inputs_`, `outputs_`, and a direct `run!` call with a minimal `Status`.
-- Test single-scale composition when the model is meant to couple by variable name.
-- Test MTG/multiscale mapping when the model expects scalar refs, `RefVector` inputs, or cross-scale writes.
-- Test multirate behavior when traits, `InputBindings`, `MeteoBindings`, or `OutputRouting` matter.
+- Test model composition when the model is meant to couple by variable name.
+- Test `ModelSpec(...; inputs=...)` when the model expects scalar refs, `RefVector` inputs, or
+  renamed variables.
+- Test multirate behavior when `every`, temporal policies, windows, or
+  output routing matter.
 - Check hard dependencies by proving the parent actually calls the child and uses the child's outputs.
+- Test generic numeric types and allocation-sensitive execution for hot
+  kernels.
 
 ## Common Pitfalls
 
 - Do not confuse hard dependencies with soft dependency scheduling. Hard dependencies are manual calls.
-- Do not rely on MTG topology for model execution order. Soft dependency order controls model order.
-- Do not assume `RefVector` order has biological meaning.
-- Do not map scalar reads from a scale that can have several runtime nodes unless the model really expects the chosen unique source behavior.
+- Do not rely on object topology or declaration order for model execution
+  order. Compiled input and update edges control scheduling.
+- Do not attach biological meaning to incidental collection order. Selectors
+  use stable object-id order.
+- Do not use `One(...)` when several objects can match; use `Many(...)` or
+  disambiguate explicitly.
 - Do not use strings for new scale declarations. Use symbols.
-- Do not mutate MTG topology after status initialization unless you reinitialize or use supported dynamic helpers.
+- Do not mutate object topology or geometry outside the lifecycle helpers;
+  bypassing their invalidation hooks leaves caches stale.
+- Do not publish every iterative hard call. Publish only the accepted state.
 - Do not use `PreviousTimeStep` as a numerical lag unless the initial value and expected temporal semantics are explicit.
+- Do not inspect internal carrier or compiled fields when a `Diagnostics`
+  helper exists.
+
+## High-Signal Local References
+
+- Scenario quickstart: `docs/src/composite_model/quickstart.md`.
+- User journeys: `docs/src/journeys/users/`.
+- Modeler journeys: `docs/src/journeys/modelers/`.
+- Migration from removed APIs: `docs/src/migration_composite_model.md`.
+- Public namespaces: `docs/src/API/API_public.md` and
+  `docs/src/API/public_symbols.md`.
+- Compiler/runtime ownership: `src/composite_model/` and
+  `src/composite_model_api.jl`.
+- Broad integration coverage: `test/test-unified-model-object-api.jl` and
+  `test/test-model-*.jl`.

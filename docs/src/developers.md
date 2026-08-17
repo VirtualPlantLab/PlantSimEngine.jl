@@ -36,8 +36,9 @@ Run the standard test suite from the repository root:
 julia --project=test test/runtests.jl
 ```
 
-Some tests exercise threaded execution, so it is worth running them with more
-than one Julia thread when validating parallel behavior.
+The current public runtime is sequential. Running with multiple Julia threads
+does not enable a parallel Composite model executor; parallel execution remains roadmap
+work and requires dedicated correctness tests before it becomes public.
 
 ### Documentation
 
@@ -57,6 +58,20 @@ Benchmark scripts live in `benchmark/`. They are useful when a change may alter
 runtime characteristics, but they are not a substitute for the main test suite
 or downstream integration checks.
 
+For phase-oriented diagnostics, opt in explicitly:
+
+```julia
+simulation = run!(model; steps=48, outputs=:none, performance=true)
+Diagnostics.explain_runtime_performance(simulation)
+```
+
+The returned rows distinguish immutable-plan compilation, object-target
+instantiation, lifecycle-buffer updates, steady-state execution, output
+collection, and whole-initialization totals. Use these counters to establish
+where work occurred, not as a microbenchmark. Timing instrumentation calls
+`time_ns()` at runtime boundaries, so benchmark ordinary execution separately
+with `performance=false` after warming the simulation.
+
 ## CI workflows
 
 The repository currently relies on these GitHub Actions workflows:
@@ -70,6 +85,58 @@ The repository currently relies on these GitHub Actions workflows:
 If a change affects public APIs or execution behavior, check both `CI` and
 `Integration` before merging. Benchmark results are useful for regressions, but
 should be interpreted alongside the test results.
+
+## Graph Viewer Frontend
+
+The static viewer and HTTP editor share the React application under
+`frontend/`. PlantSimEngine releases include the production bundle in
+`frontend/dist`, because Julia package installations do not run Node or Vite.
+The content hash in asset filenames is intentional: it prevents browsers and
+documentation hosts from reusing stale JavaScript after a release.
+
+Install the frontend development dependencies from the repository root:
+
+```sh
+cd frontend
+npm ci
+```
+
+Run the fast checks while developing:
+
+```sh
+npm run typecheck
+npm test
+```
+
+Build the production assets after changing TypeScript, CSS, or frontend
+dependencies:
+
+```sh
+npm run build
+```
+
+Commit the resulting `frontend/dist` changes together with the source changes.
+Do not commit `frontend/node_modules`, Playwright reports, screenshots, videos,
+or local test output.
+
+The end-to-end suite starts a real Julia `GraphEditor.edit_graph` session and controls it
+with Chromium:
+
+```sh
+npx playwright install chromium
+npm run test:e2e
+```
+
+Use `npm run test:e2e:ui` for a headed local debugging session. The tests use
+stable `data-testid` attributes for commands and confirm mutations through the
+Julia `/state` endpoint. Avoid assertions against generated CSS classes or
+implementing PlantSimEngine selector semantics in TypeScript.
+
+Core graph DTO and edit tests live in `test/test-model-graph-view.jl`.
+HTTP-extension tests live in `test/test-model-graph-editor-extension.jl`.
+When changing the graph schema, update those Julia tests, frontend types, unit
+tests, Playwright scenarios, and the committed production bundle in the same
+change.
 
 ## Documentation impact
 
@@ -94,16 +161,6 @@ were editing.
   path before merging.
 
 ## Implementation notes
-
-### Generated models from status vectors
-
-Some multiscale helpers turn status vectors into internal runtime models so that
-they can be used in mapping-based simulations. The implementation is kept
-deliberately data-driven to avoid top-level `eval()` and world-age issues.
-
-The relevant code lives in `src/mtg/mapping/model_generation_from_status_vectors.jl`.
-If you touch that area, preserve the ability to generate the mapping and build a
-`GraphSimulation` within the same function scope.
 
 ### Coverage gaps to keep in mind
 

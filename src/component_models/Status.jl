@@ -3,7 +3,7 @@
 
 Status type used to store the values of the variables during simulation. It is mainly used
 as the structure to store the variables in the `TimeStepRow` of a `TimeStepTable` (see 
-[`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)) of a [`ModelList`](@ref).
+[`PlantMeteo.jl` docs](https://palmstudio.github.io/PlantMeteo.jl/stable/)).
 
 Most of the code is taken from MasonProtter/MutableNamedTuples.jl, so `Status` is a MutableNamedTuples with a few modifications,
 so in essence, it is a stuct that stores a `NamedTuple` of the references to the values of the variables, which makes it mutable.
@@ -67,13 +67,22 @@ function Status(nt::NamedTuple{names}) where {names}
     Status(NamedTuple{names}(Ref.(values(nt))))
 end
 
+_status_vars(status) = getfield(status, :vars)
+_status_values(status) = getindex.(values(_status_vars(status)))
+_status_namedtuple(status) = NamedTuple{keys(status)}(values(status))
+_status_tuple(status) = values(status)
+_status_iterate(status, iter=1) = iterate(NamedTuple(status), iter)
+_status_firstindex(status) = 1
+_status_lastindex(status) = lastindex(NamedTuple(status))
+_status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(NamedTuple(status), i, state)
+
 Base.keys(::Status{names}) where {names} = names
-Base.values(st::Status) = getindex.(values(getfield(st, :vars)))
+Base.values(st::Status) = _status_values(st)
 refvalues(mnt::Status) = values(getfield(mnt, :vars))
 refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
 
-Base.NamedTuple(mnt::Status) = NamedTuple{keys(mnt)}(values(mnt))
-Base.Tuple(mnt::Status) = values(mnt)
+Base.NamedTuple(mnt::Status) = _status_namedtuple(mnt)
+Base.Tuple(mnt::Status) = _status_tuple(mnt)
 
 function Base.show(io::IO, ::MIME"text/plain", t::Status)
     st_panel = Term.Panel(
@@ -117,13 +126,13 @@ Base.propertynames(::Status{T,R}) where {T,R} = T
 Base.length(mnt::Status) = length(getfield(mnt, :vars))
 Base.eltype(::Type{Status{N,T}}) where {N,T} = eltype.(eltype(T))
 
-Base.iterate(mnt::Status, iter=1) = iterate(NamedTuple(mnt), iter)
+Base.iterate(mnt::Status, iter=1) = _status_iterate(mnt, iter)
 
-Base.firstindex(mnt::Status) = 1
-Base.lastindex(mnt::Status) = lastindex(NamedTuple(mnt))
+Base.firstindex(mnt::Status) = _status_firstindex(mnt)
+Base.lastindex(mnt::Status) = _status_lastindex(mnt)
 
 function Base.indexed_iterate(mnt::Status, i::Int, state=1)
-    Base.indexed_iterate(NamedTuple(mnt), i, state)
+    _status_indexed_iterate(mnt, i, state)
 end
 
 function Base.:(==)(s1::Status, s2::Status)

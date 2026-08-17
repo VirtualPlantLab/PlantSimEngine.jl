@@ -12,7 +12,7 @@ PlantSimEngine.@process "light_interception" verbose = false
 Beer-Lambert law for light interception.
 
 Required inputs: `LAI` in m² m⁻².
-Required meteorology data: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
+Required environment input: `Ri_PAR_f`, the incident flux of atmospheric radiation in the
 PAR, in W m[soil]⁻² (== J m[soil]⁻² s⁻¹).
 
 Output: aPPFD, the absorbed Photosynthetic Photon Flux Density in μmol[PAR] m[leaf]⁻² s⁻¹.
@@ -21,12 +21,9 @@ struct Beer{T} <: AbstractLight_InterceptionModel
     k::T
 end
 
-# Beer is parallelizable over time-steps and objects, so we can declare it as such using the trait:
-PlantSimEngine.TimeStepDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsTimeStepIndependent()
-PlantSimEngine.ObjectDependencyTrait(::Type{<:Beer}) = PlantSimEngine.IsObjectIndependent()
 
 """
-    run!(::Beer, object, meteo, constants=Constants(), extra=nothing)
+    run!(model::Beer, status, environment, constants, context)
 
 Computes the photosynthetic photon flux density (`aPPFD`, µmol m⁻² s⁻¹) absorbed by an 
 object using the incoming PAR radiation flux (`Ri_PAR_f`, W m⁻²) and the Beer-Lambert law
@@ -34,40 +31,49 @@ of light extinction.
 
 # Arguments
 
-- `::Beer`: a Beer model, from the model list (*i.e.* m.light_interception)
-- `models`: A `ModelMapping` struct holding the parameters for the model with
-initialisations for `LAI` (m² m⁻²): the leaf area index.
-- `status`: the status of the model, usually the model list status (*i.e.* m.status)
-- `meteo`: meteorology structure, see [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere)
-- `constants = PlantMeteo.Constants()`: physical constants. See `PlantMeteo.Constants` for more details
-- `extra = nothing`: extra arguments, not used here.
+- `model`: the current Beer model instance.
+- `status`: the application-local view of the target [`Object`](@ref) status.
+- `environment`: sampled environment, such as an [`Atmosphere`](https://palmstudio.github.io/PlantMeteo.jl/stable/#PlantMeteo.Atmosphere) row.
+- `constants`: physical constants supplied by the [`CompositeModel`](@ref) run.
+- `context`: runtime context; this kernel does not use it.
 
 # Examples
 
 ```julia
-m = ModelMapping(Beer(0.5), status=(LAI=2.0,))
-
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_q=300.0)
-
-run!(m, meteo)
-
-m[:aPPFD]
+model = CompositeModel(
+    Beer(0.5);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
+    environment=Atmosphere(
+        T=20.0,
+        Wind=1.0,
+        P=101.3,
+        Rh=0.65,
+        Ri_PAR_f=300.0,
+        duration=Hour(1),
+    ),
+)
+run!(model)
+only(model_objects(model; scale=:Leaf)).status.aPPFD
 ```
 """
-function PlantSimEngine.run!(::Beer, models, status, meteo, constants, extra=nothing)
+function PlantSimEngine.run!(model::Beer, status, environment, constants, context)
     status.aPPFD =
-        meteo.Ri_PAR_f *
-        (1.0 - exp(-models.light_interception.k * status.LAI)) *
+        environment.Ri_PAR_f *
+        (1.0 - exp(-model.k * status.LAI)) *
         constants.J_to_umol
 end
 
 function PlantSimEngine.inputs_(::Beer)
-    (LAI=-Inf,)
+    (LAI=Required(Real),)
 end
 
-function PlantSimEngine.outputs_(::Beer)
-    (aPPFD=-Inf,)
+function PlantSimEngine.outputs_(model::Beer)
+    (aPPFD=oftype(float(model.k), -Inf),)
 end
+
+PlantSimEngine.environment_inputs_(::Beer) = (Ri_PAR_f=0.0,)
 
 
 """
@@ -92,17 +98,27 @@ using PlantSimEngine
 using PlantSimEngine.Examples
 ```
 
-Create a model list with a Beer model, and fit it to the data:
+Create a `CompositeModel` with one leaf object, then fit `Beer` to the data:
 
 ```julia
-m = ModelMapping(Beer(0.6), status=(LAI=2.0,))
-meteo = Atmosphere(T=20.0, Wind=1.0, P=101.3, Rh=0.65, Ri_PAR_f=300.0)
-run!(m, meteo)
-df = DataFrame(aPPFD=m[:aPPFD][1], LAI=m.status.LAI[1], Ri_PAR_f=meteo.Ri_PAR_f[1])
-fit(Beer, df)
+model = CompositeModel(
+    Beer(0.6);
+    status=(LAI=2.0,),
+    id=:leaf,
+    scale=:Leaf,
+    environment=environment,
+)
+simulation = run!(model)
+leaf = final_state(simulation, One(scale=:Leaf))
+df = DataFrame(aPPFD=leaf.aPPFD, LAI=leaf.LAI, Ri_PAR_f=environment.Ri_PAR_f[1])
+Evaluation.fit(Beer, df)
 ```
 """
-function PlantSimEngine.fit(::Type{Beer}, df; J_to_umol=PlantMeteo.Constants().J_to_umol)
+function PlantSimEngine.Evaluation.fit(
+    ::Type{Beer},
+    df;
+    J_to_umol=PlantMeteo.Constants().J_to_umol,
+)
     k = Statistics.mean(-log.(1 .- df.aPPFD ./ (J_to_umol .* df.Ri_PAR_f)) ./ df.LAI)
     return (k=k,)
 end

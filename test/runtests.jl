@@ -1,45 +1,117 @@
 using PlantSimEngine
+using PlantSimEngine.Diagnostics
+using PlantSimEngine.GraphEditor
+using PlantSimEngine.EnvironmentAPI
+using PlantSimEngine.Evaluation
 # Include the example dummy processes:
 using PlantSimEngine.Examples
 using Test, Aqua
 using Tables, DataFrames, CSV
 using MultiScaleTreeGraph
 using PlantMeteo, Statistics
+using HTTP
+using JSON
 using Documenter # for doctests
-
-include("helper-functions.jl")
 
 # There are 3 kinds of tests : 
 # PSE functionality/feature tests
 # Integration tests (launched in Github Actions, they run PBP and XPalm tests) 
 # Benchmarks both internal and downstream, located in the downstream folder, and run in another Github Action
 
-@testset "Testing PlantSimEngine" begin
+if length(ARGS) == 1 && endswith(only(ARGS), ".jl")
+    focused_file = basename(only(ARGS))
+    focused_path = joinpath(@__DIR__, focused_file)
+    isfile(focused_path) || error("Unknown focused test file `$(focused_file)`.")
+    @testset "Focused: $(focused_file)" begin
+        include(focused_path)
+    end
+else
+    @testset "Testing PlantSimEngine" begin
     Aqua.test_all(PlantSimEngine, ambiguities=false)
     Aqua.test_ambiguities([PlantSimEngine])
 
-    @testset "ModelMapping: single scale" begin
-        include("test-ModelMapping.jl")
+    @testset "Unified model/object API" begin
+        include("test-unified-model-object-api.jl")
     end
 
-    @testset "ModelMapping: multi scale" begin
-        include("test-mapping.jl")
+    @testset "Composite Model/Object API stabilization" begin
+        include("test-model-api-stabilization.jl")
     end
 
-    @testset "Multi-rate scaffolding" begin
-        include("test-multirate-scaffolding.jl")
+    @testset "Composite model hard calls" begin
+        include("test-model-hard-calls.jl")
     end
 
-    @testset "Multi-rate runtime" begin
-        include("test-multirate-runtime.jl")
+    @testset "Composite model numerical parity" begin
+        include("test-model-numerical-parity.jl")
     end
 
-    @testset "Multi-rate output export" begin
-        include("test-multirate-output-export.jl")
+    @testset "Composite model status initialization" begin
+        include("test-model-status-initialization.jl")
     end
 
-    @testset "MultiScaleModel" begin
-        include("test-MultiScaleModel.jl")
+    @testset "Composite model output boundaries" begin
+        include("test-model-output-boundaries.jl")
+    end
+
+    @testset "Composite model time validation" begin
+        include("test-model-time-validation.jl")
+    end
+
+    @testset "Composite model runtime matrix" begin
+        include("test-model-runtime-matrix.jl")
+    end
+
+    @testset "Composite model environment sampling" begin
+        include("test-model-environment-sampling.jl")
+    end
+
+    @testset "Composite model temporal reducers" begin
+        include("test-model-temporal-reducers.jl")
+    end
+
+    @testset "PreviousTimeStep application-local status views" begin
+        include("test-model-previous-timestep-views.jl")
+    end
+
+    @testset "Composite model binding inference" begin
+        include("test-model-binding-inference.jl")
+    end
+
+    @testset "Composite model multirate integration" begin
+        include("test-model-multirate-integration.jl")
+    end
+
+    @testset "Composite model configuration errors" begin
+        include("test-model-configuration-errors.jl")
+    end
+
+    @testset "Model graph viewer" begin
+        include("test-model-graph-view.jl")
+    end
+
+    @testset "Model graph editor extension" begin
+        include("test-model-graph-editor-extension.jl")
+    end
+
+    @testset "Model contract" begin
+        include("test-model-contract.jl")
+    end
+
+    @testset "ModelSpec Updates" begin
+        include("test-updates.jl")
+    end
+
+    @testset "Environment traits" begin
+        include("test-environment-traits.jl")
+    end
+
+    @testset "Environment backends" begin
+        include("test-environment-backends.jl")
+    end
+
+    @testset "MAESPA-style model example" begin
+        include("test-maespa-model-example.jl")
     end
 
     @testset "Status" begin
@@ -48,18 +120,6 @@ include("helper-functions.jl")
 
     @testset "TimeStepTable" begin
         include("test-TimeStepTable.jl")
-    end
-
-    @testset "Dimensions" begin
-        include("test-dimensions.jl")
-    end
-
-    @testset "Simulations" begin
-        include("test-simulation.jl")
-    end
-
-    @testset "Compiled model source" begin
-        include("test-compiled-model.jl")
     end
 
     @testset "Statistics" begin
@@ -74,20 +134,6 @@ include("helper-functions.jl")
         include("test-toy_models.jl")
     end
 
-    @testset "MTG with multiscale mapping" begin
-        include("test-mtg-multiscale.jl")
-        include("test-mtg-dynamic.jl")
-        include("test-mtg-multiscale-cyclic-dep.jl")
-    end
-
-    @testset "Multiscale corner-cases" begin
-        include("test-corner-cases.jl")
-    end
-
-    @testset "Multithreading" begin
-        include("test-performance.jl")
-    end
-
     if VERSION >= v"1.10"
         # Some formating changed in Julia 1.10, e.g. @NamedTuple instead of NamedTuple.
         @testset "Doctests" begin
@@ -96,5 +142,6 @@ include("helper-functions.jl")
             # Testing the doctests, i.e. the examples in the docstrings marked with jldoctest:
             doctest(PlantSimEngine; manual=false)
         end
+    end
     end
 end

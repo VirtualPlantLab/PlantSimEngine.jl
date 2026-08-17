@@ -9,369 +9,228 @@
 [![DOI](https://zenodo.org/badge/571659510.svg)](https://zenodo.org/badge/latestdoi/571659510)
 [![JOSS](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09/status.svg)](https://joss.theoj.org/papers/137e3e6c2ddc349bec39e06bb04e4e09)
 
-- [PlantSimEngine](#plantsimengine)
-  - [Overview](#overview)
-  - [Unique Features](#unique-features)
-    - [Automatic Model Coupling](#automatic-model-coupling)
-    - [Flexibility with Precision Control](#flexibility-with-precision-control)
-    - [Multi-rate Execution](#multi-rate-execution)
-  - [Batteries included](#batteries-included)
-  - [Ask Questions](#ask-questions)
-  - [Installation](#installation)
-  - [Example usage](#example-usage)
-    - [Simple example](#simple-example)
-    - [Model coupling](#model-coupling)
-    - [Multiscale modelling](#multiscale-modelling)
-    - [Multi-rate modelling](#multi-rate-modelling)
-  - [Projects that use PlantSimEngine](#projects-that-use-plantsimengine)
-  - [Performance](#performance)
-  - [Make it yours](#make-it-yours)
+PlantSimEngine is a Julia framework for composing soil-plant-atmosphere
+simulations from reusable process models.
 
-## Overview
+A modeler writes generic kernels with:
 
-`PlantSimEngine` is a comprehensive framework for building models of the soil-plant-atmosphere continuum. It includes everything you need to **prototype, evaluate, test, and deploy** plant/crop models at any scale, with a strong emphasis on performance and efficiency, so you can focus on building and refining your models.
+- `inputs_` declarations using `Required(T)` or `Default(value)`
+- `outputs_`
+- optional `dep`, `timespec`, `output_policy`, `environment_inputs_`, and
+  `environment_outputs_` traits
+- `run!(model, status, environment, constants, context)`
 
-**Why choose PlantSimEngine?**
+A simulation author assembles those kernels on objects with `CompositeModel`,
+`Object`, and one direct application constructor:
 
-- **Simplicity**: Write less code, focus on your model's logic, and let the framework handle the rest.
-- **Modularity**: Each model component can be developed, tested, and improved independently. Assemble complex simulations by reusing pre-built, high-quality modules.
-- **Standardisation**: Clear, enforceable guidelines ensure that all models adhere to best practices. This built-in consistency means that once you implement a model, it works seamlessly with others in the ecosystem.
-- **Optimised Performance**: Don't re-invent the wheel. Delegating low-level tasks to PlantSimEngine guarantees that your model will benefit from every improvement in the framework. Enjoy faster prototyping, robust simulations, and efficient execution using Julia's high-performance capabilities.
+```julia
+ModelSpec(
+    model;
+    name=:application,
+    on=Many(scale=:Leaf),
+    inputs=(...),
+    calls=(...),
+    every=Hour(1),
+    environment=Environment(...),
+    output_routing=(...),
+    updates=Updates(...),
+)
+```
 
-## Unique Features
-
-### Automatic Model Coupling
-
-**Seamless Integration:** PlantSimEngine leverages Julia's multiple-dispatch capabilities to automatically compute the dependency graph between models. This allows researchers to effortlessly couple models without writing complex connection code or manually managing dependencies.
-
-**Intuitive Multi-Scale Support:** The framework naturally handles models operating at different scales—from organelle to ecosystem—connecting them with minimal effort and maintaining consistency across scales.
-
-### Flexibility with Precision Control
-
-**Effortless Model Switching:** Researchers can switch between different component models using a simple syntax without rewriting the underlying model code. This enables rapid comparison between different hypotheses and model versions, accelerating the scientific discovery process.
-
-### Multi-rate Execution
-
-**Mix model cadences in one simulation:** PlantSimEngine can run models at different timesteps within the same MTG simulation. This makes it possible to combine, for example, hourly leaf processes with daily plant balances and weekly reporting models without writing custom scheduling glue.
-
-**Explicit bindings between rates:** `TimeStepModel`, `InputBindings`, `MeteoBindings`, `ScopeModel`, and `OutputRequest` let you declare how model inputs, meteorology, and exported outputs should behave when rates differ.
-
-## Batteries included
-
-- **Automated Management**: Seamlessly handle inputs, outputs, time-steps, objects, and dependency resolution.
-- **Iterative Development**: Fast and interactive prototyping of models with built-in constraints to avoid errors and sensible defaults to streamline the model writing process.
-- **Control Your Degrees of Freedom**: Fix variables to constant values or force to observations, use simpler models for specific processes to reduce complexity.
-- **Multi-Rate Scheduling**: Combine hourly, daily, and coarser models in the same simulation, with explicit policies for input aggregation and meteorological sampling.
-- **High-Speed Computations**: Achieve impressive performance with benchmarks showing operations in the 100th of nanoseconds range for complex models (see this [benchmark script](https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/examples/benchmark.jl)).
-- **Parallelize and Distribute Computing**: Out-of-the-box support for sequential, multi-threaded, or distributed computations over objects, time-steps, and independent processes, thanks to [Floops.jl](https://juliafolds.github.io/FLoops.jl/stable/).
-- **Scale Effortlessly**: Methods for computing over objects, time-steps, and [Multi-Scale Tree Graphs](https://github.com/VEZY/MultiScaleTreeGraph.jl).
-- **Compose Freely**: Use any types as inputs, including [Unitful](https://github.com/PainterQubits/Unitful.jl) for unit propagation and [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for measurement error propagation.
-
-## Ask Questions
-
-If you have any questions or feedback, [open an issue](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues) or ask on [discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).
+This is the package API for multiscale, multi-plant, soil, microclimate, and
+model-scale simulations.
 
 ## Installation
 
-To install the package, enter the Julia package manager mode by pressing `]` in the REPL, and execute the following command:
+In Julia package mode:
 
 ```julia
 add PlantSimEngine
 ```
 
-To use the package, execute this command from the Julia REPL:
+Then:
 
 ```julia
 using PlantSimEngine
 ```
 
-## Example usage
+## Quickstart
 
-The package is designed to be easy to use, and to help users avoid errors when implementing, coupling and simulating models.
+This example runs three existing toy models on one model object:
 
-### Simple example
-
-Here's a simple example of a model that simulates the growth of a plant, using a simple exponential growth model:
+1. `ToyDegreeDaysCumulModel` computes daily thermal time.
+2. `ToyLAIModel` consumes cumulative thermal time and computes LAI.
+3. `Beer` consumes LAI and meteorology to compute absorbed PAR.
 
 ```julia
-# ] add PlantSimEngine
-using PlantSimEngine
-
-# Include the model definition from the examples sub-module:
+using PlantSimEngine, PlantMeteo, Dates, DataFrames
 using PlantSimEngine.Examples
 
-# Define the model:
-model = ModelMapping(
+meteo_day = read_weather(
+    joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv");
+    duration=Dates.Day,
+)
+
+model = CompositeModel(
+    ToyDegreeDaysCumulModel(),
     ToyLAIModel(),
-    status=(TT_cu=1.0:2000.0,), # Pass the cumulated degree-days as input to the model
+    Beer(0.6);
+    environment=meteo_day,
 )
 
-run!(model) # run the model
-
-status(model) # extract the status, i.e. the output of the model
+sim = run!(model; steps=30, outputs=:all)
+out = collect_outputs(sim; sink=DataFrame)
+first(out, 6)
 ```
 
-Which gives:
-
-```
-TimeStepTable{Status{(:TT_cu, :LAI...}(1300 x 2):
-╭─────┬────────────────┬────────────╮
-│ Row │ TT_cu │        LAI │
-│     │        Float64 │    Float64 │
-├─────┼────────────────┼────────────┤
-│   1 │            1.0 │ 0.00560052 │
-│   2 │            2.0 │ 0.00565163 │
-│   3 │            3.0 │ 0.00570321 │
-│   4 │            4.0 │ 0.00575526 │
-│   5 │            5.0 │ 0.00580778 │
-│  ⋮  │       ⋮        │     ⋮      │
-╰─────┴────────────────┴────────────╯
-                    1295 rows omitted
-```
-
-> **Note**  
-> The `ToyLAIModel` is available from the [examples folder](https://github.com/VirtualPlantLab/PlantSimEngine.jl/tree/main/examples), and is a simple exponential growth model. It is used here for the sake of simplicity, but you can use any model you want, as long as it follows `PlantSimEngine` interface.
-
-Of course you can plot the outputs quite easily:
+The compiler infers the unambiguous same-object bindings from each model's
+declared inputs and outputs: `ToyLAIModel` receives `TT_cu` from
+`:Degreedays`, and `Beer` receives `LAI` from `:LAI_Dynamic`.
 
 ```julia
-# ] add CairoMakie
-using CairoMakie
-
-lines(model[:TT_cu], model[:LAI], color=:green, axis=(ylabel="LAI (m² m⁻²)", xlabel="Cumulated growing degree days since sowing (°C)"))
-```
-
-![LAI Growth](examples/LAI_growth.png)
-
-### Model coupling
-
-Model coupling is done automatically by the package, and is based on the dependency graph between the models. To couple models, we just have to add them to the `ModelMapping`. For example, let's couple the `ToyLAIModel` with a model for light interception based on Beer's law:
-
-```julia
-# ] add PlantSimEngine, PlantMeteo, Dates
-using PlantSimEngine, PlantMeteo, Dates
-
-# Include the model definition from the examples folder:
-using PlantSimEngine.Examples
-
-# Import the example meteorological data:
-meteo_day = read_weather(joinpath(pkgdir(PlantSimEngine), "examples/meteo_day.csv"), duration=Dates.Day)
-
-# Define the list of models for coupling:
-model = ModelMapping(
-    ToyLAIModel(),
-    Beer(0.6),
-    status=(TT_cu=cumsum(meteo_day[:, :TT]),),  # Pass the cumulated degree-days as input to `ToyLAIModel`, this could also be done using another model
+select(
+    DataFrame(explain_bindings(model)),
+    :application_id,
+    :input,
+    :source_application_ids,
+    :carrier_kind,
+    :copy_semantics,
 )
 ```
 
-The `ModelMapping` couples the models by automatically computing the dependency graph of the models. The resulting dependency graph is:
+## Multi-Object Coupling
 
-```
-╭──── Dependency graph ──────────────────────────────────────────╮
-│  ╭──── LAI_Dynamic ─────────────────────────────────────────╮  │
-│  │  ╭──── Main model ────────╮                              │  │
-│  │  │  Process: LAI_Dynamic  │                              │  │
-│  │  │  Model: ToyLAIModel    │                              │  │
-│  │  │  Dep:           │                              │  │
-│  │  ╰────────────────────────╯                              │  │
-│  │                  │  ╭──── Soft-coupled model ─────────╮  │  │
-│  │                  │  │  Process: light_interception    │  │  │
-│  │                  └──│  Model: Beer                    │  │  │
-│  │                     │  Dep: (LAI_Dynamic = (:LAI,),)  │  │  │
-│  │                     ╰─────────────────────────────────╯  │  │
-│  ╰──────────────────────────────────────────────────────────╯  │
-╰────────────────────────────────────────────────────────────────╯
-```
+Use the `inputs` keyword when a model needs values from selected objects. This
+model-scale LAI application reads live references to the surface of every
+plant in the model:
 
 ```julia
-# Run the simulation:
-run!(model, meteo_day)
-
-status(model)
-```
-
-Which returns:
-
-```
-TimeStepTable{Status{(:TT_cu, :LAI...}(365 x 3):
-╭─────┬────────────────┬────────────┬───────────╮
-│ Row │ TT_cu │        LAI │     aPPFD │
-│     │        Float64 │    Float64 │   Float64 │
-├─────┼────────────────┼────────────┼───────────┤
-│   1 │            0.0 │ 0.00554988 │ 0.0476221 │
-│   2 │            0.0 │ 0.00554988 │ 0.0260688 │
-│   3 │            0.0 │ 0.00554988 │ 0.0377774 │
-│   4 │            0.0 │ 0.00554988 │ 0.0468871 │
-│   5 │            0.0 │ 0.00554988 │ 0.0545266 │
-│  ⋮  │       ⋮        │     ⋮      │     ⋮     │
-╰─────┴────────────────┴────────────┴───────────╯
-                                 360 rows omitted
-```
-
-```julia
-# Plot the results:
-using CairoMakie
-
-fig = Figure(resolution=(800, 600))
-ax = Axis(fig[1, 1], ylabel="LAI (m² m⁻²)")
-lines!(ax, model[:TT_cu], model[:LAI], color=:mediumseagreen)
-
-ax2 = Axis(fig[2, 1], xlabel="Cumulated growing degree days since sowing (°C)", ylabel="aPPFD (mol m⁻² d⁻¹)")
-lines!(ax2, model[:TT_cu], model[:aPPFD], color=:firebrick1)
-
-fig
-```
-
-![LAI Growth and light interception](examples/LAI_growth2.png)
-
-### Multiscale modelling
-
-> See the Multi-scale modeling section of the docs for more details.
-
-The package is designed to be easily scalable, and can be used to simulate models at different scales. For example, you can simulate a model at the leaf scale, and then couple it with models at any other scale, *e.g.* internode, plant, soil, scene scales. Here's an example of a simple model that simulates plant growth using sub-models operating at different scales:
-
-```julia
-mapping = ModelMapping(
-    :Scene => ToyDegreeDaysCumulModel(),
-    :Plant => (
-        MultiScaleModel(
-            model=ToyLAIModel(),
-            mapped_variables=[
-                :TT_cu => :Scene,
-            ],
-        ),
-        Beer(0.6),
-        MultiScaleModel(
-            model=ToyAssimModel(),
-            mapped_variables=[:soil_water_content => :Soil],
-        ),
-        MultiScaleModel(
-            model=ToyCAllocationModel(),
-            mapped_variables=[
-                :carbon_demand => [:Leaf, :Internode],
-                :carbon_allocation => [:Leaf, :Internode]
-            ],
-        ),
-        MultiScaleModel(
-            model=ToyPlantRmModel(),
-            mapped_variables=[:Rm_organs => [:Leaf => :Rm, :Internode => :Rm],],
+plant_scene = CompositeModel(
+    Object(:scene; scale=:Scene, kind=:scene),
+    Object(:plant_1; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=12.0)),
+    Object(:plant_2; scale=:Plant, kind=:plant, parent=:scene,
+           status=Status(surface=8.0));
+    applications=(
+        ModelSpec(
+            ToyLAIfromLeafAreaModel(100.0);
+            name=:scene_lai,
+            on=One(scale=:Scene),
+            inputs=(
+                :plant_surfaces => Many(
+                    scale=:Plant,
+                    within=SceneScope(),
+                    var=:surface,
+                ),
+            ),
         ),
     ),
-    :Internode => (
-        MultiScaleModel(
-            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => :Scene,],
-        ),
-        MultiScaleModel(
-            model=ToyInternodeEmergence(TT_emergence=20.0),
-            mapped_variables=[:TT_cu => :Scene],
-        ),
-        ToyMaintenanceRespirationModel(1.5, 0.06, 25.0, 0.6, 0.004),
-        Status(carbon_biomass=1.0)
-    ),
-    :Leaf => (
-        MultiScaleModel(
-            model=ToyCDemandModel(optimal_biomass=10.0, development_duration=200.0),
-            mapped_variables=[:TT => :Scene,],
-        ),
-        ToyMaintenanceRespirationModel(2.1, 0.06, 25.0, 1.0, 0.025),
-        Status(carbon_biomass=1.0)
-    ),
-    :Soil => (
-        ToySoilWaterModel(),
-    ),
-);
-```
-
-We can import an example plant from the package:
-
-```julia
-mtg = import_mtg_example()
-```
-
-Make a fake meteorological data:
-
-```julia
-meteo = Weather(
-    [
-    Atmosphere(T=20.0, Wind=1.0, Rh=0.65, Ri_PAR_f=300.0),
-    Atmosphere(T=25.0, Wind=0.5, Rh=0.8, Ri_PAR_f=500.0)
-]
-);
-```
-
-And run the simulation:
-
-```julia
-out_vars = ModelMapping(
-    :Scene => (:TT_cu,),
-    :Plant => (:carbon_allocation, :carbon_assimilation, :soil_water_content, :aPPFD, :TT_cu, :LAI),
-    :Leaf => (:carbon_demand, :carbon_allocation),
-    :Internode => (:carbon_demand, :carbon_allocation),
-    :Soil => (:soil_water_content,),
 )
 
-out = run!(mtg, mapping, meteo, outputs=out_vars, executor=SequentialEx());
+run!(plant_scene)
+scene_status = only(model_objects(plant_scene; scale=:Scene)).status
+(total_surface=scene_status.total_surface, LAI=scene_status.LAI)
 ```
 
-We can then extract the outputs in a `DataFrame` and sort them:
+Use `within=Self()` for plant-local aggregations, for example a plant
+allocation model summing only the leaves inside the current plant. Use
+`within=SceneScope()` for model-wide aggregation.
+
+## Manual Calls
+
+Use the `calls` keyword when a parent model must directly run selected child models,
+for example a model energy-balance solver that iterates leaf temperatures:
 
 ```julia
-using DataFrames
-df_out = convert_outputs(out, DataFrame)
-sort!(df_out, [:timestep, :node])
+ModelSpec(
+    SceneEnergyBalance();
+    name=:scene_energy,
+    on=One(scale=:Scene),
+    calls=(
+        :leaf_energy => Many(
+            kind=:plant,
+            scale=:Leaf,
+            within=SceneScope(),
+            application=:energy_balance,
+        ),
+        :soil => One(
+            kind=:soil,
+            scale=:Soil,
+            within=SceneScope(),
+            application=:soil_water,
+        ),
+    ),
+    every=Hour(1),
+)
 ```
 
-| **timestep**<br>`Int64` | **organ**<br>`String` | **node**<br>`Int64` | **carbon\_allocation**<br>`U{Nothing, Float64}` | **TT\_cu**<br>`U{Nothing, Float64}` | **carbon\_assimilation**<br>`U{Nothing, Float64}` | **aPPFD**<br>`U{Nothing, Float64}` | **LAI**<br>`U{Nothing, Float64}` | **soil\_water\_content**<br>`U{Nothing, Float64}` | **carbon\_demand**<br>`U{Nothing, Float64}` |
-|------------------------:|----------------------:|--------------------:|-----------------------------------------------------------------------------------:|------------------------------------:|--------------------------------------------------:|-----------------------------------:|---------------------------------:|--------------------------------------------------:|--------------------------------------------:|
-| 1                       | Scene                 | 1                   |                                                                             | 10.0                                |                                            |                             |                           |                                            |                                      |
-| 1                       | Soil                  | 2                   |                                                                             |                              |                                            |                             |                           | 0.3                                               |                                      |
-| 1                       | Plant                 | 3                   |                                                                             | 10.0                                | 0.299422                                          | 4.99037                            | 0.00607765                       | 0.3                                               |                                      |
-| 1                       | Internode             | 4                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
-| 1                       | Leaf                  | 5                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
-| 1                       | Internode             | 6                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
-| 1                       | Leaf                  | 7                   | 0.0742793                                                                          |                              |                                            |                             |                           |                                            | 0.5                                         |
-| 2                       | Scene                 | 1                   |                                                                             | 25.0                                |                                            |                             |                           |                                            |                                      |
-| 2                       | Soil                  | 2                   |                                                                             |                              |                                            |                             |                           | 0.2                                               |                                      |
-| 2                       | Plant                 | 3                   |                                                                             | 25.0                                | 0.381154                                          | 9.52884                            | 0.00696482                       | 0.2                                               |                                      |
-| 2                       | Internode             | 4                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
-| 2                       | Leaf                  | 5                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
-| 2                       | Internode             | 6                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
-| 2                       | Leaf                  | 7                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
-| 2                       | Internode             | 8                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
-| 2                       | Leaf                  | 9                   | 0.0627036                                                                          |                              |                                            |                             |                           |                                            | 0.75                                        |
+Scenario-level `inputs` and `calls` should usually name the concrete producer
+or callee with `application=...`. Use process identities in model-level
+contracts such as `dep(model)`, where the model author cannot know application
+names chosen by future scenarios.
 
-An example output of a multiscale simulation is shown in the documentation of PlantBiophysics.jl:
+Inside the parent model, `run_call!(context, :leaf_energy)` executes every target
+and returns a vector-like collection. For iterative control,
+`call_targets(context, :leaf_energy)` returns the collection without executing
+it. `run_call!(target; publish=false)` is the default for trial iterations, and
+`run_call!(target; publish=true)` publishes the accepted state.
 
-![Plant growth simulation](docs/src/www/image.png)
+## What PlantSimEngine Handles
 
-### Multi-rate modelling
+- object graphs with arbitrary plant architecture;
+- several plant species and repeated plant instances through templates;
+- same-rate reference wiring and typed many-object carriers;
+- multirate scheduling with `Dates.Period` values;
+- temporal policies such as `HoldLast`, `Interpolate`, `Integrate`, and
+  `Aggregate`;
+- automatic global or spatial environment binding;
+- mutable microclimate outputs through `environment_outputs_`;
+- growth, pruning, reparenting, and movement with binding-cache refresh;
+- structured explanations for users and agents.
 
-PlantSimEngine also supports multi-rate MTG simulations, where different models run at different cadences inside the same execution. A typical use case is to run leaf-scale processes hourly, aggregate them into daily plant-scale balances, and then export weekly summary series from the same simulation.
+Useful inspection helpers include:
 
-The dedicated documentation now has three pages: a short introduction to the
-core ideas, a fuller step-by-step tutorial, and an advanced configuration page:
+```julia
+explain_objects(model)
+explain_scopes(model)
+explain_bindings(model)
+explain_calls(model)
+explain_environment_bindings(model)
+explain_schedule(model)
+explain_execution_plan(model)
+```
 
-- [Introduction to multi-rate execution](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/introduction/)
-- [Step-by-step hourly, daily, weekly simulation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/multirate_tutorial/)
-- [Advanced multi-rate configuration](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable/multirate/advanced_configuration/)
+## Documentation
 
-## Projects that use PlantSimEngine
+- [Stable documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/stable)
+- [Development documentation](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev)
+- [CompositeModel/object quickstart](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/composite_model/quickstart/)
+- [CompositeModel/object migration guide](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/migration_composite_model/)
+- [Public API reference](https://VirtualPlantLab.github.io/PlantSimEngine.jl/dev/API/API_public/)
 
-Take a look at these projects that use PlantSimEngine:
+## Projects That Use PlantSimEngine
 
-- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) - For the simulation of biophysical processes for plants such as photosynthesis, conductance, energy fluxes, and temperature
-- [XPalm](https://github.com/PalmStudio/XPalm.jl) - An experimental crop model for oil palm
+- [PlantBiophysics.jl](https://github.com/VEZY/PlantBiophysics.jl) for
+  plant biophysical processes such as photosynthesis, conductance, energy
+  fluxes, and temperature.
+- [XPalm](https://github.com/PalmStudio/XPalm.jl), an experimental crop model
+  for oil palm.
 
 ## Performance
 
-PlantSimEngine delivers impressive performance for plant modeling tasks. On an M1 MacBook Pro, a toy model for leaf area over a year at daily time-scale took only 260 μs to perform (about 688 ns per day), and 275 μs (756 ns per day) when coupled to a light interception model. These benchmarks demonstrate performance on par with compiled languages like Fortran or C, far outpacing typical interpreted language implementations.
+PlantSimEngine keeps model kernels close to regular Julia functions while the
+runtime handles dependency scheduling, object selection, temporal aggregation,
+and environment sampling. On an M1 MacBook Pro, toy daily simulations run in
+hundreds of microseconds, and PlantBiophysics.jl models using PlantSimEngine
+have been measured much faster than equivalent implementations in typical
+scientific scripting languages.
 
-For example, PlantBiophysics.jl, which implements ecophysiological models using PlantSimEngine, has been measured to run up to 38,000 times faster than equivalent implementations in other scientific computing languages.
+For performance-sensitive composite models, inspect the compiled representation with
+`explain_execution_plan(model)` to see homogeneous batches and concrete carrier
+types.
 
-## Make it yours
+## License And Contributions
 
-The package is developed so anyone can easily implement plant/crop models, use it freely and as you want thanks to its MIT license.
-
-If you develop such tools and it is not on the list yet, please make a PR or contact me so we can add it! 😃 Make sure to read the community guidelines before in case you're not familiar with such things.
+PlantSimEngine is distributed under the MIT license. Questions and bug reports
+are welcome on [GitHub issues](https://github.com/VirtualPlantLab/PlantSimEngine.jl/issues)
+or the [FSPM discourse](https://fspm.discourse.group/c/software/virtual-plant-lab).

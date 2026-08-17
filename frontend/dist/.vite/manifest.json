@@ -1,0 +1,11 @@
+{
+  "index.html": {
+    "file": "assets/index-CfC2_AOV.js",
+    "name": "index",
+    "src": "index.html",
+    "isEntry": true,
+    "css": [
+      "assets/index-DH4q_-2-.css"
+    ]
+  }
+}

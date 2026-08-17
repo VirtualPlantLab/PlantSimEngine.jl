@@ -1,0 +1,18 @@
+[deps]
+BenchmarkTools = "6e4b80f9-dd63-53aa-95a3-0cdb28fa8baf"
+CSV = "336ed68f-0bac-5ca0-87d4-7b16caf5d00b"
+DataFrames = "a93c6f00-e57d-5684-b7b6-d8193f3e46c0"
+Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+PlantBiophysics = "7ae8fcfa-76ad-4ec6-9ea7-5f8f5e2d6ec9"
+PlantMeteo = "4630fe09-e0fb-4da5-a846-781cb73437b6"
+PlantSimEngine = "9a576370-710b-4269-adf9-4f603a9c6423"
+Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+
+[sources]
+PlantBiophysics = {rev = "9f39af4ffd48bab234e5d80b89cd52c67b9f3f82", url = "https://github.com/VEZY/PlantBiophysics.jl"}
+PlantSimEngine = {rev = "503af98c3709a0b1207407e3741b7cb09ebfbcf7", url = "https://github.com/VirtualPlantLab/PlantSimEngine.jl"}
+
+[compat]
+PlantBiophysics = "=0.17.0"
+PlantSimEngine = "=0.14.1"
+julia = "1.12"
