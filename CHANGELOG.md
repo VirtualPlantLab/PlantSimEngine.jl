@@ -26,6 +26,10 @@
 - `run_call!(context, name)` for the common execute-all operation while
   retaining `run_call!(target::CallTarget)` for selective, per-target, and
   iterative control.
+- `compile_model_source` and `write_compiled_model` for turning a resolved
+  `CompositeModel` into deterministic, loadable Julia source that exposes
+  application order, targets, input provenance, model bodies, cadence,
+  environments, outputs, and nested manual calls.
 
 ## v0.14.1
 

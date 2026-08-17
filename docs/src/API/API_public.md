@@ -121,6 +121,20 @@ Use the `Diagnostics` namespace instead of inspecting internals:
   `Diagnostics.has_reference_carrier`
 - `Diagnostics.object_address`
 
+### Readable generated source
+
+- `compile_model_source(model; function_name=:compiled_model!)` translates a
+  resolved `CompositeModel` into deterministic, human-oriented Julia source.
+- `compile_model_source(simulation; ...)` uses an existing simulation's
+  resolved scenario and defines an entry point that can continue it.
+- `write_compiled_model(path, model; ...)` writes the same source to a loadable
+  `.jl` file.
+
+This is an explanatory source generator, distinct from
+`Advanced.compile_composite_model`, which builds the optimized runtime plan.
+See [Generate readable model source](../guides/readable_model_source.md) for the
+complete workflow and supported source shapes.
+
 See [Migrating To The CompositeModel/Object API](../migration_composite_model.md) for
 translations from removed APIs.
 

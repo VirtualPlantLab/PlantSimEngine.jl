@@ -54,6 +54,7 @@ makedocs(;
             "Value coupling" => "./guides/multiscale/value_coupling.md",
             "Importing an MTG" => "./guides/multiscale/import_mtg.md",
             "How composite models execute" => "./guides/multiscale/concepts.md",
+            "Generate readable model source" => "./guides/readable_model_source.md",
             "Visualizing structure" => "./guides/multiscale/visualizing_structure.md",
         ],
         "Environment and time" => [

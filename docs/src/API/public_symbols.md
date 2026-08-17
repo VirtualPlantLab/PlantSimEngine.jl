@@ -33,6 +33,7 @@ explicitly imports one of those submodules.
 
 - Execution: `run!`, `continue!`, `step!`, `Simulation`, `current_step`,
   `runtime_model`, `final_state`.
+- Readable source generation: `compile_model_source`, `write_compiled_model`.
 - Output selection and collection: `OutputRequest`, `outputs`,
   `collect_outputs`.
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
