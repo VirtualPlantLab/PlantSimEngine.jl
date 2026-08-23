@@ -25,6 +25,14 @@
   destination objects. Each variable uses `Required(T)` or `Default(value)`;
   the compiler resolves identities and rejects ambiguous writers before
   initializing statuses.
+- `output_targets(context, :name)` returns the compiled [`OutputTargets`](@ref)
+  view for one named `outputs_to` group. Destination columns are exposed
+  explicitly as `targets.columns.<variable>`, and `object_ids(targets)` returns
+  their aligned, read-only identities.
+- `assign_outputs!(targets, table; id=:object_id)` assigns a
+  Tables.jl-compatible result by identity. The lower-level
+  `assign_outputs!(targets, ids, columns)` overload accepts an ID vector and a
+  `NamedTuple` of columns directly.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
@@ -35,6 +43,17 @@
   to exactly one target.
 - `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
+
+Distributed assignment requires exact destination coverage. Every selected
+object ID must occur exactly once and every declared output column must be
+present; additional table or `NamedTuple` columns are treated as metadata and
+ignored. Result columns may alias destination storage only for direct
+self-assignment of the same column in exact destination order.
+
+Obtain `OutputTargets` inside each model invocation and do not retain it across
+a lifecycle barrier. Reusing the same ID-column object lets PlantSimEngine
+reuse its compiled row permutation and promises that the IDs and their order
+have not been mutated. Replace the ID-column object when either changes.
 
 ### Model input schema
 

@@ -1,8 +1,6 @@
 # Distributed output ownership
 
-Status: design contract for the `distributed-output-targets` implementation.
-Public names shown below remain provisional until the focused prototype and
-performance gates pass.
+Status: implemented public and compiler contract.
 
 ## Problem
 
@@ -20,10 +18,10 @@ These are not hard calls to per-object models. The scene or plant application
 owns the computation and cadence, while each destination object owns its local
 state value.
 
-Passing writable `Many(...; from_status=true)` carriers can modify those values,
-but it does not declare the producing application as their writer. Producer
-inference, scheduling, diagnostics, lifecycle refresh, and output retention
-therefore cannot recover the scientific ownership of the result.
+Passing writable `Many(...; from_status=true)` carriers can modify those
+values, but it does not declare the producing application as their writer.
+Producer inference, scheduling, diagnostics, lifecycle refresh, and output
+retention would then lose the scientific ownership of the result.
 
 ## Terms
 
@@ -39,16 +37,16 @@ therefore cannot recover the scientific ownership of the result.
   `(destination_object_id, variable) => application_id`.
 
 Execution targets and output destinations are deliberately distinct. A model
-must not be mounted on fake per-organ applications merely to publish values
-computed elsewhere.
+does not need fake per-organ applications merely to publish values computed
+elsewhere.
 
-## Indicative declaration
+## Public declaration and scene writer
 
-The proposed scenario spelling is:
+The scenario declares named destination groups with `outputs_to`:
 
 ```julia
 ModelSpec(
-    SceneLightModel();
+    SceneLightModel(solve_light);
     name=:scene_light,
     on=One(scale=:Scene),
     outputs_to=(
@@ -56,7 +54,7 @@ ModelSpec(
             Many(
                 scale=(:Leaf, :Internode),
                 within=SceneScope(),
-            ),
+            );
             vars=(
                 incident_par=Default(0.0),
                 absorbed_par=Default(0.0),
@@ -67,153 +65,243 @@ ModelSpec(
 )
 ```
 
-Inside the kernel, the application obtains its already compiled destinations:
+`Default(value)` creates the destination status variable when needed.
+`Required(T)` requires it to exist on every selected destination. Only
+`coverage=:exact`, the default, is accepted.
+
+The scene kernel looks up its compiled group and publishes an identified
+solver table:
 
 ```julia
-targets = output_targets(context, :organs)
-assign_outputs!(targets, result_columns; id=:object_id)
+PlantSimEngine.@process "scene light" verbose = false
+
+struct SceneLightModel{F} <: AbstractScene_LightModel
+    solve::F
+end
+
+PlantSimEngine.inputs_(::SceneLightModel) = NamedTuple()
+PlantSimEngine.outputs_(::SceneLightModel) = NamedTuple()
+
+function PlantSimEngine.run!(
+    model::SceneLightModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    targets = output_targets(context, :organs)
+    result = model.solve(
+        runtime_model(context),
+        environment,
+        object_ids(targets),
+    )
+    assign_outputs!(targets, result; id=:object_id)
+    return nothing
+end
 ```
 
-`outputs_to` and `OutputTo` are implemented by the compiler. `OutputTargets`,
-`output_targets`, and `assign_outputs!` remain working names for the subsequent
-runtime-assignment slice.
+`result` may be any Tables.jl-compatible row or column table. Its row order is
+independent of selector order because assignment uses `ObjectId` values.
 
-## Identity contract
+## `OutputTargets` runtime surface
 
-PlantSimEngine already stores each compiled `Many` binding as aligned object IDs
-and a carrier. Selector results use stable `ObjectId` order; collection position
-has no botanical or scientific meaning and may change when lifecycle refresh
-rebuilds a binding.
+`output_targets(context, :organs)` performs a typed lookup on the current
+`RunContext`; it does not resolve a selector or rebuild an identity index in
+the model call. The group name must be a `Symbol` declared by the current
+application.
 
-An output result must therefore be associated by `ObjectId`, never by MTG
-traversal order or an independently declared ID selector. The first
-model-facing identity-aware view is:
+The returned `OutputTargets` supports `length`, `isempty`, `eachindex`, and
+`object_ids`. Its destination carriers are available only through the explicit
+column namespace:
 
 ```julia
-values = bound_input(context, :organ_values)
-object_ids(values)
+targets.columns.incident_par
+targets.columns.absorbed_par
 ```
 
-`BoundMany` preserves ordinary positional vector behavior. Identity indexing is
-explicit (`values[ObjectId(:leaf_1)]`), so an integer remains a positional
-index. The aligned identity view is live and read-only; it does not copy the
-compiler's ID vector. Public construction validates that identities are unique
-and use compiled `ObjectId` order, while compiler-owned construction reuses the
-already validated binding.
+Output variables and compiled-binding metadata are deliberately not forwarded
+into the public property namespace: `propertynames(targets)` exposes only
+`:columns`. This keeps output names separate from implementation fields. An
+output named `columns` remains accessible as `targets.columns.columns`.
 
-The ordinary `RefVector` or `ObjectRefVector` installed in model status remains
-unchanged. Identity-aware access is opt-in through `RunContext`, so existing
-model dispatch and the common status path retain their current semantics.
+`object_ids(targets)` is an aligned, read-only identity carrier over the
+compiled destination IDs. Positions have no botanical meaning. Direct
+positional writes to `targets.columns.<variable>` are valid when the producing
+algorithm already uses this exact identity order; identified external results
+should use `assign_outputs!`.
 
-## Compilation and initialization
+An `OutputTargets` value belongs to the current model invocation and lifecycle
+generation. Kernels obtain it from `RunContext` on every call and do not store
+it on their model.
 
-For every output binding, compilation must determine:
+## Identified assignment
+
+The Tables.jl path is the general adapter:
+
+```julia
+assign_outputs!(targets, result_table; id=:object_id)
+```
+
+The lower-level path accepts stable columns directly:
+
+```julia
+assign_outputs!(targets, result_ids, result_columns)
+```
+
+Here `result_ids` is an `AbstractVector` and `result_columns` is a
+`NamedTuple`. The lower-level overload avoids a Tables.jl adapter but uses the
+same validation, identity mapping, and assignment implementation.
+
+Both forms require:
+
+- one result ID for every current destination;
+- no unknown, duplicate, extra, or missing IDs;
+- equal lengths for the ID and every declared result column; and
+- every variable declared by the `OutputTo` group.
+
+Additional table or `NamedTuple` columns are metadata and are ignored. They
+can carry solver-facing values such as `source_element`, `component_index`, or
+geometry provenance without becoming status variables. Conversely, omitting a
+declared output is an error even when that destination status already has a
+value.
+
+No subset or retain-last coverage mode exists. An adapter handles filtered,
+abscised, dead, or non-geometrized organs deliberately, or the destination
+selector excludes them.
+
+## Identity and permutation cache
+
+Each compiled output binding stores destination IDs, an ID-to-position index,
+and live reference-backed columns. The first assignment validates the result
+IDs and compiles either an exact-order marker or a row-to-destination
+permutation.
+
+The runtime cache is keyed by object identity of the result ID column. Reusing
+the same ID-column object promises that its IDs and order are immutable; the
+cache does not rescan or hash its contents on every timestep. Value columns may
+be mutated and reused freely. Replace the ID-column object whenever its IDs or
+order changes.
+
+This contract applies to both public overloads because the Tables.jl path
+extracts its ID column before entering the lower-level implementation. Reusing
+a table with the same ID carrier reuses the mapping; constructing a new ID
+carrier triggers validation and recompilation.
+
+## Atomic validation and aliasing
+
+Coverage, column lengths, value conversions, and source/destination aliasing
+are checked before any destination status is changed. If mapping validation
+fails, the partially reused cache buffers are marked invalid so a later valid
+assignment recompiles cleanly.
+
+A result column may share destination storage only when all three conditions
+hold:
+
+1. the result IDs are already in exact destination order;
+2. the source is the same declared output column; and
+3. the source and destination use the same complete mapping.
+
+Permuted views, partially overlapping views, cross-column aliases, and
+permuted self-assignment are rejected. Custom array wrappers that can share
+storage must implement Julia's `Base.dataids` and `Base.mightalias` contract so
+PlantSimEngine can detect that relationship before mutation.
+
+## Compilation, ownership, and ordinary consumers
+
+For every output group, compilation resolves:
 
 1. the producing application and execution object;
-2. the destination selector and compiled matcher;
-3. destination `ObjectId` values in stable order;
-4. declared destination variables and their initial values or requirements;
-5. concrete, reference-backed destination columns; and
+2. the destination selector and current destination IDs;
+3. declared variables and their `Required` or `Default` initialization;
+4. concrete reference-backed destination columns;
+5. the destination ID index; and
 6. writer ownership for every `(destination_id, variable)` pair.
 
 Destination status initialization occurs before consumer input compilation.
-The compiler must reject a destination variable that cannot be initialized or
-validated under the selected policy.
+Writer collisions are rejected unless an existing `Updates(...; after=...)`
+declaration establishes intentional ordering.
 
-Ordinary same-object outputs stay on their current fast path. They may later be
-represented internally as implicit `Self()` output bindings only if that
-unification has no common-path cost.
+A destination model consumes the value through its ordinary input contract:
 
-## Writer ownership and scheduling
+```julia
+PlantSimEngine.inputs_(::LeafPhotosynthesis) = (
+    absorbed_par=Required(Float64),
+)
 
-Producer inference must query destination ownership rather than only the
-applications mounted on the source object. Consequently, a leaf input can find
-a scene application that owns `(leaf_id, :absorbed_par)` and schedule after it
-without `from_status=true` or a manual `after=` declaration.
+ModelSpec(
+    LeafPhotosynthesis();
+    name=:leaf_photosynthesis,
+    on=Many(scale=:Leaf),
+)
+```
 
-Two applications may not own the same `(destination_id, variable)` unless an
-existing, explicit update policy correctly defines their order. Combining
-independent producers through a reduction is a separate concept and is outside
-this design.
-
-## Coverage and assignment
-
-The default assignment policy is exact coverage:
-
-- every result ID is known;
-- IDs are unique;
-- every destination expected by the binding is present; and
-- every assigned variable was declared.
-
-Subset coverage may be added only with an explicit missing-value policy. It
-must not silently convert a missing result to zero or retain an old value.
-Scientific adapters decide whether a dead, abscised, filtered, or
-non-geometrized object should remain a destination.
-
-`assign_outputs!` has two paths:
-
-1. a checked Tables.jl-compatible path that validates IDs, columns, and
-   coverage and compiles a row-to-destination permutation; and
-2. a stable bound path that reuses a previously validated identity/order plan
-   and performs one typed pass over the result columns.
-
-Validation should finish before status mutation where possible. A complete copy
-of every result column is not required.
+Producer inference finds the scene application that owns
+`(leaf_id, :absorbed_par)`, binds the leaf status field, and schedules the
+scene writer before the leaf consumer. The consumer does not use
+`output_targets`, `from_status=true`, a copy model, or an explicit
+`after=:scene_light` dependency.
 
 ## Lifecycle
 
-The scenario application graph and selectors remain immutable. Object
-membership may change.
+The scenario application graph and selectors remain immutable while object
+membership may change. At a supported lifecycle barrier, PlantSimEngine:
 
-At a lifecycle barrier, PlantSimEngine refreshes only affected output bindings:
+- rebuilds affected destination memberships and reference columns;
+- rebuilds the destination ID index;
+- advances the binding membership generation and invalidates result mappings;
+- updates writer ownership and consumer scheduling metadata;
+- initializes new destination status variables; and
+- opens or closes retained streams as requested.
 
-- add or remove destination IDs and reference columns;
-- update the ID-to-position index;
-- invalidate a cached result permutation when membership changed;
-- update writer ownership and consumer scheduling metadata;
-- initialize newly declared destination status; and
-- add or close retained streams as required.
-
-Ordinary timesteps then return to the cached execution plan without selector
-resolution or graph traversal.
+An empty destination group remains a typed `OutputTargets` group and can gain
+members after organ creation. The next model invocation receives the refreshed
+view and recompiles its result mapping. Ordinary timesteps do not resolve the
+selector or traverse the graph.
 
 ## Output retention and diagnostics
 
-Retained streams remain keyed by producing application, destination object, and
-variable. Distributed destinations change which object IDs are enumerated, not
-the scientific identity of the producer.
+Retained streams are keyed by producing application, destination object, and
+variable. Distributed destinations change which object IDs are enumerated,
+not the scientific identity of the producer.
 
-Diagnostics must show:
+Use the supported diagnostics rather than inspecting compiled fields:
 
-- execution targets separately from output destinations;
-- the destination selector and current destination count;
-- every distributed writer and any collision;
-- lifecycle refreshes and invalidated assignment plans; and
-- retention policy and streams for destination objects.
+- `Diagnostics.explain_output_bindings` shows execution objects, groups,
+  destination IDs, column carrier types, coverage, and membership generation;
+- `Diagnostics.explain_writers` shows the producing application for each
+  destination variable;
+- `Diagnostics.explain_bindings` and `Diagnostics.explain_schedule` show
+  ordinary consumer coupling and execution order; and
+- `Diagnostics.explain_output_retention` shows retained destination streams.
 
-`outputs=:none` must not allocate destination-history streams. Final status
-inspection remains available because destination statuses are updated directly.
+`outputs=:none` does not allocate destination-history streams. Current values
+remain visible through `final_state` because assignment writes directly to
+destination statuses.
 
-## Performance contract
+## Performance characteristics
 
-The implementation must preserve these properties:
+The implementation keeps ordinary applications on their existing path.
+Applications without distributed outputs use the empty compiled marker and an
+empty output-target tuple; they do not resolve selectors or build assignment
+caches.
 
-- no selector resolution, ID-vector copy, dictionary construction, or table
-  materialization in the steady-state model call;
-- no new work for applications without distributed outputs;
-- concrete, columnar destination carriers rather than one type-level tuple
-  entry per destination object;
-- ID indexes and result permutations built at compilation or lifecycle
-  barriers, not per timestep;
-- zero-allocation sequential iteration over homogeneous identity-aware views;
-  and
-- separate measurements for compilation, lifecycle refresh, steady-state
-  execution, and output collection.
+For distributed outputs:
 
-The baseline and candidate must be measured on the same Julia version, hardware,
-thread count, output policy, and repository revisions. Investigate a median
-steady-state regression above 2%; do not accept an end-to-end regression above
-5% without explicit review.
+- destination selectors, IDs, indexes, ownership, and columns are compiled
+  before execution;
+- stable ID carriers reuse their exact-order marker or permutation;
+- exact-order assignment avoids indexed destination lookup in the write loop;
+- homogeneous destination references produce typed `RefVector{T}` columns and
+  a concrete recursive column loop;
+- heterogeneous destination reference types fall back to `ObjectRefVector`,
+  with conversion against each destination reference; and
+- lifecycle changes rebuild only the affected compiled execution targets.
+
+After warm-up, the stable homogeneous exact-order and permuted columnar paths
+can execute without allocations. Heterogeneous destinations preserve correct
+per-object types but are an intentionally slower fallback. Benchmark
+compilation, lifecycle refresh, steady-state assignment, and output collection
+separately when changing these internals.
 
 ## Alternatives rejected
 
@@ -231,23 +319,12 @@ make bookkeeping models appear scientifically meaningful.
 ### Public `CallTargets` reuse
 
 `CallTargets` represents executable callee applications and includes model,
-environment, status-view, and hard-call state. Distributed outputs need a
-lighter columnar destination view. Internal selector and lifecycle cache
-patterns can still be shared.
+environment, status-view, and hard-call state. Distributed outputs need the
+lighter columnar `OutputTargets` view.
 
 ### Per-step table join
 
 A table join or MTG traversal in every model execution is avoidable work and
-makes ordering errors possible. Compile identity mapping once and invalidate it
-only when membership changes.
-
-## Open implementation decisions
-
-- Final public names after prototype use.
-- Whether identity-aware `Many` becomes the default carrier in a later breaking
-  release.
-- Exact subset and missing-value policies.
-- Whether local outputs become implicit `Self()` bindings in the first
-  implementation or a later internal refactor.
-- The smallest concrete destination/index representation that preserves current
-  compiler and runtime performance.
+makes ordering errors possible. PlantSimEngine compiles the identity mapping
+once per stable ID carrier and invalidates it when destination membership
+changes.

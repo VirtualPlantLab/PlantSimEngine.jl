@@ -36,6 +36,10 @@ explicitly imports one of those submodules.
   `runtime_model`, `final_state`.
 - Output selection and collection: `OutputRequest`, `outputs`,
   `collect_outputs`.
+- Distributed output assignment: `OutputTargets`, `output_targets`, and
+  `assign_outputs!`. Access destination carriers through
+  `targets.columns.<variable>` and aligned identities through
+  `object_ids(targets)`.
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
