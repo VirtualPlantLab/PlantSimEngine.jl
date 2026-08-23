@@ -162,11 +162,14 @@ function _model_graph_compiled(
     input_by_target = _index_model_bindings(input_bindings, :application_id, :consumer_id)
     call_by_target = _index_model_bindings(call_bindings, :application_id, :consumer_id)
     timeline = _model_timeline(model)
+    distributed_output_plans =
+        _compile_model_output_destination_plans(model, applications)
     scenario_plan = _compiled_scenario_plan(
         model,
         applications,
         _compile_model_input_plans(model, applications),
         _compile_model_call_plans(model, applications),
+        distributed_output_plans,
         timeline,
     )
     ordered_applications = Tuple(
@@ -177,6 +180,12 @@ function _model_graph_compiled(
         applications,
         scenario_plan.call_plans,
         timeline,
+    )
+    distributed_outputs = _compile_model_distributed_outputs(
+        model,
+        applications,
+        scenario_plan.manual_application_ids,
+        scenario_plan.distributed_output_plans,
     )
     status_views = _compile_model_status_views(
         model,
@@ -199,6 +208,7 @@ function _model_graph_compiled(
         _index_dynamic_input_bindings(model, input_bindings),
         _index_dynamic_call_bindings(model, call_bindings),
         _many_input_binding_cache(model, input_bindings),
+        distributed_outputs,
         scenario_plan.call_owners,
         scenario_plan.application_children,
         status_views,

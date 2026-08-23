@@ -82,6 +82,10 @@ else
         include("test-model-bound-many.jl")
     end
 
+    @testset "Distributed output declarations" begin
+        include("test-model-output-destination-declarations.jl")
+    end
+
     @testset "Composite model multirate integration" begin
         include("test-model-multirate-integration.jl")
     end

@@ -73,7 +73,8 @@ const _CALL_SELECTOR_FIELDS = (
 
 function _selector_context_fields(context::Symbol)
     context == :application_target && return _APPLICATION_TARGET_SELECTOR_FIELDS
-    context in (:object_query, :output_request) && return _OBJECT_SELECTOR_FIELDS
+    context in (:object_query, :output_request, :output_destination) &&
+        return _OBJECT_SELECTOR_FIELDS
     context == :input && return _INPUT_SELECTOR_FIELDS
     context == :call && return _CALL_SELECTOR_FIELDS
     error("Unsupported selector validation context `$(context)`.")
@@ -83,6 +84,7 @@ function _selector_context_description(context::Symbol)
     context == :application_target && return "application-target"
     context == :object_query && return "object-query"
     context == :output_request && return "output-request"
+    context == :output_destination && return "output-destination"
     context == :input && return "input-binding"
     context == :call && return "call-binding"
     return string(context)

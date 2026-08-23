@@ -91,11 +91,15 @@ import ..PlantSimEngine:
     CompiledApplicationPlan,
     CompiledModelInputPlan,
     CompiledModelCallPlan,
+    CompiledModelOutputDestinationPlan,
     CompiledScenarioPlan,
     CompiledCompositeModel,
     CompiledModelApplication,
     CompiledModelInputBinding,
     CompiledModelCallBinding,
+    CompiledModelOutputDestinationBinding,
+    CompiledDistributedOutputPlans,
+    CompiledDistributedOutputs,
     CompiledEnvironmentBinding,
     CompiledEnvironmentBindings,
     ObjectRefVector,
@@ -118,9 +122,12 @@ export ObjectRegistry
 export LifecycleObjectSnapshot, LifecycleReparentEvent, LifecycleMoveEvent
 export LifecycleDelta, lifecycle_delta
 export CompiledApplicationPlan, CompiledModelInputPlan, CompiledModelCallPlan
+export CompiledModelOutputDestinationPlan
 export CompiledScenarioPlan
 export CompiledCompositeModel, CompiledModelApplication
 export CompiledModelInputBinding, CompiledModelCallBinding
+export CompiledModelOutputDestinationBinding
+export CompiledDistributedOutputPlans, CompiledDistributedOutputs
 export CompiledEnvironmentBinding, CompiledEnvironmentBindings
 export ObjectRefVector, TimeStepTable
 export compile_composite_model, refresh_bindings!, refresh_environment_bindings!
@@ -146,6 +153,7 @@ import ..PlantSimEngine:
     explain_applications,
     explain_bindings,
     explain_calls,
+    explain_output_bindings,
     explain_writers,
     input_carrier,
     input_value,
@@ -162,6 +170,7 @@ import ..PlantSimEngine:
 export ObjectAddress, object_address
 export explain_objects, explain_instances, explain_scopes
 export explain_applications, explain_bindings, explain_calls, explain_writers
+export explain_output_bindings
 export input_carrier, input_value, has_reference_carrier
 export explain_outputs, explain_initialization, explain_execution_plan
 export explain_runtime_performance
@@ -313,8 +322,9 @@ export runtime_model, current_step, final_state, outputs
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many
 export Input, Call, Environment
-export application_name, applies_to, value_inputs, model_calls, environment_config
-export ModelSpec, Updates
+export application_name, applies_to, value_inputs, model_calls, outputs_to
+export environment_config
+export ModelSpec, OutputTo, Updates
 export call_targets, call_model, run_call!, commit_environment!
 export bound_input
 export Status

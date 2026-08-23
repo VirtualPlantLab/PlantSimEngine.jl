@@ -110,6 +110,14 @@ model_calls(spec::ModelSpec) = spec.calls
 call_origins(spec::ModelSpec) = spec.call_origins
 
 """
+    outputs_to(spec::ModelSpec)
+
+Named distributed-output destinations declared with the
+`ModelSpec(...; outputs_to=...)` keyword.
+"""
+outputs_to(spec::ModelSpec) = spec.outputs_to
+
+"""
     environment_config(spec::ModelSpec)
 
 Optional composite-model/object environment configuration declared with

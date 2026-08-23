@@ -1271,7 +1271,9 @@ function refresh_bindings!(
         dirty_object_ids = delta.structural_dirty_ids
         can_extend = !force &&
                      !isnothing(model.binding_cache) &&
-                     !isempty(dirty_object_ids)
+                     !isempty(dirty_object_ids) &&
+                     model.binding_cache.distributed_outputs isa
+                     NoCompiledDistributedOutputs
         if can_extend && delta.structural_kind == :addition
             model.binding_cache = _extend_compiled_scene(
                 model,
