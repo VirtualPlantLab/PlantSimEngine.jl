@@ -2,11 +2,14 @@ using PlantSimEngine
 
 PlantSimEngine.@process "distributed_output_benchmark_bound_input" verbose = false
 PlantSimEngine.@process "distributed_output_benchmark_status_input" verbose = false
+PlantSimEngine.@process "distributed_output_benchmark_scene_writer" verbose = false
 
 struct DistributedOutputBenchmarkBoundInputModel <:
        AbstractDistributed_Output_Benchmark_Bound_InputModel end
 struct DistributedOutputBenchmarkStatusInputModel <:
        AbstractDistributed_Output_Benchmark_Status_InputModel end
+struct DistributedOutputBenchmarkSceneWriterModel <:
+       AbstractDistributed_Output_Benchmark_Scene_WriterModel end
 
 PlantSimEngine.inputs_(::DistributedOutputBenchmarkBoundInputModel) = (
     signals=Required(Vector{Float64}),
@@ -20,6 +23,17 @@ PlantSimEngine.inputs_(::DistributedOutputBenchmarkStatusInputModel) = (
 PlantSimEngine.outputs_(::DistributedOutputBenchmarkStatusInputModel) = (
     total=0.0,
 )
+PlantSimEngine.inputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
+function PlantSimEngine.run!(
+    ::DistributedOutputBenchmarkSceneWriterModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    return nothing
+end
 
 function PlantSimEngine.run!(
     ::DistributedOutputBenchmarkBoundInputModel,
@@ -231,6 +245,63 @@ end
 
 benchmark_distributed_output_input_steps(simulation, nsteps) =
     continue!(simulation; steps=nsteps)
+
+function setup_distributed_output_compilation_benchmark(
+    nobjects::Int=1_000;
+    distributed::Bool,
+)
+    nobjects >= 0 || throw(ArgumentError("`nobjects` must be non-negative."))
+    objects = Object[Object(:scene; scale=:Scene)]
+    sizehint!(objects, nobjects + 1)
+    for index in 1:nobjects
+        push!(
+            objects,
+            Object(
+                Symbol(:leaf_, index);
+                scale=:Leaf,
+                parent=:scene,
+            ),
+        )
+    end
+    application = if distributed
+        ModelSpec(
+            DistributedOutputBenchmarkSceneWriterModel();
+            name=:scene_writer,
+            on=One(scale=:Scene),
+            outputs_to=(
+                leaves=OutputTo(
+                    Many(scale=:Leaf, within=SceneScope());
+                    vars=(incident_par=Default(0.0),),
+                ),
+            ),
+        )
+    else
+        ModelSpec(
+            DistributedOutputBenchmarkSceneWriterModel();
+            name=:scene_writer,
+            on=One(scale=:Scene),
+        )
+    end
+    return CompositeModel(objects...; applications=(application,))
+end
+
+benchmark_compile_distributed_output_model(model) =
+    Advanced.compile_composite_model(model)
+
+function setup_distributed_output_lifecycle_benchmark(nobjects::Int=1_000)
+    model = setup_distributed_output_compilation_benchmark(
+        nobjects;
+        distributed=true,
+    )
+    Advanced.refresh_bindings!(model)
+    return model, nobjects + 1
+end
+
+function benchmark_refresh_distributed_output_lifecycle!(model, new_index)
+    object_id = Symbol(:leaf_, new_index)
+    register_object!(model, Object(object_id; scale=:Leaf); parent=:scene)
+    return Advanced.refresh_bindings!(model)
+end
 
 function setup_distributed_output_input_step_benchmark(
     nobjects::Int=1_000;

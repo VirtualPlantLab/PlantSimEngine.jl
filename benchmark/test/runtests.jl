@@ -283,6 +283,35 @@ if benchmark_test_enabled("distributed output benchmark API smoke")
             :scene,
         ).status.total
 
+        plain_model = setup_distributed_output_compilation_benchmark(
+            16;
+            distributed=false,
+        )
+        plain_compiled = benchmark_compile_distributed_output_model(plain_model)
+        @test plain_compiled.distributed_outputs isa
+              PlantSimEngine.NoCompiledDistributedOutputs
+
+        active_model = setup_distributed_output_compilation_benchmark(
+            16;
+            distributed=true,
+        )
+        active_compiled = benchmark_compile_distributed_output_model(active_model)
+        @test active_compiled.distributed_outputs isa
+              Advanced.CompiledDistributedOutputs
+        @test length(only(active_compiled.distributed_outputs.bindings).destination_ids) ==
+              16
+
+        lifecycle_model, new_index =
+            setup_distributed_output_lifecycle_benchmark(16)
+        refreshed = benchmark_refresh_distributed_output_lifecycle!(
+            lifecycle_model,
+            new_index,
+        )
+        @test length(only(refreshed.distributed_outputs.bindings).destination_ids) ==
+              17
+        @test model_object(lifecycle_model, Symbol(:leaf_, new_index)).status.incident_par ==
+              0.0
+
         benchmark_assign_distributed_outputs_exact!(
             data.exact_targets,
             data.exact_values,

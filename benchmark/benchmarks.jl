@@ -125,6 +125,22 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             data.object_ids,
             data.permuted_result_ids,
         ) setup = (data = setup_distributed_output_benchmark(1_000))
+    for distributed in (false, true)
+        compile_kind = distributed ? "active" : "none"
+        SUITE[suite_name]["PSE_distributed_compile_$(compile_kind)_1000"] =
+            @benchmarkable benchmark_compile_distributed_output_model(
+                model,
+            ) setup = (model = setup_distributed_output_compilation_benchmark(
+                1_000;
+                distributed=$distributed,
+            )) evals = 1
+    end
+    SUITE[suite_name]["PSE_distributed_lifecycle_add_1000"] =
+        @benchmarkable benchmark_refresh_distributed_output_lifecycle!(
+            model,
+            new_index,
+        ) setup = ((model, new_index) =
+            setup_distributed_output_lifecycle_benchmark(1_000)) evals = 1
     for identity_aware in (false, true)
         input_kind = identity_aware ? "bound" : "status"
         SUITE[suite_name]["PSE_$(input_kind)_many_input_steps_1000"] =
