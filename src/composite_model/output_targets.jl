@@ -375,74 +375,51 @@ _output_columns_might_alias(
     parent(destination) === parent(source) ||
     Base.mightalias(destination, source)
 
-@inline _validate_output_source_aliasing(
-    ::Tuple{},
-    source,
-    targets,
-    exact_order::Bool,
-    ::Val{destination_index},
-    ::Val{source_index},
-) where {destination_index,source_index} = nothing
-
-@inline function _validate_output_source_aliasing(
-    destinations::Tuple,
-    source,
-    targets,
-    exact_order::Bool,
-    ::Val{destination_index},
-    ::Val{source_index},
-) where {destination_index,source_index}
-    destination = first(destinations)
-    aliases = _output_columns_might_alias(destination, source)
-    safe_alias = exact_order && destination_index == source_index &&
-                 _output_columns_same_mapping(destination, source)
-    aliases && !safe_alias && throw(
-        ArgumentError(
-            "Assignment for $(_output_target_context(targets)) cannot use " *
-            "a differently ordered or partially overlapping output " *
-            "destination column as its result source.",
-        ),
-    )
-    return _validate_output_source_aliasing(
-        Base.tail(destinations),
-        source,
-        targets,
-        exact_order,
-        Val(destination_index + 1),
-        Val(source_index),
-    )
+@noinline function _throw_output_source_alias_error(targets)
+    throw(ArgumentError(
+        "Assignment for $(_output_target_context(targets)) cannot use " *
+        "a differently ordered or partially overlapping output " *
+        "destination column as its result source.",
+    ))
 end
 
-@inline _validate_output_aliasing_columns(
-    all_destinations::Tuple,
-    ::Tuple{},
+@inline function _validate_output_alias_pair(
+    destination,
+    source,
     targets,
     exact_order::Bool,
-    ::Val{source_index},
-) where {source_index} = nothing
+    ::Val{same_position},
+) where {same_position}
+    aliases = _output_columns_might_alias(destination, source)
+    safe_alias = exact_order && same_position &&
+                 _output_columns_same_mapping(destination, source)
+    aliases && !safe_alias && _throw_output_source_alias_error(targets)
+    return nothing
+end
 
-@inline function _validate_output_aliasing_columns(
-    all_destinations::Tuple,
-    sources::Tuple,
+@generated function _validate_output_aliasing_columns(
+    destinations::Destinations,
+    sources::Sources,
     targets,
     exact_order::Bool,
-    ::Val{source_index},
-) where {source_index}
-    _validate_output_source_aliasing(
-        all_destinations,
-        first(sources),
-        targets,
-        exact_order,
-        Val(1),
-        Val(source_index),
-    )
-    return _validate_output_aliasing_columns(
-        all_destinations,
-        Base.tail(sources),
-        targets,
-        exact_order,
-        Val(source_index + 1),
-    )
+) where {Destinations<:Tuple,Sources<:Tuple}
+    validations = Any[]
+    for source_index in 1:fieldcount(Sources)
+        for destination_index in 1:fieldcount(Destinations)
+            same_position = destination_index == source_index
+            push!(validations, :(
+                _validate_output_alias_pair(
+                    getfield(destinations, $destination_index),
+                    getfield(sources, $source_index),
+                    targets,
+                    exact_order,
+                    Val($same_position),
+                )
+            ))
+        end
+    end
+    push!(validations, :(nothing))
+    return Expr(:block, validations...)
 end
 
 function _validate_output_aliasing(
@@ -456,7 +433,6 @@ function _validate_output_aliasing(
         values(sources),
         targets,
         cache.exact_order,
-        Val(1),
     )
 end
 

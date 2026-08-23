@@ -139,6 +139,28 @@ function output_targets_api_capture(action)
     end
 end
 
+const OUTPUT_TARGETS_API_SEVEN_NAMES = ntuple(
+    index -> Symbol(:output_, index),
+    7,
+)
+const OUTPUT_TARGETS_API_NINETEEN_NAMES = ntuple(
+    index -> Symbol(:output_, index),
+    19,
+)
+
+function output_targets_api_wide_vars(names)
+    return NamedTuple{names}(ntuple(_ -> Default(0.0), length(names)))
+end
+
+function output_targets_api_wide_columns(names)
+    return NamedTuple{names}(
+        ntuple(
+            index -> Float64[index, index + 100],
+            length(names),
+        ),
+    )
+end
+
 @testset "public OutputTargets view and Tables column assignment" begin
     table = (
         object_id=ObjectId[ObjectId(:leaf_b), ObjectId(:leaf_a)],
@@ -201,6 +223,55 @@ end
     @test final_state(simulation, :leaf_a).absorbed_par == 2.0
     @test final_state(simulation, :leaf_b).incident_par == 42.0
     @test final_state(simulation, :leaf_b).absorbed_par == 4.0
+end
+
+@testset "wide identified assignments are allocation-free after warmup" begin
+    for names in (
+        OUTPUT_TARGETS_API_SEVEN_NAMES,
+        OUTPUT_TARGETS_API_NINETEEN_NAMES,
+    )
+        exact_ids = ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b)]
+        permuted_ids = reverse(exact_ids)
+        exact_columns = output_targets_api_wide_columns(names)
+        permuted_columns = NamedTuple{names}(
+            map(reverse, values(exact_columns)),
+        )
+        exact_allocations = Ref(-1)
+        permuted_allocations = Ref(-1)
+        writer = OutputTargetsApiActionModel() do context
+            targets = output_targets(context, :organs)
+
+            assign_outputs!(targets, exact_ids, exact_columns)
+            exact_allocations[] = @allocated assign_outputs!(
+                targets,
+                exact_ids,
+                exact_columns,
+            )
+
+            assign_outputs!(targets, permuted_ids, permuted_columns)
+            permuted_allocations[] = @allocated assign_outputs!(
+                targets,
+                permuted_ids,
+                permuted_columns,
+            )
+        end
+        model = output_targets_api_scene(
+            writer;
+            vars=output_targets_api_wide_vars(names),
+        )
+        simulation = run!(model; outputs=:none)
+
+        @test exact_allocations[] == 0
+        @test permuted_allocations[] == 0
+        @test getproperty(
+            final_state(simulation, :leaf_a),
+            first(names),
+        ) == 1.0
+        @test getproperty(
+            final_state(simulation, :leaf_b),
+            first(names),
+        ) == 101.0
+    end
 end
 
 @testset "output_targets lookup validation" begin
