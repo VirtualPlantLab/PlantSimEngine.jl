@@ -493,6 +493,56 @@ function setup_distributed_output_public_assignment_benchmark(
     return simulation
 end
 
+function setup_distributed_output_wide_assignment_benchmark(
+    nobjects::Int=1_000;
+    ncolumns::Int=7,
+)
+    ncolumns > 0 || throw(ArgumentError("`ncolumns` must be positive."))
+    data = setup_distributed_output_benchmark(nobjects)
+    names = ntuple(index -> Symbol(:output_, index), ncolumns)
+    columns = NamedTuple{names}(
+        ntuple(index -> fill(Float64(index), nobjects), ncolumns),
+    )
+    output_variables = NamedTuple{names}(
+        ntuple(_ -> Default(0.0), ncolumns),
+    )
+    objects = Object[Object(:scene; scale=:Scene)]
+    sizehint!(objects, nobjects + 1)
+    for object_id in data.object_ids
+        push!(
+            objects,
+            Object(
+                object_id.value;
+                scale=:Leaf,
+                parent=:scene,
+            ),
+        )
+    end
+    writer = DistributedOutputBenchmarkAssignmentModel(
+        nothing,
+        data.object_ids,
+        columns,
+        Val(:columns),
+    )
+    model = CompositeModel(
+        objects...;
+        applications=(
+            ModelSpec(
+                writer;
+                name=:scene_wide_assignment,
+                on=One(scale=:Scene),
+                outputs_to=(
+                    leaves=OutputTo(
+                        Many(scale=:Leaf, within=SceneScope());
+                        vars=output_variables,
+                    ),
+                ),
+            ),
+        ),
+    )
+    return run!(model; outputs=:none)
+end
+
 benchmark_distributed_output_public_assignment_step(simulation) =
     continue!(simulation; steps=1)
 

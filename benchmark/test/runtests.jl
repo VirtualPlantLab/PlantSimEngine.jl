@@ -749,6 +749,14 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
                     suite,
                     "PSE_assign_outputs_columns_heterogeneous_exact_1000",
                 )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_7columns_exact_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_19columns_exact_1000",
+                )
             end
             @test !haskey(suite, "PBP")
             @test !haskey(suite, "PBP_batch_run")

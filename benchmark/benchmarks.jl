@@ -208,6 +208,16 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
                         order=:exact,
                         path=$path,
                         heterogeneous=true,
+                )) evals = 1
+        end
+        for ncolumns in (7, 19)
+            SUITE[suite_name]["PSE_assign_outputs_columns_$(ncolumns)columns_exact_1000"] =
+                @benchmarkable benchmark_distributed_output_public_assignment_step(
+                    simulation,
+                ) setup = (simulation =
+                    setup_distributed_output_wide_assignment_benchmark(
+                        1_000;
+                        ncolumns=$ncolumns,
                     )) evals = 1
         end
     end
