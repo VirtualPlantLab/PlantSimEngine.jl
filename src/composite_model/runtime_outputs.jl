@@ -1738,7 +1738,11 @@ end
     )
     @inbounds for index in eachindex(source_streams)
         value = _previous_time_step_sample(source_streams[index], time)
-        storage[index] = isnothing(value) ? initial[index] : value
+        if isnothing(value)
+            storage[index] = initial[index]
+        else
+            storage[index] = value
+        end
     end
     return temporal_input
 end
@@ -1872,17 +1876,51 @@ function _materialize_model_inputs!(
 )
     isnothing(streams) && return status
     timeline = compiled.scenario_plan.timeline
-    for temporal_input in bindings
-        _materialize_model_temporal_input!(
-            status,
-            temporal_input,
-            application,
-            streams,
-            time,
-            timeline,
-        )
-    end
+    return _materialize_model_temporal_inputs!(
+        status,
+        bindings,
+        application,
+        streams,
+        time,
+        timeline,
+    )
+end
+
+@inline function _materialize_model_temporal_inputs!(
+    status::Status,
+    ::Tuple{},
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+)
     return status
+end
+
+@inline function _materialize_model_temporal_inputs!(
+    status::Status,
+    bindings::Tuple{T,Vararg},
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+) where {T}
+    _materialize_model_temporal_input!(
+        status,
+        first(bindings),
+        application,
+        streams,
+        time,
+        timeline,
+    )
+    return _materialize_model_temporal_inputs!(
+        status,
+        Base.tail(bindings),
+        application,
+        streams,
+        time,
+        timeline,
+    )
 end
 
 function _model_environment_for_model(

@@ -77,6 +77,27 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.@process "temporal_view_mixed_consumer" verbose = false
+
+struct TemporalViewMixedConsumer <: AbstractTemporal_View_Mixed_ConsumerModel end
+
+PlantSimEngine.inputs_(::TemporalViewMixedConsumer) = (
+    scalar=Default(0.0),
+    signals=Default(Float64[]),
+)
+PlantSimEngine.outputs_(::TemporalViewMixedConsumer) = (signal_total=0.0,)
+
+function PlantSimEngine.run!(
+    ::TemporalViewMixedConsumer,
+    status,
+    environment,
+    constants=nothing,
+    context=nothing,
+)
+    status.signal_total = status.scalar + sum(status.signals)
+    return nothing
+end
+
 PlantSimEngine.@process "temporal_view_cycle_a" verbose = false
 PlantSimEngine.@process "temporal_view_cycle_b" verbose = false
 
@@ -673,6 +694,72 @@ end
     @test_throws "both a temporal input and an output" Advanced.refresh_bindings!(
         ambiguous_overlap,
     )
+end
+
+@testset "Heterogeneous PreviousTimeStep materialization is allocation-free" begin
+    mixed_object = CompositeModel(
+        Object(:scene; scale=:Scene, status=Status(signal=10.0)),
+        Object(:leaf_1; scale=:Leaf, parent=:scene, status=Status(signal=1.0)),
+        Object(:leaf_2; scale=:Leaf, parent=:scene, status=Status(signal=2.0));
+        applications=(
+            ModelSpec(
+                TemporalViewSignalSource();
+                name=:scene_signal_source,
+                on=One(scale=:Scene),
+            ),
+            ModelSpec(
+                TemporalViewSignalSource();
+                name=:leaf_signal_source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                TemporalViewMixedConsumer();
+                name=:mixed_consumer,
+                on=One(scale=:Scene),
+                inputs=(
+                    PreviousTimeStep(:scalar) => One(
+                        within=Self(),
+                        application=:scene_signal_source,
+                        var=:signal,
+                    ),
+                    PreviousTimeStep(:signals) => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        var=:signal,
+                    ),
+                ),
+            ),
+        ),
+    )
+    mixed_simulation = run!(mixed_object; steps=2, outputs=:none)
+    mixed_application =
+        mixed_simulation.compiled.applications_by_id[:mixed_consumer]
+    mixed_execution_target = only(
+        only(
+            batch.targets for batch in mixed_simulation.execution_plan.batches
+            if batch.application.id == :mixed_consumer
+        ),
+    )
+    materialize_mixed!() = PlantSimEngine._materialize_model_inputs!(
+        mixed_execution_target.status,
+        mixed_execution_target.input_bindings,
+        mixed_simulation.compiled,
+        mixed_application,
+        mixed_simulation.temporal_streams,
+        3,
+    )
+
+    materialize_mixed!()
+    @test mixed_execution_target.status.scalar == 12.0
+    @test collect(mixed_execution_target.status.signals) == [3.0, 4.0]
+    @test _runtime_materialization_allocations(
+        mixed_execution_target.status,
+        mixed_execution_target.input_bindings,
+        mixed_simulation.compiled,
+        mixed_application,
+        mixed_simulation.temporal_streams,
+        3,
+    ) == 0
 end
 
 @testset "PreviousTimeStep dependency storage scales by object, not duration" begin
