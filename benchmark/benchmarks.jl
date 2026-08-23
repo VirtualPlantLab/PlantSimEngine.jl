@@ -108,6 +108,8 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             ) setup = (values = setup_distributed_output_benchmark(
                 $nobjects,
             ).bound_heterogeneous_values)
+    end
+    for nobjects in (10, 1_000, 10_000, 100_000)
         SUITE[suite_name]["PSE_distributed_assign_exact_$(nobjects)"] =
             @benchmarkable benchmark_assign_distributed_outputs_exact!(
                 data.exact_targets,
@@ -119,6 +121,95 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
                 data.permuted_values,
                 data.result_to_destination,
             ) setup = (data = setup_distributed_output_benchmark($nobjects))
+    end
+    for nobjects in (10, 1_000, 10_000)
+        SUITE[suite_name]["PSE_distributed_assign_status_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_statuses_exact!(
+                data.statuses,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_broadcast_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_broadcast!(
+                data.status_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_columns_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_output_columns_exact!(
+                data.column_targets,
+                data.column_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_sparse_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_permuted!(
+                data.sparse_targets,
+                data.sparse_values,
+                data.sparse_result_to_destination,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_heterogeneous_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_exact!(
+                data.heterogeneous_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_mapping_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_refresh_distributed_output_assignment_mapping(
+                destination_ids,
+                result_ids,
+            ) setup = ((destination_ids, result_ids) =
+                setup_distributed_output_mapping_refresh_benchmark($nobjects))
+        SUITE[suite_name]["PSE_assign_outputs_control_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_public_assignment_step(
+                simulation,
+            ) setup = (simulation =
+                setup_distributed_output_assignment_control_benchmark(
+                    $nobjects,
+                )) evals = 1
+    end
+    if isdefined(PlantSimEngine, :output_targets) &&
+       isdefined(PlantSimEngine, :assign_outputs!)
+        for nobjects in (10, 1_000, 10_000), order in (:exact, :permuted)
+            assignment_paths = order === :exact ?
+                               (:table, :columns, :ref_loop, :broadcast) :
+                               (:table, :columns)
+            for path in assignment_paths
+                SUITE[suite_name]["PSE_assign_outputs_$(path)_$(order)_$(nobjects)"] =
+                    @benchmarkable benchmark_distributed_output_public_assignment_step(
+                        simulation,
+                    ) setup = (simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            $nobjects;
+                            order=$order,
+                            path=$path,
+                )) evals = 1
+            end
+        end
+        for nobjects in (10, 1_000, 10_000), order in (:exact, :permuted)
+            assignment_paths = order === :exact ?
+                               (:table, :columns, :ref_loop) :
+                               (:table, :columns)
+            for path in assignment_paths
+                SUITE[suite_name]["PSE_assign_outputs_$(path)_2columns_$(order)_$(nobjects)"] =
+                    @benchmarkable benchmark_distributed_output_public_assignment_step(
+                        simulation,
+                    ) setup = (simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            $nobjects;
+                            order=$order,
+                            path=$path,
+                            ncolumns=2,
+                        )) evals = 1
+            end
+        end
+        for nobjects in (10, 1_000, 10_000), path in (:columns, :ref_loop)
+            SUITE[suite_name]["PSE_assign_outputs_$(path)_heterogeneous_exact_$(nobjects)"] =
+                @benchmarkable benchmark_distributed_output_public_assignment_step(
+                    simulation,
+                ) setup = (simulation =
+                    setup_distributed_output_public_assignment_benchmark(
+                        $nobjects;
+                        order=:exact,
+                        path=$path,
+                        heterogeneous=true,
+                    )) evals = 1
+        end
     end
     SUITE[suite_name]["PSE_distributed_compile_permutation_1000"] =
         @benchmarkable compile_distributed_output_benchmark_permutation(

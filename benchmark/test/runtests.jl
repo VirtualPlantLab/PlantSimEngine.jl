@@ -248,8 +248,22 @@ if benchmark_test_enabled("distributed output benchmark API smoke")
 
         benchmark_distributed_output_sum(data.ref_values)
         benchmark_distributed_output_sum(data.bound_values)
-        @test @allocated(benchmark_distributed_output_sum(data.ref_values)) == 0
-        @test @allocated(benchmark_distributed_output_sum(data.bound_values)) == 0
+        benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.ref_values,
+        )
+        @test benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.ref_values,
+        ) == 0
+        benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.bound_values,
+        )
+        @test benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.bound_values,
+        ) == 0
 
         status_input_data = setup_distributed_output_input_benchmark(
             16;
@@ -321,21 +335,65 @@ if benchmark_test_enabled("distributed output benchmark API smoke")
             data.permuted_values,
             data.result_to_destination,
         )
+        benchmark_assign_distributed_outputs_statuses_exact!(
+            data.statuses,
+            data.exact_values,
+        )
+        @test getproperty.(data.statuses, :signal) == data.exact_values
+        fill!(data.status_targets, 0.0)
+        benchmark_assign_distributed_outputs_broadcast!(
+            data.status_targets,
+            data.exact_values,
+        )
+        @test collect(data.status_targets) == data.exact_values
+        benchmark_assign_distributed_output_columns_exact!(
+            data.column_targets,
+            data.column_values,
+        )
+        @test collect(data.column_targets.signal) == data.column_values.signal
+        @test collect(data.column_targets.rank) == data.column_values.rank
+        benchmark_assign_distributed_outputs_permuted!(
+            data.sparse_targets,
+            data.sparse_values,
+            data.sparse_result_to_destination,
+        )
+        sparse_expected = zeros(length(data.exact_values))
+        sparse_expected[data.sparse_result_to_destination] = data.sparse_values
+        @test collect(data.sparse_targets) == sparse_expected
+        benchmark_assign_distributed_outputs_exact!(
+            data.heterogeneous_targets,
+            data.exact_values,
+        )
+        @test collect(data.heterogeneous_targets) == data.exact_values
         @test collect(data.exact_targets) == data.exact_values
         @test collect(data.permuted_targets) == data.exact_values
-        @test @allocated(
-            benchmark_assign_distributed_outputs_exact!(
+        allocation_cases = (
+            (
+                benchmark_assign_distributed_outputs_exact!,
                 data.exact_targets,
                 data.exact_values,
-            )
-        ) == 0
-        @test @allocated(
-            benchmark_assign_distributed_outputs_permuted!(
+            ),
+            (
+                benchmark_assign_distributed_outputs_permuted!,
                 data.permuted_targets,
                 data.permuted_values,
                 data.result_to_destination,
-            )
-        ) == 0
+            ),
+            (
+                benchmark_assign_distributed_outputs_broadcast!,
+                data.status_targets,
+                data.exact_values,
+            ),
+            (
+                benchmark_assign_distributed_output_columns_exact!,
+                data.column_targets,
+                data.column_values,
+            ),
+        )
+        for allocation_case in allocation_cases
+            benchmark_distributed_output_allocations(allocation_case...)
+            @test benchmark_distributed_output_allocations(allocation_case...) == 0
+        end
 
         @test_throws DimensionMismatch begin
             compile_distributed_output_benchmark_permutation(
@@ -357,6 +415,123 @@ if benchmark_test_enabled("distributed output benchmark API smoke")
                     data.permuted_result_ids[1]
                 ],
             )
+        end
+        sparse_mapping = compile_sparse_distributed_output_benchmark_mapping(
+            data.object_ids,
+            data.sparse_result_ids,
+        )
+        @test sparse_mapping == data.sparse_result_to_destination
+        @test_throws ArgumentError begin
+            compile_sparse_distributed_output_benchmark_mapping(
+                data.object_ids,
+                [data.sparse_result_ids; first(data.sparse_result_ids)],
+            )
+        end
+
+        dynamic_destination_ids, dynamic_result_ids =
+            setup_distributed_output_mapping_refresh_benchmark(16)
+        dynamic_mapping =
+            benchmark_refresh_distributed_output_assignment_mapping(
+                dynamic_destination_ids,
+                dynamic_result_ids,
+            )
+        @test dynamic_mapping == reverse(eachindex(dynamic_destination_ids))
+
+        control_simulation =
+            setup_distributed_output_assignment_control_benchmark(16)
+        benchmark_distributed_output_public_assignment_step(
+            control_simulation,
+        )
+        @test current_step(control_simulation) == 2
+
+        if isdefined(PlantSimEngine, :output_targets) &&
+           isdefined(PlantSimEngine, :assign_outputs!)
+            expected_by_id = Dict(
+                row_id => value for (row_id, value) in zip(
+                    data.object_ids,
+                    data.exact_values,
+                )
+            )
+            for (order, paths) in (
+                (:exact, (:table, :columns, :ref_loop, :broadcast)),
+                (:permuted, (:table, :columns)),
+            )
+                for path in paths
+                    public_simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            16;
+                            order=order,
+                            path=path,
+                        )
+                    benchmark_distributed_output_public_assignment_step(
+                        public_simulation,
+                    )
+                    @test all(
+                        object.status.incident_par == expected_by_id[object.id]
+                        for object in model_objects(
+                            public_simulation.model;
+                            scale=:Leaf,
+                        )
+                )
+            end
+            end
+
+            expected_rank_by_id = Dict(
+                row_id => rank for (row_id, rank) in zip(
+                    data.object_ids,
+                    data.column_values.rank,
+                )
+            )
+            for order in (:exact, :permuted)
+                paths = order === :exact ?
+                        (:table, :columns, :ref_loop) :
+                        (:table, :columns)
+                for path in paths
+                    public_simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            16;
+                            order=order,
+                            path=path,
+                            ncolumns=2,
+                        )
+                    benchmark_distributed_output_public_assignment_step(
+                        public_simulation,
+                    )
+                    leaves = model_objects(public_simulation.model; scale=:Leaf)
+                    @test all(
+                        object.status.incident_par == expected_by_id[object.id]
+                        for object in leaves
+                    )
+                    @test all(
+                        object.status.rank == expected_rank_by_id[object.id]
+                        for object in leaves
+                    )
+                end
+            end
+
+            for path in (:columns, :ref_loop)
+                public_simulation =
+                    setup_distributed_output_public_assignment_benchmark(
+                        16;
+                        order=:exact,
+                        path=path,
+                        heterogeneous=true,
+                    )
+                execution_target =
+                    only(first(public_simulation.execution_plan.batches).targets)
+                @test execution_target.output_targets.leaves.columns.incident_par isa
+                      PlantSimEngine.ObjectRefVector
+                benchmark_distributed_output_public_assignment_step(
+                    public_simulation,
+                )
+                @test all(
+                    object.status.incident_par == expected_by_id[object.id]
+                    for object in model_objects(
+                        public_simulation.model;
+                        scale=:Leaf,
+                    )
+                )
+            end
         end
     end
 end
@@ -556,6 +731,25 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             @test haskey(suite, "PSE_immutable_scenario_none")
             @test haskey(suite, "PSE_immutable_scenario_requests")
             @test haskey(suite, "PSE_immutable_scenario_all")
+            @test haskey(suite, "PSE_distributed_assign_exact_10")
+            @test haskey(suite, "PSE_distributed_assign_sparse_1000")
+            @test haskey(suite, "PSE_distributed_mapping_refresh_10000")
+            @test haskey(suite, "PSE_assign_outputs_control_1000")
+            if isdefined(PlantSimEngine, :output_targets) &&
+               isdefined(PlantSimEngine, :assign_outputs!)
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_exact_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_2columns_permuted_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_heterogeneous_exact_1000",
+                )
+            end
             @test !haskey(suite, "PBP")
             @test !haskey(suite, "PBP_batch_run")
             @test !haskey(suite, "XPalm_run_100")

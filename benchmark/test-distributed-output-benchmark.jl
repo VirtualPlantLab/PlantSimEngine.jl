@@ -3,6 +3,7 @@ using PlantSimEngine
 PlantSimEngine.@process "distributed_output_benchmark_bound_input" verbose = false
 PlantSimEngine.@process "distributed_output_benchmark_status_input" verbose = false
 PlantSimEngine.@process "distributed_output_benchmark_scene_writer" verbose = false
+PlantSimEngine.@process "distributed_output_benchmark_assignment" verbose = false
 
 struct DistributedOutputBenchmarkBoundInputModel <:
        AbstractDistributed_Output_Benchmark_Bound_InputModel end
@@ -10,6 +11,30 @@ struct DistributedOutputBenchmarkStatusInputModel <:
        AbstractDistributed_Output_Benchmark_Status_InputModel end
 struct DistributedOutputBenchmarkSceneWriterModel <:
        AbstractDistributed_Output_Benchmark_Scene_WriterModel end
+struct DistributedOutputBenchmarkAssignmentModel{T,I,C,M} <:
+       AbstractDistributed_Output_Benchmark_AssignmentModel
+    table::T
+    ids::I
+    columns::C
+    mode::M
+end
+
+function DistributedOutputBenchmarkAssignmentModel(table, mode::Symbol)
+    mode in (:table, :columns, :ref_loop, :broadcast) || throw(
+        ArgumentError("Unsupported assignment path `$(mode)`."),
+    )
+    columns = if hasproperty(table, :rank)
+        (incident_par=table.incident_par, rank=table.rank)
+    else
+        (incident_par=table.incident_par,)
+    end
+    return DistributedOutputBenchmarkAssignmentModel(
+        table,
+        table.object_id,
+        columns,
+        Val(mode),
+    )
+end
 
 PlantSimEngine.inputs_(::DistributedOutputBenchmarkBoundInputModel) = (
     signals=Required(Vector{Float64}),
@@ -25,6 +50,8 @@ PlantSimEngine.outputs_(::DistributedOutputBenchmarkStatusInputModel) = (
 )
 PlantSimEngine.inputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::DistributedOutputBenchmarkSceneWriterModel) = NamedTuple()
+PlantSimEngine.inputs_(::DistributedOutputBenchmarkAssignmentModel) = NamedTuple()
+PlantSimEngine.outputs_(::DistributedOutputBenchmarkAssignmentModel) = NamedTuple()
 function PlantSimEngine.run!(
     ::DistributedOutputBenchmarkSceneWriterModel,
     status,
@@ -32,6 +59,67 @@ function PlantSimEngine.run!(
     constants,
     context,
 )
+    return nothing
+end
+
+function PlantSimEngine.run!(
+    model::DistributedOutputBenchmarkAssignmentModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    targets = PlantSimEngine.output_targets(context, :leaves)
+    benchmark_assign_outputs_api!(model.mode, targets, model)
+    return nothing
+end
+
+function benchmark_assign_outputs_api!(
+    ::Val{:table},
+    targets,
+    model::DistributedOutputBenchmarkAssignmentModel,
+)
+    PlantSimEngine.assign_outputs!(targets, model.table; id=:object_id)
+    return nothing
+end
+
+function benchmark_assign_outputs_api!(
+    ::Val{:columns},
+    targets,
+    model::DistributedOutputBenchmarkAssignmentModel,
+)
+    PlantSimEngine.assign_outputs!(targets, model.ids, model.columns)
+    return nothing
+end
+
+function benchmark_assign_outputs_api!(
+    ::Val{:ref_loop},
+    targets,
+    model::DistributedOutputBenchmarkAssignmentModel,
+)
+    if hasproperty(model.columns, :rank)
+        benchmark_assign_distributed_output_public_columns_exact!(
+            targets.columns,
+            model.columns,
+        )
+    else
+        benchmark_assign_distributed_outputs_exact!(
+            targets.columns.incident_par,
+            model.columns.incident_par,
+        )
+    end
+    return nothing
+end
+
+function benchmark_assign_outputs_api!(
+    ::Val{:broadcast},
+    targets,
+    model::DistributedOutputBenchmarkAssignmentModel,
+)
+    benchmark_assign_distributed_outputs_broadcast!(
+        targets.columns.incident_par,
+        model.columns.incident_par,
+    )
     return nothing
 end
 
@@ -74,17 +162,72 @@ function benchmark_distributed_output_sum(values)
     return total
 end
 
-function benchmark_assign_distributed_outputs_exact!(targets, values)
+benchmark_distributed_output_allocations(f, args...) = @allocated f(args...)
+
+Base.@noinline function benchmark_assign_distributed_outputs_exact!(targets, values)
     @boundscheck length(targets) == length(values) || throw(
         DimensionMismatch("Output targets and values must have the same length."),
     )
     @inbounds for index in eachindex(values)
         targets[index] = values[index]
     end
-    return targets
+    return nothing
 end
 
-function benchmark_assign_distributed_outputs_permuted!(
+Base.@noinline function benchmark_assign_distributed_outputs_broadcast!(
+    targets,
+    values,
+)
+    targets .= values
+    return nothing
+end
+
+Base.@noinline function benchmark_assign_distributed_outputs_statuses_exact!(
+    statuses,
+    values,
+)
+    @boundscheck length(statuses) == length(values) || throw(
+        DimensionMismatch("Output statuses and values must have the same length."),
+    )
+    @inbounds for index in eachindex(values)
+        statuses[index].signal = values[index]
+    end
+    return nothing
+end
+
+Base.@noinline function benchmark_assign_distributed_output_columns_exact!(
+    targets,
+    values,
+)
+    @boundscheck length(targets.signal) == length(values.signal) || throw(
+        DimensionMismatch("Signal output targets and values must have the same length."),
+    )
+    @boundscheck length(targets.rank) == length(values.rank) || throw(
+        DimensionMismatch("Rank output targets and values must have the same length."),
+    )
+    @boundscheck length(targets.signal) == length(targets.rank) || throw(
+        DimensionMismatch("Output target columns must have the same length."),
+    )
+    @inbounds for index in eachindex(values.signal)
+        targets.signal[index] = values.signal[index]
+        targets.rank[index] = values.rank[index]
+    end
+    return nothing
+end
+
+Base.@noinline function benchmark_assign_distributed_output_public_columns_exact!(
+    targets,
+    values,
+)
+    benchmark_assign_distributed_outputs_exact!(
+        targets.incident_par,
+        values.incident_par,
+    )
+    benchmark_assign_distributed_outputs_exact!(targets.rank, values.rank)
+    return nothing
+end
+
+Base.@noinline function benchmark_assign_distributed_outputs_permuted!(
     targets,
     values,
     result_to_destination,
@@ -97,23 +240,22 @@ function benchmark_assign_distributed_outputs_permuted!(
     @inbounds for result_index in eachindex(values)
         targets[result_to_destination[result_index]] = values[result_index]
     end
-    return targets
+    return nothing
 end
 
-"""
-    compile_distributed_output_benchmark_permutation(destination_ids, result_ids)
-
-Compile and validate the result-row to destination-position mapping used by the
-benchmark. This intentionally allocating operation represents compilation or a
-lifecycle barrier, never a steady-state model call.
-"""
-function compile_distributed_output_benchmark_permutation(
+function _compile_distributed_output_benchmark_mapping(
     destination_ids,
     result_ids,
+    require_exact::Bool,
 )
-    length(destination_ids) == length(result_ids) || throw(
+    require_exact && length(destination_ids) != length(result_ids) && throw(
         DimensionMismatch(
             "Exact output coverage requires one result per destination.",
+        ),
+    )
+    length(result_ids) <= length(destination_ids) || throw(
+        DimensionMismatch(
+            "Output results cannot outnumber destination objects.",
         ),
     )
     position_by_id = Dict{eltype(destination_ids),Int}()
@@ -138,10 +280,43 @@ function compile_distributed_output_benchmark_permutation(
         seen[destination_index] = true
         result_to_destination[result_index] = destination_index
     end
-    all(seen) || throw(
+    require_exact && !all(seen) && throw(
         ArgumentError("Exact output coverage is missing destination object IDs."),
     )
     return result_to_destination
+end
+
+"""
+    compile_sparse_distributed_output_benchmark_mapping(destination_ids, result_ids)
+
+Compile a benchmark-only sparse/random destination mapping. This helper is not
+an `OutputTo` coverage policy and deliberately does not define public partial
+assignment semantics; it isolates the indexed-write cost requested by the
+distributed-output performance contract.
+"""
+compile_sparse_distributed_output_benchmark_mapping(destination_ids, result_ids) =
+    _compile_distributed_output_benchmark_mapping(
+        destination_ids,
+        result_ids,
+        false,
+    )
+
+"""
+    compile_distributed_output_benchmark_permutation(destination_ids, result_ids)
+
+Compile and validate the result-row to destination-position mapping used by the
+benchmark. This intentionally allocating operation represents compilation or a
+lifecycle barrier, never a steady-state model call.
+"""
+function compile_distributed_output_benchmark_permutation(
+    destination_ids,
+    result_ids,
+)
+    return _compile_distributed_output_benchmark_mapping(
+        destination_ids,
+        result_ids,
+        true,
+    )
 end
 
 function setup_distributed_output_benchmark(nobjects::Int=1_000)
@@ -167,6 +342,12 @@ function setup_distributed_output_benchmark(nobjects::Int=1_000)
     )
 
     exact_values = getindex.(references)
+    statuses = [Status(signal=0.0) for _ in 1:nobjects]
+    status_targets = PlantSimEngine.RefVector(:signal, statuses)
+    rank_values = collect(1:nobjects)
+    rank_targets = PlantSimEngine.RefVector([Ref(0) for _ in 1:nobjects])
+    column_targets = (signal=status_targets, rank=rank_targets)
+    column_values = (signal=exact_values, rank=rank_values)
     permuted_result_ids = reverse(object_ids)
     permuted_values = reverse(exact_values)
     result_to_destination =
@@ -180,6 +361,28 @@ function setup_distributed_output_benchmark(nobjects::Int=1_000)
     permuted_targets = PlantSimEngine.RefVector(
         [Ref(0.0) for _ in 1:nobjects],
     )
+    sparse_result_ids = reverse(object_ids[1:10:end])
+    sparse_values = reverse(exact_values[1:10:end])
+    sparse_result_to_destination =
+        compile_sparse_distributed_output_benchmark_mapping(
+            object_ids,
+            sparse_result_ids,
+        )
+    sparse_targets = PlantSimEngine.RefVector(
+        [Ref(0.0) for _ in 1:nobjects],
+    )
+    heterogeneous_target_references = Any[
+        if mod(index, 3) == 1
+            Ref{Float32}(0.0)
+        elseif mod(index, 3) == 2
+            Ref{Float64}(0.0)
+        else
+            Ref{Real}(0.0)
+        end for index in 1:nobjects
+    ]
+    heterogeneous_targets = PlantSimEngine.ObjectRefVector(
+        heterogeneous_target_references,
+    )
 
     return (
         object_ids=object_ids,
@@ -188,12 +391,119 @@ function setup_distributed_output_benchmark(nobjects::Int=1_000)
         heterogeneous_values=heterogeneous_values,
         bound_heterogeneous_values=bound_heterogeneous_values,
         exact_values=exact_values,
+        statuses=statuses,
+        status_targets=status_targets,
+        column_targets=column_targets,
+        column_values=column_values,
         permuted_result_ids=permuted_result_ids,
         permuted_values=permuted_values,
         result_to_destination=result_to_destination,
         exact_targets=exact_targets,
         permuted_targets=permuted_targets,
+        sparse_result_ids=sparse_result_ids,
+        sparse_values=sparse_values,
+        sparse_result_to_destination=sparse_result_to_destination,
+        sparse_targets=sparse_targets,
+        heterogeneous_targets=heterogeneous_targets,
+        exact_table=(object_id=object_ids, incident_par=exact_values),
+        permuted_table=(
+            object_id=permuted_result_ids,
+            incident_par=permuted_values,
+        ),
     )
+end
+
+function setup_distributed_output_mapping_refresh_benchmark(nobjects::Int=1_000)
+    data = setup_distributed_output_benchmark(nobjects)
+    dynamic_id = ObjectId(Symbol(:object_, nobjects + 1))
+    destination_ids = [data.object_ids; dynamic_id]
+    result_ids = reverse(destination_ids)
+    return destination_ids, result_ids
+end
+
+benchmark_refresh_distributed_output_assignment_mapping(
+    destination_ids,
+    result_ids,
+) = compile_distributed_output_benchmark_permutation(destination_ids, result_ids)
+
+function setup_distributed_output_public_assignment_benchmark(
+    nobjects::Int=1_000;
+    order::Symbol=:exact,
+    path::Symbol=:table,
+    ncolumns::Int=1,
+    heterogeneous::Bool=false,
+)
+    order in (:exact, :permuted) || throw(
+        ArgumentError("Unsupported result order `$(order)`."),
+    )
+    ncolumns in (1, 2) || throw(
+        ArgumentError("`ncolumns` must be either 1 or 2."),
+    )
+    heterogeneous && ncolumns != 1 && throw(
+        ArgumentError("Heterogeneous targets support the one-column case."),
+    )
+    data = setup_distributed_output_benchmark(nobjects)
+    base_table = order === :exact ? data.exact_table : data.permuted_table
+    rank = order === :exact ?
+           data.column_values.rank :
+           reverse(data.column_values.rank)
+    table = ncolumns == 1 ? base_table : (; base_table..., rank)
+    output_variables = ncolumns == 1 ?
+                       (incident_par=Default(0.0),) :
+                       (incident_par=Default(0.0), rank=Default(0))
+    objects = Object[Object(:scene; scale=:Scene)]
+    sizehint!(objects, nobjects + 1)
+    for (index, object_id) in enumerate(data.object_ids)
+        status = if heterogeneous
+            if isodd(index)
+                Status(incident_par=Float32(0.0))
+            else
+                Status(incident_par=Float64(0.0))
+            end
+        else
+            Status()
+        end
+        push!(
+            objects,
+            Object(
+                object_id.value;
+                scale=:Leaf,
+                parent=:scene,
+                status,
+            ),
+        )
+    end
+    model = CompositeModel(
+        objects...;
+        applications=(
+            ModelSpec(
+                DistributedOutputBenchmarkAssignmentModel(table, path);
+                name=:scene_assignment,
+                on=One(scale=:Scene),
+                outputs_to=(
+                    leaves=OutputTo(
+                        Many(scale=:Leaf, within=SceneScope());
+                        vars=output_variables,
+                    ),
+                ),
+            ),
+        ),
+    )
+    simulation = run!(model; outputs=:none)
+    return simulation
+end
+
+benchmark_distributed_output_public_assignment_step(simulation) =
+    continue!(simulation; steps=1)
+
+function setup_distributed_output_assignment_control_benchmark(
+    nobjects::Int=1_000,
+)
+    model = setup_distributed_output_compilation_benchmark(
+        nobjects;
+        distributed=false,
+    )
+    return run!(model; outputs=:none)
 end
 
 function setup_distributed_output_input_benchmark(
