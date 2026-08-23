@@ -13,9 +13,10 @@ explicitly imports one of those submodules.
 
 - CompositeModel structure: `CompositeModel`, `Object`, `ObjectId`, `CompositeModelTemplate`,
   `ObjectInstance`, `Override`.
-- Applications: `ModelSpec`, `Environment`, and `Updates`.
+- Applications: `ModelSpec`, `OutputTo`, `Environment`, and `Updates`.
 - Application inspection: `application_name`, `applies_to`, `value_inputs`,
-  `model_calls`, `environment_config`, `output_routing`, `updates`.
+  `model_calls`, `outputs_to`, `environment_config`, `output_routing`,
+  `updates`.
 - Dependency defaults: `Input`, `Call`, `PreviousTimeStep`.
 
 ## Object selectors and queries
@@ -48,7 +49,8 @@ inspection:
 
 - Structure: `Diagnostics.explain_objects`, `Diagnostics.explain_instances`, `Diagnostics.explain_scopes`.
 - Compilation: `Diagnostics.explain_applications`, `Diagnostics.explain_bindings`,
-  `Diagnostics.explain_calls`, `Diagnostics.explain_writers`,
+  `Diagnostics.explain_calls`, `Diagnostics.explain_output_bindings`,
+  `Diagnostics.explain_writers`,
   `Diagnostics.explain_schedule`, `Diagnostics.explain_execution_plan`.
 - Initialization, environment, and outputs: `Diagnostics.explain_initialization`,
   `Diagnostics.explain_environment`, `Diagnostics.explain_environment_bindings`,
@@ -120,7 +122,9 @@ output-state values.
 
 - registries and compiled representations: `ObjectRegistry`, `CompiledCompositeModel`,
   `CompiledModelApplication`, `CompiledModelInputBinding`,
-  `CompiledModelCallBinding`, `CompiledEnvironmentBinding`,
+  `CompiledModelCallBinding`, `CompiledModelOutputDestinationPlan`,
+  `CompiledModelOutputDestinationBinding`, `CompiledDistributedOutputPlans`,
+  `CompiledDistributedOutputs`, `CompiledEnvironmentBinding`,
   `CompiledEnvironmentBindings`;
 - carrier and adapter implementation types: `ObjectRefVector`,
   `TimeStepTable`;

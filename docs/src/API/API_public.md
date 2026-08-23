@@ -9,9 +9,9 @@
   form and lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
 - `CompositeModelTemplate` and `ObjectInstance` reuse a model across instances.
-- `ModelSpec(model; name=..., on=..., inputs=..., calls=..., every=...,
-  environment=..., output_routing=..., updates=...)` is the one application
-  construction form.
+- `ModelSpec(model; name=..., on=..., inputs=..., calls=..., outputs_to=...,
+  every=..., environment=..., output_routing=..., updates=...)` is the one
+  application construction form.
 
 ### Coupling
 
@@ -20,6 +20,11 @@
   `BoundMany` view for one of its declared `Many` inputs; `object_ids(view)`
   returns the aligned object identities without copying them.
 - `ModelSpec(...; calls=...)` declares manually executable child models.
+- `ModelSpec(...; outputs_to=(name=OutputTo(selector; vars=...),))`
+  declares status variables owned by the application but stored on selected
+  destination objects. Each variable uses `Required(T)` or `Default(value)`;
+  the compiler resolves identities and rejects ambiguous writers before
+  initializing statuses.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
@@ -61,6 +66,7 @@ Selector fields are checked where the selector is used:
 | `ModelSpec(...; on=...)` | `kind`, `species`, `scale`, `name`, and a scene or named scope |
 | `ModelSpec(...; inputs=...)` | object criteria plus `process`, `application`, `var`, `policy`, `window`, `from_status`, and `after` |
 | `ModelSpec(...; calls=...)` | object criteria plus `process` and `application` |
+| `OutputTo(...)` in `ModelSpec(...; outputs_to=...)` | object criteria only |
 | object queries and `OutputRequest` selectors | object criteria only |
 
 Unsupported or misspelled fields fail when the selector is constructed.
@@ -113,6 +119,7 @@ Use the `Diagnostics` namespace instead of inspecting internals:
 - `Diagnostics.explain_applications`
 - `Diagnostics.explain_bindings`
 - `Diagnostics.explain_calls`
+- `Diagnostics.explain_output_bindings`
 - `Diagnostics.explain_environment_bindings`
 - `Diagnostics.explain_schedule`
 - `Diagnostics.explain_writers`

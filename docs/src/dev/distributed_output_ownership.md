@@ -58,9 +58,9 @@ ModelSpec(
                 within=SceneScope(),
             ),
             vars=(
-                :incident_par,
-                :absorbed_par,
-                :sky_fraction,
+                incident_par=Default(0.0),
+                absorbed_par=Default(0.0),
+                sky_fraction=Required(Float64),
             ),
         ),
     ),
@@ -74,8 +74,9 @@ targets = output_targets(context, :organs)
 assign_outputs!(targets, result_columns; id=:object_id)
 ```
 
-`outputs_to`, `OutputTo`, `OutputTargets`, `output_targets`, and
-`assign_outputs!` are working names, not yet stabilized API.
+`outputs_to` and `OutputTo` are implemented by the compiler. `OutputTargets`,
+`output_targets`, and `assign_outputs!` remain working names for the subsequent
+runtime-assignment slice.
 
 ## Identity contract
 
