@@ -85,17 +85,24 @@ has no botanical or scientific meaning and may change when lifecycle refresh
 rebuilds a binding.
 
 An output result must therefore be associated by `ObjectId`, never by MTG
-traversal order or an independently declared ID selector. A model-facing
-identity-aware view may expose:
+traversal order or an independently declared ID selector. The first
+model-facing identity-aware view is:
 
 ```julia
 values = bound_input(context, :organ_values)
 object_ids(values)
 ```
 
-The first implementation should leave the ordinary `RefVector` status carrier
-unchanged. Identity-aware access is opt-in until explicit `RefVector` dispatches
-and performance have been audited.
+`BoundMany` preserves ordinary positional vector behavior. Identity indexing is
+explicit (`values[ObjectId(:leaf_1)]`), so an integer remains a positional
+index. The aligned identity view is live and read-only; it does not copy the
+compiler's ID vector. Public construction validates that identities are unique
+and use compiled `ObjectId` order, while compiler-owned construction reuses the
+already validated binding.
+
+The ordinary `RefVector` or `ObjectRefVector` installed in model status remains
+unchanged. Identity-aware access is opt-in through `RunContext`, so existing
+model dispatch and the common status path retain their current semantics.
 
 ## Compilation and initialization
 

@@ -16,6 +16,9 @@
 ### Coupling
 
 - `ModelSpec(...; inputs=...)` declares value dependencies.
+- `bound_input(context, :name)` opts a model kernel into an identity-aware
+  `BoundMany` view for one of its declared `Many` inputs; `object_ids(view)`
+  returns the aligned object identities without copying them.
 - `ModelSpec(...; calls=...)` declares manually executable child models.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.

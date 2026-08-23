@@ -66,6 +66,8 @@ inspection:
 - Model IO inspection: `inputs`, `outputs`, `variables`,
   `environment_inputs`, `environment_outputs`,
   `validate_environment_inputs`.
+- Identity-aware many-input access: `bound_input`, `BoundMany`, and
+  `object_ids`.
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
   `environment_hint`, `environment_bindings`, `environment_window`.
 
