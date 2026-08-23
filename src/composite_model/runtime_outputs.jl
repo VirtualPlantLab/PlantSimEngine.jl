@@ -220,16 +220,18 @@ const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
     RunContext
 
 Runtime context passed as the final argument to model kernels. Use
-[`runtime_model`](@ref), [`bound_input`](@ref), [`call_targets`](@ref), and
-[`run_call!`](@ref) instead of inspecting its fields.
+[`runtime_model`](@ref), [`bound_input`](@ref), [`output_targets`](@ref),
+[`call_targets`](@ref), and [`run_call!`](@ref) instead of inspecting its
+fields.
 """
-mutable struct RunContext{CS,A,CT,BI,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
     object_id::ObjectId
     calls::CT
     bound_inputs::BI
+    output_targets::OT
     temporal_streams::TS
     output_retention::OR
     time::Float64
@@ -259,6 +261,7 @@ function RunContext(
         object_id,
         calls,
         NamedTuple(),
+        _runtime_model_output_targets(compiled, application, object_id),
         temporal_streams,
         output_retention,
         time,
@@ -290,6 +293,40 @@ function RunContext(
         object_id,
         calls,
         bound_inputs,
+        _runtime_model_output_targets(compiled, application, object_id),
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publication_allowed,
+        environment,
+        nothing,
+    )
+end
+
+function RunContext(
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    calls,
+    bound_inputs,
+    output_targets,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+)
+    return RunContext(
+        compiled,
+        environment_bindings,
+        application,
+        object_id,
+        calls,
+        bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -349,7 +386,55 @@ function bound_input(context, input)
     )
 end
 
-struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,ENV,TS,OR,C,E}
+"""
+    output_targets(context::RunContext, group)
+
+Return the compiled [`OutputTargets`](@ref) view for the named `outputs_to`
+group on the application currently executing. The lookup is a typed field
+access; selectors and destination indexes were resolved before the kernel.
+"""
+@inline Base.@constprop :aggressive function output_targets(
+    context::RunContext,
+    group::Symbol,
+)
+    return output_targets(context, Val(group))
+end
+
+@inline function output_targets(
+    context::RunContext,
+    ::Val{group},
+) where {group}
+    hasproperty(context.output_targets, group) || throw(
+        ArgumentError(
+            "Application `$(context.application.id)` on object " *
+            "`$(context.object_id.value)` has no declared distributed output " *
+            "group `$(group)`. Available groups: " *
+            "`$(propertynames(context.output_targets))`.",
+        ),
+    )
+    return getproperty(context.output_targets, group)
+end
+
+function output_targets(context::RunContext, group)
+    throw(
+        ArgumentError(
+            "`output_targets` expects a declared output group name as a Symbol; " *
+            "got `$(repr(group))` of type `$(typeof(group))` for application " *
+            "`$(context.application.id)`.",
+        ),
+    )
+end
+
+function output_targets(context, group)
+    throw(
+        ArgumentError(
+            "`output_targets` requires the compiled RunContext passed to a " *
+            "model kernel; got `$(typeof(context))` for group `$(group)`.",
+        ),
+    )
+end
+
+struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -361,6 +446,7 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,ENV,TS,OR,C,E}
     output_bindings::OB
     calls::CT
     bound_inputs::BI
+    output_targets::OT
     environment_binding::ENV
     temporal_streams::TS
     output_retention::OR
@@ -527,13 +613,14 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
     input_bindings::IB
     bound_inputs::BI
+    output_targets::OT
     output_bindings::OB
     call_bindings::CB
     call_bindings_signature::UInt
@@ -1890,6 +1977,7 @@ end
     application,
     object_id,
     bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1906,6 +1994,7 @@ end
         context.application = application
         context.object_id = object_id
         context.bound_inputs = bound_inputs
+        context.output_targets = output_targets
         context.temporal_streams = temporal_streams
         context.output_retention = output_retention
         context.constants = constants
@@ -1937,6 +2026,7 @@ end
     application,
     object_id,
     bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1949,6 +2039,7 @@ end
         application,
         object_id,
         bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -1965,6 +2056,7 @@ end
     application,
     object_id,
     bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1995,6 +2087,7 @@ end
         object_id,
         calls,
         bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         float(time),
@@ -2011,6 +2104,7 @@ end
     application,
     object_id,
     bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -2023,6 +2117,7 @@ end
         application,
         object_id,
         bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -2069,6 +2164,7 @@ end
             application,
             target.object_id,
             target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             time,
@@ -2082,6 +2178,7 @@ end
             target.object_id,
             (),
             target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             float(time),
@@ -2146,6 +2243,7 @@ end
         application,
         target.object_id,
         target.bound_inputs,
+        target.output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -2268,6 +2366,7 @@ end
                     batch.application,
                     target.object_id,
                     target.bound_inputs,
+                    target.output_targets,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2281,6 +2380,7 @@ end
                     batch.application,
                     target.object_id,
                     target.bound_inputs,
+                    target.output_targets,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2384,6 +2484,7 @@ function _run_model_execution_batch_profiled!(
             batch.application,
             target.object_id,
             target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             time,
@@ -2698,18 +2799,51 @@ function _runtime_model_distributed_output_streams(
     )
 end
 
+_runtime_model_output_targets(
+    compiled,
+    application,
+    object_id,
+    ::NoCompiledDistributedOutputs,
+) = NamedTuple()
+
+function _runtime_model_output_targets(
+    compiled,
+    application,
+    object_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    groups = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(groups) && return NamedTuple()
+    names = propertynames(groups)
+    targets = map(OutputTargets, values(groups))
+    return NamedTuple{names}(targets)
+end
+
+_runtime_model_output_targets(compiled, application, object_id) =
+    _runtime_model_output_targets(
+        compiled,
+        application,
+        object_id,
+        compiled.distributed_outputs,
+    )
+
 function _compiled_model_execution_context(
     compiled,
     env_bindings,
     application,
     object_id,
     bound_inputs,
+    output_targets,
     call_bindings,
     temporal_streams,
     output_retention,
     constants,
 )
-    isnothing(temporal_streams) && return nothing
+    isnothing(temporal_streams) && isempty(output_targets) && return nothing
     calls = _runtime_call_targets(
         compiled,
         env_bindings,
@@ -2728,6 +2862,7 @@ function _compiled_model_execution_context(
         object_id,
         calls,
         bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         0.0,
@@ -2753,6 +2888,11 @@ function _compiled_model_execution_target(
     )
     model = _application_model(application, object_id)
     bound_inputs = status_view.bound_inputs
+    distributed_targets = _runtime_model_output_targets(
+        compiled,
+        application,
+        object_id,
+    )
     call_bindings = get(
         compiled.call_bindings_by_target,
         (application.id, object_id),
@@ -2769,6 +2909,7 @@ function _compiled_model_execution_target(
         application,
         object_id,
         bound_inputs,
+        distributed_targets,
         call_bindings,
         temporal_streams,
         output_retention,
@@ -2803,6 +2944,7 @@ function _compiled_model_execution_target(
             temporal_streams,
         ),
         bound_inputs,
+        distributed_targets,
         output_bindings,
         call_bindings,
         _call_bindings_signature(call_bindings),
@@ -3050,6 +3192,52 @@ function _model_execution_outputs_match(
     return true
 end
 
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+    ::NoCompiledDistributedOutputs,
+)
+    return isempty(targets)
+end
+
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    bindings = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(bindings) && return isempty(targets)
+    propertynames(targets) == propertynames(bindings) || return false
+    for name in propertynames(bindings)
+        getfield(getproperty(targets, name), :binding) ===
+        getproperty(bindings, name) || return false
+    end
+    return true
+end
+
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+)
+    return _model_execution_output_targets_match(
+        targets,
+        compiled,
+        application,
+        object_id,
+        compiled.distributed_outputs,
+    )
+end
+
 function _model_execution_target_change_reason(
     target::CompiledExecutionTarget,
     compiled::CompiledCompositeModel,
@@ -3068,6 +3256,12 @@ function _model_execution_target_change_reason(
         return :canonical_status
     target.bound_inputs === status_view.bound_inputs ||
         return :bound_inputs
+    _model_execution_output_targets_match(
+        target.output_targets,
+        compiled,
+        application,
+        object_id,
+    ) || return :output_targets
     _model_execution_inputs_match(
         target.input_bindings,
         status_view.temporal_inputs,
@@ -3118,6 +3312,8 @@ function _count_model_execution_target_rebuild!(
         :execution_target_rebuild_temporal_inputs
     elseif reason === :bound_inputs
         :execution_target_rebuild_bound_inputs
+    elseif reason === :output_targets
+        :execution_target_rebuild_output_targets
     elseif reason === :output_bindings
         :execution_target_rebuild_output_bindings
     elseif reason === :call_bindings
@@ -3961,6 +4157,7 @@ function _materialize_call(
         target.output_bindings,
         calls,
         target.bound_inputs,
+        target.output_targets,
         target.environment_binding,
         targets.temporal_streams,
         targets.output_retention,
@@ -4458,6 +4655,11 @@ function _targeted_new_object_call_targets(
                     ),
                     (),
                     status_view.bound_inputs,
+                    _runtime_model_output_targets(
+                        compiled,
+                        application,
+                        object_id,
+                    ),
                     _environment_binding_for(
                         environment_bindings,
                         application.id,
@@ -4673,6 +4875,7 @@ end
         target.object_id,
         target.calls,
         target.bound_inputs,
+        target.output_targets,
         target.temporal_streams,
         target.output_retention,
         target.time,
@@ -4745,6 +4948,7 @@ end
         application,
         target.object_id,
         target.bound_inputs,
+        target.output_targets,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,

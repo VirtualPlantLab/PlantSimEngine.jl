@@ -10,6 +10,7 @@ Base.length(v::ObjectRefVector) = length(v.refs)
 Base.getindex(v::ObjectRefVector, i::Int) = v.refs[i][]
 Base.setindex!(v::ObjectRefVector, value, i::Int) = (v.refs[i][] = value)
 Base.parent(v::ObjectRefVector) = v.refs
+Base.dataids(v::ObjectRefVector) = Base.dataids(parent(v))
 
 """
     ObjectId(value)

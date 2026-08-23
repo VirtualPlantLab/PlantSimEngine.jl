@@ -90,6 +90,10 @@ else
         include("test-model-distributed-output-runtime.jl")
     end
 
+    @testset "Distributed output assignment API" begin
+        include("test-model-output-targets-api.jl")
+    end
+
     @testset "Composite model multirate integration" begin
         include("test-model-multirate-integration.jl")
     end

@@ -166,11 +166,12 @@ struct ResolvedModelOutputDestination{P}
 end
 
 """Compiled columnar references for one execution object and output group."""
-mutable struct CompiledModelOutputDestinationBinding{P,C}
+mutable struct CompiledModelOutputDestinationBinding{P,C,I}
     const plan::P
     const execution_object_id::ObjectId
     destination_ids::Vector{ObjectId}
     columns::C
+    destination_index::I
     membership_generation::UInt64
 end
 
@@ -183,6 +184,8 @@ end
         return getfield(binding, :execution_object_id)
     name === :destination_ids && return getfield(binding, :destination_ids)
     name === :columns && return getfield(binding, :columns)
+    name === :destination_index &&
+        return getfield(binding, :destination_index)
     name === :membership_generation &&
         return getfield(binding, :membership_generation)
     plan = getfield(binding, :plan)
@@ -203,6 +206,7 @@ Base.propertynames(binding::CompiledModelOutputDestinationBinding) = (
     :execution_object_id,
     :destination_ids,
     :columns,
+    :destination_index,
     :membership_generation,
     propertynames(binding.plan)...,
 )
@@ -3741,6 +3745,19 @@ function _model_output_destination_columns(
     return NamedTuple{names}(Tuple(columns))
 end
 
+function _model_output_destination_index(destination_ids)
+    index = Dict{ObjectId,Int}()
+    sizehint!(index, length(destination_ids))
+    for (position, object_id) in pairs(destination_ids)
+        haskey(index, object_id) && error(
+            "Compiled output destination membership contains duplicate object " *
+            "ID `$(object_id.value)`.",
+        )
+        index[object_id] = position
+    end
+    return index
+end
+
 function _compile_model_output_destination_bindings(
     model::CompositeModel,
     resolved_destinations,
@@ -3757,6 +3774,7 @@ function _compile_model_output_destination_bindings(
             resolved.execution_object_id,
             resolved.destination_ids,
             _model_output_destination_columns(model, resolved),
+            _model_output_destination_index(resolved.destination_ids),
             UInt64(model.revision),
         )
         push!(bindings, binding)
