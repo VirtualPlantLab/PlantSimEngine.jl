@@ -238,13 +238,50 @@ if benchmark_test_enabled("distributed output benchmark API smoke")
         @test benchmark_distributed_output_sum(data.bound_values) == expected_sum
         @test benchmark_distributed_output_sum(data.heterogeneous_values) ==
               expected_sum
-        @test data.bound_values.object_ids === data.object_ids
-        @test data.bound_values.values === data.ref_values
+        @test benchmark_distributed_output_sum(
+            data.bound_heterogeneous_values,
+        ) == expected_sum
+        @test getfield(object_ids(data.bound_values), :ids) === data.object_ids
+        @test parent(data.bound_values) === data.ref_values
+        @test parent(data.bound_heterogeneous_values) ===
+              data.heterogeneous_values
 
         benchmark_distributed_output_sum(data.ref_values)
         benchmark_distributed_output_sum(data.bound_values)
         @test @allocated(benchmark_distributed_output_sum(data.ref_values)) == 0
         @test @allocated(benchmark_distributed_output_sum(data.bound_values)) == 0
+
+        status_input_data = setup_distributed_output_input_benchmark(
+            16;
+            identity_aware=false,
+        )
+        bound_input_data = setup_distributed_output_input_benchmark(
+            16;
+            identity_aware=true,
+        )
+        @test model_object(
+            status_input_data.simulation.model,
+            :scene,
+        ).status.total == status_input_data.expected_total
+        @test model_object(
+            bound_input_data.simulation.model,
+            :scene,
+        ).status.total == bound_input_data.expected_total
+        benchmark_distributed_output_input_steps(
+            status_input_data.simulation,
+            2,
+        )
+        benchmark_distributed_output_input_steps(
+            bound_input_data.simulation,
+            2,
+        )
+        @test model_object(
+            bound_input_data.simulation.model,
+            :scene,
+        ).status.total == model_object(
+            status_input_data.simulation.model,
+            :scene,
+        ).status.total
 
         benchmark_assign_distributed_outputs_exact!(
             data.exact_targets,

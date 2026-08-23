@@ -1,33 +1,56 @@
 using PlantSimEngine
 
-"""
-Benchmark-only identity-aware view over an existing vector carrier.
+PlantSimEngine.@process "distributed_output_benchmark_bound_input" verbose = false
+PlantSimEngine.@process "distributed_output_benchmark_status_input" verbose = false
 
-This prototype measures the cost of carrying compiler-owned object IDs beside
-the current carrier. It is deliberately not part of the public API.
-"""
-struct DistributedOutputBenchmarkBoundMany{T,I,V} <: AbstractVector{T}
-    object_ids::I
-    values::V
+struct DistributedOutputBenchmarkBoundInputModel <:
+       AbstractDistributed_Output_Benchmark_Bound_InputModel end
+struct DistributedOutputBenchmarkStatusInputModel <:
+       AbstractDistributed_Output_Benchmark_Status_InputModel end
+
+PlantSimEngine.inputs_(::DistributedOutputBenchmarkBoundInputModel) = (
+    signals=Required(Vector{Float64}),
+)
+PlantSimEngine.outputs_(::DistributedOutputBenchmarkBoundInputModel) = (
+    total=0.0,
+)
+PlantSimEngine.inputs_(::DistributedOutputBenchmarkStatusInputModel) = (
+    signals=Required(Vector{Float64}),
+)
+PlantSimEngine.outputs_(::DistributedOutputBenchmarkStatusInputModel) = (
+    total=0.0,
+)
+
+function PlantSimEngine.run!(
+    ::DistributedOutputBenchmarkBoundInputModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    signals = bound_input(context, :signals)
+    total = 0.0
+    @inbounds for index in eachindex(signals)
+        total += signals[index]
+    end
+    status.total = total
+    return nothing
 end
 
-function DistributedOutputBenchmarkBoundMany(object_ids::I, values::V) where {I,V}
-    length(object_ids) == length(values) || throw(
-        DimensionMismatch(
-            "Object IDs and values must have the same length.",
-        ),
-    )
-    return DistributedOutputBenchmarkBoundMany{eltype(V),I,V}(
-        object_ids,
-        values,
-    )
+function PlantSimEngine.run!(
+    ::DistributedOutputBenchmarkStatusInputModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    total = 0.0
+    @inbounds for index in eachindex(status.signals)
+        total += status.signals[index]
+    end
+    status.total = total
+    return nothing
 end
-
-Base.IndexStyle(::Type{<:DistributedOutputBenchmarkBoundMany}) = IndexLinear()
-Base.size(values::DistributedOutputBenchmarkBoundMany) = size(values.values)
-Base.length(values::DistributedOutputBenchmarkBoundMany) = length(values.values)
-@inline Base.getindex(values::DistributedOutputBenchmarkBoundMany, index::Int) =
-    @inbounds values.values[index]
 
 function benchmark_distributed_output_sum(values)
     total = 0.0
@@ -109,16 +132,27 @@ end
 
 function setup_distributed_output_benchmark(nobjects::Int=1_000)
     nobjects > 0 || throw(ArgumentError("`nobjects` must be positive."))
-    object_ids = [ObjectId(Symbol(:object_, index)) for index in 1:nobjects]
-    references = [Ref(Float64(index)) for index in 1:nobjects]
+    pairs = [
+        (
+            id=ObjectId(Symbol(:object_, index)),
+            reference=Ref(Float64(index)),
+            heterogeneous_reference=Ref{Any}(Float64(index)),
+        ) for index in 1:nobjects
+    ]
+    sort!(pairs; by=pair -> string(pair.id.value))
+    object_ids = getproperty.(pairs, :id)
+    references = getproperty.(pairs, :reference)
     ref_values = PlantSimEngine.RefVector(references)
-    bound_values =
-        DistributedOutputBenchmarkBoundMany(object_ids, ref_values)
+    bound_values = BoundMany(object_ids, ref_values)
     heterogeneous_values = PlantSimEngine.ObjectRefVector(
-        [Ref{Any}(Float64(index)) for index in 1:nobjects],
+        getproperty.(pairs, :heterogeneous_reference),
+    )
+    bound_heterogeneous_values = BoundMany(
+        object_ids,
+        heterogeneous_values,
     )
 
-    exact_values = collect(Float64, 1:nobjects)
+    exact_values = getindex.(references)
     permuted_result_ids = reverse(object_ids)
     permuted_values = reverse(exact_values)
     result_to_destination =
@@ -138,6 +172,7 @@ function setup_distributed_output_benchmark(nobjects::Int=1_000)
         ref_values=ref_values,
         bound_values=bound_values,
         heterogeneous_values=heterogeneous_values,
+        bound_heterogeneous_values=bound_heterogeneous_values,
         exact_values=exact_values,
         permuted_result_ids=permuted_result_ids,
         permuted_values=permuted_values,
@@ -145,4 +180,65 @@ function setup_distributed_output_benchmark(nobjects::Int=1_000)
         exact_targets=exact_targets,
         permuted_targets=permuted_targets,
     )
+end
+
+function setup_distributed_output_input_benchmark(
+    nobjects::Int=1_000;
+    identity_aware::Bool,
+)
+    nobjects > 0 || throw(ArgumentError("`nobjects` must be positive."))
+    objects = Object[Object(:scene; scale=:Scene)]
+    sizehint!(objects, nobjects + 1)
+    for index in 1:nobjects
+        push!(
+            objects,
+            Object(
+                Symbol(:leaf_, index);
+                scale=:Leaf,
+                parent=:scene,
+                status=Status(signal=Float64(index)),
+            ),
+        )
+    end
+    input_model = identity_aware ?
+                  DistributedOutputBenchmarkBoundInputModel() :
+                  DistributedOutputBenchmarkStatusInputModel()
+    model = CompositeModel(
+        objects...;
+        applications=(
+            ModelSpec(
+                input_model;
+                name=:input_benchmark,
+                on=One(scale=:Scene),
+                inputs=(
+                    :signals => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        var=:signal,
+                        from_status=true,
+                    ),
+                ),
+            ),
+        ),
+    )
+    simulation = run!(model; outputs=:none)
+    return (
+        simulation=simulation,
+        nsteps=100,
+        expected_total=sum(Float64, 1:nobjects),
+    )
+end
+
+benchmark_distributed_output_input_steps(simulation, nsteps) =
+    continue!(simulation; steps=nsteps)
+
+function setup_distributed_output_input_step_benchmark(
+    nobjects::Int=1_000;
+    identity_aware::Bool,
+)
+    data = setup_distributed_output_input_benchmark(
+        nobjects;
+        identity_aware=identity_aware,
+    )
+    return data.simulation, data.nsteps
 end

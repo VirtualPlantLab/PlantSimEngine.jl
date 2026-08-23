@@ -96,6 +96,18 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             ) setup = (values = setup_distributed_output_benchmark(
                 $nobjects,
             ).bound_values)
+        SUITE[suite_name]["PSE_objectref_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).heterogeneous_values)
+        SUITE[suite_name]["PSE_bound_objectref_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).bound_heterogeneous_values)
         SUITE[suite_name]["PSE_distributed_assign_exact_$(nobjects)"] =
             @benchmarkable benchmark_assign_distributed_outputs_exact!(
                 data.exact_targets,
@@ -113,6 +125,18 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             data.object_ids,
             data.permuted_result_ids,
         ) setup = (data = setup_distributed_output_benchmark(1_000))
+    for identity_aware in (false, true)
+        input_kind = identity_aware ? "bound" : "status"
+        SUITE[suite_name]["PSE_$(input_kind)_many_input_steps_1000"] =
+            @benchmarkable benchmark_distributed_output_input_steps(
+                simulation,
+                nsteps,
+            ) setup = ((simulation, nsteps) =
+                setup_distributed_output_input_step_benchmark(
+                    1_000;
+                    identity_aware=$identity_aware,
+                )) evals = 1
+    end
 
     include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
     for usage in (:zero, :sparse, :dense)
