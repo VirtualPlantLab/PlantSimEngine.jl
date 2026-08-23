@@ -308,7 +308,7 @@ export add_organ!, register_object!, remove_object!, reparent_object!, move_obje
 export mark_environment_binding_dirty!
 export objects_from_mtg, object_ids, model_object, model_objects, resolve_object_ids, resolve_objects
 export geometry, position, bounds
-export RunContext, CallTarget, CallTargets, Simulation
+export RunContext, CallTarget, CallTargets, Simulation, BoundMany
 export runtime_model, current_step, final_state, outputs
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many
@@ -316,6 +316,7 @@ export Input, Call, Environment
 export application_name, applies_to, value_inputs, model_calls, environment_config
 export ModelSpec, Updates
 export call_targets, call_model, run_call!, commit_environment!
+export bound_input
 export Status
 export Required, Default
 export @process, process

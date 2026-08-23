@@ -210,15 +210,16 @@ const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
     RunContext
 
 Runtime context passed as the final argument to model kernels. Use
-[`runtime_model`](@ref), [`call_targets`](@ref), and [`run_call!`](@ref)
-instead of inspecting its fields.
+[`runtime_model`](@ref), [`bound_input`](@ref), [`call_targets`](@ref), and
+[`run_call!`](@ref) instead of inspecting its fields.
 """
-mutable struct RunContext{CS,A,CT,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,BI,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
     object_id::ObjectId
     calls::CT
+    bound_inputs::BI
     temporal_streams::TS
     output_retention::OR
     time::Float64
@@ -247,6 +248,7 @@ function RunContext(
         application,
         object_id,
         calls,
+        NamedTuple(),
         temporal_streams,
         output_retention,
         time,
@@ -257,7 +259,87 @@ function RunContext(
     )
 end
 
-struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,ENV,TS,OR,C,E}
+function RunContext(
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    calls,
+    bound_inputs,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+)
+    return RunContext(
+        compiled,
+        environment_bindings,
+        application,
+        object_id,
+        calls,
+        bound_inputs,
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publication_allowed,
+        environment,
+        nothing,
+    )
+end
+
+"""
+    bound_input(context::RunContext, input)
+
+Return an identity-aware [`BoundMany`](@ref) view for the declared `Many`
+input named `input` on the application currently executing. The view reuses
+the compiler-owned object identities and the live vector already installed in
+the model status.
+"""
+@inline Base.@constprop :aggressive function bound_input(
+    context::RunContext,
+    input::Symbol,
+)
+    return bound_input(context, Val(input))
+end
+
+@inline function bound_input(
+    context::RunContext,
+    ::Val{input},
+) where {input}
+    hasproperty(context.bound_inputs, input) || throw(
+        ArgumentError(
+            "Application `$(context.application.id)` on object " *
+            "`$(context.object_id.value)` has no declared Many input " *
+            "`$(input)`. Available identity-aware inputs: " *
+            "`$(propertynames(context.bound_inputs))`.",
+        ),
+    )
+    return getproperty(context.bound_inputs, input)
+end
+
+function bound_input(context::RunContext, input)
+    throw(
+        ArgumentError(
+            "`bound_input` expects a declared Many input name as a Symbol; " *
+            "got `$(repr(input))` of type `$(typeof(input))` for application " *
+            "`$(context.application.id)`.",
+        ),
+    )
+end
+
+function bound_input(context, input)
+    throw(
+        ArgumentError(
+            "`bound_input` requires the compiled RunContext passed to a model " *
+            "kernel; got `$(typeof(context))` for input `$(input)`.",
+        ),
+    )
+end
+
+struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -268,6 +350,7 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,ENV,TS,OR,C,E}
     temporal_inputs::TI
     output_bindings::OB
     calls::CT
+    bound_inputs::BI
     environment_binding::ENV
     temporal_streams::TS
     output_retention::OR
@@ -434,12 +517,13 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
     input_bindings::IB
+    bound_inputs::BI
     output_bindings::OB
     call_bindings::CB
     call_bindings_signature::UInt
@@ -1689,6 +1773,7 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
     temporal_streams,
     output_retention,
     time,
@@ -1704,6 +1789,7 @@ end
         context.environment_bindings = environment_bindings
         context.application = application
         context.object_id = object_id
+        context.bound_inputs = bound_inputs
         context.temporal_streams = temporal_streams
         context.output_retention = output_retention
         context.constants = constants
@@ -1734,6 +1820,7 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
     temporal_streams,
     output_retention,
     time,
@@ -1745,6 +1832,7 @@ end
         environment_bindings,
         application,
         object_id,
+        bound_inputs,
         temporal_streams,
         output_retention,
         time,
@@ -1760,6 +1848,7 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
     temporal_streams,
     output_retention,
     time,
@@ -1789,6 +1878,7 @@ end
         application,
         object_id,
         calls,
+        bound_inputs,
         temporal_streams,
         output_retention,
         float(time),
@@ -1804,6 +1894,7 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
     temporal_streams,
     output_retention,
     time,
@@ -1815,6 +1906,7 @@ end
         environment_bindings,
         application,
         object_id,
+        bound_inputs,
         temporal_streams,
         output_retention,
         time,
@@ -1860,6 +1952,7 @@ end
             env_bindings,
             application,
             target.object_id,
+            target.bound_inputs,
             temporal_streams,
             output_retention,
             time,
@@ -1872,6 +1965,7 @@ end
             application,
             target.object_id,
             (),
+            target.bound_inputs,
             temporal_streams,
             output_retention,
             float(time),
@@ -1935,6 +2029,7 @@ end
         env_bindings,
         application,
         target.object_id,
+        target.bound_inputs,
         temporal_streams,
         output_retention,
         time,
@@ -2056,6 +2151,7 @@ end
                     env_bindings,
                     batch.application,
                     target.object_id,
+                    target.bound_inputs,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2068,6 +2164,7 @@ end
                     env_bindings,
                     batch.application,
                     target.object_id,
+                    target.bound_inputs,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2170,6 +2267,7 @@ function _run_model_execution_batch_profiled!(
             env_bindings,
             batch.application,
             target.object_id,
+            target.bound_inputs,
             temporal_streams,
             output_retention,
             time,
@@ -2374,6 +2472,7 @@ function _compiled_model_execution_context(
     env_bindings,
     application,
     object_id,
+    bound_inputs,
     call_bindings,
     temporal_streams,
     output_retention,
@@ -2397,6 +2496,7 @@ function _compiled_model_execution_context(
         application,
         object_id,
         calls,
+        bound_inputs,
         temporal_streams,
         output_retention,
         0.0,
@@ -2421,6 +2521,7 @@ function _compiled_model_execution_target(
         object_id,
     )
     model = _application_model(application, object_id)
+    bound_inputs = status_view.bound_inputs
     call_bindings = get(
         compiled.call_bindings_by_target,
         (application.id, object_id),
@@ -2436,6 +2537,7 @@ function _compiled_model_execution_target(
         env_bindings,
         application,
         object_id,
+        bound_inputs,
         call_bindings,
         temporal_streams,
         output_retention,
@@ -2457,6 +2559,7 @@ function _compiled_model_execution_target(
             status_view.temporal_inputs,
             temporal_streams,
         ),
+        bound_inputs,
         output_bindings,
         call_bindings,
         _call_bindings_signature(call_bindings),
@@ -2699,6 +2802,8 @@ function _model_execution_target_change_reason(
     target.status === status_view.status || return :status_view
     target.canonical_status === status_view.canonical_status ||
         return :canonical_status
+    target.bound_inputs === status_view.bound_inputs ||
+        return :bound_inputs
     _model_execution_inputs_match(
         target.input_bindings,
         status_view.temporal_inputs,
@@ -2745,6 +2850,8 @@ function _count_model_execution_target_rebuild!(
         :execution_target_rebuild_model_bundle
     elseif reason === :temporal_inputs
         :execution_target_rebuild_temporal_inputs
+    elseif reason === :bound_inputs
+        :execution_target_rebuild_bound_inputs
     elseif reason === :output_bindings
         :execution_target_rebuild_output_bindings
     elseif reason === :call_bindings
@@ -3533,6 +3640,7 @@ function _materialize_call(
         target.input_bindings,
         target.output_bindings,
         calls,
+        target.bound_inputs,
         target.environment_binding,
         targets.temporal_streams,
         targets.output_retention,
@@ -4029,6 +4137,7 @@ function _targeted_new_object_call_targets(
                         true,
                     ),
                     (),
+                    status_view.bound_inputs,
                     _environment_binding_for(
                         environment_bindings,
                         application.id,
@@ -4243,6 +4352,7 @@ end
         target.application,
         target.object_id,
         target.calls,
+        target.bound_inputs,
         target.temporal_streams,
         target.output_retention,
         target.time,
@@ -4314,6 +4424,7 @@ end
         targets.environment_bindings,
         application,
         target.object_id,
+        target.bound_inputs,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,

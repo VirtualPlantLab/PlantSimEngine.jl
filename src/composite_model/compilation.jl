@@ -675,11 +675,12 @@ struct CompiledTemporalInput{B,S,I,R}
     reference::R
 end
 
-struct CompiledModelStatusView{S,C,T,P}
+struct CompiledModelStatusView{S,C,T,P,BI}
     status::S
     canonical_status::C
     temporal_inputs::T
     private_outputs::P
+    bound_inputs::BI
 end
 
 struct CompiledModelCallBinding{P}
@@ -1492,6 +1493,10 @@ function _preserve_model_status_view_temporal_state!(
         current.canonical_status,
         temporal_inputs,
         private_outputs,
+        _rebind_compiled_bound_many_inputs(
+            current.bound_inputs,
+            status,
+        ),
     )
 end
 
@@ -3439,6 +3444,7 @@ function _compile_model_status_view(
         canonical_status,
         temporal_inputs,
         private_outputs,
+        _compiled_bound_many_inputs(input_bindings, status),
     )
 end
 

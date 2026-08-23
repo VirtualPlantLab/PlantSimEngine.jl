@@ -4,6 +4,7 @@
 include("composite_model/registry_topology.jl")
 include("composite_model/selectors.jl")
 include("composite_model/compilation.jl")
+include("composite_model/bound_many.jl")
 include("composite_model/environment_bindings.jl")
 include("composite_model/runtime_outputs.jl")
 include("composite_model/scenario_dsl.jl")

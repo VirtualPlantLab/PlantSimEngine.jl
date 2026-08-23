@@ -78,6 +78,10 @@ else
         include("test-model-binding-inference.jl")
     end
 
+    @testset "Identity-aware Many inputs" begin
+        include("test-model-bound-many.jl")
+    end
+
     @testset "Composite model multirate integration" begin
         include("test-model-multirate-integration.jl")
     end
