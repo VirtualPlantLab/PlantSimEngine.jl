@@ -26,8 +26,8 @@ explicitly imports one of those submodules.
   `Scope`, `Relation`.
 - Label criteria are selector keywords: `kind`, `species`, `scale`, and
   `name`.
-- Queries: `object_ids`, `model_objects`, `resolve_object_ids`,
-  `resolve_objects`.
+- Identity and queries: `object_id`, `object_ids`, `model_objects`,
+  `resolve_object_ids`, `resolve_objects`.
 - Object data: `geometry`, `position`, `bounds`.
 
 ## Execution, lifecycle, and outputs

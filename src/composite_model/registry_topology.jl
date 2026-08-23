@@ -205,7 +205,20 @@ ObjectRegistry() = ObjectRegistry(
     Dict{ObjectId,Vector{ObjectId}}(),
 )
 
-struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
+# Standalone projection deliberately carries accessors only. Lifecycle identity
+# indexes belong exclusively to `MTGObjectAdapter`, which a CompositeModel keeps.
+struct MTGObjectAccessors{I,S,K,SP,N,G,ST}
+    id::I
+    scale::S
+    kind::K
+    species::SP
+    name::N
+    geometry::G
+    status::ST
+end
+
+struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
+    root::R
     id::I
     scale::S
     kind::K
@@ -214,6 +227,54 @@ struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
     geometry::G
     status::ST
     max_node_id::Base.RefValue{Int}
+    object_ids_by_node::IdDict{Any,ObjectId}
+    nodes_by_object_id::Dict{ObjectId,Any}
+end
+
+function _register_mtg_object_identity!(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) && error(
+        "MTG node $(MultiScaleTreeGraph.node_id(node)) is already registered by this model.",
+    )
+    id = ObjectId(adapter.id(node))
+    if haskey(adapter.nodes_by_object_id, id)
+        existing = adapter.nodes_by_object_id[id]
+        error(
+            "The MTG id accessor maps nodes " *
+            "$(MultiScaleTreeGraph.node_id(existing)) and " *
+            "$(MultiScaleTreeGraph.node_id(node)) to duplicate ObjectId `$(id.value)`.",
+        )
+    end
+    adapter.object_ids_by_node[node] = id
+    adapter.nodes_by_object_id[id] = node
+    return id
+end
+
+function _unregister_mtg_object_identity!(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) || return nothing
+    id = pop!(adapter.object_ids_by_node, node)
+    if get(adapter.nodes_by_object_id, id, nothing) === node
+        delete!(adapter.nodes_by_object_id, id)
+    end
+    return id
+end
+
+function _unregister_mtg_object_identity!(adapter::MTGObjectAdapter, id::ObjectId)
+    haskey(adapter.nodes_by_object_id, id) || return nothing
+    node = pop!(adapter.nodes_by_object_id, id)
+    if haskey(adapter.object_ids_by_node, node) &&
+       isequal(adapter.object_ids_by_node[node], id)
+        delete!(adapter.object_ids_by_node, node)
+    end
+    return node
+end
+
+@inline function _mtg_object_id(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) || throw(
+        ArgumentError(
+            "MTG node $(MultiScaleTreeGraph.node_id(node)) is not registered by this model.",
+        ),
+    )
+    return adapter.object_ids_by_node[node]
 end
 
 """Labels and topology captured for one object at a lifecycle event."""
@@ -574,7 +635,9 @@ end
 Adapt one MTG subtree to model `Object` values. The MTG is traversed once;
 node ids and parent relations become stable model-object identities and
 relations. Accessors may attach labels, geometry, and existing status objects
-without prescribing a plant architecture.
+without prescribing a plant architecture. This standalone projection retains
+no lifecycle identity index; construct `CompositeModel(root)` when later node
+resolution or organogenesis is required.
 """
 function objects_from_mtg(
     root::MultiScaleTreeGraph.Node;
@@ -586,7 +649,7 @@ function objects_from_mtg(
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
-    adapter = MTGObjectAdapter(
+    accessors = MTGObjectAccessors(
         id,
         scale,
         kind,
@@ -594,20 +657,44 @@ function objects_from_mtg(
         name,
         geometry,
         status,
-        Ref(MultiScaleTreeGraph.max_id(root)),
     )
-    return _objects_from_mtg(root, adapter)
+    return _objects_from_mtg(root, accessors)
+end
+
+function _objects_from_mtg(root::MultiScaleTreeGraph.Node, accessors::MTGObjectAccessors)
+    objects = Object[]
+    MultiScaleTreeGraph.traverse!(root) do node
+        node_parent = parent(node)
+        parent_id =
+            node === root || isnothing(node_parent) ? nothing : accessors.id(node_parent)
+        push!(
+            objects,
+            Object(
+                accessors.id(node);
+                scale=accessors.scale(node),
+                kind=accessors.kind(node),
+                species=accessors.species(node),
+                name=accessors.name(node),
+                parent=parent_id,
+                geometry=accessors.geometry(node),
+                status=accessors.status(node),
+            ),
+        )
+    end
+    return objects
 end
 
 function _objects_from_mtg(root::MultiScaleTreeGraph.Node, adapter::MTGObjectAdapter)
     objects = Object[]
     MultiScaleTreeGraph.traverse!(root) do node
+        id = _register_mtg_object_identity!(adapter, node)
         node_parent = parent(node)
-        parent_id = node === root || isnothing(node_parent) ? nothing : adapter.id(node_parent)
+        parent_id =
+            node === root || isnothing(node_parent) ? nothing : _mtg_object_id(adapter, node_parent)
         push!(
             objects,
             Object(
-                adapter.id(node);
+                id;
                 scale=adapter.scale(node),
                 kind=adapter.kind(node),
                 species=adapter.species(node),
@@ -642,6 +729,7 @@ function CompositeModel(
     status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
 )
     adapter = MTGObjectAdapter(
+        root,
         id,
         scale,
         kind,
@@ -650,6 +738,8 @@ function CompositeModel(
         geometry,
         status,
         Ref(MultiScaleTreeGraph.max_id(root)),
+        IdDict{Any,ObjectId}(),
+        Dict{ObjectId,Any}(),
     )
     objects = _objects_from_mtg(root, adapter)
     return CompositeModel(
@@ -820,6 +910,90 @@ an [`ObjectId`](@ref) or the value used to construct one. An error is raised
 when the registry contains no matching object.
 """
 model_object(model::CompositeModel, id) = _model_object(model, id)
+
+@inline function _registered_object_id(model::CompositeModel, id::ObjectId)
+    _model_object(model, id)
+    return id
+end
+
+"""
+    object_id(model::CompositeModel, source) -> ObjectId
+
+Return the registered [`ObjectId`](@ref) represented by `source`.
+
+`source` may be an `ObjectId`, a registered [`Object`](@ref), a registered
+[`Status`](@ref), an MTG node, or the raw value used to construct an
+`ObjectId`. For an MTG model, the `id=` accessor is evaluated during initial
+adaptation or organogenesis and the exact node-to-`ObjectId` association is
+retained; `object_id` does not reevaluate the accessor. Later changes to a
+node's attributes or raw MTG id therefore do not change its model identity. A
+node from a copied or foreign MTG is rejected even when its raw node id is
+identical.
+
+Every result is checked against the live object registry. Removed or unknown
+objects therefore raise an error instead of returning a stale identity.
+[`RunContext`](@ref) and [`Simulation`](@ref) delegate to their live model.
+"""
+object_id(model::CompositeModel, id::ObjectId) = _registered_object_id(model, id)
+
+function object_id(model::CompositeModel, object::Object)
+    registered = _model_object(model, object.id)
+    registered === object || throw(
+        ArgumentError(
+            "Object `$(object.id.value)` is not the Object instance registered by this model.",
+        ),
+    )
+    return object.id
+end
+
+function object_id(model::CompositeModel, status::Status)
+    matched_id = nothing
+    for object in values(model.registry.objects)
+        object.status === status || continue
+        isnothing(matched_id) || throw(
+            ArgumentError(
+                "The same Status instance is registered by more than one model object; " *
+                "resolve the intended Object or ObjectId explicitly.",
+            ),
+        )
+        matched_id = object.id
+    end
+    isnothing(matched_id) && throw(
+        ArgumentError("The supplied Status instance is not registered by this model."),
+    )
+
+    adapter = model.source_adapter
+    if adapter isa MTGObjectAdapter && hasproperty(status, :node)
+        node = status.node
+        node isa MultiScaleTreeGraph.Node || throw(
+            ArgumentError(
+                "A registered MTG Status must expose its source Node as `status.node`; " *
+                "got $(typeof(node)).",
+            ),
+        )
+        id = object_id(model, node)
+        id == matched_id || throw(
+            ArgumentError(
+                "Status `node` resolves to object `$(id.value)`, but this Status " *
+                "instance is registered by object `$(matched_id.value)`.",
+            ),
+        )
+    end
+    return matched_id
+end
+
+function object_id(model::CompositeModel, node::MultiScaleTreeGraph.Node)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || throw(
+        ArgumentError(
+            "An MTG Node can only be resolved by a CompositeModel constructed from an MTG.",
+        ),
+    )
+    return _registered_object_id(model, _mtg_object_id(adapter, node))
+end
+
+object_id(model::CompositeModel, id) =
+    _registered_object_id(model, ObjectId(id))
 
 function _object_ancestor_ids(
     registry::ObjectRegistry,
@@ -1015,8 +1189,9 @@ function add_organ!(
         "`add_organ!` requires a model constructed from an MTG. Use ",
         "`register_object!` for composite models built directly from `Object` values."
     )
-    parent_id = ObjectId(adapter.id(parent_node))
-    _model_object(model, parent_id)
+    # Resolve the exact registered node before advancing ids or mutating either
+    # the source MTG or the runtime registry.
+    parent_id = object_id(model, parent_node)
     root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
         # `max_node_id` is initialized from the complete source MTG and is
@@ -1044,10 +1219,11 @@ function add_organ!(
         attributes,
     )
     try
+        new_object_id = _register_mtg_object_identity!(adapter, node)
         status = _organ_status(adapter, node, initial_status)
         node[:plantsimengine_status] = status
         object = Object(
-            adapter.id(node);
+            new_object_id;
             scale=adapter.scale(node),
             kind=isnothing(kind) ? adapter.kind(node) : kind,
             species=isnothing(species) ? adapter.species(node) : species,
@@ -1059,6 +1235,7 @@ function add_organ!(
         register_object!(model, object)
         return status
     catch
+        _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)
         rethrow()
     end
@@ -1120,8 +1297,11 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
         for object_id in descendant_ids
     ]
     _remove_child_link!(model, object.parent, object.id)
+    adapter = model.source_adapter
     for object_id in Iterators.reverse(descendant_ids)
         removed = _model_object(model, object_id)
+        adapter isa MTGObjectAdapter &&
+            _unregister_mtg_object_identity!(adapter, object_id)
         _deindex_object!(model.registry, removed)
         delete!(model.registry.objects, object_id)
         delete!(model.registry.ancestor_ids_by_object, object_id)

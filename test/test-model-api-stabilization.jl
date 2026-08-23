@@ -259,6 +259,7 @@ end
         :model_object,
         :model_objects,
         :move_object!,
+        :object_id,
         :object_ids,
         :objects_from_mtg,
         :output_policy,

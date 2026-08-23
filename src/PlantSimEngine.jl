@@ -315,7 +315,7 @@ export OutputRequest, collect_outputs
 export CompositeModel, Object, ObjectId, CompositeModelTemplate, ObjectInstance, Override
 export add_organ!, register_object!, remove_object!, reparent_object!, move_object!, update_geometry!
 export mark_environment_binding_dirty!
-export objects_from_mtg, object_ids, model_object, model_objects, resolve_object_ids, resolve_objects
+export objects_from_mtg, object_id, object_ids, model_object, model_objects, resolve_object_ids, resolve_objects
 export geometry, position, bounds
 export RunContext, CallTarget, CallTargets, Simulation, BoundMany, OutputTargets
 export runtime_model, current_step, final_state, outputs

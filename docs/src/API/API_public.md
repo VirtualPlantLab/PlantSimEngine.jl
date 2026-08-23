@@ -8,6 +8,12 @@
 - `CompositeModel(model, models...; status=..., timestep=...)` is the concise one-object
   form and lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
+- `object_id(model, source)` resolves an `ObjectId`, registered `Object` or
+  `Status`, MTG node, or raw identifier against the live registry. MTG nodes
+  retain the exact identity assigned by the model's `id=` accessor during
+  adaptation or organogenesis; `object_id` does not reevaluate that accessor,
+  and copied or foreign nodes are rejected. The same methods accept a
+  `RunContext` or `Simulation`.
 - `CompositeModelTemplate` and `ObjectInstance` reuse a model across instances.
 - `ModelSpec(model; name=..., on=..., inputs=..., calls=..., outputs_to=...,
   every=..., environment=..., output_routing=..., updates=...)` is the one

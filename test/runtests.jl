@@ -34,6 +34,10 @@ else
         include("test-unified-model-object-api.jl")
     end
 
+    @testset "Registered object identity" begin
+        include("test-model-object-id.jl")
+    end
+
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
     end

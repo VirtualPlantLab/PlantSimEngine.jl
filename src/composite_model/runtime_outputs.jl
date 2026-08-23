@@ -883,6 +883,8 @@ runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
 runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
+object_id(context::RunContext, source) = object_id(runtime_model(context), source)
+object_id(simulation::Simulation, source) = object_id(runtime_model(simulation), source)
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
@@ -4301,7 +4303,7 @@ function _call_target_object_id(model::CompositeModel, target)
     end
     adapter = model.source_adapter
     if adapter isa MTGObjectAdapter && target isa MultiScaleTreeGraph.Node
-        return ObjectId(adapter.id(target))
+        return _mtg_object_id(adapter, target)
     end
     return ObjectId(target)
 end
