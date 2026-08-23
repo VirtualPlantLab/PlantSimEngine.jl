@@ -223,6 +223,78 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("distributed output benchmark API smoke")
+    @testset "distributed output benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-distributed-output-benchmark.jl",
+            ),
+        )
+        data = setup_distributed_output_benchmark(16)
+        expected_sum = sum(data.exact_values)
+        @test benchmark_distributed_output_sum(data.ref_values) == expected_sum
+        @test benchmark_distributed_output_sum(data.bound_values) == expected_sum
+        @test benchmark_distributed_output_sum(data.heterogeneous_values) ==
+              expected_sum
+        @test data.bound_values.object_ids === data.object_ids
+        @test data.bound_values.values === data.ref_values
+
+        benchmark_distributed_output_sum(data.ref_values)
+        benchmark_distributed_output_sum(data.bound_values)
+        @test @allocated(benchmark_distributed_output_sum(data.ref_values)) == 0
+        @test @allocated(benchmark_distributed_output_sum(data.bound_values)) == 0
+
+        benchmark_assign_distributed_outputs_exact!(
+            data.exact_targets,
+            data.exact_values,
+        )
+        benchmark_assign_distributed_outputs_permuted!(
+            data.permuted_targets,
+            data.permuted_values,
+            data.result_to_destination,
+        )
+        @test collect(data.exact_targets) == data.exact_values
+        @test collect(data.permuted_targets) == data.exact_values
+        @test @allocated(
+            benchmark_assign_distributed_outputs_exact!(
+                data.exact_targets,
+                data.exact_values,
+            )
+        ) == 0
+        @test @allocated(
+            benchmark_assign_distributed_outputs_permuted!(
+                data.permuted_targets,
+                data.permuted_values,
+                data.result_to_destination,
+            )
+        ) == 0
+
+        @test_throws DimensionMismatch begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                data.permuted_result_ids[2:end],
+            )
+        end
+        @test_throws ArgumentError begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                [data.permuted_result_ids[1:end-1]; ObjectId(:unknown)],
+            )
+        end
+        @test_throws ArgumentError begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                [
+                    data.permuted_result_ids[1:end-1];
+                    data.permuted_result_ids[1]
+                ],
+            )
+        end
+    end
+end
+
 if benchmark_test_enabled("lifecycle benchmark API smoke")
     @testset "lifecycle benchmark API smoke" begin
         isdefined(@__MODULE__, :BenchmarkCallSourceModel) ||

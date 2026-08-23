@@ -82,6 +82,38 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
         ) setup = ((simulation, nsteps) =
             setup_many_cadence_schedule_benchmark()) evals = 1
 
+    include(joinpath(@__DIR__, "test-distributed-output-benchmark.jl"))
+    for nobjects in (1_000, 100_000)
+        SUITE[suite_name]["PSE_refvector_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).ref_values)
+        SUITE[suite_name]["PSE_bound_many_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).bound_values)
+        SUITE[suite_name]["PSE_distributed_assign_exact_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_exact!(
+                data.exact_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_permuted_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_permuted!(
+                data.permuted_targets,
+                data.permuted_values,
+                data.result_to_destination,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+    end
+    SUITE[suite_name]["PSE_distributed_compile_permutation_1000"] =
+        @benchmarkable compile_distributed_output_benchmark_permutation(
+            data.object_ids,
+            data.permuted_result_ids,
+        ) setup = (data = setup_distributed_output_benchmark(1_000))
+
     include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
     for usage in (:zero, :sparse, :dense)
         SUITE[suite_name]["PSE_hard_calls_$(usage)"] =
