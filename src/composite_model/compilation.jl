@@ -227,10 +227,11 @@ struct CompiledDistributedOutputPlans{P,I}
     by_application::I
 end
 
-struct CompiledDistributedOutputs{B,I,W}
+struct CompiledDistributedOutputs{B,I,W,D}
     bindings::B
     by_execution_target::I
     writer_ownership::W
+    destination_ids_by_application_variable::D
 end
 
 """One immutable root-scheduler rule in stable topological order."""
@@ -608,6 +609,7 @@ function _scenario_update_order_edges!(
     children,
     applications,
     manual_application_ids,
+    ::NoCompiledDistributedOutputPlans,
 )
     for (application_index, application) in pairs(applications)
         application.id in manual_application_ids && continue
@@ -644,6 +646,69 @@ function _scenario_update_order_edges!(
     return children
 end
 
+function _application_output_selectors(
+    application,
+    variable::Symbol,
+    plans::CompiledDistributedOutputPlans,
+)
+    selectors = Any[]
+    variable in _model_canonical_output_names(application) &&
+        push!(selectors, application.applies_to)
+    for plan in _application_plans(plans.by_application, application.slot)
+        variable in keys(plan.declarations) || continue
+        push!(selectors, plan.selector)
+    end
+    return selectors
+end
+
+function _scenario_update_order_edges!(
+    children,
+    applications,
+    manual_application_ids,
+    plans::CompiledDistributedOutputPlans,
+)
+    for (application_index, application) in pairs(applications)
+        application.id in manual_application_ids && continue
+        for update in updates(application.spec)
+            after_labels = _update_after(update)
+            isempty(after_labels) && continue
+            for variable in _update_variables(update)
+                current_selectors = _application_output_selectors(
+                    application,
+                    variable,
+                    plans,
+                )
+                isempty(current_selectors) && continue
+                for previous_application in applications[1:(application_index - 1)]
+                    previous_application.id in manual_application_ids && continue
+                    any(
+                        label -> _update_matches_application(
+                            label,
+                            previous_application,
+                        ),
+                        after_labels,
+                    ) || continue
+                    previous_selectors = _application_output_selectors(
+                        previous_application,
+                        variable,
+                        plans,
+                    )
+                    any(
+                        pair -> _selector_labels_may_overlap(pair[1], pair[2]),
+                        Iterators.product(previous_selectors, current_selectors),
+                    ) || continue
+                    _add_model_application_edge!(
+                        children,
+                        previous_application.id,
+                        application.id,
+                    )
+                end
+            end
+        end
+    end
+    return children
+end
+
 function _freeze_scenario_application_children(applications, children)
     application_ids = Tuple(application.id for application in applications)
     return NamedTuple{application_ids}(
@@ -666,6 +731,7 @@ function _compile_scenario_application_children(
     input_plans,
     call_owners,
     manual_application_ids,
+    distributed_output_plans,
 )
     children = Dict{Symbol,Set{Symbol}}()
     _scenario_input_order_edges!(children, input_plans, call_owners)
@@ -673,6 +739,7 @@ function _compile_scenario_application_children(
         children,
         applications,
         manual_application_ids,
+        distributed_output_plans,
     )
     return _freeze_scenario_application_children(applications, children)
 end
@@ -701,6 +768,7 @@ function _compiled_scenario_plan(
         input_plans,
         call_owners,
         manual_application_ids,
+        distributed_output_plans,
     )
     application_order = _stable_topological_application_order(
         applications,
@@ -1052,10 +1120,14 @@ function _compile_scene(
         started_at,
     )
     started_at = _runtime_performance_start(performance)
-    input_plans = _compile_model_input_plans(model, applications)
-    call_plans = _compile_model_call_plans(model, applications)
     distributed_output_plans =
         _compile_model_output_destination_plans(model, applications)
+    input_plans = _compile_model_input_plans(
+        model,
+        applications,
+        distributed_output_plans,
+    )
+    call_plans = _compile_model_call_plans(model, applications)
     scenario_plan = _compiled_scenario_plan(
         model,
         applications,
@@ -1097,6 +1169,7 @@ function _compile_scene(
         applications,
         scenario_plan.manual_application_ids,
         scenario_plan.input_plans_by_application,
+        distributed_outputs,
     )
     many_input_binding_cache =
         _share_many_input_bindings!(model, input_bindings)
@@ -1140,6 +1213,7 @@ function _compile_scene(
         applications_by_id,
         input_bindings_by_target,
         application_order,
+        distributed_outputs,
     )
     _runtime_performance_finish!(
         performance,
@@ -1266,6 +1340,7 @@ function _compile_added_consumer_bindings!(
     manual_application_ids,
     applications_by_object,
     applications_by_id,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     for plan in input_plans
         plan.origin == :inferred_same_object && continue
@@ -1277,6 +1352,8 @@ function _compile_added_consumer_bindings!(
             plan,
             applications_by_object,
             applications_by_id,
+            nothing,
+            distributed_outputs,
         )
     end
     application.id in manual_application_ids && return bindings
@@ -1289,9 +1366,19 @@ function _compile_added_consumer_bindings!(
             candidate for candidate in input_plans
             if candidate.origin == :inferred_same_object &&
                candidate.input == plan.input &&
-               consumer_id in
-               applications_by_id[candidate.application].target_ids
+               _application_writes_object_variable(
+                   distributed_outputs,
+                   applications_by_id[candidate.application],
+                   consumer_id,
+                   candidate.source_var,
+               )
         ]
+        matches = _final_inferred_output_plans(
+            distributed_outputs,
+            consumer_id,
+            plan.source_var,
+            matches,
+        )
         isempty(matches) && continue
         if length(matches) > 1
             error(
@@ -1309,9 +1396,37 @@ function _compile_added_consumer_bindings!(
             applications_by_object,
             applications_by_id,
             ObjectId[consumer_id],
+            distributed_outputs,
         )
     end
     return bindings
+end
+
+_final_inferred_output_plans(
+    ::NoCompiledDistributedOutputs,
+    object_id,
+    variable,
+    matches,
+) = matches
+
+function _final_inferred_output_plans(
+    distributed_outputs::CompiledDistributedOutputs,
+    object_id::ObjectId,
+    variable::Symbol,
+    matches,
+)
+    owners = get(
+        distributed_outputs.writer_ownership,
+        (object_id, variable),
+        (),
+    )
+    isempty(owners) && return matches
+    final_application_id = last(owners).application_id
+    final_matches = CompiledModelInputPlan[
+        match for match in matches
+        if match.application == final_application_id
+    ]
+    return isempty(final_matches) ? matches : final_matches
 end
 
 function _many_binding_scope_anchor(model::CompositeModel, binding::CompiledModelInputBinding)
@@ -1623,6 +1738,25 @@ function _preserve_model_status_view_temporal_state!(
             status,
         ),
     )
+end
+
+function _preserve_recompiled_model_status_views!(
+    current::CompiledCompositeModel,
+    previous::CompiledCompositeModel,
+)
+    previous_temporal_sources = Dict{Tuple{Symbol,ObjectId,Symbol},Vector{ObjectId}}()
+    for (key, current_view) in current.status_views_by_target
+        previous_view = get(previous.status_views_by_target, key, nothing)
+        isnothing(previous_view) && continue
+        current.status_views_by_target[key] =
+            _preserve_model_status_view_temporal_state!(
+                current_view,
+                previous_view,
+                previous_temporal_sources,
+                key,
+            )
+    end
+    return current
 end
 
 function _extend_model_status_views(
@@ -3110,9 +3244,22 @@ function _compile_model_writer_ownership(
     end
     for resolved in resolved_destinations
         plan = resolved.plan
+        application = applications[plan.application_slot]
         for destination_id in resolved.destination_ids
             for variable_ in keys(plan.declarations)
                 variable = Symbol(variable_)
+                if destination_id in application.target_ids &&
+                   variable in keys(outputs_(application.spec)) &&
+                   _publish_mode_for_output(application.spec, variable) ==
+                   :stream_only
+                    error(
+                        "Application `$(plan.application_id)` publishes stream-only local " *
+                        "output `$(variable)` and distributes the same variable to its " *
+                        "execution object `$(destination_id.value)`. Both publications " *
+                        "would share one retained stream key; use distinct variable names " *
+                        "or exclude the execution object from `outputs_to`.",
+                    )
+                end
                 _push_compiled_writer_owner!(
                     ownership,
                     destination_id,
@@ -3638,6 +3785,36 @@ function _compile_model_output_destination_bindings(
     return bindings, by_execution_target
 end
 
+function _index_model_output_destination_ids(bindings)
+    index = Dict{Tuple{Symbol,Symbol},Vector{ObjectId}}()
+    merged_keys = Set{Tuple{Symbol,Symbol}}()
+    for binding in bindings
+        for variable_ in keys(binding.declarations)
+            variable = Symbol(variable_)
+            key = (binding.application_id, variable)
+            destination_ids = get(index, key, nothing)
+            if isnothing(destination_ids)
+                # Destination IDs are already sorted by the compiled selector.
+                # Share that immutable membership in the common one-binding case.
+                index[key] = binding.destination_ids
+                continue
+            end
+            if !(key in merged_keys)
+                destination_ids = copy(destination_ids)
+                index[key] = destination_ids
+                push!(merged_keys, key)
+            end
+            append!(destination_ids, binding.destination_ids)
+        end
+    end
+    for key in merged_keys
+        destination_ids = index[key]
+        _sort_object_ids!(destination_ids)
+        unique!(destination_ids)
+    end
+    return index
+end
+
 function _compile_model_distributed_outputs(
     model::CompositeModel,
     applications,
@@ -3684,6 +3861,7 @@ function _compile_model_distributed_outputs(
         bindings,
         by_execution_target,
         ownership,
+        _index_model_output_destination_ids(bindings),
     )
 end
 
@@ -3794,14 +3972,27 @@ function _temporal_source_application(
     source_id::ObjectId,
     applications_by_id,
     application_positions,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     isempty(binding.source_application_ids) && return nothing
     length(binding.source_application_ids) == 1 &&
         return only(binding.source_application_ids)
     matches = Symbol[
         application_id for application_id in binding.source_application_ids
-        if source_id in applications_by_id[application_id].target_ids
+        if _application_writes_object_variable(
+            distributed_outputs,
+            applications_by_id[application_id],
+            source_id,
+            binding.source_var,
+        )
     ]
+    canonical_application = _distributed_temporal_source_application(
+        distributed_outputs,
+        source_id,
+        binding.source_var,
+        matches,
+    )
+    isnothing(canonical_application) || return canonical_application
     if length(matches) == 1
         return only(matches)
     elseif isempty(matches)
@@ -3819,6 +4010,32 @@ function _temporal_source_application(
         "`$(source_id.value).$(binding.source_var)` has ambiguous source ",
         "applications `$(matches)`. Add `application=...` to the `inputs=...` selector.",
     )
+end
+
+_distributed_temporal_source_application(
+    ::NoCompiledDistributedOutputs,
+    ::ObjectId,
+    ::Symbol,
+    matches,
+) = nothing
+
+function _distributed_temporal_source_application(
+    distributed_outputs::CompiledDistributedOutputs,
+    source_id::ObjectId,
+    source_var::Symbol,
+    matches,
+)
+    isempty(matches) && return nothing
+    matching_ids = Set(matches)
+    owners = get(
+        distributed_outputs.writer_ownership,
+        (source_id, source_var),
+        (),
+    )
+    for owner in Iterators.reverse(owners)
+        owner.application_id in matching_ids && return owner.application_id
+    end
+    return nothing
 end
 
 function _validate_temporal_input_output_overlap!(
@@ -3847,6 +4064,7 @@ function _compile_model_status_view(
     input_bindings,
     applications_by_id,
     application_positions,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     canonical_status = _ensure_model_object_status!(model, object_id)
     temporal_bindings = Tuple(
@@ -3864,6 +4082,7 @@ function _compile_model_status_view(
                     source_id,
                     applications_by_id,
                     application_positions,
+                    distributed_outputs,
                 )
                 for source_id in binding.source_ids
             ],
@@ -3923,6 +4142,7 @@ function _compile_model_status_views(
     applications_by_id,
     input_bindings_by_target,
     application_order,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     views = Dict{Tuple{Symbol,ObjectId},Any}()
     positions = Dict(
@@ -3939,6 +4159,7 @@ function _compile_model_status_views(
                 get(input_bindings_by_target, key, ()),
                 applications_by_id,
                 positions,
+                distributed_outputs,
             )
         end
     end
@@ -3958,7 +4179,9 @@ function _matching_input_source_applications(
     source_ids,
     source_var::Symbol,
     process_filter,
-    application_filter;
+    application_filter,
+    distributed_outputs=NoCompiledDistributedOutputs();
+    applications_by_id=nothing,
     allow_empty::Bool=false,
 )
     matches = Symbol[]
@@ -3969,6 +4192,15 @@ function _matching_input_source_applications(
             isnothing(application_filter) || application.id == application_filter || continue
             push!(matches, application.id)
         end
+        _append_distributed_input_source_applications!(
+            matches,
+            distributed_outputs,
+            source_id,
+            source_var,
+            process_filter,
+            application_filter,
+            applications_by_id,
+        )
     end
     unique!(matches)
     if !allow_empty &&
@@ -3982,6 +4214,66 @@ function _matching_input_source_applications(
         )
     end
     return matches
+end
+
+_append_distributed_input_source_applications!(
+    matches,
+    ::NoCompiledDistributedOutputs,
+    args...,
+) = matches
+
+function _append_distributed_input_source_applications!(
+    matches,
+    distributed_outputs::CompiledDistributedOutputs,
+    source_id::ObjectId,
+    source_var::Symbol,
+    process_filter,
+    application_filter,
+    applications_by_id,
+)
+    owners = get(
+        distributed_outputs.writer_ownership,
+        (source_id, source_var),
+        (),
+    )
+    isempty(owners) && return matches
+    for owner in owners
+        isnothing(applications_by_id) && error(
+            "Distributed output producer matching requires the compiled application index.",
+        )
+        application = get(applications_by_id, owner.application_id, nothing)
+        isnothing(application) && continue
+        isnothing(process_filter) ||
+            application.process == process_filter || continue
+        isnothing(application_filter) ||
+            application.id == application_filter || continue
+        push!(matches, application.id)
+    end
+    return matches
+end
+
+function _application_writes_object_variable(
+    ::NoCompiledDistributedOutputs,
+    application,
+    object_id::ObjectId,
+    variable::Symbol,
+)
+    return object_id in application.target_ids &&
+           variable in _model_output_names(application)
+end
+
+function _application_writes_object_variable(
+    distributed_outputs::CompiledDistributedOutputs,
+    application,
+    object_id::ObjectId,
+    variable::Symbol,
+)
+    object_id in application.target_ids &&
+        variable in _model_output_names(application) && return true
+    return any(
+        owner -> owner.application_id == application.id,
+        get(distributed_outputs.writer_ownership, (object_id, variable), ()),
+    )
 end
 
 _selector_constraint_values(value) =
@@ -4015,21 +4307,74 @@ function _potential_input_source_application_ids(
     process_filter,
     application_filter,
     origin::Symbol,
+    distributed_output_plans,
 )
     _selector_from_status(selector) && return ()
     source_selector = origin == :inferred_same_object ?
                       consumer_application.applies_to : selector
     return Tuple(
         application.id for application in applications
-        if source_var in _model_output_names(application) &&
+        if _application_may_output_variable(
+               application,
+               source_var,
+               source_selector,
+               distributed_output_plans,
+           ) &&
            (isnothing(process_filter) ||
             application.process == process_filter) &&
            (isnothing(application_filter) ||
-            application.id == application_filter) &&
+            application.id == application_filter)
+    )
+end
+
+function _application_may_output_variable(
+    application,
+    variable::Symbol,
+    source_selector,
+    ::NoCompiledDistributedOutputPlans,
+)
+    return variable in _model_output_names(application) &&
            _selector_labels_may_overlap(
+        source_selector,
+        application.applies_to,
+    )
+end
+
+function _application_may_output_variable(
+    application,
+    variable::Symbol,
+    source_selector,
+    plans::CompiledDistributedOutputPlans,
+)
+    variable in _model_output_names(application) &&
+        _selector_labels_may_overlap(
             source_selector,
             application.applies_to,
-        )
+        ) && return true
+    return any(
+        plan -> variable in keys(plan.declarations) &&
+                _selector_labels_may_overlap(source_selector, plan.selector),
+        _application_plans(plans.by_application, application.slot),
+    )
+end
+
+_application_declares_distributed_output(
+    application,
+    variable::Symbol,
+    source_selector,
+    ::NoCompiledDistributedOutputPlans,
+) = false
+
+function _application_declares_distributed_output(
+    application,
+    variable::Symbol,
+    source_selector,
+    plans::CompiledDistributedOutputPlans,
+)
+    return any(
+        plan -> variable in keys(plan.declarations) &&
+                _selector_labels_may_overlap(source_selector, plan.selector),
+        _application_plans(plans.by_application, application.slot),
     )
 end
 
@@ -4056,6 +4401,7 @@ function _compiled_model_input_plan(
     selector,
     origin::Symbol,
     applications_by_id,
+    distributed_output_plans,
 )
     source_var = _selector_var(selector, input)
     process_filter = _criteria_get(criteria(selector), :process, nothing)
@@ -4076,6 +4422,7 @@ function _compiled_model_input_plan(
         process_filter,
         application_filter,
         origin,
+        distributed_output_plans,
     )
     policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
     breaks_same_step_cycle = policy isa PreviousTimeStep
@@ -4105,7 +4452,14 @@ function _compiled_model_input_plan(
     )
 end
 
-function _compile_model_input_plans(model::CompositeModel, applications)
+function _compile_model_input_plans(
+    model::CompositeModel,
+    applications,
+    distributed_output_plans=_compile_model_output_destination_plans(
+        model,
+        applications,
+    ),
+)
     plans = CompiledModelInputPlan[]
     applications_by_id = Dict(
         application.id => application for application in applications
@@ -4131,6 +4485,7 @@ function _compile_model_input_plans(model::CompositeModel, applications)
                     selector,
                     get(input_origins(application.spec), input, :model_spec),
                     applications_by_id,
+                    distributed_output_plans,
                 ),
             )
         end
@@ -4138,7 +4493,18 @@ function _compile_model_input_plans(model::CompositeModel, applications)
             input in declared_names && continue
             for producer in applications
                 producer.id == application.id && continue
-                input in _model_canonical_output_names(producer) || continue
+                local_output = input in _model_canonical_output_names(producer) &&
+                               _selector_labels_may_overlap(
+                    application.applies_to,
+                    producer.applies_to,
+                )
+                distributed_output = _application_declares_distributed_output(
+                    producer,
+                    input,
+                    application.applies_to,
+                    distributed_output_plans,
+                )
+                (local_output || distributed_output) || continue
                 selector = One(
                     within=Self(),
                     process=producer.process,
@@ -4156,6 +4522,7 @@ function _compile_model_input_plans(model::CompositeModel, applications)
                         selector,
                         :inferred_same_object,
                         applications_by_id,
+                        distributed_output_plans,
                     ),
                 )
             end
@@ -4249,7 +4616,7 @@ function _potential_input_source_applications(
     matches = Symbol[
         application.id
         for application in values(applications_by_id)
-        if source_var in _model_output_names(application) &&
+        if _application_declares_output_name(application, source_var) &&
            (isnothing(process_filter) || application.process == process_filter) &&
            (isnothing(application_filter) || application.id == application_filter)
     ]
@@ -4257,11 +4624,22 @@ function _potential_input_source_applications(
     return matches
 end
 
+function _application_declares_output_name(application, variable::Symbol)
+    variable in _model_output_names(application) && return true
+    destinations = outputs_to(application.spec)
+    destinations isa NamedTuple || return false
+    return any(
+        destination -> variable in keys(destination.vars),
+        values(destinations),
+    )
+end
+
 function _final_canonical_source_application(
     applications_by_object,
     source_ids,
     source_application_ids,
     source_var::Symbol,
+    ::NoCompiledDistributedOutputs=NoCompiledDistributedOutputs(),
 )
     length(source_ids) == 1 || return source_application_ids
     matching_ids = Set(source_application_ids)
@@ -4275,11 +4653,40 @@ function _final_canonical_source_application(
     return Symbol[last(canonical_ids)]
 end
 
+function _final_canonical_source_application(
+    applications_by_object,
+    source_ids,
+    source_application_ids,
+    source_var::Symbol,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    length(source_ids) == 1 || return source_application_ids
+    matching_ids = Set(source_application_ids)
+    owners = get(
+        distributed_outputs.writer_ownership,
+        (only(source_ids), source_var),
+        (),
+    )
+    canonical_ids = Symbol[
+        owner.application_id for owner in owners
+        if owner.application_id in matching_ids
+    ]
+    isempty(canonical_ids) && return _final_canonical_source_application(
+        applications_by_object,
+        source_ids,
+        source_application_ids,
+        source_var,
+        NoCompiledDistributedOutputs(),
+    )
+    return Symbol[last(canonical_ids)]
+end
+
 function _compile_model_input_bindings(
     model::CompositeModel,
     applications,
     manual_application_ids=Set{Symbol}(),
     plans_by_application=nothing,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     if isnothing(plans_by_application)
         plans_by_application = _plans_by_application(
@@ -4301,6 +4708,7 @@ function _compile_model_input_bindings(
                 manual_application_ids,
                 by_object,
                 by_id,
+                distributed_outputs,
             )
         end
     end
@@ -4316,6 +4724,7 @@ function _push_model_input_binding!(
     applications_by_object,
     applications_by_id,
     source_ids_override=nothing,
+    distributed_outputs=NoCompiledDistributedOutputs(),
 )
     input_sym = plan.input
     selector = plan.selector
@@ -4329,6 +4738,15 @@ function _push_model_input_binding!(
         plan.matcher,
         consumer_id,
     ) : source_ids_override
+    _filter_many_input_sources_by_writer!(
+        source_ids,
+        selector,
+        source_var,
+        process_filter,
+        application_filter,
+        applications_by_id,
+        distributed_outputs,
+    )
     selector isa Many && sizehint!(source_ids, length(source_ids) + 1)
     source_application_ids = if _selector_from_status(selector)
         Symbol[]
@@ -4339,6 +4757,8 @@ function _push_model_input_binding!(
             source_var,
             process_filter,
             application_filter,
+            distributed_outputs;
+            applications_by_id=applications_by_id,
             allow_empty=selector isa OptionalOne ||
                         (selector isa Many && isempty(source_ids)),
         )
@@ -4368,6 +4788,16 @@ function _push_model_input_binding!(
             source_ids,
             source_application_ids,
             source_var,
+            distributed_outputs,
+        )
+    end
+    if selector isa Many && length(source_application_ids) > 1
+        source_application_ids = _final_many_source_applications(
+            source_ids,
+            source_application_ids,
+            source_var,
+            applications_by_id,
+            distributed_outputs,
         )
     end
     if !(selector isa Many) && length(source_application_ids) > 1
@@ -4444,6 +4874,97 @@ function _push_model_input_binding!(
         ),
     )
     return bindings
+end
+
+_final_many_source_applications(
+    source_ids,
+    source_application_ids,
+    source_var,
+    applications_by_id,
+    ::NoCompiledDistributedOutputs,
+) = source_application_ids
+
+function _final_many_source_applications(
+    source_ids,
+    source_application_ids,
+    source_var::Symbol,
+    applications_by_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    matching_ids = Set(source_application_ids)
+    canonical_ids = Symbol[]
+    for source_id in source_ids
+        owners = get(
+            distributed_outputs.writer_ownership,
+            (source_id, source_var),
+            (),
+        )
+        final_owner = nothing
+        for owner in Iterators.reverse(owners)
+            if owner.application_id in matching_ids
+                final_owner = owner.application_id
+                break
+            end
+        end
+        if isnothing(final_owner)
+            for application_id in source_application_ids
+                application = applications_by_id[application_id]
+                source_id in application.target_ids || continue
+                source_var in _model_output_names(application) || continue
+                application_id in canonical_ids ||
+                    push!(canonical_ids, application_id)
+            end
+        elseif !(final_owner in canonical_ids)
+            push!(canonical_ids, final_owner)
+        end
+    end
+    return isempty(canonical_ids) ? source_application_ids : canonical_ids
+end
+
+_filter_many_input_sources_by_writer!(
+    source_ids,
+    selector,
+    source_var,
+    process_filter,
+    application_filter,
+    applications_by_id,
+    ::NoCompiledDistributedOutputs,
+) = source_ids
+
+function _filter_many_input_sources_by_writer!(
+    source_ids,
+    selector,
+    source_var::Symbol,
+    process_filter,
+    application_filter,
+    applications_by_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    selector isa Many || return source_ids
+    _selector_from_status(selector) && return source_ids
+    isnothing(process_filter) && isnothing(application_filter) &&
+        return source_ids
+    filter!(source_ids) do source_id
+        owners = get(
+            distributed_outputs.writer_ownership,
+            (source_id, source_var),
+            (),
+        )
+        any(owners) do owner
+            source_application = get(
+                applications_by_id,
+                owner.application_id,
+                nothing,
+            )
+            isnothing(source_application) && return false
+            isnothing(process_filter) ||
+                source_application.process == process_filter || return false
+            isnothing(application_filter) ||
+                source_application.id == application_filter || return false
+            return true
+        end
+    end
+    return source_ids
 end
 
 function _model_input_names(application::CompiledModelApplication)

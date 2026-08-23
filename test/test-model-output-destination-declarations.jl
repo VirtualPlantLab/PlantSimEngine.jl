@@ -365,6 +365,27 @@ end
     @test_throws "declares more than one canonical writer" Advanced.refresh_bindings!(
         overlapping,
     )
+
+    stream_only_self_collision = CompositeModel(
+        Object(:leaf; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                OutputDestinationLocalModel();
+                name=:stream_only_self_writer,
+                on=One(scale=:Leaf),
+                outputs_to=(
+                    self=OutputTo(
+                        One(within=Self());
+                        vars=(incident_par=Default(0.0),),
+                    ),
+                ),
+                output_routing=(incident_par=:stream_only,),
+            ),
+        ),
+    )
+    @test_throws "publishes stream-only local output `incident_par`" Advanced.refresh_bindings!(
+        stream_only_self_collision,
+    )
 end
 
 @testset "output destinations remain scoped per execution object" begin
@@ -399,6 +420,11 @@ end
         (ObjectId(:leaf_a), :incident_par),
         (ObjectId(:leaf_b), :incident_par),
     ])
+    @test compiled.distributed_outputs.destination_ids_by_application_variable[
+        (:plant_probe, :incident_par)
+    ] == ObjectId[ObjectId(:leaf_a), ObjectId(:leaf_b)]
+    @test by_target[(:plant_probe, ObjectId(:plant_a))].leaves.destination_ids ==
+          ObjectId[ObjectId(:leaf_a)]
 
     dynamic_model = CompositeModel(
         Object(:scene; scale=:Scene),

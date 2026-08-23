@@ -1307,12 +1307,22 @@ function refresh_bindings!(
                 delta.changed_target_ids,
             )
         else
-            model.binding_cache =
-                compile_composite_model(
-                    model,
-                    model.applications;
-                    performance=performance,
+            previous_binding_cache = model.binding_cache
+            refreshed_binding_cache = compile_composite_model(
+                model,
+                model.applications;
+                performance=performance,
+            )
+            if !force &&
+               !isnothing(previous_binding_cache) &&
+               previous_binding_cache.distributed_outputs isa
+               CompiledDistributedOutputs
+                _preserve_recompiled_model_status_views!(
+                    refreshed_binding_cache,
+                    previous_binding_cache,
                 )
+            end
+            model.binding_cache = refreshed_binding_cache
         end
         model.bindings_dirty = false
         _consume_structural_lifecycle_delta!(model)

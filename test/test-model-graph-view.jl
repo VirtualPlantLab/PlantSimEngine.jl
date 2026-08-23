@@ -7,12 +7,15 @@ abstract type AbstractModelGraphConsumerModel <: PlantSimEngine.AbstractModel en
 abstract type AbstractModelGraphCycleAModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphCycleBModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphEnvironmentModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractModelGraphDistributedWriterModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractModelGraphSourceModel}) = :model_graph_source
 PlantSimEngine.process_(::Type{AbstractModelGraphConsumerModel}) = :model_graph_consumer
 PlantSimEngine.process_(::Type{AbstractModelGraphCycleAModel}) = :model_graph_cycle_a
 PlantSimEngine.process_(::Type{AbstractModelGraphCycleBModel}) = :model_graph_cycle_b
 PlantSimEngine.process_(::Type{AbstractModelGraphEnvironmentModel}) = :model_graph_environment
+PlantSimEngine.process_(::Type{AbstractModelGraphDistributedWriterModel}) =
+    :model_graph_distributed_writer
 
 struct ModelGraphSourceModel{T} <: AbstractModelGraphSourceModel
     coefficient::T
@@ -39,6 +42,10 @@ PlantSimEngine.inputs_(::ModelGraphEnvironmentModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelGraphEnvironmentModel) = (result=-Inf,)
 PlantSimEngine.environment_inputs_(::ModelGraphEnvironmentModel) = (T=-Inf,)
 PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temperature=-Inf,)
+
+struct ModelGraphDistributedWriterModel <: AbstractModelGraphDistributedWriterModel end
+PlantSimEngine.inputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
 
 struct ModelGraphWeatherBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
 struct ModelGraphCanopyBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
@@ -169,6 +176,120 @@ end
     @test occursin("PlantSimEngine CompositeModel Graph", html)
     @test occursin("pse-model-graph-data", html)
     @test occursin("Applications", html)
+end
+
+@testset "CompositeModel graph compiles distributed writers like the strict compiler" begin
+    leaf_destination = () -> OutputTo(
+        Many(scale=:Leaf, within=SceneScope());
+        vars=(signal=Default(0.0),),
+    )
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(
+                ModelGraphConsumerModel();
+                name=:consumer,
+                on=One(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:first_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:second_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+                updates=Updates(:signal; after=:first_writer),
+            ),
+        ),
+    )
+
+    report = compile_model_report(model)
+    strict_report = compile_model_report(model; strict=true)
+
+    @test isempty(report.diagnostics)
+    @test !isnothing(report.compiled)
+    @test report.application_order == [:first_writer, :second_writer, :consumer]
+    @test report.application_order == strict_report.application_order
+    @test :second_writer in report.dependency_children[:first_writer]
+    @test :consumer in report.dependency_children[:second_writer]
+
+    signal_binding = only(
+        binding for binding in report.input_bindings
+        if binding.application_id == :consumer && binding.input == :signal
+    )
+    strict_signal_binding = only(
+        binding for binding in strict_report.input_bindings
+        if binding.application_id == :consumer && binding.input == :signal
+    )
+    @test signal_binding.source_ids == ObjectId[ObjectId(:leaf)]
+    @test signal_binding.source_application_ids == [:second_writer]
+    @test signal_binding.source_application_ids ==
+          strict_signal_binding.source_application_ids
+    @test input_value(signal_binding) == 0.0
+
+    consumer_view = report.compiled.status_views_by_target[
+        (:consumer, ObjectId(:leaf))
+    ]
+    @test consumer_view.status.signal == 0.0
+    @test isnothing(only(model_objects(model; scale=:Leaf)).status)
+
+    output_bindings = Diagnostics.explain_output_bindings(report.compiled)
+    @test length(output_bindings) == 2
+    @test all(row.destination_ids == [:leaf] for row in output_bindings)
+    writer = only(
+        row for row in Diagnostics.explain_writers(report.compiled)
+        if row.object_id == :leaf && row.variable == :signal
+    )
+    @test writer.application_ids == [:first_writer, :second_writer]
+    @test writer.execution_object_ids == [:scene, :scene]
+    @test writer.owner_kinds == [:output_destination, :output_destination]
+
+    initialization = only(
+        row for row in model_graph_view(model).initialization
+        if row["applicationId"] == "consumer" && row["variable"] == "signal"
+    )
+    @test initialization["disposition"] == "producer_bound"
+    @test initialization["sourceApplicationIds"] == ["second_writer"]
+
+    resolved = model_graph_view(model; level=:resolved)
+    resolved_binding = only(
+        edge for edge in resolved.edges
+        if get(edge, "projection", nothing) == "resolved" &&
+           get(edge, "targetApplicationId", nothing) == "consumer"
+    )
+    @test resolved_binding["source"] == "execution:second_writer:scene"
+    @test resolved_binding["sourceObjectIds"] == ["leaf"]
+    @test resolved_binding["sourceExecutionObjectIds"] == ["scene"]
+    @test resolved_binding["source"] in
+          Set(execution["id"] for execution in resolved.executions)
+
+    empty_model = CompositeModel(
+        Object(:empty_scene; scale=:Scene);
+        applications=(
+            ModelSpec(
+                ModelGraphConsumerModel();
+                name=:empty_consumer,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:empty_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+            ),
+        ),
+    )
+    empty_report = compile_model_report(empty_model)
+    empty_strict_report = compile_model_report(empty_model; strict=true)
+    @test isempty(empty_report.diagnostics)
+    @test isempty(empty_report.input_bindings)
+    @test empty_report.application_order == [:empty_writer, :empty_consumer]
+    @test empty_report.application_order == empty_strict_report.application_order
 end
 
 @testset "CompositeModel graph instances and overrides" begin

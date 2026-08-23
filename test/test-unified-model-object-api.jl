@@ -3285,6 +3285,7 @@ end
             reasons=(:output_request,),
             retention_steps=nothing,
             current_target_count=1,
+            current_output_object_count=1,
         ),
     ]
     @test collect_outputs(tracked_output_simulation; sink=nothing)[:signal_two_hour] ==
@@ -4227,6 +4228,7 @@ end
         reasons=(:output_request,),
         retention_steps=nothing,
         current_target_count=2,
+        current_output_object_count=2,
     )
     @test length(collect_outputs(lifecycle_simulation, :leaf_1, :signal; sink=nothing)) == 3
     @test length(collect_outputs(lifecycle_simulation, :grown_leaf, :signal; sink=nothing)) == 3

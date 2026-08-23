@@ -122,6 +122,16 @@ end
 
 _runtime_output_variable(::RuntimeOutputStream{V}) where {V} = V
 
+"""Columnar retained streams for one distributed output variable."""
+struct RuntimeDistributedOutputStream{V,B,S,R}
+    binding::B
+    streams::S
+    references::R
+    dependency_horizon::Float64
+end
+
+_runtime_output_variable(::RuntimeDistributedOutputStream{V}) where {V} = V
+
 struct CompiledOutputPublication{V}
     variables::V
     enabled::Bool
@@ -1030,6 +1040,68 @@ function _model_new_output_stream(
     return Tuple{Float64,typeof(value)}[]
 end
 
+function _model_output_object_ids(
+    compiled,
+    application,
+    variable::Symbol,
+    ::NoCompiledDistributedOutputs,
+)
+    return application.target_ids
+end
+
+function _model_output_object_ids(
+    compiled,
+    application,
+    variable::Symbol,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    destination_ids = get(
+        distributed_outputs.destination_ids_by_application_variable,
+        (application.id, variable),
+        nothing,
+    )
+    variable in keys(outputs_(application.spec)) ||
+        return isnothing(destination_ids) ? ObjectId[] : destination_ids
+    isnothing(destination_ids) && return application.target_ids
+    object_ids = copy(application.target_ids)
+    append!(object_ids, destination_ids)
+    _sort_object_ids!(object_ids)
+    unique!(object_ids)
+    return object_ids
+end
+
+_model_output_object_ids(compiled, application, variable::Symbol) =
+    _model_output_object_ids(
+        compiled,
+        application,
+        variable,
+        compiled.distributed_outputs,
+    )
+
+function _model_output_reference(
+    compiled,
+    application,
+    object_id::ObjectId,
+    variable::Symbol,
+)
+    if variable in keys(outputs_(application.spec)) &&
+       haskey(
+           compiled.status_views_by_target,
+           (application.id, object_id),
+       )
+        status = _model_status_view_for_application(
+            compiled,
+            application,
+            object_id,
+        ).status
+        return refvalue(status, variable)
+    end
+    return refvalue(
+        _model_object(compiled.model, object_id).status,
+        variable,
+    )
+end
+
 function _initialize_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
@@ -1039,25 +1111,31 @@ function _initialize_model_output_streams!(
 )
     for (application_id, variables) in retention.retained_outputs_by_application
         application = _compiled_application_by_id(compiled, application_id)
-        for object_id in application.target_ids
-            !isnothing(target_keys) &&
-                !((application_id, object_id) in target_keys) &&
-                continue
-            status = _model_status_view_for_application(
+        for variable in variables
+            for object_id in _model_output_object_ids(
                 compiled,
                 application,
-                object_id,
-            ).status
-            for variable in variables
+                variable,
+            )
+                !isnothing(target_keys) &&
+                    !((application_id, object_id) in target_keys) &&
+                    compiled.distributed_outputs isa NoCompiledDistributedOutputs &&
+                    continue
                 key = _model_stream_key(application_id, object_id, variable)
                 haskey(streams, key) && continue
-                hasproperty(status, variable) || error(
+                reference = _model_output_reference(
+                    compiled,
+                    application,
+                    object_id,
+                    variable,
+                )
+                isnothing(reference) && error(
                     "Application `$(application_id)` declares retained output ",
                     "`$(variable)`, but object `$(object_id.value)` status has no ",
                     "such variable.",
                 )
                 stream = _model_new_output_stream(
-                    getproperty(status, variable),
+                    reference[],
                     retention,
                     application_id,
                     variable,
@@ -1118,34 +1196,72 @@ end
     return samples
 end
 
-@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
-
-@inline function _model_publish_runtime_outputs!(
-    outputs::Tuple,
+@inline function _model_publish_runtime_output_value!(
+    output,
+    stream,
+    value,
     time::Real,
 )
-    output = first(outputs)
-    value = output.reference[]
-    expected_type = fieldtype(eltype(output.stream), 2)
+    expected_type = fieldtype(eltype(stream), 2)
     value isa expected_type || error(
         "Output `$(_runtime_output_variable(output))` changed value type from ",
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
     _model_publish_sample!(
-        output.stream,
+        stream,
         float(time),
         value,
     )
-    if output.stream isa TemporalDependencyBuffer
+    if stream isa TemporalDependencyBuffer
         cutoff = output.dependency_horizon <= 0.0 ?
                  float(time) :
                  float(time) - output.dependency_horizon + 1.0
-        while !isempty(output.stream) &&
-              first(output.stream)[1] < cutoff - 1.0e-8
-            _temporal_dependency_popfirst!(output.stream)
+        while !isempty(stream) &&
+              first(stream)[1] < cutoff - 1.0e-8
+            _temporal_dependency_popfirst!(stream)
         end
     end
+    return nothing
+end
+
+@inline function _model_publish_runtime_output!(
+    output::RuntimeOutputStream,
+    time::Real,
+)
+    _model_publish_runtime_output_value!(
+        output,
+        output.stream,
+        output.reference[],
+        time,
+    )
+    return nothing
+end
+
+@inline function _model_publish_runtime_output!(
+    output::RuntimeDistributedOutputStream,
+    time::Real,
+)
+    references = output.references
+    streams = output.streams
+    @inbounds for index in eachindex(references)
+        _model_publish_runtime_output_value!(
+            output,
+            streams[index],
+            references[index],
+            time,
+        )
+    end
+    return nothing
+end
+
+@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
+
+@inline function _model_publish_runtime_outputs!(
+    outputs::Tuple,
+    time::Real,
+)
+    _model_publish_runtime_output!(first(outputs), time)
     _model_publish_runtime_outputs!(Base.tail(outputs), time)
     return nothing
 end
@@ -2423,6 +2539,10 @@ function _runtime_model_output_streams(
         application.id,
         (),
     )
+    variables = Tuple(
+        variable for variable in variables
+        if variable in keys(outputs_(application.spec))
+    )
     return Tuple(begin
         key = _model_stream_key(application.id, object_id, variable)
         stream = get(streams, key, nothing)
@@ -2465,6 +2585,117 @@ function _runtime_model_output_streams(
     ::Nothing,
 )
     return ()
+end
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention,
+    ::NoCompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    ::Nothing,
+    output_retention,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    ::Nothing,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+function _runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention::OutputRetentionPlan,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    retained_variables = get(
+        output_retention.retained_outputs_by_application,
+        application.id,
+        (),
+    )
+    isempty(retained_variables) && return ()
+    groups = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(groups) && return ()
+    outputs = Any[]
+    for binding in values(groups)
+        for variable_ in keys(binding.declarations)
+            variable = Symbol(variable_)
+            variable in retained_variables || continue
+            source_streams = Any[
+                get(
+                    streams,
+                    _model_stream_key(
+                        application.id,
+                        destination_id,
+                        variable,
+                    ),
+                    nothing,
+                )
+                for destination_id in binding.destination_ids
+            ]
+            any(isnothing, source_streams) && error(
+                "No initialized retained distributed output stream for application ",
+                "`$(application.id)`, group `$(binding.group)`, and variable ",
+                "`$(variable)`.",
+            )
+            typed_streams = _typed_temporal_source_streams(source_streams)
+            references = getproperty(binding.columns, variable)
+            push!(
+                outputs,
+                RuntimeDistributedOutputStream{
+                    variable,
+                    typeof(binding),
+                    typeof(typed_streams),
+                    typeof(references),
+                }(
+                    binding,
+                    typed_streams,
+                    references,
+                    get(
+                        output_retention.dependency_horizons,
+                        (application.id, variable),
+                        0.0,
+                    ),
+                ),
+            )
+        end
+    end
+    return Tuple(outputs)
+end
+
+function _runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention,
+)
+    return _runtime_model_distributed_output_streams(
+        compiled,
+        application,
+        object_id,
+        streams,
+        output_retention,
+        compiled.distributed_outputs,
+    )
 end
 
 function _compiled_model_execution_context(
@@ -2543,12 +2774,24 @@ function _compiled_model_execution_target(
         output_retention,
         constants,
     )
-    output_bindings = _runtime_model_output_streams(
+    local_output_bindings = _runtime_model_output_streams(
         status_view.status,
         application,
         object_id,
         temporal_streams,
         output_retention,
+    )
+    distributed_output_bindings =
+        _runtime_model_distributed_output_streams(
+            compiled,
+            application,
+            object_id,
+            temporal_streams,
+            output_retention,
+        )
+    output_bindings = (
+        local_output_bindings...,
+        distributed_output_bindings...,
     )
     return CompiledExecutionTarget(
         object_id,
@@ -2769,7 +3012,9 @@ end
 
 function _model_execution_outputs_match(
     runtime_outputs::Tuple,
+    compiled::CompiledCompositeModel,
     application::CompiledModelApplication,
+    object_id::ObjectId,
     output_retention,
 )
     variables = output_retention isa OutputRetentionPlan ?
@@ -2778,6 +3023,25 @@ function _model_execution_outputs_match(
         application.id,
         (),
     ) : ()
+    if compiled.distributed_outputs isa CompiledDistributedOutputs
+        groups = get(
+            compiled.distributed_outputs.by_execution_target,
+            (application.id, object_id),
+            nothing,
+        )
+        if !isnothing(groups) && any(
+            variable -> haskey(
+                compiled.distributed_outputs.destination_ids_by_application_variable,
+                (application.id, variable),
+            ),
+            variables,
+        )
+            # Distributed columns carry lifecycle-specific destination
+            # references. Rebuild this execution target at a lifecycle barrier
+            # instead of trying to compare one runtime entry per variable.
+            return false
+        end
+    end
     length(runtime_outputs) == length(variables) || return false
     for index in eachindex(runtime_outputs)
         _runtime_output_variable(runtime_outputs[index]) == variables[index] ||
@@ -2811,7 +3075,9 @@ function _model_execution_target_change_reason(
         return :temporal_inputs
     _model_execution_outputs_match(
         target.output_bindings,
+        compiled,
         application,
+        object_id,
         output_retention,
     ) || return :output_bindings
     target.call_bindings ===
@@ -3400,6 +3666,47 @@ function _model_status_view_refresh_is_pure_addition(
     return all(key -> last(key) in added_object_ids, new_keys)
 end
 
+function _model_application_output_variables(
+    compiled,
+    application,
+    ::NoCompiledDistributedOutputs,
+)
+    return Tuple(Symbol(variable) for variable in keys(outputs_(application.spec)))
+end
+
+function _model_application_output_variables(
+    compiled,
+    application,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    variables = Symbol[Symbol(variable) for variable in keys(outputs_(application.spec))]
+    for ((application_id, variable), destination_ids) in
+        distributed_outputs.destination_ids_by_application_variable
+        application_id == application.id || continue
+        isempty(destination_ids) && continue
+        variable in variables || push!(variables, variable)
+    end
+    # Plans with an initially empty destination set still define retainable
+    # variables that may acquire destinations at a later lifecycle barrier.
+    plans = compiled.scenario_plan.distributed_output_plans
+    if plans isa CompiledDistributedOutputPlans
+        for plan in _application_plans(plans.by_application, application.slot)
+            for variable_ in keys(plan.declarations)
+                variable = Symbol(variable_)
+                variable in variables || push!(variables, variable)
+            end
+        end
+    end
+    return Tuple(variables)
+end
+
+_model_application_output_variables(compiled, application) =
+    _model_application_output_variables(
+        compiled,
+        application,
+        compiled.distributed_outputs,
+    )
+
 function compile_model_output_retention(
     compiled::CompiledCompositeModel,
     output_requests;
@@ -3448,9 +3755,12 @@ function compile_model_output_retention(
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
         Set(
-            (application.id, Symbol(variable))
+            (application.id, variable)
             for application in compiled.applications
-            for variable in keys(outputs_(application.spec))
+            for variable in _model_application_output_variables(
+                compiled,
+                application,
+            )
         )
     else
         union(temporal_dependencies, requested_outputs)
@@ -3476,9 +3786,12 @@ end
 function _explain_output_retention(compiled::CompiledCompositeModel, plan)
     keys_to_explain = if plan.retain_all
         Set(
-            (application.id, Symbol(variable))
+            (application.id, variable)
             for application in compiled.applications
-            for variable in keys(outputs_(application.spec))
+            for variable in _model_application_output_variables(
+                compiled,
+                application,
+            )
         )
     else
         union(plan.temporal_dependencies, plan.requested_outputs)
@@ -3509,6 +3822,13 @@ function _explain_output_retention(compiled::CompiledCompositeModel, plan)
                     compiled,
                     application_id,
                 ).target_ids,
+            ),
+            current_output_object_count=length(
+                _model_output_object_ids(
+                    compiled,
+                    _compiled_application_by_id(compiled, application_id),
+                    variable,
+                ),
             ),
         )
         for (application_id, variable) in sort!(
@@ -5164,14 +5484,12 @@ function _output_request_target(
     variable::Symbol,
     start_time,
 )
-    initial = getproperty(
-        _model_status_view_for_application(
-            compiled,
-            application,
-            object_id,
-        ).status,
+    initial = _model_output_reference(
+        compiled,
+        application,
+        object_id,
         variable,
-    )
+    )[]
     return (
         scale=_model_object(model, object_id).scale,
         memberships=[
@@ -5203,6 +5521,14 @@ function _initial_output_request_targets(
             output_request_matchers[request.name];
             context=request.context,
         )
+        owned_ids = Set(
+            _model_output_object_ids(
+                compiled,
+                application,
+                request.var,
+            ),
+        )
+        filter!(id -> id in owned_ids, object_ids)
         targets[request.name] = (
             application.id,
             Dict(
@@ -5270,6 +5596,18 @@ function _refresh_output_request_targets!(
                 )
             ]
         end
+        application = _compiled_application_by_id(
+            simulation.compiled,
+            application_id,
+        )
+        owned_ids = Set(
+            _model_output_object_ids(
+                simulation.compiled,
+                application,
+                request.var,
+            ),
+        )
+        filter!(id -> id in owned_ids, matched_ids)
         active_ids = Set(
             object_id for (object_id, target) in object_targets
             if _output_request_target_is_active(target)
@@ -5284,10 +5622,6 @@ function _refresh_output_request_targets!(
                 "`$(request.selector)`, got $([id.value for id in current_ids]).",
             )
         end
-        application = _compiled_application_by_id(
-            simulation.compiled,
-            application_id,
-        )
         application_completed =
             !isnothing(completed_applications) &&
             application_id in completed_applications
@@ -5307,14 +5641,12 @@ function _refresh_output_request_targets!(
             if haskey(object_targets, object_id)
                 target = object_targets[object_id]
                 _output_request_target_is_active(target) && continue
-                initial = getproperty(
-                    _model_status_view_for_application(
-                        simulation.compiled,
-                        application,
-                        object_id,
-                    ).status,
+                initial = _model_output_reference(
+                    simulation.compiled,
+                    application,
+                    object_id,
                     request.var,
-                )
+                )[]
                 push!(
                     target.memberships,
                     OutputRequestMembership(
@@ -5566,16 +5898,25 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
     declared_scale = _selector_declared_scale(request.selector)
     candidates = CompiledModelApplication[]
     for application in compiled.applications
-        request.var in keys(outputs_(application.spec)) || continue
         isnothing(request.application) ||
             application.id == request.application ||
             application.name == request.application ||
             continue
-        target_match = any(id -> id in requested_ids, application.target_ids)
-        scale_match = !isnothing(declared_scale) &&
-                      _model_application_matches_scale(model, application, declared_scale)
-        (target_match || scale_match) || continue
+        local_output = request.var in keys(outputs_(application.spec))
+        local_match = local_output && (
+            any(id -> id in requested_ids, application.target_ids) ||
+            (!isnothing(declared_scale) &&
+             _model_application_matches_scale(model, application, declared_scale))
+        )
+        distributed_match = _model_request_matches_distributed_output(
+            compiled,
+            application,
+            request,
+            requested_ids,
+        )
+        (local_match || distributed_match) || continue
         if isnothing(request.application) &&
+           !distributed_match &&
            _publish_mode_for_output(application.spec, request.var) == :stream_only
             continue
         end
@@ -5605,6 +5946,50 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
     end
     return only(candidates)
 end
+
+_model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    ::NoCompiledDistributedOutputs,
+) = false
+
+function _model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    destination_ids = get(
+        distributed_outputs.destination_ids_by_application_variable,
+        (application.id, request.var),
+        (),
+    )
+    concrete_match = any(id -> id in requested_ids, destination_ids)
+    isempty(requested_ids) || return concrete_match
+    plans = compiled.scenario_plan.distributed_output_plans
+    plans isa CompiledDistributedOutputPlans || return false
+    return any(
+        plan -> request.var in keys(plan.declarations) &&
+                _selector_labels_may_overlap(request.selector, plan.selector),
+        _application_plans(plans.by_application, application.slot),
+    )
+end
+
+_model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+) = _model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    compiled.distributed_outputs,
+)
 
 function _model_request_application(sim::Simulation, request)
     return _model_request_application(sim.model, sim.compiled, request)
