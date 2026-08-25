@@ -6,5 +6,5 @@ uses the normal CompositeModel compiler. The MTG is an input representation, not
 second runtime.
 
 For growth, prefer `add_organ!`: it creates the MTG node, applies the model's
-status policy, attaches status, and registers the corresponding object.
-
+status policy by default, attaches status, and registers the corresponding
+object.

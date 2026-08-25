@@ -1146,25 +1146,40 @@ function _status_data!(data::Dict{Symbol,Any}, values)
     return data
 end
 
-function _organ_status(adapter::MTGObjectAdapter, node, initial_status)
-    adapted_status = adapter.status(node)
+function _organ_status(
+    adapter::MTGObjectAdapter,
+    node,
+    initial_status;
+    use_status_adapter::Bool=true,
+)
+    # Keep this call before reading node attributes: a status accessor may
+    # initialize attributes that must participate in the merged status.
+    adapted_status = use_status_adapter ? adapter.status(node) : nothing
     data = Dict{Symbol,Any}()
     _status_data!(data, MultiScaleTreeGraph.node_attributes(node))
     _status_data!(data, adapted_status)
     data[:node] = node
     _status_data!(data, initial_status)
     data[:node] = node
-    return Status((; data...))
+    status_names = Tuple(keys(data))
+    status_values = Tuple(values(data))
+    return Status{status_names}(status_values)
 end
 
 """
     add_organ!(parent, runtime, link, symbol, scale; index=0, id, attributes=(),
-               initial_status=(), kind=nothing, species=nothing, name=nothing)
+               initial_status=(), use_status_adapter=true, kind=nothing,
+               species=nothing, name=nothing)
 
 Create an MTG node and register its corresponding model object as one operation.
 `runtime` may be a [`CompositeModel`](@ref), [`RunContext`](@ref), or
 [`Simulation`](@ref). The model reuses the MTG accessors and status
 initializer supplied when it was constructed, then overlays `initial_status`.
+
+Set `use_status_adapter=false` only when the caller guarantees that the new
+node's attributes and `initial_status` completely define its initial status.
+In that mode the configured MTG status accessor is not called for the new
+node. The `node` status field is always forced to the newly created node.
 
 This is the public growth API. [`register_object!`](@ref) remains the low-level
 registry operation for callers that already own a fully initialized `Object`.
@@ -1179,6 +1194,7 @@ function add_organ!(
     id=nothing,
     attributes=NamedTuple(),
     initial_status=NamedTuple(),
+    use_status_adapter::Bool=true,
     kind=nothing,
     species=nothing,
     name=nothing,
@@ -1220,7 +1236,12 @@ function add_organ!(
     )
     try
         new_object_id = _register_mtg_object_identity!(adapter, node)
-        status = _organ_status(adapter, node, initial_status)
+        status = _organ_status(
+            adapter,
+            node,
+            initial_status;
+            use_status_adapter=use_status_adapter,
+        )
         node[:plantsimengine_status] = status
         object = Object(
             new_object_id;

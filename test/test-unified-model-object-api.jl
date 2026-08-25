@@ -1016,6 +1016,179 @@ end
     @test node_id(auto_id_leaf_status.node) == 5
     @test auto_id_leaf_status.node[:plantsimengine_status] === auto_id_leaf_status
 
+    @testset "MTG organ status adapter policy" begin
+        status_adapter_calls = Ref(0)
+        latest_adapter_status = Ref{Any}(nothing)
+        status_adapter = node -> begin
+            status_adapter_calls[] += 1
+            node[:status_adapter_mutation] = status_adapter_calls[]
+            adapted_source_status = Status(
+                node=:adapter_node_must_be_replaced,
+                signal=6.0,
+                adapter_only=:present,
+                plantsimengine_status=:adapter_status_must_be_excluded,
+            )
+            latest_adapter_status[] = adapted_source_status
+            return adapted_source_status
+        end
+
+        adapter_root =
+            Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+        adapter_plant = Node(
+            adapter_root,
+            MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1),
+        )
+        status_adapter_scene =
+            CompositeModel(adapter_root; status=status_adapter)
+        calls_after_adaptation = status_adapter_calls[]
+        bypassed_initial_status = Status(
+            signal=5.0,
+            age=1,
+            node=:initial_node_must_be_replaced,
+            plantsimengine_status=:initial_status_must_be_excluded,
+        )
+
+        bypassed_status = add_organ!(
+            adapter_plant,
+            status_adapter_scene,
+            :+,
+            :Leaf,
+            2;
+            index=1,
+            id=3,
+            attributes=(
+                signal=4.0,
+                color=:green,
+                node=:attribute_node_must_be_replaced,
+                plantsimengine_status=:attribute_status_must_be_excluded,
+            ),
+            initial_status=bypassed_initial_status,
+            use_status_adapter=false,
+        )
+
+        bypassed_reference = Dict{Symbol,Any}()
+        PlantSimEngine._status_data!(
+            bypassed_reference,
+            node_attributes(bypassed_status.node),
+        )
+        bypassed_reference[:node] = bypassed_status.node
+        PlantSimEngine._status_data!(
+            bypassed_reference,
+            bypassed_initial_status,
+        )
+        bypassed_reference[:node] = bypassed_status.node
+        bypassed_reference_names = Tuple(keys(bypassed_reference))
+        bypassed_reference_values = Tuple(values(bypassed_reference))
+
+        @test status_adapter_calls[] == calls_after_adaptation
+        @test propertynames(bypassed_status) == bypassed_reference_names
+        @test Tuple(bypassed_status) == bypassed_reference_values
+        @test bypassed_status.signal == 5.0
+        @test bypassed_status.color === :green
+        @test bypassed_status.age == 1
+        @test bypassed_status.node ===
+              MultiScaleTreeGraph.get_node(adapter_root, 3)
+        @test bypassed_initial_status.node ===
+              :initial_node_must_be_replaced
+        @test bypassed_status.node[:node] ===
+              :attribute_node_must_be_replaced
+        @test bypassed_status.node[:signal] == 4.0
+        @test !hasproperty(bypassed_status, :adapter_only)
+        @test !hasproperty(bypassed_status, :status_adapter_mutation)
+        @test !hasproperty(bypassed_status, :plantsimengine_status)
+        @test !haskey(
+            node_attributes(bypassed_status.node),
+            :status_adapter_mutation,
+        )
+        @test PlantSimEngine.refvalue(bypassed_status, :signal) !==
+              PlantSimEngine.refvalue(bypassed_initial_status, :signal)
+        @test PlantSimEngine.refvalue(bypassed_status, :age) !==
+              PlantSimEngine.refvalue(bypassed_initial_status, :age)
+        @test bypassed_status.node[:plantsimengine_status] ===
+              bypassed_status
+        @test model_object(status_adapter_scene, 3).status ===
+              bypassed_status
+        bypassed_initial_status.age = 99
+        @test bypassed_status.age == 1
+
+        adapted_initial_status = Status(
+            signal=5.0,
+            age=2,
+            node=:initial_node_must_be_replaced,
+            plantsimengine_status=:initial_status_must_be_excluded,
+        )
+
+        adapted_status = add_organ!(
+            adapter_plant,
+            status_adapter_scene,
+            :+,
+            :Leaf,
+            2;
+            index=2,
+            id=4,
+            attributes=(
+                signal=4.0,
+                color=:blue,
+                node=:attribute_node_must_be_replaced,
+                plantsimengine_status=:attribute_status_must_be_excluded,
+            ),
+            initial_status=adapted_initial_status,
+        )
+
+        adapted_source_status = latest_adapter_status[]
+        adapted_reference = Dict{Symbol,Any}()
+        PlantSimEngine._status_data!(
+            adapted_reference,
+            node_attributes(adapted_status.node),
+        )
+        PlantSimEngine._status_data!(
+            adapted_reference,
+            adapted_source_status,
+        )
+        adapted_reference[:node] = adapted_status.node
+        PlantSimEngine._status_data!(
+            adapted_reference,
+            adapted_initial_status,
+        )
+        adapted_reference[:node] = adapted_status.node
+        adapted_reference_names = Tuple(keys(adapted_reference))
+        adapted_reference_values = Tuple(values(adapted_reference))
+
+        @test status_adapter_calls[] == calls_after_adaptation + 1
+        @test adapted_source_status isa Status
+        @test propertynames(adapted_status) == adapted_reference_names
+        @test Tuple(adapted_status) == adapted_reference_values
+        @test adapted_source_status.node ===
+              :adapter_node_must_be_replaced
+        @test adapted_initial_status.node ===
+              :initial_node_must_be_replaced
+        @test adapted_status.node[:signal] == 4.0
+        @test adapted_source_status.signal == 6.0
+        @test adapted_status.signal == 5.0
+        @test adapted_status.color === :blue
+        @test adapted_status.age == 2
+        @test adapted_status.adapter_only === :present
+        @test adapted_status.node ===
+              MultiScaleTreeGraph.get_node(adapter_root, 4)
+        @test adapted_status.node[:node] ===
+              :attribute_node_must_be_replaced
+        @test !hasproperty(adapted_status, :plantsimengine_status)
+        @test adapted_status.status_adapter_mutation ==
+              calls_after_adaptation + 1
+        @test adapted_status.node[:status_adapter_mutation] ==
+              calls_after_adaptation + 1
+        @test PlantSimEngine.refvalue(adapted_status, :adapter_only) !==
+              PlantSimEngine.refvalue(adapted_source_status, :adapter_only)
+        @test PlantSimEngine.refvalue(adapted_status, :age) !==
+              PlantSimEngine.refvalue(adapted_initial_status, :age)
+        @test adapted_status.node[:plantsimengine_status] === adapted_status
+        @test model_object(status_adapter_scene, 4).status === adapted_status
+        adapted_source_status.adapter_only = :mutated_after_add
+        adapted_initial_status.age = 99
+        @test adapted_status.adapter_only === :present
+        @test adapted_status.age == 2
+    end
+
     temporal_mtg_root =
         Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     temporal_mtg_plant = Node(

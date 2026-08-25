@@ -409,7 +409,7 @@ move_object!(model, :leaf_3, new_geometry)
 ```
 
 For MTG-backed growth, prefer `add_organ!`: it creates the MTG node and its
-model object together and reuses the status initialization policy from
+model object together and, by default, reuses the status initialization policy from
 `CompositeModel(mtg; status=...)`. Use `register_object!` when adapting another topology
 backend or when a complete `Object` already exists.
 
