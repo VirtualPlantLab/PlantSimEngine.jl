@@ -2750,6 +2750,24 @@ _runtime_model_distributed_output_streams(
     compiled,
     application,
     object_id,
+    ::Nothing,
+    ::Nothing,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    ::Nothing,
+    output_retention::OutputRetentionPlan,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
     streams,
     ::Nothing,
     distributed_outputs::CompiledDistributedOutputs,
