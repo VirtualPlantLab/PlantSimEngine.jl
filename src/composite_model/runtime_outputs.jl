@@ -891,6 +891,26 @@ model_status(runtime::Union{RunContext,CallTarget,Simulation}, source) =
     model_status(runtime_model(runtime), source)
 source_node(runtime::Union{RunContext,CallTarget,Simulation}, source) =
     source_node(runtime_model(runtime), source)
+
+"""
+    object_id(context::Union{RunContext,CallTarget})
+    model_object(context::Union{RunContext,CallTarget})
+    model_status(context::Union{RunContext,CallTarget})
+    source_node(context::Union{RunContext,CallTarget})
+
+Resolve the current execution target. `model_status(context)` returns the
+canonical registry Status, not the application-local status view passed to the
+kernel. `source_node(context)` is available for MTG-backed models and avoids
+requiring a topology node inside that local status view.
+"""
+object_id(runtime::Union{RunContext,CallTarget}) =
+    object_id(runtime_model(runtime), getfield(runtime, :object_id))
+model_object(runtime::Union{RunContext,CallTarget}) =
+    model_object(runtime_model(runtime), object_id(runtime))
+model_status(runtime::Union{RunContext,CallTarget}) =
+    model_status(runtime_model(runtime), object_id(runtime))
+source_node(runtime::Union{RunContext,CallTarget}) =
+    source_node(runtime_model(runtime), object_id(runtime))
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams

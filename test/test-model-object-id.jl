@@ -6,7 +6,12 @@ struct ObjectIdentityProbeModel{N,I} <: AbstractObject_Identity_ProbeModel
 end
 
 PlantSimEngine.inputs_(::ObjectIdentityProbeModel) = NamedTuple()
-PlantSimEngine.outputs_(::ObjectIdentityProbeModel) = (matches=false,)
+PlantSimEngine.outputs_(::ObjectIdentityProbeModel) = (
+    matches=false,
+    current_object_matches=false,
+    current_status_matches=false,
+    current_node_matches=false,
+)
 
 function PlantSimEngine.run!(
     model::ObjectIdentityProbeModel,
@@ -16,6 +21,15 @@ function PlantSimEngine.run!(
     context,
 )
     status.matches = object_id(context, model.source) == model.expected
+    current_object = model_object(context)
+    status.current_object_matches =
+        object_id(context) == current_object.id &&
+        current_object === model_object(runtime_model(context), object_id(context))
+    status.current_status_matches =
+        model_status(context) === current_object.status
+    status.current_node_matches =
+        source_node(context) ===
+        source_node(runtime_model(context), object_id(context))
     return nothing
 end
 
@@ -161,7 +175,11 @@ end
     @test source_node(model, new_leaf_status) === new_leaf_status.node
 
     simulation = run!(model; steps=1, outputs=:none)
-    @test model_object(model, (:Scene, 1)).status.matches
+    probe_status = model_object(model, (:Scene, 1)).status
+    @test probe_status.matches
+    @test probe_status.current_object_matches
+    @test probe_status.current_status_matches
+    @test probe_status.current_node_matches
     @test object_id(simulation, leaf) == leaf_id
 
     remove_object!(model, new_leaf_id)

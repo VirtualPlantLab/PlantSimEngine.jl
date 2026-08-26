@@ -119,6 +119,10 @@ targets.
 - `add_organ!` creates and initializes a new organ in an MTG-backed model.
 - `runtime_model(context)` gives lifecycle-capable kernels sanctioned access to
   the live model from their `RunContext`.
+- `object_id(context)`, `model_object(context)`, `model_status(context)`, and
+  `source_node(context)` resolve the current execution target. The status
+  accessor returns canonical registry state rather than the application-local
+  status view passed to a kernel.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.
 - `move_object!` and `update_geometry!` change spatial state.
