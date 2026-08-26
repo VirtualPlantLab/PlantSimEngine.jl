@@ -7,6 +7,7 @@ PlantSimEngine.@process "status_type_runtime_output_writer" verbose = false
 PlantSimEngine.@process "status_type_runtime_input_consumer" verbose = false
 PlantSimEngine.@process "status_type_runtime_callee" verbose = false
 PlantSimEngine.@process "status_type_runtime_controller" verbose = false
+PlantSimEngine.@process "status_type_runtime_ordered_writer" verbose = false
 
 struct StatusTypeRuntimeOutputWriterModel <:
        AbstractStatus_Type_Runtime_Output_WriterModel end
@@ -19,6 +20,11 @@ struct StatusTypeRuntimeCalleeModel <:
 
 struct StatusTypeRuntimeControllerModel <:
        AbstractStatus_Type_Runtime_ControllerModel end
+
+struct StatusTypeRuntimeOrderedWriterModel{T} <:
+       AbstractStatus_Type_Runtime_Ordered_WriterModel
+    increment::T
+end
 
 PlantSimEngine.inputs_(::StatusTypeRuntimeOutputWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::StatusTypeRuntimeOutputWriterModel) = (
@@ -41,6 +47,20 @@ function PlantSimEngine.run!(
             status.canonical_value +
             convert(typeof(status.canonical_value), index)
     end
+    return nothing
+end
+
+PlantSimEngine.inputs_(::StatusTypeRuntimeOrderedWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::StatusTypeRuntimeOrderedWriterModel) = (ordered_value=0.0,)
+
+function PlantSimEngine.run!(
+    model::StatusTypeRuntimeOrderedWriterModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.ordered_value += model.increment
     return nothing
 end
 
@@ -363,4 +383,38 @@ end
     )
     @test length(callee_rows) == 1
     @test only(callee_rows).value === Float32(2)
+end
+
+@testset "ordered duplicate writers share one converted reference" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene);
+        applications=(
+            ModelSpec(
+                StatusTypeRuntimeOrderedWriterModel(Float32(1));
+                name=:first_writer,
+                on=One(scale=:Scene),
+            ),
+            ModelSpec(
+                StatusTypeRuntimeOrderedWriterModel(Float32(2));
+                name=:second_writer,
+                on=One(scale=:Scene),
+                updates=Updates(:ordered_value; after=:first_writer),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+        type_promotion=Dict(Float64 => Float32),
+    )
+
+    simulation = run!(model; outputs=:all)
+    @test final_state(simulation, :scene).ordered_value === Float32(3)
+    @test last(
+        outputs(simulation)[
+            (:first_writer, ObjectId(:scene), :ordered_value)
+        ],
+    )[2] === Float32(1)
+    @test last(
+        outputs(simulation)[
+            (:second_writer, ObjectId(:scene), :ordered_value)
+        ],
+    )[2] === Float32(3)
 end

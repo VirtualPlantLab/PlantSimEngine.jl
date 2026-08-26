@@ -98,7 +98,9 @@ end
             count_from_user=2,
             flag=true,
             label=:leaf,
+            label_text="leaf",
             date=Date(2026, 8, 26),
+            cadence=Hour(1),
         ),
         type_promotion=Dict(Float64 => Float32),
     )
@@ -117,7 +119,9 @@ end
     @test status.count_from_user === 2
     @test status.flag === true
     @test status.label === :leaf
+    @test status.label_text == "leaf"
     @test status.date === Date(2026, 8, 26)
+    @test status.cadence === Hour(1)
     @test only(Diagnostics.explain_execution_plan(model)).status_type ==
           typeof(status)
 
