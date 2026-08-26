@@ -1381,12 +1381,21 @@ end
 end
 
 function _model_linear_value(v_left, v_right, α)
+    interpolation_factor = if typeof(v_left) === typeof(v_right) &&
+                              v_left isa AbstractFloat
+        convert(typeof(v_left), α)
+    elseif typeof(v_left) === typeof(v_right) &&
+           v_left isa Array{<:AbstractFloat}
+        convert(eltype(v_left), α)
+    else
+        α
+    end
     applicable(-, v_right, v_left) || return nothing
     delta = v_right - v_left
-    increment = if applicable(*, α, delta)
-        α * delta
-    elseif applicable(*, delta, α)
-        delta * α
+    increment = if applicable(*, interpolation_factor, delta)
+        interpolation_factor * delta
+    elseif applicable(*, delta, interpolation_factor)
+        delta * interpolation_factor
     else
         return nothing
     end
@@ -6489,12 +6498,12 @@ function _model_request_clock(request, timeline)
 end
 
 function _model_requested_value(samples, time, t_start, policy, timeline)
-    value = if policy isa HoldLast
+    if policy isa HoldLast
         value = _model_latest_sample(samples, time)
-        isnothing(value) ? missing : value
+        return isnothing(value) ? missing : value
     elseif policy isa Interpolate
         value = _model_interpolated_sample(samples, time, policy)
-        isnothing(value) ? missing : value
+        return isnothing(value) ? missing : value
     elseif policy isa Union{Integrate,Aggregate}
         values, durations = _model_window_segments(
             samples,
@@ -6502,22 +6511,10 @@ function _model_requested_value(samples, time, t_start, policy, timeline)
             time,
             timeline.base_step_seconds,
         )
-        isempty(values) ? missing : _model_window_reduce(values, durations, policy)
-    else
-        error("Unsupported model output request policy `$(typeof(policy))`.")
+        isempty(values) && return missing
+        return _model_window_reduce(values, durations, policy)
     end
-    value === missing && return missing
-    effective_type = fieldtype(eltype(samples), 2)
-    value isa effective_type && return value
-    return try
-        convert(effective_type, value)
-    catch exception
-        error(
-            "OutputRequest policy `$(typeof(policy))` produced value type " *
-            "`$(typeof(value))`, but the retained stream uses effective type " *
-            "`$(effective_type)`: $(sprint(showerror, exception))",
-        )
-    end
+    error("Unsupported model output request policy `$(typeof(policy))`.")
 end
 
 function _model_requested_output_rows(
