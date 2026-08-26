@@ -30,7 +30,7 @@ using Dates
 
     @test 0.0 < plant.status.aPPFD < incident_ppfd
     @test simulated_f_abs ≈ 1.0 - exp(-k * plant.status.LAI)
-    @test fit(PlantSimEngine.Examples.Beer, simulated).k ≈ k
+    @test PlantSimEngine.Evaluation.fit(PlantSimEngine.Examples.Beer, simulated).k ≈ k
 
     lai = [1.0, 2.0, 3.0]
     incident_par = [200.0, 300.0, 400.0]
@@ -41,7 +41,7 @@ using Dates
         Ri_PAR_f=incident_par,
         aPPFD=incident_par .* constants.J_to_umol .* expected_f_abs,
     )
-    fitted = fit(PlantSimEngine.Examples.Beer, observations)
+    fitted = PlantSimEngine.Evaluation.fit(PlantSimEngine.Examples.Beer, observations)
     reconstructed_f_abs = @. 1.0 - exp(-fitted.k * lai)
 
     @test expected_f_abs[2] ≈ 0.6
@@ -53,40 +53,43 @@ using Dates
         Ri_PAR_f=[incident],
         aPPFD=[incident * constants.J_to_umol * f_abs],
     )
-    @test fit(PlantSimEngine.Examples.Beer, observation(2.0, 0.0)).k == 0.0
+    @test PlantSimEngine.Evaluation.fit(
+        PlantSimEngine.Examples.Beer,
+        observation(2.0, 0.0),
+    ).k == 0.0
 
     tiny = observation(2.0, eps(Float64) / 2.0)
     tiny_f_abs = tiny.aPPFD[1] / (tiny.Ri_PAR_f[1] * constants.J_to_umol)
-    tiny_k = fit(PlantSimEngine.Examples.Beer, tiny).k
+    tiny_k = PlantSimEngine.Evaluation.fit(PlantSimEngine.Examples.Beer, tiny).k
     @test tiny_k > 0.0
     @test tiny_k ≈ -log1p(-tiny_f_abs) / tiny.LAI[1]
 
-    @test_throws ArgumentError fit(
+    @test_throws ArgumentError PlantSimEngine.Evaluation.fit(
         PlantSimEngine.Examples.Beer,
         DataFrame(LAI=Float64[], Ri_PAR_f=Float64[], aPPFD=Float64[]),
     )
 
     for invalid_lai in (0.0, -1.0, Inf, NaN)
-        @test_throws DomainError fit(
+        @test_throws DomainError PlantSimEngine.Evaluation.fit(
             PlantSimEngine.Examples.Beer,
             observation(invalid_lai, 0.6),
         )
     end
     for invalid_f_abs in (-0.1, 1.0, 1.1, Inf, NaN)
-        @test_throws DomainError fit(
+        @test_throws DomainError PlantSimEngine.Evaluation.fit(
             PlantSimEngine.Examples.Beer,
             observation(2.0, invalid_f_abs),
         )
     end
     for invalid_incident in (0.0, -1.0, Inf, -Inf, NaN)
-        @test_throws DomainError fit(
+        @test_throws DomainError PlantSimEngine.Evaluation.fit(
             PlantSimEngine.Examples.Beer,
             observation(2.0, 0.6; incident=invalid_incident),
         )
     end
 
     for invalid_J_to_umol in (0.0, -1.0, Inf, -Inf, NaN)
-        @test_throws DomainError fit(
+        @test_throws DomainError PlantSimEngine.Evaluation.fit(
             PlantSimEngine.Examples.Beer,
             observation(2.0, 0.6);
             J_to_umol=invalid_J_to_umol,
@@ -98,7 +101,7 @@ using Dates
         Ri_PAR_f=[-300.0],
         aPPFD=[300.0 * constants.J_to_umol * 0.6],
     )
-    @test_throws DomainError fit(
+    @test_throws DomainError PlantSimEngine.Evaluation.fit(
         PlantSimEngine.Examples.Beer,
         double_negative;
         J_to_umol=-constants.J_to_umol,
