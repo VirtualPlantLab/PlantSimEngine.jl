@@ -41,6 +41,9 @@
   `NamedTuple` of columns directly.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
+- `Initializer(One(application=:name, ...))` declares one normally scheduled
+  application that may initialize a newly registered object during its
+  creation event.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
   target and always returns a vector-like `CallTargets` collection.
 - `run_call!(context, :name; sampled_environment=value)` forwards one already
@@ -49,6 +52,10 @@
   to exactly one target.
 - `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
+- `run_initializer!(context, :name, object)` runs an `Initializer` binding once
+  on that newborn object, initializes canonical local status without an extra
+  mid-step output sample, and returns its canonical `Status`. It is not a
+  trial-call or existing-object API.
 
 Distributed assignment requires exact destination coverage. Every selected
 object ID must occur exactly once and every declared output column must be
@@ -135,6 +142,18 @@ targets.
 - `move_object!` and `update_geometry!` change spatial state.
 - Supported lifecycle operations automatically invalidate and refresh the
   affected structural or spatial bindings before the next timestep.
+- A creator that must run an application which already completed on existing
+  objects declares an `Initializer` call. The compiler orders the scheduled
+  target before the creator and the creator before direct non-temporal
+  same-step consumers;
+  `run_initializer!` admits exactly one target from the current pure-addition
+  event and rejects repeat, existing, reparented, manual-call, and
+  refresh-fallback execution. Each initialized output must have one potential
+  canonical writer across local and distributed destinations. Because
+  `run_initializer!` emits no mid-step stream sample,
+  downstream temporal consumers of a possible newborn output are rejected at
+  compilation; a `PreviousTimeStep` input used by the initializer itself
+  remains supported.
 - `run!(model; steps=..., outputs=:none)` starts a fresh result timeline and
   returns a `Simulation`.
 - `continue!(simulation; steps=...)` and `step!(simulation)` advance an

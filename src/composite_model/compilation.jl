@@ -66,7 +66,7 @@ struct CompiledModelInputPlan{SEL,M,OA,PSA,W}
 end
 
 """Immutable authored hard-call declaration for one application."""
-struct CompiledModelCallPlan{NAME,SEL,M,PCA}
+struct CompiledModelCallPlan{NAME,MODE,SEL,M,PCA}
     slot::Int
     application_slot::Int
     application_id::Symbol
@@ -85,6 +85,7 @@ function CompiledModelCallPlan(
     application_slot,
     application_id,
     call::Symbol,
+    mode::Symbol,
     selector,
     matcher,
     origin,
@@ -95,6 +96,7 @@ function CompiledModelCallPlan(
 )
     return CompiledModelCallPlan{
         call,
+        mode,
         typeof(selector),
         typeof(matcher),
         typeof(potential_callee_application_ids),
@@ -114,6 +116,7 @@ function CompiledModelCallPlan(
 end
 
 _compiled_call_name(::CompiledModelCallPlan{NAME}) where {NAME} = NAME
+@inline _compiled_call_mode(::CompiledModelCallPlan{NAME,MODE}) where {NAME,MODE} = MODE
 
 """Immutable authored cross-object output declaration for one application."""
 struct CompiledModelOutputDestinationPlan{GROUP,SEL,M,D,C}
@@ -525,6 +528,7 @@ end
 function _scenario_call_owners(applications, call_plans)
     owners = Dict{Symbol,Set{Symbol}}()
     for plan in call_plans
+        _compiled_call_mode(plan) === :manual || continue
         for callee_id in plan.potential_callee_application_ids
             push!(get!(owners, callee_id, Set{Symbol}()), plan.application_id)
         end
@@ -539,6 +543,198 @@ function _scenario_call_owners(applications, call_plans)
             for callee_id in application_ids
         ),
     )
+end
+
+function _initializer_call_application_ids(call_plans)
+    ids = Set{Symbol}()
+    for plan in call_plans
+        _compiled_call_mode(plan) === :initializer || continue
+        union!(ids, plan.potential_callee_application_ids)
+    end
+    return ids
+end
+
+function _potential_initializer_output_writers(
+    applications,
+    initializer_application,
+    variable::Symbol,
+    distributed_output_plans,
+)
+    writers = Symbol[]
+    for application in applications
+        application.id == initializer_application.id && continue
+        local_writer =
+            variable in _model_canonical_output_names(application) &&
+            _selector_labels_may_overlap(
+                initializer_application.applies_to,
+                application.applies_to,
+            )
+        distributed_writer = _application_declares_distributed_output(
+            application,
+            variable,
+            initializer_application.applies_to,
+            distributed_output_plans,
+        )
+        (local_writer || distributed_writer) && push!(writers, application.id)
+    end
+    return writers
+end
+
+function _validate_initializer_call_plans!(
+    model::CompositeModel,
+    applications,
+    input_plans,
+    call_plans,
+    distributed_output_plans,
+)
+    initializer_plans = [
+        plan for plan in call_plans
+        if _compiled_call_mode(plan) === :initializer
+    ]
+    isempty(initializer_plans) && return nothing
+
+    applications_by_id = _applications_by_id(applications)
+    manual_application_ids = Set{Symbol}()
+    for plan in call_plans
+        _compiled_call_mode(plan) === :manual || continue
+        union!(manual_application_ids, plan.potential_callee_application_ids)
+    end
+    initializer_owner = Dict{Symbol,Tuple{Symbol,Symbol}}()
+
+    for plan in initializer_plans
+        isnothing(plan.application) && error(
+            "Initializer `$(plan.call)` on application `$(plan.application_id)` " *
+            "must name one scheduled target with `application=...`.",
+        )
+        plan.selector isa One || error(
+            "Initializer `$(plan.call)` on application `$(plan.application_id)` " *
+            "must use `Initializer(One(...))`.",
+        )
+        length(plan.potential_callee_application_ids) == 1 || error(
+            "Initializer `$(plan.call)` on application `$(plan.application_id)` " *
+            "must resolve exactly one scheduled application, got " *
+            "`$(plan.potential_callee_application_ids)`.",
+        )
+        callee_id = only(plan.potential_callee_application_ids)
+        callee = applications_by_id[callee_id]
+        callee.applies_to isa Many || error(
+            "Initializer `$(plan.call)` targets application `$(callee_id)`, whose " *
+            "`on=...` selector must be `Many(...)` so newly registered objects can " *
+            "join its normal schedule.",
+        )
+        callee_id in manual_application_ids && error(
+            "Application `$(callee_id)` cannot be both a manual-call-only target and " *
+            "an initializer target. Remove the ordinary `Call` binding and keep one " *
+            "`Initializer` binding.",
+        )
+        plan.application_id in manual_application_ids && error(
+            "Initializer caller `$(plan.application_id)` is itself manual-call-only. " *
+            "Nested manual/initializer execution is not supported; keep the creator " *
+            "application root-scheduled.",
+        )
+        any(candidate -> candidate.application_id == callee_id, call_plans) && error(
+            "Initializer target application `$(callee_id)` declares hard calls. " *
+            "Nested calls from targeted newborn initialization are not supported.",
+        )
+        isempty(outputs_to(callee.spec)) || error(
+            "Initializer target application `$(callee_id)` declares `outputs_to`. " *
+            "Targeted newborn initialization supports canonical local outputs only.",
+        )
+        stream_only = Symbol[
+            Symbol(variable) for variable in keys(outputs_(callee.spec))
+            if _publish_mode_for_output(callee.spec, Symbol(variable)) === :stream_only
+        ]
+        isempty(stream_only) || error(
+            "Initializer target application `$(callee_id)` has stream-only output(s) " *
+            "`$(Tuple(stream_only))`. Initializer outputs must be canonical so the " *
+            "new object enters the normal scheduled state.",
+        )
+        for variable in _model_canonical_output_names(callee)
+            other_writers = _potential_initializer_output_writers(
+                applications,
+                callee,
+                variable,
+                distributed_output_plans,
+            )
+            isempty(other_writers) || error(
+                "Initializer target application `$(callee_id)` must be the sole " *
+                "canonical writer of output `$(variable)` on its possible newborn " *
+                "targets. Potential overlapping writer application(s): " *
+                "`$(Tuple(other_writers))`. Remove the overlapping local or " *
+                "distributed writer instead of relying on `Updates` ordering after " *
+                "targeted initialization.",
+            )
+        end
+        backend = _environment_backend_from_config(
+            model,
+            environment_config(callee.spec),
+        )
+        (isnothing(backend) || backend isa GlobalConstant) || error(
+            "Initializer target application `$(callee_id)` uses a non-global " *
+            "environment backend `$(typeof(backend))`. Targeted newborn " *
+            "initialization currently supports only the global environment.",
+        )
+        for input_plan in input_plans
+            input_plan.application_id == callee_id || continue
+            policy = _model_selector_policy(
+                input_plan.selector,
+                applications_by_id,
+                input_plan.potential_source_application_ids,
+                input_plan.source_var,
+            )
+            carrier_hint = _carrier_hint(
+                input_plan.selector,
+                policy,
+                input_plan.window,
+            )
+            carrier_hint === :temporal_stream &&
+                !(policy isa PreviousTimeStep) && error(
+                "Initializer target application `$(callee_id)` input " *
+                "`$(input_plan.input)` requires temporal policy `$(typeof(policy))`. " *
+                "Only `PreviousTimeStep` is defined for a newborn target; use a " *
+                "non-temporal input or `PreviousTimeStep(:$(input_plan.input))`.",
+            )
+        end
+        for consumer_plan in input_plans
+            consumer_plan.application_id == callee_id && continue
+            callee_id in consumer_plan.potential_source_application_ids ||
+                continue
+            policy = _model_selector_policy(
+                consumer_plan.selector,
+                applications_by_id,
+                consumer_plan.potential_source_application_ids,
+                consumer_plan.source_var,
+            )
+            carrier_hint = _carrier_hint(
+                consumer_plan.selector,
+                policy,
+                consumer_plan.window,
+            )
+            carrier_hint === :temporal_stream || continue
+            error(
+                "Initializer target application `$(callee_id)` may provide newborn " *
+                "output `$(consumer_plan.source_var)` to temporal input " *
+                "`$(consumer_plan.input)` on downstream application " *
+                "`$(consumer_plan.application_id)`. Targeted initialization does " *
+                "not publish a mid-step temporal sample, so downstream temporal " *
+                "policies (including `PreviousTimeStep`) are unsupported. Use a " *
+                "direct non-temporal input, or publish the value from a distinct " *
+                "scheduled application so temporal consumers can use its history " *
+                "on a later timestep.",
+            )
+        end
+        if haskey(initializer_owner, callee_id)
+            previous = initializer_owner[callee_id]
+            error(
+                "Scheduled application `$(callee_id)` has several initializer " *
+                "bindings: `$(previous[2])` on `$(previous[1])` and " *
+                "`$(plan.call)` on `$(plan.application_id)`. Declare one owner so " *
+                "each newborn target can be initialized exactly once.",
+            )
+        end
+        initializer_owner[callee_id] = (plan.application_id, plan.call)
+    end
+    return nothing
 end
 
 function _scenario_root_call_owners(
@@ -603,6 +799,57 @@ function _scenario_input_order_edges!(children, input_plans, call_owners)
                         plan.application_id,
                     )
                 end
+            end
+        end
+    end
+    return children
+end
+
+function _scenario_initializer_order_edges!(
+    children,
+    input_plans,
+    call_plans,
+    call_owners,
+)
+    initializer_owners = Dict{Symbol,Symbol}(
+        only(plan.potential_callee_application_ids) => plan.application_id
+        for plan in call_plans
+        if _compiled_call_mode(plan) === :initializer
+    )
+    for initializer in call_plans
+        _compiled_call_mode(initializer) === :initializer || continue
+        callee_id = only(initializer.potential_callee_application_ids)
+        caller_id = initializer.application_id
+        # Existing targets run in their normal application slot before the
+        # creator. The creator then initializes only its newborn target.
+        _add_model_application_edge!(children, callee_id, caller_id)
+        # A same-step consumer of the initialized application's output must
+        # also wait for object creation and targeted initialization.
+        for input_plan in input_plans
+            input_plan.breaks_same_step_cycle && continue
+            ordering_sources = (
+                input_plan.potential_source_application_ids...,
+                input_plan.order_after_application_ids...,
+            )
+            callee_id in ordering_sources || continue
+            execution_owners = if haskey(
+                initializer_owners,
+                input_plan.application_id,
+            )
+                (initializer_owners[input_plan.application_id],)
+            else
+                _scenario_root_call_owners(
+                    call_owners,
+                    input_plan.application_id,
+                )
+            end
+            for owner_id in execution_owners
+                owner_id == caller_id && continue
+                _add_model_application_edge!(
+                    children,
+                    caller_id,
+                    owner_id,
+                )
             end
         end
     end
@@ -733,12 +980,19 @@ end
 function _compile_scenario_application_children(
     applications,
     input_plans,
+    call_plans,
     call_owners,
     manual_application_ids,
     distributed_output_plans,
 )
     children = Dict{Symbol,Set{Symbol}}()
     _scenario_input_order_edges!(children, input_plans, call_owners)
+    _scenario_initializer_order_edges!(
+        children,
+        input_plans,
+        call_plans,
+        call_owners,
+    )
     _scenario_update_order_edges!(
         children,
         applications,
@@ -758,6 +1012,13 @@ function _compiled_scenario_plan(
 )
     application_plans = Tuple(application.plan for application in applications)
     application_ids = Tuple(plan.id for plan in application_plans)
+    _validate_initializer_call_plans!(
+        model,
+        applications,
+        input_plans,
+        call_plans,
+        distributed_output_plans,
+    )
     call_owners = _scenario_call_owners(applications, call_plans)
     manual_application_ids = Tuple(
         application.id for application in applications
@@ -770,6 +1031,7 @@ function _compiled_scenario_plan(
     application_children = _compile_scenario_application_children(
         applications,
         input_plans,
+        call_plans,
         call_owners,
         manual_application_ids,
         distributed_output_plans,
@@ -897,6 +1159,7 @@ end
     name === :application_slot && return getfield(plan, :application_slot)
     name === :application_id && return getfield(plan, :application_id)
     name === :call && return getfield(plan, :call)
+    name === :mode && return _compiled_call_mode(plan)
     name === :selector && return getfield(plan, :selector)
     name === :matcher && return getfield(plan, :matcher)
     name === :origin && return getfield(plan, :origin)
@@ -913,11 +1176,15 @@ Base.propertynames(binding::CompiledModelCallBinding) = (
     :consumer_id,
     :callee_object_ids,
     :callee_application_ids,
+    :mode,
     propertynames(binding.plan)...,
 )
 
 @inline _compiled_call_name(binding::CompiledModelCallBinding) =
     _compiled_call_name(binding.plan)
+
+@inline _compiled_call_mode(binding::CompiledModelCallBinding) =
+    _compiled_call_mode(binding.plan)
 
 struct CompiledEnvironmentSamplingRule{T,S} end
 
@@ -1049,8 +1316,26 @@ end
 
 _index_dynamic_input_bindings(model::CompositeModel, bindings) =
     _index_dynamic_bindings(model, bindings)
-_index_dynamic_call_bindings(model::CompositeModel, bindings) =
-    _index_dynamic_bindings(model, bindings)
+
+function _index_dynamic_call_bindings(model::CompositeModel, bindings)
+    index = _selector_candidate_index()
+    for (binding_index, binding) in pairs(bindings)
+        _compiled_call_mode(binding) === :manual || continue
+        binding.origin == :inferred_same_object && continue
+        _index_selector_candidate!(
+            index,
+            model,
+            binding.matcher,
+            binding_index;
+            context=binding.consumer_id,
+            default_scope=_default_dependency_scope(
+                model,
+                binding.consumer_id,
+            ),
+        )
+    end
+    return index
+end
 
 function _index_model_bindings(bindings, application_field::Symbol, object_field::Symbol)
     grouped = Dict{Tuple{Symbol,ObjectId},Vector{Any}}()
@@ -2235,6 +2520,7 @@ function _extend_compiled_scene(
     first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
     for binding_index in first_new_call_binding:length(call_bindings)
         binding = call_bindings[binding_index]
+        _compiled_call_mode(binding) === :manual || continue
         binding.origin == :inferred_same_object && continue
         _index_selector_candidate!(
             dynamic_call_binding_indices,
@@ -2608,11 +2894,13 @@ function _validate_model_call_cadence!(
     callee,
     call,
     timeline,
+    mode::Symbol=:manual,
 )
     # A call-only target with no model/scenario cadence declaration inherits
     # the cadence of its parent call. An explicit target cadence is a
     # scientific contract and must match the caller.
-    _runtime_clock_source_for_spec(callee.spec) == :environment_base_step &&
+    mode === :manual &&
+        _runtime_clock_source_for_spec(callee.spec) == :environment_base_step &&
         return nothing
     same_dt = isapprox(
         float(caller.clock.dt),
@@ -2634,7 +2922,10 @@ function _validate_model_call_cadence!(
         "application `$(callee.id)` has incompatible cadence: caller=",
         "$(caller_seconds) seconds (phase=$(caller.clock.phase)), target=",
         "$(callee_seconds) seconds (phase=$(callee.clock.phase)). ",
-        "Use matching `ModelSpec(...; every=...)` declarations or omit `every` on the ",
+        mode === :initializer ?
+        "Initializer callers and their normally scheduled targets require exactly " *
+        "matching cadence and phase." :
+        "Use matching `ModelSpec(...; every=...)` declarations or omit `every` on the " *
         "manual-call-only target so it inherits the parent call cadence."
     )
 end
@@ -2650,6 +2941,7 @@ function _validate_model_call_plan_cadences!(applications, call_plans, timeline)
                 callee,
                 _compiled_call_name(plan),
                 timeline,
+                _compiled_call_mode(plan),
             )
         end
     end
@@ -2666,6 +2958,7 @@ function _validate_model_call_cadences!(applications, call_bindings, timeline)
                 applications_by_id[callee_id],
                 binding.call,
                 timeline,
+                _compiled_call_mode(binding),
             )
         end
     end
@@ -3086,6 +3379,7 @@ end
 function _manual_call_application_ids(call_bindings)
     ids = Set{Symbol}()
     for binding in call_bindings
+        _compiled_call_mode(binding) === :manual || continue
         union!(ids, binding.callee_application_ids)
         isnothing(binding.application) || push!(ids, binding.application)
     end
@@ -4567,11 +4861,17 @@ function _compile_model_call_plans(model::CompositeModel, applications)
     for application in applications
         calls = model_calls(application.spec)
         calls isa NamedTuple || continue
-        for (call_name, selector) in pairs(calls)
+        for (call_name, declaration) in pairs(calls)
             call = Symbol(call_name)
-            selector isa AbstractObjectMultiplicity || error(
-                "Call binding `$(call)` on application `$(application.id)` must use an object selector."
-            )
+            selector = _call_binding_selector(declaration)
+            mode = _call_binding_mode(declaration)
+            potential_callee_application_ids =
+                _potential_call_application_ids(
+                    applications,
+                    selector,
+                    _criteria_get(criteria(selector), :process, nothing),
+                    _selector_application(selector),
+                )
             push!(
                 plans,
                 CompiledModelCallPlan(
@@ -4579,18 +4879,14 @@ function _compile_model_call_plans(model::CompositeModel, applications)
                     application.plan.slot,
                     application.id,
                     call,
+                    mode,
                     selector,
                     _compile_selector_matcher(model, selector),
                     get(call_origins(application.spec), call, :model_spec),
                     _criteria_get(criteria(selector), :process, nothing),
                     _selector_application(selector),
                     multiplicity(selector),
-                    _potential_call_application_ids(
-                        applications,
-                        selector,
-                        _criteria_get(criteria(selector), :process, nothing),
-                        _selector_application(selector),
-                    ),
+                    potential_callee_application_ids,
                 ),
             )
         end
@@ -5120,7 +5416,6 @@ function _compile_model_call_bindings(
     by_object=nothing,
     plans_by_application=nothing,
 )
-    isnothing(by_object) && (by_object = _applications_by_object(lookup_applications))
     if isnothing(plans_by_application)
         plans_by_application = _plans_by_application(
             applications,
@@ -5136,30 +5431,51 @@ function _compile_model_call_bindings(
             )
                 call_sym = plan.call
                 selector = plan.selector
-                callee_object_ids = _dependency_object_ids(
-                    model,
-                    selector,
-                    plan.matcher,
-                    consumer_id,
-                )
                 proc = plan.process
                 app_name = plan.application
-                callee_application_ids = Symbol[]
-                for object_id in callee_object_ids
-                    append!(
-                        callee_application_ids,
-                        _matching_callee_applications(by_object, object_id, proc, app_name),
+                mode = _compiled_call_mode(plan)
+                callee_object_ids, callee_application_ids = if mode === :initializer
+                    # Initializers never cache or track pre-existing target objects.
+                    # Their one scheduled application is statically validated, and
+                    # run_initializer! resolves only its explicit newborn identity.
+                    (
+                        ObjectId[],
+                        Symbol[plan.potential_callee_application_ids...],
                     )
+                else
+                    isnothing(by_object) &&
+                        (by_object = _applications_by_object(lookup_applications))
+                    object_ids = _dependency_object_ids(
+                        model,
+                        selector,
+                        plan.matcher,
+                        consumer_id,
+                    )
+                    application_ids = Symbol[]
+                    for object_id in object_ids
+                        append!(
+                            application_ids,
+                            _matching_callee_applications(
+                                by_object,
+                                object_id,
+                                proc,
+                                app_name,
+                            ),
+                        )
+                    end
+                    unique!(application_ids)
+                    (object_ids, application_ids)
                 end
-                unique!(callee_application_ids)
-                if isempty(callee_application_ids) && selector isa One
+                if mode === :manual &&
+                   isempty(callee_application_ids) && selector isa One
                     error(
                         "Call `$(call_sym)` on application `$(application.id)` matched objects ",
                         "$([id.value for id in callee_object_ids]) but no model application",
                         isnothing(proc) ? "." : " with process `$(proc)`.",
                     )
                 end
-                if selector isa One && length(callee_application_ids) != 1
+                if mode === :manual && selector isa One &&
+                   length(callee_application_ids) != 1
                     error(
                         "Call `$(call_sym)` on application `$(application.id)` expected one callee application, ",
                         "got `$(callee_application_ids)`. Add `application=:name` to disambiguate."
@@ -5188,6 +5504,7 @@ end
 function _model_call_owners(call_bindings)
     owners = Dict{Symbol,Set{Symbol}}()
     for binding in call_bindings
+        _compiled_call_mode(binding) === :manual || continue
         for callee_id in binding.callee_application_ids
             push!(get!(owners, callee_id, Set{Symbol}()), binding.application_id)
         end
@@ -5271,10 +5588,17 @@ end
 function _compile_model_application_children(
     applications,
     input_bindings,
+    call_bindings,
     call_owners,
 )
     children = Dict{Symbol,Set{Symbol}}()
     _model_input_order_edges!(children, input_bindings, call_owners)
+    _scenario_initializer_order_edges!(
+        children,
+        input_bindings,
+        call_bindings,
+        call_owners,
+    )
     _model_update_order_edges!(children, applications)
     return children
 end
@@ -5283,6 +5607,7 @@ function _compile_model_application_order(applications, input_bindings, call_bin
     children = _compile_model_application_children(
         applications,
         input_bindings,
+        call_bindings,
         _model_call_owners(call_bindings),
     )
     return _stable_topological_application_order(applications, children)
@@ -5370,6 +5695,9 @@ end
 function explain_schedule(compiled::CompiledCompositeModel)
     timeline = compiled.scenario_plan.timeline
     manual_application_ids = _manual_call_application_ids(compiled)
+    initializer_application_ids = _initializer_call_application_ids(
+        compiled.scenario_plan.call_plans,
+    )
     execution_positions = Dict(application_id => index for (index, application_id) in pairs(compiled.application_order))
     schedule_entries = Dict(
         entry.application_id => entry
@@ -5389,6 +5717,7 @@ function explain_schedule(compiled::CompiledCompositeModel)
             target_ids=[id.value for id in application.target_ids],
             root_scheduled=!(application.id in manual_application_ids),
             manual_call_only=application.id in manual_application_ids,
+            initializer_target=application.id in initializer_application_ids,
             schedule_entry_index=isnothing(entry) ? nothing : entry.slot,
             schedule_kind=isnothing(entry) ? :manual_call_only : entry.kind,
             period_steps=isnothing(entry) ? nothing : entry.period_steps,
@@ -5464,6 +5793,7 @@ function explain_calls(compiled::CompiledCompositeModel)
             application_id=binding.application_id,
             consumer_id=binding.consumer_id.value,
             call=binding.call,
+            mode=_compiled_call_mode(binding),
             origin=binding.origin,
             callee_object_ids=[id.value for id in binding.callee_object_ids],
         callee_application_ids=binding.callee_application_ids,
@@ -5472,9 +5802,10 @@ function explain_calls(compiled::CompiledCompositeModel)
             process=binding.process,
             application=binding.application,
             multiplicity=binding.multiplicity,
-            publication_policy=:explicit_accept,
+            publication_policy=_compiled_call_mode(binding) === :initializer ?
+                               :canonical_status_only : :explicit_accept,
             default_publish=false,
-            accepted_publish=true,
+            accepted_publish=_compiled_call_mode(binding) === :manual,
             resolved=!isempty(binding.callee_application_ids),
             selector=binding.selector,
         )

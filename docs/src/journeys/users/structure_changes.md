@@ -103,8 +103,9 @@ targets_after_refresh = only(
 
 When a lifecycle operation occurs *inside* a model kernel, PlantSimEngine
 refreshes after that application. A newly registered object may therefore run
-applications that remain later in the same timestep, but it never
-retroactively runs applications that already completed.
+applications that remain later in the same timestep. It runs an application
+that already completed only through an explicit `Initializer` binding and
+`run_initializer!` call from its creator.
 
 ## Reparent, then remove
 

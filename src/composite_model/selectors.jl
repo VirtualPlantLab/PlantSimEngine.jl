@@ -384,6 +384,18 @@ function _map_selector_bindings(bindings::NamedTuple, f)
     return (; mapped...)
 end
 
+function _map_call_bindings(bindings::NamedTuple, f)
+    mapped = Pair{Symbol,Any}[]
+    for (name, binding) in pairs(bindings)
+        selector = _call_binding_selector(binding)
+        push!(
+            mapped,
+            Symbol(name) => _call_binding_with_selector(binding, f(selector)),
+        )
+    end
+    return (; mapped...)
+end
+
 function _mount_updates(updates, instance_name::Symbol, base_names)
     return Tuple(
         Updates(
@@ -417,7 +429,7 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
             base_names,
         )
         mounted_inputs = _map_selector_bindings(value_inputs(spec), prefix_application)
-        mounted_calls = _map_selector_bindings(model_calls(spec), prefix_application)
+        mounted_calls = _map_call_bindings(model_calls(spec), prefix_application)
         mounted_updates = _mount_updates(updates(spec), instance.name, base_names)
         mounted_model = get(instance_overrides, index, model_(spec))
         if haskey(object_overrides, index)

@@ -26,7 +26,8 @@ iteration limit, tolerance, fallback, and whether any state is accepted.
 
 Structural mutation is also transactional at the timestep boundary. A new
 organ is registered immediately in the model registry but does not recursively
-run during the kernel that created it. Before the next timestep, compilation
-refreshes targets, carriers, calls, writer validation, schedules, and requested
-outputs. Geometry-only movement refreshes only affected spatial bindings where
-possible.
+run merely because it was created. A creator may explicitly initialize one
+newborn object through a declared `Initializer`; otherwise, compilation refreshes
+targets, carriers, calls, writer validation, schedules, and requested outputs at
+the safe barrier. Geometry-only movement refreshes only affected spatial
+bindings where possible.

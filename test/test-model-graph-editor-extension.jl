@@ -13,6 +13,34 @@ struct EditorConsumerModel <: AbstractEditorConsumerModel end
 PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
+module EditorInitializerFixtures
+import PlantSimEngine
+
+export EditorInitializerTargetModel, EditorInitializerCreatorModel
+
+abstract type AbstractEditorInitializerTargetModel <:
+              PlantSimEngine.AbstractModel end
+abstract type AbstractEditorInitializerCreatorModel <:
+              PlantSimEngine.AbstractModel end
+PlantSimEngine.process_(::Type{AbstractEditorInitializerTargetModel}) =
+    :editor_initializer_target
+PlantSimEngine.process_(::Type{AbstractEditorInitializerCreatorModel}) =
+    :editor_initializer_creator
+
+struct EditorInitializerTargetModel <:
+       AbstractEditorInitializerTargetModel end
+PlantSimEngine.inputs_(::EditorInitializerTargetModel) = NamedTuple()
+PlantSimEngine.outputs_(::EditorInitializerTargetModel) = (initialized=0,)
+
+struct EditorInitializerCreatorModel <:
+       AbstractEditorInitializerCreatorModel end
+PlantSimEngine.inputs_(::EditorInitializerCreatorModel) = NamedTuple()
+PlantSimEngine.outputs_(::EditorInitializerCreatorModel) = NamedTuple()
+end
+
+using .EditorInitializerFixtures:
+    EditorInitializerTargetModel, EditorInitializerCreatorModel
+
 struct EditorEnvironmentBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     name::Symbol
 end
@@ -502,6 +530,106 @@ end
         @test undo_response["ok"]
         restored_status = only(model_objects(current_model(session))).status
         @test isnothing(restored_status) || !(:driver in propertynames(restored_status))
+    finally
+        close(session)
+    end
+end
+
+
+@testset "initializer editor commands preserve mode through save and open" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    model = CompositeModel(Object(:leaf; name=:leaf, scale=:Leaf))
+    session = edit_graph(model; port=0, open_browser=false, autosave=false)
+    try
+        initializer_target_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "add_application",
+            "name" => "initializer_target",
+            "modelType" => string(EditorInitializerTargetModel),
+            "parameters" => Dict(),
+            "selector" => Dict(
+                "multiplicity" => "many",
+                "criteria" => Dict("selectors" => Any[], "scale" => "Leaf"),
+            ),
+            "cadence" => Dict("mode" => "default"),
+        ))
+        @test initializer_target_response["ok"]
+        initializer_creator_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "add_application",
+            "name" => "initializer_creator",
+            "modelType" => string(EditorInitializerCreatorModel),
+            "parameters" => Dict(),
+            "selector" => Dict(
+                "multiplicity" => "one",
+                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+            ),
+            "cadence" => Dict("mode" => "default"),
+        ))
+        @test initializer_creator_response["ok"]
+        initializer_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_call_binding",
+            "applicationRef" => editor_global_ref(:initializer_creator),
+            "call" => "newborn",
+            "mode" => "initializer",
+            "selector" => Dict(
+                "multiplicity" => "one",
+                "criteria" => Dict(
+                    "selectors" => Any[],
+                    "within" => Dict("type" => "Self"),
+                    "application" => "initializer_target",
+                ),
+            ),
+        ))
+        @test initializer_response["ok"]
+        initializer_creator = only(
+            PlantSimEngine.as_model_spec(spec)
+            for spec in current_model(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) ==
+               :initializer_creator
+        )
+        @test model_calls(initializer_creator).newborn isa Initializer
+        initializer_application = only(
+            application
+            for application in initializer_response["graph"]["applications"]
+            if application["applicationId"] == "initializer_creator"
+        )
+        @test initializer_application["callBindings"]["newborn"]["mode"] ==
+              "initializer"
+        initializer_edge = only(
+            edge for edge in initializer_response["graph"]["edges"]
+            if edge["kind"] == "initializer"
+        )
+        @test initializer_edge["projection"] == "applications"
+        @test !any(
+            edge -> edge["kind"] == "initializer" &&
+                    edge["projection"] == "resolved",
+            model_graph_view(current_model(session); level=:resolved).edges,
+        )
+
+        saved_initializer_path = joinpath(mktempdir(), "initializer-editor-model.jl")
+        saved_initializer = editor_extension._handle_command!(session, Dict(
+            "action" => "save_model_code",
+            "path" => saved_initializer_path,
+        ))
+        @test saved_initializer["ok"]
+        @test occursin("Initializer", read(saved_initializer_path, String))
+        reopened_initializer = editor_extension._handle_command!(session, Dict(
+            "action" => "open_model_code",
+            "path" => saved_initializer_path,
+        ))
+        reopened_initializer["ok"] || error(
+            join(reopened_initializer["diagnostics"], "\n"),
+        )
+        @test reopened_initializer["ok"]
+        reopened_creator = only(
+            PlantSimEngine.as_model_spec(spec)
+            for spec in current_model(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) ==
+               :initializer_creator
+        )
+        @test model_calls(reopened_creator).newborn isa Initializer
     finally
         close(session)
     end

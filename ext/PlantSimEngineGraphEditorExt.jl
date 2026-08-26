@@ -578,11 +578,24 @@ function _edit_from_command(session, command)
         application,
         Symbol(command["input"]),
     )
-    kind == "set_call_binding" && return PlantSimEngine.GraphEditor.SetModelCallBinding(
-        application,
-        Symbol(command["call"]),
-        _selector_for_application(session, application, command["selector"]),
-    )
+    if kind == "set_call_binding"
+        selector = _selector_for_application(
+            session,
+            application,
+            command["selector"],
+        )
+        mode = Symbol(get(command, "mode", "manual"))
+        mode in (:manual, :initializer) || error(
+            "Call binding mode must be `manual` or `initializer`, got `$(mode)`.",
+        )
+        binding = mode === :initializer ?
+                  PlantSimEngine.Initializer(selector) : selector
+        return PlantSimEngine.GraphEditor.SetModelCallBinding(
+            application,
+            Symbol(command["call"]),
+            binding,
+        )
+    end
     kind == "remove_call_binding" && return PlantSimEngine.GraphEditor.RemoveModelCallBinding(
         application,
         Symbol(command["call"]),

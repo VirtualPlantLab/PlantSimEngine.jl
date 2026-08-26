@@ -8,12 +8,13 @@
 Configuration for one model application in a `CompositeModel`.
 
 `ModelSpec` is the single scenario-construction form. `on` selects the target
-objects, `inputs` and `calls` declare coupling, `outputs_to` declares status
-outputs owned by this application but stored on selected destination objects,
-`every` selects application cadence, and `environment` accepts an
-[`Environment`](@ref) configuration. Output routing and intentional
-duplicate-writer ordering are declared directly with `output_routing` and
-`updates`.
+objects, `inputs` and `calls` declare coupling, and a `calls` entry may wrap its
+selector in [`Initializer`](@ref) for targeted newborn initialization.
+`outputs_to` declares status outputs owned by this application but stored on
+selected destination objects, `every` selects application cadence, and
+`environment` accepts an [`Environment`](@ref) configuration. Output routing
+and intentional duplicate-writer ordering are declared directly with
+`output_routing` and `updates`.
 
 # Example
 
@@ -262,8 +263,8 @@ function _build_model_spec(
     default_calls = _model_default_model_calls(base_model)
     explicit_calls = _normalize_application_bindings(calls)
     normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
-    for selector in values(normalized_calls)
-        _validate_selector_context(selector, :call)
+    for binding in values(normalized_calls)
+        _validate_selector_context(_call_binding_selector(binding), :call)
     end
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
@@ -302,8 +303,9 @@ function _validate_scenario_application_references!(
     origins::NamedTuple,
     field::Symbol,
 )
-    for (name, selector) in pairs(bindings)
+    for (name, binding) in pairs(bindings)
         getproperty(origins, name) == :model_spec || continue
+        selector = field == :calls ? _call_binding_selector(binding) : binding
         selector isa Union{One,OptionalOne} || continue
         selector_criteria = criteria(selector)
         isnothing(_criteria_get(selector_criteria, :process, nothing)) &&
@@ -459,7 +461,7 @@ function dep(spec::ModelSpec)
     dependencies = dep(model_(spec))
     kept = Pair{Symbol,Any}[]
     for (name, selector) in pairs(dependencies)
-        selector isa Union{Input,Call} && continue
+        selector isa Union{Input,Call,Initializer} && continue
         push!(kept, name => selector)
     end
     return (; kept...)

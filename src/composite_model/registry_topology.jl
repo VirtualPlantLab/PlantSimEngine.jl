@@ -314,6 +314,8 @@ end
 Append-only object lifecycle events pending the next runtime refresh barrier.
 The dirty-id sets are derived indices shared by every runtime consumer.
 """
+abstract type AbstractTargetedTopologyRuntime end
+
 mutable struct LifecycleDelta
     added::Vector{LifecycleObjectSnapshot}
     removed::Vector{LifecycleObjectSnapshot}
@@ -321,6 +323,8 @@ mutable struct LifecycleDelta
     moved::Vector{LifecycleMoveEvent}
     structural_dirty_ids::Set{ObjectId}
     environment_dirty_ids::Set{ObjectId}
+    initialized_targets::Set{Tuple{Symbol,ObjectId}}
+    targeted_topology_runtime::Union{Nothing,AbstractTargetedTopologyRuntime}
     structural_kind::Symbol
     full_environment::Bool
     structural_generation::Int
@@ -341,6 +345,8 @@ function LifecycleDelta(;
         LifecycleMoveEvent[],
         Set{ObjectId}(),
         Set{ObjectId}(),
+        Set{Tuple{Symbol,ObjectId}}(),
+        nothing,
         structural_kind,
         full_environment,
         0,
@@ -802,6 +808,8 @@ function _mark_bindings_dirty!(
             :structural
         end
     end
+    delta.structural_kind === :addition ||
+        (delta.targeted_topology_runtime = nothing)
     if !model.bindings_dirty
         model.revision += 1
     end
@@ -831,6 +839,8 @@ function _consume_structural_lifecycle_delta!(model::CompositeModel)
         copy(consumed.moved),
         Set{ObjectId}(),
         copy(consumed.environment_dirty_ids),
+        Set{Tuple{Symbol,ObjectId}}(),
+        nothing,
         :clean,
         consumed.full_environment,
         consumed.structural_generation,

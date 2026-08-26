@@ -19,8 +19,9 @@ process_(x) = error("process() is not defined for $(x)")
 """
     dep(model)
 
-Return model-level default `Input(...)` and `Call(...)` declarations. Models
-without explicit coupling requirements return an empty `NamedTuple`.
+Return model-level default `Input(...)`, `Call(...)`, and `Initializer(...)`
+declarations. Models without explicit coupling requirements return an empty
+`NamedTuple`.
 """
 dep(::AbstractModel) = NamedTuple()
 

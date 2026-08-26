@@ -46,6 +46,10 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Scheduled newborn initializers" begin
+        include("test-model-initializers.jl")
+    end
+
     @testset "Composite model numerical parity" begin
         include("test-model-numerical-parity.jl")
     end

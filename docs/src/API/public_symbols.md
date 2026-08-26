@@ -17,7 +17,7 @@ explicitly imports one of those submodules.
 - Application inspection: `application_name`, `applies_to`, `value_inputs`,
   `model_calls`, `outputs_to`, `environment_config`, `output_routing`,
   `updates`.
-- Dependency defaults: `Input`, `Call`, `PreviousTimeStep`.
+- Dependency defaults: `Input`, `Call`, `Initializer`, `PreviousTimeStep`.
 
 ## Object selectors and queries
 
@@ -45,6 +45,7 @@ explicitly imports one of those submodules.
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
 - Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_model`,
   `call_targets`, `run_call!`.
+- Newborn initialization: `Initializer`, `run_initializer!`.
 
 ## Diagnostics namespace
 

@@ -16,6 +16,12 @@ export type SelectorDescriptor = {
   julia: string;
 };
 
+export type CallMode = "manual" | "initializer";
+
+export type CallBindingDescriptor = SelectorDescriptor & {
+  mode: CallMode;
+};
+
 export type ModelParameter = {
   value: unknown;
   julia: string;
@@ -73,7 +79,7 @@ export type ApplicationGraphNode = {
   environmentInputs: GraphPort[];
   environmentOutputs: GraphPort[];
   inputBindings: Record<string, SelectorDescriptor>;
-  callBindings: Record<string, SelectorDescriptor>;
+  callBindings: Record<string, CallBindingDescriptor>;
   environment: ApplicationEnvironment | null;
   environmentBindings: Record<string, unknown>;
   environmentWindow: PeriodDescriptor;
@@ -164,12 +170,13 @@ export type ModelGraphEdge = {
   targetApplicationId?: string;
   sourceObjectIds?: unknown[];
   targetObjectIds?: unknown[];
-  kind: "value_binding" | "inferred_same_object" | "previous_timestep" | "manual_call" | "object_topology" | "application_target" | "update_order" | "environment_binding" | string;
+  kind: "value_binding" | "inferred_same_object" | "previous_timestep" | "manual_call" | "initializer" | "object_topology" | "application_target" | "update_order" | "environment_binding" | string;
   origin?: string;
   multiplicity?: string;
   policy?: string;
   selector?: SelectorDescriptor;
   call?: string;
+  mode?: CallMode;
   variables?: string[];
   provider?: string;
   projection?: "applications" | "topology" | "resolved" | "targets";

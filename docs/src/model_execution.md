@@ -406,6 +406,8 @@ inside that call. At the safe barrier after the mutating application,
 PlantSimEngine refreshes affected structural targets, value carriers, hard-call
 targets, writer validation, temporal storage, execution groups, output-request
 matches, and environment handles. A new object can therefore run an application
-that remains later in the same timestep, but it does not retroactively run an
-application that already completed. Already published streams remain available
-for removed objects.
+that remains later in the same timestep. It does not retroactively run an
+application that already completed unless its creator declares that application
+as an [`Initializer`](@ref) and explicitly calls [`run_initializer!`](@ref) on
+the newborn object. Already published streams remain available for removed
+objects.

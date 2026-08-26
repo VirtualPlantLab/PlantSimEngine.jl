@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { Check, Plus, Trash2, X } from "lucide-react";
-import type { ApplicationGraphNode, EnvironmentDescriptor, ModelDescriptor, SelectorDescriptor } from "./types";
+import type { ApplicationGraphNode, ApplicationOwner, CallMode, EnvironmentDescriptor, ModelDescriptor, SelectorDescriptor } from "./types";
 
 type UpdateRule = { variables: string[]; after: string[] };
 export type ExtraEntry = { key: string; type: string; value: string };
@@ -30,6 +30,7 @@ export function ApplicationConfigurationForm({
   );
   const [callName, setCallName] = useState("");
   const [calleeId, setCalleeId] = useState(otherApplications[0]?.applicationId || "");
+  const [callMode, setCallMode] = useState<CallMode>("manual");
   const [environmentMode, setEnvironmentMode] = useState(
     application.environment ? application.environment.backendId || "scene" : "default"
   );
@@ -50,8 +51,8 @@ export function ApplicationConfigurationForm({
       selectedCallee?.owner.scope === "template" &&
       selectedCallee.owner.templateId === application.owner.templateId;
     return {
-      type: selectedCallee?.targetCount === 1 ? "One" : "Many",
-      multiplicity: selectedCallee?.targetCount === 1 ? "one" : "many",
+      type: callMode === "initializer" || selectedCallee?.targetCount === 1 ? "One" : "Many",
+      multiplicity: callMode === "initializer" || selectedCallee?.targetCount === 1 ? "one" : "many",
       criteria: {
         selectors: [],
         ...(sameTemplate ? {} : { within: { type: "SceneScope" } }),
@@ -59,17 +60,16 @@ export function ApplicationConfigurationForm({
       },
       julia: "",
     };
-  }, [application.owner.scope, application.owner.templateId, calleeId, selectedCallee]);
+  }, [application.owner.scope, application.owner.templateId, callMode, calleeId, selectedCallee]);
 
   const addCall = () => {
     if (!callName.trim() || !calleeId) return;
-    onCommand({
-      action: "edit",
-      kind: "set_call_binding",
-      applicationRef: application.owner,
-      call: callName.trim(),
-      selector: callSelector,
-    });
+    onCommand(callBindingCommand(
+      application.owner,
+      callName.trim(),
+      callSelector,
+      callMode,
+    ));
     setCallName("");
   };
 
@@ -100,9 +100,9 @@ export function ApplicationConfigurationForm({
           <div className="configuration-list">{Object.entries(application.inputBindings).map(([input, selector]) => <div key={input}><code>{input}</code><span>{selector.julia || selector.type}</span><button className="danger icon-button" title={`Remove ${input} binding`} onClick={() => onCommand({ action: "edit", kind: "remove_input_binding", applicationRef: application.owner, input })}><Trash2 size={14} /></button></div>)}</div>
         </fieldset>
 
-        <fieldset><legend>Manual calls</legend>
-          <div className="configuration-list">{Object.entries(application.callBindings).map(([call, selector]) => <div key={call}><code>{call}</code><span>{selector.julia || selector.type}</span><button className="danger icon-button" title={`Remove ${call} call`} onClick={() => onCommand({ action: "edit", kind: "remove_call_binding", applicationRef: application.owner, call })}><Trash2 size={14} /></button></div>)}</div>
-          <div className="form-grid compact-configuration-row"><label>Call name<input data-testid="call-name" value={callName} onChange={(event) => setCallName(event.target.value)} placeholder="child" /></label><label>Target application<select data-testid="call-target" value={calleeId} onChange={(event) => setCalleeId(event.target.value)}><option value="">Choose application</option>{otherApplications.map((item) => <option key={item.applicationId} value={item.applicationId}>{item.owner.applicationId}</option>)}</select></label><button type="button" data-testid="add-call-binding" disabled={!callName.trim() || !calleeId} onClick={addCall}><Plus size={14} /> Add call</button></div>
+        <fieldset><legend>Calls and newborn initializers</legend>
+          <div className="configuration-list">{Object.entries(application.callBindings).map(([call, selector]) => <div key={call}><code>{call}</code><span><strong>{selector.mode === "initializer" ? "Initializer" : "Manual call"}</strong> · {selector.julia || selector.type}</span><button className="danger icon-button" title={`Remove ${call} call`} onClick={() => onCommand({ action: "edit", kind: "remove_call_binding", applicationRef: application.owner, call })}><Trash2 size={14} /></button></div>)}</div>
+          <div className="form-grid compact-configuration-row"><label>Binding mode<select data-testid="call-mode" value={callMode} onChange={(event) => setCallMode(event.target.value as CallMode)}><option value="manual">Manual call</option><option value="initializer">Newborn initializer</option></select></label><label>Call name<input data-testid="call-name" value={callName} onChange={(event) => setCallName(event.target.value)} placeholder="child" /></label><label>Target application<select data-testid="call-target" value={calleeId} onChange={(event) => setCalleeId(event.target.value)}><option value="">Choose application</option>{otherApplications.map((item) => <option key={item.applicationId} value={item.applicationId}>{item.owner.applicationId}</option>)}</select></label><button type="button" data-testid="add-call-binding" disabled={!callName.trim() || !calleeId} onClick={addCall}><Plus size={14} /> Add {callMode === "initializer" ? "initializer" : "call"}</button></div>
         </fieldset>
 
         <fieldset><legend>Environment</legend>
@@ -130,6 +130,22 @@ export function ApplicationConfigurationForm({
       <footer><button className="primary" onClick={onClose}>Done</button></footer>
     </section>
   </div>;
+}
+
+export function callBindingCommand(
+  applicationRef: ApplicationOwner,
+  call: string,
+  selector: SelectorDescriptor,
+  mode: CallMode,
+) {
+  return {
+    action: "edit",
+    kind: "set_call_binding",
+    applicationRef,
+    call,
+    selector,
+    mode,
+  };
 }
 
 function extraConfigurationEntries(extra: Record<string, unknown> | undefined): ExtraEntry[] {

@@ -238,7 +238,6 @@ mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
     constants::C
     publication_allowed::Bool
     environment::E
-    targeted_topology_runtime::Any
 end
 
 function RunContext(
@@ -268,7 +267,6 @@ function RunContext(
         constants,
         publication_allowed,
         environment,
-        nothing,
     )
 end
 
@@ -300,40 +298,6 @@ function RunContext(
         constants,
         publication_allowed,
         environment,
-        nothing,
-    )
-end
-
-function RunContext(
-    compiled,
-    environment_bindings,
-    application,
-    object_id,
-    calls,
-    bound_inputs,
-    output_targets,
-    temporal_streams,
-    output_retention,
-    time,
-    constants,
-    publication_allowed,
-    environment,
-)
-    return RunContext(
-        compiled,
-        environment_bindings,
-        application,
-        object_id,
-        calls,
-        bound_inputs,
-        output_targets,
-        temporal_streams,
-        output_retention,
-        time,
-        constants,
-        publication_allowed,
-        environment,
-        nothing,
     )
 end
 
@@ -500,7 +464,9 @@ function CallTargets(
     publication_allowed,
     environment,
 )
-    execution_batches = _compiled_call_execution_batches(
+    execution_batches = _compiled_call_mode(binding) === :initializer ?
+                        () :
+                        _compiled_call_execution_batches(
         compiled,
         environment_bindings,
         binding,
@@ -2073,7 +2039,6 @@ end
         context.temporal_streams = temporal_streams
         context.output_retention = output_retention
         context.constants = constants
-        context.targeted_topology_runtime = nothing
     end
     context.time = float(time)
     context.publication_allowed = publication_allowed
@@ -4171,11 +4136,57 @@ end
     return _find_call_targets(Base.tail(calls), Val(name), context)
 end
 
+@inline _find_manual_call_targets(::Tuple{}, ::Val, ::RunContext) = nothing
+
+@inline function _find_manual_call_targets(
+    calls::Tuple,
+    ::Val{name},
+    context::RunContext,
+) where {name}
+    targets = first(calls)
+    if _compiled_call_name(targets.binding) === name
+        _compiled_call_mode(targets.binding) === :manual ||
+            _initializer_requires_dedicated_api(context, name)
+        targets.time == context.time &&
+            targets.publication_allowed == context.publication_allowed &&
+            targets.environment === context.environment &&
+            return targets
+        return _synchronize_call_targets_slow!(targets, context)
+    end
+    return _find_manual_call_targets(Base.tail(calls), Val(name), context)
+end
+
 Base.@constprop :aggressive function _model_call_targets(
     context::RunContext,
     name::Symbol,
 )
     found = _find_call_targets(context.calls, Val(name), context)
+    if isnothing(found)
+        available = Symbol[targets.binding.call for targets in context.calls]
+        error(
+            "Application `$(context.application.id)` on object ",
+            "`$(context.object_id.value)` did not declare call `$(name)`. ",
+            "Declared calls: $(available).",
+        )
+    end
+    return found
+end
+
+@noinline function _initializer_requires_dedicated_api(context, name)
+    throw(
+        ArgumentError(
+            "Call `$(name)` on application `$(context.application.id)` is an " *
+            "initializer binding. Use `run_initializer!(context, :$(name), object)` " *
+            "exactly once for the newly registered object.",
+        ),
+    )
+end
+
+@inline Base.@constprop :aggressive function _manual_call_targets(
+    context::RunContext,
+    name::Symbol,
+)
+    found = _find_manual_call_targets(context.calls, Val(name), context)
     if isnothing(found)
         available = Symbol[targets.binding.call for targets in context.calls]
         error(
@@ -4302,10 +4313,14 @@ for `Many`.
 When `objects` is provided, resolve the declared call against the current
 object topology and restrict the result to those objects. This explicit form is
 intended for models that create objects and immediately initialize selected
-applications on them. Ordinary scheduled execution still observes structural
-changes at the next timestep boundary. Each requested object may be an
-[`ObjectId`](@ref), [`Object`](@ref), an MTG node, or the [`Status`](@ref)
-returned by [`add_organ!`](@ref).
+manual-call-only applications on them. Structural refresh still occurs at the
+safe barrier after a pure-addition event. If the pending event also removes or
+reparents objects, this accessor performs a full binding/environment refresh
+before resolving the explicit targets. Use [`Initializer`](@ref) and
+[`run_initializer!`](@ref) instead when the target application must remain in
+the normal schedule. Each requested object may be an [`ObjectId`](@ref),
+[`Object`](@ref), an MTG node, or the [`Status`](@ref) returned by
+[`add_organ!`](@ref).
 
 Use this accessor with [`run_call!(::CallTarget)`](@ref) when targets need
 different sampled environments, selective execution, a controlled order, or separate
@@ -4317,9 +4332,9 @@ Base.@constprop :aggressive function call_targets(
     ;
     objects=nothing,
 )
-    isnothing(objects) ||
-        return _current_topology_call_targets(context, name, objects)
-    return _model_call_targets(context, name)
+    return isnothing(objects) ?
+           _manual_call_targets(context, name) :
+           _current_topology_call_targets(context, name, objects)
 end
 
 @inline function _single_call_model(batches::Tuple{B}) where {B}
@@ -4362,6 +4377,8 @@ end
 ) where {name}
     targets = _find_call_targets(context.calls, Val(name), context)
     isnothing(targets) && _call_model_missing_error(context, name)
+    _compiled_call_mode(targets.binding) === :manual ||
+        _initializer_requires_dedicated_api(context, name)
     length(targets) == 1 || _call_model_target_count_error(name, targets)
     return _single_call_model(targets.execution_batches)
 end
@@ -4384,19 +4401,7 @@ function call_model(context, name::Symbol)
 end
 
 function _call_target_object_id(model::CompositeModel, target)
-    target isa ObjectId && return target
-    target isa Object && return target.id
-    if target isa Status
-        hasproperty(target, :node) || error(
-            "A `Status` used as a hard-call object filter must contain its source `node`."
-        )
-        return _call_target_object_id(model, target.node)
-    end
-    adapter = model.source_adapter
-    if adapter isa MTGObjectAdapter && target isa MultiScaleTreeGraph.Node
-        return _mtg_object_id(adapter, target)
-    end
-    return ObjectId(target)
+    return object_id(model, target)
 end
 
 function _call_target_object_ids(model::CompositeModel, objects)
@@ -4428,10 +4433,18 @@ mutable struct _TargetedApplicationSet{A,B}
     outputs_prepared::Bool
 end
 
-mutable struct _TargetedTopologyRuntime{CS,MA}
+mutable struct _TargetedTopologyRuntime{CS,MA} <:
+               AbstractTargetedTopologyRuntime
     compiled::CS
     model_revision::Int
-    application_sets::Dict{Tuple{Vararg{ObjectId}},Any}
+    application_sets::Dict{
+        Tuple{Vararg{ObjectId}},
+        Union{Nothing,_TargetedApplicationSet},
+    }
+    added_applications_by_object::Dict{
+        ObjectId,
+        Vector{CompiledModelApplication},
+    }
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
 end
@@ -4450,7 +4463,8 @@ function _targeted_topology_runtime!(
     context::RunContext,
     model::CompositeModel,
 )
-    cached = context.targeted_topology_runtime
+    delta = lifecycle_delta(model)
+    cached = delta.targeted_topology_runtime
     if cached isa _TargetedTopologyRuntime &&
        cached.compiled === context.compiled &&
        cached.model_revision == model.revision
@@ -4460,14 +4474,18 @@ function _targeted_topology_runtime!(
     runtime = _TargetedTopologyRuntime(
         compiled,
         model.revision,
-        Dict{Tuple{Vararg{ObjectId}},Any}(),
+        Dict{
+            Tuple{Vararg{ObjectId}},
+            Union{Nothing,_TargetedApplicationSet},
+        }(),
+        Dict{ObjectId,Vector{CompiledModelApplication}}(),
         compiled.scenario_plan.manual_application_ids,
         Dict(
             application_id => index
             for (index, application_id) in pairs(compiled.application_order)
         ),
     )
-    context.targeted_topology_runtime = runtime
+    delta.targeted_topology_runtime = runtime
     return runtime
 end
 
@@ -4476,7 +4494,7 @@ function _new_object_applications(
     compiled::CompiledCompositeModel,
     requested_ids,
 )
-    by_object = Dict{ObjectId,Vector{Any}}()
+    by_object = Dict{ObjectId,Vector{CompiledModelApplication}}()
     partial_applications = CompiledModelApplication[]
     new_targets = _new_application_targets(
         model,
@@ -4494,25 +4512,19 @@ function _new_object_applications(
         push!(partial_applications, partial)
         for object_id in target_ids
             applications = get!(by_object, object_id) do
-                copy(
-                    get(
+                CompiledModelApplication[
+                    application for application in get(
                         compiled.applications_by_object,
                         object_id,
-                        Any[],
-                    ),
-                )
+                        (),
+                    )
+                ]
             end
             any(candidate -> candidate.id == application.id, applications) ||
                 push!(applications, partial)
         end
     end
-    return (
-        partial_applications,
-        _ApplicationsByObjectOverlay(
-            compiled.applications_by_object,
-            by_object,
-        ),
-    )
+    return (partial_applications, by_object)
 end
 
 function _targeted_application_set!(
@@ -4528,10 +4540,20 @@ function _targeted_application_set!(
             requested_ids,
         )
         isnothing(applications) && return nothing
-        output_applications, applications_by_object = applications
+        output_applications, added_applications_by_object = applications
+        # Keep applications for every object targeted earlier in this same
+        # lifecycle delta. A later newborn can then bind an input to an earlier
+        # newborn without refreshing the whole scene at a mid-kernel barrier.
+        merge!(
+            runtime.added_applications_by_object,
+            added_applications_by_object,
+        )
         return _TargetedApplicationSet(
             output_applications,
-            applications_by_object,
+            _ApplicationsByObjectOverlay(
+                runtime.compiled.applications_by_object,
+                runtime.added_applications_by_object,
+            ),
             false,
         )
     end
@@ -4616,16 +4638,61 @@ function _targeted_new_object_call_targets(
     context::RunContext,
     name::Symbol,
     requested_ids,
+    ;
+    initializer::Bool=false,
 )
     model = runtime_model(context)
-    bindings_dirty(model) || return nothing
-    delta = lifecycle_delta(model)
-    delta.structural_kind === :full && return nothing
-    dirty_ids = delta.structural_dirty_ids
-    all(object_id -> object_id in dirty_ids, requested_ids) || return nothing
-
     cached_targets = _model_call_targets(context, name)
     binding = cached_targets.binding
+    expected_mode = initializer ? :initializer : :manual
+    _compiled_call_mode(binding) === expected_mode || error(
+        initializer ?
+        "Call `$(name)` is a manual hard call, not an `Initializer` binding." :
+        "Call `$(name)` is an initializer binding; use `run_initializer!`.",
+    )
+    if initializer
+        length(requested_ids) == 1 || error(
+            "Initializer `$(name)` requires exactly one newly registered object; " *
+            "got $(length(requested_ids)).",
+        )
+    end
+    if !bindings_dirty(model)
+        initializer && error(
+            "Initializer `$(name)` can run only during the lifecycle event that " *
+            "registered its target; the model has no pending structural addition.",
+        )
+        return nothing
+    end
+    delta = lifecycle_delta(model)
+    if delta.structural_kind !== :addition
+        if initializer
+            error(
+                "Initializer `$(name)` requires a pure object-addition lifecycle event; " *
+                "the pending structural change is `$(delta.structural_kind)`.",
+            )
+        end
+        return nothing
+    end
+    dirty_ids = delta.structural_dirty_ids
+    if !all(object_id -> object_id in dirty_ids, requested_ids)
+        initializer && error(
+            "Initializer `$(name)` target is not part of the pending object addition.",
+        )
+        return nothing
+    end
+    if initializer
+        object_id = only(requested_ids)
+        # For a pure `:addition` delta, `structural_dirty_ids` is exactly the
+        # set populated by `_record_added_objects!`. Other structural mutations
+        # change `structural_kind` and were rejected above, so the O(1) dirty-id
+        # membership check already performed is the canonical newborn proof.
+        initialization_key = (only(binding.potential_callee_application_ids), object_id)
+        initialization_key in delta.initialized_targets && error(
+            "Application `$(first(initialization_key))` already initialized newly " *
+            "registered object `$(object_id.value)` in this lifecycle event.",
+        )
+    end
+
     binding.multiplicity != :many && length(requested_ids) > 1 &&
         error(
             "Hard call `$(name)` from application `$(context.application.id)` ",
@@ -4655,7 +4722,13 @@ function _targeted_new_object_call_targets(
         model,
         requested_ids,
     )
-    isnothing(application_set) && return nothing
+    if isnothing(application_set)
+        initializer && error(
+            "Initializer `$(name)` could not compile its newly registered target " *
+            "against the scheduled application selector.",
+        )
+        return nothing
+    end
     output_applications = application_set.applications
     applications_by_object = application_set.applications_by_object
     callee_applications = _targeted_callee_applications(
@@ -4663,7 +4736,13 @@ function _targeted_new_object_call_targets(
         requested_ids,
         output_applications,
     )
-    isnothing(callee_applications) && return nothing
+    if isnothing(callee_applications)
+        initializer && error(
+            "Initializer `$(name)` target application declares nested hard calls, " *
+            "which targeted newborn execution does not support.",
+        )
+        return nothing
+    end
 
     if !application_set.outputs_prepared
         _prepare_model_output_statuses!(model, output_applications)
@@ -4684,6 +4763,7 @@ function _targeted_new_object_call_targets(
                 targeted_runtime.manual_application_ids,
                 applications_by_object,
                 compiled.applications_by_id,
+                compiled.distributed_outputs,
             )
         end
     end
@@ -4694,10 +4774,19 @@ function _targeted_new_object_call_targets(
         callee_applications,
         input_bindings,
     )
-    any(
-        binding -> binding.carrier_hint == :temporal_stream,
-        input_bindings,
-    ) && return nothing
+    unsupported_temporal_inputs = Symbol[
+        input_binding.input for input_binding in input_bindings
+        if input_binding.carrier_hint == :temporal_stream &&
+           !(input_binding.policy isa PreviousTimeStep)
+    ]
+    if !isempty(unsupported_temporal_inputs)
+        initializer && error(
+            "Initializer `$(name)` target requires unsupported temporal input(s) " *
+            "`$(Tuple(unsupported_temporal_inputs))`; only `PreviousTimeStep` has " *
+            "defined newborn initialization semantics.",
+        )
+        return nothing
+    end
 
     targeted_input_bindings = _index_model_bindings(
         input_bindings,
@@ -4712,7 +4801,13 @@ function _targeted_new_object_call_targets(
         callee_applications,
         compiled.applications_by_id,
     )
-    isnothing(environment_bindings) && return nothing
+    if isnothing(environment_bindings)
+        initializer && error(
+            "Initializer `$(name)` target requires a non-global environment " *
+            "binding, which targeted newborn execution does not support.",
+        )
+        return nothing
+    end
 
     targets = CallTarget[]
     for partial_application in callee_applications
@@ -4726,6 +4821,7 @@ function _targeted_new_object_call_targets(
                 get(targeted_input_bindings, key, ()),
                 compiled.applications_by_id,
                 targeted_runtime.application_positions,
+                compiled.distributed_outputs,
             )
             push!(
                 targets,
@@ -4767,6 +4863,12 @@ function _targeted_new_object_call_targets(
                 ),
             )
         end
+    end
+    if initializer
+        length(targets) == 1 || error(
+            "Initializer `$(name)` must resolve one scheduled application target " *
+            "for one newborn object; resolved $(length(targets)).",
+        )
     end
     return targets
 end
@@ -5153,12 +5255,77 @@ function _run_call_targets!(
 end
 
 """
+    run_initializer!(context::RunContext, name::Symbol, object)
+
+Run the application declared by `name=Initializer(...)` exactly once on one
+object registered during the current lifecycle event. The target application
+remains normally scheduled and retains canonical writer ownership. Its model
+mutates the newborn's canonical local status, but the targeted initializer does
+not publish an extra mid-step output sample or distributed/environment update.
+Consequently, only direct non-temporal downstream consumers may observe its
+newborn output in that step; downstream temporal consumers are rejected during
+scenario compilation.
+
+The initializer target must use the caller's cadence and global environment,
+must not declare nested calls, distributed outputs, or stream-only outputs, and
+must be the sole potential canonical writer of each initialized output. It may
+use `PreviousTimeStep` as its only temporal input policy. The initialized
+object's canonical [`Status`](@ref) is returned. Calling the same initializer
+again for that application/object pair, or passing an existing or reparented
+object, is an error. The application/object pair is reserved before model code
+runs, so a failed attempt remains marked and cannot be retried in the same
+lifecycle event after an unknown partial mutation.
+"""
+function run_initializer!(
+    context::RunContext,
+    name::Symbol,
+    object,
+)
+    context.publication_allowed || error(
+        "Initializer `$(name)` cannot run inside a non-publishing hard call. " *
+        "Keep its creator application root-scheduled.",
+    )
+    model = runtime_model(context)
+    requested_ids = _call_target_object_ids(model, object)
+    targets = _targeted_new_object_call_targets(
+        context,
+        name,
+        requested_ids;
+        initializer=true,
+    )
+    target = only(targets)
+    key = (target.application.id, target.object_id)
+    # Reserve the application/object pair before model code runs. If the
+    # initializer mutates and then throws, retrying it would duplicate an
+    # unknown partial side effect, so the lifecycle event remains poisoned.
+    push!(lifecycle_delta(model).initialized_targets, key)
+    _run_call_targets!(
+        targets,
+        false,
+        _UNSPECIFIED_SCENE_ENVIRONMENT,
+        context.environment,
+    )
+    return model_status(model, target.object_id)
+end
+
+function run_initializer!(context, name::Symbol, object)
+    throw(
+        ArgumentError(
+            "Initializer `$(name)` requires the compiled RunContext passed to " *
+            "a model kernel; got $(typeof(context)).",
+        ),
+    )
+end
+
+"""
     run_call!(context::RunContext, name::Symbol;
               environment, sampled_environment, publish=false)
 
 Execute every target of the hard call declared as `name` and return its
 [`CallTargets`](@ref) collection. The return shape is always vector-like:
 `One` produces one element, `OptionalOne` zero or one, and `Many` zero or more.
+Initializer bindings are rejected here; execute those with
+[`run_initializer!`](@ref).
 
 When `environment` is supplied, every target keeps its own opaque compiled
 backend handle and samples that transient backend-specific state. The state is

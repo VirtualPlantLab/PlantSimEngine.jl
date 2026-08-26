@@ -773,6 +773,90 @@ end
     @test ObjectId(:child) in object_ids(with_objects)
 end
 
+@testset "CompositeModel graph editor preserves initializer bindings" begin
+    model = CompositeModel(
+        Object(:plant; name=:plant, scale=:Plant),
+        Object(
+            :leaf;
+            name=:leaf,
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(driver=1.0),
+        );
+        applications=(
+            ModelSpec(
+                ModelGraphSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:creator,
+                on=One(name=:plant),
+            ),
+        ),
+    )
+
+    configured = apply_model_graph_edit(
+        model,
+        SetModelCallBinding(
+            model_graph_global(:creator),
+            :source_initializer,
+            Initializer(
+                One(
+                    scale=:Leaf,
+                    within=Subtree(),
+                    application=:source,
+                ),
+            ),
+        ),
+    )
+    configured_creator =
+        PlantSimEngine._model_edit_spec(configured, model_graph_global(:creator))
+    configured_binding = model_calls(configured_creator).source_initializer
+    @test configured_binding isa Initializer
+    @test PlantSimEngine._call_binding_mode(configured_binding) == :initializer
+
+    renamed = apply_model_graph_edit(
+        configured,
+        RenameModelApplication(model_graph_global(:source), :renamed_source),
+    )
+    renamed_creator =
+        PlantSimEngine._model_edit_spec(renamed, model_graph_global(:creator))
+    renamed_binding = model_calls(renamed_creator).source_initializer
+    @test renamed_binding isa Initializer
+    @test PlantSimEngine._call_binding_mode(renamed_binding) == :initializer
+    @test PlantSimEngine.criteria(renamed_binding.selector).application ==
+          :renamed_source
+
+    report = compile_model_report(renamed; strict=true)
+    call = only(report.call_bindings)
+    @test PlantSimEngine._compiled_call_mode(call) == :initializer
+    @test isempty(call.callee_object_ids)
+    @test call.callee_application_ids == [:renamed_source]
+
+    application_view = model_graph_view(renamed)
+    initializer_edge = only(
+        edge for edge in application_view.edges
+        if edge["kind"] == "initializer"
+    )
+    @test initializer_edge["mode"] == "initializer"
+    @test initializer_edge["projection"] == "applications"
+    creator_view = only(
+        application for application in application_view.applications
+        if application["applicationId"] == "creator"
+    )
+    @test creator_view["callBindings"]["source_initializer"]["mode"] ==
+          "initializer"
+
+    resolved_view = model_graph_view(renamed; level=:resolved)
+    @test !any(
+        edge -> edge["kind"] == "initializer" &&
+                edge["projection"] == "resolved",
+        resolved_view.edges,
+    )
+end
+
 function model_graph_override_fixture()
     template = CompositeModelTemplate(
         (

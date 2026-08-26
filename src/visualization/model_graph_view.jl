@@ -105,6 +105,12 @@ function _model_graph_dependency_children(
         input_bindings,
         call_owners,
     )
+    _scenario_initializer_order_edges!(
+        children,
+        input_bindings,
+        call_bindings,
+        call_owners,
+    )
     _scenario_update_order_edges!(
         children,
         applications,
@@ -408,6 +414,13 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         if !isempty(scenario_call_owners[application.id])
     )
     _model_graph_phase!(diagnostics, :call_ownership, nothing) do
+        _validate_initializer_call_plans!(
+            model,
+            applications,
+            input_plans,
+            call_plans,
+            distributed_output_plans,
+        )
         _validate_scenario_call_ownership!(
             scenario_call_owners,
             manual_application_ids,
@@ -425,7 +438,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         )
     end
     _model_graph_phase!(diagnostics, :call_cadence, nothing) do
-        _validate_model_call_cadences!(applications, call_bindings, timeline)
+        _validate_model_call_plan_cadences!(applications, call_plans, timeline)
     end
     distributed_outputs = _model_graph_phase!(
         diagnostics,
@@ -459,6 +472,12 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _scenario_input_order_edges!(
             children,
             input_plans,
+            scenario_call_owners,
+        )
+        _scenario_initializer_order_edges!(
+            children,
+            input_plans,
+            call_plans,
             scenario_call_owners,
         )
     end
@@ -695,6 +714,12 @@ function _model_graph_selector_dict(selector::AbstractObjectMultiplicity)
     )
 end
 
+function _model_graph_call_binding_dict(binding)
+    descriptor = _model_graph_selector_dict(_call_binding_selector(binding))
+    descriptor["mode"] = string(_call_binding_mode(binding))
+    return descriptor
+end
+
 function _model_graph_model_parameters(model)
     parameters = Dict{String,Any}()
     for field in fieldnames(Base.unwrap_unionall(typeof(model)))
@@ -828,8 +853,8 @@ function _model_graph_application_dict(
             for (name, selector) in pairs(value_inputs(spec))
         ),
         "callBindings" => Dict(
-            string(name) => _model_graph_selector_dict(selector)
-            for (name, selector) in pairs(model_calls(spec))
+            string(name) => _model_graph_call_binding_dict(binding)
+            for (name, binding) in pairs(model_calls(spec))
         ),
         "environment" => _model_graph_application_environment(
             environment_payload,
@@ -1151,7 +1176,12 @@ end
 function _model_graph_call_edges(report, level)
     edges = Dict{String,Dict{String,Any}}()
     for binding in report.call_bindings
-        for callee_application_id in binding.callee_application_ids
+        callee_application_ids = level == :resolved ?
+                                 binding.callee_application_ids :
+                                 binding.potential_callee_application_ids
+        call_kind = _compiled_call_mode(binding) === :initializer ?
+                    "initializer" : "manual_call"
+        for callee_application_id in callee_application_ids
             if level == :resolved
                 for callee_object_id in binding.callee_object_ids
                     edge_id = string(
@@ -1164,7 +1194,8 @@ function _model_graph_call_edges(report, level)
                         "target" => _model_graph_execution_node_id(callee_application_id, callee_object_id),
                         "sourcePort" => nothing,
                         "targetPort" => nothing,
-                        "kind" => "manual_call",
+                        "kind" => call_kind,
+                        "mode" => string(_compiled_call_mode(binding)),
                         "projection" => "resolved",
                         "call" => string(binding.call),
                         "origin" => string(binding.origin),
@@ -1181,7 +1212,8 @@ function _model_graph_call_edges(report, level)
                     "target" => _model_graph_application_node_id(callee_application_id),
                     "sourcePort" => nothing,
                     "targetPort" => nothing,
-                    "kind" => "manual_call",
+                    "kind" => call_kind,
+                    "mode" => string(_compiled_call_mode(binding)),
                     "projection" => "applications",
                     "call" => string(binding.call),
                     "origin" => string(binding.origin),

@@ -323,11 +323,11 @@ export RunContext, CallTarget, CallTargets, Simulation, BoundMany, OutputTargets
 export runtime_model, current_step, final_state, outputs
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many
-export Input, Call, Environment
+export Input, Call, Initializer, Environment
 export application_name, applies_to, value_inputs, model_calls, outputs_to
 export environment_config
 export ModelSpec, OutputTo, Updates
-export call_targets, call_model, run_call!, commit_environment!
+export call_targets, call_model, run_call!, run_initializer!, commit_environment!
 export bound_input, output_targets, assign_outputs!
 export Status
 export Required, Default
