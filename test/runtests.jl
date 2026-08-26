@@ -74,6 +74,10 @@ else
         include("test-model-status-type-temporal.jl")
     end
 
+    @testset "Composite model status type conversion with particles" begin
+        include("test-model-status-type-particles.jl")
+    end
+
     @testset "Composite model output boundaries" begin
         include("test-model-output-boundaries.jl")
     end
