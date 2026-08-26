@@ -189,6 +189,7 @@ end
 
 mutable struct ObjectRegistry
     objects::Dict{ObjectId,Any}
+    object_ids_by_status::IdDict{Base.RefValue{Nothing},ObjectId}
     by_scale::Dict{Symbol,Set{ObjectId}}
     by_kind::Dict{Symbol,Set{ObjectId}}
     by_species::Dict{Symbol,Set{ObjectId}}
@@ -198,6 +199,7 @@ end
 
 ObjectRegistry() = ObjectRegistry(
     Dict{ObjectId,Any}(),
+    IdDict{Base.RefValue{Nothing},ObjectId}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
@@ -620,13 +622,10 @@ function CompositeModel(
     )
 end
 
-function _mtg_attribute(node, key::Symbol, default=nothing)
-    try
-        return node[key]
-    catch
-        return default
-    end
-end
+_mtg_attribute(node, key::Symbol, default=nothing) =
+    get(MultiScaleTreeGraph.node_attributes(node), key, default)
+
+_no_mtg_status(_) = nothing
 
 """
     objects_from_mtg(root; id=node_id, scale=symbol, kind=..., species=...,
@@ -634,10 +633,11 @@ end
 
 Adapt one MTG subtree to model `Object` values. The MTG is traversed once;
 node ids and parent relations become stable model-object identities and
-relations. Accessors may attach labels, geometry, and existing status objects
-without prescribing a plant architecture. This standalone projection retains
-no lifecycle identity index; construct `CompositeModel(root)` when later node
-resolution or organogenesis is required.
+relations. Accessors may attach labels and geometry without prescribing a plant
+architecture. Runtime status is not read from MTG attributes. Pass an explicit
+`status=` accessor only at a deliberate import boundary. This standalone
+projection retains no lifecycle identity index; construct `CompositeModel(root)`
+when later node resolution or organogenesis is required.
 """
 function objects_from_mtg(
     root::MultiScaleTreeGraph.Node;
@@ -647,7 +647,7 @@ function objects_from_mtg(
     species=node -> _mtg_attribute(node, :species, nothing),
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
-    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
+    status=_no_mtg_status,
 )
     accessors = MTGObjectAccessors(
         id,
@@ -726,7 +726,7 @@ function CompositeModel(
     species=node -> _mtg_attribute(node, :species, nothing),
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
-    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
+    status=_no_mtg_status,
 )
     adapter = MTGObjectAdapter(
         root,
@@ -871,6 +871,7 @@ function _delete_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
 end
 
 function _index_object!(registry::ObjectRegistry, object::Object)
+    _validate_status_identity_available!(registry, object.status, object.id)
     _push_index!(registry.by_scale, object.scale, object.id)
     _push_index!(registry.by_kind, object.kind, object.id)
     _push_index!(registry.by_species, object.species, object.id)
@@ -883,6 +884,8 @@ function _index_object!(registry::ObjectRegistry, object::Object)
         end
         registry.by_name[object.name] = object.id
     end
+    object.status isa Status &&
+        (registry.object_ids_by_status[_status_identity(object.status)] = object.id)
     return nothing
 end
 
@@ -893,7 +896,68 @@ function _deindex_object!(registry::ObjectRegistry, object::Object)
     if !isnothing(object.name) && get(registry.by_name, object.name, nothing) == object.id
         delete!(registry.by_name, object.name)
     end
+    if object.status isa Status &&
+       get(
+           registry.object_ids_by_status,
+           _status_identity(object.status),
+           nothing,
+       ) == object.id
+        delete!(registry.object_ids_by_status, _status_identity(object.status))
+    end
     return nothing
+end
+
+function _validate_status_identity_available!(
+    registry::ObjectRegistry,
+    status,
+    object_id::ObjectId,
+)
+    status isa Status || return nothing
+    existing = get(
+        registry.object_ids_by_status,
+        _status_identity(status),
+        nothing,
+    )
+    if !isnothing(existing) && existing != object_id
+        throw(
+            ArgumentError(
+                "The same Status instance cannot be owned by model objects " *
+                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
+                "its own Status instance.",
+            ),
+        )
+    end
+    return nothing
+end
+
+function _replace_model_object_status!(
+    model::CompositeModel,
+    object::Object,
+    status,
+)
+    (isnothing(status) || status isa Status) || error(
+        "Model object `$(object.id.value)` status must be a `Status` or `nothing`, " *
+        "got `$(typeof(status))`.",
+    )
+    object.status === status && return status
+    registry = model.registry
+    _validate_status_identity_available!(registry, status, object.id)
+    if object.status isa Status &&
+       get(
+           registry.object_ids_by_status,
+           _status_identity(object.status),
+           nothing,
+       ) == object.id
+        delete!(registry.object_ids_by_status, _status_identity(object.status))
+    end
+    setfield!(object, :status, status)
+    status isa Status &&
+        (registry.object_ids_by_status[_status_identity(status)] = object.id)
+    return status
+end
+
+function _replace_model_object_status!(model::CompositeModel, object_id, status)
+    return _replace_model_object_status!(model, _model_object(model, object_id), status)
 end
 
 function _model_object(model::CompositeModel, id)
@@ -932,7 +996,8 @@ identical.
 
 Every result is checked against the live object registry. Removed or unknown
 objects therefore raise an error instead of returning a stale identity.
-[`RunContext`](@ref) and [`Simulation`](@ref) delegate to their live model.
+[`RunContext`](@ref), [`CallTarget`](@ref), and [`Simulation`](@ref) delegate to
+their live model.
 """
 object_id(model::CompositeModel, id::ObjectId) = _registered_object_id(model, id)
 
@@ -947,38 +1012,16 @@ function object_id(model::CompositeModel, object::Object)
 end
 
 function object_id(model::CompositeModel, status::Status)
-    matched_id = nothing
-    for object in values(model.registry.objects)
-        object.status === status || continue
-        isnothing(matched_id) || throw(
-            ArgumentError(
-                "The same Status instance is registered by more than one model object; " *
-                "resolve the intended Object or ObjectId explicitly.",
-            ),
-        )
-        matched_id = object.id
-    end
-    isnothing(matched_id) && throw(
+    index = model.registry.object_ids_by_status
+    identity = _status_identity(status)
+    haskey(index, identity) || throw(
         ArgumentError("The supplied Status instance is not registered by this model."),
     )
-
-    adapter = model.source_adapter
-    if adapter isa MTGObjectAdapter && hasproperty(status, :node)
-        node = status.node
-        node isa MultiScaleTreeGraph.Node || throw(
-            ArgumentError(
-                "A registered MTG Status must expose its source Node as `status.node`; " *
-                "got $(typeof(node)).",
-            ),
-        )
-        id = object_id(model, node)
-        id == matched_id || throw(
-            ArgumentError(
-                "Status `node` resolves to object `$(id.value)`, but this Status " *
-                "instance is registered by object `$(matched_id.value)`.",
-            ),
-        )
-    end
+    matched_id = index[identity]
+    _model_object(model, matched_id).status === status || error(
+        "PlantSimEngine's Status identity index is inconsistent for object " *
+        "`$(matched_id.value)`. Replace runtime status through the model API.",
+    )
     return matched_id
 end
 
@@ -994,6 +1037,43 @@ end
 
 object_id(model::CompositeModel, id) =
     _registered_object_id(model, ObjectId(id))
+
+model_object(
+    model::CompositeModel,
+    source::Union{Object,Status,MultiScaleTreeGraph.Node},
+) = _model_object(model, object_id(model, source))
+
+"""
+    model_status(model::CompositeModel, source)
+
+Return the runtime [`Status`](@ref), or `nothing`, owned by the model object
+represented by `source`. `source` accepts the same identities as
+[`object_id`](@ref), including an exact MTG node. Runtime status belongs to the
+model registry and is not stored in MTG attributes.
+"""
+model_status(model::CompositeModel, source) = model_object(model, source).status
+
+"""
+    source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.Node
+
+Return the exact MTG node associated with a registered object identity. This is
+available only for a model constructed from an MTG; copied, foreign, and removed
+identities are rejected.
+"""
+function source_node(model::CompositeModel, source)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || throw(
+        ArgumentError(
+            "A source node is available only from a CompositeModel constructed from an MTG.",
+        ),
+    )
+    id = object_id(model, source)
+    node = get(adapter.nodes_by_object_id, id, nothing)
+    isnothing(node) && error(
+        "No source MTG node is registered for model object `$(id.value)`.",
+    )
+    return node
+end
 
 function _object_ancestor_ids(
     registry::ObjectRegistry,
@@ -1097,6 +1177,7 @@ function _register_object_without_lifecycle!(
             "CompositeModel object name `$(object.name)` is already used by object `$(existing.value)`."
         )
     end
+    _validate_status_identity_available!(registry, object.status, object.id)
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
@@ -1140,7 +1221,11 @@ function _status_data!(data::Dict{Symbol,Any}, values)
         "`Base.Pairs`, or `nothing`, got `$(typeof(values))`."
     )
     for (key, value) in pairs(source)
-        Symbol(key) == :plantsimengine_status && continue
+        Symbol(key) == :plantsimengine_status && error(
+            "`plantsimengine_status` is runtime state, not an organ attribute. " *
+            "Pass scientific initial values through `initial_status` and resolve " *
+            "runtime status with `model_status`.",
+        )
         data[Symbol(key)] = value
     end
     return data
@@ -1242,7 +1327,6 @@ function add_organ!(
             initial_status;
             use_status_adapter=use_status_adapter,
         )
-        node[:plantsimengine_status] = status
         object = Object(
             new_object_id;
             scale=adapter.scale(node),

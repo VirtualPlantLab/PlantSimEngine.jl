@@ -3617,7 +3617,7 @@ end
 
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
     object = _model_object(model, object_id)
-    isnothing(object.status) && (object.status = Status())
+    isnothing(object.status) && _replace_model_object_status!(model, object, Status())
     object.status isa Status || error(
         "Model object `$(object_id.value)` uses model applications but its status has type ",
         "`$(typeof(object.status))`. Use `Status(...)` or leave status as `nothing`."
@@ -3639,7 +3639,7 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
                     _private_initial_value(value),
                 )
             end
-            _model_object(model, object_id).status = status
+            _replace_model_object_status!(model, object_id, status)
         end
     end
     return model
@@ -3720,7 +3720,7 @@ function _prepare_model_output_destination_statuses!(
                     _private_initial_value(_input_default(declaration)),
                 )
             end
-            _model_object(model, destination_id).status = status
+            _replace_model_object_status!(model, destination_id, status)
         end
     end
     return model
@@ -3906,7 +3906,7 @@ function _prepare_model_input_defaults!(model::CompositeModel, applications)
                     variable,
                 )
             end
-            _model_object(model, object_id).status = status
+            _replace_model_object_status!(model, object_id, status)
         end
     end
     return model
@@ -3920,7 +3920,11 @@ function _wire_model_input_carriers!(model::CompositeModel, bindings)
         status = object.status
         status isa Status || continue
         reference = binding.carrier isa Base.RefValue ? binding.carrier : Ref(binding.carrier)
-        object.status = _status_with_reference(status, binding.input, reference)
+        _replace_model_object_status!(
+            model,
+            object,
+            _status_with_reference(status, binding.input, reference),
+        )
         delete!(
             get!(
                 model.input_default_status_variables,

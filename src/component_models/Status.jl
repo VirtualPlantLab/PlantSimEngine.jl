@@ -56,6 +56,14 @@ julia> st[1] = 22.0
 """
 struct Status{N,T<:Tuple{Vararg{Ref}}}
     vars::NamedTuple{N,T}
+    # `Status()` has no Ref-valued variable from which Julia could derive object
+    # identity. Keep an opaque token so every runtime status, including an empty
+    # one created before compilation adds variables, has a distinct identity.
+    identity::Base.RefValue{Nothing}
+
+    function Status(vars::NamedTuple{N,T}) where {N,T<:Tuple{Vararg{Ref}}}
+        return new{N,T}(vars, Ref(nothing))
+    end
 end
 
 Status(; kwargs...) = Status(NamedTuple{keys(kwargs)}(Ref.(values(values(kwargs)))))
@@ -78,6 +86,7 @@ _status_indexed_iterate(status, i::Int, state=1) = Base.indexed_iterate(NamedTup
 
 Base.keys(::Status{names}) where {names} = names
 Base.values(st::Status) = _status_values(st)
+_status_identity(status::Status) = getfield(status, :identity)
 refvalues(mnt::Status) = values(getfield(mnt, :vars))
 refvalue(mnt::Status, key::Symbol) = getfield(getfield(mnt, :vars), key)
 

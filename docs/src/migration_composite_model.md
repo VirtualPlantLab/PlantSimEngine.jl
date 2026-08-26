@@ -134,8 +134,11 @@ model = CompositeModel(
 
 `objects_from_mtg(mtg; ...)` exposes the intermediate object list when it is
 useful to inspect or modify labels before constructing the model. By default,
-the adapter uses MTG node ids and scales, and reuses an existing
-`:plantsimengine_status` attribute when present.
+the adapter uses MTG node ids and scales. Runtime `Status` values belong to the
+`CompositeModel` registry and are never stored in MTG attributes. A deliberate
+import boundary may provide `status=node -> import_status(node)` explicitly;
+maintained workflows should initialize scientific state through model objects or
+model applications instead.
 
 ## Multiscale Inputs
 

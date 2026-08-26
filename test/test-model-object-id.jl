@@ -110,6 +110,8 @@ end
     @test object_id(model, registered_leaf) == leaf_id
     @test object_id(model, leaf) == leaf_id
     @test _registered_object_id_allocations(model, leaf) == 0
+    @test model_object(model, leaf) === registered_leaf
+    @test source_node(model, leaf_id) === leaf
 
     copied_root = deepcopy(root)
     copied_leaf = MultiScaleTreeGraph.get_node(
@@ -155,11 +157,15 @@ end
     @test MultiScaleTreeGraph.node_id(new_leaf_status.node) == 4
     @test object_id(model, new_leaf_status) == new_leaf_id
     @test object_id(model, new_leaf_status.node) == new_leaf_id
+    @test model_status(model, new_leaf_id) === new_leaf_status
+    @test source_node(model, new_leaf_status) === new_leaf_status.node
 
     simulation = run!(model; steps=1, outputs=:none)
     @test model_object(model, (:Scene, 1)).status.matches
     @test object_id(simulation, leaf) == leaf_id
 
+    remove_object!(model, new_leaf_id)
+    @test_throws ArgumentError object_id(model, new_leaf_status)
     remove_object!(model, leaf_id)
     @test_throws ErrorException object_id(model, leaf_id)
     @test_throws ArgumentError object_id(model, leaf)
@@ -245,26 +251,47 @@ end
     model = CompositeModel(object)
 
     @test object_id(model, status) == ObjectId(:leaf)
+    @test _registered_object_id_allocations(model, status) == 0
     @test object_id(model, object) == ObjectId(:leaf)
+    @test model_object(model, status) === object
+    @test model_status(model, object) === status
     foreign_mtg = Node(MultiScaleTreeGraph.NodeMTG("/", :Leaf, 1, 1))
     @test_throws ArgumentError object_id(model, foreign_mtg)
     @test_throws ArgumentError object_id(model, Status(signal=1.0))
+    @test_throws ArgumentError source_node(model, status)
+
+    empty_status_a = Status()
+    empty_status_b = Status()
+    @test empty_status_a !== empty_status_b
+    empty_model = CompositeModel(
+        Object(:empty_a; scale=:Leaf, status=empty_status_a),
+        Object(:empty_b; scale=:Leaf, status=empty_status_b),
+    )
+    @test object_id(empty_model, empty_status_a) == ObjectId(:empty_a)
+    @test object_id(empty_model, empty_status_b) == ObjectId(:empty_b)
 
     shared_status = Status(signal=2.0)
-    ambiguous = CompositeModel(
+    @test_throws ArgumentError CompositeModel(
         Object(:scene; scale=:Scene),
         Object(:leaf_a; scale=:Leaf, parent=:scene, status=shared_status),
         Object(:leaf_b; scale=:Leaf, parent=:scene, status=shared_status),
     )
-    @test_throws ArgumentError object_id(ambiguous, shared_status)
 
     mtg_root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     mtg_plant = Node(mtg_root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     mtg_leaf_a = Node(mtg_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     mtg_leaf_b = Node(mtg_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 2, 2))
     shared_mtg_status = Status(node=mtg_leaf_a, signal=3.0)
-    mtg_leaf_a[:plantsimengine_status] = shared_mtg_status
-    mtg_leaf_b[:plantsimengine_status] = shared_mtg_status
-    ambiguous_mtg = CompositeModel(mtg_root)
-    @test_throws ArgumentError object_id(ambiguous_mtg, shared_mtg_status)
+    statuses = IdDict{Any,Any}(
+        mtg_leaf_a => shared_mtg_status,
+        mtg_leaf_b => shared_mtg_status,
+    )
+    @test_throws ArgumentError CompositeModel(
+        mtg_root;
+        status=node -> get(statuses, node, nothing),
+    )
+
+    canonical_mtg = CompositeModel(mtg_root)
+    @test isnothing(model_status(canonical_mtg, mtg_leaf_a))
+    @test source_node(canonical_mtg, mtg_leaf_b) === mtg_leaf_b
 end

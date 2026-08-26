@@ -937,14 +937,16 @@ end
     mtg_plant = Node(mtg_root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
     mtg_leaf = Node(mtg_plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
     mtg_leaf_status = Status(signal=2.0)
-    mtg_leaf[:plantsimengine_status] = mtg_leaf_status
+    mtg_status = node -> node === mtg_leaf ? mtg_leaf_status : nothing
     mtg_object_id = node -> Symbol(lowercase(string(symbol(node))), "_", node_id(node))
+    @test all(object -> isnothing(object.status), objects_from_mtg(mtg_root))
     adapted_objects = objects_from_mtg(
         mtg_root;
         id=mtg_object_id,
         kind=node -> symbol(node) == :Scene ? :scene : :plant,
         species=node -> symbol(node) == :Scene ? nothing : :oil_palm,
         geometry=node -> symbol(node) == :Leaf ? (x=1.0, y=2.0) : nothing,
+        status=mtg_status,
     )
     @test [object.id for object in adapted_objects] ==
           ObjectId.([:scene_1, :plant_2, :leaf_3])
@@ -956,6 +958,7 @@ end
         kind=node -> symbol(node) == :Scene ? :scene : :plant,
         species=node -> symbol(node) == :Scene ? nothing : :oil_palm,
         geometry=node -> symbol(node) == :Leaf ? (x=1.0, y=2.0) : nothing,
+        status=mtg_status,
         applications=(
             ModelSpec(ModelObjectParameterizedSignalModel(1.0); name=:mtg_signal, on=One(scale=:Leaf)),
         ),
@@ -978,7 +981,9 @@ end
         initial_status=(signal=5.0, age=1),
         kind=:plant,
     )
-    @test new_leaf_status.node[:plantsimengine_status] === new_leaf_status
+    @test !haskey(node_attributes(new_leaf_status.node), :plantsimengine_status)
+    @test model_status(mtg_scene, new_leaf_status.node) === new_leaf_status
+    @test source_node(mtg_scene, new_leaf_status) === new_leaf_status.node
     @test new_leaf_status.signal == 5.0
     @test new_leaf_status.color == :green
     @test new_leaf_status.age == 1
@@ -990,6 +995,8 @@ end
     @test new_leaf_object.parent == ObjectId(:plant_2)
     @test model_object(mtg_scene, :leaf_4) === new_leaf_object
     @test model_object(mtg_scene, ObjectId(:leaf_4)) === new_leaf_object
+    @test model_object(mtg_scene, new_leaf_status.node) === new_leaf_object
+    @test model_object(mtg_scene, new_leaf_status) === new_leaf_object
     @test_throws ErrorException model_object(mtg_scene, :absent_leaf)
     @test Advanced.bindings_dirty(mtg_scene)
 
@@ -1014,7 +1021,12 @@ end
         index=3,
     )
     @test node_id(auto_id_leaf_status.node) == 5
-    @test auto_id_leaf_status.node[:plantsimengine_status] === auto_id_leaf_status
+    @test !haskey(
+        node_attributes(auto_id_leaf_status.node),
+        :plantsimengine_status,
+    )
+    @test model_status(mtg_scene, auto_id_leaf_status.node) ===
+          auto_id_leaf_status
 
     @testset "MTG organ status adapter policy" begin
         status_adapter_calls = Ref(0)
@@ -1026,7 +1038,6 @@ end
                 node=:adapter_node_must_be_replaced,
                 signal=6.0,
                 adapter_only=:present,
-                plantsimengine_status=:adapter_status_must_be_excluded,
             )
             latest_adapter_status[] = adapted_source_status
             return adapted_source_status
@@ -1045,8 +1056,20 @@ end
             signal=5.0,
             age=1,
             node=:initial_node_must_be_replaced,
-            plantsimengine_status=:initial_status_must_be_excluded,
         )
+
+        children_before_rejected_status = length(children(adapter_plant))
+        @test_throws ErrorException add_organ!(
+            adapter_plant,
+            status_adapter_scene,
+            :+,
+            :Leaf,
+            2;
+            index=99,
+            attributes=(plantsimengine_status=Status(signal=99.0),),
+            use_status_adapter=false,
+        )
+        @test length(children(adapter_plant)) == children_before_rejected_status
 
         bypassed_status = add_organ!(
             adapter_plant,
@@ -1060,7 +1083,6 @@ end
                 signal=4.0,
                 color=:green,
                 node=:attribute_node_must_be_replaced,
-                plantsimengine_status=:attribute_status_must_be_excluded,
             ),
             initial_status=bypassed_initial_status,
             use_status_adapter=false,
@@ -1095,7 +1117,6 @@ end
         @test bypassed_status.node[:signal] == 4.0
         @test !hasproperty(bypassed_status, :adapter_only)
         @test !hasproperty(bypassed_status, :status_adapter_mutation)
-        @test !hasproperty(bypassed_status, :plantsimengine_status)
         @test !haskey(
             node_attributes(bypassed_status.node),
             :status_adapter_mutation,
@@ -1104,9 +1125,11 @@ end
               PlantSimEngine.refvalue(bypassed_initial_status, :signal)
         @test PlantSimEngine.refvalue(bypassed_status, :age) !==
               PlantSimEngine.refvalue(bypassed_initial_status, :age)
-        @test bypassed_status.node[:plantsimengine_status] ===
-              bypassed_status
-        @test model_object(status_adapter_scene, 3).status ===
+        @test !haskey(
+            node_attributes(bypassed_status.node),
+            :plantsimengine_status,
+        )
+        @test model_status(status_adapter_scene, bypassed_status.node) ===
               bypassed_status
         bypassed_initial_status.age = 99
         @test bypassed_status.age == 1
@@ -1115,7 +1138,6 @@ end
             signal=5.0,
             age=2,
             node=:initial_node_must_be_replaced,
-            plantsimengine_status=:initial_status_must_be_excluded,
         )
 
         adapted_status = add_organ!(
@@ -1130,7 +1152,6 @@ end
                 signal=4.0,
                 color=:blue,
                 node=:attribute_node_must_be_replaced,
-                plantsimengine_status=:attribute_status_must_be_excluded,
             ),
             initial_status=adapted_initial_status,
         )
@@ -1172,7 +1193,6 @@ end
               MultiScaleTreeGraph.get_node(adapter_root, 4)
         @test adapted_status.node[:node] ===
               :attribute_node_must_be_replaced
-        @test !hasproperty(adapted_status, :plantsimengine_status)
         @test adapted_status.status_adapter_mutation ==
               calls_after_adaptation + 1
         @test adapted_status.node[:status_adapter_mutation] ==
@@ -1181,8 +1201,12 @@ end
               PlantSimEngine.refvalue(adapted_source_status, :adapter_only)
         @test PlantSimEngine.refvalue(adapted_status, :age) !==
               PlantSimEngine.refvalue(adapted_initial_status, :age)
-        @test adapted_status.node[:plantsimengine_status] === adapted_status
-        @test model_object(status_adapter_scene, 4).status === adapted_status
+        @test !haskey(
+            node_attributes(adapted_status.node),
+            :plantsimengine_status,
+        )
+        @test model_status(status_adapter_scene, adapted_status.node) ===
+              adapted_status
         adapted_source_status.adapter_only = :mutated_after_add
         adapted_initial_status.age = 99
         @test adapted_status.adapter_only === :present
@@ -1199,13 +1223,15 @@ end
         temporal_mtg_plant,
         MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2),
     )
-    temporal_mtg_plant[:plantsimengine_status] =
-        Status(signals=[0.0], signal_total=0.0)
-    temporal_mtg_leaf[:plantsimengine_status] = Status(signal=0.0)
+    temporal_mtg_statuses = IdDict{Any,Any}(
+        temporal_mtg_plant => Status(signals=[0.0], signal_total=0.0),
+        temporal_mtg_leaf => Status(signal=0.0),
+    )
     temporal_mtg_id = node -> Symbol(:temporal_, node_id(node))
     temporal_mtg_scene = CompositeModel(
         temporal_mtg_root;
         id=temporal_mtg_id,
+        status=node -> get(temporal_mtg_statuses, node, nothing),
         applications=(
             ModelSpec(
                 ModelObjectSignalSourceModel();

@@ -434,7 +434,8 @@ types should be selectors, model traits, or internal compiled carriers.
 - Added `objects_from_mtg(root; ...)` and `CompositeModel(root::MultiScaleTreeGraph.Node;
   ...)`. Existing MTG topology is traversed once into the unified registry,
   preserving stable node-derived ids, parent relations, labels, geometry, and
-  existing `:plantsimengine_status` objects through configurable accessors.
+  explicitly imported runtime status through configurable accessors; the
+  canonical adapter does not read or write runtime objects in MTG attributes.
 
 The composite-model/object compiler is executable: selectors normalize to object
 addresses, resolve before runtime, and compile into reference, temporal, call,

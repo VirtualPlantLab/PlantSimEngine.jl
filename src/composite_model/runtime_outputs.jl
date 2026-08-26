@@ -883,8 +883,14 @@ runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
 runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
-object_id(context::RunContext, source) = object_id(runtime_model(context), source)
-object_id(simulation::Simulation, source) = object_id(runtime_model(simulation), source)
+object_id(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    object_id(runtime_model(runtime), source)
+model_object(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    model_object(runtime_model(runtime), source)
+model_status(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    model_status(runtime_model(runtime), source)
+source_node(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    source_node(runtime_model(runtime), source)
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams

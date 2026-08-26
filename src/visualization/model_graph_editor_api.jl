@@ -869,7 +869,7 @@ function _set_model_object_status!(model, object_id, variable, value)
     else
         values[index] = variable => value
     end
-    object.status = Status((; values...))
+    _replace_model_object_status!(model, object, Status((; values...)))
     delete!(
         get!(
             model.input_default_status_variables,
@@ -899,7 +899,11 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObject
         pair for pair in _model_edit_status_values(object.status)
         if first(pair) != edit.variable
     ]
-    object.status = isempty(values) ? nothing : Status((; values...))
+    _replace_model_object_status!(
+        model,
+        object,
+        isempty(values) ? nothing : Status((; values...)),
+    )
     delete!(
         get!(
             model.input_default_status_variables,
