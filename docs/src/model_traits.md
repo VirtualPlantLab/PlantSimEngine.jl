@@ -41,6 +41,52 @@ Before running a scenario, `Diagnostics.explain_initialization(model)` classifie
 `:required`, `:defaulted`, `:supplied`, or `:producer_bound`. A
 `:required` row must be resolved before compilation can succeed.
 
+## Scientific meaning and dimensions
+
+Names and Julia types are not enough to distinguish, for example, daily PAR
+per ground area from daily PAR per plant. Add a `VariableContract` when a
+variable participates in scientific coupling:
+
+```julia
+const PLANT_DAILY_PAR = VariableContract(
+    unit=:mol_photon,
+    basis=:plant,
+    temporal=:day,
+    aggregation=:total,
+    extent=:extensive,
+)
+
+PlantSimEngine.variable_contracts_(::PlantLight) = (
+    absorbed_par=PLANT_DAILY_PAR,
+)
+PlantSimEngine.variable_contracts_(::PlantGrowth) = (
+    absorbed_par=PLANT_DAILY_PAR,
+)
+```
+
+The tokens are open symbols, but a connected producer and consumer must declare
+the same complete contract. Once either side declares one, a missing contract
+on the other side is also a compilation error. Renaming a variable with
+`var=...` does not convert its meaning; put unit, basis, or time conversion in
+an explicit model boundary.
+
+`VariableContract` is metadata only. Status and environment payloads remain
+ordinary numbers, arrays, unit-bearing values, or automatic-differentiation
+values, so the contract adds no wrapper to a model's numerical hot loop.
+
+Use `variable_contracts(model)` to inspect the validated declarations. Contract
+keys must occur in one of the model's declared status or environment traits, or
+in the compiled application's distributed `outputs_to` declaration.
+
+| Role | Declaration | Ownership |
+|---|---|---|
+| Status input | `inputs_` | object state or a compiled model producer |
+| Environment input | `environment_inputs_` | the active forcing backend |
+| Constant | the `constants` argument | simulation configuration, not mutable status |
+| Manual model call | `dep` plus `ModelSpec(...; calls=...)` | explicit callee execution; the callee keeps its own variable declarations |
+| Local status output | `outputs_` | the target object's runtime status |
+| Distributed output | `ModelSpec(...; outputs_to=...)` | explicitly selected destination objects |
+
 ## Manual Dependencies
 
 Implement `dep(model)` only when the model directly calls another process from

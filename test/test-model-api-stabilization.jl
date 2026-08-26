@@ -230,6 +230,7 @@ end
         :Status,
         :Subtree,
         :Updates,
+        :VariableContract,
         :Weather,
         :add_organ!,
         :application_name,
@@ -286,6 +287,7 @@ end
         :updates,
         :validate_environment_inputs,
         :value_inputs,
+        :variable_contracts,
         :variables,
     ])
     @test public_names == expected_public_names

@@ -78,11 +78,30 @@ function model_descriptor(::Type{T}) where {T<:AbstractModel}
         "outputs" => _model_var_descriptor(T, outputs_),
         "environmentInputs" => _model_var_descriptor(T, environment_inputs_),
         "environmentOutputs" => _model_var_descriptor(T, environment_outputs_),
+        "variableContracts" => _model_contract_descriptor(T),
         "timespec" => _safe_string_trait(T, timespec),
         "outputPolicy" => _safe_string_trait(T, output_policy),
         "timestepHint" => _safe_string_trait(T, timestep_hint),
         "environmentHint" => _safe_string_trait(T, environment_hint),
         "constructor" => model_constructor_descriptor(T),
+    )
+end
+
+function _model_contract_descriptor(::Type{T}) where {T<:AbstractModel}
+    instance = _try_zero_arg_model(T)
+    isnothing(instance) && (instance = _try_dummy_model(T))
+    isnothing(instance) && return Dict{String,Any}()
+    contracts = try
+        variable_contracts(instance)
+    catch err
+        return Dict{String,Any}("_error" => sprint(showerror, err))
+    end
+    return Dict(
+        string(name) => Dict(
+            string(field) => (isnothing(value) ? nothing : string(value))
+            for (field, value) in pairs(_contract_fields(contract))
+        )
+        for (name, contract) in pairs(contracts)
     )
 end
 

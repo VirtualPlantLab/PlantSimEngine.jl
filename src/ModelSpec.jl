@@ -466,6 +466,31 @@ function dep(spec::ModelSpec)
 end
 environment_inputs_(m::ModelSpec) = environment_inputs_(model_(m))
 environment_outputs_(m::ModelSpec) = environment_outputs_(model_(m))
+variable_contracts_(m::ModelSpec) = variable_contracts_(model_(m))
+
+function _declared_contract_variable_names(spec::ModelSpec)
+    declared = _declared_contract_variable_names(model_(spec))
+    for destination in values(spec.outputs_to)
+        union!(declared, Symbol.(keys(destination.vars)))
+    end
+    return declared
+end
+
+function _validate_variable_contract_names(spec::ModelSpec, schema)
+    declared = _declared_contract_variable_names(spec)
+    unknown = sort!(
+        Symbol[name for name in keys(schema) if Symbol(name) ∉ declared];
+        by=string,
+    )
+    isempty(unknown) || return _invalid_variable_contract_schema_error(
+        spec,
+        "declares unknown variable(s) `$(Tuple(unknown))`. Contract keys must " *
+        "also appear in `inputs_`, `outputs_`, `environment_inputs_`, " *
+        "`environment_outputs_`, or this ModelSpec's distributed `outputs_to` " *
+        "variables.",
+    )
+    return schema
+end
 
 function run!(m::ModelSpec, status, environment, constants=nothing, context=nothing)
     return run!(model_(m), status, environment, constants, context)

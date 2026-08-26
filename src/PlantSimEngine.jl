@@ -31,6 +31,7 @@ include("variables_wrappers.jl")
 # Models:
 include("Abstract_model_structs.jl")
 include("input_schema.jl")
+include("variable_contracts.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
@@ -330,6 +331,7 @@ export call_targets, call_model, run_call!, commit_environment!
 export bound_input, output_targets, assign_outputs!
 export Status
 export Required, Default
+export VariableContract, variable_contracts
 export @process, process
 export init_variables, dep
 export inputs, outputs, variables

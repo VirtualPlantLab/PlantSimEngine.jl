@@ -16,8 +16,8 @@ A modeler writes generic kernels with:
 
 - `inputs_` declarations using `Required(T)` or `Default(value)`
 - `outputs_`
-- optional `dep`, `timespec`, `output_policy`, `environment_inputs_`, and
-  `environment_outputs_` traits
+- optional `dep`, `timespec`, `output_policy`, `environment_inputs_`,
+  `environment_outputs_`, and `variable_contracts_` traits
 - `run!(model, status, environment, constants, context)`
 
 A simulation author assembles those kernels on objects with `CompositeModel`,

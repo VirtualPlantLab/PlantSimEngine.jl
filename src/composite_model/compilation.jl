@@ -4446,6 +4446,14 @@ function _compiled_model_input_plan(
         origin,
         distributed_output_plans,
     )
+    for producer_id in potential_source_application_ids
+        _validate_model_variable_contract!(
+            application,
+            input,
+            applications_by_id[producer_id],
+            source_var,
+        )
+    end
     policy = _selector_has_policy(selector) ? _selector_policy(selector) : nothing
     breaks_same_step_cycle = policy isa PreviousTimeStep
     if breaks_same_step_cycle && policy.variable != input
@@ -4487,6 +4495,7 @@ function _compile_model_input_plans(
         application.id => application for application in applications
     )
     for application in applications
+        _variable_contract_schema(application.spec)
         declared_inputs = value_inputs(application.spec)
         declared_inputs isa NamedTuple || (declared_inputs = NamedTuple())
         declared_names = Set(Symbol.(keys(declared_inputs)))

@@ -160,6 +160,7 @@ timestep_hint(model::ObjectModelOverrides) = timestep_hint(model.base)
 environment_hint(model::ObjectModelOverrides) = environment_hint(model.base)
 environment_inputs_(model::ObjectModelOverrides) = environment_inputs_(model.base)
 environment_outputs_(model::ObjectModelOverrides) = environment_outputs_(model.base)
+variable_contracts_(model::ObjectModelOverrides) = variable_contracts_(model.base)
 
 function Object(
     id;

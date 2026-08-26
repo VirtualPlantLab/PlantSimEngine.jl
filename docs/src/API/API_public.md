@@ -72,6 +72,13 @@ have not been mutated. Replace the ID-column object when either changes.
 - `outputs_(model)` literals remain initial output-state values.
 - `init_variables(model)` returns only genuine input defaults and initial
   output values.
+- `VariableContract` records a variable's unit, spatial or object basis,
+  temporal basis, aggregation meaning, and intensive/extensive character
+  without wrapping its runtime value.
+- `variable_contracts(model)` returns validated declarations from the
+  package-extension trait `PlantSimEngine.variable_contracts_`. A compiled
+  producer-consumer binding must have identical contracts once either side
+  declares one.
 
 ### Selectors
 

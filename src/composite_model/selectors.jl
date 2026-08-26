@@ -307,6 +307,7 @@ function _model_contract(model)
         outputs=Tuple(Symbol.(keys(outputs_(model)))),
         environment_inputs=Tuple(Symbol.(keys(environment_inputs_(model)))),
         environment_outputs=Tuple(Symbol.(keys(environment_outputs_(model)))),
+        variable_contracts=variable_contracts(model),
     )
 end
 

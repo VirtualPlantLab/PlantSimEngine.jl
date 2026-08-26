@@ -68,7 +68,7 @@ inspection:
 
 - Model identity: `AbstractModel`, `@process`, `process`.
 - State schema and initialization: `Status`, `Required`, `Default`,
-  `init_variables`, `dep`.
+  `VariableContract`, `variable_contracts`, `init_variables`, `dep`.
 - Model IO inspection: `inputs`, `outputs`, `variables`,
   `environment_inputs`, `environment_outputs`,
   `validate_environment_inputs`.
@@ -77,12 +77,14 @@ inspection:
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
   `environment_hint`, `environment_bindings`, `environment_window`.
 
-The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`, and
-`environment_outputs_` are intentionally unexported extension functions.
+The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`,
+`environment_outputs_`, and `variable_contracts_` are intentionally
+unexported extension functions.
 Model authors implement them with qualified definitions such as
 `PlantSimEngine.inputs_(model) = ...`. `inputs_` must return explicit
 `Required(T)` or `Default(value)` declarations; `outputs_` returns initial
-output-state values.
+output-state values; `variable_contracts_` returns `VariableContract` metadata
+for declared status or environment variables.
 
 ## Time and reducers
 
