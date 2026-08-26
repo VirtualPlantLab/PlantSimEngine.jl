@@ -78,6 +78,14 @@ else
         include("test-model-status-type-particles.jl")
     end
 
+    @testset "Composite model status type conversion templates" begin
+        include("test-model-status-type-templates.jl")
+    end
+
+    @testset "Composite model status type conversion performance" begin
+        include("test-model-status-type-performance.jl")
+    end
+
     @testset "Composite model output boundaries" begin
         include("test-model-output-boundaries.jl")
     end
