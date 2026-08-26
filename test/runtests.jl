@@ -62,6 +62,18 @@ else
         include("test-model-status-type-conversion.jl")
     end
 
+    @testset "Composite model status type conversion runtime" begin
+        include("test-model-status-type-runtime.jl")
+    end
+
+    @testset "Composite model status type conversion lifecycle" begin
+        include("test-model-status-type-lifecycle.jl")
+    end
+
+    @testset "Composite model status type conversion temporal policies" begin
+        include("test-model-status-type-temporal.jl")
+    end
+
     @testset "Composite model output boundaries" begin
         include("test-model-output-boundaries.jl")
     end

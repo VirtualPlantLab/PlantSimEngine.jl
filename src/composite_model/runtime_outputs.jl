@@ -6489,12 +6489,12 @@ function _model_request_clock(request, timeline)
 end
 
 function _model_requested_value(samples, time, t_start, policy, timeline)
-    if policy isa HoldLast
+    value = if policy isa HoldLast
         value = _model_latest_sample(samples, time)
-        return isnothing(value) ? missing : value
+        isnothing(value) ? missing : value
     elseif policy isa Interpolate
         value = _model_interpolated_sample(samples, time, policy)
-        return isnothing(value) ? missing : value
+        isnothing(value) ? missing : value
     elseif policy isa Union{Integrate,Aggregate}
         values, durations = _model_window_segments(
             samples,
@@ -6502,10 +6502,22 @@ function _model_requested_value(samples, time, t_start, policy, timeline)
             time,
             timeline.base_step_seconds,
         )
-        isempty(values) && return missing
-        return _model_window_reduce(values, durations, policy)
+        isempty(values) ? missing : _model_window_reduce(values, durations, policy)
+    else
+        error("Unsupported model output request policy `$(typeof(policy))`.")
     end
-    error("Unsupported model output request policy `$(typeof(policy))`.")
+    value === missing && return missing
+    effective_type = fieldtype(eltype(samples), 2)
+    value isa effective_type && return value
+    return try
+        convert(effective_type, value)
+    catch exception
+        error(
+            "OutputRequest policy `$(typeof(policy))` produced value type " *
+            "`$(typeof(value))`, but the retained stream uses effective type " *
+            "`$(effective_type)`: $(sprint(showerror, exception))",
+        )
+    end
 end
 
 function _model_requested_output_rows(
