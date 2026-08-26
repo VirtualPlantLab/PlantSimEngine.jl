@@ -117,6 +117,40 @@ model = CompositeModel(
 topology. A plant may use any hierarchy of plants, axes, internodes, segments,
 leaves, roots, fruits, or application-specific objects.
 
+### Status type conversion
+
+Some historical `ModelMapping` configurations changed the representation of
+all matching status values, for example from `Float64` to `Float32`. Keep that
+scenario policy on the modern `CompositeModel`; do not recreate or wrap
+`ModelMapping`:
+
+```julia
+model = CompositeModel(
+    objects...;
+    applications=applications,
+    environment=environment,
+    type_promotion=Dict(Float64 => Float32),
+)
+```
+
+Use `status_transform` when the conversion depends on the variable rather than
+only its current type:
+
+```julia
+model = CompositeModel(
+    objects...;
+    applications=applications,
+    type_promotion=Dict(Float64 => Float32),
+    status_transform=(variable, value) ->
+        variable === :uncertain_input ? uncertain(value) : value,
+)
+```
+
+The variable-specific transform runs before the general type mapping. Ordinary
+numeric arrays are mapped element by element. The policy applies to supplied
+statuses, model input and output defaults, and objects registered later; it
+does not change model parameters or environment values.
+
 ### Existing MTG Topologies
 
 An existing MTG can be adapted without rebuilding its topology manually:
@@ -487,6 +521,7 @@ targets. They are intended for both users and coding agents.
 | Legacy configuration | CompositeModel/object replacement |
 | --- | --- |
 | `ModelMapping` scale assembly | `CompositeModel` objects plus model applications |
+| `ModelMapping` status type remapping | `CompositeModel(...; type_promotion=..., status_transform=...)` |
 | `MultiScaleModel(...)` | consumer `ModelSpec(...; inputs=...)` |
 | `TimeStepModel(...)` | `ModelSpec(...; every=...)` |
 | `InputBindings(...)` | source, policy, and window on `ModelSpec(...; inputs=...)` |

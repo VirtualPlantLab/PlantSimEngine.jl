@@ -5,8 +5,9 @@
 ### Scenario and model applications
 
 - `CompositeModel` stores objects, model applications, instances, and environment.
-- `CompositeModel(model, models...; status=..., timestep=...)` is the concise one-object
-  form and lowers to the same object/application representation.
+- `CompositeModel(model, models...; status=..., timestep=...,
+  type_promotion=..., status_transform=...)` is the concise one-object form and
+  lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
 - `object_id(model, source)` resolves an `ObjectId`, registered `Object` or
   `Status`, MTG node, or raw identifier against the live registry. MTG nodes
@@ -86,6 +87,32 @@ have not been mutated. Replace the ID-column object when either changes.
   package-extension trait `PlantSimEngine.variable_contracts_`. A compiled
   producer-consumer binding must have identical contracts once either side
   declares one.
+
+### Status representation
+
+- `CompositeModel(...; type_promotion=Dict(Float64 => Float32))` converts every
+  matching status value with `convert` when its storage is materialized.
+- `CompositeModel(...; status_transform=(variable, value) -> ...)` applies a
+  precise transformation based on the status variable name and value. The
+  returned value becomes the candidate for the general `type_promotion`
+  mapping, so the transform always runs first.
+- Ordinary numeric arrays are converted element by element when their elements
+  match a mapping rule. Their shape is preserved.
+- The policy covers supplied object statuses, model input and output defaults,
+  and statuses of objects registered later through the lifecycle API.
+- The policy is limited to status values. Model parameters, environment values,
+  constants, object labels, and topology are not converted.
+- Conversion occurs during status materialization or object registration, not
+  on every call to a model kernel.
+- `Diagnostics.explain_initialization(model)` reports `declared_type`,
+  `original_type`, `transformed_type`, and `effective_type`, plus flags and the
+  selected mapping rule for each initialized value.
+
+The effective status type must be supported by the model kernel. Generic
+`Required` declarations and generic computations allow the same model to use
+`Float32`, uncertainty-carrying numbers, or another compatible numeric type.
+See [Numerical Reliability](../guides/data/numerical_reliability.md) for
+complete examples.
 
 ### Selectors
 
