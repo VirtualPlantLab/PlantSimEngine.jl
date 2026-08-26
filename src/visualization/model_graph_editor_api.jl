@@ -870,12 +870,19 @@ end
 
 function _set_model_object_status!(model, object_id, variable, value)
     object = _model_object(model, object_id)
+    effective, _, _ = _materialize_status_value(
+        model,
+        Symbol(variable),
+        value;
+        object_id=object.id,
+        origin=:graph_edit_status,
+    )
     values = _model_edit_status_values(object.status)
     index = findfirst(pair -> first(pair) == variable, values)
     if isnothing(index)
-        push!(values, variable => value)
+        push!(values, variable => effective)
     else
-        values[index] = variable => value
+        values[index] = variable => effective
     end
     _replace_model_object_status!(model, object, Status((; values...)))
     delete!(
@@ -1040,6 +1047,9 @@ function _model_edit_rebuild_instances(
         instances=instances,
         environment=model.environment,
         source_adapter=model.source_adapter,
+        _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records,
     )
     for (index, application) in pairs(rebuilt.applications)
         application_id = _model_edit_application_id(application)
@@ -1146,6 +1156,9 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetCompositeModel
         instances=Tuple(_model_edit_normalize_instance(instance) for instance in model.instances),
         environment=edit.environment,
         source_adapter=model.source_adapter,
+        _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records,
     )
 end
 

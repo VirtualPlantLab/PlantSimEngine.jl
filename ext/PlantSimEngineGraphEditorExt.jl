@@ -1040,10 +1040,218 @@ function _editor_html(session)
     return replace(html, "</head>" => "$(script)</head>")
 end
 
+function _status_conversion_module_code(module_::Module)
+    label = string(module_)
+    all(Base.isidentifier, split(label, '.')) || return nothing
+    return label
+end
+
+function _status_conversion_type_code(type_)
+    type_ isa DataType || return nothing
+    name = String(nameof(type_))
+    Base.isidentifier(name) || return nothing
+    occursin('#', name) && return nothing
+    module_ = parentmodule(type_)
+    module_code = _status_conversion_module_code(module_)
+    isnothing(module_code) && return nothing
+    isdefined(module_, Symbol(name)) || return nothing
+    getfield(module_, Symbol(name)) === type_.name.wrapper || return nothing
+    base = module_ in (Base, Core) ? name : "$(module_code).$(name)"
+    isempty(type_.parameters) && return base
+    parameter_codes = String[]
+    for parameter in type_.parameters
+        code = parameter isa Type ?
+               _status_conversion_type_code(parameter) :
+               _status_conversion_literal_code(parameter)
+        isnothing(code) && return nothing
+        push!(parameter_codes, code)
+    end
+    return "$(base){$(join(parameter_codes, ", "))}"
+end
+
+function _status_conversion_tuple_code(codes::Vector{String})
+    isempty(codes) && return "()"
+    length(codes) == 1 && return "($(only(codes)),)"
+    return "($(join(codes, ", ")))"
+end
+
+function _status_conversion_array_code(value::Array)
+    element_type = _status_conversion_type_code(eltype(value))
+    isnothing(element_type) && return nothing
+    elements = String[]
+    for item in value
+        code = _status_conversion_literal_code(item)
+        isnothing(code) && return nothing
+        push!(elements, code)
+    end
+    vector = "$(element_type)[$(join(elements, ", "))]"
+    ndims(value) == 1 && return vector
+    ndims(value) == 0 && return "reshape($(vector), ())"
+    return "reshape($(vector), $(join(size(value), ", ")))"
+end
+
+function _status_conversion_literal_code(value)
+    value === nothing && return "nothing"
+    value === missing && return "missing"
+    value isa Type && return _status_conversion_type_code(value)
+    if value isa PlantSimEngine.ObjectId
+        identifier = _status_conversion_literal_code(value.value)
+        isnothing(identifier) && return nothing
+        return "PlantSimEngine.ObjectId($(identifier))"
+    end
+    value isa Union{Bool,Integer,Float16,Float32,Float64,Char,AbstractString,Symbol} &&
+        return repr(value)
+    if value isa Pair
+        first_code = _status_conversion_literal_code(first(value))
+        last_code = _status_conversion_literal_code(last(value))
+        (isnothing(first_code) || isnothing(last_code)) && return nothing
+        return "$(first_code) => $(last_code)"
+    end
+    if value isa NamedTuple
+        names_code = _status_conversion_literal_code(Tuple(keys(value)))
+        values_code = _status_conversion_literal_code(Tuple(values(value)))
+        (isnothing(names_code) || isnothing(values_code)) && return nothing
+        return "NamedTuple{$(names_code)}($(values_code))"
+    end
+    if value isa Tuple
+        codes = String[]
+        for item in value
+            code = _status_conversion_literal_code(item)
+            isnothing(code) && return nothing
+            push!(codes, code)
+        end
+        return _status_conversion_tuple_code(codes)
+    end
+    value isa Array && return _status_conversion_array_code(value)
+    return nothing
+end
+
+function _status_transform_code(transform)
+    isnothing(transform) && return "nothing"
+    try
+        Meta.parse(repr(transform))
+    catch
+        return nothing
+    end
+
+    transform_type = typeof(transform)
+    type_name = String(nameof(transform_type))
+    (Base.isidentifier(type_name) && !occursin('#', type_name)) || return nothing
+    if transform isa Function
+        name = nameof(transform)
+        module_ = parentmodule(transform_type)
+        module_code = _status_conversion_module_code(module_)
+        isnothing(module_code) && return nothing
+        isdefined(module_, name) || return nothing
+        getfield(module_, name) === transform || return nothing
+        return "$(module_code).$(name)"
+    end
+
+    type_code = _status_conversion_type_code(transform_type)
+    isnothing(type_code) && return nothing
+    fields = Any[getfield(transform, index) for index in 1:fieldcount(transform_type)]
+    field_codes = String[]
+    for field in fields
+        code = _status_conversion_literal_code(field)
+        isnothing(code) && return nothing
+        push!(field_codes, code)
+    end
+    applicable(transform_type, fields...) || return nothing
+    reconstructed = try
+        transform_type(fields...)
+    catch
+        return nothing
+    end
+    typeof(reconstructed) === transform_type || return nothing
+    all(
+        isequal(getfield(reconstructed, index), getfield(transform, index))
+        for index in 1:fieldcount(transform_type)
+    ) || return nothing
+    return "$(type_code)($(join(field_codes, ", ")))"
+end
+
+function _status_conversion_policy_code(model, diagnostics)
+    policy = model.status_conversion
+    isempty(policy.rules) && isnothing(policy.transform) && return nothing
+
+    rule_codes = String[]
+    mapping_safe = true
+    for rule in policy.rules
+        source = _status_conversion_type_code(first(rule))
+        target = _status_conversion_type_code(last(rule))
+        if isnothing(source) || isnothing(target)
+            mapping_safe = false
+            break
+        end
+        push!(rule_codes, "$(source) => $(target)")
+    end
+    if !mapping_safe
+        empty!(rule_codes)
+        push!(
+            diagnostics,
+            "The Composite model type_promotion rules are not reconstructed because at least one mapped type has no safe Julia representation. Existing effective Status values are preserved, but future status materialization will not apply the mapping.",
+        )
+    end
+    sort!(rule_codes)
+
+    transform_code = _status_transform_code(policy.transform)
+    if isnothing(transform_code)
+        transform_repr = replace(repr(policy.transform), '\n' => ' ')
+        push!(
+            diagnostics,
+            "The Composite model status_transform `$(transform_repr)` is not reconstructed because its repr is not a safely reconstructible named function or functor. Existing effective Status values are preserved, but future defaults and registered objects use only reconstructible type_promotion rules.",
+        )
+        transform_code = "nothing"
+    elseif !isnothing(policy.transform) &&
+           Base.moduleroot(parentmodule(typeof(policy.transform))) === Main
+        push!(
+            diagnostics,
+            "The Composite model status_transform type $(typeof(policy.transform)) is defined in Main. Define or include it before evaluating this generated Composite model script.",
+        )
+    end
+
+    rules = _status_conversion_tuple_code(rule_codes)
+    return "PlantSimEngine.StatusConversionPolicy($(rules), $(transform_code))"
+end
+
+function _status_conversion_record_code(record)
+    record isa PlantSimEngine.StatusConversionRecord || return nothing
+    arguments = String[]
+    for field in fieldnames(typeof(record))
+        code = _status_conversion_literal_code(getfield(record, field))
+        isnothing(code) && return nothing
+        push!(arguments, code)
+    end
+    return "PlantSimEngine.StatusConversionRecord($(join(arguments, ", ")))"
+end
+
+function _status_conversion_records_code(model, diagnostics)
+    isempty(model.status_conversion_records) && return nothing
+    entries = String[]
+    for (key, record) in model.status_conversion_records
+        key_code = _status_conversion_literal_code(key)
+        record_code = _status_conversion_record_code(record)
+        if isnothing(key_code) || isnothing(record_code)
+            push!(
+                diagnostics,
+                "The Composite model status-conversion records contain a value with no safe Julia representation. Generated code omits those diagnostic records while preserving effective Status values and the reconstructible policy.",
+            )
+            return nothing
+        end
+        push!(entries, "$(key_code) => $(record_code)")
+    end
+    sort!(entries)
+    return "Dict{Any,Any}($(join(entries, ", ")))"
+end
+
 function _model_to_julia(session::GraphEditorSession)
     model = session.model
     io = IOBuffer()
     diagnostics = String[]
+    status_conversion = _status_conversion_policy_code(model, diagnostics)
+    status_conversion_records = isnothing(status_conversion) ?
+                                nothing :
+                                _status_conversion_records_code(model, diagnostics)
     modules = _model_code_modules(model)
     for module_name in sort!(collect(modules))
         println(io, "using $(module_name)")
@@ -1111,7 +1319,18 @@ function _model_to_julia(session::GraphEditorSession)
     end
     println(io, ")")
     environment = _environment_value_code(session, model.environment)
-    print(io, "model = CompositeModel(objects...; applications=applications, instances=instances, environment=$(environment))")
+    options = String[
+        "applications=applications",
+        "instances=instances",
+        "environment=$(environment)",
+    ]
+    if !isnothing(status_conversion)
+        push!(options, "_status_conversion=$(status_conversion)")
+        push!(options, "_status_values_materialized=true")
+        isnothing(status_conversion_records) ||
+            push!(options, "_status_conversion_records=$(status_conversion_records)")
+    end
+    print(io, "model = CompositeModel(objects...; $(join(options, ", ")))")
     return String(take!(io))
 end
 

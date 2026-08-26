@@ -54,6 +54,15 @@ struct ModelGraphGenericTypeModel <: AbstractModelGraphGenericTypeModel end
 PlantSimEngine.inputs_(::ModelGraphGenericTypeModel) = (driver=Required(Real),)
 PlantSimEngine.outputs_(::ModelGraphGenericTypeModel) = (result=0.0,)
 
+struct ModelGraphStatusTransformCounter
+    calls::Base.RefValue{Int}
+end
+
+function (counter::ModelGraphStatusTransformCounter)(variable, value)
+    counter.calls[] += 1
+    return value
+end
+
 struct ModelGraphWeatherBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
 struct ModelGraphCanopyBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
 PlantSimEngine.EnvironmentAPI.environment_variables(::ModelGraphWeatherBackend) = (:T, :RH)
@@ -899,7 +908,10 @@ end
     )
 end
 
-function model_graph_override_fixture()
+function model_graph_override_fixture(;
+    type_promotion=nothing,
+    status_transform=nothing,
+)
     template = CompositeModelTemplate(
         (
             ModelSpec(ModelGraphSourceModel(1.0); name=:source, on=Many(scale=:Leaf)),
@@ -919,7 +931,9 @@ function model_graph_override_fixture()
             template;
             root=Object(:plant_b; scale=:Plant),
             objects=(Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),),
-        ),
+        );
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
@@ -997,6 +1011,34 @@ end
         model,
         SetModelInstanceOverride(:plant_b, :source, ModelGraphConsumerModel()),
     )
+end
+
+@testset "CompositeModel graph rebuilds preserve materialized status policy" begin
+    transform = ModelGraphStatusTransformCounter(Ref(0))
+    model = model_graph_override_fixture(
+        ; type_promotion=Dict(Float64 => Float32), status_transform=transform,
+    )
+    materialization_calls = transform.calls[]
+    @test materialization_calls > 0
+
+    overridden = apply_model_graph_edit(
+        model,
+        SetModelInstanceOverride(:plant_b, :source, ModelGraphSourceModel(2.0)),
+    )
+    overridden_transform = overridden.status_conversion.transform
+    @test overridden_transform isa ModelGraphStatusTransformCounter
+    @test overridden_transform.calls[] == materialization_calls
+    @test model_status(overridden, :leaf_a).driver isa Float32
+    @test model_status(overridden, :leaf_b).driver isa Float32
+
+    changed_environment = apply_model_graph_edit(
+        overridden,
+        SetCompositeModelEnvironment(ModelGraphCanopyBackend()),
+    )
+    changed_transform = changed_environment.status_conversion.transform
+    @test changed_transform isa ModelGraphStatusTransformCounter
+    @test changed_transform.calls[] == materialization_calls
+    @test changed_environment.environment isa ModelGraphCanopyBackend
 end
 
 @testset "CompositeModel graph object override edit" begin
