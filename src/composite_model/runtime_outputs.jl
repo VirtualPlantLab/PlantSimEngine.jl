@@ -434,6 +434,15 @@ function output_targets(context, group)
     )
 end
 
+"""
+    CallTarget
+
+One resolved executable target of a declared hard call. Obtain targets from a
+[`CallTargets`](@ref) collection with [`call_targets`](@ref), then pass an
+individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
+view owned by its compiled simulation; construct hard-call relationships with
+`ModelSpec(...; calls=...)` rather than constructing this type directly.
+"""
 struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
