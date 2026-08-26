@@ -3839,11 +3839,17 @@ function _stream_only_initial_reference(
         application = only(matching_applications)
         if _publish_mode_for_output(application.spec, source_var) ==
            :stream_only
-            return Ref(
-                _private_initial_value(
-                    getproperty(outputs_(application.spec), source_var),
-                ),
+            initial, _, _ = _materialize_status_value(
+                model,
+                source_var,
+                getproperty(outputs_(application.spec), source_var);
+                object_id=source_id,
+                application_id=application.id,
+                origin=:stream_only_source_default,
+                private_copy=true,
+                reuse=true,
             )
+            return Ref(initial)
         end
     end
     return _status_ref_or_nothing(
@@ -3904,9 +3910,26 @@ function _status_with_reference(status::Status, variable::Symbol, reference::Bas
     return Status(NamedTuple{extended_names}(references))
 end
 
-function _status_with_default(status::Status, variable::Symbol, value)
+function _status_with_default(
+    model::CompositeModel,
+    status::Status,
+    object_id::ObjectId,
+    variable::Symbol,
+    value;
+    application_id=nothing,
+    origin=:model_default,
+)
     variable in propertynames(status) && return status
-    return _status_with_reference(status, variable, Ref(value))
+    initial, _, _ = _materialize_status_value(
+        model,
+        variable,
+        value;
+        object_id=object_id,
+        application_id=application_id,
+        origin=origin,
+        private_copy=true,
+    )
+    return _status_with_reference(status, variable, Ref(initial))
 end
 
 function _ensure_model_object_status!(model::CompositeModel, object_id::ObjectId)
@@ -3928,9 +3951,13 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
                 _publish_mode_for_output(application.spec, variable) ==
                     :canonical || continue
                 status = _status_with_default(
+                    model,
                     status,
+                    object_id,
                     variable,
-                    _private_initial_value(value),
+                    value;
+                    application_id=application.id,
+                    origin=:model_output_default,
                 )
             end
             _replace_model_object_status!(model, object_id, status)
@@ -4009,9 +4036,13 @@ function _prepare_model_output_destination_statuses!(
                 declaration isa Default || continue
                 variable = Symbol(variable_)
                 status = _status_with_default(
+                    model,
                     status,
+                    destination_id,
                     variable,
-                    _private_initial_value(_input_default(declaration)),
+                    _input_default(declaration);
+                    application_id=resolved.plan.application_id,
+                    origin=:distributed_output_default,
                 )
             end
             _replace_model_object_status!(model, destination_id, status)
@@ -4187,9 +4218,13 @@ function _prepare_model_input_defaults!(model::CompositeModel, applications)
                 variable = Symbol(variable)
                 variable in propertynames(status) && continue
                 status = _status_with_default(
+                    model,
                     status,
+                    object_id,
                     variable,
-                    _private_initial_value(value),
+                    value;
+                    application_id=application.id,
+                    origin=:model_input_default,
                 )
                 push!(
                     get!(
@@ -4416,12 +4451,19 @@ function _compile_model_status_view(
         if _publish_mode_for_output(application.spec, variable) ==
            :stream_only
     )
-    private_outputs = NamedTuple{private_output_names}(
-        Tuple(
-            Ref(_private_initial_value(getproperty(output_defaults, name)))
-            for name in private_output_names
-        ),
-    )
+    private_outputs = NamedTuple{private_output_names}(Tuple(begin
+        initial, _, _ = _materialize_status_value(
+            model,
+            name,
+            getproperty(output_defaults, name);
+            object_id=object_id,
+            application_id=application.id,
+            origin=:stream_only_private_default,
+            private_copy=true,
+            reuse=true,
+        )
+        Ref(initial)
+    end for name in private_output_names))
     canonical_names = propertynames(canonical_status)
     private_names = Tuple(
         name for name in private_output_names

@@ -58,6 +58,10 @@ else
         include("test-model-status-initialization.jl")
     end
 
+    @testset "Composite model status type conversion" begin
+        include("test-model-status-type-conversion.jl")
+    end
+
     @testset "Composite model output boundaries" begin
         include("test-model-output-boundaries.jl")
     end

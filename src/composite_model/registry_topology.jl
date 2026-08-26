@@ -354,12 +354,16 @@ function LifecycleDelta(;
     )
 end
 
-mutable struct CompositeModel{R,A,E,I,SA}
+mutable struct CompositeModel{R,A,E,I,SA,SC}
     registry::R
     applications::A
     environment::E
     instances::I
     source_adapter::SA
+    status_conversion::SC
+    status_conversion_records::Dict{Any,Any}
+    status_source_owners::IdDict{Base.RefValue{Nothing},ObjectId}
+    status_source_identities::Dict{ObjectId,Base.RefValue{Nothing}}
     binding_cache::Any
     environment_binding_cache::Any
     bindings_dirty::Bool
@@ -458,7 +462,11 @@ function _prepare_object_instances!(objects, instances)
     return instance_ids
 end
 
-function _register_objects!(model::CompositeModel, objects)
+function _register_objects!(
+    model::CompositeModel,
+    objects;
+    status_values_materialized::Bool=false,
+)
     pending = copy(objects)
     added = Object[]
     while !isempty(pending)
@@ -466,7 +474,11 @@ function _register_objects!(model::CompositeModel, objects)
         for index in reverse(eachindex(pending))
             object = pending[index]
             if isnothing(object.parent) || haskey(model.registry.objects, object.parent)
-                _register_object_without_lifecycle!(model, object)
+                _register_object_without_lifecycle!(
+                    model,
+                    object;
+                    status_values_materialized=status_values_materialized,
+                )
                 push!(added, object)
                 deleteat!(pending, index)
                 registered = true
@@ -480,11 +492,12 @@ function _register_objects!(model::CompositeModel, objects)
     return model
 end
 
-_register_model_objects!(model::CompositeModel, objects) =
-    _register_objects!(model, objects)
+_register_model_objects!(model::CompositeModel, objects; kwargs...) =
+    _register_objects!(model, objects; kwargs...)
 
 """
-    CompositeModel(items...; applications=(), instances=(), environment=nothing)
+    CompositeModel(items...; applications=(), instances=(), environment=nothing,
+                   type_promotion=nothing, status_transform=nothing)
 
 Create a model from `Object` and `ObjectInstance` values. Global applications
 and applications mounted from object instances are compiled through the same
@@ -496,18 +509,40 @@ function CompositeModel(
     instances=(),
     environment=nothing,
     source_adapter=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
+    _status_conversion=nothing,
+    _status_values_materialized::Bool=false,
+    _status_conversion_records=nothing,
 )
     objects, mounted_instances = _collect_model_items(items, instances)
     instance_ids = _prepare_object_instances!(objects, mounted_instances)
     mounted_applications = _mount_object_instance_applications(mounted_instances, instance_ids)
     normalized_applications = collect(Any, _as_tuple(applications))
     append!(normalized_applications, mounted_applications)
+    if !isnothing(_status_conversion) &&
+       (!isnothing(type_promotion) || !isnothing(status_transform))
+        error(
+            "Internal materialized model reconstruction cannot combine a " *
+            "normalized status policy with public status-conversion keywords.",
+        )
+    end
+    status_conversion = isnothing(_status_conversion) ?
+                        _status_conversion_policy(type_promotion, status_transform) :
+                        _status_conversion
+    conversion_records = isnothing(_status_conversion_records) ?
+                         Dict{Any,Any}() :
+                         copy(_status_conversion_records)
     model = CompositeModel(
         ObjectRegistry(),
         normalized_applications,
         environment,
         mounted_instances,
         source_adapter,
+        status_conversion,
+        conversion_records,
+        IdDict{Base.RefValue{Nothing},ObjectId}(),
+        Dict{ObjectId,Base.RefValue{Nothing}}(),
         nothing,
         nothing,
         true,
@@ -521,13 +556,18 @@ function CompositeModel(
         0,
         0,
     )
-    return _register_model_objects!(model, objects)
+    return _register_model_objects!(
+        model,
+        objects;
+        status_values_materialized=_status_values_materialized,
+    )
 end
 
 """
     CompositeModel(template::CompositeModelTemplate;
                    root, objects=(), name=nothing, overrides=NamedTuple(),
-                   object_overrides=(), applications=(), environment=nothing)
+                   object_overrides=(), applications=(), environment=nothing,
+                   type_promotion=nothing, status_transform=nothing)
 
 Build an executable composite model from a reusable template mounted on one
 concrete object subtree. `root` may be the owned root `Object`, or its id when
@@ -549,6 +589,8 @@ function CompositeModel(
     applications=(),
     environment=nothing,
     source_adapter=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     inferred_name = if !isnothing(name)
         Symbol(name)
@@ -572,13 +614,16 @@ function CompositeModel(
         applications=applications,
         environment=environment,
         source_adapter=source_adapter,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
 """
     CompositeModel(model::AbstractModel, models::AbstractModel...;
           status=NamedTuple(), id=:scene, scale=:Scene, kind=nothing,
-          name=id, environment=nothing, timestep=nothing)
+          name=id, environment=nothing, timestep=nothing,
+          type_promotion=nothing, status_transform=nothing)
 
 Construct a concise one-object simulation. This is syntax lowering only: it
 creates one ordinary [`Object`](@ref), one normal `ModelSpec` per model, and a
@@ -600,6 +645,8 @@ function CompositeModel(
     name=id,
     environment=nothing,
     timestep=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     object_name = isnothing(name) ? nothing : Symbol(string(name))
     object_status = if status isa Status || isnothing(status)
@@ -626,6 +673,8 @@ function CompositeModel(
         );
         applications=applications,
         environment=environment,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
@@ -717,7 +766,8 @@ end
 
 """
     CompositeModel(root::MultiScaleTreeGraph.Node; applications=(), instances=(),
-          environment=nothing, id=node_id, scale=symbol, status=..., ...)
+    environment=nothing, type_promotion=nothing, status_transform=nothing,
+    id=node_id, scale=symbol, status=..., ...)
 
 Build a unified model directly from an MTG subtree. The MTG accessors are
 retained and reused by [`add_organ!`](@ref) when the topology grows.
@@ -734,6 +784,8 @@ function CompositeModel(
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
     status=_no_mtg_status,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     adapter = MTGObjectAdapter(
         root,
@@ -755,6 +807,8 @@ function CompositeModel(
         instances=instances,
         environment=environment,
         source_adapter=adapter,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
@@ -941,6 +995,57 @@ function _validate_status_identity_available!(
     return nothing
 end
 
+function _validate_status_source_identity_available!(
+    model::CompositeModel,
+    status,
+    object_id::ObjectId,
+)
+    status isa Status || return nothing
+    existing = get(
+        model.status_source_owners,
+        _status_identity(status),
+        nothing,
+    )
+    if !isnothing(existing) && existing != object_id
+        throw(
+            ArgumentError(
+                "The same Status instance cannot be owned by model objects " *
+                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
+                "its own Status instance.",
+            ),
+        )
+    end
+    return nothing
+end
+
+function _set_status_source_identity!(
+    model::CompositeModel,
+    object_id::ObjectId,
+    status,
+)
+    previous = get(model.status_source_identities, object_id, nothing)
+    if !isnothing(previous) &&
+       get(model.status_source_owners, previous, nothing) == object_id
+        delete!(model.status_source_owners, previous)
+    end
+    if status isa Status
+        identity = _status_identity(status)
+        model.status_source_owners[identity] = object_id
+        model.status_source_identities[object_id] = identity
+    else
+        delete!(model.status_source_identities, object_id)
+    end
+    return nothing
+end
+
+function _delete_status_source_identity!(model::CompositeModel, object_id::ObjectId)
+    identity = pop!(model.status_source_identities, object_id, nothing)
+    isnothing(identity) && return nothing
+    get(model.status_source_owners, identity, nothing) == object_id &&
+        delete!(model.status_source_owners, identity)
+    return nothing
+end
+
 function _replace_model_object_status!(
     model::CompositeModel,
     object::Object,
@@ -964,6 +1069,7 @@ function _replace_model_object_status!(
     setfield!(object, :status, status)
     status isa Status &&
         (registry.object_ids_by_status[_status_identity(status)] = object.id)
+    _set_status_source_identity!(model, object.id, status)
     return status
 end
 
@@ -1175,6 +1281,7 @@ function _register_object_without_lifecycle!(
     model::CompositeModel,
     object::Object;
     parent=object.parent,
+    status_values_materialized::Bool=false,
 )
     registry = model.registry
     haskey(registry.objects, object.id) && error("CompositeModel already contains object id `$(object.id.value)`.")
@@ -1188,12 +1295,18 @@ function _register_object_without_lifecycle!(
             "CompositeModel object name `$(object.name)` is already used by object `$(existing.value)`."
         )
     end
+    source_status = object.status
+    _validate_status_source_identity_available!(model, source_status, object.id)
+    object.status = status_values_materialized ?
+                    source_status :
+                    _convert_registered_status(model, object.id, source_status)
     _validate_status_identity_available!(registry, object.status, object.id)
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
     registry.objects[object.id] = object
     _index_object!(registry, object)
+    _set_status_source_identity!(model, object.id, source_status)
     parent_ancestors = isnothing(parent_id) ?
                        ObjectId[] :
                        _object_ancestor_ids(registry, parent_id)
@@ -1348,8 +1461,8 @@ function add_organ!(
             geometry=adapter.geometry(node),
             status=status,
         )
-        register_object!(model, object)
-        return status
+        registered = register_object!(model, object)
+        return registered.status
     catch
         _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)
@@ -1419,6 +1532,7 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
         adapter isa MTGObjectAdapter &&
             _unregister_mtg_object_identity!(adapter, object_id)
         _deindex_object!(model.registry, removed)
+        _delete_status_source_identity!(model, object_id)
         delete!(model.registry.objects, object_id)
         delete!(model.registry.ancestor_ids_by_object, object_id)
         delete!(model.input_default_status_variables, object_id)
