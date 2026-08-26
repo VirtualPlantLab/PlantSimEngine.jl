@@ -1352,14 +1352,34 @@ function _status_data!(data::Dict{Symbol,Any}, values)
         "`Base.Pairs`, or `nothing`, got `$(typeof(values))`."
     )
     for (key, value) in pairs(source)
-        Symbol(key) == :plantsimengine_status && error(
+        if Symbol(key) == :plantsimengine_status
+            # ColumnarAttrs retains an empty column after a rejected node is
+            # removed. Treat that schema placeholder as absent without deleting
+            # the shared column; a real runtime status value remains forbidden.
+            isnothing(value) && continue
+            error(
+                "`plantsimengine_status` is runtime state, not an organ attribute. " *
+                "Pass scientific initial values through `initial_status` and resolve " *
+                "runtime status with `model_status`.",
+            )
+        end
+        data[Symbol(key)] = value
+    end
+    return data
+end
+
+function _validate_organ_attributes(attributes)
+    source = attributes isa Status ? NamedTuple(attributes) : attributes
+    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || return attributes
+    for (key, _) in pairs(source)
+        Symbol(key) == :plantsimengine_status || continue
+        error(
             "`plantsimengine_status` is runtime state, not an organ attribute. " *
             "Pass scientific initial values through `initial_status` and resolve " *
             "runtime status with `model_status`.",
         )
-        data[Symbol(key)] = value
     end
-    return data
+    return attributes
 end
 
 function _organ_status(
@@ -1421,6 +1441,10 @@ function add_organ!(
         "`add_organ!` requires a model constructed from an MTG. Use ",
         "`register_object!` for composite models built directly from `Object` values."
     )
+    # Reject the reserved runtime field before constructing the MTG node. A
+    # rejected ColumnarAttrs insertion would otherwise leave an empty schema
+    # column visible on later nodes of the same organ symbol.
+    _validate_organ_attributes(attributes)
     # Resolve the exact registered node before advancing ids or mutating either
     # the source MTG or the runtime registry.
     parent_id = object_id(model, parent_node)
