@@ -128,6 +128,31 @@ end
         for ((_, _, variable), stream) in outputs(simulation)
         if variable === :result
     )
+
+    initialization = Diagnostics.explain_initialization(model)
+    supplied_row = only(
+        row for row in initialization
+        if row.role === :input && row.variable === :supplied
+    )
+    offset_row = only(
+        row for row in initialization
+        if row.role === :input && row.variable === :offset
+    )
+    result_row = only(
+        row for row in initialization
+        if row.role === :output && row.variable === :result
+    )
+    @test supplied_row.declared_type === Real
+    @test supplied_row.original_type === Float64
+    @test supplied_row.effective_type === Float32
+    @test supplied_row.type_mapping_applied
+    @test supplied_row.type_mapping_rule == (Float64 => Float32)
+    @test offset_row.declared_type === Float64
+    @test offset_row.original_type === Float64
+    @test offset_row.effective_type === Float32
+    @test result_row.declared_type === Float64
+    @test result_row.original_type === Float64
+    @test result_row.effective_type === Float32
 end
 
 @testset "numeric arrays preserve shape and unrelated values" begin
@@ -152,6 +177,29 @@ end
     @test status.mixed[1] isa Float32
     @test status.mixed[2] isa Int
     @test status.custom isa StatusTransformContainer{Vector{Float64}}
+end
+
+@testset "initialization diagnostics record precise transforms" begin
+    transform = (variable, value) ->
+        variable === :supplied ? BigFloat(value) : value
+    model = CompositeModel(
+        StatusTypeConversionModel();
+        status=(supplied=1.25,),
+        type_promotion=Dict(Float64 => Float32),
+        status_transform=transform,
+    )
+    initialization = Diagnostics.explain_initialization(model)
+    supplied_row = only(
+        row for row in initialization
+        if row.role === :input && row.variable === :supplied
+    )
+
+    @test supplied_row.original_type === Float64
+    @test supplied_row.transformed_type === BigFloat
+    @test supplied_row.effective_type === BigFloat
+    @test supplied_row.status_transform_applied
+    @test supplied_row.status_transform_changed
+    @test !supplied_row.type_mapping_applied
 end
 
 @testset "precise transform runs before the general type mapping" begin
@@ -197,7 +245,7 @@ end
     )
     exception = try
         CompositeModel(
-            Object(:scene; status=Status(value=1.0));
+            Object(:scene);
             type_promotion=ambiguous_rules,
         )
         nothing

@@ -502,6 +502,13 @@ _register_model_objects!(model::CompositeModel, objects; kwargs...) =
 Create a model from `Object` and `ObjectInstance` values. Global applications
 and applications mounted from object instances are compiled through the same
 composite-model/object dependency graph.
+
+`type_promotion` maps source value types to target types for one-time status
+materialization. `status_transform(variable, value)` optionally handles
+variable-specific cases first; the mapping is applied to its returned value.
+Numeric `Array` values are mapped element by element while arbitrary user
+structs are left untouched. The policy applies to statuses registered later,
+but not to model parameters or environment values.
 """
 function CompositeModel(
     items::Union{Object,ObjectInstance}...;

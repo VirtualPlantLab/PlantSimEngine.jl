@@ -45,7 +45,27 @@ function _normalize_status_type_rules(type_promotion)
         push!(normalized, source => target)
     end
     sort!(normalized; by=rule -> (string(first(rule)), string(last(rule))))
+    _validate_status_type_rule_overlaps(normalized)
     return Tuple(normalized)
+end
+
+function _validate_status_type_rule_overlaps(rules)
+    for left_index in eachindex(rules)
+        left = first(rules[left_index])
+        for right_index in (left_index + 1):lastindex(rules)
+            right = first(rules[right_index])
+            (left <: right || right <: left) && continue
+            overlap = typeintersect(left, right)
+            overlap === Union{} && continue
+            any(rule -> first(rule) === overlap, rules) && continue
+            error(
+                "Ambiguous `type_promotion` rules: source types `$(left)` and " *
+                "`$(right)` overlap at `$(overlap)` but neither is more specific. " *
+                "Add an exact rule for the overlap or remove one source type.",
+            )
+        end
+    end
+    return rules
 end
 
 function _status_conversion_policy(type_promotion, status_transform)

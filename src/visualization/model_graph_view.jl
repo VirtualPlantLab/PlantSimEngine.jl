@@ -640,9 +640,13 @@ function _model_graph_json_value(value)
     value === nothing && return nothing
     value === missing && return nothing
     value isa Bool && return value
-    if value isa Real
+    if value isa Integer
+        return value isa BigInt ? string(value) : value
+    end
+    if value isa Union{Float16,Float32,Float64}
         return isfinite(value) ? value : string(value)
     end
+    value isa Real && return string(value)
     value isa AbstractString && return String(value)
     value isa Symbol && return string(value)
     value isa ObjectId && return _model_graph_json_value(value.value)
@@ -1555,6 +1559,60 @@ function _model_graph_initialization(report)
         row["role"],
         row["variable"],
     ))
+    _model_graph_add_status_conversion!(rows, report)
+    return rows
+end
+
+function _model_graph_add_status_conversion!(rows, report)
+    explanations = try
+        explain_initialization(report.model)
+    catch
+        NamedTuple[]
+    end
+    by_key = Dict(
+        (
+            string(explanation.application_id),
+            _model_graph_json_value(explanation.object_id),
+            string(explanation.role),
+            string(explanation.variable),
+        ) => explanation
+        for explanation in explanations
+    )
+    for row in rows
+        explanation = get(
+            by_key,
+            (
+                row["applicationId"],
+                row["objectId"],
+                row["role"],
+                row["variable"],
+            ),
+            nothing,
+        )
+        row["declaredType"] = isnothing(explanation) ||
+                              isnothing(explanation.declared_type) ?
+                              nothing : string(explanation.declared_type)
+        row["originalType"] = isnothing(explanation) ||
+                              isnothing(explanation.original_type) ?
+                              nothing : string(explanation.original_type)
+        row["transformedType"] = isnothing(explanation) ||
+                                 isnothing(explanation.transformed_type) ?
+                                 nothing : string(explanation.transformed_type)
+        row["effectiveType"] = isnothing(explanation) ||
+                               isnothing(explanation.effective_type) ?
+                               nothing : string(explanation.effective_type)
+        row["statusTransformApplied"] =
+            !isnothing(explanation) && explanation.status_transform_applied
+        row["statusTransformChanged"] =
+            !isnothing(explanation) && explanation.status_transform_changed
+        row["typeMappingApplied"] =
+            !isnothing(explanation) && explanation.type_mapping_applied
+        row["typeMappingChanged"] =
+            !isnothing(explanation) && explanation.type_mapping_changed
+        row["typeMappingRule"] = isnothing(explanation) ?
+                                 nothing :
+                                 _model_graph_json_value(explanation.type_mapping_rule)
+    end
     return rows
 end
 

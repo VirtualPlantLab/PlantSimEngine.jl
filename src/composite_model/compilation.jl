@@ -2965,6 +2965,110 @@ function _validate_model_call_cadences!(applications, call_bindings, timeline)
     return nothing
 end
 
+function _initialization_effective_value(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    application_id::Symbol,
+    object_id::ObjectId,
+    variable::Symbol,
+)
+    view = get(
+        compiled.status_views_by_target,
+        (application_id, object_id),
+        nothing,
+    )
+    if !isnothing(view) && variable in propertynames(view.status)
+        return true, view.status[variable]
+    end
+    status = _model_object(model, object_id).status
+    if status isa Status && variable in propertynames(status)
+        return true, status[variable]
+    end
+    return false, nothing
+end
+
+function _initialization_conversion_record(
+    model::CompositeModel,
+    application_id,
+    object_id::ObjectId,
+    variable::Symbol,
+    origins,
+)
+    for origin in origins
+        record = get(
+            model.status_conversion_records,
+            _status_conversion_record_key(
+                variable;
+                object_id=object_id,
+                application_id=application_id,
+                origin=origin,
+            ),
+            nothing,
+        )
+        record isa StatusConversionRecord && return record
+    end
+    record = get(
+        model.status_conversion_records,
+        _status_conversion_record_key(
+            variable;
+            object_id=object_id,
+            origin=:supplied_status,
+        ),
+        nothing,
+    )
+    return record isa StatusConversionRecord ? record : nothing
+end
+
+function _initialization_conversion_fields(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    application_id::Symbol,
+    object_id::ObjectId,
+    variable::Symbol;
+    declared_type=nothing,
+    origins=(),
+)
+    record = _initialization_conversion_record(
+        model,
+        application_id,
+        object_id,
+        variable,
+        origins,
+    )
+    has_effective, effective = _initialization_effective_value(
+        model,
+        compiled,
+        application_id,
+        object_id,
+        variable,
+    )
+    effective_type = has_effective ? typeof(effective) : nothing
+    original_type = isnothing(record) ? effective_type : record.original_type
+    return (
+        declared_type=declared_type,
+        original_type=original_type,
+        transformed_type=isnothing(record) ? original_type : record.transformed_type,
+        effective_type=effective_type,
+        status_transform_applied=!isnothing(record) && record.transform_applied,
+        status_transform_changed=!isnothing(record) && record.transform_changed,
+        type_mapping_applied=!isnothing(record) && record.mapping_applied,
+        type_mapping_changed=!isnothing(record) && record.mapping_changed,
+        type_mapping_rule=isnothing(record) ? nothing : record.mapping_rule,
+    )
+end
+
+_no_initialization_conversion_fields(; declared_type=nothing) = (
+    declared_type=declared_type,
+    original_type=nothing,
+    transformed_type=nothing,
+    effective_type=nothing,
+    status_transform_applied=false,
+    status_transform_changed=false,
+    type_mapping_applied=false,
+    type_mapping_changed=false,
+    type_mapping_rule=nothing,
+)
+
 """
     explain_initialization(model::CompositeModel)
 
@@ -3025,6 +3129,18 @@ function explain_initialization(model::CompositeModel)
         for object_id in application.target_ids
             for variable in sort!(collect(generated); by=string)
                 default_value = getproperty(model_outputs, variable)
+                conversion = _initialization_conversion_fields(
+                    model,
+                    compiled,
+                    application.id,
+                    object_id,
+                    variable;
+                    declared_type=typeof(default_value),
+                    origins=(
+                        :model_output_default,
+                        :stream_only_private_default,
+                    ),
+                )
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -3038,11 +3154,15 @@ function explain_initialization(model::CompositeModel)
                     expected_type=typeof(default_value),
                     default_value=default_value,
                     provided_type=nothing,
+                    conversion...,
                     detail=nothing,
                 ))
             end
             for variable in sort!(Symbol.(collect(keys(environment_model_outputs))); by=string)
                 default_value = getproperty(environment_model_outputs, variable)
+                conversion = _no_initialization_conversion_fields(
+                    ; declared_type=typeof(default_value),
+                )
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -3056,6 +3176,7 @@ function explain_initialization(model::CompositeModel)
                     expected_type=typeof(default_value),
                     default_value=default_value,
                     provided_type=nothing,
+                    conversion...,
                     detail=nothing,
                 ))
             end
@@ -3091,6 +3212,17 @@ function explain_initialization(model::CompositeModel)
                 else
                     nothing
                 end
+                conversion = _initialization_conversion_fields(
+                    model,
+                    compiled,
+                    application.id,
+                    object_id,
+                    variable;
+                    declared_type=declaration isa Default ?
+                                  typeof(default_value) :
+                                  _input_expected_type(declaration),
+                    origins=(:model_input_default,),
+                )
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -3112,6 +3244,7 @@ function explain_initialization(model::CompositeModel)
                     expected_type=_input_expected_type(declaration),
                     default_value=default_value,
                     provided_type=provided_type,
+                    conversion...,
                     detail=disposition == :required ?
                            "Provide `$(variable)` on object `$(object_id.value)` Status or add `inputs=(:$(variable) => ..., )` to application `$(application.id)`." :
                            nothing,
@@ -3133,6 +3266,9 @@ function explain_initialization(model::CompositeModel)
                             environment_variables(environment_binding.backend)
                 bound = isnothing(available) || Symbol(source) in available
                 default_value = getproperty(environment_inputs, variable)
+                conversion = _no_initialization_conversion_fields(
+                    ; declared_type=typeof(default_value),
+                )
                 push!(rows, (
                     application_id=application.id,
                     object_id=object_id.value,
@@ -3146,6 +3282,7 @@ function explain_initialization(model::CompositeModel)
                     expected_type=typeof(default_value),
                     default_value=default_value,
                     provided_type=nothing,
+                    conversion...,
                     detail=bound ? nothing :
                            "Environment source `$(source)` is not available for this application/object.",
                 ))
@@ -4029,24 +4166,45 @@ function _prepare_model_output_destination_statuses!(
     model::CompositeModel,
     resolved_destinations,
 )
-    for resolved in resolved_destinations
-        for destination_id in resolved.destination_ids
-            status = _ensure_model_object_status!(model, destination_id)
-            for (variable_, declaration) in pairs(resolved.plan.declarations)
-                declaration isa Default || continue
-                variable = Symbol(variable_)
-                status = _status_with_default(
-                    model,
-                    status,
-                    destination_id,
-                    variable,
-                    _input_default(declaration);
-                    application_id=resolved.plan.application_id,
-                    origin=:distributed_output_default,
-                )
+    staged = Dict{ObjectId,Status}()
+    staged_order = ObjectId[]
+    records_before = copy(model.status_conversion_records)
+    try
+        for resolved in resolved_destinations
+            for destination_id in resolved.destination_ids
+                status = get(staged, destination_id, nothing)
+                if isnothing(status)
+                    current = _model_object(model, destination_id).status
+                    status = isnothing(current) ? Status() : current
+                    status isa Status || error(
+                        "Output destination `$(destination_id.value)` status must be " *
+                        "a `Status` or `nothing`, got `$(typeof(status))`.",
+                    )
+                    push!(staged_order, destination_id)
+                end
+                for (variable_, declaration) in pairs(resolved.plan.declarations)
+                    declaration isa Default || continue
+                    variable = Symbol(variable_)
+                    status = _status_with_default(
+                        model,
+                        status,
+                        destination_id,
+                        variable,
+                        _input_default(declaration);
+                        application_id=resolved.plan.application_id,
+                        origin=:distributed_output_default,
+                    )
+                end
+                staged[destination_id] = status
             end
-            _replace_model_object_status!(model, destination_id, status)
         end
+    catch
+        empty!(model.status_conversion_records)
+        merge!(model.status_conversion_records, records_before)
+        rethrow()
+    end
+    for destination_id in staged_order
+        _replace_model_object_status!(model, destination_id, staged[destination_id])
     end
     return model
 end

@@ -8,6 +8,7 @@ abstract type AbstractModelGraphCycleAModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphCycleBModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphEnvironmentModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphDistributedWriterModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractModelGraphGenericTypeModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractModelGraphSourceModel}) = :model_graph_source
 PlantSimEngine.process_(::Type{AbstractModelGraphConsumerModel}) = :model_graph_consumer
@@ -16,6 +17,8 @@ PlantSimEngine.process_(::Type{AbstractModelGraphCycleBModel}) = :model_graph_cy
 PlantSimEngine.process_(::Type{AbstractModelGraphEnvironmentModel}) = :model_graph_environment
 PlantSimEngine.process_(::Type{AbstractModelGraphDistributedWriterModel}) =
     :model_graph_distributed_writer
+PlantSimEngine.process_(::Type{AbstractModelGraphGenericTypeModel}) =
+    :model_graph_generic_type
 
 struct ModelGraphSourceModel{T} <: AbstractModelGraphSourceModel
     coefficient::T
@@ -46,6 +49,10 @@ PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temper
 struct ModelGraphDistributedWriterModel <: AbstractModelGraphDistributedWriterModel end
 PlantSimEngine.inputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
+
+struct ModelGraphGenericTypeModel <: AbstractModelGraphGenericTypeModel end
+PlantSimEngine.inputs_(::ModelGraphGenericTypeModel) = (driver=Required(Real),)
+PlantSimEngine.outputs_(::ModelGraphGenericTypeModel) = (result=0.0,)
 
 struct ModelGraphWeatherBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
 struct ModelGraphCanopyBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
@@ -508,6 +515,41 @@ end
     )
     @test unresolved["disposition"] == "required"
     @test view.metadata["unresolvedInitializationCount"] == 1
+end
+
+@testset "CompositeModel graph initialization reports effective status types" begin
+    model = CompositeModel(
+        Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
+        applications=(
+            ModelSpec(
+                ModelGraphGenericTypeModel();
+                name=:generic,
+                on=One(name=:leaf),
+            ),
+        ),
+        type_promotion=Dict(Float64 => Float32),
+    )
+    initialization = model_graph_view(model).initialization
+    driver = only(
+        row for row in initialization
+        if row["applicationId"] == "generic" && row["variable"] == "driver"
+    )
+    result = only(
+        row for row in initialization
+        if row["applicationId"] == "generic" && row["variable"] == "result"
+    )
+
+    @test driver["declaredType"] == "Real"
+    @test driver["originalType"] == "Float64"
+    @test driver["effectiveType"] == "Float32"
+    @test driver["typeMappingApplied"]
+    @test driver["typeMappingRule"] == Dict(
+        "first" => "Float64",
+        "second" => "Float32",
+    )
+    @test result["declaredType"] == "Float64"
+    @test result["originalType"] == "Float64"
+    @test result["effectiveType"] == "Float32"
 end
 
 @testset "CompositeModel graph edits are transactional" begin
