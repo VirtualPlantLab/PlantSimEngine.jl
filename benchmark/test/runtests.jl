@@ -90,6 +90,63 @@ if benchmark_test_enabled("PlantSimEngine benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("status registry benchmark API smoke")
+    @testset "status registry benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-status-registry-benchmark.jl",
+            ),
+        )
+        for nobjects in (32, 256, 1_024)
+            data = setup_status_registry_benchmark(nobjects)
+            @test length(data.statuses) == nobjects
+            @test all(
+                data.statuses[left] !== data.statuses[right]
+                for left in 2:nobjects
+                for right in 1:(left - 1)
+            )
+            # This benchmark uses standalone Objects, so there is no MTG node
+            # on which runtime status could be materialized as an attribute.
+            @test all(:node ∉ propertynames(status) for status in data.statuses)
+            @test benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            ) == data.lookup_id
+            @test all(
+                benchmark_status_registry_lookup(
+                    data.model,
+                    data.statuses[index],
+                ) == PlantSimEngine.ObjectId(index) for index in 1:nobjects
+            )
+            @test all(
+                PlantSimEngine.model_object(data.model, index).status ===
+                data.statuses[index] for index in 1:nobjects
+            )
+            @test benchmark_status_registry_sweep_checksum(
+                data.model,
+                data.statuses,
+            ) == data.expected_checksum
+
+            benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            )
+            @test benchmark_status_registry_lookup_allocations(
+                data.model,
+                data.lookup_status,
+            ) == 0
+            @test @allocated(
+                benchmark_status_registry_sweep_checksum(
+                    data.model,
+                    data.statuses,
+                )
+            ) == 0
+        end
+    end
+end
+
 if benchmark_test_enabled("multirate benchmark API smoke")
     @testset "multirate benchmark API smoke" begin
         include(joinpath(@__DIR__, "..", "test-multirate-buffer-benchmark.jl"))
@@ -725,6 +782,8 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
                 :SUITE,
             )[getfield(benchmark_module, :suite_name)]
             @test haskey(suite, "PSE_status_read_write")
+            @test haskey(suite, "PSE_status_registry_lookup_32")
+            @test haskey(suite, "PSE_status_registry_sweep_1024")
             @test haskey(suite, "PSE")
             @test haskey(suite, "PSE_hard_calls_zero")
             @test haskey(suite, "PSE_lifecycle_large")
@@ -795,6 +854,8 @@ if benchmark_test_enabled("legacy benchmark suite assembly smoke")
                 :SUITE,
             )[getfield(benchmark_module, :suite_name)]
             @test haskey(suite, "PSE_status_read_write")
+            @test !haskey(suite, "PSE_status_registry_lookup_32")
+            @test !haskey(suite, "PSE_status_registry_sweep_1024")
             @test !haskey(suite, "PSE")
             @test !haskey(suite, "PSE_multirate_no_output_run")
             @test !haskey(suite, "PSE_hard_calls_zero")

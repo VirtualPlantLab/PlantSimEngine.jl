@@ -42,6 +42,20 @@ end setup = (status = PlantSimEngine.Status(value=0.0))
 if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
     # Composite-model benchmarks cannot be constructed while AirspeedVelocity
     # evaluates this script against a pre-CompositeModel baseline revision.
+    include(joinpath(@__DIR__, "test-status-registry-benchmark.jl"))
+    for nobjects in (32, 256, 1_024)
+        SUITE[suite_name]["PSE_status_registry_lookup_$(nobjects)"] =
+            @benchmarkable benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            ) setup = (data = setup_status_registry_benchmark($nobjects))
+        SUITE[suite_name]["PSE_status_registry_sweep_$(nobjects)"] =
+            @benchmarkable benchmark_status_registry_sweep_checksum(
+                data.model,
+                data.statuses,
+            ) setup = (data = setup_status_registry_benchmark($nobjects))
+    end
+
     include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
     SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
         model,
