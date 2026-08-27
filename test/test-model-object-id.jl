@@ -263,6 +263,33 @@ end
     @test_throws ArgumentError object_id(model, old_leaf)
 end
 
+@testset "empty application plan survives structural refresh" begin
+    root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = Node(root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    Node(plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    model = CompositeModel(
+        root;
+        status=node -> Status(node=node, signal=0.0),
+    )
+    simulation = run!(model; steps=1, outputs=:none)
+    initial_step = current_step(simulation)
+
+    added = add_organ!(
+        plant,
+        model,
+        :+,
+        :Leaf,
+        2;
+        index=2,
+        initial_status=(signal=1.0,),
+    )
+    @test Advanced.bindings_dirty(model)
+    @test continue!(simulation) === simulation
+    @test current_step(simulation) == initial_step + 1
+    @test !Advanced.bindings_dirty(model)
+    @test object_id(model, added) == ObjectId(4)
+end
+
 @testset "registered Status identity resolution" begin
     status = Status(signal=1.0)
     object = Object(:leaf; scale=:Leaf, status=status)

@@ -1527,7 +1527,7 @@ function _compile_scene(
         call_owners,
         application_children,
         status_views_by_target,
-        Set(application.id for application in applications),
+        Set{Symbol}(application.id for application in applications),
         Set(keys(status_views_by_target)),
         false,
         application_order,
