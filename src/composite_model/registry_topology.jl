@@ -803,7 +803,7 @@ function CompositeModel(
         name,
         geometry,
         status,
-        Ref(MultiScaleTreeGraph.max_id(root)),
+        Ref(MultiScaleTreeGraph.new_id(root) - 1),
         IdDict{Any,ObjectId}(),
         Dict{ObjectId,Any}(),
     )
@@ -1450,9 +1450,10 @@ function add_organ!(
     parent_id = object_id(model, parent_node)
     root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
-        # `max_node_id` is initialized from the complete source MTG and is
-        # updated for every explicit insertion, so the next automatic id is
-        # unique without an O(n) tree lookup.
+        # `max_node_id` is initialized from every active id in the source
+        # attribute store (store-wide for a columnar MTG) and is updated for
+        # every explicit insertion, so the next automatic id is unique without
+        # an O(n) tree lookup.
         adapter.max_node_id[] += 1
     else
         explicit_id = Int(id)

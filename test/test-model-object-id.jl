@@ -189,6 +189,35 @@ end
     @test_throws ArgumentError object_id(model, leaf)
 end
 
+@testset "MTG adapter reserves ids from detached shared-store components" begin
+    root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
+    plant = Node(root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
+    detached = Node(plant, MultiScaleTreeGraph.NodeMTG("+", :Leaf, 1, 2))
+    MultiScaleTreeGraph.reparent!(detached, nothing)
+
+    @test MultiScaleTreeGraph.max_id(root) == 2
+    @test MultiScaleTreeGraph.new_id(root) == 4
+
+    model = CompositeModel(root)
+    @test_throws ArgumentError object_id(model, detached)
+
+    added = add_organ!(
+        plant,
+        model,
+        :+,
+        :Leaf,
+        2;
+        index=1,
+        initial_status=(signal=1.0,),
+    )
+
+    @test MultiScaleTreeGraph.node_id(added.node) == 4
+    @test MultiScaleTreeGraph.parent(added.node) === plant
+    @test source_node(model, ObjectId(4)) === added.node
+    @test MultiScaleTreeGraph.new_id(root) == 5
+    @test MultiScaleTreeGraph.node_id(detached) == 3
+end
+
 @testset "MTG identities remain stable after source mutation" begin
     root = Node(MultiScaleTreeGraph.NodeMTG("/", :Scene, 1, 0))
     plant = Node(root, MultiScaleTreeGraph.NodeMTG("+", :Plant, 1, 1))
