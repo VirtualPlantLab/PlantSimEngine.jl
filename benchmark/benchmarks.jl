@@ -56,6 +56,41 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             ) setup = (data = setup_status_registry_benchmark($nobjects))
     end
 
+    include(joinpath(@__DIR__, "test-organ-lifecycle-benchmark.jl"))
+    for nobjects in (32, 256, 1_024)
+        SUITE[suite_name]["PSE_organ_adaptation_$(nobjects)"] =
+            @benchmarkable benchmark_adapt_organ_model(
+                topology,
+            ) setup = (topology = setup_organ_topology_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_$(nobjects)"] =
+            @benchmarkable benchmark_add_organ!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_refresh_after_add!(
+                data,
+            ) setup = (data = setup_organ_refresh_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_add_and_refresh!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_continue_$(nobjects)"] =
+            @benchmarkable benchmark_add_and_continue!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects;
+                start_simulation=true,
+            )) evals = 1
+    end
+
     include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
     SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
         model,

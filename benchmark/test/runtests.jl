@@ -147,6 +147,80 @@ if benchmark_test_enabled("status registry benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("organ lifecycle benchmark API smoke")
+    @testset "organ lifecycle benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-organ-lifecycle-benchmark.jl",
+            ),
+        )
+        data = setup_organ_lifecycle_benchmark(32)
+        @test length(PlantSimEngine.model_objects(data.model)) == 34
+        @test !data.model.bindings_dirty
+        @test !data.model.environment_bindings_dirty
+        @test !data.model.lifecycle_delta.full_environment
+        @test data.model.lifecycle_delta.structural_kind == :clean
+        status = benchmark_add_organ!(data)
+        added_id = PlantSimEngine.ObjectId(data.next_node_id)
+        @test PlantSimEngine.object_id(data.model, status) == added_id
+        @test PlantSimEngine.model_status(data.model, added_id) === status
+        @test PlantSimEngine.source_node(data.model, status) === status.node
+        @test status.signal == 1.0
+        @test data.model.bindings_dirty
+        nodes = Any[]
+        MultiScaleTreeGraph.traverse!(data.root) do node
+            push!(nodes, node)
+        end
+        @test all(
+            !haskey(
+                MultiScaleTreeGraph.node_attributes(node),
+                :plantsimengine_status,
+            ) for node in nodes
+        )
+        benchmark_refresh_after_add!(data)
+        @test !data.model.bindings_dirty
+        @test added_id in data.model.binding_cache.applications_by_id[
+            :organ_lifecycle_leaf
+        ].target_ids
+
+        combined = setup_organ_lifecycle_benchmark(32)
+        combined_status = benchmark_add_and_refresh!(combined)
+        @test PlantSimEngine.object_id(combined.model, combined_status) ==
+              PlantSimEngine.ObjectId(combined.next_node_id)
+        @test !combined.model.bindings_dirty
+
+        continued = setup_organ_lifecycle_benchmark(
+            32;
+            start_simulation=true,
+        )
+        initial_step = PlantSimEngine.current_step(continued.simulation)
+        continued_status = benchmark_add_and_continue!(continued)
+        @test PlantSimEngine.current_step(continued.simulation) ==
+              initial_step + 1
+        @test continued_status.signal == 2.0
+        @test PlantSimEngine.object_id(
+            continued.model,
+            continued_status,
+        ) == PlantSimEngine.ObjectId(continued.next_node_id)
+        @test !continued.model.bindings_dirty
+        @test !continued.model.environment_bindings_dirty
+        @test isempty(continued.model.lifecycle_delta.added)
+        @test isempty(continued.model.lifecycle_delta.removed)
+        @test isempty(continued.model.lifecycle_delta.reparented)
+        @test isempty(continued.model.lifecycle_delta.moved)
+        @test isempty(continued.model.lifecycle_delta.structural_dirty_ids)
+        @test isempty(continued.model.lifecycle_delta.environment_dirty_ids)
+        @test isempty(continued.model.lifecycle_delta.initialized_targets)
+        @test isnothing(
+            continued.model.lifecycle_delta.targeted_topology_runtime,
+        )
+        @test continued.model.lifecycle_delta.structural_kind == :clean
+        @test !continued.model.lifecycle_delta.full_environment
+    end
+end
+
 if benchmark_test_enabled("multirate benchmark API smoke")
     @testset "multirate benchmark API smoke" begin
         include(joinpath(@__DIR__, "..", "test-multirate-buffer-benchmark.jl"))
@@ -784,6 +858,11 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             @test haskey(suite, "PSE_status_read_write")
             @test haskey(suite, "PSE_status_registry_lookup_32")
             @test haskey(suite, "PSE_status_registry_sweep_1024")
+            @test haskey(suite, "PSE_organ_adaptation_32")
+            @test haskey(suite, "PSE_organ_add_1024")
+            @test haskey(suite, "PSE_organ_refresh_1024")
+            @test haskey(suite, "PSE_organ_add_refresh_1024")
+            @test haskey(suite, "PSE_organ_add_continue_1024")
             @test haskey(suite, "PSE")
             @test haskey(suite, "PSE_hard_calls_zero")
             @test haskey(suite, "PSE_lifecycle_large")
@@ -856,6 +935,11 @@ if benchmark_test_enabled("legacy benchmark suite assembly smoke")
             @test haskey(suite, "PSE_status_read_write")
             @test !haskey(suite, "PSE_status_registry_lookup_32")
             @test !haskey(suite, "PSE_status_registry_sweep_1024")
+            @test !haskey(suite, "PSE_organ_adaptation_32")
+            @test !haskey(suite, "PSE_organ_add_1024")
+            @test !haskey(suite, "PSE_organ_refresh_1024")
+            @test !haskey(suite, "PSE_organ_add_refresh_1024")
+            @test !haskey(suite, "PSE_organ_add_continue_1024")
             @test !haskey(suite, "PSE")
             @test !haskey(suite, "PSE_multirate_no_output_run")
             @test !haskey(suite, "PSE_hard_calls_zero")
