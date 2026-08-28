@@ -122,6 +122,11 @@ function sum_bound_many_input(context)
     return total
 end
 
+function sum_bound_many_input_allocations(context)
+    sum_bound_many_input(context)
+    return @allocated sum_bound_many_input(context)
+end
+
 refvector_dispatch(::PlantSimEngine.RefVector) = :ref_vector
 
 struct BoundManyShiftedVector{T} <: AbstractVector{T}
@@ -252,8 +257,7 @@ end
         Val(:signals),
     )) === initial_values
     @test @inferred(sum_bound_many_input(initial_target.context)) == 6.0
-    sum_bound_many_input(initial_target.context)
-    @test @allocated(sum_bound_many_input(initial_target.context)) == 0
+    @test sum_bound_many_input_allocations(initial_target.context) == 0
     @test_throws ArgumentError bound_input(initial_target.context, "signals")
 
     register_object!(
