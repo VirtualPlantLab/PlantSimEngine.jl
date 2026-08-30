@@ -308,7 +308,8 @@ end
     )
     continue!(simulation)
     refreshed_call_view = call_targets(CALL_RETURN_CONTEXT[], :one)
-    @test only(only(refreshed_call_view.execution_batches).targets) !==
+    # Adding an unrelated Many callee must not rebuild this unchanged One target.
+    @test only(only(refreshed_call_view.execution_batches).targets) ===
           cached_execution_target
     @test_throws ArgumentError run_call!(nothing, :one)
 
@@ -378,7 +379,7 @@ end
     @test call.callee_object_ids == [:leaf_a, :leaf_b]
     @test call.callee_application_ids == [:leaf_calls]
 
-    simulation = run!(model; outputs=:all)
+    simulation = run!(model; outputs=:all, performance=true)
     controller = only(model_objects(model; scale=:Scene)).status
     @test controller.ncalls == 2
     @test controller.total == 2.0
@@ -394,6 +395,8 @@ end
         Object(:leaf_c; scale=:Leaf, parent=:scene),
     )
     continue!(simulation; steps=1)
+    performance = Advanced.runtime_performance(simulation)
+    @test performance.counts[:execution_target_call_batches_extended] == 1
     @test controller.ncalls == 3
     @test controller.total == 5.0
 

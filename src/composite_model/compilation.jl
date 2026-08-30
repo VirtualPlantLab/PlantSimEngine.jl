@@ -1811,6 +1811,8 @@ function _append_added_many_sources!(
     binding::CompiledModelInputBinding,
     added_ids,
     applications_by_object,
+    applications_by_id,
+    distributed_outputs,
 )
     binding.multiplicity == :many || return false
     default_scope = _default_dependency_scope(model, binding.consumer_id)
@@ -1852,7 +1854,9 @@ function _append_added_many_sources!(
             new_source_ids,
             binding.source_var,
             binding.process,
-            binding.application;
+            binding.application,
+            distributed_outputs;
+            applications_by_id=applications_by_id,
             allow_empty=binding.selector isa OptionalOne,
         )
     end
@@ -2060,6 +2064,7 @@ function _extend_model_status_views(
     rewired_consumer_ids,
     affected_temporal_keys,
     previous_temporal_sources,
+    distributed_outputs,
     previous_views=compiled.status_views_by_target,
 )
     views = compiled.status_views_by_target
@@ -2100,6 +2105,7 @@ function _extend_model_status_views(
             get(input_bindings_by_target, key, ()),
             applications_by_id,
             positions,
+            distributed_outputs,
         )
         views[key] = isnothing(previous_view) ?
                      current_view :
@@ -2376,6 +2382,24 @@ function _extend_compiled_scene(
             push!(get!(applications_by_object, object_id, Any[]), application)
         end
     end
+    manual_application_ids = compiled.scenario_plan.manual_application_ids
+    distributed_outputs, changed_distributed_output_target_ids =
+        _refresh_model_distributed_outputs(
+            model,
+            compiled.distributed_outputs,
+            applications,
+            applications_by_id,
+            manual_application_ids,
+            compiled.scenario_plan.distributed_output_plans,
+            added_ids,
+            new_targets,
+            pure_addition,
+        )
+    union!(changed_target_ids_seed, changed_distributed_output_target_ids)
+    union!(
+        changed_application_ids_seed,
+        (first(key) for key in changed_distributed_output_target_ids),
+    )
     _runtime_performance_finish!(
         performance,
         :application_target_refresh,
@@ -2548,7 +2572,6 @@ function _extend_compiled_scene(
     )
 
     started_at = _runtime_performance_start(performance)
-    manual_application_ids = compiled.scenario_plan.manual_application_ids
     added_input_binding_capacity = sum(
         length(_model_input_names(application)) *
         length(application.target_ids)
@@ -2650,6 +2673,8 @@ function _extend_compiled_scene(
                 binding,
                 added_ids,
                 applications_by_object,
+                applications_by_id,
+                distributed_outputs,
             )
         end
         if appended_sources
@@ -2675,6 +2700,8 @@ function _extend_compiled_scene(
             binding.plan,
             applications_by_object,
             applications_by_id,
+            nothing,
+            distributed_outputs,
         )
         old_cache_key = _many_binding_share_key(model, binding)
         if !isnothing(old_cache_key) &&
@@ -2719,6 +2746,7 @@ function _extend_compiled_scene(
                 manual_application_ids,
                 applications_by_object,
                 applications_by_id,
+                distributed_outputs,
             )
             last_new_binding = length(input_bindings)
             if first_new_binding <= last_new_binding
@@ -2828,6 +2856,7 @@ function _extend_compiled_scene(
         rewired_consumer_ids,
         affected_temporal_keys,
         previous_temporal_sources,
+        distributed_outputs,
         previous_views,
     )
     _runtime_performance_finish!(
@@ -2877,7 +2906,7 @@ function _extend_compiled_scene(
         dynamic_input_binding_indices,
         dynamic_call_binding_indices,
         many_binding_cache,
-        compiled.distributed_outputs,
+        distributed_outputs,
         call_owners,
         application_children,
         status_views_by_target,
@@ -4364,6 +4393,243 @@ function _compile_model_distributed_outputs(
         ownership,
         _index_model_output_destination_ids(bindings),
     )
+end
+
+_distributed_output_binding_key(binding) = (
+    binding.application_id,
+    binding.execution_object_id,
+    binding.group,
+)
+
+function _changed_distributed_output_target_ids(previous, current)
+    previous_membership = Dict(
+        _distributed_output_binding_key(binding) => binding.destination_ids
+        for binding in previous.bindings
+    )
+    current_membership = Dict(
+        _distributed_output_binding_key(binding) => binding.destination_ids
+        for binding in current.bindings
+    )
+    changed = Set{Tuple{Symbol,ObjectId}}()
+    for key in union(keys(previous_membership), keys(current_membership))
+        get(previous_membership, key, nothing) ==
+        get(current_membership, key, nothing) && continue
+        push!(changed, (key[1], key[2]))
+    end
+    return changed
+end
+
+function _refresh_model_distributed_outputs(
+    model::CompositeModel,
+    previous::NoCompiledDistributedOutputs,
+    applications,
+    applications_by_id,
+    manual_application_ids,
+    plans,
+    added_ids,
+    new_targets,
+    pure_addition,
+)
+    return previous, Set{Tuple{Symbol,ObjectId}}()
+end
+
+function _stage_distributed_writer_owner!(
+    staged,
+    previous,
+    object_id::ObjectId,
+    variable::Symbol,
+    owner::CompiledWriterOwner,
+)
+    key = (object_id, variable)
+    owners = get!(staged, key) do
+        copy(get(previous.writer_ownership, key, CompiledWriterOwner[]))
+    end
+    push!(owners, owner)
+    return staged
+end
+
+function _incremental_distributed_output_addition!(
+    model::CompositeModel,
+    previous::CompiledDistributedOutputs,
+    applications,
+    applications_by_id,
+    manual_application_ids,
+    plans::CompiledDistributedOutputPlans,
+    added_ids,
+    new_targets,
+)
+    for (application_id, object_ids) in new_targets
+        isempty(object_ids) && continue
+        application = applications_by_id[application_id]
+        isempty(_application_plans(plans.by_application, application.slot)) ||
+            return nothing
+    end
+
+    resolved_additions = ResolvedModelOutputDestination[]
+    for binding in previous.bindings
+        default_scope = _default_dependency_scope(
+            model,
+            binding.execution_object_id,
+        )
+        destination_ids = ObjectId[
+            object_id for object_id in added_ids
+            if _selector_matches_object_id(
+                model,
+                binding.matcher,
+                object_id;
+                context=binding.execution_object_id,
+                default_to_context=true,
+                default_scope=default_scope,
+            ) && !(object_id in binding.destination_ids)
+        ]
+        isempty(destination_ids) && continue
+        _sort_object_ids!(destination_ids)
+        if !isempty(binding.destination_ids) &&
+           !_object_id_isless(last(binding.destination_ids), first(destination_ids))
+            return nothing
+        end
+        push!(
+            resolved_additions,
+            ResolvedModelOutputDestination(
+                binding.plan,
+                binding.execution_object_id,
+                destination_ids,
+            ),
+        )
+    end
+
+    _validate_model_output_destination_statuses!(model, resolved_additions)
+    _validate_required_model_output_destinations!(model, resolved_additions)
+    staged_ownership = Dict{
+        Tuple{ObjectId,Symbol},
+        Vector{CompiledWriterOwner},
+    }()
+    for (application_id, object_ids) in new_targets
+        application = applications_by_id[application_id]
+        application.id in manual_application_ids && continue
+        for object_id in object_ids
+            for variable in _model_canonical_output_names(application)
+                _stage_distributed_writer_owner!(
+                    staged_ownership,
+                    previous,
+                    object_id,
+                    variable,
+                    CompiledWriterOwner(
+                        application.plan.slot,
+                        application.id,
+                        object_id,
+                        nothing,
+                        :application_target,
+                    ),
+                )
+            end
+        end
+    end
+    for resolved in resolved_additions
+        plan = resolved.plan
+        for destination_id in resolved.destination_ids
+            for variable_ in keys(plan.declarations)
+                variable = Symbol(variable_)
+                _stage_distributed_writer_owner!(
+                    staged_ownership,
+                    previous,
+                    destination_id,
+                    variable,
+                    CompiledWriterOwner(
+                        plan.application_slot,
+                        plan.application_id,
+                        resolved.execution_object_id,
+                        plan.group,
+                        :output_destination,
+                    ),
+                )
+            end
+        end
+    end
+    _validate_compiled_writer_ownership!(staged_ownership, applications)
+    _prepare_model_output_destination_statuses!(model, resolved_additions)
+
+    column_additions = Any[]
+    for resolved in resolved_additions
+        key = (resolved.plan.application_id, resolved.execution_object_id)
+        groups = previous.by_execution_target[key]
+        binding = getproperty(groups, resolved.plan.group)
+        columns = _model_output_destination_columns(model, resolved)
+        for variable in keys(binding.declarations)
+            existing_references = parent(getproperty(binding.columns, variable))
+            added_references = parent(getproperty(columns, variable))
+            eltype(added_references) <: eltype(existing_references) ||
+                return nothing
+        end
+        push!(column_additions, (binding=binding, resolved=resolved, columns=columns))
+    end
+
+    for (key, owners) in staged_ownership
+        previous.writer_ownership[key] = owners
+    end
+    for addition in column_additions
+        binding = addition.binding
+        resolved = addition.resolved
+        for variable_ in keys(binding.declarations)
+            variable = Symbol(variable_)
+            append!(
+                parent(getproperty(binding.columns, variable)),
+                parent(getproperty(addition.columns, variable)),
+            )
+            indexed_ids = previous.destination_ids_by_application_variable[
+                (binding.application_id, variable)
+            ]
+            indexed_ids === binding.destination_ids ||
+                _insert_sorted_object_ids!(indexed_ids, resolved.destination_ids)
+        end
+        first_position = length(binding.destination_ids) + 1
+        append!(binding.destination_ids, resolved.destination_ids)
+        for (offset, object_id) in enumerate(resolved.destination_ids)
+            binding.destination_index[object_id] = first_position + offset - 1
+        end
+        binding.membership_generation = UInt64(model.revision)
+    end
+    changed_targets = Set{Tuple{Symbol,ObjectId}}(
+        (
+            resolved.plan.application_id,
+            resolved.execution_object_id,
+        )
+        for resolved in resolved_additions
+    )
+    return previous, changed_targets
+end
+
+function _refresh_model_distributed_outputs(
+    model::CompositeModel,
+    previous::CompiledDistributedOutputs,
+    applications,
+    applications_by_id,
+    manual_application_ids,
+    plans::CompiledDistributedOutputPlans,
+    added_ids,
+    new_targets,
+    pure_addition,
+)
+    if pure_addition
+        incremental = _incremental_distributed_output_addition!(
+            model,
+            previous,
+            applications,
+            applications_by_id,
+            manual_application_ids,
+            plans,
+            added_ids,
+            new_targets,
+        )
+        isnothing(incremental) || return incremental
+    end
+    current = _compile_model_distributed_outputs(
+        model,
+        applications,
+        manual_application_ids,
+        plans,
+    )
+    return current, _changed_distributed_output_target_ids(previous, current)
 end
 
 function _prepare_model_input_defaults!(model::CompositeModel, applications)
