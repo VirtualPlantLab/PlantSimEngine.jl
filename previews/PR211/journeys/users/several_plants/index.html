@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Several plants · PlantSimEngine.jl</title><meta name="title" content="Several plants · PlantSimEngine.jl"/><meta property="og:title" content="Several plants · PlantSimEngine.jl"/><meta property="twitter:title" content="Several plants · PlantSimEngine.jl"/><meta name="description" content="Documentation for PlantSimEngine.jl."/><meta property="og:description" content="Documentation for PlantSimEngine.jl."/><meta property="twitter:description" content="Documentation for PlantSimEngine.jl."/><meta property="og:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/journeys/users/several_plants/"/><meta property="twitter:url" content="https://VirtualPlantLab.github.io/PlantSimEngine.jl/journeys/users/several_plants/"/><link rel="canonical" href="https://VirtualPlantLab.github.io/PlantSimEngine.jl/journeys/users/several_plants/"/><script data-outdated-warner src="../../../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL="../../.."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../../../assets/documenter.js"></script><script src="../../../search_index.js"></script><script src="../../../siteinfo.js"></script><script src="../../../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../../../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../../../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><div class="docs-package-name"><span class="docs-autofit"><a href="../../../">PlantSimEngine.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../../../">Home</a></li><li><span class="tocitem">Start here</span><ul><li><a class="tocitem" href="../../../introduction/why_plantsimengine/">Why PlantSimEngine ?</a></li><li><a class="tocitem" href="../mental_model/">Mental model</a></li><li><a class="tocitem" href="../one_object/">One object over time</a></li><li><a class="tocitem" href="../several_objects/">Several same-scale objects</a></li></ul></li><li><span class="tocitem">Structure and composition</span><ul><li><a class="tocitem" href="../one_plant/">One multiscale plant</a></li><li class="is-active"><a class="tocitem" href>Several plants</a><ul class="internal"><li><a class="tocitem" href="#New-concept:-templates,-instances,-and-overrides"><span>New concept: templates, instances, and overrides</span></a></li><li><a class="tocitem" href="#Override-one-instance"><span>Override one instance</span></a></li><li><a class="tocitem" href="#Page-recap"><span>Page recap</span></a></li></ul></li><li><a class="tocitem" href="../../../guides/multiscale/value_coupling/">Value coupling</a></li><li><a class="tocitem" href="../../../guides/multiscale/import_mtg/">Importing an MTG</a></li><li><a class="tocitem" href="../../../guides/multiscale/concepts/">How composite models execute</a></li><li><a class="tocitem" href="../../../guides/multiscale/visualizing_structure/">Visualizing structure</a></li></ul></li><li><span class="tocitem">Environment and time</span><ul><li><a class="tocitem" href="../environments/">Read an environment</a></li><li><a class="tocitem" href="../cadences/">Different model cadences</a></li><li><a class="tocitem" href="../../../guides/time/hourly_daily_weekly/">Hourly, daily, and weekly</a></li><li><a class="tocitem" href="../../../guides/time/advanced_time_environment/">Advanced configuration</a></li></ul></li><li><span class="tocitem">Dynamic and advanced simulations</span><ul><li><a class="tocitem" href="../structure_changes/">Modify plant structure</a></li><li><a class="tocitem" href="../mutable_environments/">Modify the environment</a></li><li><a class="tocitem" href="../advanced_execution/">Control advanced execution</a></li><li><a class="tocitem" href="../maespa_synthesis/">MAESPA-style synthesis</a></li><li><a class="tocitem" href="../../../tutorials/growing_plant/part2_roots_water/">Part 2: roots and water</a></li><li><a class="tocitem" href="../../../tutorials/growing_plant/part3_debugging/">Part 3: debugging</a></li><li><a class="tocitem" href="../../../guides/multiscale/manual_calls/">Manual calls</a></li><li><a class="tocitem" href="../../../step_by_step/advanced_coupling/">Advanced coupling and hard dependencies</a></li></ul></li><li><span class="tocitem">Implement models</span><ul><li><a class="tocitem" href="../../modelers/basic_model/">Basic contract and reuse</a></li><li><a class="tocitem" href="../../modelers/cross_object_values/">Cross-object values</a></li><li><a class="tocitem" href="../../modelers/environment_and_cadence/">Environment and cadence traits</a></li><li><a class="tocitem" href="../../modelers/hard_dependencies/">Hard dependencies</a></li><li><a class="tocitem" href="../../modelers/mutable_environment/">Mutable environment controllers</a></li><li><a class="tocitem" href="../../../guides/modelers/port_existing_model/">Port an existing model</a></li><li><a class="tocitem" href="../../../step_by_step/implement_a_process/">Implement a process</a></li><li><a class="tocitem" href="../../../step_by_step/implement_a_model/">Implement a model</a></li><li><a class="tocitem" href="../../../step_by_step/model_switching/">Composition and switching</a></li><li><a class="tocitem" href="../../../guides/modelers/stateful_models/">Stateful models</a></li><li><a class="tocitem" href="../../../step_by_step/implement_a_model_additional/">Additional notes</a></li></ul></li><li><span class="tocitem">Reference</span><ul><li><a class="tocitem" href="../../../prerequisites/installing_plantsimengine/">Installing PlantSimEngine</a></li><li><a class="tocitem" href="../../../prerequisites/julia_basics/">Julia language basics</a></li><li><a class="tocitem" href="../../../introduction/why_julia/">Why Julia ?</a></li><li><a class="tocitem" href="../../../model_execution/">Model execution</a></li><li><a class="tocitem" href="../../../model_traits/">Model traits</a></li><li><a class="tocitem" href="../../../guides/data/outputs_plotting/">Collecting and plotting outputs</a></li><li><a class="tocitem" href="../../../guides/data/forcing_observations/">Forcing observations</a></li><li><a class="tocitem" href="../../../guides/data/numerical_reliability/">Numerical reliability</a></li><li><a class="tocitem" href="../../../working_with_data/fitting/">Parameter fitting</a></li><li><a class="tocitem" href="../../../guides/graph_visualizer_editor/">Graph editor</a></li><li><a class="tocitem" href="../../../troubleshooting/common_errors/">Common errors</a></li><li><a class="tocitem" href="../../../troubleshooting/runtime_contracts/">Runtime contracts</a></li><li><a class="tocitem" href="../../../troubleshooting/dependency_cycles/">Dependency cycles</a></li><li><a class="tocitem" href="../../../troubleshooting_and_testing/downstream_tests/">Downstream testing</a></li><li><a class="tocitem" href="../../../guides/extensions/environment_backends/">Environment backend extensions</a></li><li><a class="tocitem" href="../../../agent_skill/">AI agent skill</a></li><li><a class="tocitem" href="../../../API/API_public/">Public API</a></li><li><a class="tocitem" href="../../../API/public_symbols/">Public symbol inventory</a></li><li><a class="tocitem" href="../../../API/API_examples/">Example models</a></li></ul></li><li><span class="tocitem">Migration</span><ul><li><a class="tocitem" href="../../../migration_composite_model/">From the mapping runtime</a></li></ul></li><li><span class="tocitem">Maintainers</span><ul><li><a class="tocitem" href="../../../developers/">Developer guidelines</a></li><li><a class="tocitem" href="../../../API/API_private/">Internal API</a></li><li><a class="tocitem" href="../../../dev/public_api_refinement_decisions/">Public API refinement decisions</a></li><li><a class="tocitem" href="../../../dev/public_api_refinement_completion_audit/">Public API refinement completion audit</a></li><li><a class="tocitem" href="../../../dev/composite_model_design/">Composite model/object design</a></li><li><a class="tocitem" href="../../../dev/distributed_output_ownership/">Distributed output ownership</a></li><li><a class="tocitem" href="../../../dev/composite_model_implementation_plan/">Composite model/object implementation plan</a></li><li><a class="tocitem" href="../../../dev/composite_model_completion_audit/">Composite model/object completion audit</a></li><li><a class="tocitem" href="../../../dev/maespa_model_handoff/">MAESPA-style composite-model example handoff</a></li><li><a class="tocitem" href="../../../dev/code_cleanup_audit/">Code cleanup audit</a></li><li><a class="tocitem" href="../../../dev/release_notes_handoff/">Release notes handoff</a></li><li><a class="tocitem" href="../../../planned_features/">Roadmap</a></li></ul></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li><a class="is-disabled">Structure and composition</a></li><li class="is-active"><a href>Several plants</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Several plants</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/VirtualPlantLab/PlantSimEngine.jl/blob/main/docs/src/journeys/users/several_plants.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Instantiate-Several-Plants"><a class="docs-heading-anchor" href="#Instantiate-Several-Plants">Instantiate Several Plants</a><a id="Instantiate-Several-Plants-1"></a><a class="docs-heading-anchor-permalink" href="#Instantiate-Several-Plants" title="Permalink"></a></h1><h2 id="New-concept:-templates,-instances,-and-overrides"><a class="docs-heading-anchor" href="#New-concept:-templates,-instances,-and-overrides">New concept: templates, instances, and overrides</a><a id="New-concept:-templates,-instances,-and-overrides-1"></a><a class="docs-heading-anchor-permalink" href="#New-concept:-templates,-instances,-and-overrides" title="Permalink"></a></h2><p>The previous journey configured one plant explicitly. Its three applications can become a <code>CompositeModelTemplate</code>, then be mounted on several independent object topologies without duplicating that model configuration.</p><pre><code class="language-julia hljs">using PlantSimEngine, DataFrames
+using PlantSimEngine.Examples
+
+plant_template = CompositeModelTemplate((
+    ModelSpec(
+        ToyLeafSurfaceModel(0.02);
+        name=:leaf_surface,
+        on=Many(scale=:Leaf),
+    ),
+    ModelSpec(
+        ToyPlantLeafSurfaceModel();
+        name=:plant_surface,
+        on=One(scale=:Plant),
+        inputs=(
+            :leaf_surfaces =&gt; Many(
+                scale=:Leaf,
+                within=Subtree(),
+                application=:leaf_surface,
+                var=:surface,
+            ),
+        ),
+    ),
+    ModelSpec(
+        ToyLightPartitioningModel();
+        name=:leaf_light,
+        on=Many(scale=:Leaf),
+        inputs=(
+            :aPPFD_larger_scale =&gt; One(
+                scale=:Plant,
+                within=SelfPlant(),
+                var=:aPPFD,
+            ),
+            :total_surface =&gt; One(
+                scale=:Plant,
+                within=SelfPlant(),
+                application=:plant_surface,
+                var=:surface,
+            ),
+        ),
+    ),
+))</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">CompositeModelTemplate{Tuple{ModelSpec{ToyLeafSurfaceModel{Float64}, Symbol, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}, ModelSpec{ToyPlantLeafSurfaceModel, Symbol, One{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{leaf_surfaces::Many{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::Subtree, application::Symbol, var::Symbol}}}, @NamedTuple{leaf_surfaces::Symbol}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}, ModelSpec{ToyLightPartitioningModel, Symbol, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{aPPFD_larger_scale::One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, var::Symbol}}, total_surface::One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, application::Symbol, var::Symbol}}}, @NamedTuple{aPPFD_larger_scale::Symbol, total_surface::Symbol}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}}, @NamedTuple{}}(nothing, nothing, (ModelSpec{ToyLeafSurfaceModel{Float64}, Symbol, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}(ToyLeafSurfaceModel{Float64}(0.02), :leaf_surface, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}((selectors = (), scale = :Leaf)), NamedTuple(), NamedTuple(), NamedTuple(), NamedTuple(), NamedTuple(), nothing, nothing, NamedTuple(), nothing, NamedTuple(), ()), ModelSpec{ToyPlantLeafSurfaceModel, Symbol, One{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{leaf_surfaces::Many{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::Subtree, application::Symbol, var::Symbol}}}, @NamedTuple{leaf_surfaces::Symbol}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}(ToyPlantLeafSurfaceModel(), :plant_surface, One{@NamedTuple{selectors::Tuple{}, scale::Symbol}}((selectors = (), scale = :Plant)), (leaf_surfaces = Many{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::Subtree, application::Symbol, var::Symbol}}((selectors = (), scale = :Leaf, within = Subtree(), application = :leaf_surface, var = :surface)),), (leaf_surfaces = :model_spec,), NamedTuple(), NamedTuple(), NamedTuple(), nothing, nothing, NamedTuple(), nothing, NamedTuple(), ()), ModelSpec{ToyLightPartitioningModel, Symbol, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}, @NamedTuple{aPPFD_larger_scale::One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, var::Symbol}}, total_surface::One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, application::Symbol, var::Symbol}}}, @NamedTuple{aPPFD_larger_scale::Symbol, total_surface::Symbol}, @NamedTuple{}, @NamedTuple{}, @NamedTuple{}, Nothing, Nothing, @NamedTuple{}, Nothing, @NamedTuple{}, Tuple{}}(ToyLightPartitioningModel(), :leaf_light, Many{@NamedTuple{selectors::Tuple{}, scale::Symbol}}((selectors = (), scale = :Leaf)), (aPPFD_larger_scale = One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, var::Symbol}}((selectors = (), scale = :Plant, within = SelfPlant(), var = :aPPFD)), total_surface = One{@NamedTuple{selectors::Tuple{}, scale::Symbol, within::SelfPlant, application::Symbol, var::Symbol}}((selectors = (), scale = :Plant, within = SelfPlant(), application = :plant_surface, var = :surface))), (aPPFD_larger_scale = :model_spec, total_surface = :model_spec), NamedTuple(), NamedTuple(), NamedTuple(), nothing, nothing, NamedTuple(), nothing, NamedTuple(), ())), NamedTuple())</code></pre><p>An <code>ObjectInstance</code> supplies the concrete root and organs. These two instances reuse the same template while keeping different initial plant radiation and leaf biomasses:</p><pre><code class="language-julia hljs">plant_a = ObjectInstance(
+    :plant_a,
+    plant_template;
+    root=Object(
+        :plant_a_root;
+        scale=:Plant,
+        kind=:plant,
+        status=Status(aPPFD=120.0),
+    ),
+    objects=(
+        Object(
+            :plant_a_leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_a_root,
+            status=Status(carbon_biomass=50.0),
+        ),
+        Object(
+            :plant_a_leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_a_root,
+            status=Status(carbon_biomass=100.0),
+        ),
+    ),
+)
+
+plant_b = ObjectInstance(
+    :plant_b,
+    plant_template;
+    root=Object(
+        :plant_b_root;
+        scale=:Plant,
+        kind=:plant,
+        status=Status(aPPFD=200.0),
+    ),
+    objects=(
+        Object(
+            :plant_b_leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_b_root,
+            status=Status(carbon_biomass=50.0),
+        ),
+        Object(
+            :plant_b_leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_b_root,
+            status=Status(carbon_biomass=50.0),
+        ),
+    ),
+)
+
+model = CompositeModel(plant_a, plant_b)
+simulation = run!(model; outputs=:all)
+plant_states = final_state(simulation, Many(scale=:Plant))
+Dict(id =&gt; (surface=state.surface, aPPFD=state.aPPFD) for (id, state) in plant_states)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">Dict{Symbol, @NamedTuple{surface::Float64, aPPFD::Float64}} with 2 entries:
+  :plant_b_root =&gt; (surface = 2.0, aPPFD = 200.0)
+  :plant_a_root =&gt; (surface = 3.0, aPPFD = 120.0)</code></pre><p>Plant A aggregates surfaces <code>1 + 2 = 3</code>; plant B aggregates <code>1 + 1 = 2</code>. Those totals prove that <code>Subtree()</code> did not mix leaves between instances. Likewise, each pair of leaf-level light outputs sums to its own plant&#39;s supplied light:</p><pre><code class="language-julia hljs">leaf_states = final_state(simulation, Many(scale=:Leaf))
+(
+    plant_a_light=sum(
+        leaf_states[id].aPPFD
+        for id in (:plant_a_leaf_1, :plant_a_leaf_2)
+    ),
+    plant_b_light=sum(
+        leaf_states[id].aPPFD
+        for id in (:plant_b_leaf_1, :plant_b_leaf_2)
+    ),
+)</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">(plant_a_light = 120.0, plant_b_light = 200.0)</code></pre><p>The instance diagnostic shows the mounted object and application ids. Template application names are prefixed automatically, so the two mounted graphs remain unambiguous:</p><pre><code class="language-julia hljs">select(
+    DataFrame(Diagnostics.explain_instances(model)),
+    :name,
+    :root_id,
+    :object_ids,
+    :application_ids,
+)</code></pre><div><div style = "float: left;"><span>2×4 DataFrame</span></div><div style = "clear: both;"></div></div><div class = "data-frame" style = "overflow-x: scroll;"><table class = "data-frame" style = "margin-bottom: 6px;"><thead><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;">Row</th><th style = "text-align: left;">name</th><th style = "text-align: left;">root_id</th><th style = "text-align: left;">object_ids</th><th style = "text-align: left;">application_ids</th></tr><tr class = "columnLabelRow"><th class = "stubheadLabel" style = "font-weight: bold; text-align: right;"></th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Symbol" style = "text-align: left;">Symbol</th><th title = "Vector{Symbol}" style = "text-align: left;">Array…</th><th title = "Vector{Symbol}" style = "text-align: left;">Array…</th></tr></thead><tbody><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">1</td><td style = "text-align: left;">plant_a</td><td style = "text-align: left;">plant_a_root</td><td style = "text-align: left;">[:plant_a_leaf_1, :plant_a_leaf_2, :plant_a_root]</td><td style = "text-align: left;">[:plant_a__leaf_light, :plant_a__leaf_surface, :plant_a__plant_surface]</td></tr><tr class = "dataRow"><td class = "rowLabel" style = "font-weight: bold; text-align: right;">2</td><td style = "text-align: left;">plant_b</td><td style = "text-align: left;">plant_b_root</td><td style = "text-align: left;">[:plant_b_leaf_1, :plant_b_leaf_2, :plant_b_root]</td><td style = "text-align: left;">[:plant_b__leaf_light, :plant_b__leaf_surface, :plant_b__plant_surface]</td></tr></tbody></table></div><h2 id="Override-one-instance"><a class="docs-heading-anchor" href="#Override-one-instance">Override one instance</a><a id="Override-one-instance-1"></a><a class="docs-heading-anchor-permalink" href="#Override-one-instance" title="Permalink"></a></h2><p>Only after the two unchanged instances work, override one application for a new instance. This plant uses a larger specific leaf area while retaining the same logical <code>:leaf_surface</code> application and all other template wiring:</p><pre><code class="language-julia hljs">plant_c = ObjectInstance(
+    :plant_c,
+    plant_template;
+    root=Object(
+        :plant_c_root;
+        scale=:Plant,
+        kind=:plant,
+        status=Status(aPPFD=120.0),
+    ),
+    objects=(
+        Object(
+            :plant_c_leaf_1;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_c_root,
+            status=Status(carbon_biomass=50.0),
+        ),
+        Object(
+            :plant_c_leaf_2;
+            scale=:Leaf,
+            kind=:leaf,
+            parent=:plant_c_root,
+            status=Status(carbon_biomass=100.0),
+        ),
+    ),
+    overrides=(leaf_surface=ToyLeafSurfaceModel(0.04),),
+)
+
+override_simulation = run!(CompositeModel(plant_c))
+override_state = final_state(override_simulation, One(scale=:Plant))
+override_state.surface</code></pre><pre class="documenter-example-output"><code class="nohighlight hljs ansi">6.0</code></pre><p>There is no <code>SceneScope()</code> in this example because nothing is deliberately shared between plants. Introduce scene-wide scope only when adding a real shared source, such as a soil object or scene-level forcing controller.</p><h2 id="Page-recap"><a class="docs-heading-anchor" href="#Page-recap">Page recap</a><a id="Page-recap-1"></a><a class="docs-heading-anchor-permalink" href="#Page-recap" title="Permalink"></a></h2><ul><li><strong>You added:</strong> one reusable <code>CompositeModelTemplate</code>, two independent <code>ObjectInstance</code>s, and then one application override.</li><li><strong>PlantSimEngine inferred:</strong> instance-local selector scopes, prefixed mounted application ids, and the same compiled coupling graph for each plant.</li><li><strong>You keep explicit:</strong> each instance&#39;s objects and initial values, plus the exact application replaced by an override.</li><li><strong>New API names:</strong> <code>CompositeModelTemplate</code>, <code>ObjectInstance</code>, <code>overrides</code>, and <code>Diagnostics.explain_instances</code>.</li></ul></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../one_plant/">« One multiscale plant</a><a class="docs-footer-nextpage" href="../../../guides/multiscale/value_coupling/">Value coupling »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.17.0 on <span class="colophon-date" title="Sunday 30 August 2026 07:14">Sunday 30 August 2026</span>. Using Julia version 1.12.7.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
