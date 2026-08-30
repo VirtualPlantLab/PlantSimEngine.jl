@@ -282,11 +282,19 @@ end
         Object(:scene; scale=:Scene);
         applications=scene.applications,
     )
-    simulation = run!(dynamic_scene; outputs=:none)
+    simulation = run!(dynamic_scene; outputs=:none, performance=true)
     initial_compiled_type = typeof(simulation.compiled)
+    initial_scenario_plan = simulation.compiled.scenario_plan
+    initial_status_view = only(values(simulation.compiled.status_views_by_target))
     register_object!(dynamic_scene, Object(:dynamic_leaf; scale=:Leaf); parent=:scene)
     continue!(simulation)
     @test typeof(simulation.compiled) === initial_compiled_type
+    @test simulation.compiled.scenario_plan === initial_scenario_plan
+    @test only(values(simulation.compiled.status_views_by_target)) ===
+          initial_status_view
+    performance = Advanced.runtime_performance(simulation)
+    @test get(performance.counts, :status_views_constructed, 0) == 0
+    @test performance.counts[:execution_targets_constructed] == 1
     @test only(model_objects(dynamic_scene; scale=:Leaf)).status.incident_par == 0.0
 end
 

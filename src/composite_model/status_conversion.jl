@@ -266,6 +266,10 @@ function _materialize_status_value(
     reuse::Bool=false,
     declared_type=typeof(value),
 )
+    if _no_status_conversion(model.status_conversion)
+        initial = private_copy ? _private_initial_value(value) : value
+        return initial, false, nothing
+    end
     key = _status_conversion_record_key(
         variable;
         object_id=object_id,

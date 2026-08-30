@@ -3489,6 +3489,91 @@ function _model_execution_batch_accepts_target(
     return isequal(provider, batch.environment_provider)
 end
 
+function _extend_execution_target_call_batches!(
+    target::CompiledExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+)
+    context = target.context
+    context isa RunContext || return false
+    current_call_bindings = get(
+        compiled.call_bindings_by_target,
+        (context.application.id, target.object_id),
+        (),
+    )
+    length(context.calls) == length(current_call_bindings) || return false
+    staged = Tuple{Any,Any}[]
+    staged_bindings = Tuple{Any,Any}[]
+    for (call_targets, binding) in zip(context.calls, current_call_bindings)
+        _compiled_call_name(call_targets.binding) ==
+        _compiled_call_name(binding) || return false
+        push!(staged_bindings, (call_targets, binding))
+        _compiled_call_mode(binding) === :initializer && continue
+        current_application_ids = Set(binding.callee_application_ids)
+        all(
+            batch -> batch.application.id in current_application_ids,
+            call_targets.execution_batches,
+        ) || return false
+        for application_id in binding.callee_application_ids
+            application = _compiled_application_by_id(compiled, application_id)
+            batches = AbstractExecutionBatch[
+                batch for batch in call_targets.execution_batches
+                if batch.application.id == application_id
+            ]
+            isempty(batches) && return false
+            existing_ids = Set(
+                execution_target.object_id
+                for batch in batches
+                for execution_target in batch.targets
+            )
+            current_ids = ObjectId[
+                object_id for object_id in binding.callee_object_ids
+                if _call_binding_target_matches(binding, application, object_id)
+            ]
+            all(object_id -> object_id in current_ids, existing_ids) ||
+                return false
+            added_ids = ObjectId[
+                object_id for object_id in current_ids
+                if !(object_id in existing_ids)
+            ]
+            isempty(added_ids) && continue
+            _sort_object_ids!(added_ids)
+            destination_batch = last(batches)
+            for object_id in added_ids
+                execution_target = _compiled_model_execution_target(
+                    compiled,
+                    env_bindings,
+                    application,
+                    object_id,
+                    temporal_streams,
+                    output_retention,
+                    constants,
+                )
+                _model_execution_batch_accepts_target(
+                    destination_batch,
+                    execution_target,
+                    env_bindings,
+                    application,
+                ) || return false
+                push!(staged, (destination_batch.targets, execution_target))
+            end
+        end
+    end
+    for (targets, execution_target) in staged
+        push!(targets, execution_target)
+    end
+    for (call_targets, binding) in staged_bindings
+        call_targets.binding = binding
+    end
+    target.call_bindings = current_call_bindings
+    target.call_bindings_signature =
+        _call_bindings_signature(current_call_bindings)
+    return true
+end
+
 function _refresh_model_execution_group_delta!(
     previous_group::CompiledApplicationExecutionGroup,
     compiled::CompiledCompositeModel,
@@ -3535,16 +3620,33 @@ function _refresh_model_execution_group_delta!(
             batch_index, target_index = location
             previous_group.batches[batch_index].targets[target_index]
         end
-        change_reason = isnothing(previous_target) ?
-                        :new_target :
-                        _model_execution_target_change_reason(
+        change_reason = if isnothing(previous_target)
+            :new_target
+        else
+            _model_execution_target_change_reason(
+                previous_target,
+                compiled,
+                env_bindings,
+                application,
+                output_retention,
+            )
+        end
+        isnothing(change_reason) && continue
+        if change_reason === :call_bindings &&
+           _extend_execution_target_call_batches!(
             previous_target,
             compiled,
             env_bindings,
-            application,
+            temporal_streams,
             output_retention,
+            constants,
         )
-        isnothing(change_reason) && continue
+            _runtime_performance_count!(
+                performance,
+                :execution_target_call_batches_extended,
+            )
+            continue
+        end
         target = _compiled_model_execution_target(
             compiled,
             env_bindings,
