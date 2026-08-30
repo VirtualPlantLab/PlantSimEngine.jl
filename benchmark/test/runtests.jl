@@ -90,6 +90,137 @@ if benchmark_test_enabled("PlantSimEngine benchmark API smoke")
     end
 end
 
+if benchmark_test_enabled("status registry benchmark API smoke")
+    @testset "status registry benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-status-registry-benchmark.jl",
+            ),
+        )
+        for nobjects in (32, 256, 1_024)
+            data = setup_status_registry_benchmark(nobjects)
+            @test length(data.statuses) == nobjects
+            @test all(
+                data.statuses[left] !== data.statuses[right]
+                for left in 2:nobjects
+                for right in 1:(left - 1)
+            )
+            # This benchmark uses standalone Objects, so there is no MTG node
+            # on which runtime status could be materialized as an attribute.
+            @test all(:node ∉ propertynames(status) for status in data.statuses)
+            @test benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            ) == data.lookup_id
+            @test all(
+                benchmark_status_registry_lookup(
+                    data.model,
+                    data.statuses[index],
+                ) == PlantSimEngine.ObjectId(index) for index in 1:nobjects
+            )
+            @test all(
+                PlantSimEngine.model_object(data.model, index).status ===
+                data.statuses[index] for index in 1:nobjects
+            )
+            @test benchmark_status_registry_sweep_checksum(
+                data.model,
+                data.statuses,
+            ) == data.expected_checksum
+
+            benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            )
+            @test benchmark_status_registry_lookup_allocations(
+                data.model,
+                data.lookup_status,
+            ) == 0
+            @test @allocated(
+                benchmark_status_registry_sweep_checksum(
+                    data.model,
+                    data.statuses,
+                )
+            ) == 0
+        end
+    end
+end
+
+if benchmark_test_enabled("organ lifecycle benchmark API smoke")
+    @testset "organ lifecycle benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-organ-lifecycle-benchmark.jl",
+            ),
+        )
+        data = setup_organ_lifecycle_benchmark(32)
+        @test length(PlantSimEngine.model_objects(data.model)) == 34
+        @test !data.model.bindings_dirty
+        @test !data.model.environment_bindings_dirty
+        @test !data.model.lifecycle_delta.full_environment
+        @test data.model.lifecycle_delta.structural_kind == :clean
+        status = benchmark_add_organ!(data)
+        added_id = PlantSimEngine.ObjectId(data.next_node_id)
+        @test PlantSimEngine.object_id(data.model, status) == added_id
+        @test PlantSimEngine.model_status(data.model, added_id) === status
+        @test PlantSimEngine.source_node(data.model, status) === status.node
+        @test status.signal == 1.0
+        @test data.model.bindings_dirty
+        nodes = Any[]
+        MultiScaleTreeGraph.traverse!(data.root) do node
+            push!(nodes, node)
+        end
+        @test all(
+            !haskey(
+                MultiScaleTreeGraph.node_attributes(node),
+                :plantsimengine_status,
+            ) for node in nodes
+        )
+        benchmark_refresh_after_add!(data)
+        @test !data.model.bindings_dirty
+        @test added_id in data.model.binding_cache.applications_by_id[
+            :organ_lifecycle_leaf
+        ].target_ids
+
+        combined = setup_organ_lifecycle_benchmark(32)
+        combined_status = benchmark_add_and_refresh!(combined)
+        @test PlantSimEngine.object_id(combined.model, combined_status) ==
+              PlantSimEngine.ObjectId(combined.next_node_id)
+        @test !combined.model.bindings_dirty
+
+        continued = setup_organ_lifecycle_benchmark(
+            32;
+            start_simulation=true,
+        )
+        initial_step = PlantSimEngine.current_step(continued.simulation)
+        continued_status = benchmark_add_and_continue!(continued)
+        @test PlantSimEngine.current_step(continued.simulation) ==
+              initial_step + 1
+        @test continued_status.signal == 2.0
+        @test PlantSimEngine.object_id(
+            continued.model,
+            continued_status,
+        ) == PlantSimEngine.ObjectId(continued.next_node_id)
+        @test !continued.model.bindings_dirty
+        @test !continued.model.environment_bindings_dirty
+        @test isempty(continued.model.lifecycle_delta.added)
+        @test isempty(continued.model.lifecycle_delta.removed)
+        @test isempty(continued.model.lifecycle_delta.reparented)
+        @test isempty(continued.model.lifecycle_delta.moved)
+        @test isempty(continued.model.lifecycle_delta.structural_dirty_ids)
+        @test isempty(continued.model.lifecycle_delta.environment_dirty_ids)
+        @test isempty(continued.model.lifecycle_delta.initialized_targets)
+        @test isnothing(
+            continued.model.lifecycle_delta.targeted_topology_runtime,
+        )
+        @test continued.model.lifecycle_delta.structural_kind == :clean
+        @test !continued.model.lifecycle_delta.full_environment
+    end
+end
+
 if benchmark_test_enabled("multirate benchmark API smoke")
     @testset "multirate benchmark API smoke" begin
         include(joinpath(@__DIR__, "..", "test-multirate-buffer-benchmark.jl"))
@@ -220,6 +351,319 @@ if benchmark_test_enabled("immutable scenario benchmark API smoke")
             object.status.signal
             for object in model_objects(cadence_simulation.model)
         ) == 60.0
+    end
+end
+
+if benchmark_test_enabled("distributed output benchmark API smoke")
+    @testset "distributed output benchmark API smoke" begin
+        include(
+            joinpath(
+                @__DIR__,
+                "..",
+                "test-distributed-output-benchmark.jl",
+            ),
+        )
+        data = setup_distributed_output_benchmark(16)
+        expected_sum = sum(data.exact_values)
+        @test benchmark_distributed_output_sum(data.ref_values) == expected_sum
+        @test benchmark_distributed_output_sum(data.bound_values) == expected_sum
+        @test benchmark_distributed_output_sum(data.heterogeneous_values) ==
+              expected_sum
+        @test benchmark_distributed_output_sum(
+            data.bound_heterogeneous_values,
+        ) == expected_sum
+        @test getfield(object_ids(data.bound_values), :ids) === data.object_ids
+        @test parent(data.bound_values) === data.ref_values
+        @test parent(data.bound_heterogeneous_values) ===
+              data.heterogeneous_values
+
+        benchmark_distributed_output_sum(data.ref_values)
+        benchmark_distributed_output_sum(data.bound_values)
+        benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.ref_values,
+        )
+        @test benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.ref_values,
+        ) == 0
+        benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.bound_values,
+        )
+        @test benchmark_distributed_output_allocations(
+            benchmark_distributed_output_sum,
+            data.bound_values,
+        ) == 0
+
+        status_input_data = setup_distributed_output_input_benchmark(
+            16;
+            identity_aware=false,
+        )
+        bound_input_data = setup_distributed_output_input_benchmark(
+            16;
+            identity_aware=true,
+        )
+        @test model_object(
+            status_input_data.simulation.model,
+            :scene,
+        ).status.total == status_input_data.expected_total
+        @test model_object(
+            bound_input_data.simulation.model,
+            :scene,
+        ).status.total == bound_input_data.expected_total
+        benchmark_distributed_output_input_steps(
+            status_input_data.simulation,
+            2,
+        )
+        benchmark_distributed_output_input_steps(
+            bound_input_data.simulation,
+            2,
+        )
+        @test model_object(
+            bound_input_data.simulation.model,
+            :scene,
+        ).status.total == model_object(
+            status_input_data.simulation.model,
+            :scene,
+        ).status.total
+
+        plain_model = setup_distributed_output_compilation_benchmark(
+            16;
+            distributed=false,
+        )
+        plain_compiled = benchmark_compile_distributed_output_model(plain_model)
+        @test plain_compiled.distributed_outputs isa
+              PlantSimEngine.NoCompiledDistributedOutputs
+
+        active_model = setup_distributed_output_compilation_benchmark(
+            16;
+            distributed=true,
+        )
+        active_compiled = benchmark_compile_distributed_output_model(active_model)
+        @test active_compiled.distributed_outputs isa
+              Advanced.CompiledDistributedOutputs
+        @test length(only(active_compiled.distributed_outputs.bindings).destination_ids) ==
+              16
+
+        lifecycle_model, new_index =
+            setup_distributed_output_lifecycle_benchmark(16)
+        refreshed = benchmark_refresh_distributed_output_lifecycle!(
+            lifecycle_model,
+            new_index,
+        )
+        @test length(only(refreshed.distributed_outputs.bindings).destination_ids) ==
+              17
+        @test model_object(lifecycle_model, Symbol(:leaf_, new_index)).status.incident_par ==
+              0.0
+
+        benchmark_assign_distributed_outputs_exact!(
+            data.exact_targets,
+            data.exact_values,
+        )
+        benchmark_assign_distributed_outputs_permuted!(
+            data.permuted_targets,
+            data.permuted_values,
+            data.result_to_destination,
+        )
+        benchmark_assign_distributed_outputs_statuses_exact!(
+            data.statuses,
+            data.exact_values,
+        )
+        @test getproperty.(data.statuses, :signal) == data.exact_values
+        fill!(data.status_targets, 0.0)
+        benchmark_assign_distributed_outputs_broadcast!(
+            data.status_targets,
+            data.exact_values,
+        )
+        @test collect(data.status_targets) == data.exact_values
+        benchmark_assign_distributed_output_columns_exact!(
+            data.column_targets,
+            data.column_values,
+        )
+        @test collect(data.column_targets.signal) == data.column_values.signal
+        @test collect(data.column_targets.rank) == data.column_values.rank
+        benchmark_assign_distributed_outputs_permuted!(
+            data.sparse_targets,
+            data.sparse_values,
+            data.sparse_result_to_destination,
+        )
+        sparse_expected = zeros(length(data.exact_values))
+        sparse_expected[data.sparse_result_to_destination] = data.sparse_values
+        @test collect(data.sparse_targets) == sparse_expected
+        benchmark_assign_distributed_outputs_exact!(
+            data.heterogeneous_targets,
+            data.exact_values,
+        )
+        @test collect(data.heterogeneous_targets) == data.exact_values
+        @test collect(data.exact_targets) == data.exact_values
+        @test collect(data.permuted_targets) == data.exact_values
+        allocation_cases = (
+            (
+                benchmark_assign_distributed_outputs_exact!,
+                data.exact_targets,
+                data.exact_values,
+            ),
+            (
+                benchmark_assign_distributed_outputs_permuted!,
+                data.permuted_targets,
+                data.permuted_values,
+                data.result_to_destination,
+            ),
+            (
+                benchmark_assign_distributed_outputs_broadcast!,
+                data.status_targets,
+                data.exact_values,
+            ),
+            (
+                benchmark_assign_distributed_output_columns_exact!,
+                data.column_targets,
+                data.column_values,
+            ),
+        )
+        for allocation_case in allocation_cases
+            benchmark_distributed_output_allocations(allocation_case...)
+            @test benchmark_distributed_output_allocations(allocation_case...) == 0
+        end
+
+        @test_throws DimensionMismatch begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                data.permuted_result_ids[2:end],
+            )
+        end
+        @test_throws ArgumentError begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                [data.permuted_result_ids[1:end-1]; ObjectId(:unknown)],
+            )
+        end
+        @test_throws ArgumentError begin
+            compile_distributed_output_benchmark_permutation(
+                data.object_ids,
+                [
+                    data.permuted_result_ids[1:end-1];
+                    data.permuted_result_ids[1]
+                ],
+            )
+        end
+        sparse_mapping = compile_sparse_distributed_output_benchmark_mapping(
+            data.object_ids,
+            data.sparse_result_ids,
+        )
+        @test sparse_mapping == data.sparse_result_to_destination
+        @test_throws ArgumentError begin
+            compile_sparse_distributed_output_benchmark_mapping(
+                data.object_ids,
+                [data.sparse_result_ids; first(data.sparse_result_ids)],
+            )
+        end
+
+        dynamic_destination_ids, dynamic_result_ids =
+            setup_distributed_output_mapping_refresh_benchmark(16)
+        dynamic_mapping =
+            benchmark_refresh_distributed_output_assignment_mapping(
+                dynamic_destination_ids,
+                dynamic_result_ids,
+            )
+        @test dynamic_mapping == reverse(eachindex(dynamic_destination_ids))
+
+        control_simulation =
+            setup_distributed_output_assignment_control_benchmark(16)
+        benchmark_distributed_output_public_assignment_step(
+            control_simulation,
+        )
+        @test current_step(control_simulation) == 2
+
+        if isdefined(PlantSimEngine, :output_targets) &&
+           isdefined(PlantSimEngine, :assign_outputs!)
+            expected_by_id = Dict(
+                row_id => value for (row_id, value) in zip(
+                    data.object_ids,
+                    data.exact_values,
+                )
+            )
+            for (order, paths) in (
+                (:exact, (:table, :columns, :ref_loop, :broadcast)),
+                (:permuted, (:table, :columns)),
+            )
+                for path in paths
+                    public_simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            16;
+                            order=order,
+                            path=path,
+                        )
+                    benchmark_distributed_output_public_assignment_step(
+                        public_simulation,
+                    )
+                    @test all(
+                        object.status.incident_par == expected_by_id[object.id]
+                        for object in model_objects(
+                            public_simulation.model;
+                            scale=:Leaf,
+                        )
+                )
+            end
+            end
+
+            expected_rank_by_id = Dict(
+                row_id => rank for (row_id, rank) in zip(
+                    data.object_ids,
+                    data.column_values.rank,
+                )
+            )
+            for order in (:exact, :permuted)
+                paths = order === :exact ?
+                        (:table, :columns, :ref_loop) :
+                        (:table, :columns)
+                for path in paths
+                    public_simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            16;
+                            order=order,
+                            path=path,
+                            ncolumns=2,
+                        )
+                    benchmark_distributed_output_public_assignment_step(
+                        public_simulation,
+                    )
+                    leaves = model_objects(public_simulation.model; scale=:Leaf)
+                    @test all(
+                        object.status.incident_par == expected_by_id[object.id]
+                        for object in leaves
+                    )
+                    @test all(
+                        object.status.rank == expected_rank_by_id[object.id]
+                        for object in leaves
+                    )
+                end
+            end
+
+            for path in (:columns, :ref_loop)
+                public_simulation =
+                    setup_distributed_output_public_assignment_benchmark(
+                        16;
+                        order=:exact,
+                        path=path,
+                        heterogeneous=true,
+                    )
+                execution_target =
+                    only(first(public_simulation.execution_plan.batches).targets)
+                @test execution_target.output_targets.leaves.columns.incident_par isa
+                      PlantSimEngine.ObjectRefVector
+                benchmark_distributed_output_public_assignment_step(
+                    public_simulation,
+                )
+                @test all(
+                    object.status.incident_par == expected_by_id[object.id]
+                    for object in model_objects(
+                        public_simulation.model;
+                        scale=:Leaf,
+                    )
+                )
+            end
+        end
     end
 end
 
@@ -412,12 +856,46 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
                 :SUITE,
             )[getfield(benchmark_module, :suite_name)]
             @test haskey(suite, "PSE_status_read_write")
+            @test haskey(suite, "PSE_status_registry_lookup_32")
+            @test haskey(suite, "PSE_status_registry_sweep_1024")
+            @test haskey(suite, "PSE_organ_adaptation_32")
+            @test haskey(suite, "PSE_organ_add_1024")
+            @test haskey(suite, "PSE_organ_refresh_1024")
+            @test haskey(suite, "PSE_organ_add_refresh_1024")
+            @test haskey(suite, "PSE_organ_add_continue_1024")
             @test haskey(suite, "PSE")
             @test haskey(suite, "PSE_hard_calls_zero")
             @test haskey(suite, "PSE_lifecycle_large")
             @test haskey(suite, "PSE_immutable_scenario_none")
             @test haskey(suite, "PSE_immutable_scenario_requests")
             @test haskey(suite, "PSE_immutable_scenario_all")
+            @test haskey(suite, "PSE_distributed_assign_exact_10")
+            @test haskey(suite, "PSE_distributed_assign_sparse_1000")
+            @test haskey(suite, "PSE_distributed_mapping_refresh_10000")
+            @test haskey(suite, "PSE_assign_outputs_control_1000")
+            if isdefined(PlantSimEngine, :output_targets) &&
+               isdefined(PlantSimEngine, :assign_outputs!)
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_exact_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_2columns_permuted_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_heterogeneous_exact_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_7columns_exact_1000",
+                )
+                @test haskey(
+                    suite,
+                    "PSE_assign_outputs_columns_19columns_exact_1000",
+                )
+            end
             @test !haskey(suite, "PBP")
             @test !haskey(suite, "PBP_batch_run")
             @test !haskey(suite, "XPalm_run_100")
@@ -455,6 +933,13 @@ if benchmark_test_enabled("legacy benchmark suite assembly smoke")
                 :SUITE,
             )[getfield(benchmark_module, :suite_name)]
             @test haskey(suite, "PSE_status_read_write")
+            @test !haskey(suite, "PSE_status_registry_lookup_32")
+            @test !haskey(suite, "PSE_status_registry_sweep_1024")
+            @test !haskey(suite, "PSE_organ_adaptation_32")
+            @test !haskey(suite, "PSE_organ_add_1024")
+            @test !haskey(suite, "PSE_organ_refresh_1024")
+            @test !haskey(suite, "PSE_organ_add_refresh_1024")
+            @test !haskey(suite, "PSE_organ_add_continue_1024")
             @test !haskey(suite, "PSE")
             @test !haskey(suite, "PSE_multirate_no_output_run")
             @test !haskey(suite, "PSE_hard_calls_zero")

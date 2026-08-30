@@ -103,11 +103,21 @@ input_origins(spec::ModelSpec) = spec.input_origins
 """
     model_calls(spec::ModelSpec)
 
-Unified composite-model/object manual call bindings declared with the
-`ModelSpec(...; calls=...)` keyword.
+Unified composite-model/object call bindings declared with the
+`ModelSpec(...; calls=...)` keyword. Ordinary object selectors declare manual
+calls; [`Initializer`](@ref) wraps a selector for targeted newborn
+initialization while leaving the callee normally scheduled.
 """
 model_calls(spec::ModelSpec) = spec.calls
 call_origins(spec::ModelSpec) = spec.call_origins
+
+"""
+    outputs_to(spec::ModelSpec)
+
+Named distributed-output destinations declared with the
+`ModelSpec(...; outputs_to=...)` keyword.
+"""
+outputs_to(spec::ModelSpec) = spec.outputs_to
 
 """
     environment_config(spec::ModelSpec)

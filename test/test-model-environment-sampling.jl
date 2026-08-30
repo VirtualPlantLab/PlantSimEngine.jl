@@ -42,6 +42,17 @@ function PlantSimEngine.run!(::EnvironmentSamplingProbeModel, status, environmen
     status.radiation_energy = environment.Ri_SW_q
 end
 
+struct EnvironmentDataFormatSentinel <: Exception end
+struct BrokenEnvironmentDataFormat end
+PlantSimEngine.DataFormat(::Type{BrokenEnvironmentDataFormat}) =
+    throw(EnvironmentDataFormatSentinel())
+
+@testset "environment format errors remain visible" begin
+    @test_throws EnvironmentDataFormatSentinel PlantSimEngine._first_environment_row(
+        BrokenEnvironmentDataFormat(),
+    )
+end
+
 @testset "environment aggregation and model hint" begin
     if PlantSimEngine._has_environment_sampler_api()
         base_date = DateTime(2025, 1, 1)

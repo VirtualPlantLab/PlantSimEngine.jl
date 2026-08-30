@@ -26,6 +26,19 @@
 - `run_call!(context, name)` for the common execute-all operation while
   retaining `run_call!(target::CallTarget)` for selective, per-target, and
   iterative control.
+- `add_organ!(...; use_status_adapter=false)` for topology engines whose new
+  node attributes already form the authoritative initialization payload. The
+  default remains `true`; opting out skips only the stored adapter status
+  initializer while preserving node attributes, explicit initial-value
+  precedence, node identity, object registration, and binding invalidation.
+
+### Fixed
+
+- Removed ambiguities in distributed-output runtime dispatch when temporal
+  streams are absent and output retention is either absent or compiled.
+- Construct dynamic `Status` values directly from the final ordered payload,
+  preserving precedence and independent `Ref` storage without the generic
+  iterable-to-`NamedTuple` merge path.
 
 ## v0.14.1
 

@@ -13,6 +13,41 @@ struct EditorConsumerModel <: AbstractEditorConsumerModel end
 PlantSimEngine.inputs_(::EditorConsumerModel) = (signal=Required(Float64),)
 PlantSimEngine.outputs_(::EditorConsumerModel) = (result=-Inf,)
 
+struct EditorNamedStatusTransform end
+
+function (::EditorNamedStatusTransform)(variable, value)
+    variable === :special && return value + one(value)
+    return value
+end
+
+module EditorInitializerFixtures
+import PlantSimEngine
+
+export EditorInitializerTargetModel, EditorInitializerCreatorModel
+
+abstract type AbstractEditorInitializerTargetModel <:
+              PlantSimEngine.AbstractModel end
+abstract type AbstractEditorInitializerCreatorModel <:
+              PlantSimEngine.AbstractModel end
+PlantSimEngine.process_(::Type{AbstractEditorInitializerTargetModel}) =
+    :editor_initializer_target
+PlantSimEngine.process_(::Type{AbstractEditorInitializerCreatorModel}) =
+    :editor_initializer_creator
+
+struct EditorInitializerTargetModel <:
+       AbstractEditorInitializerTargetModel end
+PlantSimEngine.inputs_(::EditorInitializerTargetModel) = NamedTuple()
+PlantSimEngine.outputs_(::EditorInitializerTargetModel) = (initialized=0,)
+
+struct EditorInitializerCreatorModel <:
+       AbstractEditorInitializerCreatorModel end
+PlantSimEngine.inputs_(::EditorInitializerCreatorModel) = NamedTuple()
+PlantSimEngine.outputs_(::EditorInitializerCreatorModel) = NamedTuple()
+end
+
+using .EditorInitializerFixtures:
+    EditorInitializerTargetModel, EditorInitializerCreatorModel
+
 struct EditorEnvironmentBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend
     name::Symbol
 end
@@ -508,6 +543,106 @@ end
 end
 
 
+@testset "initializer editor commands preserve mode through save and open" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    model = CompositeModel(Object(:leaf; name=:leaf, scale=:Leaf))
+    session = edit_graph(model; port=0, open_browser=false, autosave=false)
+    try
+        initializer_target_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "add_application",
+            "name" => "initializer_target",
+            "modelType" => string(EditorInitializerTargetModel),
+            "parameters" => Dict(),
+            "selector" => Dict(
+                "multiplicity" => "many",
+                "criteria" => Dict("selectors" => Any[], "scale" => "Leaf"),
+            ),
+            "cadence" => Dict("mode" => "default"),
+        ))
+        @test initializer_target_response["ok"]
+        initializer_creator_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "add_application",
+            "name" => "initializer_creator",
+            "modelType" => string(EditorInitializerCreatorModel),
+            "parameters" => Dict(),
+            "selector" => Dict(
+                "multiplicity" => "one",
+                "criteria" => Dict("selectors" => Any[], "name" => "leaf"),
+            ),
+            "cadence" => Dict("mode" => "default"),
+        ))
+        @test initializer_creator_response["ok"]
+        initializer_response = editor_extension._handle_command!(session, Dict(
+            "action" => "edit",
+            "kind" => "set_call_binding",
+            "applicationRef" => editor_global_ref(:initializer_creator),
+            "call" => "newborn",
+            "mode" => "initializer",
+            "selector" => Dict(
+                "multiplicity" => "one",
+                "criteria" => Dict(
+                    "selectors" => Any[],
+                    "within" => Dict("type" => "Self"),
+                    "application" => "initializer_target",
+                ),
+            ),
+        ))
+        @test initializer_response["ok"]
+        initializer_creator = only(
+            PlantSimEngine.as_model_spec(spec)
+            for spec in current_model(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) ==
+               :initializer_creator
+        )
+        @test model_calls(initializer_creator).newborn isa Initializer
+        initializer_application = only(
+            application
+            for application in initializer_response["graph"]["applications"]
+            if application["applicationId"] == "initializer_creator"
+        )
+        @test initializer_application["callBindings"]["newborn"]["mode"] ==
+              "initializer"
+        initializer_edge = only(
+            edge for edge in initializer_response["graph"]["edges"]
+            if edge["kind"] == "initializer"
+        )
+        @test initializer_edge["projection"] == "applications"
+        @test !any(
+            edge -> edge["kind"] == "initializer" &&
+                    edge["projection"] == "resolved",
+            model_graph_view(current_model(session); level=:resolved).edges,
+        )
+
+        saved_initializer_path = joinpath(mktempdir(), "initializer-editor-model.jl")
+        saved_initializer = editor_extension._handle_command!(session, Dict(
+            "action" => "save_model_code",
+            "path" => saved_initializer_path,
+        ))
+        @test saved_initializer["ok"]
+        @test occursin("Initializer", read(saved_initializer_path, String))
+        reopened_initializer = editor_extension._handle_command!(session, Dict(
+            "action" => "open_model_code",
+            "path" => saved_initializer_path,
+        ))
+        reopened_initializer["ok"] || error(
+            join(reopened_initializer["diagnostics"], "\n"),
+        )
+        @test reopened_initializer["ok"]
+        reopened_creator = only(
+            PlantSimEngine.as_model_spec(spec)
+            for spec in current_model(session).applications
+            if application_name(PlantSimEngine.as_model_spec(spec)) ==
+               :initializer_creator
+        )
+        @test model_calls(reopened_creator).newborn isa Initializer
+    finally
+        close(session)
+    end
+end
+
+
 @testset "generated Julia code reconstructs templates and overrides" begin
     editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
     template = CompositeModelTemplate(
@@ -583,4 +718,135 @@ end
     @test PlantSimEngine.application_name(
         PlantSimEngine.as_model_spec(restored_local_application),
     ) == :local_source
+end
+
+@testset "generated Julia code preserves status conversion" begin
+    editor_extension = Base.get_extension(PlantSimEngine, :PlantSimEngineGraphEditorExt)
+    type_promotion = Dict(Float64 => Float32, Float32 => Float16)
+    original = CompositeModel(
+        Object(
+            :typed_leaf;
+            status=Status(ordinary=1.0, special=2.0),
+        );
+        type_promotion=type_promotion,
+        status_transform=EditorNamedStatusTransform(),
+    )
+    original_status = only(model_objects(original)).status
+    @test original_status.ordinary isa Float32
+    @test original_status.special === Float32(3)
+
+    session = edit_graph(original; port=0, open_browser=false, autosave=false)
+    apply_edit!(
+        session,
+        SetModelObjectStatus(:typed_leaf, :special, 10.0),
+    )
+    edited_model = current_model(session)
+    edited_status = only(model_objects(edited_model)).status
+    @test edited_status.special === Float32(11)
+    @test edited_model.status_conversion.rules ==
+          (Float32 => Float16, Float64 => Float32)
+    @test edited_model.status_conversion.transform isa EditorNamedStatusTransform
+    code = try
+        editor_extension._model_to_julia(session)
+    finally
+        close(session)
+    end
+    @test occursin(
+        "PlantSimEngine.StatusConversionPolicy((Float32 => Float16, Float64 => Float32), Main.EditorNamedStatusTransform())",
+        code,
+    )
+    @test occursin("_status_values_materialized=true", code)
+    @test occursin("_status_conversion_records=Dict{Any,Any}", code)
+
+    restored = Base.include_string(
+        Main,
+        code,
+        "generated_status_conversion_editor_test.jl",
+    )
+    restored_status = only(model_objects(restored)).status
+    @test restored_status.ordinary isa Float32
+    @test restored_status.ordinary === original_status.ordinary
+    @test restored_status.special === Float32(11)
+    @test restored.status_conversion.rules ==
+          (Float32 => Float16, Float64 => Float32)
+    @test restored.status_conversion.transform isa EditorNamedStatusTransform
+
+    ordinary_key = (
+        :supplied_status,
+        nothing,
+        ObjectId(:typed_leaf),
+        :ordinary,
+    )
+    @test length(restored.status_conversion_records) ==
+          length(edited_model.status_conversion_records)
+    @test restored.status_conversion_records[ordinary_key].effective_type === Float32
+    @test restored.status_conversion_records[ordinary_key].mapping_rule ==
+          (Float64 => Float32)
+    edited_key = (
+        :graph_edit_status,
+        nothing,
+        ObjectId(:typed_leaf),
+        :special,
+    )
+    @test restored.status_conversion_records[edited_key].effective_type === Float32
+    @test restored.status_conversion_records[edited_key].transform_changed
+
+    registered = register_object!(
+        restored,
+        Object(
+            :late_typed_leaf;
+            status=Status(ordinary=3.0, special=4.0),
+        ),
+    )
+    @test registered.status.ordinary isa Float32
+    @test registered.status.special === Float32(5)
+
+    anonymous_transform = (variable, value) ->
+        variable === :special ? Float16(value) : value
+    closure_model = CompositeModel(
+        Object(
+            :closure_leaf;
+            status=Status(ordinary=5.0, special=6.0),
+        );
+        type_promotion=type_promotion,
+        status_transform=anonymous_transform,
+    )
+    closure_session = edit_graph(
+        closure_model;
+        port=0,
+        open_browser=false,
+        autosave=false,
+    )
+    closure_code = try
+        editor_extension._model_to_julia(closure_session)
+    finally
+        close(closure_session)
+    end
+    @test occursin("# WARNING: The Composite model status_transform", closure_code)
+    @test occursin("is not reconstructed", closure_code)
+    @test occursin("Existing effective Status values are preserved", closure_code)
+    @test occursin(
+        "PlantSimEngine.StatusConversionPolicy((Float32 => Float16, Float64 => Float32), nothing)",
+        closure_code,
+    )
+
+    restored_closure = Base.include_string(
+        Main,
+        closure_code,
+        "generated_status_conversion_closure_editor_test.jl",
+    )
+    restored_closure_status = only(model_objects(restored_closure)).status
+    @test restored_closure_status.ordinary isa Float32
+    @test restored_closure_status.special isa Float16
+    @test isnothing(restored_closure.status_conversion.transform)
+
+    registered_closure = register_object!(
+        restored_closure,
+        Object(
+            :late_closure_leaf;
+            status=Status(ordinary=7.0, special=8.0),
+        ),
+    )
+    @test registered_closure.status.ordinary isa Float32
+    @test registered_closure.status.special isa Float32
 end

@@ -137,7 +137,14 @@ struct CustomModel{T,S} <: AbstractLight_InterceptionModel
 end
 ```
 
-Parameterized types are practical because they let the user choose the type of the parameters, and potentially change them at runtime. For example a user could use the `Particles` type from [MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl) for automatic uncertainty propagation throughout the simulation. We refer you to the [Parametric types](@ref) subsection of the [Model implementation additional notes](@ref) page for more information on parametric types.
+Parameterized types are practical because they let the user choose the type of
+the parameters. For example, a user could use the `Particles` type from
+[MonteCarloMeasurements.jl](https://github.com/baggepinnen/MonteCarloMeasurements.jl)
+for automatic uncertainty propagation. Model parameters are not status values:
+a scenario-level `status_transform` does not change them, so parameters that
+must carry uncertainty need generic model fields like `k::T`. See the
+[Parametric types](@ref) subsection of the
+[Model implementation additional notes](@ref) page for more information.
 
 ### Inputs and outputs
 
@@ -174,8 +181,12 @@ model instead had an optional efficiency of `0.8`, it would declare
 "required": they are ordinary values and hide the model contract.
 
 `Required(Float64)` is an expected type, not an initialization value. A model
-that supports a broader or parameterized type can declare that type instead.
-PlantSimEngine does not convert status values to `Float64`.
+that supports a broader or parameterized status type should declare that type
+instead, for example `Required(Real)`. PlantSimEngine performs no implicit
+conversion to `Float64`. A simulation user may explicitly choose another status
+representation with `CompositeModel(...; type_promotion=...,
+status_transform=...)`; the model kernel must support the resulting effective
+type. See [Numerical Reliability](@ref) for examples and scope details.
 
 These extension functions end with an "\_". Simulation users instead use
 [`inputs`](@ref), [`outputs`](@ref), [`init_variables`](@ref), and

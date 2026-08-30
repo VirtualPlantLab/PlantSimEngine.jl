@@ -7,12 +7,18 @@ abstract type AbstractModelGraphConsumerModel <: PlantSimEngine.AbstractModel en
 abstract type AbstractModelGraphCycleAModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphCycleBModel <: PlantSimEngine.AbstractModel end
 abstract type AbstractModelGraphEnvironmentModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractModelGraphDistributedWriterModel <: PlantSimEngine.AbstractModel end
+abstract type AbstractModelGraphGenericTypeModel <: PlantSimEngine.AbstractModel end
 
 PlantSimEngine.process_(::Type{AbstractModelGraphSourceModel}) = :model_graph_source
 PlantSimEngine.process_(::Type{AbstractModelGraphConsumerModel}) = :model_graph_consumer
 PlantSimEngine.process_(::Type{AbstractModelGraphCycleAModel}) = :model_graph_cycle_a
 PlantSimEngine.process_(::Type{AbstractModelGraphCycleBModel}) = :model_graph_cycle_b
 PlantSimEngine.process_(::Type{AbstractModelGraphEnvironmentModel}) = :model_graph_environment
+PlantSimEngine.process_(::Type{AbstractModelGraphDistributedWriterModel}) =
+    :model_graph_distributed_writer
+PlantSimEngine.process_(::Type{AbstractModelGraphGenericTypeModel}) =
+    :model_graph_generic_type
 
 struct ModelGraphSourceModel{T} <: AbstractModelGraphSourceModel
     coefficient::T
@@ -39,6 +45,23 @@ PlantSimEngine.inputs_(::ModelGraphEnvironmentModel) = NamedTuple()
 PlantSimEngine.outputs_(::ModelGraphEnvironmentModel) = (result=-Inf,)
 PlantSimEngine.environment_inputs_(::ModelGraphEnvironmentModel) = (T=-Inf,)
 PlantSimEngine.environment_outputs_(::ModelGraphEnvironmentModel) = (leaf_temperature=-Inf,)
+
+struct ModelGraphDistributedWriterModel <: AbstractModelGraphDistributedWriterModel end
+PlantSimEngine.inputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
+PlantSimEngine.outputs_(::ModelGraphDistributedWriterModel) = NamedTuple()
+
+struct ModelGraphGenericTypeModel <: AbstractModelGraphGenericTypeModel end
+PlantSimEngine.inputs_(::ModelGraphGenericTypeModel) = (driver=Required(Real),)
+PlantSimEngine.outputs_(::ModelGraphGenericTypeModel) = (result=0.0,)
+
+struct ModelGraphStatusTransformCounter
+    calls::Base.RefValue{Int}
+end
+
+function (counter::ModelGraphStatusTransformCounter)(variable, value)
+    counter.calls[] += 1
+    return value
+end
 
 struct ModelGraphWeatherBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
 struct ModelGraphCanopyBackend <: PlantSimEngine.EnvironmentAPI.AbstractEnvironmentBackend end
@@ -169,6 +192,120 @@ end
     @test occursin("PlantSimEngine CompositeModel Graph", html)
     @test occursin("pse-model-graph-data", html)
     @test occursin("Applications", html)
+end
+
+@testset "CompositeModel graph compiles distributed writers like the strict compiler" begin
+    leaf_destination = () -> OutputTo(
+        Many(scale=:Leaf, within=SceneScope());
+        vars=(signal=Default(0.0),),
+    )
+    model = CompositeModel(
+        Object(:scene; scale=:Scene),
+        Object(:leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(
+                ModelGraphConsumerModel();
+                name=:consumer,
+                on=One(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:first_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:second_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+                updates=Updates(:signal; after=:first_writer),
+            ),
+        ),
+    )
+
+    report = compile_model_report(model)
+    strict_report = compile_model_report(model; strict=true)
+
+    @test isempty(report.diagnostics)
+    @test !isnothing(report.compiled)
+    @test report.application_order == [:first_writer, :second_writer, :consumer]
+    @test report.application_order == strict_report.application_order
+    @test :second_writer in report.dependency_children[:first_writer]
+    @test :consumer in report.dependency_children[:second_writer]
+
+    signal_binding = only(
+        binding for binding in report.input_bindings
+        if binding.application_id == :consumer && binding.input == :signal
+    )
+    strict_signal_binding = only(
+        binding for binding in strict_report.input_bindings
+        if binding.application_id == :consumer && binding.input == :signal
+    )
+    @test signal_binding.source_ids == ObjectId[ObjectId(:leaf)]
+    @test signal_binding.source_application_ids == [:second_writer]
+    @test signal_binding.source_application_ids ==
+          strict_signal_binding.source_application_ids
+    @test input_value(signal_binding) == 0.0
+
+    consumer_view = report.compiled.status_views_by_target[
+        (:consumer, ObjectId(:leaf))
+    ]
+    @test consumer_view.status.signal == 0.0
+    @test isnothing(only(model_objects(model; scale=:Leaf)).status)
+
+    output_bindings = Diagnostics.explain_output_bindings(report.compiled)
+    @test length(output_bindings) == 2
+    @test all(row.destination_ids == [:leaf] for row in output_bindings)
+    writer = only(
+        row for row in Diagnostics.explain_writers(report.compiled)
+        if row.object_id == :leaf && row.variable == :signal
+    )
+    @test writer.application_ids == [:first_writer, :second_writer]
+    @test writer.execution_object_ids == [:scene, :scene]
+    @test writer.owner_kinds == [:output_destination, :output_destination]
+
+    initialization = only(
+        row for row in model_graph_view(model).initialization
+        if row["applicationId"] == "consumer" && row["variable"] == "signal"
+    )
+    @test initialization["disposition"] == "producer_bound"
+    @test initialization["sourceApplicationIds"] == ["second_writer"]
+
+    resolved = model_graph_view(model; level=:resolved)
+    resolved_binding = only(
+        edge for edge in resolved.edges
+        if get(edge, "projection", nothing) == "resolved" &&
+           get(edge, "targetApplicationId", nothing) == "consumer"
+    )
+    @test resolved_binding["source"] == "execution:second_writer:scene"
+    @test resolved_binding["sourceObjectIds"] == ["leaf"]
+    @test resolved_binding["sourceExecutionObjectIds"] == ["scene"]
+    @test resolved_binding["source"] in
+          Set(execution["id"] for execution in resolved.executions)
+
+    empty_model = CompositeModel(
+        Object(:empty_scene; scale=:Scene);
+        applications=(
+            ModelSpec(
+                ModelGraphConsumerModel();
+                name=:empty_consumer,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:empty_writer,
+                on=One(scale=:Scene),
+                outputs_to=(leaves=leaf_destination(),),
+            ),
+        ),
+    )
+    empty_report = compile_model_report(empty_model)
+    empty_strict_report = compile_model_report(empty_model; strict=true)
+    @test isempty(empty_report.diagnostics)
+    @test isempty(empty_report.input_bindings)
+    @test empty_report.application_order == [:empty_writer, :empty_consumer]
+    @test empty_report.application_order == empty_strict_report.application_order
 end
 
 @testset "CompositeModel graph instances and overrides" begin
@@ -387,6 +524,41 @@ end
     )
     @test unresolved["disposition"] == "required"
     @test view.metadata["unresolvedInitializationCount"] == 1
+end
+
+@testset "CompositeModel graph initialization reports effective status types" begin
+    model = CompositeModel(
+        Object(:leaf; name=:leaf, scale=:Leaf, status=Status(driver=1.0));
+        applications=(
+            ModelSpec(
+                ModelGraphGenericTypeModel();
+                name=:generic,
+                on=One(name=:leaf),
+            ),
+        ),
+        type_promotion=Dict(Float64 => Float32),
+    )
+    initialization = model_graph_view(model).initialization
+    driver = only(
+        row for row in initialization
+        if row["applicationId"] == "generic" && row["variable"] == "driver"
+    )
+    result = only(
+        row for row in initialization
+        if row["applicationId"] == "generic" && row["variable"] == "result"
+    )
+
+    @test driver["declaredType"] == "Real"
+    @test driver["originalType"] == "Float64"
+    @test driver["effectiveType"] == "Float32"
+    @test driver["typeMappingApplied"]
+    @test driver["typeMappingRule"] == Dict(
+        "first" => "Float64",
+        "second" => "Float32",
+    )
+    @test result["declaredType"] == "Float64"
+    @test result["originalType"] == "Float64"
+    @test result["effectiveType"] == "Float32"
 end
 
 @testset "CompositeModel graph edits are transactional" begin
@@ -652,7 +824,94 @@ end
     @test ObjectId(:child) in object_ids(with_objects)
 end
 
-function model_graph_override_fixture()
+@testset "CompositeModel graph editor preserves initializer bindings" begin
+    model = CompositeModel(
+        Object(:plant; name=:plant, scale=:Plant),
+        Object(
+            :leaf;
+            name=:leaf,
+            scale=:Leaf,
+            parent=:plant,
+            status=Status(driver=1.0),
+        );
+        applications=(
+            ModelSpec(
+                ModelGraphSourceModel();
+                name=:source,
+                on=Many(scale=:Leaf),
+            ),
+            ModelSpec(
+                ModelGraphDistributedWriterModel();
+                name=:creator,
+                on=One(name=:plant),
+            ),
+        ),
+    )
+
+    configured = apply_model_graph_edit(
+        model,
+        SetModelCallBinding(
+            model_graph_global(:creator),
+            :source_initializer,
+            Initializer(
+                One(
+                    scale=:Leaf,
+                    within=Subtree(),
+                    application=:source,
+                ),
+            ),
+        ),
+    )
+    configured_creator =
+        PlantSimEngine._model_edit_spec(configured, model_graph_global(:creator))
+    configured_binding = model_calls(configured_creator).source_initializer
+    @test configured_binding isa Initializer
+    @test PlantSimEngine._call_binding_mode(configured_binding) == :initializer
+
+    renamed = apply_model_graph_edit(
+        configured,
+        RenameModelApplication(model_graph_global(:source), :renamed_source),
+    )
+    renamed_creator =
+        PlantSimEngine._model_edit_spec(renamed, model_graph_global(:creator))
+    renamed_binding = model_calls(renamed_creator).source_initializer
+    @test renamed_binding isa Initializer
+    @test PlantSimEngine._call_binding_mode(renamed_binding) == :initializer
+    @test PlantSimEngine.criteria(renamed_binding.selector).application ==
+          :renamed_source
+
+    report = compile_model_report(renamed; strict=true)
+    call = only(report.call_bindings)
+    @test PlantSimEngine._compiled_call_mode(call) == :initializer
+    @test isempty(call.callee_object_ids)
+    @test call.callee_application_ids == [:renamed_source]
+
+    application_view = model_graph_view(renamed)
+    initializer_edge = only(
+        edge for edge in application_view.edges
+        if edge["kind"] == "initializer"
+    )
+    @test initializer_edge["mode"] == "initializer"
+    @test initializer_edge["projection"] == "applications"
+    creator_view = only(
+        application for application in application_view.applications
+        if application["applicationId"] == "creator"
+    )
+    @test creator_view["callBindings"]["source_initializer"]["mode"] ==
+          "initializer"
+
+    resolved_view = model_graph_view(renamed; level=:resolved)
+    @test !any(
+        edge -> edge["kind"] == "initializer" &&
+                edge["projection"] == "resolved",
+        resolved_view.edges,
+    )
+end
+
+function model_graph_override_fixture(;
+    type_promotion=nothing,
+    status_transform=nothing,
+)
     template = CompositeModelTemplate(
         (
             ModelSpec(ModelGraphSourceModel(1.0); name=:source, on=Many(scale=:Leaf)),
@@ -672,7 +931,9 @@ function model_graph_override_fixture()
             template;
             root=Object(:plant_b; scale=:Plant),
             objects=(Object(:leaf_b; scale=:Leaf, parent=:plant_b, status=Status(driver=1.0)),),
-        ),
+        );
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
@@ -750,6 +1011,34 @@ end
         model,
         SetModelInstanceOverride(:plant_b, :source, ModelGraphConsumerModel()),
     )
+end
+
+@testset "CompositeModel graph rebuilds preserve materialized status policy" begin
+    transform = ModelGraphStatusTransformCounter(Ref(0))
+    model = model_graph_override_fixture(
+        ; type_promotion=Dict(Float64 => Float32), status_transform=transform,
+    )
+    materialization_calls = transform.calls[]
+    @test materialization_calls > 0
+
+    overridden = apply_model_graph_edit(
+        model,
+        SetModelInstanceOverride(:plant_b, :source, ModelGraphSourceModel(2.0)),
+    )
+    overridden_transform = overridden.status_conversion.transform
+    @test overridden_transform isa ModelGraphStatusTransformCounter
+    @test overridden_transform.calls[] == materialization_calls
+    @test model_status(overridden, :leaf_a).driver isa Float32
+    @test model_status(overridden, :leaf_b).driver isa Float32
+
+    changed_environment = apply_model_graph_edit(
+        overridden,
+        SetCompositeModelEnvironment(ModelGraphCanopyBackend()),
+    )
+    changed_transform = changed_environment.status_conversion.transform
+    @test changed_transform isa ModelGraphStatusTransformCounter
+    @test changed_transform.calls[] == materialization_calls
+    @test changed_environment.environment isa ModelGraphCanopyBackend
 end
 
 @testset "CompositeModel graph object override edit" begin

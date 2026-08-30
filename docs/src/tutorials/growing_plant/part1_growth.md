@@ -6,7 +6,9 @@ model calls `register_object!` after its carbon or thermal threshold is met.
 
 Structural changes refresh compiled targets after the application that made
 the change. A new leaf may run applications that remain later in the same
-timestep, but it never retroactively runs applications that already completed.
+timestep. It runs an application that already completed only when its creator
+declares that application as an `Initializer` and explicitly initializes the
+newborn object.
 When callers mutate structure between `step!` calls, refresh occurs before the
 next step.
 

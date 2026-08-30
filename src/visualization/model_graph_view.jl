@@ -92,7 +92,12 @@ function _model_graph_phase!(operation, diagnostics, phase::Symbol, fallback)
     end
 end
 
-function _model_graph_dependency_children(applications, input_bindings, call_bindings)
+function _model_graph_dependency_children(
+    applications,
+    input_bindings,
+    call_bindings,
+    distributed_output_plans=NoCompiledDistributedOutputPlans(),
+)
     children = Dict{Symbol,Set{Symbol}}()
     call_owners = _model_call_owners(call_bindings)
     _model_input_order_edges!(
@@ -100,8 +105,26 @@ function _model_graph_dependency_children(applications, input_bindings, call_bin
         input_bindings,
         call_owners,
     )
-    _model_update_order_edges!(children, applications)
+    _scenario_initializer_order_edges!(
+        children,
+        input_bindings,
+        call_bindings,
+        call_owners,
+    )
+    _scenario_update_order_edges!(
+        children,
+        applications,
+        _manual_call_application_ids(call_bindings),
+        distributed_output_plans,
+    )
     return children
+end
+
+function _model_graph_dependency_children(compiled::CompiledCompositeModel)
+    return Dict{Symbol,Set{Symbol}}(
+        application_id => Set{Symbol}(children)
+        for (application_id, children) in pairs(compiled.application_children)
+    )
 end
 
 function _model_graph_cycle_components(applications, children)
@@ -153,8 +176,12 @@ end
 function _model_graph_compiled(
     model,
     applications,
+    input_plans,
+    call_plans,
     input_bindings,
     call_bindings,
+    distributed_output_plans,
+    distributed_outputs,
     diagnostics,
 )
     isempty(diagnostics) || return nothing
@@ -165,8 +192,9 @@ function _model_graph_compiled(
     scenario_plan = _compiled_scenario_plan(
         model,
         applications,
-        _compile_model_input_plans(model, applications),
-        _compile_model_call_plans(model, applications),
+        input_plans,
+        call_plans,
+        distributed_output_plans,
         timeline,
     )
     ordered_applications = Tuple(
@@ -184,6 +212,7 @@ function _model_graph_compiled(
         applications_by_id,
         input_by_target,
         scenario_plan.application_order,
+        distributed_outputs,
     )
     return CompiledCompositeModel(
         model,
@@ -199,6 +228,7 @@ function _model_graph_compiled(
         _index_dynamic_input_bindings(model, input_bindings),
         _index_dynamic_call_bindings(model, call_bindings),
         _many_input_binding_cache(model, input_bindings),
+        distributed_outputs,
         scenario_plan.call_owners,
         scenario_plan.application_children,
         status_views,
@@ -290,11 +320,7 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
     model = deepcopy(model)
     if strict
         compiled = compile_composite_model(model)
-        children = _model_graph_dependency_children(
-            compiled.applications,
-            compiled.input_bindings,
-            compiled.call_bindings,
-        )
+        children = _model_graph_dependency_children(compiled)
         return CompositeModelCompilationReport(
             model,
             initial_status_variables,
@@ -357,24 +383,83 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         )
     end
 
+    distributed_output_plans = _model_graph_phase!(
+        diagnostics,
+        :output_destination_plans,
+        NoCompiledDistributedOutputPlans(),
+    ) do
+        _compile_model_output_destination_plans(model, applications)
+    end
+    input_plans = _model_graph_phase!(
+        diagnostics,
+        :input_plans,
+        CompiledModelInputPlan[],
+    ) do
+        _compile_model_input_plans(
+            model,
+            applications,
+            distributed_output_plans,
+        )
+    end
+    call_plans = _model_graph_phase!(
+        diagnostics,
+        :call_plans,
+        CompiledModelCallPlan[],
+    ) do
+        _compile_model_call_plans(model, applications)
+    end
+    scenario_call_owners = _scenario_call_owners(applications, call_plans)
+    manual_application_ids = Tuple(
+        application.id for application in applications
+        if !isempty(scenario_call_owners[application.id])
+    )
+    _model_graph_phase!(diagnostics, :call_ownership, nothing) do
+        _validate_initializer_call_plans!(
+            model,
+            applications,
+            input_plans,
+            call_plans,
+            distributed_output_plans,
+        )
+        _validate_scenario_call_ownership!(
+            scenario_call_owners,
+            manual_application_ids,
+        )
+    end
+
     call_bindings = _model_graph_phase!(diagnostics, :calls, CompiledModelCallBinding[]) do
-        _compile_model_call_bindings(model, applications)
+        _compile_model_call_bindings(
+            model,
+            applications;
+            plans_by_application=_plans_by_application(
+                applications,
+                call_plans,
+            ),
+        )
     end
     _model_graph_phase!(diagnostics, :call_cadence, nothing) do
-        _validate_model_call_cadences!(applications, call_bindings, timeline)
+        _validate_model_call_plan_cadences!(applications, call_plans, timeline)
     end
-    _model_graph_phase!(diagnostics, :writers, nothing) do
-        _validate_model_writers!(applications, call_bindings)
-    end
-    _model_graph_phase!(diagnostics, :output_status, nothing) do
-        _prepare_model_output_statuses!(model, applications)
+    distributed_outputs = _model_graph_phase!(
+        diagnostics,
+        :writers,
+        NoCompiledDistributedOutputs(),
+    ) do
+        _compile_model_distributed_outputs(
+            model,
+            applications,
+            manual_application_ids,
+            distributed_output_plans,
+        )
     end
 
     input_bindings = _model_graph_phase!(diagnostics, :inputs, CompiledModelInputBinding[]) do
         _compile_model_input_bindings(
             model,
             applications,
-            _manual_call_application_ids(call_bindings),
+            manual_application_ids,
+            _plans_by_application(applications, input_plans),
+            distributed_outputs,
         )
     end
     _model_graph_phase!(diagnostics, :input_status, nothing) do
@@ -384,15 +469,25 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
 
     children = Dict{Symbol,Set{Symbol}}()
     _model_graph_phase!(diagnostics, :dependency_inputs, nothing) do
-        call_owners = _model_call_owners(call_bindings)
-        _model_input_order_edges!(
+        _scenario_input_order_edges!(
             children,
-            input_bindings,
-            call_owners,
+            input_plans,
+            scenario_call_owners,
+        )
+        _scenario_initializer_order_edges!(
+            children,
+            input_plans,
+            call_plans,
+            scenario_call_owners,
         )
     end
     _model_graph_phase!(diagnostics, :update_order, nothing) do
-        _model_update_order_edges!(children, applications)
+        _scenario_update_order_edges!(
+            children,
+            applications,
+            manual_application_ids,
+            distributed_output_plans,
+        )
     end
     cycles = _model_graph_cycle_components(applications, children)
     application_order = Symbol[]
@@ -423,8 +518,12 @@ function compile_model_report(model::CompositeModel; strict::Bool=false)
         _model_graph_compiled(
             model,
             applications,
+            input_plans,
+            call_plans,
             input_bindings,
             call_bindings,
+            distributed_output_plans,
+            distributed_outputs,
             diagnostics,
         )
     catch err
@@ -541,9 +640,13 @@ function _model_graph_json_value(value)
     value === nothing && return nothing
     value === missing && return nothing
     value isa Bool && return value
-    if value isa Real
+    if value isa Integer
+        return value isa BigInt ? string(value) : value
+    end
+    if value isa Union{Float16,Float32,Float64}
         return isfinite(value) ? value : string(value)
     end
+    value isa Real && return string(value)
     value isa AbstractString && return String(value)
     value isa Symbol && return string(value)
     value isa ObjectId && return _model_graph_json_value(value.value)
@@ -613,6 +716,12 @@ function _model_graph_selector_dict(selector::AbstractObjectMultiplicity)
         "criteria" => _model_graph_selector_criteria(selector),
         "julia" => repr(selector),
     )
+end
+
+function _model_graph_call_binding_dict(binding)
+    descriptor = _model_graph_selector_dict(_call_binding_selector(binding))
+    descriptor["mode"] = string(_call_binding_mode(binding))
+    return descriptor
 end
 
 function _model_graph_model_parameters(model)
@@ -748,8 +857,8 @@ function _model_graph_application_dict(
             for (name, selector) in pairs(value_inputs(spec))
         ),
         "callBindings" => Dict(
-            string(name) => _model_graph_selector_dict(selector)
-            for (name, selector) in pairs(model_calls(spec))
+            string(name) => _model_graph_call_binding_dict(binding)
+            for (name, binding) in pairs(model_calls(spec))
         ),
         "environment" => _model_graph_application_environment(
             environment_payload,
@@ -949,6 +1058,26 @@ function _model_graph_application_for_object(applications_by_id, application_id,
     return object_id in application.target_ids
 end
 
+function _model_graph_binding_execution_source_id(
+    report,
+    application_id::Symbol,
+    destination_id::ObjectId,
+    variable::Symbol,
+)
+    isnothing(report.compiled) && return destination_id
+    distributed_outputs = report.compiled.distributed_outputs
+    distributed_outputs isa CompiledDistributedOutputs || return destination_id
+    for owner in get(
+        distributed_outputs.writer_ownership,
+        (destination_id, variable),
+        (),
+    )
+        owner.application_id == application_id || continue
+        return owner.execution_object_id
+    end
+    return destination_id
+end
+
 function _model_graph_binding_edges(report, level)
     edges = Dict{String,Dict{String,Any}}()
     applications_by_id = Dict(application.id => application for application in report.applications)
@@ -973,6 +1102,12 @@ function _model_graph_binding_edges(report, level)
             isempty(source_ids) && (source_ids = copy(binding.source_ids))
             if level == :resolved
                 for source_id in source_ids
+                    execution_source_id = _model_graph_binding_execution_source_id(
+                        report,
+                        source_application_id,
+                        source_id,
+                        binding.source_var,
+                    )
                     edge_id = string(
                         "binding:", source_application_id, ":", source_id.value,
                         ":", binding.source_var, ":", binding.application_id,
@@ -980,7 +1115,10 @@ function _model_graph_binding_edges(report, level)
                     )
                     edges[edge_id] = Dict{String,Any}(
                         "id" => edge_id,
-                        "source" => _model_graph_execution_node_id(source_application_id, source_id),
+                        "source" => _model_graph_execution_node_id(
+                            source_application_id,
+                            execution_source_id,
+                        ),
                         "target" => _model_graph_execution_node_id(binding.application_id, binding.consumer_id),
                         "sourcePort" => _model_graph_port_id(source_application_id, :output, binding.source_var),
                         "targetPort" => _model_graph_port_id(binding.application_id, :input, binding.input),
@@ -989,6 +1127,9 @@ function _model_graph_binding_edges(report, level)
                         "sourceApplicationId" => string(source_application_id),
                         "targetApplicationId" => string(binding.application_id),
                         "sourceObjectIds" => [_model_graph_json_value(source_id.value)],
+                        "sourceExecutionObjectIds" => [
+                            _model_graph_json_value(execution_source_id.value),
+                        ],
                         "targetObjectIds" => [_model_graph_json_value(binding.consumer_id.value)],
                         "kind" => previous ? "previous_timestep" : string(binding.origin == :inferred ? :inferred_same_object : :value_binding),
                         "projection" => "resolved",
@@ -1039,7 +1180,12 @@ end
 function _model_graph_call_edges(report, level)
     edges = Dict{String,Dict{String,Any}}()
     for binding in report.call_bindings
-        for callee_application_id in binding.callee_application_ids
+        callee_application_ids = level == :resolved ?
+                                 binding.callee_application_ids :
+                                 binding.potential_callee_application_ids
+        call_kind = _compiled_call_mode(binding) === :initializer ?
+                    "initializer" : "manual_call"
+        for callee_application_id in callee_application_ids
             if level == :resolved
                 for callee_object_id in binding.callee_object_ids
                     edge_id = string(
@@ -1052,7 +1198,8 @@ function _model_graph_call_edges(report, level)
                         "target" => _model_graph_execution_node_id(callee_application_id, callee_object_id),
                         "sourcePort" => nothing,
                         "targetPort" => nothing,
-                        "kind" => "manual_call",
+                        "kind" => call_kind,
+                        "mode" => string(_compiled_call_mode(binding)),
                         "projection" => "resolved",
                         "call" => string(binding.call),
                         "origin" => string(binding.origin),
@@ -1069,7 +1216,8 @@ function _model_graph_call_edges(report, level)
                     "target" => _model_graph_application_node_id(callee_application_id),
                     "sourcePort" => nothing,
                     "targetPort" => nothing,
-                    "kind" => "manual_call",
+                    "kind" => call_kind,
+                    "mode" => string(_compiled_call_mode(binding)),
                     "projection" => "applications",
                     "call" => string(binding.call),
                     "origin" => string(binding.origin),
@@ -1411,6 +1559,60 @@ function _model_graph_initialization(report)
         row["role"],
         row["variable"],
     ))
+    _model_graph_add_status_conversion!(rows, report)
+    return rows
+end
+
+function _model_graph_add_status_conversion!(rows, report)
+    explanations = try
+        explain_initialization(report.model)
+    catch
+        NamedTuple[]
+    end
+    by_key = Dict(
+        (
+            string(explanation.application_id),
+            _model_graph_json_value(explanation.object_id),
+            string(explanation.role),
+            string(explanation.variable),
+        ) => explanation
+        for explanation in explanations
+    )
+    for row in rows
+        explanation = get(
+            by_key,
+            (
+                row["applicationId"],
+                row["objectId"],
+                row["role"],
+                row["variable"],
+            ),
+            nothing,
+        )
+        row["declaredType"] = isnothing(explanation) ||
+                              isnothing(explanation.declared_type) ?
+                              nothing : string(explanation.declared_type)
+        row["originalType"] = isnothing(explanation) ||
+                              isnothing(explanation.original_type) ?
+                              nothing : string(explanation.original_type)
+        row["transformedType"] = isnothing(explanation) ||
+                                 isnothing(explanation.transformed_type) ?
+                                 nothing : string(explanation.transformed_type)
+        row["effectiveType"] = isnothing(explanation) ||
+                               isnothing(explanation.effective_type) ?
+                               nothing : string(explanation.effective_type)
+        row["statusTransformApplied"] =
+            !isnothing(explanation) && explanation.status_transform_applied
+        row["statusTransformChanged"] =
+            !isnothing(explanation) && explanation.status_transform_changed
+        row["typeMappingApplied"] =
+            !isnothing(explanation) && explanation.type_mapping_applied
+        row["typeMappingChanged"] =
+            !isnothing(explanation) && explanation.type_mapping_changed
+        row["typeMappingRule"] = isnothing(explanation) ?
+                                 nothing :
+                                 _model_graph_json_value(explanation.type_mapping_rule)
+    end
     return rows
 end
 
@@ -1528,11 +1730,7 @@ function compile_model_graph(
     templates=NamedTuple(),
     environments=NamedTuple(),
 )
-    children = _model_graph_dependency_children(
-        compiled.applications,
-        compiled.input_bindings,
-        compiled.call_bindings,
-    )
+    children = _model_graph_dependency_children(compiled)
     report = CompositeModelCompilationReport(
         compiled.model,
         Dict(

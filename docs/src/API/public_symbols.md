@@ -13,10 +13,11 @@ explicitly imports one of those submodules.
 
 - CompositeModel structure: `CompositeModel`, `Object`, `ObjectId`, `CompositeModelTemplate`,
   `ObjectInstance`, `Override`.
-- Applications: `ModelSpec`, `Environment`, and `Updates`.
+- Applications: `ModelSpec`, `OutputTo`, `Environment`, and `Updates`.
 - Application inspection: `application_name`, `applies_to`, `value_inputs`,
-  `model_calls`, `environment_config`, `output_routing`, `updates`.
-- Dependency defaults: `Input`, `Call`, `PreviousTimeStep`.
+  `model_calls`, `outputs_to`, `environment_config`, `output_routing`,
+  `updates`.
+- Dependency defaults: `Input`, `Call`, `Initializer`, `PreviousTimeStep`.
 
 ## Object selectors and queries
 
@@ -25,8 +26,8 @@ explicitly imports one of those submodules.
   `Scope`, `Relation`.
 - Label criteria are selector keywords: `kind`, `species`, `scale`, and
   `name`.
-- Queries: `object_ids`, `model_objects`, `resolve_object_ids`,
-  `resolve_objects`.
+- Identity and queries: `object_id`, `object_ids`, `model_objects`,
+  `resolve_object_ids`, `resolve_objects`.
 - Object data: `geometry`, `position`, `bounds`.
 
 ## Execution, lifecycle, and outputs
@@ -35,11 +36,16 @@ explicitly imports one of those submodules.
   `runtime_model`, `final_state`.
 - Output selection and collection: `OutputRequest`, `outputs`,
   `collect_outputs`.
+- Distributed output assignment: `OutputTargets`, `output_targets`, and
+  `assign_outputs!`. Access destination carriers through
+  `targets.columns.<variable>` and aligned identities through
+  `object_ids(targets)`.
 - Lifecycle: `register_object!`, `add_organ!`, `remove_object!`,
   `reparent_object!`, `move_object!`, `update_geometry!`,
   `mark_environment_binding_dirty!`, `objects_from_mtg`.
 - Hard calls: `RunContext`, `CallTarget`, `CallTargets`, `call_model`,
   `call_targets`, `run_call!`.
+- Newborn initialization: `Initializer`, `run_initializer!`.
 
 ## Diagnostics namespace
 
@@ -48,7 +54,8 @@ inspection:
 
 - Structure: `Diagnostics.explain_objects`, `Diagnostics.explain_instances`, `Diagnostics.explain_scopes`.
 - Compilation: `Diagnostics.explain_applications`, `Diagnostics.explain_bindings`,
-  `Diagnostics.explain_calls`, `Diagnostics.explain_writers`,
+  `Diagnostics.explain_calls`, `Diagnostics.explain_output_bindings`,
+  `Diagnostics.explain_writers`,
   `Diagnostics.explain_schedule`, `Diagnostics.explain_execution_plan`.
 - Initialization, environment, and outputs: `Diagnostics.explain_initialization`,
   `Diagnostics.explain_environment`, `Diagnostics.explain_environment_bindings`,
@@ -62,19 +69,23 @@ inspection:
 
 - Model identity: `AbstractModel`, `@process`, `process`.
 - State schema and initialization: `Status`, `Required`, `Default`,
-  `init_variables`, `dep`.
+  `VariableContract`, `variable_contracts`, `init_variables`, `dep`.
 - Model IO inspection: `inputs`, `outputs`, `variables`,
   `environment_inputs`, `environment_outputs`,
   `validate_environment_inputs`.
+- Identity-aware many-input access: `bound_input`, `BoundMany`, and
+  `object_ids`.
 - Timing and routing traits: `timespec`, `output_policy`, `timestep_hint`,
   `environment_hint`, `environment_bindings`, `environment_window`.
 
-The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`, and
-`environment_outputs_` are intentionally unexported extension functions.
+The underscore declarations `inputs_`, `outputs_`, `environment_inputs_`,
+`environment_outputs_`, and `variable_contracts_` are intentionally
+unexported extension functions.
 Model authors implement them with qualified definitions such as
 `PlantSimEngine.inputs_(model) = ...`. `inputs_` must return explicit
 `Required(T)` or `Default(value)` declarations; `outputs_` returns initial
-output-state values.
+output-state values; `variable_contracts_` returns `VariableContract` metadata
+for declared status or environment variables.
 
 ## Time and reducers
 
@@ -118,7 +129,9 @@ output-state values.
 
 - registries and compiled representations: `ObjectRegistry`, `CompiledCompositeModel`,
   `CompiledModelApplication`, `CompiledModelInputBinding`,
-  `CompiledModelCallBinding`, `CompiledEnvironmentBinding`,
+  `CompiledModelCallBinding`, `CompiledModelOutputDestinationPlan`,
+  `CompiledModelOutputDestinationBinding`, `CompiledDistributedOutputPlans`,
+  `CompiledDistributedOutputs`, `CompiledEnvironmentBinding`,
   `CompiledEnvironmentBindings`;
 - carrier and adapter implementation types: `ObjectRefVector`,
   `TimeStepTable`;

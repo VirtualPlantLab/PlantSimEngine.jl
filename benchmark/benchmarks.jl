@@ -42,6 +42,55 @@ end setup = (status = PlantSimEngine.Status(value=0.0))
 if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
     # Composite-model benchmarks cannot be constructed while AirspeedVelocity
     # evaluates this script against a pre-CompositeModel baseline revision.
+    include(joinpath(@__DIR__, "test-status-registry-benchmark.jl"))
+    for nobjects in (32, 256, 1_024)
+        SUITE[suite_name]["PSE_status_registry_lookup_$(nobjects)"] =
+            @benchmarkable benchmark_status_registry_lookup(
+                data.model,
+                data.lookup_status,
+            ) setup = (data = setup_status_registry_benchmark($nobjects))
+        SUITE[suite_name]["PSE_status_registry_sweep_$(nobjects)"] =
+            @benchmarkable benchmark_status_registry_sweep_checksum(
+                data.model,
+                data.statuses,
+            ) setup = (data = setup_status_registry_benchmark($nobjects))
+    end
+
+    include(joinpath(@__DIR__, "test-organ-lifecycle-benchmark.jl"))
+    for nobjects in (32, 256, 1_024)
+        SUITE[suite_name]["PSE_organ_adaptation_$(nobjects)"] =
+            @benchmarkable benchmark_adapt_organ_model(
+                topology,
+            ) setup = (topology = setup_organ_topology_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_$(nobjects)"] =
+            @benchmarkable benchmark_add_organ!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_refresh_after_add!(
+                data,
+            ) setup = (data = setup_organ_refresh_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_add_and_refresh!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_add_continue_$(nobjects)"] =
+            @benchmarkable benchmark_add_and_continue!(
+                data,
+            ) setup = (data = setup_organ_lifecycle_benchmark(
+                $nobjects;
+                start_simulation=true,
+            )) evals = 1
+    end
+
     include(joinpath(@__DIR__, "test-PSE-benchmark.jl"))
     SUITE[suite_name]["PSE"] = @benchmarkable benchmark_heavier_scene(
         model,
@@ -81,6 +130,179 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             nsteps,
         ) setup = ((simulation, nsteps) =
             setup_many_cadence_schedule_benchmark()) evals = 1
+
+    include(joinpath(@__DIR__, "test-distributed-output-benchmark.jl"))
+    for nobjects in (1_000, 100_000)
+        SUITE[suite_name]["PSE_refvector_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).ref_values)
+        SUITE[suite_name]["PSE_bound_many_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).bound_values)
+        SUITE[suite_name]["PSE_objectref_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).heterogeneous_values)
+        SUITE[suite_name]["PSE_bound_objectref_sum_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_sum(
+                values,
+            ) setup = (values = setup_distributed_output_benchmark(
+                $nobjects,
+            ).bound_heterogeneous_values)
+    end
+    for nobjects in (10, 1_000, 10_000, 100_000)
+        SUITE[suite_name]["PSE_distributed_assign_exact_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_exact!(
+                data.exact_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_permuted_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_permuted!(
+                data.permuted_targets,
+                data.permuted_values,
+                data.result_to_destination,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+    end
+    for nobjects in (10, 1_000, 10_000)
+        SUITE[suite_name]["PSE_distributed_assign_status_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_statuses_exact!(
+                data.statuses,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_broadcast_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_broadcast!(
+                data.status_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_columns_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_output_columns_exact!(
+                data.column_targets,
+                data.column_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_sparse_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_permuted!(
+                data.sparse_targets,
+                data.sparse_values,
+                data.sparse_result_to_destination,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_assign_heterogeneous_$(nobjects)"] =
+            @benchmarkable benchmark_assign_distributed_outputs_exact!(
+                data.heterogeneous_targets,
+                data.exact_values,
+            ) setup = (data = setup_distributed_output_benchmark($nobjects))
+        SUITE[suite_name]["PSE_distributed_mapping_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_refresh_distributed_output_assignment_mapping(
+                destination_ids,
+                result_ids,
+            ) setup = ((destination_ids, result_ids) =
+                setup_distributed_output_mapping_refresh_benchmark($nobjects))
+        SUITE[suite_name]["PSE_assign_outputs_control_$(nobjects)"] =
+            @benchmarkable benchmark_distributed_output_public_assignment_step(
+                simulation,
+            ) setup = (simulation =
+                setup_distributed_output_assignment_control_benchmark(
+                    $nobjects,
+                )) evals = 1
+    end
+    if isdefined(PlantSimEngine, :output_targets) &&
+       isdefined(PlantSimEngine, :assign_outputs!)
+        for nobjects in (10, 1_000, 10_000), order in (:exact, :permuted)
+            assignment_paths = order === :exact ?
+                               (:table, :columns, :ref_loop, :broadcast) :
+                               (:table, :columns)
+            for path in assignment_paths
+                SUITE[suite_name]["PSE_assign_outputs_$(path)_$(order)_$(nobjects)"] =
+                    @benchmarkable benchmark_distributed_output_public_assignment_step(
+                        simulation,
+                    ) setup = (simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            $nobjects;
+                            order=$order,
+                            path=$path,
+                )) evals = 1
+            end
+        end
+        for nobjects in (10, 1_000, 10_000), order in (:exact, :permuted)
+            assignment_paths = order === :exact ?
+                               (:table, :columns, :ref_loop) :
+                               (:table, :columns)
+            for path in assignment_paths
+                SUITE[suite_name]["PSE_assign_outputs_$(path)_2columns_$(order)_$(nobjects)"] =
+                    @benchmarkable benchmark_distributed_output_public_assignment_step(
+                        simulation,
+                    ) setup = (simulation =
+                        setup_distributed_output_public_assignment_benchmark(
+                            $nobjects;
+                            order=$order,
+                            path=$path,
+                            ncolumns=2,
+                        )) evals = 1
+            end
+        end
+        for nobjects in (10, 1_000, 10_000), path in (:columns, :ref_loop)
+            SUITE[suite_name]["PSE_assign_outputs_$(path)_heterogeneous_exact_$(nobjects)"] =
+                @benchmarkable benchmark_distributed_output_public_assignment_step(
+                    simulation,
+                ) setup = (simulation =
+                    setup_distributed_output_public_assignment_benchmark(
+                        $nobjects;
+                        order=:exact,
+                        path=$path,
+                        heterogeneous=true,
+                )) evals = 1
+        end
+        for ncolumns in (7, 19)
+            SUITE[suite_name]["PSE_assign_outputs_columns_$(ncolumns)columns_exact_1000"] =
+                @benchmarkable benchmark_distributed_output_public_assignment_step(
+                    simulation,
+                ) setup = (simulation =
+                    setup_distributed_output_wide_assignment_benchmark(
+                        1_000;
+                        ncolumns=$ncolumns,
+                    )) evals = 1
+        end
+    end
+    SUITE[suite_name]["PSE_distributed_compile_permutation_1000"] =
+        @benchmarkable compile_distributed_output_benchmark_permutation(
+            data.object_ids,
+            data.permuted_result_ids,
+        ) setup = (data = setup_distributed_output_benchmark(1_000))
+    for distributed in (false, true)
+        compile_kind = distributed ? "active" : "none"
+        SUITE[suite_name]["PSE_distributed_compile_$(compile_kind)_1000"] =
+            @benchmarkable benchmark_compile_distributed_output_model(
+                model,
+            ) setup = (model = setup_distributed_output_compilation_benchmark(
+                1_000;
+                distributed=$distributed,
+            )) evals = 1
+    end
+    SUITE[suite_name]["PSE_distributed_lifecycle_add_1000"] =
+        @benchmarkable benchmark_refresh_distributed_output_lifecycle!(
+            model,
+            new_index,
+        ) setup = ((model, new_index) =
+            setup_distributed_output_lifecycle_benchmark(1_000)) evals = 1
+    for identity_aware in (false, true)
+        input_kind = identity_aware ? "bound" : "status"
+        SUITE[suite_name]["PSE_$(input_kind)_many_input_steps_1000"] =
+            @benchmarkable benchmark_distributed_output_input_steps(
+                simulation,
+                nsteps,
+            ) setup = ((simulation, nsteps) =
+                setup_distributed_output_input_step_benchmark(
+                    1_000;
+                    identity_aware=$identity_aware,
+                )) evals = 1
+    end
 
     include(joinpath(@__DIR__, "test-hard-call-path-benchmark.jl"))
     for usage in (:zero, :sparse, :dense)

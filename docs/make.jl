@@ -115,6 +115,7 @@ makedocs(;
             "Public API refinement decisions" => "./dev/public_api_refinement_decisions.md",
             "Public API refinement completion audit" => "./dev/public_api_refinement_completion_audit.md",
             "Composite model/object design" => "./dev/composite_model_design.md",
+            "Distributed output ownership" => "./dev/distributed_output_ownership.md",
             "Composite model/object implementation plan" => "./dev/composite_model_implementation_plan.md",
             "Composite model/object completion audit" => "./dev/composite_model_completion_audit.md",
             "MAESPA-style composite-model example handoff" => "./dev/maespa_model_handoff.md",

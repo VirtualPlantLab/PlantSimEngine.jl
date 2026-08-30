@@ -5,10 +5,13 @@ using Test
 PlantSimEngine.@process "temporal_reducer_source" verbose = false
 PlantSimEngine.@process "temporal_reducer_one_arg" verbose = false
 PlantSimEngine.@process "temporal_reducer_two_arg" verbose = false
+PlantSimEngine.@process "temporal_reducer_integer_output" verbose = false
 
 struct TemporalReducerSourceModel <: AbstractTemporal_Reducer_SourceModel end
 struct TemporalReducerOneArgModel <: AbstractTemporal_Reducer_One_ArgModel end
 struct TemporalReducerTwoArgModel <: AbstractTemporal_Reducer_Two_ArgModel end
+struct TemporalReducerIntegerOutputModel <:
+       AbstractTemporal_Reducer_Integer_OutputModel end
 PlantSimEngine.inputs_(::TemporalReducerSourceModel) = NamedTuple()
 PlantSimEngine.outputs_(::TemporalReducerSourceModel) = (signal=0.0,)
 function PlantSimEngine.run!(::TemporalReducerSourceModel, status, environment, constants, context)
@@ -21,6 +24,18 @@ PlantSimEngine.run!(::TemporalReducerOneArgModel, status, environment, constants
     (status.one_arg = status.reduced)
 PlantSimEngine.run!(::TemporalReducerTwoArgModel, status, environment, constants, context) =
     (status.two_arg = status.reduced)
+PlantSimEngine.inputs_(::TemporalReducerIntegerOutputModel) = NamedTuple()
+PlantSimEngine.outputs_(::TemporalReducerIntegerOutputModel) = (count=0,)
+function PlantSimEngine.run!(
+    ::TemporalReducerIntegerOutputModel,
+    status,
+    environment,
+    constants,
+    context,
+)
+    status.count += 1
+    return nothing
+end
 
 @testset "duration-aware and callable reducers" begin
     @test RadiationEnergy()([100.0, 200.0], [1800.0, 3600.0]) ≈ 0.9
@@ -68,6 +83,35 @@ PlantSimEngine.run!(::TemporalReducerTwoArgModel, status, environment, constants
         ),
     )
     @test_throws "must accept values or values and durations" Advanced.refresh_bindings!(invalid_scene)
+end
+
+@testset "OutputRequest reducers keep their public return type" begin
+    model = CompositeModel(
+        Object(:leaf; scale=:Leaf);
+        applications=(
+            ModelSpec(
+                TemporalReducerIntegerOutputModel();
+                name=:integer_source,
+                on=One(scale=:Leaf),
+                every=Hour(1),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+    request = OutputRequest(
+        :Leaf,
+        :count;
+        name=:mean_count,
+        application=:integer_source,
+        policy=Aggregate(),
+        clock=Hour(2),
+    )
+
+    simulation = run!(model; steps=5, outputs=request)
+    rows = collect_outputs(simulation; sink=nothing)[:mean_count]
+
+    @test [row.value for row in rows] == [0.5, 2.5, 4.5]
+    @test all(row -> row.value isa Float64, rows)
 end
 
 @testset "coarse producer samples are weighted by held overlap" begin

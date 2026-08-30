@@ -73,7 +73,8 @@ const _CALL_SELECTOR_FIELDS = (
 
 function _selector_context_fields(context::Symbol)
     context == :application_target && return _APPLICATION_TARGET_SELECTOR_FIELDS
-    context in (:object_query, :output_request) && return _OBJECT_SELECTOR_FIELDS
+    context in (:object_query, :output_request, :output_destination) &&
+        return _OBJECT_SELECTOR_FIELDS
     context == :input && return _INPUT_SELECTOR_FIELDS
     context == :call && return _CALL_SELECTOR_FIELDS
     error("Unsupported selector validation context `$(context)`.")
@@ -83,6 +84,7 @@ function _selector_context_description(context::Symbol)
     context == :application_target && return "application-target"
     context == :object_query && return "object-query"
     context == :output_request && return "output-request"
+    context == :output_destination && return "output-destination"
     context == :input && return "input-binding"
     context == :call && return "call-binding"
     return string(context)
@@ -305,6 +307,7 @@ function _model_contract(model)
         outputs=Tuple(Symbol.(keys(outputs_(model)))),
         environment_inputs=Tuple(Symbol.(keys(environment_inputs_(model)))),
         environment_outputs=Tuple(Symbol.(keys(environment_outputs_(model)))),
+        variable_contracts=variable_contracts(model),
     )
 end
 
@@ -381,6 +384,18 @@ function _map_selector_bindings(bindings::NamedTuple, f)
     return (; mapped...)
 end
 
+function _map_call_bindings(bindings::NamedTuple, f)
+    mapped = Pair{Symbol,Any}[]
+    for (name, binding) in pairs(bindings)
+        selector = _call_binding_selector(binding)
+        push!(
+            mapped,
+            Symbol(name) => _call_binding_with_selector(binding, f(selector)),
+        )
+    end
+    return (; mapped...)
+end
+
 function _mount_updates(updates, instance_name::Symbol, base_names)
     return Tuple(
         Updates(
@@ -414,7 +429,7 @@ function _mount_object_instance_applications(instance::ObjectInstance, instance_
             base_names,
         )
         mounted_inputs = _map_selector_bindings(value_inputs(spec), prefix_application)
-        mounted_calls = _map_selector_bindings(model_calls(spec), prefix_application)
+        mounted_calls = _map_call_bindings(model_calls(spec), prefix_application)
         mounted_updates = _mount_updates(updates(spec), instance.name, base_names)
         mounted_model = get(instance_overrides, index, model_(spec))
         if haskey(object_overrides, index)

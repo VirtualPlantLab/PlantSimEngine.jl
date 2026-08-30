@@ -34,6 +34,10 @@ else
         include("test-unified-model-object-api.jl")
     end
 
+    @testset "Registered object identity" begin
+        include("test-model-object-id.jl")
+    end
+
     @testset "Composite Model/Object API stabilization" begin
         include("test-model-api-stabilization.jl")
     end
@@ -42,12 +46,44 @@ else
         include("test-model-hard-calls.jl")
     end
 
+    @testset "Scheduled newborn initializers" begin
+        include("test-model-initializers.jl")
+    end
+
     @testset "Composite model numerical parity" begin
         include("test-model-numerical-parity.jl")
     end
 
     @testset "Composite model status initialization" begin
         include("test-model-status-initialization.jl")
+    end
+
+    @testset "Composite model status type conversion" begin
+        include("test-model-status-type-conversion.jl")
+    end
+
+    @testset "Composite model status type conversion runtime" begin
+        include("test-model-status-type-runtime.jl")
+    end
+
+    @testset "Composite model status type conversion lifecycle" begin
+        include("test-model-status-type-lifecycle.jl")
+    end
+
+    @testset "Composite model status type conversion temporal policies" begin
+        include("test-model-status-type-temporal.jl")
+    end
+
+    @testset "Composite model status type conversion with particles" begin
+        include("test-model-status-type-particles.jl")
+    end
+
+    @testset "Composite model status type conversion templates" begin
+        include("test-model-status-type-templates.jl")
+    end
+
+    @testset "Composite model status type conversion performance" begin
+        include("test-model-status-type-performance.jl")
     end
 
     @testset "Composite model output boundaries" begin
@@ -76,6 +112,22 @@ else
 
     @testset "Composite model binding inference" begin
         include("test-model-binding-inference.jl")
+    end
+
+    @testset "Identity-aware Many inputs" begin
+        include("test-model-bound-many.jl")
+    end
+
+    @testset "Distributed output declarations" begin
+        include("test-model-output-destination-declarations.jl")
+    end
+
+    @testset "Distributed output runtime" begin
+        include("test-model-distributed-output-runtime.jl")
+    end
+
+    @testset "Distributed output assignment API" begin
+        include("test-model-output-targets-api.jl")
     end
 
     @testset "Composite model multirate integration" begin

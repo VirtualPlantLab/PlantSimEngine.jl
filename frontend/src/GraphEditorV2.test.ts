@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applicationEnvironmentConfiguration } from "./ApplicationConfigurationForm";
+import { applicationEnvironmentConfiguration, callBindingCommand } from "./ApplicationConfigurationForm";
 import { bindingWindowDescriptor } from "./BindingForm";
 import { unclaimedInstanceRoots } from "./InstanceForm";
 import type { InstanceDescriptor, ObjectGraphNode } from "./types";
@@ -29,6 +29,34 @@ describe("schema-v2 graph editor payloads", () => {
       sources: { T: "air_temperature" },
       sink: "canopy_state",
       extra: { layer: { type: "integer", value: "2" } },
+    });
+  });
+
+  it("preserves initializer mode in call-binding commands", () => {
+    const applicationRef = {
+      scope: "global" as const,
+      applicationId: "creator",
+      instance: null,
+      templateId: null,
+    };
+    const selector = {
+      type: "One",
+      multiplicity: "one" as const,
+      criteria: { selectors: [], application: "leaf_state" },
+      julia: "",
+    };
+    expect(callBindingCommand(
+      applicationRef,
+      "leaf",
+      selector,
+      "initializer",
+    )).toEqual({
+      action: "edit",
+      kind: "set_call_binding",
+      applicationRef,
+      call: "leaf",
+      selector,
+      mode: "initializer",
     });
   });
 

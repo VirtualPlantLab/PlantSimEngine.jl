@@ -46,6 +46,7 @@ export function DependencyEdge({
 function edgeLabel(data?: ModelGraphEdge) {
   if (!data) return "";
   if (data.kind === "manual_call") return data.call || "call";
+  if (data.kind === "initializer") return data.call || "initializer";
   if (data.kind === "object_topology" || data.kind === "application_target") return "";
   if (data.sourceVariable && data.targetVariable) {
     return data.sourceVariable === data.targetVariable ? data.sourceVariable : `${data.sourceVariable} → ${data.targetVariable}`;

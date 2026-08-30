@@ -67,10 +67,68 @@ struct Input{S}
 end
 Input(; kwargs...) = Input(One(; kwargs...))
 
-struct Call{S}
+"""
+    Call(selector::AbstractObjectMultiplicity)
+    Call(; kwargs...)
+
+Declare the target selector for a manual hard call. Applications reached only
+through `Call` are removed from the root schedule and execute when their owner
+invokes [`run_call!`](@ref) or [`call_targets`](@ref).
+"""
+struct Call{S<:AbstractObjectMultiplicity}
     selector::S
 end
 Call(; kwargs...) = Call(One(; kwargs...))
+
+"""
+    Initializer(selector::One)
+    Initializer(; application, ...)
+
+Declare that a normally scheduled application may also initialize one newly
+registered object during the lifecycle event that created it. Initializers are
+executed with [`run_initializer!`](@ref); unlike [`Call`](@ref) targets, their
+callee application remains in the root schedule and retains canonical writer
+ownership.
+"""
+struct Initializer{S<:One}
+    selector::S
+end
+
+Initializer(; kwargs...) = Initializer(One(; kwargs...))
+
+function Initializer(selector::AbstractObjectMultiplicity)
+    error(
+        "`Initializer` requires `One(...)` because it initializes exactly " *
+        "one newly registered object per invocation; got `$(typeof(selector))`.",
+    )
+end
+
+function Call(selector::Initializer)
+    throw(
+        ArgumentError(
+            "`Call(Initializer(...))` is not a supported declaration. " *
+            "Use `Initializer(...)` directly so the lifecycle mode is explicit.",
+        ),
+    )
+end
+
+_call_binding_selector(selector::AbstractObjectMultiplicity) = selector
+_call_binding_selector(binding::Initializer) = binding.selector
+
+function _call_binding_selector(binding)
+    error(
+        "Call bindings must use `One(...)`, `OptionalOne(...)`, `Many(...)`, " *
+        "or `Initializer(One(...))`; got `$(typeof(binding))`.",
+    )
+end
+
+_call_binding_mode(::AbstractObjectMultiplicity) = :manual
+_call_binding_mode(::Initializer) = :initializer
+
+_call_binding_with_selector(::AbstractObjectMultiplicity, selector) = selector
+_call_binding_with_selector(::Initializer, selector) = Initializer(selector)
+
+object_address(binding::Initializer) = ObjectAddress(binding.selector)
 
 struct EnvironmentConfig{C}
     config::C
@@ -133,9 +191,12 @@ end
 
 function _model_default_model_calls(model)
     defaults = Pair{Symbol,Any}[]
-    for (dep_name, selector) in pairs(dep(model))
-        selector isa Call || continue
-        push!(defaults, Symbol(dep_name) => selector.selector)
+    for (dep_name, declaration) in pairs(dep(model))
+        if declaration isa Call
+            push!(defaults, Symbol(dep_name) => declaration.selector)
+        elseif declaration isa Initializer
+            push!(defaults, Symbol(dep_name) => declaration)
+        end
     end
     return (; defaults...)
 end

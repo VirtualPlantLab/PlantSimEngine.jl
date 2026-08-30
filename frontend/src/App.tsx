@@ -736,8 +736,8 @@ function buildEdges(graph: ModelGraphView, view: GraphViewMode): FlowEdge[] {
       markerEnd: { type: MarkerType.ArrowClosed, color: edgeColor(edge), width: 16, height: 16 },
       style: {
         stroke: edgeColor(edge),
-        strokeWidth: edge.cycle ? 4 : edge.kind === "manual_call" ? 2.5 : 1.8,
-        strokeDasharray: edge.kind === "previous_timestep" ? "7 5" : edge.kind === "manual_call" ? "3 4" : undefined,
+        strokeWidth: edge.cycle ? 4 : ["manual_call", "initializer"].includes(edge.kind) ? 2.5 : 1.8,
+        strokeDasharray: edge.kind === "previous_timestep" ? "7 5" : edge.kind === "manual_call" ? "3 4" : edge.kind === "initializer" ? "8 3" : undefined,
       },
     }));
 }
@@ -817,6 +817,7 @@ function edgeColor(edge: ModelGraphEdge) {
   if (edge.cycle) return "#cf4937";
   if (edge.kind === "previous_timestep") return "#317b62";
   if (edge.kind === "manual_call") return "#be6a54";
+  if (edge.kind === "initializer") return "#7768ae";
   if (edge.kind === "object_topology") return "#7b7167";
   if (edge.kind === "environment_binding") return "#367b8b";
   return "#a59687";

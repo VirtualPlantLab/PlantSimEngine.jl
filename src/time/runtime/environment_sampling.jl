@@ -70,11 +70,7 @@ end
 
 function _first_environment_row(environment)
     isnothing(environment) && return nothing
-    is_table = try
-        DataFormat(environment) == TableAlike()
-    catch
-        false
-    end
+    is_table = DataFormat(environment) == TableAlike()
     if is_table
         rows = Tables.rows(environment)
         state = iterate(rows)

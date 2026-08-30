@@ -59,11 +59,19 @@ explanations.
 
 Dynamic MTG growth now has one public high-level operation: `add_organ!`.
 An MTG-backed `CompositeModel` retains the accessors and status initializer used during
-initial adaptation. `add_organ!` reuses that policy for new nodes, merges
+initial adaptation. By default, `add_organ!` reuses that policy for new nodes, merges
 explicit initial values, attaches the resulting `Status`, registers the model
 object, and invalidates runtime bindings. `register_object!` remains available
 as the low-level registry operation. XPalm and PlantGeom were migrated away
 from package-local wrappers that duplicated this lifecycle sequence.
+
+Topology engines that have already made a new node's attributes authoritative
+may call `add_organ!(...; use_status_adapter=false)`. This advanced opt-out
+skips only the stored adapter status initializer; PlantSimEngine still copies
+the node attributes, applies explicit initial values with the normal
+precedence, forces the exact node identity, registers the object, and
+invalidates bindings. Callers must not disable the adapter when it contributes
+fields that are absent from the new node.
 
 ## Implemented MAESPA-Style Example Changes
 

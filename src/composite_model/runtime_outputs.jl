@@ -122,6 +122,16 @@ end
 
 _runtime_output_variable(::RuntimeOutputStream{V}) where {V} = V
 
+"""Columnar retained streams for one distributed output variable."""
+struct RuntimeDistributedOutputStream{V,B,S,R}
+    binding::B
+    streams::S
+    references::R
+    dependency_horizon::Float64
+end
+
+_runtime_output_variable(::RuntimeDistributedOutputStream{V}) where {V} = V
+
 struct CompiledOutputPublication{V}
     variables::V
     enabled::Bool
@@ -210,22 +220,24 @@ const _NO_ENVIRONMENT_OVERRIDE = NoEnvironmentOverride()
     RunContext
 
 Runtime context passed as the final argument to model kernels. Use
-[`runtime_model`](@ref), [`call_targets`](@ref), and [`run_call!`](@ref)
-instead of inspecting its fields.
+[`runtime_model`](@ref), [`bound_input`](@ref), [`output_targets`](@ref),
+[`call_targets`](@ref), and [`run_call!`](@ref) instead of inspecting its
+fields.
 """
-mutable struct RunContext{CS,A,CT,TS,OR,C,E}
+mutable struct RunContext{CS,A,CT,BI,OT,TS,OR,C,E}
     compiled::CS
     environment_bindings::CompiledEnvironmentBindings
     application::A
     object_id::ObjectId
     calls::CT
+    bound_inputs::BI
+    output_targets::OT
     temporal_streams::TS
     output_retention::OR
     time::Float64
     constants::C
     publication_allowed::Bool
     environment::E
-    targeted_topology_runtime::Any
 end
 
 function RunContext(
@@ -247,17 +259,155 @@ function RunContext(
         application,
         object_id,
         calls,
+        NamedTuple(),
+        _runtime_model_output_targets(compiled, application, object_id),
         temporal_streams,
         output_retention,
         time,
         constants,
         publication_allowed,
         environment,
-        nothing,
     )
 end
 
-struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,ENV,TS,OR,C,E}
+function RunContext(
+    compiled,
+    environment_bindings,
+    application,
+    object_id,
+    calls,
+    bound_inputs,
+    temporal_streams,
+    output_retention,
+    time,
+    constants,
+    publication_allowed,
+    environment,
+)
+    return RunContext(
+        compiled,
+        environment_bindings,
+        application,
+        object_id,
+        calls,
+        bound_inputs,
+        _runtime_model_output_targets(compiled, application, object_id),
+        temporal_streams,
+        output_retention,
+        time,
+        constants,
+        publication_allowed,
+        environment,
+    )
+end
+
+"""
+    bound_input(context::RunContext, input)
+
+Return an identity-aware [`BoundMany`](@ref) view for the declared `Many`
+input named `input` on the application currently executing. The view reuses
+the compiler-owned object identities and the live vector already installed in
+the model status.
+"""
+@inline Base.@constprop :aggressive function bound_input(
+    context::RunContext,
+    input::Symbol,
+)
+    return bound_input(context, Val(input))
+end
+
+@inline function bound_input(
+    context::RunContext,
+    ::Val{input},
+) where {input}
+    hasproperty(context.bound_inputs, input) || throw(
+        ArgumentError(
+            "Application `$(context.application.id)` on object " *
+            "`$(context.object_id.value)` has no declared Many input " *
+            "`$(input)`. Available identity-aware inputs: " *
+            "`$(propertynames(context.bound_inputs))`.",
+        ),
+    )
+    return getproperty(context.bound_inputs, input)
+end
+
+function bound_input(context::RunContext, input)
+    throw(
+        ArgumentError(
+            "`bound_input` expects a declared Many input name as a Symbol; " *
+            "got `$(repr(input))` of type `$(typeof(input))` for application " *
+            "`$(context.application.id)`.",
+        ),
+    )
+end
+
+function bound_input(context, input)
+    throw(
+        ArgumentError(
+            "`bound_input` requires the compiled RunContext passed to a model " *
+            "kernel; got `$(typeof(context))` for input `$(input)`.",
+        ),
+    )
+end
+
+"""
+    output_targets(context::RunContext, group)
+
+Return the compiled [`OutputTargets`](@ref) view for the named `outputs_to`
+group on the application currently executing. The lookup is a typed field
+access; selectors and destination indexes were resolved before the kernel.
+"""
+@inline Base.@constprop :aggressive function output_targets(
+    context::RunContext,
+    group::Symbol,
+)
+    return output_targets(context, Val(group))
+end
+
+@inline function output_targets(
+    context::RunContext,
+    ::Val{group},
+) where {group}
+    hasproperty(context.output_targets, group) || throw(
+        ArgumentError(
+            "Application `$(context.application.id)` on object " *
+            "`$(context.object_id.value)` has no declared distributed output " *
+            "group `$(group)`. Available groups: " *
+            "`$(propertynames(context.output_targets))`.",
+        ),
+    )
+    return getproperty(context.output_targets, group)
+end
+
+function output_targets(context::RunContext, group)
+    throw(
+        ArgumentError(
+            "`output_targets` expects a declared output group name as a Symbol; " *
+            "got `$(repr(group))` of type `$(typeof(group))` for application " *
+            "`$(context.application.id)`.",
+        ),
+    )
+end
+
+function output_targets(context, group)
+    throw(
+        ArgumentError(
+            "`output_targets` requires the compiled RunContext passed to a " *
+            "model kernel; got `$(typeof(context))` for group `$(group)`.",
+        ),
+    )
+end
+
+"""
+    CallTarget
+
+One resolved executable target of a declared hard call. Obtain targets from a
+[`CallTargets`](@ref) collection with [`call_targets`](@ref), then pass an
+individual target to [`run_call!(::CallTarget)`](@ref). A target is a runtime
+view owned by its compiled simulation; construct hard-call relationships with
+`ModelSpec(...; calls=...)` rather than constructing this type directly.
+"""
+struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,BI,OT,ENV,TS,OR,C,E}
     compiled::CS
     environment_bindings::EB
     application::A
@@ -268,6 +418,8 @@ struct CallTarget{CS,EB,A,M,S,VS,TI,OB,CT,ENV,TS,OR,C,E}
     temporal_inputs::TI
     output_bindings::OB
     calls::CT
+    bound_inputs::BI
+    output_targets::OT
     environment_binding::ENV
     temporal_streams::TS
     output_retention::OR
@@ -312,7 +464,9 @@ function CallTargets(
     publication_allowed,
     environment,
 )
-    execution_batches = _compiled_call_execution_batches(
+    execution_batches = _compiled_call_mode(binding) === :initializer ?
+                        () :
+                        _compiled_call_execution_batches(
         compiled,
         environment_bindings,
         binding,
@@ -434,12 +588,14 @@ struct CachedGlobalModelEnvironment{B}
     binding::B
 end
 
-mutable struct CompiledExecutionTarget{M,S,CS,IB,OB,CB,EB,RC}
+mutable struct CompiledExecutionTarget{M,S,CS,IB,BI,OT,OB,CB,EB,RC}
     object_id::ObjectId
     model::M
     status::S
     canonical_status::CS
     input_bindings::IB
+    bound_inputs::BI
+    output_targets::OT
     output_bindings::OB
     call_bindings::CB
     call_bindings_signature::UInt
@@ -702,6 +858,34 @@ runtime_model(model::CompositeModel) = model
 runtime_model(context::RunContext) = context.compiled.model
 runtime_model(target::CallTarget) = target.model
 runtime_model(simulation::Simulation) = simulation.model
+object_id(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    object_id(runtime_model(runtime), source)
+model_object(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    model_object(runtime_model(runtime), source)
+model_status(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    model_status(runtime_model(runtime), source)
+source_node(runtime::Union{RunContext,CallTarget,Simulation}, source) =
+    source_node(runtime_model(runtime), source)
+
+"""
+    object_id(context::Union{RunContext,CallTarget})
+    model_object(context::Union{RunContext,CallTarget})
+    model_status(context::Union{RunContext,CallTarget})
+    source_node(context::Union{RunContext,CallTarget})
+
+Resolve the current execution target. `model_status(context)` returns the
+canonical registry Status, not the application-local status view passed to the
+kernel. `source_node(context)` is available for MTG-backed models and avoids
+requiring a topology node inside that local status view.
+"""
+object_id(runtime::Union{RunContext,CallTarget}) =
+    object_id(runtime_model(runtime), getfield(runtime, :object_id))
+model_object(runtime::Union{RunContext,CallTarget}) =
+    model_object(runtime_model(runtime), object_id(runtime))
+model_status(runtime::Union{RunContext,CallTarget}) =
+    model_status(runtime_model(runtime), object_id(runtime))
+source_node(runtime::Union{RunContext,CallTarget}) =
+    source_node(runtime_model(runtime), object_id(runtime))
 current_step(simulation::Simulation) = simulation.current_step
 
 outputs(sim::Simulation) = sim.temporal_streams
@@ -946,6 +1130,68 @@ function _model_new_output_stream(
     return Tuple{Float64,typeof(value)}[]
 end
 
+function _model_output_object_ids(
+    compiled,
+    application,
+    variable::Symbol,
+    ::NoCompiledDistributedOutputs,
+)
+    return application.target_ids
+end
+
+function _model_output_object_ids(
+    compiled,
+    application,
+    variable::Symbol,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    destination_ids = get(
+        distributed_outputs.destination_ids_by_application_variable,
+        (application.id, variable),
+        nothing,
+    )
+    variable in keys(outputs_(application.spec)) ||
+        return isnothing(destination_ids) ? ObjectId[] : destination_ids
+    isnothing(destination_ids) && return application.target_ids
+    object_ids = copy(application.target_ids)
+    append!(object_ids, destination_ids)
+    _sort_object_ids!(object_ids)
+    unique!(object_ids)
+    return object_ids
+end
+
+_model_output_object_ids(compiled, application, variable::Symbol) =
+    _model_output_object_ids(
+        compiled,
+        application,
+        variable,
+        compiled.distributed_outputs,
+    )
+
+function _model_output_reference(
+    compiled,
+    application,
+    object_id::ObjectId,
+    variable::Symbol,
+)
+    if variable in keys(outputs_(application.spec)) &&
+       haskey(
+           compiled.status_views_by_target,
+           (application.id, object_id),
+       )
+        status = _model_status_view_for_application(
+            compiled,
+            application,
+            object_id,
+        ).status
+        return refvalue(status, variable)
+    end
+    return refvalue(
+        _model_object(compiled.model, object_id).status,
+        variable,
+    )
+end
+
 function _initialize_model_output_streams!(
     streams,
     compiled::CompiledCompositeModel,
@@ -955,25 +1201,31 @@ function _initialize_model_output_streams!(
 )
     for (application_id, variables) in retention.retained_outputs_by_application
         application = _compiled_application_by_id(compiled, application_id)
-        for object_id in application.target_ids
-            !isnothing(target_keys) &&
-                !((application_id, object_id) in target_keys) &&
-                continue
-            status = _model_status_view_for_application(
+        for variable in variables
+            for object_id in _model_output_object_ids(
                 compiled,
                 application,
-                object_id,
-            ).status
-            for variable in variables
+                variable,
+            )
+                !isnothing(target_keys) &&
+                    !((application_id, object_id) in target_keys) &&
+                    compiled.distributed_outputs isa NoCompiledDistributedOutputs &&
+                    continue
                 key = _model_stream_key(application_id, object_id, variable)
                 haskey(streams, key) && continue
-                hasproperty(status, variable) || error(
+                reference = _model_output_reference(
+                    compiled,
+                    application,
+                    object_id,
+                    variable,
+                )
+                isnothing(reference) && error(
                     "Application `$(application_id)` declares retained output ",
                     "`$(variable)`, but object `$(object_id.value)` status has no ",
                     "such variable.",
                 )
                 stream = _model_new_output_stream(
-                    getproperty(status, variable),
+                    reference[],
                     retention,
                     application_id,
                     variable,
@@ -1034,34 +1286,72 @@ end
     return samples
 end
 
-@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
-
-@inline function _model_publish_runtime_outputs!(
-    outputs::Tuple,
+@inline function _model_publish_runtime_output_value!(
+    output,
+    stream,
+    value,
     time::Real,
 )
-    output = first(outputs)
-    value = output.reference[]
-    expected_type = fieldtype(eltype(output.stream), 2)
+    expected_type = fieldtype(eltype(stream), 2)
     value isa expected_type || error(
         "Output `$(_runtime_output_variable(output))` changed value type from ",
         "`$(expected_type)` to `$(typeof(value))`. CompositeModel temporal ",
         "streams require a stable output type.",
     )
     _model_publish_sample!(
-        output.stream,
+        stream,
         float(time),
         value,
     )
-    if output.stream isa TemporalDependencyBuffer
+    if stream isa TemporalDependencyBuffer
         cutoff = output.dependency_horizon <= 0.0 ?
                  float(time) :
                  float(time) - output.dependency_horizon + 1.0
-        while !isempty(output.stream) &&
-              first(output.stream)[1] < cutoff - 1.0e-8
-            _temporal_dependency_popfirst!(output.stream)
+        while !isempty(stream) &&
+              first(stream)[1] < cutoff - 1.0e-8
+            _temporal_dependency_popfirst!(stream)
         end
     end
+    return nothing
+end
+
+@inline function _model_publish_runtime_output!(
+    output::RuntimeOutputStream,
+    time::Real,
+)
+    _model_publish_runtime_output_value!(
+        output,
+        output.stream,
+        output.reference[],
+        time,
+    )
+    return nothing
+end
+
+@inline function _model_publish_runtime_output!(
+    output::RuntimeDistributedOutputStream,
+    time::Real,
+)
+    references = output.references
+    streams = output.streams
+    @inbounds for index in eachindex(references)
+        _model_publish_runtime_output_value!(
+            output,
+            streams[index],
+            references[index],
+            time,
+        )
+    end
+    return nothing
+end
+
+@inline _model_publish_runtime_outputs!(::Tuple{}, time::Real) = nothing
+
+@inline function _model_publish_runtime_outputs!(
+    outputs::Tuple,
+    time::Real,
+)
+    _model_publish_runtime_output!(first(outputs), time)
     _model_publish_runtime_outputs!(Base.tail(outputs), time)
     return nothing
 end
@@ -1091,12 +1381,21 @@ end
 end
 
 function _model_linear_value(v_left, v_right, α)
+    interpolation_factor = if typeof(v_left) === typeof(v_right) &&
+                              v_left isa AbstractFloat
+        convert(typeof(v_left), α)
+    elseif typeof(v_left) === typeof(v_right) &&
+           v_left isa Array{<:AbstractFloat}
+        convert(eltype(v_left), α)
+    else
+        α
+    end
     applicable(-, v_right, v_left) || return nothing
     delta = v_right - v_left
-    increment = if applicable(*, α, delta)
-        α * delta
-    elseif applicable(*, delta, α)
-        delta * α
+    increment = if applicable(*, interpolation_factor, delta)
+        interpolation_factor * delta
+    elseif applicable(*, delta, interpolation_factor)
+        delta * interpolation_factor
     else
         return nothing
     end
@@ -1449,7 +1748,11 @@ end
     )
     @inbounds for index in eachindex(source_streams)
         value = _previous_time_step_sample(source_streams[index], time)
-        storage[index] = isnothing(value) ? initial[index] : value
+        if isnothing(value)
+            storage[index] = initial[index]
+        else
+            storage[index] = value
+        end
     end
     return temporal_input
 end
@@ -1583,17 +1886,51 @@ function _materialize_model_inputs!(
 )
     isnothing(streams) && return status
     timeline = compiled.scenario_plan.timeline
-    for temporal_input in bindings
-        _materialize_model_temporal_input!(
-            status,
-            temporal_input,
-            application,
-            streams,
-            time,
-            timeline,
-        )
-    end
+    return _materialize_model_temporal_inputs!(
+        status,
+        bindings,
+        application,
+        streams,
+        time,
+        timeline,
+    )
+end
+
+@inline function _materialize_model_temporal_inputs!(
+    status::Status,
+    ::Tuple{},
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+)
     return status
+end
+
+@inline function _materialize_model_temporal_inputs!(
+    status::Status,
+    bindings::Tuple{T,Vararg},
+    application::CompiledModelApplication,
+    streams,
+    time::Real,
+    timeline,
+) where {T}
+    _materialize_model_temporal_input!(
+        status,
+        first(bindings),
+        application,
+        streams,
+        time,
+        timeline,
+    )
+    return _materialize_model_temporal_inputs!(
+        status,
+        Base.tail(bindings),
+        application,
+        streams,
+        time,
+        timeline,
+    )
 end
 
 function _model_environment_for_model(
@@ -1689,6 +2026,8 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1704,10 +2043,11 @@ end
         context.environment_bindings = environment_bindings
         context.application = application
         context.object_id = object_id
+        context.bound_inputs = bound_inputs
+        context.output_targets = output_targets
         context.temporal_streams = temporal_streams
         context.output_retention = output_retention
         context.constants = constants
-        context.targeted_topology_runtime = nothing
     end
     context.time = float(time)
     context.publication_allowed = publication_allowed
@@ -1734,6 +2074,8 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1745,6 +2087,8 @@ end
         environment_bindings,
         application,
         object_id,
+        bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -1760,6 +2104,8 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1789,6 +2135,8 @@ end
         application,
         object_id,
         calls,
+        bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         float(time),
@@ -1804,6 +2152,8 @@ end
     environment_bindings,
     application,
     object_id,
+    bound_inputs,
+    output_targets,
     temporal_streams,
     output_retention,
     time,
@@ -1815,6 +2165,8 @@ end
         environment_bindings,
         application,
         object_id,
+        bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -1860,6 +2212,8 @@ end
             env_bindings,
             application,
             target.object_id,
+            target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             time,
@@ -1872,6 +2226,8 @@ end
             application,
             target.object_id,
             (),
+            target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             float(time),
@@ -1935,6 +2291,8 @@ end
         env_bindings,
         application,
         target.object_id,
+        target.bound_inputs,
+        target.output_targets,
         temporal_streams,
         output_retention,
         time,
@@ -2056,6 +2414,8 @@ end
                     env_bindings,
                     batch.application,
                     target.object_id,
+                    target.bound_inputs,
+                    target.output_targets,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2068,6 +2428,8 @@ end
                     env_bindings,
                     batch.application,
                     target.object_id,
+                    target.bound_inputs,
+                    target.output_targets,
                     temporal_streams,
                     output_retention,
                     time,
@@ -2170,6 +2532,8 @@ function _run_model_execution_batch_profiled!(
             env_bindings,
             batch.application,
             target.object_id,
+            target.bound_inputs,
+            target.output_targets,
             temporal_streams,
             output_retention,
             time,
@@ -2325,6 +2689,10 @@ function _runtime_model_output_streams(
         application.id,
         (),
     )
+    variables = Tuple(
+        variable for variable in variables
+        if variable in keys(outputs_(application.spec))
+    )
     return Tuple(begin
         key = _model_stream_key(application.id, object_id, variable)
         stream = get(streams, key, nothing)
@@ -2369,17 +2737,180 @@ function _runtime_model_output_streams(
     return ()
 end
 
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention,
+    ::NoCompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    ::Nothing,
+    output_retention,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    ::Nothing,
+    ::Nothing,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    ::Nothing,
+    output_retention::OutputRetentionPlan,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+_runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    ::Nothing,
+    distributed_outputs::CompiledDistributedOutputs,
+) = ()
+
+function _runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention::OutputRetentionPlan,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    retained_variables = get(
+        output_retention.retained_outputs_by_application,
+        application.id,
+        (),
+    )
+    isempty(retained_variables) && return ()
+    groups = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(groups) && return ()
+    outputs = Any[]
+    for binding in values(groups)
+        for variable_ in keys(binding.declarations)
+            variable = Symbol(variable_)
+            variable in retained_variables || continue
+            source_streams = Any[
+                get(
+                    streams,
+                    _model_stream_key(
+                        application.id,
+                        destination_id,
+                        variable,
+                    ),
+                    nothing,
+                )
+                for destination_id in binding.destination_ids
+            ]
+            any(isnothing, source_streams) && error(
+                "No initialized retained distributed output stream for application ",
+                "`$(application.id)`, group `$(binding.group)`, and variable ",
+                "`$(variable)`.",
+            )
+            typed_streams = _typed_temporal_source_streams(source_streams)
+            references = getproperty(binding.columns, variable)
+            push!(
+                outputs,
+                RuntimeDistributedOutputStream{
+                    variable,
+                    typeof(binding),
+                    typeof(typed_streams),
+                    typeof(references),
+                }(
+                    binding,
+                    typed_streams,
+                    references,
+                    get(
+                        output_retention.dependency_horizons,
+                        (application.id, variable),
+                        0.0,
+                    ),
+                ),
+            )
+        end
+    end
+    return Tuple(outputs)
+end
+
+function _runtime_model_distributed_output_streams(
+    compiled,
+    application,
+    object_id,
+    streams,
+    output_retention,
+)
+    return _runtime_model_distributed_output_streams(
+        compiled,
+        application,
+        object_id,
+        streams,
+        output_retention,
+        compiled.distributed_outputs,
+    )
+end
+
+_runtime_model_output_targets(
+    compiled,
+    application,
+    object_id,
+    ::NoCompiledDistributedOutputs,
+) = NamedTuple()
+
+function _runtime_model_output_targets(
+    compiled,
+    application,
+    object_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    groups = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(groups) && return NamedTuple()
+    names = propertynames(groups)
+    targets = map(OutputTargets, values(groups))
+    return NamedTuple{names}(targets)
+end
+
+_runtime_model_output_targets(compiled, application, object_id) =
+    _runtime_model_output_targets(
+        compiled,
+        application,
+        object_id,
+        compiled.distributed_outputs,
+    )
+
 function _compiled_model_execution_context(
     compiled,
     env_bindings,
     application,
     object_id,
+    bound_inputs,
+    output_targets,
     call_bindings,
     temporal_streams,
     output_retention,
     constants,
 )
-    isnothing(temporal_streams) && return nothing
+    isnothing(temporal_streams) && isempty(output_targets) && return nothing
     calls = _runtime_call_targets(
         compiled,
         env_bindings,
@@ -2397,6 +2928,8 @@ function _compiled_model_execution_context(
         application,
         object_id,
         calls,
+        bound_inputs,
+        output_targets,
         temporal_streams,
         output_retention,
         0.0,
@@ -2421,6 +2954,12 @@ function _compiled_model_execution_target(
         object_id,
     )
     model = _application_model(application, object_id)
+    bound_inputs = status_view.bound_inputs
+    distributed_targets = _runtime_model_output_targets(
+        compiled,
+        application,
+        object_id,
+    )
     call_bindings = get(
         compiled.call_bindings_by_target,
         (application.id, object_id),
@@ -2436,17 +2975,31 @@ function _compiled_model_execution_target(
         env_bindings,
         application,
         object_id,
+        bound_inputs,
+        distributed_targets,
         call_bindings,
         temporal_streams,
         output_retention,
         constants,
     )
-    output_bindings = _runtime_model_output_streams(
+    local_output_bindings = _runtime_model_output_streams(
         status_view.status,
         application,
         object_id,
         temporal_streams,
         output_retention,
+    )
+    distributed_output_bindings =
+        _runtime_model_distributed_output_streams(
+            compiled,
+            application,
+            object_id,
+            temporal_streams,
+            output_retention,
+        )
+    output_bindings = (
+        local_output_bindings...,
+        distributed_output_bindings...,
     )
     return CompiledExecutionTarget(
         object_id,
@@ -2457,6 +3010,8 @@ function _compiled_model_execution_target(
             status_view.temporal_inputs,
             temporal_streams,
         ),
+        bound_inputs,
+        distributed_targets,
         output_bindings,
         call_bindings,
         _call_bindings_signature(call_bindings),
@@ -2666,7 +3221,9 @@ end
 
 function _model_execution_outputs_match(
     runtime_outputs::Tuple,
+    compiled::CompiledCompositeModel,
     application::CompiledModelApplication,
+    object_id::ObjectId,
     output_retention,
 )
     variables = output_retention isa OutputRetentionPlan ?
@@ -2675,12 +3232,77 @@ function _model_execution_outputs_match(
         application.id,
         (),
     ) : ()
+    if compiled.distributed_outputs isa CompiledDistributedOutputs
+        groups = get(
+            compiled.distributed_outputs.by_execution_target,
+            (application.id, object_id),
+            nothing,
+        )
+        if !isnothing(groups) && any(
+            variable -> haskey(
+                compiled.distributed_outputs.destination_ids_by_application_variable,
+                (application.id, variable),
+            ),
+            variables,
+        )
+            # Distributed columns carry lifecycle-specific destination
+            # references. Rebuild this execution target at a lifecycle barrier
+            # instead of trying to compare one runtime entry per variable.
+            return false
+        end
+    end
     length(runtime_outputs) == length(variables) || return false
     for index in eachindex(runtime_outputs)
         _runtime_output_variable(runtime_outputs[index]) == variables[index] ||
             return false
     end
     return true
+end
+
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+    ::NoCompiledDistributedOutputs,
+)
+    return isempty(targets)
+end
+
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    bindings = get(
+        distributed_outputs.by_execution_target,
+        (application.id, object_id),
+        nothing,
+    )
+    isnothing(bindings) && return isempty(targets)
+    propertynames(targets) == propertynames(bindings) || return false
+    for name in propertynames(bindings)
+        getfield(getproperty(targets, name), :binding) ===
+        getproperty(bindings, name) || return false
+    end
+    return true
+end
+
+function _model_execution_output_targets_match(
+    targets,
+    compiled,
+    application,
+    object_id,
+)
+    return _model_execution_output_targets_match(
+        targets,
+        compiled,
+        application,
+        object_id,
+        compiled.distributed_outputs,
+    )
 end
 
 function _model_execution_target_change_reason(
@@ -2699,6 +3321,14 @@ function _model_execution_target_change_reason(
     target.status === status_view.status || return :status_view
     target.canonical_status === status_view.canonical_status ||
         return :canonical_status
+    target.bound_inputs === status_view.bound_inputs ||
+        return :bound_inputs
+    _model_execution_output_targets_match(
+        target.output_targets,
+        compiled,
+        application,
+        object_id,
+    ) || return :output_targets
     _model_execution_inputs_match(
         target.input_bindings,
         status_view.temporal_inputs,
@@ -2706,7 +3336,9 @@ function _model_execution_target_change_reason(
         return :temporal_inputs
     _model_execution_outputs_match(
         target.output_bindings,
+        compiled,
         application,
+        object_id,
         output_retention,
     ) || return :output_bindings
     target.call_bindings ===
@@ -2745,6 +3377,10 @@ function _count_model_execution_target_rebuild!(
         :execution_target_rebuild_model_bundle
     elseif reason === :temporal_inputs
         :execution_target_rebuild_temporal_inputs
+    elseif reason === :bound_inputs
+        :execution_target_rebuild_bound_inputs
+    elseif reason === :output_targets
+        :execution_target_rebuild_output_targets
     elseif reason === :output_bindings
         :execution_target_rebuild_output_bindings
     elseif reason === :call_bindings
@@ -2853,6 +3489,91 @@ function _model_execution_batch_accepts_target(
     return isequal(provider, batch.environment_provider)
 end
 
+function _extend_execution_target_call_batches!(
+    target::CompiledExecutionTarget,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+)
+    context = target.context
+    context isa RunContext || return false
+    current_call_bindings = get(
+        compiled.call_bindings_by_target,
+        (context.application.id, target.object_id),
+        (),
+    )
+    length(context.calls) == length(current_call_bindings) || return false
+    staged = Tuple{Any,Any}[]
+    staged_bindings = Tuple{Any,Any}[]
+    for (call_targets, binding) in zip(context.calls, current_call_bindings)
+        _compiled_call_name(call_targets.binding) ==
+        _compiled_call_name(binding) || return false
+        push!(staged_bindings, (call_targets, binding))
+        _compiled_call_mode(binding) === :initializer && continue
+        current_application_ids = Set(binding.callee_application_ids)
+        all(
+            batch -> batch.application.id in current_application_ids,
+            call_targets.execution_batches,
+        ) || return false
+        for application_id in binding.callee_application_ids
+            application = _compiled_application_by_id(compiled, application_id)
+            batches = AbstractExecutionBatch[
+                batch for batch in call_targets.execution_batches
+                if batch.application.id == application_id
+            ]
+            isempty(batches) && return false
+            existing_ids = Set(
+                execution_target.object_id
+                for batch in batches
+                for execution_target in batch.targets
+            )
+            current_ids = ObjectId[
+                object_id for object_id in binding.callee_object_ids
+                if _call_binding_target_matches(binding, application, object_id)
+            ]
+            all(object_id -> object_id in current_ids, existing_ids) ||
+                return false
+            added_ids = ObjectId[
+                object_id for object_id in current_ids
+                if !(object_id in existing_ids)
+            ]
+            isempty(added_ids) && continue
+            _sort_object_ids!(added_ids)
+            destination_batch = last(batches)
+            for object_id in added_ids
+                execution_target = _compiled_model_execution_target(
+                    compiled,
+                    env_bindings,
+                    application,
+                    object_id,
+                    temporal_streams,
+                    output_retention,
+                    constants,
+                )
+                _model_execution_batch_accepts_target(
+                    destination_batch,
+                    execution_target,
+                    env_bindings,
+                    application,
+                ) || return false
+                push!(staged, (destination_batch.targets, execution_target))
+            end
+        end
+    end
+    for (targets, execution_target) in staged
+        push!(targets, execution_target)
+    end
+    for (call_targets, binding) in staged_bindings
+        call_targets.binding = binding
+    end
+    target.call_bindings = current_call_bindings
+    target.call_bindings_signature =
+        _call_bindings_signature(current_call_bindings)
+    return true
+end
+
 function _refresh_model_execution_group_delta!(
     previous_group::CompiledApplicationExecutionGroup,
     compiled::CompiledCompositeModel,
@@ -2899,16 +3620,33 @@ function _refresh_model_execution_group_delta!(
             batch_index, target_index = location
             previous_group.batches[batch_index].targets[target_index]
         end
-        change_reason = isnothing(previous_target) ?
-                        :new_target :
-                        _model_execution_target_change_reason(
+        change_reason = if isnothing(previous_target)
+            :new_target
+        else
+            _model_execution_target_change_reason(
+                previous_target,
+                compiled,
+                env_bindings,
+                application,
+                output_retention,
+            )
+        end
+        isnothing(change_reason) && continue
+        if change_reason === :call_bindings &&
+           _extend_execution_target_call_batches!(
             previous_target,
             compiled,
             env_bindings,
-            application,
+            temporal_streams,
             output_retention,
+            constants,
         )
-        isnothing(change_reason) && continue
+            _runtime_performance_count!(
+                performance,
+                :execution_target_call_batches_extended,
+            )
+            continue
+        end
         target = _compiled_model_execution_target(
             compiled,
             env_bindings,
@@ -3293,6 +4031,47 @@ function _model_status_view_refresh_is_pure_addition(
     return all(key -> last(key) in added_object_ids, new_keys)
 end
 
+function _model_application_output_variables(
+    compiled,
+    application,
+    ::NoCompiledDistributedOutputs,
+)
+    return Tuple(Symbol(variable) for variable in keys(outputs_(application.spec)))
+end
+
+function _model_application_output_variables(
+    compiled,
+    application,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    variables = Symbol[Symbol(variable) for variable in keys(outputs_(application.spec))]
+    for ((application_id, variable), destination_ids) in
+        distributed_outputs.destination_ids_by_application_variable
+        application_id == application.id || continue
+        isempty(destination_ids) && continue
+        variable in variables || push!(variables, variable)
+    end
+    # Plans with an initially empty destination set still define retainable
+    # variables that may acquire destinations at a later lifecycle barrier.
+    plans = compiled.scenario_plan.distributed_output_plans
+    if plans isa CompiledDistributedOutputPlans
+        for plan in _application_plans(plans.by_application, application.slot)
+            for variable_ in keys(plan.declarations)
+                variable = Symbol(variable_)
+                variable in variables || push!(variables, variable)
+            end
+        end
+    end
+    return Tuple(variables)
+end
+
+_model_application_output_variables(compiled, application) =
+    _model_application_output_variables(
+        compiled,
+        application,
+        compiled.distributed_outputs,
+    )
+
 function compile_model_output_retention(
     compiled::CompiledCompositeModel,
     output_requests;
@@ -3341,9 +4120,12 @@ function compile_model_output_retention(
     retained_outputs_by_application = Dict{Symbol,Vector{Symbol}}()
     retained_keys = if retain_all
         Set(
-            (application.id, Symbol(variable))
+            (application.id, variable)
             for application in compiled.applications
-            for variable in keys(outputs_(application.spec))
+            for variable in _model_application_output_variables(
+                compiled,
+                application,
+            )
         )
     else
         union(temporal_dependencies, requested_outputs)
@@ -3369,9 +4151,12 @@ end
 function _explain_output_retention(compiled::CompiledCompositeModel, plan)
     keys_to_explain = if plan.retain_all
         Set(
-            (application.id, Symbol(variable))
+            (application.id, variable)
             for application in compiled.applications
-            for variable in keys(outputs_(application.spec))
+            for variable in _model_application_output_variables(
+                compiled,
+                application,
+            )
         )
     else
         union(plan.temporal_dependencies, plan.requested_outputs)
@@ -3402,6 +4187,13 @@ function _explain_output_retention(compiled::CompiledCompositeModel, plan)
                     compiled,
                     application_id,
                 ).target_ids,
+            ),
+            current_output_object_count=length(
+                _model_output_object_ids(
+                    compiled,
+                    _compiled_application_by_id(compiled, application_id),
+                    variable,
+                ),
             ),
         )
         for (application_id, variable) in sort!(
@@ -3455,11 +4247,57 @@ end
     return _find_call_targets(Base.tail(calls), Val(name), context)
 end
 
+@inline _find_manual_call_targets(::Tuple{}, ::Val, ::RunContext) = nothing
+
+@inline function _find_manual_call_targets(
+    calls::Tuple,
+    ::Val{name},
+    context::RunContext,
+) where {name}
+    targets = first(calls)
+    if _compiled_call_name(targets.binding) === name
+        _compiled_call_mode(targets.binding) === :manual ||
+            _initializer_requires_dedicated_api(context, name)
+        targets.time == context.time &&
+            targets.publication_allowed == context.publication_allowed &&
+            targets.environment === context.environment &&
+            return targets
+        return _synchronize_call_targets_slow!(targets, context)
+    end
+    return _find_manual_call_targets(Base.tail(calls), Val(name), context)
+end
+
 Base.@constprop :aggressive function _model_call_targets(
     context::RunContext,
     name::Symbol,
 )
     found = _find_call_targets(context.calls, Val(name), context)
+    if isnothing(found)
+        available = Symbol[targets.binding.call for targets in context.calls]
+        error(
+            "Application `$(context.application.id)` on object ",
+            "`$(context.object_id.value)` did not declare call `$(name)`. ",
+            "Declared calls: $(available).",
+        )
+    end
+    return found
+end
+
+@noinline function _initializer_requires_dedicated_api(context, name)
+    throw(
+        ArgumentError(
+            "Call `$(name)` on application `$(context.application.id)` is an " *
+            "initializer binding. Use `run_initializer!(context, :$(name), object)` " *
+            "exactly once for the newly registered object.",
+        ),
+    )
+end
+
+@inline Base.@constprop :aggressive function _manual_call_targets(
+    context::RunContext,
+    name::Symbol,
+)
+    found = _find_manual_call_targets(context.calls, Val(name), context)
     if isnothing(found)
         available = Symbol[targets.binding.call for targets in context.calls]
         error(
@@ -3533,6 +4371,8 @@ function _materialize_call(
         target.input_bindings,
         target.output_bindings,
         calls,
+        target.bound_inputs,
+        target.output_targets,
         target.environment_binding,
         targets.temporal_streams,
         targets.output_retention,
@@ -3584,10 +4424,14 @@ for `Many`.
 When `objects` is provided, resolve the declared call against the current
 object topology and restrict the result to those objects. This explicit form is
 intended for models that create objects and immediately initialize selected
-applications on them. Ordinary scheduled execution still observes structural
-changes at the next timestep boundary. Each requested object may be an
-[`ObjectId`](@ref), [`Object`](@ref), an MTG node, or the [`Status`](@ref)
-returned by [`add_organ!`](@ref).
+manual-call-only applications on them. Structural refresh still occurs at the
+safe barrier after a pure-addition event. If the pending event also removes or
+reparents objects, this accessor performs a full binding/environment refresh
+before resolving the explicit targets. Use [`Initializer`](@ref) and
+[`run_initializer!`](@ref) instead when the target application must remain in
+the normal schedule. Each requested object may be an [`ObjectId`](@ref),
+[`Object`](@ref), an MTG node, or the [`Status`](@ref) returned by
+[`add_organ!`](@ref).
 
 Use this accessor with [`run_call!(::CallTarget)`](@ref) when targets need
 different sampled environments, selective execution, a controlled order, or separate
@@ -3599,9 +4443,9 @@ Base.@constprop :aggressive function call_targets(
     ;
     objects=nothing,
 )
-    isnothing(objects) ||
-        return _current_topology_call_targets(context, name, objects)
-    return _model_call_targets(context, name)
+    return isnothing(objects) ?
+           _manual_call_targets(context, name) :
+           _current_topology_call_targets(context, name, objects)
 end
 
 @inline function _single_call_model(batches::Tuple{B}) where {B}
@@ -3644,6 +4488,8 @@ end
 ) where {name}
     targets = _find_call_targets(context.calls, Val(name), context)
     isnothing(targets) && _call_model_missing_error(context, name)
+    _compiled_call_mode(targets.binding) === :manual ||
+        _initializer_requires_dedicated_api(context, name)
     length(targets) == 1 || _call_model_target_count_error(name, targets)
     return _single_call_model(targets.execution_batches)
 end
@@ -3666,19 +4512,7 @@ function call_model(context, name::Symbol)
 end
 
 function _call_target_object_id(model::CompositeModel, target)
-    target isa ObjectId && return target
-    target isa Object && return target.id
-    if target isa Status
-        hasproperty(target, :node) || error(
-            "A `Status` used as a hard-call object filter must contain its source `node`."
-        )
-        return _call_target_object_id(model, target.node)
-    end
-    adapter = model.source_adapter
-    if adapter isa MTGObjectAdapter && target isa MultiScaleTreeGraph.Node
-        return ObjectId(adapter.id(target))
-    end
-    return ObjectId(target)
+    return object_id(model, target)
 end
 
 function _call_target_object_ids(model::CompositeModel, objects)
@@ -3710,10 +4544,18 @@ mutable struct _TargetedApplicationSet{A,B}
     outputs_prepared::Bool
 end
 
-mutable struct _TargetedTopologyRuntime{CS,MA}
+mutable struct _TargetedTopologyRuntime{CS,MA} <:
+               AbstractTargetedTopologyRuntime
     compiled::CS
     model_revision::Int
-    application_sets::Dict{Tuple{Vararg{ObjectId}},Any}
+    application_sets::Dict{
+        Tuple{Vararg{ObjectId}},
+        Union{Nothing,_TargetedApplicationSet},
+    }
+    added_applications_by_object::Dict{
+        ObjectId,
+        Vector{CompiledModelApplication},
+    }
     manual_application_ids::MA
     application_positions::Dict{Symbol,Int}
 end
@@ -3732,7 +4574,8 @@ function _targeted_topology_runtime!(
     context::RunContext,
     model::CompositeModel,
 )
-    cached = context.targeted_topology_runtime
+    delta = lifecycle_delta(model)
+    cached = delta.targeted_topology_runtime
     if cached isa _TargetedTopologyRuntime &&
        cached.compiled === context.compiled &&
        cached.model_revision == model.revision
@@ -3742,14 +4585,18 @@ function _targeted_topology_runtime!(
     runtime = _TargetedTopologyRuntime(
         compiled,
         model.revision,
-        Dict{Tuple{Vararg{ObjectId}},Any}(),
+        Dict{
+            Tuple{Vararg{ObjectId}},
+            Union{Nothing,_TargetedApplicationSet},
+        }(),
+        Dict{ObjectId,Vector{CompiledModelApplication}}(),
         compiled.scenario_plan.manual_application_ids,
         Dict(
             application_id => index
             for (index, application_id) in pairs(compiled.application_order)
         ),
     )
-    context.targeted_topology_runtime = runtime
+    delta.targeted_topology_runtime = runtime
     return runtime
 end
 
@@ -3758,7 +4605,7 @@ function _new_object_applications(
     compiled::CompiledCompositeModel,
     requested_ids,
 )
-    by_object = Dict{ObjectId,Vector{Any}}()
+    by_object = Dict{ObjectId,Vector{CompiledModelApplication}}()
     partial_applications = CompiledModelApplication[]
     new_targets = _new_application_targets(
         model,
@@ -3776,25 +4623,19 @@ function _new_object_applications(
         push!(partial_applications, partial)
         for object_id in target_ids
             applications = get!(by_object, object_id) do
-                copy(
-                    get(
+                CompiledModelApplication[
+                    application for application in get(
                         compiled.applications_by_object,
                         object_id,
-                        Any[],
-                    ),
-                )
+                        (),
+                    )
+                ]
             end
             any(candidate -> candidate.id == application.id, applications) ||
                 push!(applications, partial)
         end
     end
-    return (
-        partial_applications,
-        _ApplicationsByObjectOverlay(
-            compiled.applications_by_object,
-            by_object,
-        ),
-    )
+    return (partial_applications, by_object)
 end
 
 function _targeted_application_set!(
@@ -3810,10 +4651,20 @@ function _targeted_application_set!(
             requested_ids,
         )
         isnothing(applications) && return nothing
-        output_applications, applications_by_object = applications
+        output_applications, added_applications_by_object = applications
+        # Keep applications for every object targeted earlier in this same
+        # lifecycle delta. A later newborn can then bind an input to an earlier
+        # newborn without refreshing the whole scene at a mid-kernel barrier.
+        merge!(
+            runtime.added_applications_by_object,
+            added_applications_by_object,
+        )
         return _TargetedApplicationSet(
             output_applications,
-            applications_by_object,
+            _ApplicationsByObjectOverlay(
+                runtime.compiled.applications_by_object,
+                runtime.added_applications_by_object,
+            ),
             false,
         )
     end
@@ -3898,16 +4749,61 @@ function _targeted_new_object_call_targets(
     context::RunContext,
     name::Symbol,
     requested_ids,
+    ;
+    initializer::Bool=false,
 )
     model = runtime_model(context)
-    bindings_dirty(model) || return nothing
-    delta = lifecycle_delta(model)
-    delta.structural_kind === :full && return nothing
-    dirty_ids = delta.structural_dirty_ids
-    all(object_id -> object_id in dirty_ids, requested_ids) || return nothing
-
     cached_targets = _model_call_targets(context, name)
     binding = cached_targets.binding
+    expected_mode = initializer ? :initializer : :manual
+    _compiled_call_mode(binding) === expected_mode || error(
+        initializer ?
+        "Call `$(name)` is a manual hard call, not an `Initializer` binding." :
+        "Call `$(name)` is an initializer binding; use `run_initializer!`.",
+    )
+    if initializer
+        length(requested_ids) == 1 || error(
+            "Initializer `$(name)` requires exactly one newly registered object; " *
+            "got $(length(requested_ids)).",
+        )
+    end
+    if !bindings_dirty(model)
+        initializer && error(
+            "Initializer `$(name)` can run only during the lifecycle event that " *
+            "registered its target; the model has no pending structural addition.",
+        )
+        return nothing
+    end
+    delta = lifecycle_delta(model)
+    if delta.structural_kind !== :addition
+        if initializer
+            error(
+                "Initializer `$(name)` requires a pure object-addition lifecycle event; " *
+                "the pending structural change is `$(delta.structural_kind)`.",
+            )
+        end
+        return nothing
+    end
+    dirty_ids = delta.structural_dirty_ids
+    if !all(object_id -> object_id in dirty_ids, requested_ids)
+        initializer && error(
+            "Initializer `$(name)` target is not part of the pending object addition.",
+        )
+        return nothing
+    end
+    if initializer
+        object_id = only(requested_ids)
+        # For a pure `:addition` delta, `structural_dirty_ids` is exactly the
+        # set populated by `_record_added_objects!`. Other structural mutations
+        # change `structural_kind` and were rejected above, so the O(1) dirty-id
+        # membership check already performed is the canonical newborn proof.
+        initialization_key = (only(binding.potential_callee_application_ids), object_id)
+        initialization_key in delta.initialized_targets && error(
+            "Application `$(first(initialization_key))` already initialized newly " *
+            "registered object `$(object_id.value)` in this lifecycle event.",
+        )
+    end
+
     binding.multiplicity != :many && length(requested_ids) > 1 &&
         error(
             "Hard call `$(name)` from application `$(context.application.id)` ",
@@ -3937,7 +4833,13 @@ function _targeted_new_object_call_targets(
         model,
         requested_ids,
     )
-    isnothing(application_set) && return nothing
+    if isnothing(application_set)
+        initializer && error(
+            "Initializer `$(name)` could not compile its newly registered target " *
+            "against the scheduled application selector.",
+        )
+        return nothing
+    end
     output_applications = application_set.applications
     applications_by_object = application_set.applications_by_object
     callee_applications = _targeted_callee_applications(
@@ -3945,7 +4847,13 @@ function _targeted_new_object_call_targets(
         requested_ids,
         output_applications,
     )
-    isnothing(callee_applications) && return nothing
+    if isnothing(callee_applications)
+        initializer && error(
+            "Initializer `$(name)` target application declares nested hard calls, " *
+            "which targeted newborn execution does not support.",
+        )
+        return nothing
+    end
 
     if !application_set.outputs_prepared
         _prepare_model_output_statuses!(model, output_applications)
@@ -3966,6 +4874,7 @@ function _targeted_new_object_call_targets(
                 targeted_runtime.manual_application_ids,
                 applications_by_object,
                 compiled.applications_by_id,
+                compiled.distributed_outputs,
             )
         end
     end
@@ -3976,10 +4885,19 @@ function _targeted_new_object_call_targets(
         callee_applications,
         input_bindings,
     )
-    any(
-        binding -> binding.carrier_hint == :temporal_stream,
-        input_bindings,
-    ) && return nothing
+    unsupported_temporal_inputs = Symbol[
+        input_binding.input for input_binding in input_bindings
+        if input_binding.carrier_hint == :temporal_stream &&
+           !(input_binding.policy isa PreviousTimeStep)
+    ]
+    if !isempty(unsupported_temporal_inputs)
+        initializer && error(
+            "Initializer `$(name)` target requires unsupported temporal input(s) " *
+            "`$(Tuple(unsupported_temporal_inputs))`; only `PreviousTimeStep` has " *
+            "defined newborn initialization semantics.",
+        )
+        return nothing
+    end
 
     targeted_input_bindings = _index_model_bindings(
         input_bindings,
@@ -3994,7 +4912,13 @@ function _targeted_new_object_call_targets(
         callee_applications,
         compiled.applications_by_id,
     )
-    isnothing(environment_bindings) && return nothing
+    if isnothing(environment_bindings)
+        initializer && error(
+            "Initializer `$(name)` target requires a non-global environment " *
+            "binding, which targeted newborn execution does not support.",
+        )
+        return nothing
+    end
 
     targets = CallTarget[]
     for partial_application in callee_applications
@@ -4008,6 +4932,7 @@ function _targeted_new_object_call_targets(
                 get(targeted_input_bindings, key, ()),
                 compiled.applications_by_id,
                 targeted_runtime.application_positions,
+                compiled.distributed_outputs,
             )
             push!(
                 targets,
@@ -4029,6 +4954,12 @@ function _targeted_new_object_call_targets(
                         true,
                     ),
                     (),
+                    status_view.bound_inputs,
+                    _runtime_model_output_targets(
+                        compiled,
+                        application,
+                        object_id,
+                    ),
                     _environment_binding_for(
                         environment_bindings,
                         application.id,
@@ -4043,6 +4974,12 @@ function _targeted_new_object_call_targets(
                 ),
             )
         end
+    end
+    if initializer
+        length(targets) == 1 || error(
+            "Initializer `$(name)` must resolve one scheduled application target " *
+            "for one newborn object; resolved $(length(targets)).",
+        )
     end
     return targets
 end
@@ -4243,6 +5180,8 @@ end
         target.application,
         target.object_id,
         target.calls,
+        target.bound_inputs,
+        target.output_targets,
         target.temporal_streams,
         target.output_retention,
         target.time,
@@ -4314,6 +5253,8 @@ end
         targets.environment_bindings,
         application,
         target.object_id,
+        target.bound_inputs,
+        target.output_targets,
         targets.temporal_streams,
         targets.output_retention,
         targets.time,
@@ -4425,12 +5366,77 @@ function _run_call_targets!(
 end
 
 """
+    run_initializer!(context::RunContext, name::Symbol, object)
+
+Run the application declared by `name=Initializer(...)` exactly once on one
+object registered during the current lifecycle event. The target application
+remains normally scheduled and retains canonical writer ownership. Its model
+mutates the newborn's canonical local status, but the targeted initializer does
+not publish an extra mid-step output sample or distributed/environment update.
+Consequently, only direct non-temporal downstream consumers may observe its
+newborn output in that step; downstream temporal consumers are rejected during
+scenario compilation.
+
+The initializer target must use the caller's cadence and global environment,
+must not declare nested calls, distributed outputs, or stream-only outputs, and
+must be the sole potential canonical writer of each initialized output. It may
+use `PreviousTimeStep` as its only temporal input policy. The initialized
+object's canonical [`Status`](@ref) is returned. Calling the same initializer
+again for that application/object pair, or passing an existing or reparented
+object, is an error. The application/object pair is reserved before model code
+runs, so a failed attempt remains marked and cannot be retried in the same
+lifecycle event after an unknown partial mutation.
+"""
+function run_initializer!(
+    context::RunContext,
+    name::Symbol,
+    object,
+)
+    context.publication_allowed || error(
+        "Initializer `$(name)` cannot run inside a non-publishing hard call. " *
+        "Keep its creator application root-scheduled.",
+    )
+    model = runtime_model(context)
+    requested_ids = _call_target_object_ids(model, object)
+    targets = _targeted_new_object_call_targets(
+        context,
+        name,
+        requested_ids;
+        initializer=true,
+    )
+    target = only(targets)
+    key = (target.application.id, target.object_id)
+    # Reserve the application/object pair before model code runs. If the
+    # initializer mutates and then throws, retrying it would duplicate an
+    # unknown partial side effect, so the lifecycle event remains poisoned.
+    push!(lifecycle_delta(model).initialized_targets, key)
+    _run_call_targets!(
+        targets,
+        false,
+        _UNSPECIFIED_SCENE_ENVIRONMENT,
+        context.environment,
+    )
+    return model_status(model, target.object_id)
+end
+
+function run_initializer!(context, name::Symbol, object)
+    throw(
+        ArgumentError(
+            "Initializer `$(name)` requires the compiled RunContext passed to " *
+            "a model kernel; got $(typeof(context)).",
+        ),
+    )
+end
+
+"""
     run_call!(context::RunContext, name::Symbol;
               environment, sampled_environment, publish=false)
 
 Execute every target of the hard call declared as `name` and return its
 [`CallTargets`](@ref) collection. The return shape is always vector-like:
 `One` produces one element, `OptionalOne` zero or one, and `Many` zero or more.
+Initializer bindings are rejected here; execute those with
+[`run_initializer!`](@ref).
 
 When `environment` is supplied, every target keeps its own opaque compiled
 backend handle and samples that transient backend-specific state. The state is
@@ -5053,14 +6059,12 @@ function _output_request_target(
     variable::Symbol,
     start_time,
 )
-    initial = getproperty(
-        _model_status_view_for_application(
-            compiled,
-            application,
-            object_id,
-        ).status,
+    initial = _model_output_reference(
+        compiled,
+        application,
+        object_id,
         variable,
-    )
+    )[]
     return (
         scale=_model_object(model, object_id).scale,
         memberships=[
@@ -5092,6 +6096,14 @@ function _initial_output_request_targets(
             output_request_matchers[request.name];
             context=request.context,
         )
+        owned_ids = Set(
+            _model_output_object_ids(
+                compiled,
+                application,
+                request.var,
+            ),
+        )
+        filter!(id -> id in owned_ids, object_ids)
         targets[request.name] = (
             application.id,
             Dict(
@@ -5159,6 +6171,18 @@ function _refresh_output_request_targets!(
                 )
             ]
         end
+        application = _compiled_application_by_id(
+            simulation.compiled,
+            application_id,
+        )
+        owned_ids = Set(
+            _model_output_object_ids(
+                simulation.compiled,
+                application,
+                request.var,
+            ),
+        )
+        filter!(id -> id in owned_ids, matched_ids)
         active_ids = Set(
             object_id for (object_id, target) in object_targets
             if _output_request_target_is_active(target)
@@ -5173,10 +6197,6 @@ function _refresh_output_request_targets!(
                 "`$(request.selector)`, got $([id.value for id in current_ids]).",
             )
         end
-        application = _compiled_application_by_id(
-            simulation.compiled,
-            application_id,
-        )
         application_completed =
             !isnothing(completed_applications) &&
             application_id in completed_applications
@@ -5196,14 +6216,12 @@ function _refresh_output_request_targets!(
             if haskey(object_targets, object_id)
                 target = object_targets[object_id]
                 _output_request_target_is_active(target) && continue
-                initial = getproperty(
-                    _model_status_view_for_application(
-                        simulation.compiled,
-                        application,
-                        object_id,
-                    ).status,
+                initial = _model_output_reference(
+                    simulation.compiled,
+                    application,
+                    object_id,
                     request.var,
-                )
+                )[]
                 push!(
                     target.memberships,
                     OutputRequestMembership(
@@ -5455,16 +6473,25 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
     declared_scale = _selector_declared_scale(request.selector)
     candidates = CompiledModelApplication[]
     for application in compiled.applications
-        request.var in keys(outputs_(application.spec)) || continue
         isnothing(request.application) ||
             application.id == request.application ||
             application.name == request.application ||
             continue
-        target_match = any(id -> id in requested_ids, application.target_ids)
-        scale_match = !isnothing(declared_scale) &&
-                      _model_application_matches_scale(model, application, declared_scale)
-        (target_match || scale_match) || continue
+        local_output = request.var in keys(outputs_(application.spec))
+        local_match = local_output && (
+            any(id -> id in requested_ids, application.target_ids) ||
+            (!isnothing(declared_scale) &&
+             _model_application_matches_scale(model, application, declared_scale))
+        )
+        distributed_match = _model_request_matches_distributed_output(
+            compiled,
+            application,
+            request,
+            requested_ids,
+        )
+        (local_match || distributed_match) || continue
         if isnothing(request.application) &&
+           !distributed_match &&
            _publish_mode_for_output(application.spec, request.var) == :stream_only
             continue
         end
@@ -5494,6 +6521,50 @@ function _model_request_application(model::CompositeModel, compiled::CompiledCom
     end
     return only(candidates)
 end
+
+_model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    ::NoCompiledDistributedOutputs,
+) = false
+
+function _model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    distributed_outputs::CompiledDistributedOutputs,
+)
+    destination_ids = get(
+        distributed_outputs.destination_ids_by_application_variable,
+        (application.id, request.var),
+        (),
+    )
+    concrete_match = any(id -> id in requested_ids, destination_ids)
+    isempty(requested_ids) || return concrete_match
+    plans = compiled.scenario_plan.distributed_output_plans
+    plans isa CompiledDistributedOutputPlans || return false
+    return any(
+        plan -> request.var in keys(plan.declarations) &&
+                _selector_labels_may_overlap(request.selector, plan.selector),
+        _application_plans(plans.by_application, application.slot),
+    )
+end
+
+_model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+) = _model_request_matches_distributed_output(
+    compiled,
+    application,
+    request,
+    requested_ids,
+    compiled.distributed_outputs,
+)
 
 function _model_request_application(sim::Simulation, request)
     return _model_request_application(sim.model, sim.compiled, request)

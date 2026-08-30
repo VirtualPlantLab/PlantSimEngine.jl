@@ -377,9 +377,13 @@ update_geometry!(model, :leaf_5, new_geometry)
 ```
 
 Use `add_organ!` for an MTG-backed model. It creates the MTG node, initializes
-and attaches its `Status` with the model's MTG policy, registers the model
-object, and invalidates the affected bindings. `register_object!` is the
-low-level operation for callers that already own a complete `Object`.
+and attaches its `Status`, registers the model object, and invalidates the
+affected bindings. By default, status initialization reuses the model's MTG
+policy. A framework that already supplies the complete creation attributes and
+initial status may set `use_status_adapter=false`; doing so is an explicit
+assertion that the configured status accessor contributes no additional fields
+or side effects for that node. `register_object!` is the low-level operation
+for callers that already own a complete `Object`.
 
 Structural changes invalidate compiled object/model bindings. Movement and
 geometry changes invalidate environment bindings without rebuilding structural
@@ -402,6 +406,8 @@ inside that call. At the safe barrier after the mutating application,
 PlantSimEngine refreshes affected structural targets, value carriers, hard-call
 targets, writer validation, temporal storage, execution groups, output-request
 matches, and environment handles. A new object can therefore run an application
-that remains later in the same timestep, but it does not retroactively run an
-application that already completed. Already published streams remain available
-for removed objects.
+that remains later in the same timestep. It does not retroactively run an
+application that already completed unless its creator declares that application
+as an [`Initializer`](@ref) and explicitly calls [`run_initializer!`](@ref) on
+the newborn object. Already published streams remain available for removed
+objects.

@@ -117,6 +117,40 @@ model = CompositeModel(
 topology. A plant may use any hierarchy of plants, axes, internodes, segments,
 leaves, roots, fruits, or application-specific objects.
 
+### Status type conversion
+
+Some historical `ModelMapping` configurations changed the representation of
+all matching status values, for example from `Float64` to `Float32`. Keep that
+scenario policy on the modern `CompositeModel`; do not recreate or wrap
+`ModelMapping`:
+
+```julia
+model = CompositeModel(
+    objects...;
+    applications=applications,
+    environment=environment,
+    type_promotion=Dict(Float64 => Float32),
+)
+```
+
+Use `status_transform` when the conversion depends on the variable rather than
+only its current type:
+
+```julia
+model = CompositeModel(
+    objects...;
+    applications=applications,
+    type_promotion=Dict(Float64 => Float32),
+    status_transform=(variable, value) ->
+        variable === :uncertain_input ? uncertain(value) : value,
+)
+```
+
+The variable-specific transform runs before the general type mapping. Ordinary
+numeric arrays are mapped element by element. The policy applies to supplied
+statuses, model input and output defaults, and objects registered later; it
+does not change model parameters or environment values.
+
 ### Existing MTG Topologies
 
 An existing MTG can be adapted without rebuilding its topology manually:
@@ -134,8 +168,11 @@ model = CompositeModel(
 
 `objects_from_mtg(mtg; ...)` exposes the intermediate object list when it is
 useful to inspect or modify labels before constructing the model. By default,
-the adapter uses MTG node ids and scales, and reuses an existing
-`:plantsimengine_status` attribute when present.
+the adapter uses MTG node ids and scales. Runtime `Status` values belong to the
+`CompositeModel` registry and are never stored in MTG attributes. A deliberate
+import boundary may provide `status=node -> import_status(node)` explicitly;
+maintained workflows should initialize scientific state through model objects or
+model applications instead.
 
 ## Multiscale Inputs
 
@@ -409,7 +446,7 @@ move_object!(model, :leaf_3, new_geometry)
 ```
 
 For MTG-backed growth, prefer `add_organ!`: it creates the MTG node and its
-model object together and reuses the status initialization policy from
+model object together and, by default, reuses the status initialization policy from
 `CompositeModel(mtg; status=...)`. Use `register_object!` when adapting another topology
 backend or when a complete `Object` already exists.
 
@@ -484,6 +521,7 @@ targets. They are intended for both users and coding agents.
 | Legacy configuration | CompositeModel/object replacement |
 | --- | --- |
 | `ModelMapping` scale assembly | `CompositeModel` objects plus model applications |
+| `ModelMapping` status type remapping | `CompositeModel(...; type_promotion=..., status_transform=...)` |
 | `MultiScaleModel(...)` | consumer `ModelSpec(...; inputs=...)` |
 | `TimeStepModel(...)` | `ModelSpec(...; every=...)` |
 | `InputBindings(...)` | source, policy, and window on `ModelSpec(...; inputs=...)` |

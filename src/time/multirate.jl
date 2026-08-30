@@ -20,11 +20,10 @@ function _as_schedule_policy(policy; context::AbstractString="schedule policy")
         policy <: SchedulePolicy || error(
             "Unsupported $(context) type `$(policy)`. Expected a SchedulePolicy type or instance."
         )
-        return try
-            policy()
-        catch
+        if !applicable(policy)
             error("Schedule policy type `$(policy)` requires constructor arguments.")
         end
+        return policy()
     elseif policy isa SchedulePolicy
         return policy
     end

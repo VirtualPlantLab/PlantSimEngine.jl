@@ -9,6 +9,13 @@ struct InvalidEnvironmentHintProbeModel <: AbstractInvalid_Hint_ProbeModel end
 struct InvalidTimestepHintProbeModel <: AbstractInvalid_Hint_ProbeModel end
 struct ConfigurationProbeModel <: AbstractConfiguration_ProbeModel end
 struct ConfigurationConsumerModel <: AbstractConfiguration_ConsumerModel end
+struct SchedulePolicyConstructorSentinel <: Exception end
+struct ThrowingSchedulePolicy <: SchedulePolicy
+    ThrowingSchedulePolicy() = throw(SchedulePolicyConstructorSentinel())
+end
+struct ArgumentSchedulePolicy <: SchedulePolicy
+    value::Int
+end
 PlantSimEngine.inputs_(::Union{InvalidEnvironmentHintProbeModel,InvalidTimestepHintProbeModel}) = NamedTuple()
 PlantSimEngine.outputs_(::Union{InvalidEnvironmentHintProbeModel,InvalidTimestepHintProbeModel}) = (value=0.0,)
 PlantSimEngine.environment_hint(::Type{<:InvalidEnvironmentHintProbeModel}) = 42
@@ -31,6 +38,12 @@ end
 
 @testset "current configuration errors" begin
     @test_throws "Unsupported reducer value" Aggregate(42)
+    @test_throws "requires constructor arguments" PlantSimEngine._as_schedule_policy(
+        ArgumentSchedulePolicy,
+    )
+    @test_throws SchedulePolicyConstructorSentinel PlantSimEngine._as_schedule_policy(
+        ThrowingSchedulePolicy,
+    )
     monthly_scene = CompositeModel(
         Object(:leaf; scale=:Leaf);
         applications=(

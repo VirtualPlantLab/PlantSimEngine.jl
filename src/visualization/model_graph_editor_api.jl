@@ -494,12 +494,20 @@ function _rewrite_model_selector_application(selector, old_id::Symbol, new_id::S
     return _rebuild_selector(selector, rewritten)
 end
 
+function _rewrite_model_call_application(binding, old_id::Symbol, new_id::Symbol)
+    selector = _call_binding_selector(binding)
+    return _call_binding_with_selector(
+        binding,
+        _rewrite_model_selector_application(selector, old_id, new_id),
+    )
+end
+
 function _model_edit_spec_references_application(spec, application_id::Symbol)
     normalized = as_model_spec(spec)
     selectors = (
         applies_to(normalized),
         values(value_inputs(normalized))...,
-        values(model_calls(normalized))...,
+        (_call_binding_selector(binding) for binding in values(model_calls(normalized)))...,
     )
     selector_reference = any(selectors) do selector
         selector isa AbstractObjectMultiplicity || return false
@@ -519,8 +527,8 @@ function _rewrite_model_spec_application_references(spec, old_id::Symbol, new_id
         for (name, selector) in pairs(value_inputs(normalized))
     )...)
     calls = (; (
-        Symbol(name) => _rewrite_model_selector_application(selector, old_id, new_id)
-        for (name, selector) in pairs(model_calls(normalized))
+        Symbol(name) => _rewrite_model_call_application(binding, old_id, new_id)
+        for (name, binding) in pairs(model_calls(normalized))
     )...)
     target = _rewrite_model_selector_application(applies_to(normalized), old_id, new_id)
     updates_ = Tuple(
@@ -637,7 +645,7 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelInputB
 end
 
 function _apply_model_graph_edit!(model::CompositeModel, edit::SetModelCallBinding)
-    edit.selector isa AbstractObjectMultiplicity || error("A call binding requires an object selector.")
+    _call_binding_selector(edit.selector)
     spec = _model_edit_spec(model, edit.application)
     calls = _model_edit_namedtuple_set(spec.calls, edit.call, edit.selector)
     origins = _model_edit_origins_set(spec.call_origins, edit.call, :model_spec)
@@ -862,14 +870,21 @@ end
 
 function _set_model_object_status!(model, object_id, variable, value)
     object = _model_object(model, object_id)
+    effective, _, _ = _materialize_status_value(
+        model,
+        Symbol(variable),
+        value;
+        object_id=object.id,
+        origin=:graph_edit_status,
+    )
     values = _model_edit_status_values(object.status)
     index = findfirst(pair -> first(pair) == variable, values)
     if isnothing(index)
-        push!(values, variable => value)
+        push!(values, variable => effective)
     else
-        values[index] = variable => value
+        values[index] = variable => effective
     end
-    object.status = Status((; values...))
+    _replace_model_object_status!(model, object, Status((; values...)))
     delete!(
         get!(
             model.input_default_status_variables,
@@ -899,7 +914,11 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::RemoveModelObject
         pair for pair in _model_edit_status_values(object.status)
         if first(pair) != edit.variable
     ]
-    object.status = isempty(values) ? nothing : Status((; values...))
+    _replace_model_object_status!(
+        model,
+        object,
+        isempty(values) ? nothing : Status((; values...)),
+    )
     delete!(
         get!(
             model.input_default_status_variables,
@@ -1028,6 +1047,9 @@ function _model_edit_rebuild_instances(
         instances=instances,
         environment=model.environment,
         source_adapter=model.source_adapter,
+        _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records,
     )
     for (index, application) in pairs(rebuilt.applications)
         application_id = _model_edit_application_id(application)
@@ -1134,6 +1156,9 @@ function _apply_model_graph_edit!(model::CompositeModel, edit::SetCompositeModel
         instances=Tuple(_model_edit_normalize_instance(instance) for instance in model.instances),
         environment=edit.environment,
         source_adapter=model.source_adapter,
+        _status_conversion=model.status_conversion,
+        _status_values_materialized=true,
+        _status_conversion_records=model.status_conversion_records,
     )
 end
 

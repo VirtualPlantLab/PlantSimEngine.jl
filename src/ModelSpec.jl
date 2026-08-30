@@ -1,16 +1,20 @@
 """
     ModelSpec(model; name=nothing, on=nothing, inputs=NamedTuple(),
-              calls=NamedTuple(), environment=nothing, every=nothing,
+              calls=NamedTuple(), outputs_to=NamedTuple(),
+              environment=nothing, every=nothing,
               environment_bindings=NamedTuple(), environment_window=nothing,
               output_routing=NamedTuple(), updates=())
 
 Configuration for one model application in a `CompositeModel`.
 
 `ModelSpec` is the single scenario-construction form. `on` selects the target
-objects, `inputs` and `calls` declare coupling, `every` selects application
-cadence, and `environment` accepts an [`Environment`](@ref) configuration.
-Output routing and intentional duplicate-writer ordering are declared directly
-with `output_routing` and `updates`.
+objects, `inputs` and `calls` declare coupling, and a `calls` entry may wrap its
+selector in [`Initializer`](@ref) for targeted newborn initialization.
+`outputs_to` declares status outputs owned by this application but stored on
+selected destination objects, `every` selects application cadence, and
+`environment` accepts an [`Environment`](@ref) configuration. Output routing
+and intentional duplicate-writer ordering are declared directly with
+`output_routing` and `updates`.
 
 # Example
 
@@ -28,7 +32,7 @@ ModelSpec(
 )
 ```
 """
-struct ModelSpec{M,N,AT,IN,IO,CA,CO,EV,TS,MB,MW,OR,UP}
+struct ModelSpec{M,N,AT,IN,IO,CA,CO,OT,EV,TS,MB,MW,OR,UP}
     model::M
     name::N
     applies_to::AT
@@ -36,12 +40,109 @@ struct ModelSpec{M,N,AT,IN,IO,CA,CO,EV,TS,MB,MW,OR,UP}
     input_origins::IO
     calls::CA
     call_origins::CO
+    outputs_to::OT
     environment::EV
     timestep::TS
     environment_bindings::MB
     environment_window::MW
     output_routing::OR
     updates::UP
+end
+
+function _normalize_output_to_variables(vars::NamedTuple)
+    isempty(vars) && error(
+        "`OutputTo(...; vars=...)` requires at least one destination variable."
+    )
+    _has_only_input_declarations(values(vars)) && return vars
+    invalid = Pair{Symbol,Any}[
+        Symbol(name) => declaration
+        for (name, declaration) in pairs(vars)
+        if !_is_input_declaration(declaration)
+    ]
+    isempty(invalid) || error(
+        "`OutputTo(...; vars=...)` must declare every destination variable with ",
+        "`Required(T)` or `Default(value)`. Invalid declaration(s): ",
+        join(
+            ["`$(name)=$(repr(declaration))`" for (name, declaration) in invalid],
+            ", ",
+        ),
+        ".",
+    )
+    return vars
+end
+
+function _normalize_output_to_variables(vars)
+    error(
+        "`OutputTo(...; vars=...)` requires a non-empty `NamedTuple` of ",
+        "`Required(T)` and `Default(value)` declarations; got `$(typeof(vars))`."
+    )
+end
+
+function _normalize_output_to_coverage(coverage)
+    coverage === :exact || error(
+        "Unsupported `OutputTo` coverage `$(repr(coverage))`. Only `coverage=:exact` ",
+        "is currently supported."
+    )
+    return coverage
+end
+
+"""
+    OutputTo(selector; vars, coverage=:exact)
+
+Declare status outputs computed by one model application and stored on other
+objects selected by `selector`.
+
+`vars` is a non-empty `NamedTuple` whose values are [`Required`](@ref) or
+[`Default`](@ref) declarations. `coverage=:exact` requires the application to
+publish every declared variable for every selected destination; no partial
+coverage policy is currently supported.
+
+# Example
+
+```julia
+OutputTo(
+    Many(scale=(:Leaf, :Internode), within=SceneScope());
+    vars=(
+        incident_par=Default(0.0),
+        absorbed_par=Required(Float64),
+    ),
+)
+```
+"""
+struct OutputTo{S,V,C}
+    selector::S
+    vars::V
+    coverage::C
+
+    function OutputTo(selector; vars, coverage=:exact)
+        normalized_selector = _validate_selector_context(selector, :output_destination)
+        normalized_vars = _normalize_output_to_variables(vars)
+        normalized_coverage = _normalize_output_to_coverage(coverage)
+        return new{
+            typeof(normalized_selector),
+            typeof(normalized_vars),
+            typeof(normalized_coverage),
+        }(normalized_selector, normalized_vars, normalized_coverage)
+    end
+end
+
+function _normalize_outputs_to(outputs_to::NamedTuple)
+    for (name, destination) in pairs(outputs_to)
+        destination isa OutputTo || error(
+            "Unsupported output destination `$(name)=$(repr(destination))`. ",
+            "Every `ModelSpec(...; outputs_to=...)` entry must be an `OutputTo(...)` ",
+            "declaration."
+        )
+    end
+    return outputs_to
+end
+
+function _normalize_outputs_to(outputs_to)
+    error(
+        "Unsupported `outputs_to` value `$(repr(outputs_to))` of type ",
+        "`$(typeof(outputs_to))`. Use a `NamedTuple` of named `OutputTo(...)` ",
+        "declarations."
+    )
 end
 
 """
@@ -102,6 +203,7 @@ function ModelSpec(
     on=nothing,
     inputs=NamedTuple(),
     calls=NamedTuple(),
+    outputs_to=NamedTuple(),
     environment=nothing,
     every=nothing,
     environment_bindings=NamedTuple(),
@@ -115,6 +217,7 @@ function ModelSpec(
         on=on,
         inputs=inputs,
         calls=calls,
+        outputs_to=outputs_to,
         environment=environment,
         every=every,
         environment_bindings=environment_bindings,
@@ -132,6 +235,7 @@ function _build_model_spec(
     input_origins=nothing,
     calls=NamedTuple(),
     call_origins=nothing,
+    outputs_to=NamedTuple(),
     environment=nothing,
     every=nothing,
     environment_bindings=NamedTuple(),
@@ -159,8 +263,8 @@ function _build_model_spec(
     default_calls = _model_default_model_calls(base_model)
     explicit_calls = _normalize_application_bindings(calls)
     normalized_calls = _merge_value_inputs(default_calls, explicit_calls)
-    for selector in values(normalized_calls)
-        _validate_selector_context(selector, :call)
+    for binding in values(normalized_calls)
+        _validate_selector_context(_call_binding_selector(binding), :call)
     end
     normalized_call_origins = isnothing(call_origins) ?
                               _binding_origins(default_calls, explicit_calls) :
@@ -170,12 +274,13 @@ function _build_model_spec(
         normalized_call_origins,
         :calls,
     )
+    normalized_outputs_to = _normalize_outputs_to(outputs_to)
     normalized_environment = _normalize_model_environment(environment)
     normalized_environment_bindings = _normalize_environment_bindings(environment_bindings)
     normalized_environment_window = _normalize_environment_window(environment_window)
     normalized_output_routing = _normalize_output_routing(output_routing)
     normalized_updates = _normalize_updates(updates)
-    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(normalized_on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
+    return ModelSpec{typeof(base_model),typeof(normalized_name),typeof(normalized_on),typeof(normalized_inputs),typeof(normalized_input_origins),typeof(normalized_calls),typeof(normalized_call_origins),typeof(normalized_outputs_to),typeof(normalized_environment),typeof(every),typeof(normalized_environment_bindings),typeof(normalized_environment_window),typeof(normalized_output_routing),typeof(normalized_updates)}(
         base_model,
         normalized_name,
         normalized_on,
@@ -183,6 +288,7 @@ function _build_model_spec(
         normalized_input_origins,
         normalized_calls,
         normalized_call_origins,
+        normalized_outputs_to,
         normalized_environment,
         every,
         normalized_environment_bindings,
@@ -197,8 +303,9 @@ function _validate_scenario_application_references!(
     origins::NamedTuple,
     field::Symbol,
 )
-    for (name, selector) in pairs(bindings)
+    for (name, binding) in pairs(bindings)
         getproperty(origins, name) == :model_spec || continue
+        selector = field == :calls ? _call_binding_selector(binding) : binding
         selector isa Union{One,OptionalOne} || continue
         selector_criteria = criteria(selector)
         isnothing(_criteria_get(selector_criteria, :process, nothing)) &&
@@ -224,6 +331,7 @@ function _replace_model_spec(
     input_origins=spec.input_origins,
     calls=spec.calls,
     call_origins=spec.call_origins,
+    outputs_to=spec.outputs_to,
     environment=spec.environment,
     every=spec.timestep,
     environment_bindings=spec.environment_bindings,
@@ -239,6 +347,7 @@ function _replace_model_spec(
         input_origins=input_origins,
         calls=calls,
         call_origins=call_origins,
+        outputs_to=outputs_to,
         environment=environment,
         every=every,
         environment_bindings=environment_bindings,
@@ -352,13 +461,38 @@ function dep(spec::ModelSpec)
     dependencies = dep(model_(spec))
     kept = Pair{Symbol,Any}[]
     for (name, selector) in pairs(dependencies)
-        selector isa Union{Input,Call} && continue
+        selector isa Union{Input,Call,Initializer} && continue
         push!(kept, name => selector)
     end
     return (; kept...)
 end
 environment_inputs_(m::ModelSpec) = environment_inputs_(model_(m))
 environment_outputs_(m::ModelSpec) = environment_outputs_(model_(m))
+variable_contracts_(m::ModelSpec) = variable_contracts_(model_(m))
+
+function _declared_contract_variable_names(spec::ModelSpec)
+    declared = _declared_contract_variable_names(model_(spec))
+    for destination in values(spec.outputs_to)
+        union!(declared, Symbol.(keys(destination.vars)))
+    end
+    return declared
+end
+
+function _validate_variable_contract_names(spec::ModelSpec, schema)
+    declared = _declared_contract_variable_names(spec)
+    unknown = sort!(
+        Symbol[name for name in keys(schema) if Symbol(name) ∉ declared];
+        by=string,
+    )
+    isempty(unknown) || return _invalid_variable_contract_schema_error(
+        spec,
+        "declares unknown variable(s) `$(Tuple(unknown))`. Contract keys must " *
+        "also appear in `inputs_`, `outputs_`, `environment_inputs_`, " *
+        "`environment_outputs_`, or this ModelSpec's distributed `outputs_to` " *
+        "variables.",
+    )
+    return schema
+end
 
 function run!(m::ModelSpec, status, environment, constants=nothing, context=nothing)
     return run!(model_(m), status, environment, constants, context)

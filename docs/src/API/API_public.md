@@ -5,20 +5,46 @@
 ### Scenario and model applications
 
 - `CompositeModel` stores objects, model applications, instances, and environment.
-- `CompositeModel(model, models...; status=..., timestep=...)` is the concise one-object
-  form and lowers to the same object/application representation.
+- `CompositeModel(model, models...; status=..., timestep=...,
+  type_promotion=..., status_transform=...)` is the concise one-object form and
+  lowers to the same object/application representation.
 - `Object` represents one runtime entity with stable identity and status.
+- `object_id(model, source)` resolves an `ObjectId`, registered `Object` or
+  `Status`, MTG node, or raw identifier against the live registry. MTG nodes
+  retain the exact identity assigned by the model's `id=` accessor during
+  adaptation or organogenesis; `object_id` does not reevaluate that accessor,
+  and copied or foreign nodes are rejected. The same methods accept a
+  `RunContext` or `Simulation`.
 - `CompositeModelTemplate` and `ObjectInstance` reuse a model across instances.
-- `ModelSpec(model; name=..., on=..., inputs=..., calls=..., every=...,
-  environment=..., output_routing=..., updates=...)` is the one application
-  construction form.
+- `ModelSpec(model; name=..., on=..., inputs=..., calls=..., outputs_to=...,
+  every=..., environment=..., output_routing=..., updates=...)` is the one
+  application construction form.
 
 ### Coupling
 
 - `ModelSpec(...; inputs=...)` declares value dependencies.
+- `bound_input(context, :name)` opts a model kernel into an identity-aware
+  `BoundMany` view for one of its declared `Many` inputs; `object_ids(view)`
+  returns the aligned object identities without copying them.
 - `ModelSpec(...; calls=...)` declares manually executable child models.
+- `ModelSpec(...; outputs_to=(name=OutputTo(selector; vars=...),))`
+  declares status variables owned by the application but stored on selected
+  destination objects. Each variable uses `Required(T)` or `Default(value)`;
+  the compiler resolves identities and rejects ambiguous writers before
+  initializing statuses.
+- `output_targets(context, :name)` returns the compiled [`OutputTargets`](@ref)
+  view for one named `outputs_to` group. Destination columns are exposed
+  explicitly as `targets.columns.<variable>`, and `object_ids(targets)` returns
+  their aligned, read-only identities.
+- `assign_outputs!(targets, table; id=:object_id)` assigns a
+  Tables.jl-compatible result by identity. The lower-level
+  `assign_outputs!(targets, ids, columns)` overload accepts an ID vector and a
+  `NamedTuple` of columns directly.
 - `Updates(:variable; after=:application_id)` orders intentional duplicate writers.
 - `Input(...)` and `Call(...)` express model defaults through `dep(model)`.
+- `Initializer(One(application=:name, ...))` declares one normally scheduled
+  application that may initialize a newly registered object during its
+  creation event.
 - `run_call!(context, :name; publish=false)` executes every resolved hard-call
   target and always returns a vector-like `CallTargets` collection.
 - `run_call!(context, :name; sampled_environment=value)` forwards one already
@@ -27,6 +53,21 @@
   to exactly one target.
 - `call_targets(context, :name)` returns the same non-executing collection for
   fine-grained execution with `run_call!(target; ...)`.
+- `run_initializer!(context, :name, object)` runs an `Initializer` binding once
+  on that newborn object, initializes canonical local status without an extra
+  mid-step output sample, and returns its canonical `Status`. It is not a
+  trial-call or existing-object API.
+
+Distributed assignment requires exact destination coverage. Every selected
+object ID must occur exactly once and every declared output column must be
+present; additional table or `NamedTuple` columns are treated as metadata and
+ignored. Result columns may alias destination storage only for direct
+self-assignment of the same column in exact destination order.
+
+Obtain `OutputTargets` inside each model invocation and do not retain it across
+a lifecycle barrier. Reusing the same ID-column object lets PlantSimEngine
+reuse its compiled row permutation and promises that the IDs and their order
+have not been mutated. Replace the ID-column object when either changes.
 
 ### Model input schema
 
@@ -39,6 +80,39 @@
 - `outputs_(model)` literals remain initial output-state values.
 - `init_variables(model)` returns only genuine input defaults and initial
   output values.
+- `VariableContract` records a variable's unit, spatial or object basis,
+  temporal basis, aggregation meaning, and intensive/extensive character
+  without wrapping its runtime value.
+- `variable_contracts(model)` returns validated declarations from the
+  package-extension trait `PlantSimEngine.variable_contracts_`. A compiled
+  producer-consumer binding must have identical contracts once either side
+  declares one.
+
+### Status representation
+
+- `CompositeModel(...; type_promotion=Dict(Float64 => Float32))` converts every
+  matching status value with `convert` when its storage is materialized.
+- `CompositeModel(...; status_transform=(variable, value) -> ...)` applies a
+  precise transformation based on the status variable name and value. The
+  returned value becomes the candidate for the general `type_promotion`
+  mapping, so the transform always runs first.
+- Ordinary numeric arrays are converted element by element when their elements
+  match a mapping rule. Their shape is preserved.
+- The policy covers supplied object statuses, model input and output defaults,
+  and statuses of objects registered later through the lifecycle API.
+- The policy is limited to status values. Model parameters, environment values,
+  constants, object labels, and topology are not converted.
+- Conversion occurs during status materialization or object registration, not
+  on every call to a model kernel.
+- `Diagnostics.explain_initialization(model)` reports `declared_type`,
+  `original_type`, `transformed_type`, and `effective_type`, plus flags and the
+  selected mapping rule for each initialized value.
+
+The effective status type must be supported by the model kernel. Generic
+`Required` declarations and generic computations allow the same model to use
+`Float32`, uncertainty-carrying numbers, or another compatible numeric type.
+See [Numerical Reliability](../guides/data/numerical_reliability.md) for
+complete examples.
 
 ### Selectors
 
@@ -58,6 +132,7 @@ Selector fields are checked where the selector is used:
 | `ModelSpec(...; on=...)` | `kind`, `species`, `scale`, `name`, and a scene or named scope |
 | `ModelSpec(...; inputs=...)` | object criteria plus `process`, `application`, `var`, `policy`, `window`, `from_status`, and `after` |
 | `ModelSpec(...; calls=...)` | object criteria plus `process` and `application` |
+| `OutputTo(...)` in `ModelSpec(...; outputs_to=...)` | object criteria only |
 | object queries and `OutputRequest` selectors | object criteria only |
 
 Unsupported or misspelled fields fail when the selector is constructed.
@@ -85,11 +160,27 @@ targets.
 - `add_organ!` creates and initializes a new organ in an MTG-backed model.
 - `runtime_model(context)` gives lifecycle-capable kernels sanctioned access to
   the live model from their `RunContext`.
+- `object_id(context)`, `model_object(context)`, `model_status(context)`, and
+  `source_node(context)` resolve the current execution target. The status
+  accessor returns canonical registry state rather than the application-local
+  status view passed to a kernel.
 - `register_object!`, `remove_object!`, and `reparent_object!` change
   topology.
 - `move_object!` and `update_geometry!` change spatial state.
 - Supported lifecycle operations automatically invalidate and refresh the
   affected structural or spatial bindings before the next timestep.
+- A creator that must run an application which already completed on existing
+  objects declares an `Initializer` call. The compiler orders the scheduled
+  target before the creator and the creator before direct non-temporal
+  same-step consumers;
+  `run_initializer!` admits exactly one target from the current pure-addition
+  event and rejects repeat, existing, reparented, manual-call, and
+  refresh-fallback execution. Each initialized output must have one potential
+  canonical writer across local and distributed destinations. Because
+  `run_initializer!` emits no mid-step stream sample,
+  downstream temporal consumers of a possible newborn output are rejected at
+  compilation; a `PreviousTimeStep` input used by the initializer itself
+  remains supported.
 - `run!(model; steps=..., outputs=:none)` starts a fresh result timeline and
   returns a `Simulation`.
 - `continue!(simulation; steps=...)` and `step!(simulation)` advance an
@@ -110,6 +201,7 @@ Use the `Diagnostics` namespace instead of inspecting internals:
 - `Diagnostics.explain_applications`
 - `Diagnostics.explain_bindings`
 - `Diagnostics.explain_calls`
+- `Diagnostics.explain_output_bindings`
 - `Diagnostics.explain_environment_bindings`
 - `Diagnostics.explain_schedule`
 - `Diagnostics.explain_writers`

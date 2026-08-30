@@ -10,6 +10,7 @@ Base.length(v::ObjectRefVector) = length(v.refs)
 Base.getindex(v::ObjectRefVector, i::Int) = v.refs[i][]
 Base.setindex!(v::ObjectRefVector, value, i::Int) = (v.refs[i][] = value)
 Base.parent(v::ObjectRefVector) = v.refs
+Base.dataids(v::ObjectRefVector) = Base.dataids(parent(v))
 
 """
     ObjectId(value)
@@ -159,6 +160,7 @@ timestep_hint(model::ObjectModelOverrides) = timestep_hint(model.base)
 environment_hint(model::ObjectModelOverrides) = environment_hint(model.base)
 environment_inputs_(model::ObjectModelOverrides) = environment_inputs_(model.base)
 environment_outputs_(model::ObjectModelOverrides) = environment_outputs_(model.base)
+variable_contracts_(model::ObjectModelOverrides) = variable_contracts_(model.base)
 
 function Object(
     id;
@@ -188,6 +190,7 @@ end
 
 mutable struct ObjectRegistry
     objects::Dict{ObjectId,Any}
+    object_ids_by_status::IdDict{Base.RefValue{Nothing},ObjectId}
     by_scale::Dict{Symbol,Set{ObjectId}}
     by_kind::Dict{Symbol,Set{ObjectId}}
     by_species::Dict{Symbol,Set{ObjectId}}
@@ -197,6 +200,7 @@ end
 
 ObjectRegistry() = ObjectRegistry(
     Dict{ObjectId,Any}(),
+    IdDict{Base.RefValue{Nothing},ObjectId}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
     Dict{Symbol,Set{ObjectId}}(),
@@ -204,7 +208,20 @@ ObjectRegistry() = ObjectRegistry(
     Dict{ObjectId,Vector{ObjectId}}(),
 )
 
-struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
+# Standalone projection deliberately carries accessors only. Lifecycle identity
+# indexes belong exclusively to `MTGObjectAdapter`, which a CompositeModel keeps.
+struct MTGObjectAccessors{I,S,K,SP,N,G,ST}
+    id::I
+    scale::S
+    kind::K
+    species::SP
+    name::N
+    geometry::G
+    status::ST
+end
+
+struct MTGObjectAdapter{R,I,S,K,SP,N,G,ST}
+    root::R
     id::I
     scale::S
     kind::K
@@ -213,6 +230,54 @@ struct MTGObjectAdapter{I,S,K,SP,N,G,ST}
     geometry::G
     status::ST
     max_node_id::Base.RefValue{Int}
+    object_ids_by_node::IdDict{Any,ObjectId}
+    nodes_by_object_id::Dict{ObjectId,Any}
+end
+
+function _register_mtg_object_identity!(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) && error(
+        "MTG node $(MultiScaleTreeGraph.node_id(node)) is already registered by this model.",
+    )
+    id = ObjectId(adapter.id(node))
+    if haskey(adapter.nodes_by_object_id, id)
+        existing = adapter.nodes_by_object_id[id]
+        error(
+            "The MTG id accessor maps nodes " *
+            "$(MultiScaleTreeGraph.node_id(existing)) and " *
+            "$(MultiScaleTreeGraph.node_id(node)) to duplicate ObjectId `$(id.value)`.",
+        )
+    end
+    adapter.object_ids_by_node[node] = id
+    adapter.nodes_by_object_id[id] = node
+    return id
+end
+
+function _unregister_mtg_object_identity!(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) || return nothing
+    id = pop!(adapter.object_ids_by_node, node)
+    if get(adapter.nodes_by_object_id, id, nothing) === node
+        delete!(adapter.nodes_by_object_id, id)
+    end
+    return id
+end
+
+function _unregister_mtg_object_identity!(adapter::MTGObjectAdapter, id::ObjectId)
+    haskey(adapter.nodes_by_object_id, id) || return nothing
+    node = pop!(adapter.nodes_by_object_id, id)
+    if haskey(adapter.object_ids_by_node, node) &&
+       isequal(adapter.object_ids_by_node[node], id)
+        delete!(adapter.object_ids_by_node, node)
+    end
+    return node
+end
+
+@inline function _mtg_object_id(adapter::MTGObjectAdapter, node)
+    haskey(adapter.object_ids_by_node, node) || throw(
+        ArgumentError(
+            "MTG node $(MultiScaleTreeGraph.node_id(node)) is not registered by this model.",
+        ),
+    )
+    return adapter.object_ids_by_node[node]
 end
 
 """Labels and topology captured for one object at a lifecycle event."""
@@ -249,6 +314,8 @@ end
 Append-only object lifecycle events pending the next runtime refresh barrier.
 The dirty-id sets are derived indices shared by every runtime consumer.
 """
+abstract type AbstractTargetedTopologyRuntime end
+
 mutable struct LifecycleDelta
     added::Vector{LifecycleObjectSnapshot}
     removed::Vector{LifecycleObjectSnapshot}
@@ -256,6 +323,8 @@ mutable struct LifecycleDelta
     moved::Vector{LifecycleMoveEvent}
     structural_dirty_ids::Set{ObjectId}
     environment_dirty_ids::Set{ObjectId}
+    initialized_targets::Set{Tuple{Symbol,ObjectId}}
+    targeted_topology_runtime::Union{Nothing,AbstractTargetedTopologyRuntime}
     structural_kind::Symbol
     full_environment::Bool
     structural_generation::Int
@@ -276,6 +345,8 @@ function LifecycleDelta(;
         LifecycleMoveEvent[],
         Set{ObjectId}(),
         Set{ObjectId}(),
+        Set{Tuple{Symbol,ObjectId}}(),
+        nothing,
         structural_kind,
         full_environment,
         0,
@@ -283,12 +354,16 @@ function LifecycleDelta(;
     )
 end
 
-mutable struct CompositeModel{R,A,E,I,SA}
+mutable struct CompositeModel{R,A,E,I,SA,SC}
     registry::R
     applications::A
     environment::E
     instances::I
     source_adapter::SA
+    status_conversion::SC
+    status_conversion_records::Dict{Any,Any}
+    status_source_owners::IdDict{Base.RefValue{Nothing},ObjectId}
+    status_source_identities::Dict{ObjectId,Base.RefValue{Nothing}}
     binding_cache::Any
     environment_binding_cache::Any
     bindings_dirty::Bool
@@ -387,7 +462,11 @@ function _prepare_object_instances!(objects, instances)
     return instance_ids
 end
 
-function _register_objects!(model::CompositeModel, objects)
+function _register_objects!(
+    model::CompositeModel,
+    objects;
+    status_values_materialized::Bool=false,
+)
     pending = copy(objects)
     added = Object[]
     while !isempty(pending)
@@ -395,7 +474,11 @@ function _register_objects!(model::CompositeModel, objects)
         for index in reverse(eachindex(pending))
             object = pending[index]
             if isnothing(object.parent) || haskey(model.registry.objects, object.parent)
-                _register_object_without_lifecycle!(model, object)
+                _register_object_without_lifecycle!(
+                    model,
+                    object;
+                    status_values_materialized=status_values_materialized,
+                )
                 push!(added, object)
                 deleteat!(pending, index)
                 registered = true
@@ -409,15 +492,23 @@ function _register_objects!(model::CompositeModel, objects)
     return model
 end
 
-_register_model_objects!(model::CompositeModel, objects) =
-    _register_objects!(model, objects)
+_register_model_objects!(model::CompositeModel, objects; kwargs...) =
+    _register_objects!(model, objects; kwargs...)
 
 """
-    CompositeModel(items...; applications=(), instances=(), environment=nothing)
+    CompositeModel(items...; applications=(), instances=(), environment=nothing,
+                   type_promotion=nothing, status_transform=nothing)
 
 Create a model from `Object` and `ObjectInstance` values. Global applications
 and applications mounted from object instances are compiled through the same
 composite-model/object dependency graph.
+
+`type_promotion` maps source value types to target types for one-time status
+materialization. `status_transform(variable, value)` optionally handles
+variable-specific cases first; the mapping is applied to its returned value.
+Numeric `Array` values are mapped element by element while arbitrary user
+structs are left untouched. The policy applies to statuses registered later,
+but not to model parameters or environment values.
 """
 function CompositeModel(
     items::Union{Object,ObjectInstance}...;
@@ -425,18 +516,40 @@ function CompositeModel(
     instances=(),
     environment=nothing,
     source_adapter=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
+    _status_conversion=nothing,
+    _status_values_materialized::Bool=false,
+    _status_conversion_records=nothing,
 )
     objects, mounted_instances = _collect_model_items(items, instances)
     instance_ids = _prepare_object_instances!(objects, mounted_instances)
     mounted_applications = _mount_object_instance_applications(mounted_instances, instance_ids)
     normalized_applications = collect(Any, _as_tuple(applications))
     append!(normalized_applications, mounted_applications)
+    if !isnothing(_status_conversion) &&
+       (!isnothing(type_promotion) || !isnothing(status_transform))
+        error(
+            "Internal materialized model reconstruction cannot combine a " *
+            "normalized status policy with public status-conversion keywords.",
+        )
+    end
+    status_conversion = isnothing(_status_conversion) ?
+                        _status_conversion_policy(type_promotion, status_transform) :
+                        _status_conversion
+    conversion_records = isnothing(_status_conversion_records) ?
+                         Dict{Any,Any}() :
+                         copy(_status_conversion_records)
     model = CompositeModel(
         ObjectRegistry(),
         normalized_applications,
         environment,
         mounted_instances,
         source_adapter,
+        status_conversion,
+        conversion_records,
+        IdDict{Base.RefValue{Nothing},ObjectId}(),
+        Dict{ObjectId,Base.RefValue{Nothing}}(),
         nothing,
         nothing,
         true,
@@ -450,13 +563,18 @@ function CompositeModel(
         0,
         0,
     )
-    return _register_model_objects!(model, objects)
+    return _register_model_objects!(
+        model,
+        objects;
+        status_values_materialized=_status_values_materialized,
+    )
 end
 
 """
     CompositeModel(template::CompositeModelTemplate;
                    root, objects=(), name=nothing, overrides=NamedTuple(),
-                   object_overrides=(), applications=(), environment=nothing)
+                   object_overrides=(), applications=(), environment=nothing,
+                   type_promotion=nothing, status_transform=nothing)
 
 Build an executable composite model from a reusable template mounted on one
 concrete object subtree. `root` may be the owned root `Object`, or its id when
@@ -478,6 +596,8 @@ function CompositeModel(
     applications=(),
     environment=nothing,
     source_adapter=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     inferred_name = if !isnothing(name)
         Symbol(name)
@@ -501,13 +621,16 @@ function CompositeModel(
         applications=applications,
         environment=environment,
         source_adapter=source_adapter,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
 """
     CompositeModel(model::AbstractModel, models::AbstractModel...;
           status=NamedTuple(), id=:scene, scale=:Scene, kind=nothing,
-          name=id, environment=nothing, timestep=nothing)
+          name=id, environment=nothing, timestep=nothing,
+          type_promotion=nothing, status_transform=nothing)
 
 Construct a concise one-object simulation. This is syntax lowering only: it
 creates one ordinary [`Object`](@ref), one normal `ModelSpec` per model, and a
@@ -529,6 +652,8 @@ function CompositeModel(
     name=id,
     environment=nothing,
     timestep=nothing,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     object_name = isnothing(name) ? nothing : Symbol(string(name))
     object_status = if status isa Status || isnothing(status)
@@ -555,16 +680,15 @@ function CompositeModel(
         );
         applications=applications,
         environment=environment,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
-function _mtg_attribute(node, key::Symbol, default=nothing)
-    try
-        return node[key]
-    catch
-        return default
-    end
-end
+_mtg_attribute(node, key::Symbol, default=nothing) =
+    get(MultiScaleTreeGraph.node_attributes(node), key, default)
+
+_no_mtg_status(_) = nothing
 
 """
     objects_from_mtg(root; id=node_id, scale=symbol, kind=..., species=...,
@@ -572,8 +696,11 @@ end
 
 Adapt one MTG subtree to model `Object` values. The MTG is traversed once;
 node ids and parent relations become stable model-object identities and
-relations. Accessors may attach labels, geometry, and existing status objects
-without prescribing a plant architecture.
+relations. Accessors may attach labels and geometry without prescribing a plant
+architecture. Runtime status is not read from MTG attributes. Pass an explicit
+`status=` accessor only at a deliberate import boundary. This standalone
+projection retains no lifecycle identity index; construct `CompositeModel(root)`
+when later node resolution or organogenesis is required.
 """
 function objects_from_mtg(
     root::MultiScaleTreeGraph.Node;
@@ -583,9 +710,9 @@ function objects_from_mtg(
     species=node -> _mtg_attribute(node, :species, nothing),
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
-    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
+    status=_no_mtg_status,
 )
-    adapter = MTGObjectAdapter(
+    accessors = MTGObjectAccessors(
         id,
         scale,
         kind,
@@ -593,20 +720,44 @@ function objects_from_mtg(
         name,
         geometry,
         status,
-        Ref(MultiScaleTreeGraph.max_id(root)),
     )
-    return _objects_from_mtg(root, adapter)
+    return _objects_from_mtg(root, accessors)
+end
+
+function _objects_from_mtg(root::MultiScaleTreeGraph.Node, accessors::MTGObjectAccessors)
+    objects = Object[]
+    MultiScaleTreeGraph.traverse!(root) do node
+        node_parent = parent(node)
+        parent_id =
+            node === root || isnothing(node_parent) ? nothing : accessors.id(node_parent)
+        push!(
+            objects,
+            Object(
+                accessors.id(node);
+                scale=accessors.scale(node),
+                kind=accessors.kind(node),
+                species=accessors.species(node),
+                name=accessors.name(node),
+                parent=parent_id,
+                geometry=accessors.geometry(node),
+                status=accessors.status(node),
+            ),
+        )
+    end
+    return objects
 end
 
 function _objects_from_mtg(root::MultiScaleTreeGraph.Node, adapter::MTGObjectAdapter)
     objects = Object[]
     MultiScaleTreeGraph.traverse!(root) do node
+        id = _register_mtg_object_identity!(adapter, node)
         node_parent = parent(node)
-        parent_id = node === root || isnothing(node_parent) ? nothing : adapter.id(node_parent)
+        parent_id =
+            node === root || isnothing(node_parent) ? nothing : _mtg_object_id(adapter, node_parent)
         push!(
             objects,
             Object(
-                adapter.id(node);
+                id;
                 scale=adapter.scale(node),
                 kind=adapter.kind(node),
                 species=adapter.species(node),
@@ -622,7 +773,8 @@ end
 
 """
     CompositeModel(root::MultiScaleTreeGraph.Node; applications=(), instances=(),
-          environment=nothing, id=node_id, scale=symbol, status=..., ...)
+    environment=nothing, type_promotion=nothing, status_transform=nothing,
+    id=node_id, scale=symbol, status=..., ...)
 
 Build a unified model directly from an MTG subtree. The MTG accessors are
 retained and reused by [`add_organ!`](@ref) when the topology grows.
@@ -638,9 +790,12 @@ function CompositeModel(
     species=node -> _mtg_attribute(node, :species, nothing),
     name=node -> _mtg_attribute(node, :name, nothing),
     geometry=node -> _mtg_attribute(node, :geometry, nothing),
-    status=node -> _mtg_attribute(node, :plantsimengine_status, nothing),
+    status=_no_mtg_status,
+    type_promotion=nothing,
+    status_transform=nothing,
 )
     adapter = MTGObjectAdapter(
+        root,
         id,
         scale,
         kind,
@@ -648,7 +803,9 @@ function CompositeModel(
         name,
         geometry,
         status,
-        Ref(MultiScaleTreeGraph.max_id(root)),
+        Ref(MultiScaleTreeGraph.new_id(root) - 1),
+        IdDict{Any,ObjectId}(),
+        Dict{ObjectId,Any}(),
     )
     objects = _objects_from_mtg(root, adapter)
     return CompositeModel(
@@ -657,6 +814,8 @@ function CompositeModel(
         instances=instances,
         environment=environment,
         source_adapter=adapter,
+        type_promotion=type_promotion,
+        status_transform=status_transform,
     )
 end
 
@@ -710,6 +869,8 @@ function _mark_bindings_dirty!(
             :structural
         end
     end
+    delta.structural_kind === :addition ||
+        (delta.targeted_topology_runtime = nothing)
     if !model.bindings_dirty
         model.revision += 1
     end
@@ -739,6 +900,8 @@ function _consume_structural_lifecycle_delta!(model::CompositeModel)
         copy(consumed.moved),
         Set{ObjectId}(),
         copy(consumed.environment_dirty_ids),
+        Set{Tuple{Symbol,ObjectId}}(),
+        nothing,
         :clean,
         consumed.full_environment,
         consumed.structural_generation,
@@ -780,6 +943,7 @@ function _delete_index!(index::Dict{Symbol,Set{ObjectId}}, key, id::ObjectId)
 end
 
 function _index_object!(registry::ObjectRegistry, object::Object)
+    _validate_status_identity_available!(registry, object.status, object.id)
     _push_index!(registry.by_scale, object.scale, object.id)
     _push_index!(registry.by_kind, object.kind, object.id)
     _push_index!(registry.by_species, object.species, object.id)
@@ -792,6 +956,8 @@ function _index_object!(registry::ObjectRegistry, object::Object)
         end
         registry.by_name[object.name] = object.id
     end
+    object.status isa Status &&
+        (registry.object_ids_by_status[_status_identity(object.status)] = object.id)
     return nothing
 end
 
@@ -802,7 +968,120 @@ function _deindex_object!(registry::ObjectRegistry, object::Object)
     if !isnothing(object.name) && get(registry.by_name, object.name, nothing) == object.id
         delete!(registry.by_name, object.name)
     end
+    if object.status isa Status &&
+       get(
+           registry.object_ids_by_status,
+           _status_identity(object.status),
+           nothing,
+       ) == object.id
+        delete!(registry.object_ids_by_status, _status_identity(object.status))
+    end
     return nothing
+end
+
+function _validate_status_identity_available!(
+    registry::ObjectRegistry,
+    status,
+    object_id::ObjectId,
+)
+    status isa Status || return nothing
+    existing = get(
+        registry.object_ids_by_status,
+        _status_identity(status),
+        nothing,
+    )
+    if !isnothing(existing) && existing != object_id
+        throw(
+            ArgumentError(
+                "The same Status instance cannot be owned by model objects " *
+                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
+                "its own Status instance.",
+            ),
+        )
+    end
+    return nothing
+end
+
+function _validate_status_source_identity_available!(
+    model::CompositeModel,
+    status,
+    object_id::ObjectId,
+)
+    status isa Status || return nothing
+    existing = get(
+        model.status_source_owners,
+        _status_identity(status),
+        nothing,
+    )
+    if !isnothing(existing) && existing != object_id
+        throw(
+            ArgumentError(
+                "The same Status instance cannot be owned by model objects " *
+                "`$(existing.value)` and `$(object_id.value)`. Give each Object " *
+                "its own Status instance.",
+            ),
+        )
+    end
+    return nothing
+end
+
+function _set_status_source_identity!(
+    model::CompositeModel,
+    object_id::ObjectId,
+    status,
+)
+    previous = get(model.status_source_identities, object_id, nothing)
+    if !isnothing(previous) &&
+       get(model.status_source_owners, previous, nothing) == object_id
+        delete!(model.status_source_owners, previous)
+    end
+    if status isa Status
+        identity = _status_identity(status)
+        model.status_source_owners[identity] = object_id
+        model.status_source_identities[object_id] = identity
+    else
+        delete!(model.status_source_identities, object_id)
+    end
+    return nothing
+end
+
+function _delete_status_source_identity!(model::CompositeModel, object_id::ObjectId)
+    identity = pop!(model.status_source_identities, object_id, nothing)
+    isnothing(identity) && return nothing
+    get(model.status_source_owners, identity, nothing) == object_id &&
+        delete!(model.status_source_owners, identity)
+    return nothing
+end
+
+function _replace_model_object_status!(
+    model::CompositeModel,
+    object::Object,
+    status,
+)
+    (isnothing(status) || status isa Status) || error(
+        "Model object `$(object.id.value)` status must be a `Status` or `nothing`, " *
+        "got `$(typeof(status))`.",
+    )
+    object.status === status && return status
+    registry = model.registry
+    _validate_status_identity_available!(registry, status, object.id)
+    if object.status isa Status &&
+       get(
+           registry.object_ids_by_status,
+           _status_identity(object.status),
+           nothing,
+       ) == object.id
+        delete!(registry.object_ids_by_status, _status_identity(object.status))
+    end
+    setfield!(object, :status, status)
+    status isa Status &&
+        (registry.object_ids_by_status[_status_identity(status)] = object.id)
+    _set_status_source_identity!(model, object.id, status)
+    return status
+end
+
+function _replace_model_object_status!(model::CompositeModel, object_id, status)
+    return _replace_model_object_status!(model, _model_object(model, object_id), status)
 end
 
 function _model_object(model::CompositeModel, id)
@@ -819,6 +1098,106 @@ an [`ObjectId`](@ref) or the value used to construct one. An error is raised
 when the registry contains no matching object.
 """
 model_object(model::CompositeModel, id) = _model_object(model, id)
+
+@inline function _registered_object_id(model::CompositeModel, id::ObjectId)
+    _model_object(model, id)
+    return id
+end
+
+"""
+    object_id(model::CompositeModel, source) -> ObjectId
+
+Return the registered [`ObjectId`](@ref) represented by `source`.
+
+`source` may be an `ObjectId`, a registered [`Object`](@ref), a registered
+[`Status`](@ref), an MTG node, or the raw value used to construct an
+`ObjectId`. For an MTG model, the `id=` accessor is evaluated during initial
+adaptation or organogenesis and the exact node-to-`ObjectId` association is
+retained; `object_id` does not reevaluate the accessor. Later changes to a
+node's attributes or raw MTG id therefore do not change its model identity. A
+node from a copied or foreign MTG is rejected even when its raw node id is
+identical.
+
+Every result is checked against the live object registry. Removed or unknown
+objects therefore raise an error instead of returning a stale identity.
+[`RunContext`](@ref), [`CallTarget`](@ref), and [`Simulation`](@ref) delegate to
+their live model.
+"""
+object_id(model::CompositeModel, id::ObjectId) = _registered_object_id(model, id)
+
+function object_id(model::CompositeModel, object::Object)
+    registered = _model_object(model, object.id)
+    registered === object || throw(
+        ArgumentError(
+            "Object `$(object.id.value)` is not the Object instance registered by this model.",
+        ),
+    )
+    return object.id
+end
+
+function object_id(model::CompositeModel, status::Status)
+    index = model.registry.object_ids_by_status
+    identity = _status_identity(status)
+    haskey(index, identity) || throw(
+        ArgumentError("The supplied Status instance is not registered by this model."),
+    )
+    matched_id = index[identity]
+    _model_object(model, matched_id).status === status || error(
+        "PlantSimEngine's Status identity index is inconsistent for object " *
+        "`$(matched_id.value)`. Replace runtime status through the model API.",
+    )
+    return matched_id
+end
+
+function object_id(model::CompositeModel, node::MultiScaleTreeGraph.Node)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || throw(
+        ArgumentError(
+            "An MTG Node can only be resolved by a CompositeModel constructed from an MTG.",
+        ),
+    )
+    return _registered_object_id(model, _mtg_object_id(adapter, node))
+end
+
+object_id(model::CompositeModel, id) =
+    _registered_object_id(model, ObjectId(id))
+
+model_object(
+    model::CompositeModel,
+    source::Union{Object,Status,MultiScaleTreeGraph.Node},
+) = _model_object(model, object_id(model, source))
+
+"""
+    model_status(model::CompositeModel, source)
+
+Return the runtime [`Status`](@ref), or `nothing`, owned by the model object
+represented by `source`. `source` accepts the same identities as
+[`object_id`](@ref), including an exact MTG node. Runtime status belongs to the
+model registry and is not stored in MTG attributes.
+"""
+model_status(model::CompositeModel, source) = model_object(model, source).status
+
+"""
+    source_node(model::CompositeModel, source) -> MultiScaleTreeGraph.Node
+
+Return the exact MTG node associated with a registered object identity. This is
+available only for a model constructed from an MTG; copied, foreign, and removed
+identities are rejected.
+"""
+function source_node(model::CompositeModel, source)
+    adapter = model.source_adapter
+    adapter isa MTGObjectAdapter || throw(
+        ArgumentError(
+            "A source node is available only from a CompositeModel constructed from an MTG.",
+        ),
+    )
+    id = object_id(model, source)
+    node = get(adapter.nodes_by_object_id, id, nothing)
+    isnothing(node) && error(
+        "No source MTG node is registered for model object `$(id.value)`.",
+    )
+    return node
+end
 
 function _object_ancestor_ids(
     registry::ObjectRegistry,
@@ -909,6 +1288,7 @@ function _register_object_without_lifecycle!(
     model::CompositeModel,
     object::Object;
     parent=object.parent,
+    status_values_materialized::Bool=false,
 )
     registry = model.registry
     haskey(registry.objects, object.id) && error("CompositeModel already contains object id `$(object.id.value)`.")
@@ -922,11 +1302,18 @@ function _register_object_without_lifecycle!(
             "CompositeModel object name `$(object.name)` is already used by object `$(existing.value)`."
         )
     end
+    source_status = object.status
+    _validate_status_source_identity_available!(model, source_status, object.id)
+    object.status = status_values_materialized ?
+                    source_status :
+                    _convert_registered_status(model, object.id, source_status)
+    _validate_status_identity_available!(registry, object.status, object.id)
     instance = isnothing(parent_id) ? nothing : _instance_for_object(model, parent_id)
     _apply_instance_labels!(object, instance)
     object.parent = parent_id
     registry.objects[object.id] = object
     _index_object!(registry, object)
+    _set_status_source_identity!(model, object.id, source_status)
     parent_ancestors = isnothing(parent_id) ?
                        ObjectId[] :
                        _object_ancestor_ids(registry, parent_id)
@@ -965,31 +1352,70 @@ function _status_data!(data::Dict{Symbol,Any}, values)
         "`Base.Pairs`, or `nothing`, got `$(typeof(values))`."
     )
     for (key, value) in pairs(source)
-        Symbol(key) == :plantsimengine_status && continue
+        if Symbol(key) == :plantsimengine_status
+            # ColumnarAttrs retains an empty column after a rejected node is
+            # removed. Treat that schema placeholder as absent without deleting
+            # the shared column; a real runtime status value remains forbidden.
+            isnothing(value) && continue
+            error(
+                "`plantsimengine_status` is runtime state, not an organ attribute. " *
+                "Pass scientific initial values through `initial_status` and resolve " *
+                "runtime status with `model_status`.",
+            )
+        end
         data[Symbol(key)] = value
     end
     return data
 end
 
-function _organ_status(adapter::MTGObjectAdapter, node, initial_status)
-    adapted_status = adapter.status(node)
+function _validate_organ_attributes(attributes)
+    source = attributes isa Status ? NamedTuple(attributes) : attributes
+    source isa Union{NamedTuple,AbstractDict,Base.Pairs} || return attributes
+    for (key, _) in pairs(source)
+        Symbol(key) == :plantsimengine_status || continue
+        error(
+            "`plantsimengine_status` is runtime state, not an organ attribute. " *
+            "Pass scientific initial values through `initial_status` and resolve " *
+            "runtime status with `model_status`.",
+        )
+    end
+    return attributes
+end
+
+function _organ_status(
+    adapter::MTGObjectAdapter,
+    node,
+    initial_status;
+    use_status_adapter::Bool=true,
+)
+    # Keep this call before reading node attributes: a status accessor may
+    # initialize attributes that must participate in the merged status.
+    adapted_status = use_status_adapter ? adapter.status(node) : nothing
     data = Dict{Symbol,Any}()
     _status_data!(data, MultiScaleTreeGraph.node_attributes(node))
     _status_data!(data, adapted_status)
     data[:node] = node
     _status_data!(data, initial_status)
     data[:node] = node
-    return Status((; data...))
+    status_names = Tuple(keys(data))
+    status_values = Tuple(values(data))
+    return Status{status_names}(status_values)
 end
 
 """
     add_organ!(parent, runtime, link, symbol, scale; index=0, id, attributes=(),
-               initial_status=(), kind=nothing, species=nothing, name=nothing)
+               initial_status=(), use_status_adapter=true, kind=nothing,
+               species=nothing, name=nothing)
 
 Create an MTG node and register its corresponding model object as one operation.
 `runtime` may be a [`CompositeModel`](@ref), [`RunContext`](@ref), or
 [`Simulation`](@ref). The model reuses the MTG accessors and status
 initializer supplied when it was constructed, then overlays `initial_status`.
+
+Set `use_status_adapter=false` only when the caller guarantees that the new
+node's attributes and `initial_status` completely define its initial status.
+In that mode the configured MTG status accessor is not called for the new
+node. The `node` status field is always forced to the newly created node.
 
 This is the public growth API. [`register_object!`](@ref) remains the low-level
 registry operation for callers that already own a fully initialized `Object`.
@@ -1004,6 +1430,7 @@ function add_organ!(
     id=nothing,
     attributes=NamedTuple(),
     initial_status=NamedTuple(),
+    use_status_adapter::Bool=true,
     kind=nothing,
     species=nothing,
     name=nothing,
@@ -1014,13 +1441,19 @@ function add_organ!(
         "`add_organ!` requires a model constructed from an MTG. Use ",
         "`register_object!` for composite models built directly from `Object` values."
     )
-    parent_id = ObjectId(adapter.id(parent_node))
-    _model_object(model, parent_id)
+    # Reject the reserved runtime field before constructing the MTG node. A
+    # rejected ColumnarAttrs insertion would otherwise leave an empty schema
+    # column visible on later nodes of the same organ symbol.
+    _validate_organ_attributes(attributes)
+    # Resolve the exact registered node before advancing ids or mutating either
+    # the source MTG or the runtime registry.
+    parent_id = object_id(model, parent_node)
     root = MultiScaleTreeGraph.get_root(parent_node)
     node_id = if isnothing(id)
-        # `max_node_id` is initialized from the complete source MTG and is
-        # updated for every explicit insertion, so the next automatic id is
-        # unique without an O(n) tree lookup.
+        # `max_node_id` is initialized from every active id in the source
+        # attribute store (store-wide for a columnar MTG) and is updated for
+        # every explicit insertion, so the next automatic id is unique without
+        # an O(n) tree lookup.
         adapter.max_node_id[] += 1
     else
         explicit_id = Int(id)
@@ -1043,10 +1476,15 @@ function add_organ!(
         attributes,
     )
     try
-        status = _organ_status(adapter, node, initial_status)
-        node[:plantsimengine_status] = status
+        new_object_id = _register_mtg_object_identity!(adapter, node)
+        status = _organ_status(
+            adapter,
+            node,
+            initial_status;
+            use_status_adapter=use_status_adapter,
+        )
         object = Object(
-            adapter.id(node);
+            new_object_id;
             scale=adapter.scale(node),
             kind=isnothing(kind) ? adapter.kind(node) : kind,
             species=isnothing(species) ? adapter.species(node) : species,
@@ -1055,9 +1493,10 @@ function add_organ!(
             geometry=adapter.geometry(node),
             status=status,
         )
-        register_object!(model, object)
-        return status
+        registered = register_object!(model, object)
+        return registered.status
     catch
+        _unregister_mtg_object_identity!(adapter, node)
         MultiScaleTreeGraph.delete_node!(node)
         rethrow()
     end
@@ -1119,9 +1558,13 @@ function remove_object!(model::CompositeModel, id; recursive::Bool=true)
         for object_id in descendant_ids
     ]
     _remove_child_link!(model, object.parent, object.id)
+    adapter = model.source_adapter
     for object_id in Iterators.reverse(descendant_ids)
         removed = _model_object(model, object_id)
+        adapter isa MTGObjectAdapter &&
+            _unregister_mtg_object_identity!(adapter, object_id)
         _deindex_object!(model.registry, removed)
+        _delete_status_source_identity!(model, object_id)
         delete!(model.registry.objects, object_id)
         delete!(model.registry.ancestor_ids_by_object, object_id)
         delete!(model.input_default_status_variables, object_id)
@@ -1305,12 +1748,22 @@ function refresh_bindings!(
                 delta.changed_target_ids,
             )
         else
-            model.binding_cache =
-                compile_composite_model(
-                    model,
-                    model.applications;
-                    performance=performance,
+            previous_binding_cache = model.binding_cache
+            refreshed_binding_cache = compile_composite_model(
+                model,
+                model.applications;
+                performance=performance,
+            )
+            if !force &&
+               !isnothing(previous_binding_cache) &&
+               previous_binding_cache.distributed_outputs isa
+               CompiledDistributedOutputs
+                _preserve_recompiled_model_status_views!(
+                    refreshed_binding_cache,
+                    previous_binding_cache,
                 )
+            end
+            model.binding_cache = refreshed_binding_cache
         end
         model.bindings_dirty = false
         _consume_structural_lifecycle_delta!(model)

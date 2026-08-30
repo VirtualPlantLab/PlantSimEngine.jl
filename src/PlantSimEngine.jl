@@ -31,6 +31,7 @@ include("variables_wrappers.jl")
 # Models:
 include("Abstract_model_structs.jl")
 include("input_schema.jl")
+include("variable_contracts.jl")
 
 # Multi-rate scaffolding:
 include("time/multirate.jl")
@@ -91,11 +92,15 @@ import ..PlantSimEngine:
     CompiledApplicationPlan,
     CompiledModelInputPlan,
     CompiledModelCallPlan,
+    CompiledModelOutputDestinationPlan,
     CompiledScenarioPlan,
     CompiledCompositeModel,
     CompiledModelApplication,
     CompiledModelInputBinding,
     CompiledModelCallBinding,
+    CompiledModelOutputDestinationBinding,
+    CompiledDistributedOutputPlans,
+    CompiledDistributedOutputs,
     CompiledEnvironmentBinding,
     CompiledEnvironmentBindings,
     ObjectRefVector,
@@ -118,9 +123,12 @@ export ObjectRegistry
 export LifecycleObjectSnapshot, LifecycleReparentEvent, LifecycleMoveEvent
 export LifecycleDelta, lifecycle_delta
 export CompiledApplicationPlan, CompiledModelInputPlan, CompiledModelCallPlan
+export CompiledModelOutputDestinationPlan
 export CompiledScenarioPlan
 export CompiledCompositeModel, CompiledModelApplication
 export CompiledModelInputBinding, CompiledModelCallBinding
+export CompiledModelOutputDestinationBinding
+export CompiledDistributedOutputPlans, CompiledDistributedOutputs
 export CompiledEnvironmentBinding, CompiledEnvironmentBindings
 export ObjectRefVector, TimeStepTable
 export compile_composite_model, refresh_bindings!, refresh_environment_bindings!
@@ -146,6 +154,7 @@ import ..PlantSimEngine:
     explain_applications,
     explain_bindings,
     explain_calls,
+    explain_output_bindings,
     explain_writers,
     input_carrier,
     input_value,
@@ -162,6 +171,7 @@ import ..PlantSimEngine:
 export ObjectAddress, object_address
 export explain_objects, explain_instances, explain_scopes
 export explain_applications, explain_bindings, explain_calls, explain_writers
+export explain_output_bindings
 export input_carrier, input_value, has_reference_carrier
 export explain_outputs, explain_initialization, explain_execution_plan
 export explain_runtime_performance
@@ -306,18 +316,22 @@ export OutputRequest, collect_outputs
 export CompositeModel, Object, ObjectId, CompositeModelTemplate, ObjectInstance, Override
 export add_organ!, register_object!, remove_object!, reparent_object!, move_object!, update_geometry!
 export mark_environment_binding_dirty!
-export objects_from_mtg, object_ids, model_object, model_objects, resolve_object_ids, resolve_objects
+export objects_from_mtg, object_id, object_ids, model_object, model_status, source_node
+export model_objects, resolve_object_ids, resolve_objects
 export geometry, position, bounds
-export RunContext, CallTarget, CallTargets, Simulation
+export RunContext, CallTarget, CallTargets, Simulation, BoundMany, OutputTargets
 export runtime_model, current_step, final_state, outputs
 export SceneScope, Self, Subtree, SelfPlant, Ancestor, Scope, Relation
 export One, OptionalOne, Many
-export Input, Call, Environment
-export application_name, applies_to, value_inputs, model_calls, environment_config
-export ModelSpec, Updates
-export call_targets, call_model, run_call!, commit_environment!
+export Input, Call, Initializer, Environment
+export application_name, applies_to, value_inputs, model_calls, outputs_to
+export environment_config
+export ModelSpec, OutputTo, Updates
+export call_targets, call_model, run_call!, run_initializer!, commit_environment!
+export bound_input, output_targets, assign_outputs!
 export Status
 export Required, Default
+export VariableContract, variable_contracts
 export @process, process
 export init_variables, dep
 export inputs, outputs, variables
