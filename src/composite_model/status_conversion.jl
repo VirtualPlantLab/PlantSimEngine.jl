@@ -265,6 +265,7 @@ function _materialize_status_value(
     private_copy::Bool=false,
     reuse::Bool=false,
     declared_type=typeof(value),
+    conversion_records=model.status_conversion_records,
 )
     if _no_status_conversion(model.status_conversion)
         initial = private_copy ? _private_initial_value(value) : value
@@ -278,7 +279,7 @@ function _materialize_status_value(
     )
     if reuse
         cached = _cached_status_materialization(
-            get(model.status_conversion_records, key, nothing),
+            get(conversion_records, key, nothing),
             value,
             private_copy,
         )
@@ -295,7 +296,7 @@ function _materialize_status_value(
         application_id=application_id,
         origin=origin,
     )
-    model.status_conversion_records[key] = StatusConversionRecord(
+    conversion_records[key] = StatusConversionRecord(
         variable,
         object_id,
         application_id,

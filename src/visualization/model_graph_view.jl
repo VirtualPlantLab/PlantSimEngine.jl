@@ -214,6 +214,8 @@ function _model_graph_compiled(
         scenario_plan.application_order,
         distributed_outputs,
     )
+    many_input_binding_cache =
+        _many_input_binding_cache(model, input_bindings)
     return CompiledCompositeModel(
         model,
         scenario_plan,
@@ -225,9 +227,13 @@ function _model_graph_compiled(
         call_bindings,
         input_by_target,
         call_by_target,
-        _index_dynamic_input_bindings(model, input_bindings),
+        _index_dynamic_input_bindings(
+            model,
+            input_bindings,
+            many_input_binding_cache,
+        ),
         _index_dynamic_call_bindings(model, call_bindings),
-        _many_input_binding_cache(model, input_bindings),
+        many_input_binding_cache,
         distributed_outputs,
         scenario_plan.call_owners,
         scenario_plan.application_children,
@@ -1177,38 +1183,79 @@ function _model_graph_binding_edges(report, level)
     return collect(values(edges))
 end
 
+function _model_graph_resolved_call_pairs(
+    report,
+    binding,
+    callee_object_ids,
+    callee_application_ids,
+)
+    applications_by_id = isnothing(report.compiled) ?
+                         _applications_by_id(report.applications) :
+                         report.compiled.applications_by_id
+    pairs = Tuple{Symbol,ObjectId}[]
+    for callee_application_id in callee_application_ids
+        application = get(
+            applications_by_id,
+            callee_application_id,
+            nothing,
+        )
+        isnothing(application) && continue
+        for callee_object_id in callee_object_ids
+            _call_binding_target_matches(
+                binding,
+                application,
+                callee_object_id,
+            ) || continue
+            push!(pairs, (callee_application_id, callee_object_id))
+        end
+    end
+    return pairs
+end
+
 function _model_graph_call_edges(report, level)
     edges = Dict{String,Dict{String,Any}}()
     for binding in report.call_bindings
+        callee_object_ids, resolved_application_ids = if level == :resolved &&
+                                                         !isnothing(report.compiled)
+            _current_compiled_call_membership(report.compiled, binding)
+        else
+            (binding.callee_object_ids, binding.callee_application_ids)
+        end
         callee_application_ids = level == :resolved ?
-                                 binding.callee_application_ids :
+                                 resolved_application_ids :
                                  binding.potential_callee_application_ids
         call_kind = _compiled_call_mode(binding) === :initializer ?
                     "initializer" : "manual_call"
-        for callee_application_id in callee_application_ids
-            if level == :resolved
-                for callee_object_id in binding.callee_object_ids
-                    edge_id = string(
-                        "call:", binding.application_id, ":", binding.consumer_id.value,
-                        ":", binding.call, ":", callee_application_id, ":", callee_object_id.value,
-                    )
-                    edges[edge_id] = Dict{String,Any}(
-                        "id" => edge_id,
-                        "source" => _model_graph_execution_node_id(binding.application_id, binding.consumer_id),
-                        "target" => _model_graph_execution_node_id(callee_application_id, callee_object_id),
-                        "sourcePort" => nothing,
-                        "targetPort" => nothing,
-                        "kind" => call_kind,
-                        "mode" => string(_compiled_call_mode(binding)),
-                        "projection" => "resolved",
-                        "call" => string(binding.call),
-                        "origin" => string(binding.origin),
-                        "multiplicity" => string(binding.multiplicity),
-                        "selector" => _model_graph_selector_dict(binding.selector),
-                        "cycle" => false,
-                    )
-                end
-            else
+        if level == :resolved
+            resolved_pairs = _model_graph_resolved_call_pairs(
+                report,
+                binding,
+                callee_object_ids,
+                callee_application_ids,
+            )
+            for (callee_application_id, callee_object_id) in resolved_pairs
+                edge_id = string(
+                    "call:", binding.application_id, ":", binding.consumer_id.value,
+                    ":", binding.call, ":", callee_application_id, ":", callee_object_id.value,
+                )
+                edges[edge_id] = Dict{String,Any}(
+                    "id" => edge_id,
+                    "source" => _model_graph_execution_node_id(binding.application_id, binding.consumer_id),
+                    "target" => _model_graph_execution_node_id(callee_application_id, callee_object_id),
+                    "sourcePort" => nothing,
+                    "targetPort" => nothing,
+                    "kind" => call_kind,
+                    "mode" => string(_compiled_call_mode(binding)),
+                    "projection" => "resolved",
+                    "call" => string(binding.call),
+                    "origin" => string(binding.origin),
+                    "multiplicity" => string(binding.multiplicity),
+                    "selector" => _model_graph_selector_dict(binding.selector),
+                    "cycle" => false,
+                )
+            end
+        else
+            for callee_application_id in callee_application_ids
                 edge_id = string("call:", binding.application_id, ":", binding.call, ":", callee_application_id)
                 edges[edge_id] = Dict{String,Any}(
                     "id" => edge_id,

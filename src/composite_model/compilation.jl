@@ -1183,6 +1183,35 @@ struct CompiledModelCallBinding{P}
     consumer_id::ObjectId
     callee_object_ids::Vector{ObjectId}
     callee_application_ids::Vector{Symbol}
+    # The binding stays immutable while lifecycle refreshes extend or rebuild
+    # its shared target vectors in place. Keep the corresponding generation in
+    # a reference so execution-target signatures can observe those mutations
+    # without hashing every callee. This cache detail is intentionally omitted
+    # from `propertynames`.
+    membership_generation::Base.RefValue{UInt64}
+    # Manual `Many` memberships stay cold until their complete target view is
+    # materialized. The flag is reference-backed for the same reason as the
+    # generation: incremental compiler shells retain binding identity.
+    membership_observed::Base.RefValue{Bool}
+end
+
+function CompiledModelCallBinding(
+    plan::P,
+    consumer_id::ObjectId,
+    callee_object_ids::Vector{ObjectId},
+    callee_application_ids::Vector{Symbol},
+) where {P}
+    return CompiledModelCallBinding{P}(
+        plan,
+        consumer_id,
+        callee_object_ids,
+        callee_application_ids,
+        Ref(UInt64(0)),
+        Ref(
+            _compiled_call_mode(plan) !== :manual ||
+            plan.multiplicity !== :many,
+        ),
+    )
 end
 
 @inline function Base.getproperty(
@@ -1225,6 +1254,29 @@ Base.propertynames(binding::CompiledModelCallBinding) = (
 
 @inline _compiled_call_mode(binding::CompiledModelCallBinding) =
     _compiled_call_mode(binding.plan)
+
+@inline _compiled_call_membership_generation(
+    binding::CompiledModelCallBinding,
+) = getfield(binding, :membership_generation)[]
+
+@inline function _mark_compiled_call_membership_changed!(
+    binding::CompiledModelCallBinding,
+    revision::Integer,
+)
+    getfield(binding, :membership_generation)[] = UInt64(revision)
+    return binding
+end
+
+@inline _compiled_call_membership_is_observed(
+    binding::CompiledModelCallBinding,
+) = getfield(binding, :membership_observed)[]
+
+@inline function _mark_compiled_call_membership_observed!(
+    binding::CompiledModelCallBinding,
+)
+    getfield(binding, :membership_observed)[] = true
+    return binding
+end
 
 struct CompiledEnvironmentSamplingRule{T,S} end
 
@@ -1335,43 +1387,84 @@ mutable struct CompiledCompositeModel{SC,SP,AP,AI,OA,ABO,IB,CB,IBI,CBI,DBI,DCBI,
     revision::Int
 end
 
-function _index_dynamic_bindings(model::CompositeModel, bindings)
+function _index_dynamic_input_binding!(
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+    binding_index::Int,
+    many_binding_cache,
+)
+    binding.origin == :inferred_same_object && return index
+    if _dynamic_input_binding_shares_canonical_sources(
+        model,
+        binding,
+        many_binding_cache,
+    )
+        return index
+    end
+    _index_selector_candidate!(
+        index,
+        model,
+        binding.matcher,
+        binding_index;
+        context=binding.consumer_id,
+        default_scope=_default_dependency_scope(
+            model,
+            binding.consumer_id,
+        ),
+    )
+    return index
+end
+
+function _index_dynamic_input_bindings(
+    model::CompositeModel,
+    bindings,
+    many_binding_cache,
+)
     index = _selector_candidate_index()
     for (binding_index, binding) in pairs(bindings)
-        binding.origin == :inferred_same_object && continue
-        _index_selector_candidate!(
+        _index_dynamic_input_binding!(
             index,
             model,
-            binding.matcher,
-            binding_index;
-            context=binding.consumer_id,
-            default_scope=_default_dependency_scope(
-                model,
-                binding.consumer_id,
-            ),
+            binding,
+            binding_index,
+            many_binding_cache,
         )
     end
     return index
 end
 
-_index_dynamic_input_bindings(model::CompositeModel, bindings) =
-    _index_dynamic_bindings(model, bindings)
+function _index_dynamic_call_binding!(
+    index::SelectorCandidateIndex,
+    model::CompositeModel,
+    binding::CompiledModelCallBinding,
+    binding_index::Int,
+)
+    _compiled_call_mode(binding) === :manual || return index
+    _compiled_call_membership_is_observed(binding) || return index
+    binding.origin == :inferred_same_object && return index
+    _index_selector_candidate!(
+        index,
+        model,
+        binding.matcher,
+        binding_index;
+        context=binding.consumer_id,
+        default_scope=_default_dependency_scope(
+            model,
+            binding.consumer_id,
+        ),
+    )
+    return index
+end
 
 function _index_dynamic_call_bindings(model::CompositeModel, bindings)
     index = _selector_candidate_index()
     for (binding_index, binding) in pairs(bindings)
-        _compiled_call_mode(binding) === :manual || continue
-        binding.origin == :inferred_same_object && continue
-        _index_selector_candidate!(
+        _index_dynamic_call_binding!(
             index,
             model,
-            binding.matcher,
-            binding_index;
-            context=binding.consumer_id,
-            default_scope=_default_dependency_scope(
-                model,
-                binding.consumer_id,
-            ),
+            binding,
+            binding_index,
         )
     end
     return index
@@ -1522,10 +1615,12 @@ function _compile_scene(
             :consumer_id,
         ),
     )
-    call_bindings_by_target = _index_model_bindings(
-        call_bindings,
-        :application_id,
-        :consumer_id,
+    call_bindings_by_target = Dict{Any,Any}(
+        _index_model_bindings(
+            call_bindings,
+            :application_id,
+            :consumer_id,
+        ),
     )
     call_owners = scenario_plan.call_owners
     application_children = scenario_plan.application_children
@@ -1560,7 +1655,11 @@ function _compile_scene(
         call_bindings,
         input_bindings_by_target,
         call_bindings_by_target,
-        _index_dynamic_input_bindings(model, input_bindings),
+        _index_dynamic_input_bindings(
+            model,
+            input_bindings,
+            many_input_binding_cache,
+        ),
         _index_dynamic_call_bindings(model, call_bindings),
         many_input_binding_cache,
         distributed_outputs,
@@ -1929,6 +2028,45 @@ function _many_input_binding_cache(model::CompositeModel, bindings)
         end
     end
     return cache
+end
+
+function _shared_same_rate_many_storage(
+    binding::CompiledModelInputBinding,
+    canonical::CompiledModelInputBinding,
+)
+    binding.multiplicity == :many || return false
+    binding.carrier_hint === :ref_vector || return false
+    canonical.multiplicity == :many || return false
+    canonical.carrier_hint === :ref_vector || return false
+    return binding.source_ids === canonical.source_ids &&
+           binding.source_application_ids ===
+           canonical.source_application_ids &&
+           binding.carrier === canonical.carrier
+end
+
+function _dynamic_input_binding_shares_canonical_sources(
+    model::CompositeModel,
+    binding::CompiledModelInputBinding,
+    many_binding_cache,
+)
+    binding.multiplicity == :many || return false
+    binding.carrier_hint === :ref_vector || return false
+    key = _many_binding_share_key(model, binding)
+    isnothing(key) && return false
+    canonical = get(many_binding_cache, key, nothing)
+    canonical isa CompiledModelInputBinding || return false
+    _shared_same_rate_many_storage(binding, canonical) || return false
+    return binding.slot != canonical.slot ||
+           binding.consumer_id != canonical.consumer_id
+end
+
+function _shared_same_rate_many_binding_indices(bindings, binding)
+    binding.multiplicity == :many || return Int[]
+    binding.carrier_hint === :ref_vector || return Int[]
+    return Int[
+        index for (index, candidate) in pairs(bindings)
+        if _shared_same_rate_many_storage(candidate, binding)
+    ]
 end
 
 function _append_added_many_sources!(
@@ -2458,6 +2596,7 @@ function _append_added_many_call_targets!(
                 push!(binding.callee_application_ids, application_id)
         end
     end
+    _mark_compiled_call_membership_changed!(binding, model.revision)
     return true
 end
 
@@ -2486,6 +2625,7 @@ function _propagate_changed_manual_call_owners!(
         for binding in call_bindings
             binding.application_id in owner_application_ids || continue
             _compiled_call_mode(binding) === :manual || continue
+            _compiled_call_membership_is_observed(binding) || continue
             affected = false
             for callee_application_id in binding.callee_application_ids
                 object_ids = get(frontier, callee_application_id, nothing)
@@ -2608,6 +2748,7 @@ function _prepare_structural_compiled_delta(
     end
     forced_call_target_keys = Set{Tuple{Symbol,ObjectId}}()
     for binding in call_bindings
+        _compiled_call_membership_is_observed(binding) || continue
         any(
             dirty_id -> first(
                 _sorted_object_id_position(
@@ -2623,11 +2764,15 @@ function _prepare_structural_compiled_delta(
             (binding.application_id, binding.consumer_id),
         )
     end
-    call_bindings_by_target = _index_model_bindings(
-        call_bindings,
-        :application_id,
-        :consumer_id,
+    call_bindings_by_target = Dict{Any,Any}(
+        _index_model_bindings(
+            call_bindings,
+            :application_id,
+            :consumer_id,
+        ),
     )
+    many_input_binding_cache =
+        _many_input_binding_cache(model, input_bindings)
 
     stripped = CompiledCompositeModel(
         model,
@@ -2640,9 +2785,13 @@ function _prepare_structural_compiled_delta(
         call_bindings,
         input_bindings_by_target,
         call_bindings_by_target,
-        _index_dynamic_input_bindings(model, input_bindings),
+        _index_dynamic_input_bindings(
+            model,
+            input_bindings,
+            many_input_binding_cache,
+        ),
         _index_dynamic_call_bindings(model, call_bindings),
-        _many_input_binding_cache(model, input_bindings),
+        many_input_binding_cache,
         compiled.distributed_outputs,
         compiled.call_owners,
         compiled.application_children,
@@ -2908,32 +3057,35 @@ function _extend_compiled_scene(
                 "`$(first(key))` on object `$(last(key).value)`.",
             )
             replacement = replacements[replacement_index]
-            empty!(binding.callee_object_ids)
-            append!(binding.callee_object_ids, replacement.callee_object_ids)
-            empty!(binding.callee_application_ids)
-            append!(
-                binding.callee_application_ids,
-                replacement.callee_application_ids,
-            )
+            if binding.callee_object_ids != replacement.callee_object_ids ||
+               binding.callee_application_ids !=
+               replacement.callee_application_ids
+                empty!(binding.callee_object_ids)
+                append!(
+                    binding.callee_object_ids,
+                    replacement.callee_object_ids,
+                )
+                empty!(binding.callee_application_ids)
+                append!(
+                    binding.callee_application_ids,
+                    replacement.callee_application_ids,
+                )
+                _mark_compiled_call_membership_changed!(
+                    binding,
+                    model.revision,
+                )
+            end
         end
     end
     append!(call_bindings, new_call_bindings)
     dynamic_call_binding_indices = compiled.dynamic_call_binding_indices
     first_new_call_binding = length(call_bindings) - length(new_call_bindings) + 1
     for binding_index in first_new_call_binding:length(call_bindings)
-        binding = call_bindings[binding_index]
-        _compiled_call_mode(binding) === :manual || continue
-        binding.origin == :inferred_same_object && continue
-        _index_selector_candidate!(
+        _index_dynamic_call_binding!(
             dynamic_call_binding_indices,
             model,
-            binding.matcher,
-            binding_index;
-            context=binding.consumer_id,
-            default_scope=_default_dependency_scope(
-                model,
-                binding.consumer_id,
-            ),
+            call_bindings[binding_index],
+            binding_index,
         )
     end
     _validate_model_writers_for_objects!(
@@ -2942,7 +3094,15 @@ function _extend_compiled_scene(
         added_ids,
         compiled.scenario_plan.manual_application_ids,
     )
-    _prepare_model_output_statuses!(model, added_applications)
+    if pure_addition
+        _prepare_model_output_statuses_batched!(
+            model,
+            added_applications;
+            performance=performance,
+        )
+    else
+        _prepare_model_output_statuses!(model, added_applications)
+    end
     _runtime_performance_finish!(
         performance,
         :call_binding_refresh,
@@ -2974,6 +3134,7 @@ function _extend_compiled_scene(
     previous_temporal_sources = copy(previous_temporal_sources_seed)
     processed_many_sources = IdDict{Any,Nothing}()
     previous_shared_many_sources = IdDict{Any,Vector{ObjectId}}()
+    rebuild_dynamic_input_index = !pure_addition
     candidate_binding_indices = Set{Int}()
     if !isempty(forced_input_binding_keys)
         for (binding_index, binding) in pairs(input_bindings)
@@ -2995,7 +3156,12 @@ function _extend_compiled_scene(
         :selector_input_binding_candidates,
         length(candidate_binding_indices),
     )
-    for index in candidate_binding_indices
+    queued_binding_indices = copy(candidate_binding_indices)
+    pending_binding_indices = sort!(collect(candidate_binding_indices))
+    pending_binding_position = 1
+    while pending_binding_position <= length(pending_binding_indices)
+        index = pending_binding_indices[pending_binding_position]
+        pending_binding_position += 1
         binding = input_bindings[index]
         force_rebuild =
             !isempty(forced_input_binding_keys) &&
@@ -3004,7 +3170,9 @@ function _extend_compiled_scene(
                 binding.consumer_id,
                 binding.input,
             ) in forced_input_binding_keys
-        if binding.multiplicity == :many && haskey(processed_many_sources, binding.source_ids)
+        if !force_rebuild &&
+           binding.multiplicity == :many &&
+           haskey(processed_many_sources, binding.source_ids)
             if binding.carrier_hint == :temporal_stream
                 key = (binding.application_id, binding.consumer_id)
                 push!(affected_temporal_keys, key)
@@ -3067,6 +3235,20 @@ function _extend_compiled_scene(
             end
             processed_many_sources[binding.source_ids] = nothing
             continue
+        end
+        rebuild_dynamic_input_index = true
+        # The reverse selector index keeps only one representative for a
+        # same-rate `Many(...)` group whose mutable source storage is shared.
+        # Appending updates every consumer at once. A rebuild replaces the
+        # carrier, however, so enqueue every member of that exact identity
+        # group and rewire them through the existing general path.
+        for shared_index in _shared_same_rate_many_binding_indices(
+            input_bindings,
+            binding,
+        )
+            shared_index in queued_binding_indices && continue
+            push!(queued_binding_indices, shared_index)
+            push!(pending_binding_indices, shared_index)
         end
         application = applications_by_id[binding.application_id]
         replacement = CompiledModelInputBinding[]
@@ -3143,21 +3325,26 @@ function _extend_compiled_scene(
             end
         end
     end
-    dynamic_input_binding_indices = compiled.dynamic_input_binding_indices
-    for binding_index in (previous_binding_count + 1):length(input_bindings)
-        binding = input_bindings[binding_index]
-        binding.origin == :inferred_same_object && continue
-        _index_selector_candidate!(
-            dynamic_input_binding_indices,
+    dynamic_input_binding_indices = if rebuild_dynamic_input_index
+        many_binding_cache =
+            _many_input_binding_cache(model, input_bindings)
+        _index_dynamic_input_bindings(
             model,
-            binding.matcher,
-            binding_index;
-            context=binding.consumer_id,
-            default_scope=_default_dependency_scope(
-                model,
-                binding.consumer_id,
-            ),
+            input_bindings,
+            many_binding_cache,
         )
+    else
+        index = compiled.dynamic_input_binding_indices
+        for binding_index in (previous_binding_count + 1):length(input_bindings)
+            _index_dynamic_input_binding!(
+                index,
+                model,
+                input_bindings[binding_index],
+                binding_index,
+                many_binding_cache,
+            )
+        end
+        index
     end
 
     affected_input_applications = if pure_addition ||
@@ -3202,17 +3389,27 @@ function _extend_compiled_scene(
     final_input_references = pure_addition ?
                              _model_input_status_references(changed_bindings) :
                              nothing
-    _prepare_model_input_defaults!(
-        model,
-        affected_input_applications;
-        final_references=final_input_references,
-        performance=performance,
-    )
-    _wire_model_input_carriers!(
-        model,
-        changed_bindings;
-        final_references=final_input_references,
-    )
+    if pure_addition
+        _prepare_model_input_statuses_batched!(
+            model,
+            affected_input_applications,
+            changed_bindings;
+            final_references=final_input_references,
+            performance=performance,
+        )
+    else
+        _prepare_model_input_defaults!(
+            model,
+            affected_input_applications;
+            final_references=final_input_references,
+            performance=performance,
+        )
+        _wire_model_input_carriers!(
+            model,
+            changed_bindings;
+            final_references=final_input_references,
+        )
+    end
     _validate_model_required_inputs!(
         model,
         affected_input_applications,
@@ -4476,6 +4673,163 @@ function _ref_vector_carrier(refs)
     return RefVector(typed_refs)
 end
 
+"""
+Mutable, storage-neutral recipe used to assemble one canonical object status.
+
+The recipe keeps existing field order and reference identity, stages additions
+or replacements in place, then materializes at most one new `Status`. Keeping
+the logical names separate from the current `Ref` backing also leaves a
+small seam for a future columnar status-storage experiment.
+"""
+mutable struct _CanonicalStatusRecipe
+    original::Union{Nothing,Status}
+    names::Vector{Symbol}
+    references::Union{Vector{Base.RefValue},Vector{Ref}}
+    positions::Dict{Symbol,Int}
+    changed::Bool
+    field_changes::Int
+end
+
+_status_recipe_references(references::Tuple{Vararg{Base.RefValue}}) =
+    Base.RefValue[references...]
+_status_recipe_references(references) = Ref[references...]
+
+function _CanonicalStatusRecipe(status::Union{Nothing,Status})
+    names = isnothing(status) ? Symbol[] : collect(propertynames(status))
+    references = if isnothing(status)
+        Base.RefValue[]
+    else
+        _status_recipe_references(refvalues(status))
+    end
+    positions = Dict{Symbol,Int}()
+    sizehint!(positions, length(names))
+    for (index, name) in pairs(names)
+        positions[name] = index
+    end
+    return _CanonicalStatusRecipe(
+        status,
+        names,
+        references,
+        positions,
+        isnothing(status),
+        0,
+    )
+end
+
+@inline _status_recipe_has_variable(recipe::_CanonicalStatusRecipe, variable::Symbol) =
+    haskey(recipe.positions, variable)
+
+function _status_recipe_reference(
+    recipe::_CanonicalStatusRecipe,
+    variable::Symbol,
+)
+    return recipe.references[recipe.positions[variable]]
+end
+
+function _status_recipe_set_reference!(
+    recipe::_CanonicalStatusRecipe,
+    variable::Symbol,
+    reference::Ref,
+)
+    position = get(recipe.positions, variable, 0)
+    if iszero(position)
+        push!(recipe.names, variable)
+        push!(recipe.references, reference)
+        recipe.positions[variable] = length(recipe.names)
+    elseif recipe.references[position] === reference
+        return false
+    else
+        recipe.references[position] = reference
+    end
+    recipe.changed = true
+    recipe.field_changes += 1
+    return true
+end
+
+function _status_recipe_add_default!(
+    model::CompositeModel,
+    recipe::_CanonicalStatusRecipe,
+    object_id::ObjectId,
+    variable::Symbol,
+    value;
+    application_id=nothing,
+    origin=:model_default,
+    conversion_records=model.status_conversion_records,
+)
+    _status_recipe_has_variable(recipe, variable) && return false
+    initial, _, _ = _materialize_status_value(
+        model,
+        variable,
+        value;
+        object_id=object_id,
+        application_id=application_id,
+        origin=origin,
+        private_copy=true,
+        conversion_records=conversion_records,
+    )
+    return _status_recipe_set_reference!(recipe, variable, Ref(initial))
+end
+
+function _finish_status_recipe(recipe::_CanonicalStatusRecipe)
+    recipe.changed || return recipe.original
+    names = Tuple(recipe.names)
+    references = Tuple(recipe.references)
+    return Status(NamedTuple{names}(references))
+end
+
+function _status_recipe_for_object!(
+    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
+    recipe_order::Vector{ObjectId},
+    model::CompositeModel,
+    object_id::ObjectId,
+)
+    return get!(recipes, object_id) do
+        object = _model_object(model, object_id)
+        status = object.status
+        (isnothing(status) || status isa Status) || error(
+            "Model object `$(object_id.value)` uses model applications but its status has type " *
+            "`$(typeof(status))`. Use `Status(...)` or leave status as `nothing`."
+        )
+        push!(recipe_order, object_id)
+        _CanonicalStatusRecipe(status)
+    end
+end
+
+function _apply_status_recipes!(
+    model::CompositeModel,
+    recipes::Dict{ObjectId,_CanonicalStatusRecipe},
+    recipe_order::Vector{ObjectId};
+    performance=nothing,
+)
+    for object_id in recipe_order
+        recipe = recipes[object_id]
+        recipe.changed || continue
+        _replace_model_object_status!(
+            model,
+            object_id,
+            _finish_status_recipe(recipe),
+        )
+        _runtime_performance_count!(
+            performance,
+            :lifecycle_binding_refresh_status_recipe_materializations,
+        )
+        _runtime_performance_count!(
+            performance,
+            :lifecycle_binding_refresh_status_recipe_fields_applied,
+            recipe.field_changes,
+        )
+        _runtime_performance_count!(
+            performance,
+            :lifecycle_binding_refresh_status_recipe_materializations_avoided,
+            max(
+                recipe.field_changes - (isnothing(recipe.original) ? 0 : 1),
+                0,
+            ),
+        )
+    end
+    return model
+end
+
 function _status_with_reference(status::Status, variable::Symbol, reference::Base.RefValue)
     names = propertynames(status)
     if variable in names
@@ -4546,6 +4900,52 @@ function _prepare_model_output_statuses!(model::CompositeModel, applications)
     return model
 end
 
+function _prepare_model_output_statuses_batched!(
+    model::CompositeModel,
+    applications;
+    performance=nothing,
+)
+    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
+    recipe_order = ObjectId[]
+    conversion_records = _no_status_conversion(model.status_conversion) ?
+                         model.status_conversion_records :
+                         Dict{Any,Any}()
+    for application in applications
+        defaults = outputs_(application.spec)
+        for object_id in application.target_ids
+            recipe = _status_recipe_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                object_id,
+            )
+            for (variable, value) in pairs(defaults)
+                _publish_mode_for_output(application.spec, variable) ==
+                    :canonical || continue
+                _status_recipe_add_default!(
+                    model,
+                    recipe,
+                    object_id,
+                    variable,
+                    value;
+                    application_id=application.id,
+                    origin=:model_output_default,
+                    conversion_records=conversion_records,
+                )
+            end
+        end
+    end
+    result = _apply_status_recipes!(
+        model,
+        recipes,
+        recipe_order;
+        performance=performance,
+    )
+    conversion_records === model.status_conversion_records ||
+        merge!(model.status_conversion_records, conversion_records)
+    return result
+end
+
 function _validate_required_model_output_destinations!(
     model::CompositeModel,
     resolved_destinations,
@@ -4609,28 +5009,24 @@ function _prepare_model_output_destination_statuses!(
     model::CompositeModel,
     resolved_destinations,
 )
-    staged = Dict{ObjectId,Status}()
-    staged_order = ObjectId[]
+    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
+    recipe_order = ObjectId[]
     records_before = copy(model.status_conversion_records)
     try
         for resolved in resolved_destinations
             for destination_id in resolved.destination_ids
-                status = get(staged, destination_id, nothing)
-                if isnothing(status)
-                    current = _model_object(model, destination_id).status
-                    status = isnothing(current) ? Status() : current
-                    status isa Status || error(
-                        "Output destination `$(destination_id.value)` status must be " *
-                        "a `Status` or `nothing`, got `$(typeof(status))`.",
-                    )
-                    push!(staged_order, destination_id)
-                end
+                recipe = _status_recipe_for_object!(
+                    recipes,
+                    recipe_order,
+                    model,
+                    destination_id,
+                )
                 for (variable_, declaration) in pairs(resolved.plan.declarations)
                     declaration isa Default || continue
                     variable = Symbol(variable_)
-                    status = _status_with_default(
+                    _status_recipe_add_default!(
                         model,
-                        status,
+                        recipe,
                         destination_id,
                         variable,
                         _input_default(declaration);
@@ -4638,7 +5034,6 @@ function _prepare_model_output_destination_statuses!(
                         origin=:distributed_output_default,
                     )
                 end
-                staged[destination_id] = status
             end
         end
     catch
@@ -4646,10 +5041,7 @@ function _prepare_model_output_destination_statuses!(
         merge!(model.status_conversion_records, records_before)
         rethrow()
     end
-    for destination_id in staged_order
-        _replace_model_object_status!(model, destination_id, staged[destination_id])
-    end
-    return model
+    return _apply_status_recipes!(model, recipes, recipe_order)
 end
 
 function _model_output_destination_columns(
@@ -5192,6 +5584,148 @@ function _wire_model_input_carriers!(
         )
     end
     return model
+end
+
+function _prepare_model_input_statuses_batched!(
+    model::CompositeModel,
+    applications,
+    bindings;
+    final_references=nothing,
+    performance=nothing,
+)
+    recipes = Dict{ObjectId,_CanonicalStatusRecipe}()
+    recipe_order = ObjectId[]
+    conversion_records = _no_status_conversion(model.status_conversion) ?
+                         model.status_conversion_records :
+                         Dict{Any,Any}()
+    default_status_updates = Dict{Tuple{ObjectId,Symbol},Bool}()
+    input_default_rewrites_avoided = 0
+    for application in applications
+        schema = _input_schema(application.spec)
+        defaults = _input_default_values(schema)
+        for object_id in application.target_ids
+            recipe = _status_recipe_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                object_id,
+            )
+            for (variable_, value) in pairs(defaults)
+                variable = Symbol(variable_)
+                _status_recipe_has_variable(recipe, variable) && continue
+                reference = isnothing(final_references) ?
+                            nothing :
+                            get(
+                    final_references,
+                    (application.id, object_id, variable),
+                    nothing,
+                )
+                if !isnothing(reference)
+                    # Preserve conversion callbacks, validation, and diagnostic
+                    # records even though the resolved carrier owns storage.
+                    _no_status_conversion(model.status_conversion) ||
+                        _materialize_status_value(
+                            model,
+                            variable,
+                            value;
+                            object_id=object_id,
+                            application_id=application.id,
+                            origin=:model_input_default,
+                            private_copy=true,
+                            conversion_records=conversion_records,
+                        )
+                    _status_recipe_set_reference!(
+                        recipe,
+                        variable,
+                        reference,
+                    )
+                    input_default_rewrites_avoided += 1
+                    continue
+                end
+                _status_recipe_add_default!(
+                    model,
+                    recipe,
+                    object_id,
+                    variable,
+                    value;
+                    application_id=application.id,
+                    origin=:model_input_default,
+                    conversion_records=conversion_records,
+                )
+                default_status_updates[(object_id, variable)] = true
+            end
+        end
+    end
+
+    for binding in bindings
+        binding.carrier_hint == :temporal_stream && continue
+        isnothing(binding.carrier) && continue
+        recipe = get(recipes, binding.consumer_id, nothing)
+        if isnothing(recipe)
+            status = _model_object(model, binding.consumer_id).status
+            status isa Status || continue
+            recipe = _status_recipe_for_object!(
+                recipes,
+                recipe_order,
+                model,
+                binding.consumer_id,
+            )
+        end
+        reference = if isnothing(final_references)
+            _model_input_status_reference(binding)
+        else
+            get(
+                final_references,
+                (
+                    binding.application_id,
+                    binding.consumer_id,
+                    binding.input,
+                ),
+                nothing,
+            )
+        end
+        isnothing(reference) &&
+            (reference = _model_input_status_reference(binding))
+        if _status_recipe_has_variable(recipe, binding.input) &&
+           _status_recipe_reference(recipe, binding.input) === reference
+            default_status_updates[(binding.consumer_id, binding.input)] = false
+            continue
+        end
+        _status_recipe_set_reference!(
+            recipe,
+            binding.input,
+            reference,
+        )
+        default_status_updates[(binding.consumer_id, binding.input)] = false
+    end
+
+    result = _apply_status_recipes!(
+        model,
+        recipes,
+        recipe_order;
+        performance=performance,
+    )
+    conversion_records === model.status_conversion_records ||
+        merge!(model.status_conversion_records, conversion_records)
+    for ((object_id, variable), is_default) in default_status_updates
+        variables = get!(
+            model.input_default_status_variables,
+            object_id,
+            Set{Symbol}(),
+        )
+        if is_default
+            push!(variables, variable)
+        else
+            delete!(variables, variable)
+        end
+    end
+    iszero(input_default_rewrites_avoided) ||
+        _runtime_performance_count!(
+            performance,
+            :input_default_status_rewrites_avoided,
+            input_default_rewrites_avoided,
+        )
+    return result
 end
 
 function _private_temporal_value(value)
@@ -6402,6 +6936,93 @@ function _matching_callee_applications(applications, object_id::ObjectId, proc, 
     return matches
 end
 
+"""Resolve one call binding against the model and compiled application set.
+
+This helper is deliberately non-mutating. Cold manual `Many` bindings use it
+for diagnostics and graph inspection without enrolling themselves in lifecycle
+tracking.
+"""
+function _resolved_compiled_call_membership(
+    compiled::CompiledCompositeModel,
+    binding::CompiledModelCallBinding,
+)
+    model = compiled.model
+    object_ids = _dependency_object_ids(
+        model,
+        binding.selector,
+        binding.matcher,
+        binding.consumer_id,
+    )
+    if bindings_dirty(model) && !isempty(lifecycle_delta(model).added)
+        # A newborn has no compiled application/status/environment target until
+        # the safe refresh barrier. Keep it out of a first complete view so the
+        # observed binding's normal addition delta can append it exactly once.
+        pending_added_ids = Set(snapshot.id for snapshot in lifecycle_delta(model).added)
+        filter!(object_id -> object_id ∉ pending_added_ids, object_ids)
+    end
+    application_ids = Symbol[]
+    for object_id in object_ids
+        append!(
+            application_ids,
+            _matching_callee_applications(
+                compiled.applications_by_object,
+                object_id,
+                binding.process,
+                binding.application,
+            ),
+        )
+    end
+    unique!(application_ids)
+    return object_ids, application_ids
+end
+
+function _current_compiled_call_membership(
+    compiled::CompiledCompositeModel,
+    binding::CompiledModelCallBinding,
+)
+    _compiled_call_membership_is_observed(binding) && return (
+        binding.callee_object_ids,
+        binding.callee_application_ids,
+    )
+    return _resolved_compiled_call_membership(compiled, binding)
+end
+
+function _observe_compiled_call_membership!(
+    compiled::CompiledCompositeModel,
+    binding::CompiledModelCallBinding,
+    ;
+    resolve_current::Bool=true,
+)
+    _compiled_call_membership_is_observed(binding) && return binding
+    if resolve_current
+        object_ids, application_ids =
+            _resolved_compiled_call_membership(compiled, binding)
+        if binding.callee_object_ids != object_ids ||
+           binding.callee_application_ids != application_ids
+            empty!(binding.callee_object_ids)
+            append!(binding.callee_object_ids, object_ids)
+            empty!(binding.callee_application_ids)
+            append!(binding.callee_application_ids, application_ids)
+            _mark_compiled_call_membership_changed!(
+                binding,
+                compiled.model.revision,
+            )
+        end
+    end
+    _mark_compiled_call_membership_observed!(binding)
+    binding_index = findfirst(
+        candidate -> candidate === binding,
+        compiled.call_bindings,
+    )
+    isnothing(binding_index) || _index_dynamic_call_binding!(
+        compiled.dynamic_call_binding_indices,
+        compiled.model,
+        binding,
+        binding_index,
+    )
+    return binding
+end
+
 function _compile_model_call_bindings(
     model::CompositeModel,
     applications,
@@ -6781,6 +7402,9 @@ explain_bindings(model::CompositeModel) = explain_bindings(refresh_bindings!(mod
 
 function explain_calls(compiled::CompiledCompositeModel)
     return [
+        let
+        callee_object_ids, callee_application_ids =
+            _current_compiled_call_membership(compiled, binding)
         (
             call_plan_slot=binding.plan.slot,
             application_slot=binding.plan.application_slot,
@@ -6789,10 +7413,10 @@ function explain_calls(compiled::CompiledCompositeModel)
             call=binding.call,
             mode=_compiled_call_mode(binding),
             origin=binding.origin,
-            callee_object_ids=[id.value for id in binding.callee_object_ids],
-        callee_application_ids=binding.callee_application_ids,
-        potential_callee_application_ids=
-            binding.plan.potential_callee_application_ids,
+            callee_object_ids=[id.value for id in callee_object_ids],
+            callee_application_ids=callee_application_ids,
+            potential_callee_application_ids=
+                binding.plan.potential_callee_application_ids,
             process=binding.process,
             application=binding.application,
             multiplicity=binding.multiplicity,
@@ -6800,9 +7424,10 @@ function explain_calls(compiled::CompiledCompositeModel)
                                :canonical_status_only : :explicit_accept,
             default_publish=false,
             accepted_publish=_compiled_call_mode(binding) === :manual,
-            resolved=!isempty(binding.callee_application_ids),
+            resolved=!isempty(callee_application_ids),
             selector=binding.selector,
         )
+        end
         for binding in compiled.call_bindings
     ]
 end

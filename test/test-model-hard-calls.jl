@@ -43,6 +43,12 @@ function call_model_lookup_allocations(context::T) where {T}
     return @allocated literal_call_model(context)
 end
 
+function call_binding_signature_allocations(binding)
+    bindings = (binding,)
+    PlantSimEngine._call_bindings_signature(bindings)
+    return @allocated PlantSimEngine._call_bindings_signature(bindings)
+end
+
 PlantSimEngine.inputs_(::NestedCallLeafModel) = NamedTuple()
 PlantSimEngine.outputs_(::NestedCallLeafModel) = (value=0.0, calls=0)
 
@@ -389,10 +395,58 @@ end
         :consumer_id,
         :callee_object_ids,
         :callee_application_ids,
+        :membership_generation,
+        :membership_observed,
     )
+    @test propertynames(one_binding) == (
+        :plan,
+        :consumer_id,
+        :callee_object_ids,
+        :callee_application_ids,
+        :mode,
+        :slot,
+        :application_slot,
+        :application_id,
+        :call,
+        :selector,
+        :matcher,
+        :origin,
+        :process,
+        :application,
+        :multiplicity,
+        :potential_callee_application_ids,
+    )
+    @test :membership_generation ∉ propertynames(one_binding)
+    @test :membership_observed ∉ propertynames(one_binding)
     @test one_binding.plan === one_plan
     @test one_binding.application_id == :controller
     @test one_binding.multiplicity == :one
+    reconstructed_binding = PlantSimEngine.CompiledModelCallBinding(
+        one_binding.plan,
+        one_binding.consumer_id,
+        copy(one_binding.callee_object_ids),
+        copy(one_binding.callee_application_ids),
+    )
+    @test reconstructed_binding.plan === one_binding.plan
+    @test reconstructed_binding.consumer_id == one_binding.consumer_id
+    @test reconstructed_binding.callee_object_ids ==
+          one_binding.callee_object_ids
+    @test reconstructed_binding.callee_application_ids ==
+          one_binding.callee_application_ids
+    @test propertynames(reconstructed_binding) == propertynames(one_binding)
+    @test getfield(reconstructed_binding, :membership_generation)[] == 0
+    @test getfield(reconstructed_binding, :membership_observed)[]
+
+    large_binding = PlantSimEngine.CompiledModelCallBinding(
+        one_binding.plan,
+        one_binding.consumer_id,
+        ObjectId[
+            ObjectId(Symbol("signature_leaf_", index))
+            for index in 1:4096
+        ],
+        copy(one_binding.callee_application_ids),
+    )
+    @test call_binding_signature_allocations(large_binding) == 0
     one_call_row = only(
         row for row in explain_calls(simulation.compiled) if row.call == :one
     )
@@ -508,6 +562,11 @@ end
     call = only(explain_calls(compiled))
     @test call.callee_object_ids == [:leaf_a, :leaf_b]
     @test call.callee_application_ids == [:leaf_calls]
+    call_binding = only(compiled.call_bindings)
+    initial_membership_generation =
+        PlantSimEngine._compiled_call_membership_generation(call_binding)
+    initial_call_signature =
+        PlantSimEngine._call_bindings_signature((call_binding,))
 
     simulation = run!(model; outputs=:all, performance=true)
     controller = only(model_objects(model; scale=:Scene)).status
@@ -535,6 +594,14 @@ end
     continue!(simulation; steps=1)
     performance = Advanced.runtime_performance(simulation)
     @test performance.counts[:execution_target_call_batches_extended] == 1
+    @test only(simulation.compiled.call_bindings) === call_binding
+    addition_membership_generation =
+        PlantSimEngine._compiled_call_membership_generation(call_binding)
+    @test addition_membership_generation ==
+          UInt64(Advanced.model_revision(model))
+    @test addition_membership_generation > initial_membership_generation
+    @test PlantSimEngine._call_bindings_signature((call_binding,)) !=
+          initial_call_signature
     refreshed_call_view = call_targets(MANY_CALL_CONTEXT[], :children)
     refreshed_execution_targets = [
         target
@@ -551,6 +618,11 @@ end
 
     remove_object!(model, :leaf_b)
     continue!(simulation; steps=1)
+    removal_membership_generation =
+        PlantSimEngine._compiled_call_membership_generation(call_binding)
+    @test removal_membership_generation ==
+          UInt64(Advanced.model_revision(model))
+    @test removal_membership_generation > addition_membership_generation
     @test controller.ncalls == 2
     @test controller.total == 5.0
 end
@@ -721,6 +793,449 @@ end
           initial_count + length(selected_leaf_ids)
     @test sum(target.status.value for target in executed_targets) ==
           initial_count + length(selected_leaf_ids)
+end
+
+@testset "cold Many membership survives lifecycle changes before inspection" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
+        Object(:leaf_keep; scale=:Leaf, parent=:plant_a),
+        Object(:leaf_remove; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:leaf_keep,));
+                name=:selective_controller,
+                on=One(name=:plant_a),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:selective_leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:selective_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none, performance=true)
+    context = LAZY_MANY_CALL_CONTEXT[]
+    full_call_view = call_targets(context, :children)
+    call_binding = only(simulation.compiled.call_bindings)
+    @test !PlantSimEngine._compiled_call_membership_is_observed(call_binding)
+    @test !PlantSimEngine._call_execution_batches_materialized(full_call_view)
+
+    register_object!(
+        model,
+        Object(:leaf_move; scale=:Leaf, parent=:plant_a),
+    )
+    continue!(simulation)
+    reparent_object!(model, :leaf_move, :plant_b)
+    continue!(simulation)
+    remove_object!(model, :leaf_remove)
+    continue!(simulation)
+
+    # Diagnostics and the resolved graph must report current topology without
+    # enrolling the complete membership in lifecycle tracking.
+    call = only(explain_calls(simulation.compiled))
+    @test call.callee_object_ids == [:leaf_keep]
+    resolved_view = PlantSimEngine.model_graph_view(
+        simulation.compiled;
+        level=:resolved,
+    )
+    call_edges = [
+        edge for edge in resolved_view.edges
+        if edge["kind"] == "manual_call" &&
+           edge["call"] == "children" &&
+           edge["projection"] == "resolved"
+    ]
+    @test length(call_edges) == 1
+    @test only(call_edges)["target"] ==
+          "execution:selective_leaf_calls:leaf_keep"
+    @test !PlantSimEngine._compiled_call_membership_is_observed(call_binding)
+    @test get(
+        Advanced.runtime_performance(simulation).counts,
+        :selector_call_binding_candidates,
+        0,
+    ) == 0
+
+    # The wrapper obtained before all three lifecycle changes stays cached.
+    # Its first complete inspection catches up once, then activates the normal
+    # incremental extension path for later objects.
+    @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) === full_call_view
+    @test length(full_call_view) == 1
+    @test PlantSimEngine._compiled_call_membership_is_observed(call_binding)
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep)]
+
+    register_object!(
+        model,
+        Object(:leaf_z_after_observation; scale=:Leaf, parent=:plant_a),
+    )
+    continue!(simulation)
+    @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) === full_call_view
+    @test getproperty.(collect(full_call_view), :object_id) ==
+          ObjectId[
+        ObjectId(:leaf_keep),
+        ObjectId(:leaf_z_after_observation),
+    ]
+    @test Advanced.runtime_performance(simulation).counts[
+        :selector_call_binding_candidates
+    ] == 1
+end
+
+@testset "retained cold Many synchronizes when a multirate owner is not due" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
+        Object(:leaf_keep; scale=:Leaf, parent=:plant_a),
+        Object(:leaf_move; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:leaf_keep,));
+                name=:slow_selective_controller,
+                on=One(name=:plant_a),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:slow_selective_leaf_calls,
+                    ),
+                ),
+                every=Hour(2),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:slow_selective_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; steps=1, outputs=:none, performance=true)
+    retained_view = call_targets(LAZY_MANY_CALL_CONTEXT[], :children)
+    initial_compiled = retained_view.compiled
+    @test !PlantSimEngine._compiled_call_membership_is_observed(
+        retained_view.binding,
+    )
+
+    reparent_object!(model, :leaf_move, :plant_b)
+    # Step two refreshes lifecycle state, but the two-hour owner is not due and
+    # therefore cannot synchronize its retained RunContext itself.
+    continue!(simulation; steps=1)
+    @test simulation.compiled !== initial_compiled
+    @test retained_view.compiled === initial_compiled
+
+    @test length(retained_view) == 1
+    @test retained_view.compiled === simulation.compiled
+    @test retained_view.binding === only(simulation.compiled.call_bindings)
+    @test PlantSimEngine._compiled_call_membership_is_observed(
+        retained_view.binding,
+    )
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep)]
+
+    register_object!(
+        model,
+        Object(:leaf_z_after_sync; scale=:Leaf, parent=:plant_a),
+    )
+    continue!(simulation; steps=1)
+    @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) === retained_view
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_sync)]
+end
+
+@testset "cold Many materialization preserves the pre-barrier shell" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
+        Object(:leaf_keep; scale=:Leaf, parent=:plant_a),
+        Object(:leaf_move; scale=:Leaf, parent=:plant_b);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:leaf_keep,));
+                name=:prebarrier_controller,
+                on=One(name=:plant_a),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:prebarrier_leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:prebarrier_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    retained_view = call_targets(LAZY_MANY_CALL_CONTEXT[], :children)
+    reparent_object!(model, :leaf_move, :plant_a)
+    @test Advanced.bindings_dirty(model)
+
+    # A first complete view inside the pending lifecycle event stays on the
+    # previous safe barrier instead of combining live topology with old
+    # applications and environment handles.
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep)]
+    @test Advanced.bindings_dirty(model)
+    @test PlantSimEngine._compiled_call_membership_is_observed(
+        retained_view.binding,
+    )
+
+    continue!(simulation)
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_move)]
+end
+
+@testset "detached retained Many rebuilds after later lifecycle changes" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:plant_b; scale=:Plant, name=:plant_b, parent=:scene),
+        Object(:leaf_keep; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:leaf_keep,));
+                name=:detached_controller,
+                on=One(name=:plant_a),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:detached_leaf_calls,
+                    ),
+                ),
+                every=Hour(2),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:detached_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; steps=1, outputs=:none)
+    retained_view = call_targets(LAZY_MANY_CALL_CONTEXT[], :children)
+    initial_binding = retained_view.binding
+
+    # Reparenting the consumer replaces its execution target and binding while
+    # the two-hour owner is not due. The retained wrapper is now detached from
+    # the execution plan but must remain a live full-membership view.
+    reparent_object!(model, :plant_a, :plant_b)
+    continue!(simulation; steps=1)
+    current_binding = only(simulation.compiled.call_bindings)
+    @test current_binding !== initial_binding
+    @test retained_view.binding === initial_binding
+
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep)]
+    @test retained_view.binding === current_binding
+    first_batches =
+        PlantSimEngine._cached_call_execution_batches(retained_view)
+
+    register_object!(
+        model,
+        Object(:leaf_z_after_detach; scale=:Leaf, parent=:plant_a),
+    )
+    continue!(simulation; steps=1)
+    @test call_targets(LAZY_MANY_CALL_CONTEXT[], :children) !== retained_view
+    @test getproperty.(collect(retained_view), :object_id) ==
+          ObjectId[ObjectId(:leaf_keep), ObjectId(:leaf_z_after_detach)]
+    @test PlantSimEngine._cached_call_execution_batches(retained_view) !==
+          first_batches
+end
+
+@testset "tracked Many refreshes a dirty environment before rebuilding" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:plant_a; scale=:Plant, name=:plant_a, parent=:scene),
+        Object(:leaf_keep; scale=:Leaf, parent=:plant_a);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:leaf_keep,));
+                name=:environment_controller,
+                on=One(name=:plant_a),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=Subtree(),
+                        application=:environment_leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:environment_leaf_calls,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    run!(model; outputs=:none)
+    retained_view = call_targets(LAZY_MANY_CALL_CONTEXT[], :children)
+    @test length(retained_view) == 1
+    initial_environment_bindings = retained_view.environment_bindings
+    initial_batches =
+        PlantSimEngine._cached_call_execution_batches(retained_view)
+
+    mark_environment_binding_dirty!(model)
+    @test !Advanced.bindings_dirty(model)
+    @test Advanced.environment_bindings_dirty(model)
+    @test length(retained_view) == 1
+    @test !Advanced.environment_bindings_dirty(model)
+    @test retained_view.environment_bindings !== initial_environment_bindings
+    @test PlantSimEngine._cached_call_execution_batches(retained_view) !==
+          initial_batches
+end
+
+@testset "targeted objects validate current callee applications without warming Many" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(
+            :callable_leaf;
+            scale=:Leaf,
+            kind=:CallableLeaf,
+            parent=:scene,
+        ),
+        Object(
+            :uncallable_leaf;
+            scale=:Leaf,
+            kind=:OtherLeaf,
+            parent=:scene,
+        );
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:callable_leaf,));
+                name=:selective_controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => Many(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:selective_leaf_calls,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:selective_leaf_calls,
+                on=Many(kind=:CallableLeaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    context = LAZY_MANY_CALL_CONTEXT[]
+    binding = only(simulation.compiled.call_bindings)
+    @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
+    call = only(explain_calls(simulation.compiled))
+    @test call.callee_object_ids == [:callable_leaf, :uncallable_leaf]
+    resolved_view = PlantSimEngine.model_graph_view(
+        simulation.compiled;
+        level=:resolved,
+    )
+    call_edges = [
+        edge for edge in resolved_view.edges
+        if edge["kind"] == "manual_call" &&
+           edge["call"] == "children" &&
+           edge["projection"] == "resolved"
+    ]
+    @test length(call_edges) == 1
+    @test only(call_edges)["target"] ==
+          "execution:selective_leaf_calls:callable_leaf"
+    @test !any(
+        edge -> occursin("uncallable_leaf", edge["target"]),
+        call_edges,
+    )
+    @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
+    @test_throws "does not resolve requested object(s)" call_targets(
+        context,
+        :children;
+        objects=:uncallable_leaf,
+    )
+    @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
+    selected = call_targets(
+        context,
+        :children;
+        objects=:callable_leaf,
+    )
+    @test length(selected) == 1
+    @test only(selected).object_id == ObjectId(:callable_leaf)
+    @test selected.execution_batches isa
+          PlantSimEngine.LazyCallExecutionBatches
+    @test !selected.execution_batches.tracks_full_membership
+    @test !PlantSimEngine._compiled_call_membership_is_observed(binding)
+end
+
+@testset "targeted singular calls reject ambiguous newborns before preparation" begin
+    model = CompositeModel(
+        Object(:scene; scale=:Scene, name=:scene),
+        Object(:existing_leaf; scale=:Leaf, parent=:scene);
+        applications=(
+            ModelSpec(
+                SelectiveManyCallControllerModel((:existing_leaf,));
+                name=:singular_controller,
+                on=One(name=:scene),
+                calls=(
+                    :children => One(
+                        scale=:Leaf,
+                        within=SceneScope(),
+                        application=:singular_leaf_call,
+                    ),
+                ),
+            ),
+            ModelSpec(
+                NestedCallLeafModel();
+                name=:singular_leaf_call,
+                on=Many(scale=:Leaf),
+            ),
+        ),
+        environment=(duration=Hour(1),),
+    )
+
+    simulation = run!(model; outputs=:none)
+    context = LAZY_MANY_CALL_CONTEXT[]
+    existing_calls = model_status(model, :existing_leaf).calls
+    newborn = register_object!(
+        model,
+        Object(
+            :newborn_leaf;
+            scale=:Leaf,
+            parent=:scene,
+            status=Status(marker=1.0),
+        ),
+    )
+    newborn_status = model_status(model, newborn)
+    @test propertynames(newborn_status) == (:marker,)
+    @test_throws "Expected exactly one object" run_call!(
+        context,
+        :children;
+        objects=newborn,
+        publish=true,
+    )
+    @test propertynames(model_status(model, newborn)) == (:marker,)
+    @test model_status(model, :existing_leaf).calls == existing_calls
+    @test Advanced.bindings_dirty(model)
+    @test simulation.compiled === context.compiled
 end
 
 @testset "non-monotonic Many call additions use the rebuild path" begin

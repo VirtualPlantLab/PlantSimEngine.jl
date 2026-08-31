@@ -56,6 +56,23 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             ) setup = (data = setup_status_registry_benchmark($nobjects))
     end
 
+    include(joinpath(@__DIR__, "test-selector-resolution-benchmark.jl"))
+    const SELECTOR_RESOLUTION_BENCHMARK_PHYTOMERS = 2_048
+    SUITE[suite_name]["PSE_selector_subtree_tip_2048"] =
+        @benchmarkable benchmark_subtree_selector_resolution(
+            data,
+            data.tip_context,
+        ) setup = (data = setup_subtree_selector_resolution_benchmark(
+            $SELECTOR_RESOLUTION_BENCHMARK_PHYTOMERS,
+        ))
+    SUITE[suite_name]["PSE_selector_subtree_root_2048"] =
+        @benchmarkable benchmark_subtree_selector_resolution(
+            data,
+            data.root_context,
+        ) setup = (data = setup_subtree_selector_resolution_benchmark(
+            $SELECTOR_RESOLUTION_BENCHMARK_PHYTOMERS,
+        ))
+
     include(joinpath(@__DIR__, "test-organ-lifecycle-benchmark.jl"))
     for nobjects in (32, 256, 1_024)
         SUITE[suite_name]["PSE_organ_adaptation_$(nobjects)"] =
@@ -74,6 +91,12 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
             @benchmarkable benchmark_refresh_after_add!(
                 data,
             ) setup = (data = setup_organ_refresh_benchmark(
+                $nobjects,
+            )) evals = 1
+        SUITE[suite_name]["PSE_organ_status_recipe_refresh_$(nobjects)"] =
+            @benchmarkable benchmark_status_recipe_refresh_after_add!(
+                data,
+            ) setup = (data = setup_organ_status_recipe_refresh_benchmark(
                 $nobjects,
             )) evals = 1
         SUITE[suite_name]["PSE_organ_add_refresh_$(nobjects)"] =
@@ -334,6 +357,10 @@ if SUPPORTS_COMPOSITE_OBJECT_BENCHMARKS
                     target_count=$target_count,
                 ))
     end
+    SUITE[suite_name]["PSE_call_binding_signature_4096"] =
+        @benchmarkable benchmark_call_binding_signature(
+            binding,
+        ) setup = (binding = setup_call_binding_signature_benchmark(4_096))
     SUITE[suite_name]["PSE_lifecycle_small"] =
         @benchmarkable benchmark_lifecycle_event(
             simulation,

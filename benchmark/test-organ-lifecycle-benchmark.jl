@@ -19,6 +19,39 @@ function PlantSimEngine.run!(
     return nothing
 end
 
+PlantSimEngine.@process "organ_lifecycle_status_recipe" verbose = false
+
+struct OrganLifecycleStatusRecipeModel <:
+       AbstractOrgan_Lifecycle_Status_RecipeModel end
+
+const ORGAN_LIFECYCLE_RECIPE_OUTPUT_NAMES =
+    ntuple(index -> Symbol(:recipe_output_, index), 32)
+const ORGAN_LIFECYCLE_RECIPE_INPUT_NAMES =
+    ntuple(index -> Symbol(:recipe_input_, index), 32)
+
+PlantSimEngine.outputs_(::OrganLifecycleStatusRecipeModel) =
+    NamedTuple{ORGAN_LIFECYCLE_RECIPE_OUTPUT_NAMES}(
+        ntuple(_ -> 0.0, length(ORGAN_LIFECYCLE_RECIPE_OUTPUT_NAMES)),
+    )
+
+PlantSimEngine.inputs_(::OrganLifecycleStatusRecipeModel) =
+    NamedTuple{ORGAN_LIFECYCLE_RECIPE_INPUT_NAMES}(
+        ntuple(
+            _ -> PlantSimEngine.Default(1.0),
+            length(ORGAN_LIFECYCLE_RECIPE_INPUT_NAMES),
+        ),
+    )
+
+function PlantSimEngine.run!(
+    ::OrganLifecycleStatusRecipeModel,
+    status,
+    environment,
+    constants=nothing,
+    context=nothing,
+)
+    return nothing
+end
+
 _organ_lifecycle_status(node) =
     PlantSimEngine.Status(node=node, signal=0.0)
 
@@ -61,6 +94,20 @@ Base.@noinline function benchmark_adapt_organ_model(topology)
     )
 end
 
+Base.@noinline function benchmark_adapt_organ_status_recipe_model(topology)
+    return PlantSimEngine.CompositeModel(
+        topology.root;
+        applications=(
+            PlantSimEngine.ModelSpec(
+                OrganLifecycleStatusRecipeModel();
+                name=:organ_lifecycle_status_recipe,
+                on=PlantSimEngine.Many(scale=:Leaf),
+            ),
+        ),
+        status=node -> PlantSimEngine.Status(node=node),
+    )
+end
+
 function setup_organ_lifecycle_benchmark(
     nobjects::Int;
     start_simulation::Bool=false,
@@ -86,6 +133,15 @@ function setup_organ_refresh_benchmark(nobjects::Int)
     return merge(data, (; status))
 end
 
+function setup_organ_status_recipe_refresh_benchmark(nobjects::Int)
+    topology = setup_organ_topology_benchmark(nobjects)
+    model = benchmark_adapt_organ_status_recipe_model(topology)
+    PlantSimEngine.Advanced.refresh_bindings!(model)
+    data = merge(topology, (; model))
+    benchmark_add_status_recipe_organ!(data)
+    return data
+end
+
 Base.@noinline function benchmark_add_organ!(data)
     return PlantSimEngine.add_organ!(
         data.plant,
@@ -98,7 +154,23 @@ Base.@noinline function benchmark_add_organ!(data)
     )
 end
 
+Base.@noinline function benchmark_add_status_recipe_organ!(data)
+    return PlantSimEngine.add_organ!(
+        data.plant,
+        data.model,
+        "+",
+        :Leaf,
+        2;
+        index=data.nobjects + 1,
+    )
+end
+
 Base.@noinline function benchmark_refresh_after_add!(data)
+    PlantSimEngine.Advanced.refresh_bindings!(data.model)
+    return data.model
+end
+
+Base.@noinline function benchmark_status_recipe_refresh_after_add!(data)
     PlantSimEngine.Advanced.refresh_bindings!(data.model)
     return data.model
 end

@@ -185,6 +185,26 @@ if benchmark_test_enabled("organ lifecycle benchmark API smoke")
             :organ_lifecycle_leaf
         ].target_ids
 
+        recipe = setup_organ_status_recipe_refresh_benchmark(32)
+        benchmark_status_recipe_refresh_after_add!(recipe)
+        recipe_status = PlantSimEngine.model_status(
+            recipe.model,
+            PlantSimEngine.ObjectId(recipe.next_node_id),
+        )
+        @test propertynames(recipe_status) == (
+            :node,
+            ORGAN_LIFECYCLE_RECIPE_OUTPUT_NAMES...,
+            ORGAN_LIFECYCLE_RECIPE_INPUT_NAMES...,
+        )
+        @test all(
+            variable -> recipe_status[variable] == 0.0,
+            ORGAN_LIFECYCLE_RECIPE_OUTPUT_NAMES,
+        )
+        @test all(
+            variable -> recipe_status[variable] == 1.0,
+            ORGAN_LIFECYCLE_RECIPE_INPUT_NAMES,
+        )
+
         combined = setup_organ_lifecycle_benchmark(32)
         combined_status = benchmark_add_and_refresh!(combined)
         @test PlantSimEngine.object_id(combined.model, combined_status) ==
@@ -858,13 +878,17 @@ if benchmark_test_enabled("internal-only benchmark suite assembly smoke")
             @test haskey(suite, "PSE_status_read_write")
             @test haskey(suite, "PSE_status_registry_lookup_32")
             @test haskey(suite, "PSE_status_registry_sweep_1024")
+            @test haskey(suite, "PSE_selector_subtree_tip_2048")
+            @test haskey(suite, "PSE_selector_subtree_root_2048")
             @test haskey(suite, "PSE_organ_adaptation_32")
             @test haskey(suite, "PSE_organ_add_1024")
             @test haskey(suite, "PSE_organ_refresh_1024")
+            @test haskey(suite, "PSE_organ_status_recipe_refresh_1024")
             @test haskey(suite, "PSE_organ_add_refresh_1024")
             @test haskey(suite, "PSE_organ_add_continue_1024")
             @test haskey(suite, "PSE")
             @test haskey(suite, "PSE_hard_calls_zero")
+            @test haskey(suite, "PSE_call_binding_signature_4096")
             @test haskey(suite, "PSE_lifecycle_large")
             @test haskey(suite, "PSE_immutable_scenario_none")
             @test haskey(suite, "PSE_immutable_scenario_requests")

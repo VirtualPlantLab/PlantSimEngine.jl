@@ -434,9 +434,27 @@ abstract type AbstractExecutionBatch end
 mutable struct LazyCallExecutionBatches <: AbstractVector{AbstractExecutionBatch}
     owner::Any
     batches::Any
+    tracks_full_membership::Bool
 end
 
-LazyCallExecutionBatches() = LazyCallExecutionBatches(nothing, nothing)
+LazyCallExecutionBatches(; tracks_full_membership::Bool=true) =
+    LazyCallExecutionBatches(
+        nothing,
+        nothing,
+        tracks_full_membership,
+    )
+
+struct _TrackedCallExecutionBatchCache
+    # Keep the already-boxed runtime values behind `Any` fields. This cache is
+    # itself stored behind an `Any` boundary; parameterizing its fields would
+    # recover their types only through an existential cache type and re-box
+    # them on every hot `Many` validity check or execution.
+    batches::Any
+    binding::Any
+    membership_generation::UInt64
+    compiled::Any
+    environment_bindings::Any
+end
 
 Base.IndexStyle(::Type{LazyCallExecutionBatches}) = IndexLinear()
 
@@ -474,6 +492,8 @@ function CallTargets(
     constants,
     publication_allowed,
     environment,
+    ;
+    tracks_full_membership::Bool=true,
 )
     execution_batches = if _compiled_call_mode(binding) === :initializer
         ()
@@ -481,7 +501,9 @@ function CallTargets(
         # Large `Many` bindings are commonly executed with an object filter
         # while organs are emitted. Defer their complete batch construction
         # until an unfiltered view or execution actually needs it.
-        LazyCallExecutionBatches()
+        LazyCallExecutionBatches(
+            ; tracks_full_membership=tracks_full_membership,
+        )
     else
         # Preserve the concrete, allocation-free lookup path promised by
         # `call_model` for `One` and `OptionalOne` bindings.
@@ -511,11 +533,195 @@ function CallTargets(
     return targets
 end
 
+function _current_call_binding_for_retained_view(
+    compiled::CompiledCompositeModel,
+    binding::CompiledModelCallBinding,
+)
+    bindings = get(
+        compiled.call_bindings_by_target,
+        (binding.application_id, binding.consumer_id),
+        (),
+    )
+    binding_index = findfirst(
+        candidate ->
+            _compiled_call_name(candidate) === _compiled_call_name(binding) &&
+            _compiled_call_mode(candidate) === _compiled_call_mode(binding),
+        bindings,
+    )
+    isnothing(binding_index) && error(
+        "Retained hard-call view `$(_compiled_call_name(binding))` no longer has " *
+        "a compiled binding for application `$(binding.application_id)` on " *
+        "object `$(binding.consumer_id.value)`.",
+    )
+    return bindings[binding_index]
+end
+
+@inline function _environment_bindings_match_compiled(
+    environment_bindings,
+    compiled::CompiledCompositeModel,
+)
+    return environment_bindings isa CompiledEnvironmentBindings &&
+           environment_bindings.model_revision == compiled.revision &&
+           environment_bindings.applications_identity ==
+           objectid(compiled.applications)
+end
+
+function _prebarrier_environment_bindings(
+    model::CompositeModel,
+    compiled::CompiledCompositeModel,
+    fallback,
+)
+    cached = compiled_environment_bindings(model)
+    _environment_bindings_match_compiled(cached, compiled) && return cached
+    _environment_bindings_match_compiled(fallback, compiled) && return fallback
+    return nothing
+end
+
+function _synchronize_tracked_call_targets!(targets::CallTargets)
+    binding = targets.binding
+    model = targets.compiled.model
+    topology_dirty = bindings_dirty(model)
+    current_compiled = if topology_dirty
+        cached = getfield(model, :binding_cache)
+        cached isa CompiledCompositeModel ? cached : targets.compiled
+    else
+        cached = compiled_bindings(model)
+        isnothing(cached) ? targets.compiled : cached
+    end
+    current_environment_bindings = if topology_dirty
+        _prebarrier_environment_bindings(
+            model,
+            current_compiled,
+            targets.environment_bindings,
+        )
+    else
+        refresh_environment_bindings!(model, current_compiled)
+    end
+    if isnothing(current_environment_bindings)
+        # A dirty lifecycle may temporarily expose a newer structural cache
+        # without a matching pre-barrier environment cache. Keep the last
+        # internally coherent runtime shell instead of mixing generations.
+        current_compiled = targets.compiled
+        current_environment_bindings = targets.environment_bindings
+    end
+    if current_compiled !== targets.compiled
+        current_binding = _current_call_binding_for_retained_view(
+            current_compiled,
+            binding,
+        )
+        targets.compiled = current_compiled
+        targets.binding = current_binding
+    end
+    targets.environment_bindings = current_environment_bindings
+    return targets
+end
+
+@inline function _call_execution_batch_cache_is_current(
+    cached::LazyCallExecutionBatches,
+    targets::CallTargets,
+)
+    state = cached.batches
+    isnothing(state) && return false
+    cached.tracks_full_membership || return true
+    state isa _TrackedCallExecutionBatchCache || return false
+    return state.binding === targets.binding &&
+           state.membership_generation ==
+           _compiled_call_membership_generation(targets.binding) &&
+           state.compiled === targets.compiled &&
+           state.environment_bindings === targets.environment_bindings
+end
+
+@inline function _tracked_call_execution_batch_cache_can_reuse(
+    cached::LazyCallExecutionBatches,
+    targets::CallTargets,
+)
+    _call_execution_batch_cache_is_current(cached, targets) || return false
+    model = targets.compiled.model
+    if bindings_dirty(model)
+        prebarrier_compiled = getfield(model, :binding_cache)
+        if prebarrier_compiled isa CompiledCompositeModel
+            prebarrier_compiled === targets.compiled || return false
+        end
+        prebarrier_environment = _prebarrier_environment_bindings(
+            model,
+            targets.compiled,
+            targets.environment_bindings,
+        )
+        return prebarrier_environment === targets.environment_bindings
+    end
+    environment_bindings_dirty(model) && return false
+    compiled_bindings(model) === targets.compiled || return false
+    current_environment_bindings = compiled_environment_bindings(model)
+    # With both dirty flags clear, the model-owned compiled and environment
+    # caches are a coherent pair. Identity against both retained values is the
+    # sufficient hot-path check; recomputing their revision/object identity
+    # here introduces a small allocation before every materialized `Many` call.
+    return current_environment_bindings === targets.environment_bindings
+end
+
+function _record_call_execution_batch_cache!(
+    cached::LazyCallExecutionBatches,
+    targets::CallTargets,
+    batches,
+)
+    cached.batches = if cached.tracks_full_membership
+        _TrackedCallExecutionBatchCache(
+            batches,
+            targets.binding,
+            _compiled_call_membership_generation(targets.binding),
+            targets.compiled,
+            targets.environment_bindings,
+        )
+    else
+        batches
+    end
+    return batches
+end
+
+function _record_extended_call_execution_batch_cache!(
+    targets::CallTargets,
+    compiled::CompiledCompositeModel,
+    environment_bindings::CompiledEnvironmentBindings,
+    binding::CompiledModelCallBinding,
+)
+    cached = targets.execution_batches
+    cached isa LazyCallExecutionBatches || return targets
+    cached.tracks_full_membership || return targets
+    batches = _cached_call_execution_batches(targets)
+    isnothing(batches) && return targets
+    cached.batches = _TrackedCallExecutionBatchCache(
+        batches,
+        binding,
+        _compiled_call_membership_generation(binding),
+        compiled,
+        environment_bindings,
+    )
+    return targets
+end
+
 function _materialize_call_execution_batches!(targets::CallTargets)
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return cached
-    isnothing(cached.batches) || return cached.batches
-    cached.batches = _compiled_call_execution_batches(
+    if cached.tracks_full_membership
+        _tracked_call_execution_batch_cache_can_reuse(cached, targets) &&
+            return _cached_call_execution_batches(targets)
+        _synchronize_tracked_call_targets!(targets)
+        _call_execution_batch_cache_is_current(cached, targets) &&
+            return _cached_call_execution_batches(targets)
+    elseif !isnothing(cached.batches)
+        return cached.batches
+    end
+    # A complete manual `Many` view becomes lifecycle-tracked only here. Merely
+    # retrieving the cached CallTargets wrapper, diagnostics, and targeted
+    # `objects=` calls leave the full membership cold.
+    if cached.tracks_full_membership
+        _observe_compiled_call_membership!(
+            targets.compiled,
+            targets.binding;
+            resolve_current=!bindings_dirty(targets.compiled.model),
+        )
+    end
+    batches = _compiled_call_execution_batches(
         targets.compiled,
         targets.environment_bindings,
         targets.binding,
@@ -523,13 +729,15 @@ function _materialize_call_execution_batches!(targets::CallTargets)
         targets.output_retention,
         targets.constants,
     )
-    return cached.batches
+    return _record_call_execution_batch_cache!(cached, targets, batches)
 end
 
 function _cached_call_execution_batches(targets::CallTargets)
     cached = targets.execution_batches
     cached isa LazyCallExecutionBatches || return cached
-    return cached.batches
+    state = cached.batches
+    state isa _TrackedCallExecutionBatchCache && return state.batches
+    return state
 end
 
 _call_execution_batches_materialized(targets::CallTargets) =
@@ -664,8 +872,13 @@ function _call_bindings_signature(call_bindings)
     signature = hash(length(call_bindings))
     for binding in call_bindings
         signature = hash(_compiled_call_name(binding), signature)
-        signature = hash(Tuple(binding.callee_application_ids), signature)
-        signature = hash(Tuple(binding.callee_object_ids), signature)
+        # Lifecycle code advances this generation whenever either callee
+        # vector changes, so signature refresh remains independent of the
+        # number of organs selected by the call.
+        signature = hash(
+            _compiled_call_membership_generation(binding),
+            signature,
+        )
     end
     return signature
 end
@@ -3557,6 +3770,7 @@ function _manual_call_binding_has_changed_target(
     compiled::CompiledCompositeModel,
 )
     _compiled_call_mode(binding) === :manual || return false
+    _compiled_call_membership_is_observed(binding) || return false
     for (application_id, object_id) in compiled.changed_execution_target_ids
         application_id in binding.callee_application_ids || continue
         first(
@@ -3860,6 +4074,12 @@ function _extend_execution_target_call_batches_by_prefix!(
     end
     for (call_targets, binding) in staged_bindings
         call_targets.binding = binding
+        _record_extended_call_execution_batch_cache!(
+            call_targets,
+            compiled,
+            env_bindings,
+            binding,
+        )
     end
     target.call_bindings = current_call_bindings
     target.call_bindings_signature =
@@ -3990,6 +4210,12 @@ function _extend_execution_target_call_batches_for_pure_addition!(
     end
     for (call_targets, binding) in staged_bindings
         call_targets.binding = binding
+        _record_extended_call_execution_batch_cache!(
+            call_targets,
+            compiled,
+            env_bindings,
+            binding,
+        )
     end
     target.call_bindings = current_call_bindings
     target.call_bindings_signature =
@@ -4045,16 +4271,10 @@ function _refresh_model_execution_group_delta!(
     output_retention,
     constants,
     performance,
-    changed_execution_target_ids,
+    changed_object_ids,
 )
     previous_group.application === application || return nothing
-    changed_object_ids = ObjectId[
-        object_id
-        for (application_id, object_id) in changed_execution_target_ids
-        if application_id == application.id
-    ]
     isempty(changed_object_ids) && return nothing
-    _sort_object_ids!(changed_object_ids)
     actions = NamedTuple[]
     targets_constructed = 0
     for object_id in changed_object_ids
@@ -4193,6 +4413,194 @@ function _refresh_model_execution_group_delta!(
     )
 end
 
+function _changed_execution_target_ids_by_application(
+    changed_execution_target_ids,
+)
+    changed_by_application = Dict{Symbol,Vector{ObjectId}}()
+    for (application_id, object_id) in changed_execution_target_ids
+        object_ids = get!(changed_by_application, application_id) do
+            ObjectId[]
+        end
+        push!(object_ids, object_id)
+    end
+    for object_ids in values(changed_by_application)
+        _sort_object_ids!(object_ids)
+    end
+    return changed_by_application
+end
+
+function _try_refresh_model_execution_plan_for_pure_addition!(
+    previous::CompiledExecutionPlan,
+    compiled::CompiledCompositeModel,
+    env_bindings::CompiledEnvironmentBindings,
+    temporal_streams,
+    output_retention,
+    constants,
+    performance,
+    changed_application_ids,
+    changed_targets_by_application,
+    manual_application_ids,
+    is_pure_addition::Bool,
+)
+    is_pure_addition || return nothing
+    isnothing(changed_application_ids) && return nothing
+
+    staged_targets = Dict{Tuple{Symbol,ObjectId},Any}()
+    applications = CompiledModelApplication[]
+    for application_id in changed_application_ids
+        application_id in manual_application_ids && continue
+        application = get(compiled.applications_by_id, application_id, nothing)
+        isnothing(application) && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        push!(applications, application)
+    end
+    sort!(applications; by=application -> application.slot)
+
+    # Validate every affected group before constructing a target. Target
+    # construction is then staged globally, and no batch is mutated unless all
+    # applications can extend their existing final batch.
+    candidates = NamedTuple[]
+    for application in applications
+        previous_group = previous.groups_by_application_slot[application.slot]
+        isnothing(previous_group) && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        previous_group.application === application || return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        changed_object_ids = get(
+            changed_targets_by_application,
+            application.id,
+            (),
+        )
+        isempty(changed_object_ids) && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        isempty(previous_group.batches) && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        last_batch = last(previous_group.batches)
+        isempty(last_batch.targets) && return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        last_existing_id = last(last_batch.targets).object_id
+        _object_id_isless(last_existing_id, first(changed_object_ids)) ||
+            return (
+                plan=nothing,
+                staged_targets=staged_targets,
+            )
+        length(application.target_ids) >= length(changed_object_ids) || return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        suffix_start = length(application.target_ids) - length(changed_object_ids) + 1
+        all(
+            index ->
+                application.target_ids[suffix_start + index - 1] ==
+                changed_object_ids[index],
+            eachindex(changed_object_ids),
+        ) || return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        previous_target_count = sum(
+            batch -> length(batch.targets),
+            previous_group.batches;
+            init=0,
+        )
+        (
+            previous_target_count + length(changed_object_ids) ==
+            length(application.target_ids)
+        ) || return (
+            plan=nothing,
+            staged_targets=staged_targets,
+        )
+        for object_id in changed_object_ids
+            isnothing(
+                _model_execution_target_location(previous_group, object_id),
+            ) || return (
+                plan=nothing,
+                staged_targets=staged_targets,
+            )
+        end
+        push!(
+            candidates,
+            (
+                application=application,
+                batch=last_batch,
+                object_ids=changed_object_ids,
+            ),
+        )
+    end
+
+    staged_appends = NamedTuple[]
+    for candidate in candidates
+        targets = Any[]
+        for object_id in candidate.object_ids
+            target = _compiled_model_execution_target(
+                compiled,
+                env_bindings,
+                candidate.application,
+                object_id,
+                temporal_streams,
+                output_retention,
+                constants,
+            )
+            staged_targets[(candidate.application.id, object_id)] = target
+            _model_execution_batch_accepts_target(
+                candidate.batch,
+                target,
+                env_bindings,
+                candidate.application,
+            ) || return (
+                plan=nothing,
+                staged_targets=staged_targets,
+            )
+            push!(targets, target)
+        end
+        push!(
+            staged_appends,
+            (
+                application=candidate.application,
+                batch=candidate.batch,
+                targets=targets,
+            ),
+        )
+    end
+
+    for staged in staged_appends
+        for target in staged.targets
+            push!(staged.batch.targets, target)
+            _count_model_execution_target_rebuild!(performance, :new_target)
+        end
+        isempty(staged.targets) || _runtime_performance_count!(
+            performance,
+            :execution_groups_updated_in_place,
+        )
+    end
+
+    return (
+        plan=CompiledExecutionPlan(
+            previous.groups,
+            previous.batches,
+            previous.groups_by_application_slot,
+            previous.schedule,
+            compiled.revision,
+            env_bindings.environment_revision,
+        ),
+        targets_constructed=length(staged_targets),
+        batches_constructed=0,
+        groups_reused=length(previous.groups) - length(staged_appends),
+    )
+end
+
 function _refresh_model_execution_plan(
     previous::CompiledExecutionPlan,
     compiled::CompiledCompositeModel,
@@ -4205,6 +4613,44 @@ function _refresh_model_execution_plan(
     changed_execution_target_ids=compiled.changed_execution_target_ids,
 )
     manual_application_ids = _manual_call_application_ids(compiled)
+    changed_targets_by_application = isnothing(changed_application_ids) ?
+                                     nothing :
+                                     _changed_execution_target_ids_by_application(
+        changed_execution_target_ids,
+    )
+    staged_execution_targets = nothing
+    force_general_changed_groups = false
+    if !isnothing(changed_targets_by_application)
+        pure_addition_refresh =
+            _try_refresh_model_execution_plan_for_pure_addition!(
+                previous,
+                compiled,
+                env_bindings,
+                temporal_streams,
+                output_retention,
+                constants,
+                performance,
+                changed_application_ids,
+                changed_targets_by_application,
+                manual_application_ids,
+                compiled.status_view_refresh_is_pure_addition &&
+                    changed_execution_target_ids ===
+                    compiled.changed_execution_target_ids,
+            )
+        if !isnothing(pure_addition_refresh)
+            isnothing(pure_addition_refresh.plan) ||
+                return pure_addition_refresh
+            staged_execution_targets =
+                pure_addition_refresh.staged_targets
+            # The transactional attempt did not touch the old plan. Rebuild
+            # changed groups directly only when target construction actually
+            # started, reusing every staged target instead of retrying the
+            # in-place group delta. A preflight rejection leaves this empty and
+            # must retain the normal incremental-delta fallback.
+            force_general_changed_groups =
+                !isempty(staged_execution_targets)
+        end
+    end
     previous_groups = Dict(
         group.application.id => group for group in previous.groups
     )
@@ -4227,27 +4673,33 @@ function _refresh_model_execution_plan(
                     groups_reused += 1
                     continue
                 end
-                delta_group = _refresh_model_execution_group_delta!(
-                    previous_group,
-                    compiled,
-                    env_bindings,
-                    application,
-                    temporal_streams,
-                    output_retention,
-                    constants,
-                    performance,
-                    changed_execution_target_ids,
-                )
-                if !isnothing(delta_group)
-                    if !isnothing(delta_group.group)
-                        push!(groups, delta_group.group)
-                        append!(batches, delta_group.group.batches)
+                if !force_general_changed_groups
+                    delta_group = _refresh_model_execution_group_delta!(
+                        previous_group,
+                        compiled,
+                        env_bindings,
+                        application,
+                        temporal_streams,
+                        output_retention,
+                        constants,
+                        performance,
+                        get(
+                            changed_targets_by_application,
+                            application.id,
+                            (),
+                        ),
+                    )
+                    if !isnothing(delta_group)
+                        if !isnothing(delta_group.group)
+                            push!(groups, delta_group.group)
+                            append!(batches, delta_group.group.batches)
+                        end
+                        targets_constructed +=
+                            delta_group.targets_constructed
+                        batches_constructed +=
+                            delta_group.batches_constructed
+                        continue
                     end
-                    targets_constructed +=
-                        delta_group.targets_constructed
-                    batches_constructed +=
-                        delta_group.batches_constructed
-                    continue
                 end
             elseif _model_execution_group_reusable(
                 previous_group,
@@ -4309,9 +4761,15 @@ function _refresh_model_execution_plan(
             if isnothing(change_reason)
                 push!(targets, previous_target)
             else
-                push!(
-                    targets,
-                    _compiled_model_execution_target(
+                execution_target = isnothing(staged_execution_targets) ?
+                                   nothing :
+                                   get(
+                    staged_execution_targets,
+                    target_key,
+                    nothing,
+                )
+                if isnothing(execution_target)
+                    execution_target = _compiled_model_execution_target(
                         compiled,
                         env_bindings,
                         application,
@@ -4319,7 +4777,11 @@ function _refresh_model_execution_plan(
                         temporal_streams,
                         output_retention,
                         constants,
-                    ),
+                    )
+                end
+                push!(
+                    targets,
+                    execution_target,
                 )
                 _count_model_execution_target_rebuild!(
                     performance,
@@ -5298,6 +5760,17 @@ function _targeted_new_object_call_targets(
         "Hard call `$(name)` from application `$(context.application.id)` does not ",
         "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
     )
+    if !initializer && binding.multiplicity != :many
+        # A targeted newborn does not relax the authored singular selector.
+        # Resolve its complete live scope before compiling or preparing any
+        # newborn status so an existing match plus the newborn fails atomically.
+        _dependency_object_ids(
+            model,
+            binding.selector,
+            binding.matcher,
+            binding.consumer_id,
+        )
+    end
 
     compiled = context.compiled
     targeted_runtime = _targeted_topology_runtime!(context, model)
@@ -5327,9 +5800,20 @@ function _targeted_new_object_call_targets(
         )
         return nothing
     end
+    if !initializer && binding.multiplicity != :many
+        pair_count = sum(
+            count(object_id -> object_id in requested_ids, application.target_ids)
+            for application in callee_applications;
+            init=0,
+        )
+        pair_count == 1 || error(
+            "Hard call `$(name)` from application `$(context.application.id)` " *
+            "expected exactly one callee application/object pair, got $(pair_count).",
+        )
+    end
 
     if !application_set.outputs_prepared
-        _prepare_model_output_statuses!(model, output_applications)
+        _prepare_model_output_statuses_batched!(model, output_applications)
         application_set.outputs_prepared = true
     end
     input_bindings = CompiledModelInputBinding[]
@@ -5351,8 +5835,13 @@ function _targeted_new_object_call_targets(
             )
         end
     end
-    _prepare_model_input_defaults!(model, callee_applications)
-    _wire_model_input_carriers!(model, input_bindings)
+    final_input_references = _model_input_status_references(input_bindings)
+    _prepare_model_input_statuses_batched!(
+        model,
+        callee_applications,
+        input_bindings;
+        final_references=final_input_references,
+    )
     _validate_model_required_inputs!(
         model,
         callee_applications,
@@ -5490,17 +5979,55 @@ function _current_topology_call_targets(
         )
     end
     resolved_binding = bindings[binding]
-    unresolved_ids = setdiff(requested_ids, resolved_binding.callee_object_ids)
+    _compiled_call_mode(resolved_binding) === :manual ||
+        _initializer_requires_dedicated_api(context, name)
+    resolved_binding.multiplicity != :many && length(requested_ids) > 1 &&
+        error(
+            "Hard call `$(name)` from application `$(context.application.id)` ",
+            "accepts at most one requested object.",
+        )
+    default_scope = _default_dependency_scope(model, context.object_id)
+    unresolved_ids = ObjectId[]
+    callee_application_ids = Symbol[]
+    for object_id in requested_ids
+        if !_selector_matches_object_id(
+            model,
+            resolved_binding.matcher,
+            object_id;
+            context=context.object_id,
+            default_to_context=true,
+            default_scope=default_scope,
+        )
+            push!(unresolved_ids, object_id)
+            continue
+        end
+        matching_applications = _matching_callee_applications(
+            compiled.applications_by_object,
+            object_id,
+            resolved_binding.process,
+            resolved_binding.application,
+        )
+        if isempty(matching_applications)
+            push!(unresolved_ids, object_id)
+            continue
+        end
+        append!(callee_application_ids, matching_applications)
+    end
     isempty(unresolved_ids) || error(
         "Hard call `$(name)` from application `$(context.application.id)` does not ",
         "resolve requested object(s) `$(Tuple(id.value for id in unresolved_ids))`."
     )
+    unique!(callee_application_ids)
     selected_binding = CompiledModelCallBinding(
         resolved_binding.plan,
         resolved_binding.consumer_id,
         requested_ids,
-        resolved_binding.callee_application_ids,
+        callee_application_ids,
     )
+    # This synthetic binding is already the complete explicitly requested
+    # selection. Mark only it observed so materialization never activates the
+    # cached full `Many` binding or its lifecycle reverse index.
+    _mark_compiled_call_membership_observed!(selected_binding)
     return CallTargets(
         compiled,
         environment_bindings,
@@ -5511,6 +6038,8 @@ function _current_topology_call_targets(
         context.constants,
         context.publication_allowed,
         context.environment,
+        ;
+        tracks_full_membership=false,
     )
 end
 
